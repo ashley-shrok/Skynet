@@ -200,8 +200,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     adapter.protocol === "rdp" || adapter.protocol === "vnc";
   const showSystemCombos = isRdpVnc && !!guacamoleDisplayRef;
 
-  // Center horizontally on collapsed/expand. Auto-collapse if the toolbar
-  // is wider than its parent (iPhone width vs full F-key row).
+  // Center horizontally on collapsed/expand changes. If the toolbar is
+  // wider than its parent (e.g. iPhone width with full toolbar expanded),
+  // pin it to the left edge — its inner container has overflow-x: auto so
+  // the user can scroll within it.
   useLayoutEffect(() => {
     const el = toolbarRef.current;
     if (!el) return;
@@ -209,10 +211,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     if (!parent) return;
     const parentW = parent.clientWidth;
     const toolbarW = el.offsetWidth;
-    if (!collapsed && toolbarW > parentW) {
-      setCollapsed(true);
-      return;
-    }
     setPosition((p) => ({
       ...p,
       x: Math.max(0, (parentW - toolbarW) / 2),
@@ -344,6 +342,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     left: position.x,
     top: position.y,
     zIndex: 20,
+    maxWidth: "100%",
   };
 
   return (
@@ -380,7 +379,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </TooltipContent>
           </Tooltip>
         ) : (
-          <div className="flex items-center bg-background/85 backdrop-blur-sm border border-border shadow-lg rounded-sm px-0.5 py-0.5 gap-0">
+          <div className="flex items-center bg-background/85 backdrop-blur-sm border border-border shadow-lg rounded-sm px-0.5 py-0.5 gap-0 max-w-full overflow-x-auto">
             {/* Drag handle */}
             <Tooltip>
               <TooltipTrigger asChild>

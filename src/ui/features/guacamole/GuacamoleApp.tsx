@@ -116,6 +116,16 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
   const [retryCount, setRetryCount] = useState(0);
   const displayRef = useRef<GuacamoleDisplayHandle>(null);
 
+  const resolvedProtocol = (protocol ?? hostConfig.connectionType) as
+    | "rdp"
+    | "vnc"
+    | "telnet";
+
+  const guacamoleAdapter = useMemo(
+    () => makeGuacamoleAdapter(displayRef, resolvedProtocol),
+    [resolvedProtocol],
+  );
+
   useEffect(() => {
     setToken(null);
     setError(null);
@@ -197,16 +207,6 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
       </div>
     );
   }
-
-  const resolvedProtocol = (protocol ?? hostConfig.connectionType) as
-    | "rdp"
-    | "vnc"
-    | "telnet";
-
-  const guacamoleAdapter = useMemo(
-    () => makeGuacamoleAdapter(displayRef, resolvedProtocol),
-    [resolvedProtocol],
-  );
 
   return (
     <div className="relative w-full h-full">
