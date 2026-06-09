@@ -186,7 +186,7 @@ export function AppShell({
     OpenTabRecord[]
   >([]);
 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [railView, setRailView] = useState<RailView>("hosts");
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
