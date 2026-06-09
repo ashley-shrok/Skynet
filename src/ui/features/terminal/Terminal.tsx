@@ -184,6 +184,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // soft-keyboard letter presses can compose with a sticky Ctrl/Alt/Shift.
     const stickyModsRef = useRef<ModifierState>({ ...EMPTY_MODIFIERS });
     const clearStickyModsRef = useRef<() => void>(() => {});
+    const compositionInProgressRef = useRef(false);
     const isMobile = useIsMobile();
     // Consumed on first connectToHost call so retries don't re-attempt a stale session
     const pendingRestoredSessionIdRef = useRef<string | null>(
@@ -2143,6 +2144,43 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         passive: true,
       });
 
+      // iOS dictation keyboards (Wispr Flow et al.) insert text via
+      // UITextDocumentProxy.insertText which fires a single DOM input
+      // event with multi-character data and no keydown/composition
+      // events. xterm.js's pipeline only emits the first character in
+      // that case. We intercept in the capture phase so we can mutate
+      // the helper textarea before xterm.js's target-phase listener
+      // reads it. See xterm.js issues #2403 and #1101.
+      const handleCompositionStart = () => {
+        compositionInProgressRef.current = true;
+      };
+      const handleCompositionEnd = () => {
+        compositionInProgressRef.current = false;
+      };
+      const handleMultiCharInput = (e: Event) => {
+        const ev = e as InputEvent;
+        if (compositionInProgressRef.current) return;
+        if (ev.inputType !== "insertText") return;
+        const data = ev.data;
+        if (!data || data.length <= 1) return;
+        if (webSocketRef.current?.readyState !== 1) return;
+        webSocketRef.current.send(JSON.stringify({ type: "input", data }));
+        const target = ev.target as HTMLTextAreaElement | null;
+        if (target && "value" in target) target.value = "";
+        ev.stopPropagation();
+        if (typeof console !== "undefined" && console.debug) {
+          console.debug(
+            "[termix] multi-char input intercepted:",
+            JSON.stringify(data),
+            "len=",
+            data.length,
+          );
+        }
+      };
+      element?.addEventListener("compositionstart", handleCompositionStart);
+      element?.addEventListener("compositionend", handleCompositionEnd);
+      element?.addEventListener("input", handleMultiCharInput, true);
+
       const resizeObserver = new ResizeObserver(() => {
         if (resizeTimeout.current) clearTimeout(resizeTimeout.current);
         resizeTimeout.current = setTimeout(() => {
@@ -2169,6 +2207,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         element?.removeEventListener("touchmove", handleTouchMove);
         element?.removeEventListener("touchend", handleTouchEnd);
         element?.removeEventListener("touchcancel", handleTouchEnd);
+        element?.removeEventListener(
+          "compositionstart",
+          handleCompositionStart,
+        );
+        element?.removeEventListener("compositionend", handleCompositionEnd);
+        element?.removeEventListener("input", handleMultiCharInput, true);
         if (notifyTimerRef.current) clearTimeout(notifyTimerRef.current);
         if (resizeTimeout.current) clearTimeout(resizeTimeout.current);
       };
