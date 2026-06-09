@@ -69,6 +69,7 @@ interface SSHTerminalProps {
   splitScreen?: boolean;
   onClose?: () => void;
   onTitleChange?: (title: string) => void;
+  onTmuxSessionChange?: (sessionName: string | null) => void;
   initialPath?: string;
   executeCommand?: string;
   onOpenFileManager?: (path?: string) => void;
@@ -82,6 +83,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       isVisible,
       splitScreen = false,
       onClose,
+      onTmuxSessionChange,
       initialPath,
       executeCommand,
       onOpenFileManager,
@@ -1498,6 +1500,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               typeof msg.sessionName === "string" ? msg.sessionName : "";
             tmuxSessionNameRef.current = sessionName || "(active)";
             setIsTmuxAttached(true);
+            onTmuxSessionChange?.(tmuxSessionNameRef.current);
             addLog({
               type: "info",
               stage: "connection",
@@ -1524,6 +1527,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           } else if (msg.type === "tmux_detached") {
             tmuxSessionNameRef.current = null;
             setIsTmuxAttached(false);
+            onTmuxSessionChange?.(null);
             toast.info(t("terminal.tmuxDetached"), { duration: 3000 });
           } else if (msg.type === "connection_log") {
             if (msg.data) {

@@ -158,6 +158,9 @@ export function AppShell({
     },
   ]);
   const [activeTabId, setActiveTabId] = useState("dashboard");
+  const [tmuxSessionNames, setTmuxSessionNames] = useState<
+    Record<string, string>
+  >({});
   const [userPrefs, setUserPrefs] = useState<UserPreferences>({
     reopenTabsOnLogin: false,
   });
@@ -318,6 +321,40 @@ export function AppShell({
     dbHealthMonitor.on("session-expired", handleSessionExpired);
     return () => dbHealthMonitor.off("session-expired", handleSessionExpired);
   }, [onLogout]);
+
+  const handleTmuxSessionChange = useCallback(
+    (tabId: string, sessionName: string | null) => {
+      setTmuxSessionNames((prev) => {
+        if (sessionName === null) {
+          if (!(tabId in prev)) return prev;
+          const { [tabId]: _drop, ...rest } = prev;
+          return rest;
+        }
+        if (prev[tabId] === sessionName) return prev;
+        return { ...prev, [tabId]: sessionName };
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setTmuxSessionNames((prev) => {
+      const live = new Set(tabs.map((t) => t.id));
+      let changed = false;
+      const next: Record<string, string> = {};
+      for (const [id, name] of Object.entries(prev)) {
+        if (live.has(id)) next[id] = name;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [tabs]);
+
+  useEffect(() => {
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+    const tmux = tmuxSessionNames[activeTabId];
+    document.title = tmux || activeTab?.label || "Termix";
+  }, [activeTabId, tabs, tmuxSessionNames]);
 
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -1236,6 +1273,7 @@ export function AppShell({
                       openTab,
                       closeTab,
                       inPane || activeInline,
+                      handleTmuxSessionChange,
                     ),
                     tabNode,
                     tab.id,

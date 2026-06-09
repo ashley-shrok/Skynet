@@ -121,12 +121,14 @@ function TerminalTabContent({
   label,
   isVisible,
   onCloseTab,
+  onTmuxSessionChange,
 }: {
   tab: Tab;
   host: Host;
   label: string;
   isVisible: boolean;
   onCloseTab?: (id: string) => void;
+  onTmuxSessionChange?: (sessionName: string | null) => void;
 }) {
   const { previewTerminalTheme } = useTabsSafe();
   return (
@@ -146,6 +148,7 @@ function TerminalTabContent({
         showTitle={false}
         splitScreen={false}
         onClose={() => onCloseTab?.(tab.id)}
+        onTmuxSessionChange={onTmuxSessionChange}
         previewTheme={previewTerminalTheme}
       />
     </CommandHistoryProvider>
@@ -158,6 +161,7 @@ export function renderTabContent(
   onOpenTab?: (host: Host, type: TabType) => void,
   onCloseTab?: (id: string) => void,
   isVisible = true,
+  onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void,
 ) {
   const { host, label } = tab;
 
@@ -185,6 +189,11 @@ export function renderTabContent(
           label={label}
           isVisible={isVisible}
           onCloseTab={onCloseTab}
+          onTmuxSessionChange={
+            onTmuxSessionChange
+              ? (name) => onTmuxSessionChange(tab.id, name)
+              : undefined
+          }
         />
       );
 
