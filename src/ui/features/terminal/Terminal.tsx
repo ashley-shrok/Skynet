@@ -185,6 +185,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const stickyModsRef = useRef<ModifierState>({ ...EMPTY_MODIFIERS });
     const clearStickyModsRef = useRef<() => void>(() => {});
     const compositionInProgressRef = useRef(false);
+    const recentlySentRef = useRef<{ chars: string; expiresAt: number }>({
+      chars: "",
+      expiresAt: 0,
+    });
     const isMobile = useIsMobile();
     // Consumed on first connectToHost call so retries don't re-attempt a stale session
     const pendingRestoredSessionIdRef = useRef<string | null>(
@@ -972,6 +976,17 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         terminal.onData((data) => {
           trackInput(data);
           ws.send(JSON.stringify({ type: "input", data }));
+          // Record what xterm.js just sent so our iOS multi-char input
+          // intercept can strip duplicate prefixes (e.g. when iOS fires
+          // a keydown for "T" + an input event with data="Testing").
+          const now = Date.now();
+          recentlySentRef.current =
+            now < recentlySentRef.current.expiresAt
+              ? {
+                  chars: recentlySentRef.current.chars + data,
+                  expiresAt: now + 150,
+                }
+              : { chars: data, expiresAt: now + 150 };
         });
 
         pongReceivedRef.current = true;
@@ -2164,7 +2179,24 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         const data = ev.data;
         if (!data || data.length <= 1) return;
         if (webSocketRef.current?.readyState !== 1) return;
-        webSocketRef.current.send(JSON.stringify({ type: "input", data }));
+        // Strip whatever xterm.js just sent in the last ~150ms — iOS
+        // often fires a keydown for the first character before the
+        // multi-char input event, which would otherwise produce
+        // "TTesting" instead of "Testing".
+        let toSend = data;
+        const recent = recentlySentRef.current;
+        if (
+          Date.now() < recent.expiresAt &&
+          recent.chars.length > 0 &&
+          toSend.startsWith(recent.chars)
+        ) {
+          toSend = toSend.slice(recent.chars.length);
+        }
+        if (toSend.length > 0) {
+          webSocketRef.current.send(
+            JSON.stringify({ type: "input", data: toSend }),
+          );
+        }
         const target = ev.target as HTMLTextAreaElement | null;
         if (target && "value" in target) target.value = "";
         ev.stopPropagation();
@@ -2172,8 +2204,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           console.debug(
             "[termix] multi-char input intercepted:",
             JSON.stringify(data),
-            "len=",
-            data.length,
+            "sent=",
+            JSON.stringify(toSend),
+            "stripped=",
+            recent.chars,
           );
         }
       };
