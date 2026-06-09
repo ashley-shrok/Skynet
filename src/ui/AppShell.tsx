@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 import { useState, useRef, useCallback, useEffect, createRef } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
 import { MobileBottomBar } from "@/shell/MobileBottomBar";
 import { CommandPalette } from "@/shell/CommandPalette";
 import { AppRail } from "@/sidebar/AppRail";
@@ -161,6 +162,8 @@ export function AppShell({
   const [tmuxSessionNames, setTmuxSessionNames] = useState<
     Record<string, string>
   >({});
+
+  useGamepadTabNav(tabs, activeTabId, setActiveTabId);
   const [userPrefs, setUserPrefs] = useState<UserPreferences>({
     reopenTabsOnLogin: false,
   });
