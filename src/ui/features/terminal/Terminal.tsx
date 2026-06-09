@@ -2052,6 +2052,82 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       element?.addEventListener("keydown", handleBackspaceMode, true);
 
+      // Mobile: translate one-finger vertical swipes into synthetic wheel
+      // events. xterm.js's wheel handling then routes them — tmux mouse
+      // mode (or alt-scroll for TUIs) interprets them just like a real
+      // scroll wheel. Two-finger / pinch and long-press selection are
+      // left alone.
+      const TOUCH_COMMIT_DISTANCE_PX = 10;
+      const TOUCH_COMMIT_TIMEOUT_MS = 400;
+      const TOUCH_LINE_HEIGHT_PX = 20;
+      let touchActive = false;
+      let touchCommitted = false;
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchStartTime = 0;
+      let touchLastY = 0;
+
+      const handleTouchStart = (e: TouchEvent) => {
+        if (e.touches.length !== 1) {
+          touchActive = false;
+          return;
+        }
+        touchActive = true;
+        touchCommitted = false;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchLastY = touchStartY;
+        touchStartTime = Date.now();
+      };
+
+      const handleTouchMove = (e: TouchEvent) => {
+        if (!touchActive || e.touches.length !== 1) return;
+        const tx = e.touches[0].clientX;
+        const ty = e.touches[0].clientY;
+        if (!touchCommitted) {
+          const dx = tx - touchStartX;
+          const dy = ty - touchStartY;
+          if (Math.hypot(dx, dy) < TOUCH_COMMIT_DISTANCE_PX) return;
+          if (Date.now() - touchStartTime > TOUCH_COMMIT_TIMEOUT_MS) {
+            touchActive = false;
+            return;
+          }
+          if (Math.abs(dy) < Math.abs(dx)) {
+            touchActive = false;
+            return;
+          }
+          touchCommitted = true;
+          touchLastY = ty;
+        }
+        const dy = touchLastY - ty;
+        if (Math.abs(dy) < TOUCH_LINE_HEIGHT_PX) return;
+        e.preventDefault();
+        touchLastY = ty;
+        const wheel = new WheelEvent("wheel", {
+          deltaY: dy > 0 ? 100 : -100,
+          deltaMode: 0,
+          bubbles: true,
+          cancelable: true,
+        });
+        (terminal.element ?? element)?.dispatchEvent(wheel);
+      };
+
+      const handleTouchEnd = () => {
+        touchActive = false;
+        touchCommitted = false;
+      };
+
+      element?.addEventListener("touchstart", handleTouchStart, {
+        passive: true,
+      });
+      element?.addEventListener("touchmove", handleTouchMove, {
+        passive: false,
+      });
+      element?.addEventListener("touchend", handleTouchEnd, { passive: true });
+      element?.addEventListener("touchcancel", handleTouchEnd, {
+        passive: true,
+      });
+
       const resizeObserver = new ResizeObserver(() => {
         if (resizeTimeout.current) clearTimeout(resizeTimeout.current);
         resizeTimeout.current = setTimeout(() => {
@@ -2074,6 +2150,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         element?.removeEventListener("mousemove", handleTmuxDragMove);
         element?.removeEventListener("mouseup", handleTmuxDragEnd);
         element?.removeEventListener("keydown", handleBackspaceMode, true);
+        element?.removeEventListener("touchstart", handleTouchStart);
+        element?.removeEventListener("touchmove", handleTouchMove);
+        element?.removeEventListener("touchend", handleTouchEnd);
+        element?.removeEventListener("touchcancel", handleTouchEnd);
         if (notifyTimerRef.current) clearTimeout(notifyTimerRef.current);
         if (resizeTimeout.current) clearTimeout(resizeTimeout.current);
       };
