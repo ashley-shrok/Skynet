@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import {
   GuacamoleDisplay,
   type GuacamoleDisplayHandle,
@@ -7,7 +13,8 @@ import { FullScreenAppWrapper } from "@/features/FullScreenAppWrapper.tsx";
 import { getGuacamoleTokenFromHost, getGuacdStatus } from "@/main-axios.ts";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, RefreshCw } from "lucide-react";
-import { GuacamoleToolbar } from "@/features/guacamole/GuacamoleToolbar.tsx";
+import { Toolbar } from "@/features/keyboard/Toolbar.tsx";
+import { makeGuacamoleAdapter } from "@/features/keyboard/guacamoleAdapter.ts";
 import { Button } from "@/components/button.tsx";
 import { SimpleLoader } from "@/lib/SimpleLoader.tsx";
 import type { SSHHost } from "@/types";
@@ -196,6 +203,11 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
     | "vnc"
     | "telnet";
 
+  const guacamoleAdapter = useMemo(
+    () => makeGuacamoleAdapter(displayRef, resolvedProtocol),
+    [resolvedProtocol],
+  );
+
   return (
     <div className="relative w-full h-full">
       {connectionError && (
@@ -236,7 +248,7 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
         isVisible={true}
         onError={(err) => setConnectionError(err)}
       />
-      <GuacamoleToolbar displayRef={displayRef} protocol={resolvedProtocol} />
+      <Toolbar adapter={guacamoleAdapter} guacamoleDisplayRef={displayRef} />
     </div>
   );
 };

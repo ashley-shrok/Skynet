@@ -6,6 +6,7 @@ import {
   useImperativeHandle,
   forwardRef,
   useCallback,
+  useMemo,
 } from "react";
 import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
@@ -55,6 +56,13 @@ import { Button } from "@/components/button";
 import { resolveTermixThemeColors } from "./terminal-theme.ts";
 import type { TerminalHandle, TerminalHostConfig } from "./terminal-types.ts";
 export type { TerminalHandle, TerminalHostConfig } from "./terminal-types.ts";
+import { Toolbar } from "@/features/keyboard/Toolbar.tsx";
+import { makeSshAdapter } from "@/features/keyboard/sshAdapter.ts";
+import {
+  EMPTY_MODIFIERS,
+  type ModifierState,
+} from "@/features/keyboard/inputAdapter.ts";
+import { useIsMobile } from "@/hooks/use-mobile.ts";
 
 type HostKeyVerificationData = Omit<
   React.ComponentProps<typeof HostKeyVerificationDialog>,
@@ -170,6 +178,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     const sessionIdRef = useRef<string | null>(null);
     const isAttachingSessionRef = useRef<boolean>(false);
+
+    // Mobile toolbar plumbing: sticky modifier state is owned by Toolbar.tsx
+    // but must be readable from the xterm.js custom-key handler so iOS
+    // soft-keyboard letter presses can compose with a sticky Ctrl/Alt/Shift.
+    const stickyModsRef = useRef<ModifierState>({ ...EMPTY_MODIFIERS });
+    const clearStickyModsRef = useRef<() => void>(() => {});
+    const isMobile = useIsMobile();
     // Consumed on first connectToHost call so retries don't re-attempt a stale session
     const pendingRestoredSessionIdRef = useRef<string | null>(
       hostConfig.restoredSessionId ?? null,
@@ -2209,6 +2224,33 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           return true;
         }
 
+        // Mobile chord interception: when toolbar has a sticky Ctrl/Alt
+        // active and the user types a letter on the iOS soft keyboard,
+        // combine them into the proper byte sequence. Shift-only sticky
+        // is handled by xterm.js naturally so we don't intercept it here.
+        const sticky = stickyModsRef.current;
+        if (
+          (sticky.ctrl || sticky.alt) &&
+          e.key.length === 1 &&
+          /^[a-zA-Z]$/.test(e.key)
+        ) {
+          let ch = e.key;
+          if (sticky.shift && /^[a-z]$/.test(ch)) ch = ch.toUpperCase();
+          if (sticky.ctrl) {
+            ch = String.fromCharCode(ch.toLowerCase().charCodeAt(0) & 0x1f);
+          }
+          if (sticky.alt) ch = "\x1b" + ch;
+          if (webSocketRef.current?.readyState === 1) {
+            webSocketRef.current.send(
+              JSON.stringify({ type: "input", data: ch }),
+            );
+          }
+          clearStickyModsRef.current();
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+
         if (
           e.ctrlKey &&
           !e.shiftKey &&
@@ -2538,6 +2580,21 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     const hasConnectionError = !!connectionError;
 
+    const sshAdapter = useMemo(
+      () =>
+        makeSshAdapter(
+          () => terminal,
+          (data: string) => {
+            if (webSocketRef.current?.readyState === 1) {
+              webSocketRef.current.send(
+                JSON.stringify({ type: "input", data }),
+              );
+            }
+          },
+        ),
+      [terminal],
+    );
+
     return (
       <div className="h-full w-full relative" style={{ backgroundColor }}>
         <div
@@ -2571,6 +2628,18 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           >
             tmux:detach
           </button>
+        )}
+
+        {isMobile && isConnected && (
+          <Toolbar
+            adapter={sshAdapter}
+            onStickyChange={(mods) => {
+              stickyModsRef.current = mods;
+            }}
+            registerClearSticky={(clear) => {
+              clearStickyModsRef.current = clear;
+            }}
+          />
         )}
 
         <SimpleLoader

@@ -20,23 +20,40 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/tooltip.tsx";
-import type { GuacamoleDisplayHandle } from "@/features/guacamole/GuacamoleDisplay.tsx";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import type { GuacamoleDisplayHandle } from "@/features/guacamole/GuacamoleDisplay.tsx";
+import { SYSTEM_COMBOS } from "./guacamoleAdapter";
+import type {
+  InputAdapter,
+  ModifierName,
+  ModifierState,
+  ToolbarKeyName,
+} from "./inputAdapter";
 
-interface GuacamoleToolbarProps {
-  displayRef: React.RefObject<GuacamoleDisplayHandle>;
-  protocol: "rdp" | "vnc" | "telnet";
-}
+const ALL_FKEYS: ToolbarKeyName[] = [
+  "f1",
+  "f2",
+  "f3",
+  "f4",
+  "f5",
+  "f6",
+  "f7",
+  "f8",
+  "f9",
+  "f10",
+  "f11",
+  "f12",
+];
 
-const MODIFIER_KEYSYMS = {
-  ctrl: 0xffe3,
-  alt: 0xffe9,
-  shift: 0xffe1,
-  win: 0xff67,
-} as const;
+const MOD_LABELS: Record<ModifierName, string> = {
+  ctrl: "guacamole.toolbar.ctrl",
+  alt: "guacamole.toolbar.alt",
+  shift: "guacamole.toolbar.shift",
+  win: "guacamole.toolbar.win",
+};
 
-const FKEY_KEYSYMS = Array.from({ length: 12 }, (_, i) => 0xffbe + i);
+const MOD_ORDER: ModifierName[] = ["ctrl", "alt", "shift", "win"];
 
 const BTN_BASE =
   "flex items-center justify-center gap-1 h-7 px-2 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-sm whitespace-nowrap select-none";
@@ -45,6 +62,30 @@ const BTN_ICON =
   "flex items-center justify-center size-7 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-sm select-none";
 
 const SEP = "w-px h-5 bg-border mx-0.5 shrink-0";
+
+interface ToolbarProps {
+  adapter: InputAdapter;
+  /**
+   * Optional escape hatch for system combos that the adapter cannot model
+   * via {key, mods} (Ctrl+Alt+Del, Win+L, lone Win). Only used when
+   * adapter.protocol is "rdp" or "vnc". If omitted, the system combo row
+   * is hidden even on RDP/VNC.
+   */
+  guacamoleDisplayRef?: React.RefObject<GuacamoleDisplayHandle | null>;
+  /**
+   * Fires whenever the toolbar's sticky-modifier UI state changes. Lets
+   * the parent (Terminal.tsx) intercept iOS soft-keyboard letter presses
+   * and combine them with the active stickies. Optional — Guacamole
+   * doesn't need it (modifiers are held on the wire).
+   */
+  onStickyChange?: (mods: ModifierState) => void;
+  /**
+   * Called once on mount with a clear() function the parent can use to
+   * reset all sticky modifiers (after a chord fires through soft-keyboard).
+   * Optional.
+   */
+  registerClearSticky?: (clear: () => void) => void;
+}
 
 function TipBtn({
   tooltip,
@@ -104,26 +145,63 @@ function TipIconBtn({
   );
 }
 
-export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
-  displayRef,
-  protocol,
+export const Toolbar: React.FC<ToolbarProps> = ({
+  adapter,
+  guacamoleDisplayRef,
+  onStickyChange,
+  registerClearSticky,
 }) => {
   const { t } = useTranslation();
   const [position, setPosition] = useState({ x: 0, y: 12 });
   const [collapsed, setCollapsed] = useState(false);
   const [showFKeys, setShowFKeys] = useState(false);
-  const [stickyKeys, setStickyKeys] = useState<Record<number, boolean>>({
-    [MODIFIER_KEYSYMS.ctrl]: false,
-    [MODIFIER_KEYSYMS.alt]: false,
-    [MODIFIER_KEYSYMS.shift]: false,
-    [MODIFIER_KEYSYMS.win]: false,
+  const [stickyKeys, setStickyKeys] = useState<Record<ModifierName, boolean>>({
+    ctrl: false,
+    alt: false,
+    shift: false,
+    win: false,
   });
 
+  const stickyKeysRef = useRef(stickyKeys);
+  stickyKeysRef.current = stickyKeys;
+  const adapterRef = useRef(adapter);
+  adapterRef.current = adapter;
+  const onStickyChangeRef = useRef(onStickyChange);
+  onStickyChangeRef.current = onStickyChange;
+
+  useEffect(() => {
+    onStickyChangeRef.current?.(stickyKeys);
+  }, [stickyKeys]);
+
+  useEffect(() => {
+    if (!registerClearSticky) return;
+    registerClearSticky(() => {
+      const held = stickyKeysRef.current;
+      for (const m of MOD_ORDER) {
+        if (held[m] && adapterRef.current.supportedModifiers.has(m)) {
+          adapterRef.current.setModifierHeld(m, false);
+        }
+      }
+      setStickyKeys({ ctrl: false, alt: false, shift: false, win: false });
+    });
+  }, [registerClearSticky]);
+
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef(false);
-  const dragOriginRef = useRef({ mouseX: 0, mouseY: 0, posX: 0, posY: 0 });
+  const dragOriginRef = useRef({
+    pointerX: 0,
+    pointerY: 0,
+    posX: 0,
+    posY: 0,
+  });
+  const dragPointerIdRef = useRef<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  const isRdpVnc =
+    adapter.protocol === "rdp" || adapter.protocol === "vnc";
+  const showSystemCombos = isRdpVnc && !!guacamoleDisplayRef;
+
+  // Center horizontally on collapsed/expand. Auto-collapse if the toolbar
+  // is wider than its parent (iPhone width vs full F-key row).
   useLayoutEffect(() => {
     const el = toolbarRef.current;
     if (!el) return;
@@ -131,22 +209,28 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
     if (!parent) return;
     const parentW = parent.clientWidth;
     const toolbarW = el.offsetWidth;
-    setPosition((p) => ({ ...p, x: Math.max(0, (parentW - toolbarW) / 2) }));
-  }, [collapsed]);
+    if (!collapsed && toolbarW > parentW) {
+      setCollapsed(true);
+      return;
+    }
+    setPosition((p) => ({
+      ...p,
+      x: Math.max(0, (parentW - toolbarW) / 2),
+    }));
+  }, [collapsed, showFKeys]);
 
+  // Pointer-event drag — works for mouse, touch, pen alike.
   useEffect(() => {
     if (!isDragging) return;
-
-    const onMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current) return;
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== dragPointerIdRef.current) return;
       const parent = toolbarRef.current?.offsetParent as HTMLElement | null;
       const parentW = parent?.clientWidth ?? Infinity;
       const parentH = parent?.clientHeight ?? Infinity;
       const toolbarW = toolbarRef.current?.offsetWidth ?? 0;
       const toolbarH = toolbarRef.current?.offsetHeight ?? 0;
-
-      const dx = e.clientX - dragOriginRef.current.mouseX;
-      const dy = e.clientY - dragOriginRef.current.mouseY;
+      const dx = e.clientX - dragOriginRef.current.pointerX;
+      const dy = e.clientY - dragOriginRef.current.pointerY;
       setPosition({
         x: Math.max(
           0,
@@ -158,28 +242,43 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
         ),
       });
     };
-
-    const onUp = () => {
-      isDraggingRef.current = false;
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== dragPointerIdRef.current) return;
+      dragPointerIdRef.current = null;
       setIsDragging(false);
       document.body.style.userSelect = "";
     };
-
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
     return () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
     };
   }, [isDragging]);
 
+  // Release any held modifiers on unmount or adapter swap. Without this,
+  // a stuck Ctrl on the Guacamole wire would survive a reconnect.
+  useEffect(() => {
+    return () => {
+      const held = stickyKeysRef.current;
+      const a = adapterRef.current;
+      for (const m of MOD_ORDER) {
+        if (held[m] && a.supportedModifiers.has(m)) {
+          a.setModifierHeld(m, false);
+        }
+      }
+    };
+  }, [adapter]);
+
   const startDrag = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.PointerEvent) => {
       e.preventDefault();
-      isDraggingRef.current = true;
+      dragPointerIdRef.current = e.pointerId;
       dragOriginRef.current = {
-        mouseX: e.clientX,
-        mouseY: e.clientY,
+        pointerX: e.clientX,
+        pointerY: e.clientY,
         posX: position.x,
         posY: position.y,
       };
@@ -189,46 +288,56 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
     [position],
   );
 
-  const releaseStickyKeys = useCallback(() => {
-    const display = displayRef.current;
-    if (!display) return;
-    setStickyKeys((prev) => {
-      const next = { ...prev };
-      for (const [ksStr, active] of Object.entries(prev)) {
-        if (active) {
-          display.sendKey(Number(ksStr), false);
-          next[Number(ksStr)] = false;
+  const sendKey = useCallback(
+    (key: ToolbarKeyName) => {
+      const mods = stickyKeysRef.current;
+      adapter.sendKey(key, mods);
+      // Release-after-combo: matches current Guacamole toolbar semantics.
+      const updated: Record<ModifierName, boolean> = {
+        ctrl: false,
+        alt: false,
+        shift: false,
+        win: false,
+      };
+      let anyHeld = false;
+      for (const m of MOD_ORDER) {
+        if (mods[m]) {
+          anyHeld = true;
+          if (adapter.supportedModifiers.has(m)) {
+            adapter.setModifierHeld(m, false);
+          }
         }
       }
-      return next;
-    });
-  }, [displayRef]);
-
-  const sendCombo = useCallback(
-    (...keysyms: number[]) => {
-      const display = displayRef.current;
-      if (!display) return;
-      for (const k of keysyms) display.sendKey(k, true);
-      for (const k of [...keysyms].reverse()) display.sendKey(k, false);
-      releaseStickyKeys();
+      if (anyHeld) {
+        setStickyKeys(updated);
+      }
     },
-    [displayRef, releaseStickyKeys],
+    [adapter],
   );
 
-  const toggleStickyKey = useCallback(
-    (keysym: number) => {
-      const display = displayRef.current;
-      if (!display) return;
+  const toggleStickyModifier = useCallback(
+    (mod: ModifierName) => {
       setStickyKeys((prev) => {
-        const isActive = prev[keysym];
-        display.sendKey(keysym, !isActive);
-        return { ...prev, [keysym]: !isActive };
+        const newHeld = !prev[mod];
+        adapter.setModifierHeld(mod, newHeld);
+        return { ...prev, [mod]: newHeld };
       });
     },
-    [displayRef],
+    [adapter],
   );
 
-  const isRdpVnc = protocol === "rdp" || protocol === "vnc";
+  const runSystemCombo = useCallback(
+    (combo: (display: GuacamoleDisplayHandle) => void) => {
+      const display = guacamoleDisplayRef?.current;
+      if (!display) return;
+      try {
+        combo(display);
+      } catch (e) {
+        console.error("system combo failed", e);
+      }
+    },
+    [guacamoleDisplayRef],
+  );
 
   const containerStyle: React.CSSProperties = {
     position: "absolute",
@@ -242,7 +351,7 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
       <div
         ref={toolbarRef}
         style={containerStyle}
-        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={(e) => e.preventDefault()}
       >
         {collapsed ? (
           <Tooltip>
@@ -250,7 +359,8 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
               <div className="flex items-center bg-background/85 backdrop-blur-sm border border-border shadow-lg rounded-sm overflow-hidden">
                 <button
                   type="button"
-                  onMouseDown={startDrag}
+                  onPointerDown={startDrag}
+                  style={{ touchAction: "none" }}
                   className="flex items-center justify-center size-7 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-grab active:cursor-grabbing"
                 >
                   <GripVertical className="size-3" />
@@ -276,7 +386,8 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onMouseDown={startDrag}
+                  onPointerDown={startDrag}
+                  style={{ touchAction: "none" }}
                   className="flex items-center justify-center h-7 px-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-sm cursor-grab active:cursor-grabbing"
                 >
                   <GripVertical className="size-3.5" />
@@ -287,69 +398,60 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
               </TooltipContent>
             </Tooltip>
 
-            {/* System combos — RDP/VNC only */}
-            {isRdpVnc && (
+            {/* System combos — RDP/VNC only and only when a display ref is wired */}
+            {showSystemCombos && (
               <>
                 <div className={SEP} />
                 <TipBtn
                   tooltip={t("guacamole.toolbar.ctrlAltDel")}
-                  onClick={() => sendCombo(0xffe3, 0xffe9, 0xffff)}
+                  onClick={() => runSystemCombo(SYSTEM_COMBOS.ctrlAltDel)}
                 >
                   CAD
                 </TipBtn>
                 <TipBtn
                   tooltip={t("guacamole.toolbar.winL")}
-                  onClick={() => sendCombo(0xff67, 0x006c)}
+                  onClick={() => runSystemCombo(SYSTEM_COMBOS.winL)}
                 >
                   Win+L
                 </TipBtn>
                 <TipBtn
                   tooltip={t("guacamole.toolbar.winKey")}
-                  onClick={() => sendCombo(0xff67)}
+                  onClick={() => runSystemCombo(SYSTEM_COMBOS.winKey)}
                 >
                   Win
                 </TipBtn>
               </>
             )}
 
-            {/* Sticky modifiers — RDP/VNC only */}
-            {isRdpVnc && (
+            {/* Sticky modifiers */}
+            {adapter.supportedModifiers.size > 0 && (
               <>
                 <div className={SEP} />
-                {(
-                  [
-                    [
-                      "ctrl",
-                      MODIFIER_KEYSYMS.ctrl,
-                      t("guacamole.toolbar.ctrl"),
-                    ],
-                    ["alt", MODIFIER_KEYSYMS.alt, t("guacamole.toolbar.alt")],
-                    [
-                      "shift",
-                      MODIFIER_KEYSYMS.shift,
-                      t("guacamole.toolbar.shift"),
-                    ],
-                    ["win", MODIFIER_KEYSYMS.win, t("guacamole.toolbar.win")],
-                  ] as [string, number, string][]
-                ).map(([key, ks, label]) => (
-                  <Tooltip key={key}>
+                {MOD_ORDER.filter((m) =>
+                  adapter.supportedModifiers.has(m),
+                ).map((m) => (
+                  <Tooltip key={m}>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        onClick={() => toggleStickyKey(ks)}
+                        onClick={() => toggleStickyModifier(m)}
                         className={cn(
                           BTN_BASE,
-                          stickyKeys[ks] &&
+                          stickyKeys[m] &&
                             "bg-primary/15 text-primary border border-primary/30",
                         )}
                       >
-                        {label}
+                        {t(MOD_LABELS[m])}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" sideOffset={6}>
-                      {stickyKeys[ks]
-                        ? t("guacamole.toolbar.stickyActive", { key: label })
-                        : t("guacamole.toolbar.stickyInactive", { key: label })}
+                      {stickyKeys[m]
+                        ? t("guacamole.toolbar.stickyActive", {
+                            key: t(MOD_LABELS[m]),
+                          })
+                        : t("guacamole.toolbar.stickyInactive", {
+                            key: t(MOD_LABELS[m]),
+                          })}
                     </TooltipContent>
                   </Tooltip>
                 ))}
@@ -371,11 +473,11 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
 
             {/* F1-F12 row */}
             {showFKeys &&
-              FKEY_KEYSYMS.map((ks, i) => (
+              ALL_FKEYS.map((fk, i) => (
                 <TipBtn
-                  key={ks}
+                  key={fk}
                   tooltip={`F${i + 1}`}
-                  onClick={() => sendCombo(ks)}
+                  onClick={() => sendKey(fk)}
                 >
                   F{i + 1}
                 </TipBtn>
@@ -385,37 +487,37 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
             <div className={SEP} />
             <TipBtn
               tooltip={t("guacamole.toolbar.esc")}
-              onClick={() => sendCombo(0xff1b)}
+              onClick={() => sendKey("esc")}
             >
               Esc
             </TipBtn>
             <TipBtn
               tooltip={t("guacamole.toolbar.tab")}
-              onClick={() => sendCombo(0xff09)}
+              onClick={() => sendKey("tab")}
             >
               Tab
             </TipBtn>
             <TipBtn
               tooltip={t("guacamole.toolbar.home")}
-              onClick={() => sendCombo(0xff50)}
+              onClick={() => sendKey("home")}
             >
               Home
             </TipBtn>
             <TipBtn
               tooltip={t("guacamole.toolbar.end")}
-              onClick={() => sendCombo(0xff57)}
+              onClick={() => sendKey("end")}
             >
               End
             </TipBtn>
             <TipBtn
               tooltip={t("guacamole.toolbar.pageUp")}
-              onClick={() => sendCombo(0xff55)}
+              onClick={() => sendKey("pageUp")}
             >
               PgUp
             </TipBtn>
             <TipBtn
               tooltip={t("guacamole.toolbar.pageDown")}
-              onClick={() => sendCombo(0xff56)}
+              onClick={() => sendKey("pageDown")}
             >
               PgDn
             </TipBtn>
@@ -425,7 +527,7 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
               <div className="flex justify-center">
                 <TipIconBtn
                   tooltip={t("guacamole.toolbar.arrowUp")}
-                  onClick={() => sendCombo(0xff52)}
+                  onClick={() => sendKey("arrowUp")}
                 >
                   <ChevronUp className="size-3" />
                 </TipIconBtn>
@@ -433,19 +535,19 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
               <div className="flex">
                 <TipIconBtn
                   tooltip={t("guacamole.toolbar.arrowLeft")}
-                  onClick={() => sendCombo(0xff51)}
+                  onClick={() => sendKey("arrowLeft")}
                 >
                   <ChevronLeft className="size-3" />
                 </TipIconBtn>
                 <TipIconBtn
                   tooltip={t("guacamole.toolbar.arrowDown")}
-                  onClick={() => sendCombo(0xff54)}
+                  onClick={() => sendKey("arrowDown")}
                 >
                   <ChevronDown className="size-3" />
                 </TipIconBtn>
                 <TipIconBtn
                   tooltip={t("guacamole.toolbar.arrowRight")}
-                  onClick={() => sendCombo(0xff53)}
+                  onClick={() => sendKey("arrowRight")}
                 >
                   <ChevronRight className="size-3" />
                 </TipIconBtn>
