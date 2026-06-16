@@ -471,6 +471,7 @@ async function initializeCompleteDatabase(): Promise<void> {
         label TEXT NOT NULL,
         tab_order INTEGER NOT NULL DEFAULT 0,
         backend_session_id TEXT,
+        target_tmux_session TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -627,6 +628,8 @@ const migrateSchema = () => {
   addColumnIfNotExists("user_preferences", "font_size", "TEXT");
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
+
+  addColumnIfNotExists("user_open_tabs", "target_tmux_session", "TEXT");
 
   addColumnIfNotExists("users", "is_admin", "INTEGER NOT NULL DEFAULT 0");
 

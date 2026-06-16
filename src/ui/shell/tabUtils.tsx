@@ -143,6 +143,7 @@ function TerminalTabContent({
             restoredSessionId: tab.restoredSessionId ?? null,
           } as TerminalHostConfig
         }
+        targetTmuxSession={tab.targetTmuxSession ?? null}
         isVisible={isVisible}
         title={label}
         showTitle={false}
@@ -158,7 +159,12 @@ function TerminalTabContent({
 export function renderTabContent(
   tab: Tab,
   onOpenSingletonTab?: (type: TabType) => void,
-  onOpenTab?: (host: Host, type: TabType) => void,
+  onOpenTab?: (
+    host: Host,
+    type: TabType,
+    restore?: { instanceId: string; restoredSessionId: string | null },
+    options?: { targetTmuxSession?: string | null; label?: string },
+  ) => void,
   onCloseTab?: (id: string) => void,
   isVisible = true,
   onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void,

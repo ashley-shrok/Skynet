@@ -150,7 +150,11 @@ export function attachOrCreateTmuxSession(
   if (existingSessionName) {
     command = `tmux ${TMUX_OPTS} \\; attach-session -t ${shellEscape(existingSessionName)} && exit\r`;
   } else {
-    const nameFlag = newSessionName ? ` -s ${shellEscape(newSessionName)}` : "";
+    // -A requires -s; only add when a name is supplied so it attaches
+    // to an existing session of that name instead of erroring out.
+    const nameFlag = newSessionName
+      ? ` -A -s ${shellEscape(newSessionName)}`
+      : "";
     command = `tmux ${TMUX_OPTS} \\; new-session${nameFlag} && exit\r`;
   }
 

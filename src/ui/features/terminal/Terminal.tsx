@@ -80,6 +80,9 @@ interface SSHTerminalProps {
   onTmuxSessionChange?: (sessionName: string | null) => void;
   initialPath?: string;
   executeCommand?: string;
+  // Named tmux session to attach/create on connect. When set, autoTmux
+  // bypasses detection and uses `new-session -A -s <name>`.
+  targetTmuxSession?: string | null;
   onOpenFileManager?: (path?: string) => void;
   previewTheme?: string | null;
 }
@@ -94,6 +97,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       onTmuxSessionChange,
       initialPath,
       executeCommand,
+      targetTmuxSession,
       onOpenFileManager,
       previewTheme,
     },
@@ -969,7 +973,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           ws.send(
             JSON.stringify({
               type: "connectToHost",
-              data: { cols, rows, hostConfig, initialPath, executeCommand },
+              data: {
+                cols,
+                rows,
+                hostConfig,
+                initialPath,
+                executeCommand,
+                targetTmuxSession: targetTmuxSession ?? undefined,
+              },
             }),
           );
         }

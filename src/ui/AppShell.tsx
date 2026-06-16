@@ -546,6 +546,7 @@ export function AppShell({
                 host,
                 openedAt: new Date(saved.createdAt).getTime(),
                 restoredSessionId,
+                targetTmuxSession: saved.targetTmuxSession ?? null,
                 terminalRef:
                   saved.tabType === "terminal" ? createRef() : undefined,
               });
@@ -610,6 +611,7 @@ export function AppShell({
     host: Host,
     type: TabType,
     restore?: { instanceId: string; restoredSessionId: string | null },
+    options?: { targetTmuxSession?: string | null; label?: string },
   ) {
     const tabId = `${host.name}-${type}-${Date.now()}`;
     const instanceId =
@@ -620,9 +622,30 @@ export function AppShell({
     const openedAt = Date.now();
     const ref = type === "terminal" ? createRef() : undefined;
     if (ref) terminalRefs.current.set(tabId, ref);
+    const targetTmuxSession = options?.targetTmuxSession ?? null;
+    // If caller supplied a tmux session label, use it directly (skip the
+    // "(2)", "(3)" duplicate-host-name dedupe pass since the session name
+    // is what disambiguates).
+    const customLabel = options?.label ?? null;
 
-    let finalLabel = host.name;
+    let finalLabel = customLabel ?? host.name;
     setTabs((prev) => {
+      if (customLabel) {
+        return [
+          ...prev,
+          {
+            id: tabId,
+            instanceId,
+            type,
+            label: customLabel,
+            host,
+            openedAt,
+            terminalRef: ref,
+            restoredSessionId: restore?.restoredSessionId ?? null,
+            targetTmuxSession,
+          },
+        ];
+      }
       const same = prev.filter(
         (t) =>
           t.type === type && t.label.replace(/ \(\d+\)$/, "") === host.name,
@@ -649,6 +672,7 @@ export function AppShell({
           openedAt,
           terminalRef: ref,
           restoredSessionId: restore?.restoredSessionId ?? null,
+          targetTmuxSession,
         },
       ];
     });
@@ -661,6 +685,7 @@ export function AppShell({
         hostId: host ? parseInt(host.id) : null,
         label: finalLabel,
         tabOrder: 0,
+        targetTmuxSession,
       }).catch(() => {});
     }
   }, []);
@@ -1073,10 +1098,15 @@ export function AppShell({
               if (host) {
                 const effectiveSessionId =
                   restoredSessionId ?? record.backendSessionId ?? null;
-                openTab(host, record.tabType as TabType, {
-                  instanceId: record.id,
-                  restoredSessionId: effectiveSessionId,
-                });
+                openTab(
+                  host,
+                  record.tabType as TabType,
+                  {
+                    instanceId: record.id,
+                    restoredSessionId: effectiveSessionId,
+                  },
+                  { targetTmuxSession: record.targetTmuxSession ?? null },
+                );
               } else {
                 openSingletonTab(record.tabType as TabType);
               }

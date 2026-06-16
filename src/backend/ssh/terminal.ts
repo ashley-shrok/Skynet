@@ -67,6 +67,10 @@ interface ConnectToHostData {
   };
   initialPath?: string;
   executeCommand?: string;
+  // When set, autoTmux will `new-session -A -s <name>` (attach if exists,
+  // create otherwise) instead of generating a random termix-* name or
+  // auto-attaching to whatever sole session happens to exist.
+  targetTmuxSession?: string;
 }
 
 interface ResizeData {
@@ -822,7 +826,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   });
 
   async function handleConnectToHost(data: ConnectToHostData) {
-    const { hostConfig, initialPath, executeCommand } = data;
+    const { hostConfig, initialPath, executeCommand, targetTmuxSession } = data;
     const {
       id,
       ip: rawIp,
@@ -1469,6 +1473,38 @@ wss.on("connection", async (ws: WebSocket, req) => {
             (async () => {
               try {
                 const detection = await detectTmux(conn);
+                if (
+                  detection.available &&
+                  targetTmuxSession &&
+                  targetTmuxSession.trim() !== ""
+                ) {
+                  // Caller asked for a specific named session. Use new-session
+                  // -A so we attach if it exists or create it if it doesn't,
+                  // without prompting the user to pick from the existing list.
+                  const name = targetTmuxSession.trim();
+                  attachOrCreateTmuxSession(stream, undefined, name);
+                  const confirmed = await waitForTmuxSession(conn, name);
+                  const session = sessionManager.getSession(boundSessionId);
+                  if (session) {
+                    session.tmuxSessionName = confirmed ?? name;
+                  }
+                  sshLogger.info(
+                    "Attached/created targeted tmux session",
+                    {
+                      operation: "tmux_target_session",
+                      sessionName: confirmed ?? name,
+                      hostId: id,
+                    },
+                  );
+                  ws.send(
+                    JSON.stringify({
+                      type: "tmux_session_attached",
+                      sessionName: confirmed ?? name,
+                    }),
+                  );
+                  runPostShellCommands(0);
+                  return;
+                }
                 if (!detection.available) {
                   sshLogger.warn("tmux not found on remote host", {
                     operation: "tmux_detection",

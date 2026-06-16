@@ -85,15 +85,23 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
  */
 router.post("/", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
-  const { id, tabType, hostId, label, tabOrder, backendSessionId } =
-    req.body as {
-      id: string;
-      tabType: string;
-      hostId?: number | null;
-      label: string;
-      tabOrder: number;
-      backendSessionId?: string | null;
-    };
+  const {
+    id,
+    tabType,
+    hostId,
+    label,
+    tabOrder,
+    backendSessionId,
+    targetTmuxSession,
+  } = req.body as {
+    id: string;
+    tabType: string;
+    hostId?: number | null;
+    label: string;
+    tabOrder: number;
+    backendSessionId?: string | null;
+    targetTmuxSession?: string | null;
+  };
 
   if (!id || !tabType || !label) {
     return res
@@ -114,6 +122,10 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
         backendSessionId !== undefined
           ? backendSessionId
           : existing[0].backendSessionId;
+      const tmuxName =
+        targetTmuxSession !== undefined
+          ? targetTmuxSession
+          : existing[0].targetTmuxSession;
       db.update(userOpenTabs)
         .set({
           tabType,
@@ -121,6 +133,7 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
           label,
           tabOrder,
           backendSessionId: sessionId ?? null,
+          targetTmuxSession: tmuxName ?? null,
           updatedAt: now,
         })
         .where(and(eq(userOpenTabs.id, id), eq(userOpenTabs.userId, userId)))
@@ -135,6 +148,7 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
           label,
           tabOrder,
           backendSessionId: backendSessionId ?? null,
+          targetTmuxSession: targetTmuxSession ?? null,
           updatedAt: now,
         })
         .run();
@@ -180,6 +194,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
       label: string;
       tabOrder: number;
       backendSessionId?: string | null;
+      targetTmuxSession?: string | null;
     }>;
   };
 
@@ -201,6 +216,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
             label: t.label,
             tabOrder: t.tabOrder,
             backendSessionId: t.backendSessionId ?? null,
+            targetTmuxSession: t.targetTmuxSession ?? null,
             updatedAt: now,
           })),
         )
@@ -242,6 +258,7 @@ router.patch("/:id", authenticateJWT, async (req: Request, res: Response) => {
     label: string;
     tabOrder: number;
     backendSessionId: string | null;
+    targetTmuxSession: string | null;
   }>;
 
   try {

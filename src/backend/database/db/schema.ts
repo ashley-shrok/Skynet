@@ -661,6 +661,7 @@ export const userOpenTabs = sqliteTable("user_open_tabs", {
   label: text("label").notNull(),
   tabOrder: integer("tab_order").notNull().default(0),
   backendSessionId: text("backend_session_id"),
+  targetTmuxSession: text("target_tmux_session"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

@@ -14,6 +14,7 @@ import guacamoleRoutes from "../guacamole/routes.js";
 import networkTopologyRoutes from "./routes/network-topology.js";
 import rbacRoutes from "./routes/rbac.js";
 import openTabsRoutes from "./routes/open-tabs.js";
+import sessionsRoutes from "./routes/sessions.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import { createCorsMiddleware } from "../utils/cors-config.js";
 import fs from "fs";
@@ -1781,6 +1782,7 @@ app.use("/guacamole", guacamoleRoutes);
 app.use("/network-topology", networkTopologyRoutes);
 app.use("/rbac", rbacRoutes);
 app.use("/open-tabs", openTabsRoutes);
+app.use("/sessions", sessionsRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 
 const frontendDistPaths = [

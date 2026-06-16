@@ -191,6 +191,8 @@ export type Tab = {
   host?: Host;
   openedAt: number;
   restoredSessionId?: string | null;
+  // Named tmux session to attach to on connect (`tmux new-session -A -s <name>`)
+  targetTmuxSession?: string | null;
   terminalRef?: import("react").RefObject<{
     sendInput?: (data: string) => void;
     reconnect?: () => void;

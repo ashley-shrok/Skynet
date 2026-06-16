@@ -11,6 +11,7 @@ export interface OpenTabRecord {
   label: string;
   tabOrder: number;
   backendSessionId: string | null;
+  targetTmuxSession: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,6 +23,7 @@ export interface OpenTabSyncPayload {
   label: string;
   tabOrder: number;
   backendSessionId?: string | null;
+  targetTmuxSession?: string | null;
 }
 
 export interface OpenTabUpsertPayload {
@@ -31,6 +33,7 @@ export interface OpenTabUpsertPayload {
   label: string;
   tabOrder: number;
   backendSessionId?: string | null;
+  targetTmuxSession?: string | null;
 }
 
 export interface ActiveSessionInfo {
@@ -58,7 +61,10 @@ export async function deleteOpenTab(instanceId: string): Promise<void> {
 export async function patchOpenTab(
   instanceId: string,
   updates: Partial<
-    Pick<OpenTabRecord, "label" | "tabOrder" | "backendSessionId">
+    Pick<
+      OpenTabRecord,
+      "label" | "tabOrder" | "backendSessionId" | "targetTmuxSession"
+    >
   >,
 ): Promise<void> {
   await authApi.patch(`/open-tabs/${instanceId}`, updates);
