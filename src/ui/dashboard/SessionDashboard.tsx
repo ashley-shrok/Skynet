@@ -103,6 +103,27 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
     return m;
   }, [hosts]);
 
+  // Cluster sessions by host. Host order = the host whose most recent
+  // session is newest goes first (so "what I was just working on" stays
+  // on top), and within each host, sessions are still newest-first.
+  const sortedSessions = useMemo(() => {
+    if (sessions.length === 0) return sessions;
+    const newestByHost = new Map<number, number>();
+    for (const s of sessions) {
+      const cur = newestByHost.get(s.hostId) ?? 0;
+      if (s.created > cur) newestByHost.set(s.hostId, s.created);
+    }
+    return [...sessions].sort((a, b) => {
+      const hostDelta =
+        (newestByHost.get(b.hostId) ?? 0) - (newestByHost.get(a.hostId) ?? 0);
+      if (hostDelta !== 0) return hostDelta;
+      // Same host: secondary sort by hostId so ties are stable across reloads,
+      // then by created desc.
+      if (a.hostId !== b.hostId) return a.hostId - b.hostId;
+      return b.created - a.created;
+    });
+  }, [sessions]);
+
   const handleRowClick = (row: RemoteTmuxSession) => {
     const host = hostsById.get(row.hostId);
     if (!host) return;
@@ -194,29 +215,34 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
             </Button>
           </div>
         )}
-        {sessions.length > 0 && (
+        {sortedSessions.length > 0 && (
           <div className="flex flex-col overflow-y-auto thin-scrollbar">
-            {sessions.map((row) => (
-              <button
-                key={`${row.hostId}-${row.sessionName}`}
-                onClick={() => handleRowClick(row)}
-                className="flex items-center justify-between px-4 py-3 border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer text-left transition-colors"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="size-7 border border-border bg-muted flex items-center justify-center shrink-0">
-                    <Terminal className="size-3 text-accent-brand" />
+            {sortedSessions.map((row, i) => {
+              const prevHostId =
+                i > 0 ? sortedSessions[i - 1].hostId : null;
+              const newHostGroup = prevHostId !== null && prevHostId !== row.hostId;
+              return (
+                <button
+                  key={`${row.hostId}-${row.sessionName}`}
+                  onClick={() => handleRowClick(row)}
+                  className={`flex items-center justify-between px-4 py-3 border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer text-left transition-colors ${newHostGroup ? "border-t-2 border-t-border/80 mt-px" : ""}`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="size-7 border border-border bg-muted flex items-center justify-center shrink-0">
+                      <Terminal className="size-3 text-accent-brand" />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-semibold truncate">
+                        {row.sessionName}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-sm font-semibold truncate">
-                      {row.sessionName}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[10px] uppercase tracking-widest font-semibold border border-border px-2 py-0.5 text-muted-foreground shrink-0">
-                  {row.hostName}
-                </span>
-              </button>
-            ))}
+                  <span className="text-[10px] uppercase tracking-widest font-semibold border border-border px-2 py-0.5 text-muted-foreground shrink-0">
+                    {row.hostName}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </Card>
