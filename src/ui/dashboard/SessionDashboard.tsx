@@ -225,7 +225,7 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
                 <button
                   key={`${row.hostId}-${row.sessionName}`}
                   onClick={() => handleRowClick(row)}
-                  className={`flex items-center justify-between px-4 py-3 border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer text-left transition-colors ${newHostGroup ? "border-t-2 border-t-border/80 mt-px" : ""}`}
+                  className={`flex items-center justify-between px-4 py-3 border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer text-left transition-colors ${newHostGroup ? "mt-3 border-t-[3px] border-t-accent-brand/40" : ""}`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="size-7 border border-border bg-muted flex items-center justify-center shrink-0">
