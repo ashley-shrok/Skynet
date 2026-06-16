@@ -85,8 +85,8 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
         getSSHHosts(),
         getSessionList(),
       ]);
-      setHosts(rawHosts.map(sshHostToHost));
-      setSessions(sessionList);
+      setHosts(Array.isArray(rawHosts) ? rawHosts.map(sshHostToHost) : []);
+      setSessions(Array.isArray(sessionList) ? sessionList : []);
       setState("idle");
     } catch {
       setState("error");
