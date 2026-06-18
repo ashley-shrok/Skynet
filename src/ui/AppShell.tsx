@@ -1329,22 +1329,7 @@ export function AppShell({
       <CommandPalette
         isOpen={commandPaletteOpen}
         setIsOpen={setCommandPaletteOpen}
-        hosts={allHosts}
-        onOpenTab={(type, label, pendingEvent) => {
-          if (
-            [
-              "dashboard",
-              "host-manager",
-              "user-profile",
-              "admin-settings",
-            ].includes(type)
-          ) {
-            openSingletonTab(type, pendingEvent);
-          } else if (label) {
-            const host = allHosts.find((h) => h.name === label);
-            if (host) openTab(host, type);
-          }
-        }}
+        onOpenTab={openTab}
       />
       <TransferMonitor />
     </>

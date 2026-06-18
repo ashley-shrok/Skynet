@@ -4,62 +4,9 @@ import { Card } from "@/components/card.tsx";
 import { Plus, RefreshCw, Terminal } from "lucide-react";
 import { getSessionList, type RemoteTmuxSession } from "@/api/sessions-api";
 import { getSSHHosts } from "@/main-axios";
-import type { SSHHostWithStatus } from "@/main-axios";
 import type { Host, TabType } from "@/types/ui-types";
 import { NewSessionDialog } from "@/dashboard/NewSessionDialog";
-
-// Mirror of AppShell's sshHostToHost. Kept local to avoid pulling in
-// the giant DashboardTab.tsx import graph.
-function sshHostToHost(h: SSHHostWithStatus): Host {
-  return {
-    id: String(h.id),
-    name: h.name,
-    username: h.username,
-    ip: h.ip,
-    port: h.port,
-    folder: h.folder ?? "",
-    online: h.status === "online",
-    cpu: 0,
-    ram: 0,
-    lastAccess: "",
-    tags: h.tags ?? [],
-    authType: h.authType,
-    password: h.password,
-    key: typeof h.key === "string" ? h.key : undefined,
-    keyPassword: h.keyPassword,
-    keyType: h.keyType,
-    credentialId: h.credentialId != null ? String(h.credentialId) : undefined,
-    notes: h.notes,
-    pin: h.pin ?? false,
-    macAddress: h.macAddress,
-    enableTerminal: h.enableTerminal ?? true,
-    enableTunnel: h.enableTunnel ?? false,
-    enableFileManager: h.enableFileManager ?? false,
-    enableDocker: h.enableDocker ?? false,
-    enableSsh: h.connectionType === "ssh" || !h.connectionType,
-    enableRdp: h.connectionType === "rdp",
-    enableVnc: h.connectionType === "vnc",
-    enableTelnet: h.connectionType === "telnet",
-    sshPort: h.port,
-    rdpPort: 3389,
-    vncPort: 5900,
-    telnetPort: 23,
-    quickActions: (h.quickActions ?? []).map((a) => ({
-      name: a.name,
-      snippetId: String(a.snippetId),
-    })),
-    jumpHosts: (h.jumpHosts ?? []).map((j) => ({ hostId: String(j.hostId) })),
-    serverTunnels: [],
-    defaultPath: h.defaultPath,
-    terminalConfig: h.terminalConfig as Host["terminalConfig"],
-    useSocks5: h.useSocks5,
-    socks5Host: h.socks5Host,
-    socks5Port: h.socks5Port,
-    socks5Username: h.socks5Username,
-    socks5Password: h.socks5Password,
-    socks5ProxyChain: h.socks5ProxyChain ?? [],
-  };
-}
+import { sshHostToHost } from "@/dashboard/sshHostToHost";
 
 interface SessionDashboardProps {
   onOpenTab: (
