@@ -604,7 +604,7 @@ export const GuacamoleDisplay = forwardRef<
     >
       <div
         ref={displayRef}
-        className="relative w-full h-full flex items-center justify-center"
+        className="relative w-full h-full flex items-start justify-center"
         style={{
           cursor: isReady ? "none" : "default",
           visibility: isReady ? "visible" : "hidden",
