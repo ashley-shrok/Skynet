@@ -72,18 +72,6 @@ export const GuacamoleDisplay = forwardRef<
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLDivElement>(null);
-  // DEBUG (remove after diagnosis): show dimensions in a corner badge.
-  const [debugInfo, setDebugInfo] = useState<string>("");
-  const updateDebug = useCallback((sentW: number, sentH: number) => {
-    const el = containerRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setDebugInfo(
-      `win ${Math.round(window.innerWidth)}x${Math.round(window.innerHeight)} | ` +
-        `rect t=${Math.round(r.top)} b=${Math.round(r.bottom)} ${Math.round(r.width)}x${Math.round(r.height)} | ` +
-        `sent ${Math.round(sentW)}x${Math.round(sentH)}`,
-    );
-  }, []);
   const displayElementRef = useRef<HTMLElement | null>(null);
   const clientRef = useRef<Guacamole.Client | null>(null);
   const keyboardRef = useRef<Guacamole.Keyboard | null>(null);
@@ -314,7 +302,6 @@ export const GuacamoleDisplay = forwardRef<
       containerWidth = window.innerWidth || 1280;
       containerHeight = window.innerHeight || 720;
     }
-    updateDebug(containerWidth, containerHeight);
 
     const wsUrl = await getWebSocketUrl(containerWidth, containerHeight);
     if (!wsUrl) {
@@ -404,7 +391,6 @@ export const GuacamoleDisplay = forwardRef<
             const w = Math.round(width);
             const h = Math.round(height);
             if (w > 0 && h > 0) client.sendSize(w, h);
-            updateDebug(w, h);
           }
           rescaleDisplay(false);
           break;
@@ -473,7 +459,6 @@ export const GuacamoleDisplay = forwardRef<
     connectionConfig.protocol,
     connectionConfig.type,
     t,
-    updateDebug,
   ]);
 
   const hasInitiatedRef = useRef(false);
@@ -558,7 +543,6 @@ export const GuacamoleDisplay = forwardRef<
           if (w > 0 && h > 0) {
             clientRef.current.sendSize(w, h);
           }
-          updateDebug(w, h);
         }
       }, 150);
     });
@@ -568,7 +552,7 @@ export const GuacamoleDisplay = forwardRef<
     return () => {
       resizeObserver.disconnect();
     };
-  }, [rescaleDisplay, updateDebug]);
+  }, [rescaleDisplay]);
 
   const syncClipboard = useCallback(() => {
     const client = clientRef.current;
@@ -631,26 +615,6 @@ export const GuacamoleDisplay = forwardRef<
         visible={!isReady && !hasError}
         message={connectingMessage}
       />
-      {debugInfo && (
-        <div
-          style={{
-            position: "absolute",
-            top: 4,
-            right: 4,
-            zIndex: 50,
-            fontSize: 11,
-            fontFamily: "ui-monospace, SFMono-Regular, monospace",
-            color: "#fff",
-            background: "rgba(0,0,0,0.75)",
-            padding: "3px 7px",
-            borderRadius: 4,
-            pointerEvents: "none",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {debugInfo}
-        </div>
-      )}
     </div>
   );
 });
