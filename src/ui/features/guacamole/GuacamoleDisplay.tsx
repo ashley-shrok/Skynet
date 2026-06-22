@@ -13,6 +13,23 @@ import { SimpleLoader } from "@/lib/SimpleLoader.tsx";
 
 export type GuacamoleConnectionType = "rdp" | "vnc" | "telnet";
 
+// The Guacamole container box can extend past the visible viewport when
+// an ancestor's overflow-hidden clips it (e.g. FullScreenAppWrapper's
+// h-screen overflowing AppShell's tab cell by the topbar's height).
+// getBoundingClientRect reports the full box, so guacd ends up rendering
+// at a size larger than the user can see. Clamp to the visible portion.
+function measureVisibleSize(el: HTMLElement): { width: number; height: number } {
+  const rect = el.getBoundingClientRect();
+  const left = Math.max(rect.left, 0);
+  const top = Math.max(rect.top, 0);
+  const right = Math.min(rect.right, window.innerWidth);
+  const bottom = Math.min(rect.bottom, window.innerHeight);
+  return {
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
 export interface GuacamoleConnectionConfig {
   token?: string;
   protocol?: GuacamoleConnectionType;
@@ -275,9 +292,11 @@ export const GuacamoleDisplay = forwardRef<
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
 
-    const rect = containerRef.current?.getBoundingClientRect();
-    let containerWidth = rect?.width || 0;
-    let containerHeight = rect?.height || 0;
+    const size = containerRef.current
+      ? measureVisibleSize(containerRef.current)
+      : { width: 0, height: 0 };
+    let containerWidth = size.width;
+    let containerHeight = size.height;
 
     if (containerWidth < 100 || containerHeight < 100) {
       containerWidth = window.innerWidth || 1280;
@@ -368,9 +387,9 @@ export const GuacamoleDisplay = forwardRef<
           setIsReady(true);
           onConnect?.();
           if (containerRef.current) {
-            const rect = containerRef.current.getBoundingClientRect();
-            const w = Math.round(rect.width);
-            const h = Math.round(rect.height);
+            const { width, height } = measureVisibleSize(containerRef.current);
+            const w = Math.round(width);
+            const h = Math.round(height);
             if (w > 0 && h > 0) client.sendSize(w, h);
           }
           rescaleDisplay(false);
@@ -518,9 +537,9 @@ export const GuacamoleDisplay = forwardRef<
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       resizeTimeoutRef.current = setTimeout(() => {
         if (clientRef.current && containerRef.current) {
-          const rect = containerRef.current.getBoundingClientRect();
-          const w = Math.round(rect.width);
-          const h = Math.round(rect.height);
+          const { width, height } = measureVisibleSize(containerRef.current);
+          const w = Math.round(width);
+          const h = Math.round(height);
           if (w > 0 && h > 0) {
             clientRef.current.sendSize(w, h);
           }
