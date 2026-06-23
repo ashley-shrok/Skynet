@@ -93,6 +93,51 @@ console.log = (...args: unknown[]) => {
   _origConsoleLog(...args);
 };
 
+// Browsers throttle backgrounded tabs aggressively — JS timers slow to a
+// crawl after ~5 minutes hidden, so any client-side keepalive is unreliable.
+// WebSocket ping/pong frames are handled by the browser's networking layer
+// independently of JS, so a server-driven heartbeat keeps the TCP path warm
+// (defeating NAT/firewall idle-drop) without any cooperation from the tab.
+// If the client doesn't pong within two intervals, terminate the socket so
+// guacd releases the RDP/VNC session promptly instead of holding it open
+// until the OS TCP timeout fires.
+const WS_PING_INTERVAL_MS = 20_000;
+
+type WsLike = {
+  readyState: number;
+  OPEN: number;
+  ping: () => void;
+  terminate: () => void;
+  on: (event: string, listener: () => void) => void;
+};
+
+function installWsHeartbeat(ws: WsLike): void {
+  let alive = true;
+  ws.on("pong", () => {
+    alive = true;
+  });
+
+  const interval = setInterval(() => {
+    if (ws.readyState !== ws.OPEN) {
+      clearInterval(interval);
+      return;
+    }
+    if (!alive) {
+      clearInterval(interval);
+      try {
+        ws.terminate();
+      } catch {}
+      return;
+    }
+    alive = false;
+    try {
+      ws.ping();
+    } catch {}
+  }, WS_PING_INTERVAL_MS);
+
+  ws.on("close", () => clearInterval(interval));
+}
+
 function createGuacServer(): GuacamoleLite {
   const guacdOptions = readGuacdOptions();
   const server = new GuacamoleLite(
@@ -103,11 +148,17 @@ function createGuacServer(): GuacamoleLite {
 
   server.on(
     "open",
-    (clientConnection: { connectionSettings?: Record<string, unknown> }) => {
+    (clientConnection: {
+      connectionSettings?: Record<string, unknown>;
+      webSocket?: WsLike;
+    }) => {
       guacLogger.info("Guacamole connection opened", {
         operation: "guac_connection_open",
         type: clientConnection.connectionSettings?.type,
       });
+      if (clientConnection.webSocket) {
+        installWsHeartbeat(clientConnection.webSocket);
+      }
     },
   );
 
