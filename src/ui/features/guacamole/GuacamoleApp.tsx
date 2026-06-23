@@ -23,12 +23,14 @@ interface GuacamoleAppProps {
   hostId?: string;
   tabId?: string;
   protocol?: "rdp" | "vnc" | "telnet";
+  isVisible?: boolean;
 }
 
 const GuacamoleApp: React.FC<GuacamoleAppProps> = ({
   hostId,
   tabId,
   protocol,
+  isVisible = true,
 }) => {
   const { t } = useTranslation();
 
@@ -89,6 +91,7 @@ const GuacamoleApp: React.FC<GuacamoleAppProps> = ({
             hostConfig={hostConfig}
             tabId={tabId}
             protocol={protocol}
+            isVisible={isVisible}
           />
         );
       }}
@@ -101,6 +104,7 @@ interface GuacamoleAppInnerProps {
   hostConfig: Pick<SSHHost, "connectionType">;
   tabId?: string;
   protocol?: "rdp" | "vnc" | "telnet";
+  isVisible: boolean;
 }
 
 const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
@@ -108,6 +112,7 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
   hostConfig,
   tabId,
   protocol,
+  isVisible,
 }) => {
   const { t } = useTranslation();
   const [token, setToken] = useState<string | null>(null);
@@ -245,8 +250,15 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
           protocol: resolvedProtocol,
           type: resolvedProtocol,
         }}
-        isVisible={true}
+        isVisible={isVisible}
         onError={(err) => setConnectionError(err)}
+        onDisconnect={() => {
+          // Unexpected tunnel close (server-side ping failure, network blip,
+          // backgrounded-tab idle drop). Re-issue a token and remount the
+          // display. Skipped if we already surfaced an explicit error from
+          // onError — that path needs the user's eyeballs.
+          if (!connectionError) handleReconnect();
+        }}
       />
       <Toolbar adapter={guacamoleAdapter} guacamoleDisplayRef={displayRef} />
     </div>

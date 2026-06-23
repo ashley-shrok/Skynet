@@ -256,6 +256,7 @@ export function renderTabContent(
           hostId={host.id}
           tabId={tab.id}
           protocol={tab.type as "rdp" | "vnc" | "telnet"}
+          isVisible={isVisible}
         />
       );
 
