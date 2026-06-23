@@ -400,7 +400,11 @@ export const GuacamoleDisplay = forwardRef<
           setIsReady(false);
           hasKeyboardFocusRef.current = false;
           refreshKeyboardHandlers();
-          onDisconnect?.();
+          // Skip the disconnect callback during unmount — cleanup calls
+          // client.disconnect() which fires state 5 asynchronously, and we
+          // don't want the parent to schedule a reconnect for a tab that's
+          // gone. isMountedRef is flipped to false before disconnect().
+          if (isMountedRef.current) onDisconnect?.();
           break;
       }
     };
