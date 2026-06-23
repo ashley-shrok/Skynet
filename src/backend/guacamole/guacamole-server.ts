@@ -43,6 +43,14 @@ const clientOptions = {
     cypher: "AES-256-CBC",
     key: tokenService.getEncryptionKey(),
   },
+  // guacamole-lite defaults this to 10s and tracks Guacamole-protocol-level
+  // activity (client input + guacd frames). A backgrounded browser tab stops
+  // pushing input within seconds and gets killed with "Session terminated
+  // due to inactivity" — exactly the freeze we're trying to prevent. The
+  // WebSocket ping/pong heartbeat installed below detects genuinely dead
+  // clients at the transport layer (~40s after the browser goes away), so
+  // we don't need this app-layer timer doubling up.
+  maxInactivityTime: 0,
   log: {
     level: "ERRORS",
     stdLog: (...args: unknown[]) => {
