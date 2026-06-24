@@ -92,6 +92,24 @@ export function TabBar({
     return () => el.removeEventListener("wheel", handleWheel);
   }, []);
 
+  // Auto-collapse / auto-expand based on how many real connection tabs
+  // exist. ≤1 non-dashboard tab = nothing to switch between, so the bar
+  // is just chrome — collapse after 10s. Rising above 1 expands again.
+  // Deps are primitives so parent re-renders (active tab change, pane
+  // focus, websocket events) don't reset the timer.
+  const idleCandidate =
+    tabs.filter((tab) => tab.type !== "dashboard").length <= 1;
+
+  useEffect(() => {
+    if (!idleCandidate) {
+      if (!open) setOpen(true);
+      return;
+    }
+    if (!open) return;
+    const id = setTimeout(() => setOpen(false), 10000);
+    return () => clearTimeout(id);
+  }, [idleCandidate, open]);
+
   useEffect(() => {
     if (!dragTabId) return;
 
