@@ -8,6 +8,10 @@ import { getSSHHosts } from "@/main-axios";
 import type { Host, TabType } from "@/types/ui-types";
 import { NewSessionDialog } from "@/dashboard/NewSessionDialog";
 import { sshHostToHost } from "@/dashboard/sshHostToHost";
+import {
+  RemoteHostChips,
+  isProtocolHost,
+} from "@/dashboard/RemoteHostChips";
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -106,6 +110,13 @@ export function CommandPalette({
     );
   }, [sortedSessions, search]);
 
+  const filteredProtocolHosts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const all = hosts.filter(isProtocolHost);
+    if (!q) return all;
+    return all.filter((h) => h.name.toLowerCase().includes(q));
+  }, [hosts, search]);
+
   const handleRowClick = (row: RemoteTmuxSession) => {
     const host = hostsById.get(row.hostId);
     if (!host) return;
@@ -147,7 +158,7 @@ export function CommandPalette({
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter sessions by name or host…"
+            placeholder="Filter sessions or remote desktops…"
             className="flex-1 h-12 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           <div className="flex items-center gap-1.5 ml-2">
@@ -179,6 +190,18 @@ export function CommandPalette({
             </Kbd>
           </div>
         </div>
+
+        {filteredProtocolHosts.length > 0 && (
+          <div className="border-b border-border shrink-0">
+            <RemoteHostChips
+              hosts={filteredProtocolHosts}
+              onSelect={(host, type) => {
+                onOpenTab(host, type);
+                setIsOpen(false);
+              }}
+            />
+          </div>
+        )}
 
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {state === "loading" && sessions.length === 0 && (

@@ -7,6 +7,10 @@ import { getSSHHosts } from "@/main-axios";
 import type { Host, TabType } from "@/types/ui-types";
 import { NewSessionDialog } from "@/dashboard/NewSessionDialog";
 import { sshHostToHost } from "@/dashboard/sshHostToHost";
+import {
+  RemoteHostChips,
+  isProtocolHost,
+} from "@/dashboard/RemoteHostChips";
 
 interface SessionDashboardProps {
   onOpenTab: (
@@ -49,6 +53,8 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
     for (const h of hosts) m.set(parseInt(h.id), h);
     return m;
   }, [hosts]);
+
+  const protocolHosts = useMemo(() => hosts.filter(isProtocolHost), [hosts]);
 
   // Cluster sessions by host. Host order = the host whose most recent
   // session is newest goes first (so "what I was just working on" stays
@@ -106,6 +112,14 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
 
   return (
     <div className="flex flex-col w-full h-full min-h-0 overflow-hidden p-5 gap-4">
+      {protocolHosts.length > 0 && (
+        <Card className="shrink-0 py-0 gap-0">
+          <RemoteHostChips
+            hosts={protocolHosts}
+            onSelect={(host, type) => onOpenTab(host, type)}
+          />
+        </Card>
+      )}
       <Card className="flex-row items-center justify-between px-5 py-3 shrink-0 gap-0">
         <div>
           <h1 className="text-lg font-bold leading-tight">Sessions</h1>
