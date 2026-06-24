@@ -27,6 +27,7 @@ import {
   detectTmux,
   attachOrCreateTmuxSession,
   waitForTmuxSession,
+  queryPaneCurrentCommand,
 } from "./tmux-helper.js";
 import { MemoryAgent, performPortKnocking } from "./terminal-auth-helpers.js";
 
@@ -1378,6 +1379,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
               if (session) {
                 sessionManager.bufferOutput(boundSessionId!, utf8String);
 
+                session.lastActivityAt = Date.now();
+                if (session.idleEmitted) {
+                  session.idleEmitted = false;
+                  if (session.attachedWs?.readyState === WebSocket.OPEN) {
+                    session.attachedWs.send(
+                      JSON.stringify({ type: "idle", idle: false }),
+                    );
+                  }
+                }
+
                 if (session.attachedWs?.readyState === WebSocket.OPEN) {
                   session.attachedWs.send(
                     JSON.stringify({ type: "data", data: utf8String }),
@@ -1394,6 +1405,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
               const session = sessionManager.getSession(boundSessionId);
               if (session) {
                 sessionManager.bufferOutput(boundSessionId!, fallback);
+
+                session.lastActivityAt = Date.now();
+                if (session.idleEmitted) {
+                  session.idleEmitted = false;
+                  if (session.attachedWs?.readyState === WebSocket.OPEN) {
+                    session.attachedWs.send(
+                      JSON.stringify({ type: "idle", idle: false }),
+                    );
+                  }
+                }
 
                 if (session.attachedWs?.readyState === WebSocket.OPEN) {
                   session.attachedWs.send(
@@ -1450,6 +1471,52 @@ wss.on("connection", async (ws: WebSocket, req) => {
               );
             }
           });
+
+          // Idle-pulse ticker: every 1s, if this session is a tmux session running
+          // `claude` AND the PTY has been silent for ≥4s, push {type:"idle",idle:true}.
+          // The frontend overlays a pulsing yellow border on the pane. Activity in
+          // the data handler clears the flag and emits idle:false.
+          const IDLE_THRESHOLD_MS = 4000;
+          const idleSession = sessionManager.getSession(boundSessionId);
+          if (idleSession && !idleSession.idleCheckTimer) {
+            idleSession.idleCheckTimer = setInterval(async () => {
+              const s = sessionManager.getSession(boundSessionId);
+              if (!s) return;
+              if (
+                !s.attachedWs ||
+                s.attachedWs.readyState !== WebSocket.OPEN
+              )
+                return;
+              if (s.idleCheckInFlight) return;
+              if (s.idleEmitted) return;
+              if (!s.tmuxSessionName || !s.sshConn) return;
+              if (Date.now() - s.lastActivityAt < IDLE_THRESHOLD_MS) return;
+
+              s.idleCheckInFlight = true;
+              try {
+                const cmd = await queryPaneCurrentCommand(
+                  s.sshConn,
+                  s.tmuxSessionName,
+                );
+                if (
+                  cmd === "claude" &&
+                  !s.idleEmitted &&
+                  Date.now() - s.lastActivityAt >= IDLE_THRESHOLD_MS
+                ) {
+                  s.idleEmitted = true;
+                  if (s.attachedWs?.readyState === WebSocket.OPEN) {
+                    s.attachedWs.send(
+                      JSON.stringify({ type: "idle", idle: true }),
+                    );
+                  }
+                }
+              } catch {
+                // ignore — try again next tick
+              } finally {
+                s.idleCheckInFlight = false;
+              }
+            }, 1000);
+          }
 
           const autoTmux = hostConfig.terminalConfig?.autoTmux === true;
 

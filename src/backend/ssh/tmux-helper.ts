@@ -168,6 +168,26 @@ export function attachOrCreateTmuxSession(
 }
 
 /**
+ * Query the foreground command running in the first pane of a tmux session.
+ * Used to gate idle-pulse to Claude Code sessions only.
+ * Returns null on any failure (session gone, tmux unavailable, etc.).
+ */
+export async function queryPaneCurrentCommand(
+  conn: Client,
+  sessionName: string,
+): Promise<string | null> {
+  try {
+    const output = await execCommand(
+      conn,
+      `tmux display-message -p -t ${shellEscape(sessionName)} '#{pane_current_command}' 2>/dev/null`,
+    );
+    return output || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Query the name of the most recently created tmux session via exec channel.
  */
 export async function queryNewestTmuxSession(

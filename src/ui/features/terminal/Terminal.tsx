@@ -139,6 +139,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const connectionErrorRef = useRef<string | null>(null);
     const [showDisconnectedOverlay, setShowDisconnectedOverlay] =
       useState(false);
+    const [isIdle, setIsIdle] = useState(false);
 
     const updateConnectionError = useCallback((error: string | null) => {
       connectionErrorRef.current = error;
@@ -1021,6 +1022,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           const msg = JSON.parse(event.data);
           if (msg.type === "pong") {
             pongReceivedRef.current = true;
+            return;
+          }
+          if (msg.type === "idle") {
+            setIsIdle(msg.idle === true);
             return;
           }
           if (msg.type === "data") {
@@ -2702,6 +2707,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }
           }}
         />
+
+        {isIdle && isConnected && (
+          <div className="claude-idle-overlay" aria-hidden="true" />
+        )}
 
         {isTmuxAttached && isConnected && (
           <button

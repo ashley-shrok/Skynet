@@ -32,6 +32,13 @@ export interface TerminalSession {
   outputBuffer: string[];
   outputBufferBytes: number;
   tmuxSessionName: string | null;
+
+  // Idle-pulse tracking. Used to flag tmux sessions running `claude`
+  // that have stopped emitting PTY bytes (= Claude is waiting for input).
+  lastActivityAt: number;
+  idleEmitted: boolean;
+  idleCheckTimer: NodeJS.Timeout | null;
+  idleCheckInFlight: boolean;
 }
 
 class TerminalSessionManager {
@@ -126,6 +133,10 @@ class TerminalSessionManager {
       outputBuffer: [],
       outputBufferBytes: 0,
       tmuxSessionName: null,
+      lastActivityAt: Date.now(),
+      idleEmitted: false,
+      idleCheckTimer: null,
+      idleCheckInFlight: false,
     };
     this.sessions.set(id, session);
 
@@ -265,6 +276,8 @@ class TerminalSessionManager {
     session.attachedWs = ws;
     session.attachedTabInstanceId = tabInstanceId;
     session.lastDetachedAt = null;
+    // Force the idle ticker to re-evaluate and re-emit on the new WS.
+    session.idleEmitted = false;
 
     sshLogger.info("WebSocket attached to session", {
       operation: "session_attach",
@@ -314,6 +327,11 @@ class TerminalSessionManager {
     if (session.detachTimeout) {
       clearTimeout(session.detachTimeout);
       session.detachTimeout = null;
+    }
+
+    if (session.idleCheckTimer) {
+      clearInterval(session.idleCheckTimer);
+      session.idleCheckTimer = null;
     }
 
     if (session.sshStream) {
