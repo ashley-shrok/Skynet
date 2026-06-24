@@ -41,6 +41,23 @@ const newConnect =
   "\n" +
   "        this.sendInstruction(['connect'].concat(connectArgs));";
 
+// Patch 4: defang the hardcoded 10-second "guacd was inactive for too long"
+// timer. When a browser tab is backgrounded, Chrome throttles WebSocket
+// drainage, which applies TCP backpressure all the way through guacamole-lite
+// to guacd. guacd stops sending (its socket buffer is full), this timer trips
+// 10s later, and the RDP/VNC session is killed. The transport-layer WS
+// ping/pong heartbeat in src/backend/guacamole/guacamole-server.ts is the
+// correct liveness check; raise this threshold so a quiet upstream never
+// trips it during legitimate idle windows.
+const oldInactivity =
+  "            if (Date.now() > (this.lastActivity + 10000)) {\n" +
+  "                this.close(new Error('guacd was inactive for too long'))\n" +
+  "            }";
+const newInactivity =
+  "            if (Date.now() > (this.lastActivity + 86400000)) {\n" +
+  "                this.close(new Error('guacd was inactive for too long'))\n" +
+  "            }";
+
 let patched = false;
 
 if (!content.includes(newVersionCheck)) {
@@ -74,6 +91,17 @@ if (!content.includes(newConnect)) {
   patched = true;
 }
 
+if (!content.includes(newInactivity)) {
+  if (!content.includes(oldInactivity)) {
+    console.log(
+      "[patch-guacamole-lite] Inactivity timer target not found, skipping",
+    );
+    process.exit(0);
+  }
+  content = content.replace(oldInactivity, newInactivity);
+  patched = true;
+}
+
 if (!patched) {
   console.log("[patch-guacamole-lite] Already patched");
   process.exit(0);
@@ -81,5 +109,5 @@ if (!patched) {
 
 fs.writeFileSync(filePath, content);
 console.log(
-  "[patch-guacamole-lite] Patched to support protocol VERSION_1_3_0 and VERSION_1_5_0 with name handshake instruction",
+  "[patch-guacamole-lite] Patched to support protocol VERSION_1_3_0 and VERSION_1_5_0 with name handshake instruction and disabled hardcoded guacd inactivity timer",
 );
