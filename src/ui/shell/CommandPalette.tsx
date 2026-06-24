@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils";
 import { Kbd } from "@/components/kbd";
 import { Button } from "@/components/button.tsx";
-import { Plus, RefreshCw, Search, Terminal } from "lucide-react";
+import { RefreshCw, Search, Terminal } from "lucide-react";
 import { getSessionList, type RemoteTmuxSession } from "@/api/sessions-api";
 import { getSSHHosts } from "@/main-axios";
 import type { Host, TabType } from "@/types/ui-types";
@@ -12,6 +12,10 @@ import {
   RemoteHostChips,
   isProtocolHost,
 } from "@/dashboard/RemoteHostChips";
+import {
+  NewSessionHostChips,
+  isAutoTmuxHost,
+} from "@/dashboard/NewSessionHostChips";
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -36,7 +40,7 @@ export function CommandPalette({
   const [hosts, setHosts] = useState<Host[]>([]);
   const [sessions, setSessions] = useState<RemoteTmuxSession[]>([]);
   const [state, setState] = useState<FetchState>("loading");
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogHost, setDialogHost] = useState<Host | null>(null);
 
   const refresh = useCallback(async () => {
     setState("loading");
@@ -56,7 +60,7 @@ export function CommandPalette({
   useEffect(() => {
     if (isOpen) {
       setSearch("");
-      setDialogOpen(false);
+      setDialogHost(null);
       setTimeout(() => inputRef.current?.focus(), 50);
       refresh();
     }
@@ -66,15 +70,15 @@ export function CommandPalette({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       // When the New Session dialog is open it owns ESC — let it close first.
-      if (dialogOpen) {
-        setDialogOpen(false);
+      if (dialogHost !== null) {
+        setDialogHost(null);
         return;
       }
       setIsOpen(false);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [setIsOpen, dialogOpen]);
+  }, [setIsOpen, dialogHost]);
 
   const hostsById = useMemo(() => {
     const m = new Map<number, Host>();
@@ -117,6 +121,13 @@ export function CommandPalette({
     return all.filter((h) => h.name.toLowerCase().includes(q));
   }, [hosts, search]);
 
+  const filteredAutoTmuxHosts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const all = hosts.filter(isAutoTmuxHost);
+    if (!q) return all;
+    return all.filter((h) => h.name.toLowerCase().includes(q));
+  }, [hosts, search]);
+
   const handleRowClick = (row: RemoteTmuxSession) => {
     const host = hostsById.get(row.hostId);
     if (!host) return;
@@ -128,7 +139,7 @@ export function CommandPalette({
   };
 
   const handleNewSession = (host: Host, sessionName: string) => {
-    setDialogOpen(false);
+    setDialogHost(null);
     onOpenTab(host, "terminal", undefined, {
       targetTmuxSession: sessionName,
       label: sessionName,
@@ -177,19 +188,20 @@ export function CommandPalette({
                 )}
               />
             </Button>
-            <Button
-              size="sm"
-              onClick={() => setDialogOpen(true)}
-              className="text-xs h-7 bg-accent-brand hover:bg-accent-brand/90 text-white"
-            >
-              <Plus className="size-3.5 mr-1" />
-              New Session
-            </Button>
             <Kbd className="bg-muted/50 border-none h-6 px-2 text-[11px] rounded-none">
               ESC
             </Kbd>
           </div>
         </div>
+
+        {filteredAutoTmuxHosts.length > 0 && (
+          <div className="border-b border-border shrink-0">
+            <NewSessionHostChips
+              hosts={filteredAutoTmuxHosts}
+              onSelect={(host) => setDialogHost(host)}
+            />
+          </div>
+        )}
 
         {filteredProtocolHosts.length > 0 && (
           <div className="border-b border-border shrink-0">
@@ -217,17 +229,12 @@ export function CommandPalette({
           {state !== "loading" &&
             state !== "error" &&
             sessions.length === 0 && (
-              <div className="flex-1 flex flex-col items-center justify-center gap-2 text-xs text-muted-foreground/60 py-12">
-                <span>No active sessions.</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDialogOpen(true)}
-                  className="text-xs text-accent-brand"
-                >
-                  <Plus className="size-3.5 mr-1" />
-                  Start one
-                </Button>
+              <div className="flex-1 flex items-center justify-center gap-2 text-xs text-muted-foreground/60 py-12">
+                <span>
+                  {filteredAutoTmuxHosts.length > 0
+                    ? "No active sessions. Pick a host above to start one."
+                    : "No active sessions."}
+                </span>
               </div>
             )}
           {sessions.length > 0 && filteredSessions.length === 0 && (
@@ -289,10 +296,10 @@ export function CommandPalette({
     </div>
 
     <NewSessionDialog
-      isOpen={dialogOpen}
-      hosts={hosts}
+      isOpen={dialogHost !== null}
+      host={dialogHost}
       onSubmit={handleNewSession}
-      onCancel={() => setDialogOpen(false)}
+      onCancel={() => setDialogHost(null)}
     />
     </>
   );
