@@ -116,7 +116,6 @@ export function AppRail({
   onLogout: () => void;
 }) {
   const { t } = useTranslation();
-  const [hovered, setHovered] = useState(false);
   const [pinned, setPinned] = useState(
     () => localStorage.getItem("pinAppRail") === "true",
   );
@@ -128,15 +127,13 @@ export function AppRail({
     return () => window.removeEventListener("pinAppRailChanged", handler);
   }, []);
 
-  const railExpanded = pinned || hovered || profileDropdownOpen;
+  const railExpanded = pinned || profileDropdownOpen;
   const railButtons = buildRailButtons(splitMode, t);
 
   return (
     <div
       className="hidden md:flex flex-col items-stretch bg-sidebar border-r border-border shrink-0 overflow-hidden pt-2 gap-1 transition-[width] duration-200"
       style={{ width: railExpanded ? 160 : 40 }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       <div className="flex flex-col flex-1 gap-1">
         {railButtons.map((item, i) =>
