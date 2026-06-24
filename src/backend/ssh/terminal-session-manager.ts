@@ -35,7 +35,13 @@ export interface TerminalSession {
 
   // Idle-pulse tracking. Used to flag tmux sessions running `claude`
   // that have stopped emitting PTY bytes (= Claude is waiting for input).
+  // A burst of bytes only "counts" as activity (advances lastActivityAt
+  // and clears the idle flag) when it accumulates past a threshold without
+  // a quiet gap — so an isolated tmux status-bar repaint doesn't kill
+  // the pulse, but a stream of Claude spinner frames does.
   lastActivityAt: number;
+  lastByteAt: number;
+  burstBytes: number;
   idleEmitted: boolean;
   idleCheckTimer: NodeJS.Timeout | null;
   idleCheckInFlight: boolean;
@@ -134,6 +140,8 @@ class TerminalSessionManager {
       outputBufferBytes: 0,
       tmuxSessionName: null,
       lastActivityAt: Date.now(),
+      lastByteAt: 0,
+      burstBytes: 0,
       idleEmitted: false,
       idleCheckTimer: null,
       idleCheckInFlight: false,

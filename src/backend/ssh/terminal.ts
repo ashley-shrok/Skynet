@@ -1336,6 +1336,38 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
           const CWD_SENTINEL = "TERMIX_CWD:";
 
+          // Idle-pulse activity gating. The PTY emits small periodic bursts
+          // (tmux status-bar repaints, e.g. a clock that ticks every minute)
+          // that aren't real user-visible "Claude is doing something" signals.
+          // We treat a burst as activity only if it accumulates past
+          // ACTIVITY_BURST_BYTES without a >QUIET_BURST_RESET_MS gap of
+          // silence. An isolated ~50-200 byte status-bar refresh stays below
+          // the threshold; Claude's spinner frames (~50-100 bytes every
+          // ~100ms) accumulate within ~500ms and cross it normally.
+          const QUIET_BURST_RESET_MS = 250;
+          const ACTIVITY_BURST_BYTES = 512;
+          const trackPtyActivity = (byteCount: number) => {
+            const s = sessionManager.getSession(boundSessionId);
+            if (!s) return;
+            const now = Date.now();
+            if (now - s.lastByteAt > QUIET_BURST_RESET_MS) {
+              s.burstBytes = 0;
+            }
+            s.lastByteAt = now;
+            s.burstBytes += byteCount;
+            if (s.burstBytes < ACTIVITY_BURST_BYTES) return;
+
+            s.lastActivityAt = now;
+            if (s.idleEmitted) {
+              s.idleEmitted = false;
+              if (s.attachedWs?.readyState === WebSocket.OPEN) {
+                s.attachedWs.send(
+                  JSON.stringify({ type: "idle", idle: false }),
+                );
+              }
+            }
+          };
+
           stream.on("data", (data: Buffer) => {
             try {
               let utf8String = data.toString("utf-8");
@@ -1379,15 +1411,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               if (session) {
                 sessionManager.bufferOutput(boundSessionId!, utf8String);
 
-                session.lastActivityAt = Date.now();
-                if (session.idleEmitted) {
-                  session.idleEmitted = false;
-                  if (session.attachedWs?.readyState === WebSocket.OPEN) {
-                    session.attachedWs.send(
-                      JSON.stringify({ type: "idle", idle: false }),
-                    );
-                  }
-                }
+                trackPtyActivity(utf8String.length);
 
                 if (session.attachedWs?.readyState === WebSocket.OPEN) {
                   session.attachedWs.send(
@@ -1406,15 +1430,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               if (session) {
                 sessionManager.bufferOutput(boundSessionId!, fallback);
 
-                session.lastActivityAt = Date.now();
-                if (session.idleEmitted) {
-                  session.idleEmitted = false;
-                  if (session.attachedWs?.readyState === WebSocket.OPEN) {
-                    session.attachedWs.send(
-                      JSON.stringify({ type: "idle", idle: false }),
-                    );
-                  }
-                }
+                trackPtyActivity(fallback.length);
 
                 if (session.attachedWs?.readyState === WebSocket.OPEN) {
                   session.attachedWs.send(
