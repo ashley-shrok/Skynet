@@ -1,3 +1,7 @@
+<!-- Fork notice — visitors should know this isn't upstream before reading. -->
+> [!NOTE]
+> **Personal fork** of [`Termix-SSH/Termix`](https://github.com/Termix-SSH/Termix) maintained by [@ashley-shrok](https://github.com/ashley-shrok), focused on streamlined tmux session UX, RDP polish (keep-alive across backgrounded tabs, canvas sizing, quick-launch), and mobile input quality-of-life. Active work lives on the [`feat/tab-title-from-tmux`](https://github.com/ashley-shrok/Termix/commits/feat/tab-title-from-tmux) branch — see its commit history for the full patch set. `main` tracks upstream.
+
 <div align="center">
 
 <img src="./public/icon.svg" width="120" height="120" alt="Termix Logo" />
