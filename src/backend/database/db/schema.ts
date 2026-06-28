@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, blob } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export const users = sqliteTable("users", {
@@ -649,6 +649,26 @@ export const apiKeys = sqliteTable("api_keys", {
   expiresAt: text("expires_at"),
   lastUsedAt: text("last_used_at"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+});
+
+export const identities = sqliteTable("identities", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  identityKey: text("identity_key").notNull(),
+  displayName: text("display_name").notNull(),
+  title: text("title"),
+  colorHue: integer("color_hue"),
+  avatarMime: text("avatar_mime").notNull(),
+  avatarData: blob("avatar_data", { mode: "buffer" }).notNull(),
+  avatarEtag: text("avatar_etag").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const userOpenTabs = sqliteTable("user_open_tabs", {

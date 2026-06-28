@@ -39,7 +39,9 @@ import {
   TERMINAL_FONTS,
 } from "@/lib/terminal-themes.ts";
 import "./terminal-global-styles.ts";
-import { hueFromSessionName } from "./session-hue.ts";
+import { firstSessionWord, hueFromSessionName } from "./session-hue.ts";
+import { IdentityBadge } from "./IdentityBadge.tsx";
+import { useIdentities } from "@/state/identities-store";
 import { useTheme } from "@/components/theme-provider.tsx";
 import { useCommandTracker } from "@/features/terminal/command-history/useCommandTracker.ts";
 import { highlightTerminalOutput } from "@/lib/terminal-syntax-highlighter.ts";
@@ -211,9 +213,21 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     } | null>(null);
     const tmuxSessionNameRef = useRef<string | null>(null);
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
-    const sessionHue = useMemo(
-      () => hueFromSessionName(tmuxSessionName),
+    const identityKey = useMemo(
+      () => firstSessionWord(tmuxSessionName),
       [tmuxSessionName],
+    );
+    const { byKey: identitiesByKey } = useIdentities();
+    const identityColorHue =
+      identityKey != null
+        ? (identitiesByKey.get(identityKey)?.colorHue ?? null)
+        : null;
+    const sessionHue = useMemo(
+      () =>
+        identityColorHue != null
+          ? identityColorHue
+          : hueFromSessionName(tmuxSessionName),
+      [identityColorHue, tmuxSessionName],
     );
     const [isTmuxAttached, setIsTmuxAttached] = useState(false);
     const tmuxCopyModeHintShownRef = useRef(false);
@@ -2726,12 +2740,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }}
         />
 
-        {isConnected && (sessionHue != null || isIdle) && (
+        {isConnected && isIdle && (
           <div
-            className={`claude-idle-overlay${sessionHue != null ? " has-session" : ""}${isIdle ? " idle" : ""}`}
+            className={`claude-idle-overlay${sessionHue != null ? " has-session" : ""}`}
             aria-hidden="true"
           />
         )}
+
+        {isConnected && identityKey && <IdentityBadge identityKey={identityKey} />}
 
         {isTmuxAttached && isConnected && (
           <button

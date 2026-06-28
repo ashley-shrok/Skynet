@@ -530,13 +530,13 @@ html.fs-xl {
   }
 }
 
-@keyframes claude-session-pulse {
+@keyframes claude-session-flat-pulse {
   0%,
   100% {
-    box-shadow: inset 0 0 100px hsla(var(--session-hue, 50), 80%, 50%, 0.28);
+    background: hsla(var(--session-hue, 50), 70%, 50%, 0.08);
   }
   50% {
-    box-shadow: inset 0 0 200px hsla(var(--session-hue, 50), 90%, 55%, 0.58);
+    background: hsla(var(--session-hue, 50), 80%, 55%, 0.22);
   }
 }
 
@@ -549,16 +549,9 @@ html.fs-xl {
   animation: claude-idle-pulse-legacy 0.5s ease-in-out infinite;
 }
 
-/* Named pane: steady soft ambient hue glow, regardless of idle. */
+/* Identity-tinted pane + idle: flat semi-transparent full-pane breathing pulse. */
 .claude-idle-overlay.has-session {
-  animation: none;
-  box-shadow: inset 0 0 80px hsla(var(--session-hue, 50), 70%, 50%, 0.18);
-  transition: box-shadow 0.6s ease;
-}
-
-/* Named pane + idle: slow breathing pulse in the same hue. */
-.claude-idle-overlay.has-session.idle {
-  animation: claude-session-pulse 1.6s ease-in-out infinite;
+  animation: claude-session-flat-pulse 1.6s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -568,10 +561,7 @@ html.fs-xl {
   }
   .claude-idle-overlay.has-session {
     animation: none;
-    box-shadow: inset 0 0 80px hsla(var(--session-hue, 50), 70%, 50%, 0.18);
-  }
-  .claude-idle-overlay.has-session.idle {
-    animation: none;
-    box-shadow: inset 0 0 180px hsla(var(--session-hue, 50), 85%, 55%, 0.5);
+    box-shadow: none;
+    background: hsla(var(--session-hue, 50), 75%, 52%, 0.18);
   }
 }

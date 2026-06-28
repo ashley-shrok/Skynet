@@ -463,6 +463,22 @@ async function initializeCompleteDatabase(): Promise<void> {
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS identities (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        identity_key TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        title TEXT,
+        color_hue INTEGER,
+        avatar_mime TEXT NOT NULL,
+        avatar_data BLOB NOT NULL,
+        avatar_etag TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        UNIQUE (user_id, identity_key)
+    );
+
     CREATE TABLE IF NOT EXISTS user_open_tabs (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -630,6 +646,12 @@ const migrateSchema = () => {
   addColumnIfNotExists("user_preferences", "language", "TEXT");
 
   addColumnIfNotExists("user_open_tabs", "target_tmux_session", "TEXT");
+
+  addColumnIfNotExists("identities", "title", "TEXT");
+  addColumnIfNotExists("identities", "color_hue", "INTEGER");
+  addColumnIfNotExists("identities", "avatar_mime", "TEXT");
+  addColumnIfNotExists("identities", "avatar_data", "BLOB");
+  addColumnIfNotExists("identities", "avatar_etag", "TEXT");
 
   addColumnIfNotExists("users", "is_admin", "INTEGER NOT NULL DEFAULT 0");
 

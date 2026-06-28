@@ -52,6 +52,7 @@ import {
   AdminOidcSettingsSection,
 } from "./AdminSettingsSections";
 import { AdminApiKeysSection } from "./AdminApiKeysSection";
+import { AdminIdentitiesSection } from "./AdminIdentitiesSection";
 import {
   AdminCreateUserDialog,
   AdminEditUserDialog,
@@ -789,6 +790,11 @@ export function AdminSettingsPanel() {
         users={users}
         handleCreateApiKey={handleCreateApiKey}
         newKeyLoading={newKeyLoading}
+      />
+
+      <AdminIdentitiesSection
+        open={openSection === "identities"}
+        onToggle={() => toggle("identities")}
       />
 
       <AdminCreateUserDialog
