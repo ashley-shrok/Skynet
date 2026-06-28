@@ -2749,22 +2749,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
         {isConnected && identityKey && <IdentityBadge identityKey={identityKey} />}
 
-        {isTmuxAttached && isConnected && (
-          <button
-            onClick={() => {
-              if (webSocketRef.current?.readyState === WebSocket.OPEN) {
-                webSocketRef.current.send(
-                  JSON.stringify({ type: "tmux_detach" }),
-                );
-              }
-            }}
-            title={t("terminal.tmuxDetach")}
-            className="absolute top-2 right-2 z-[110] px-2 py-1 text-xs rounded bg-black/60 text-white/70 hover:text-white hover:bg-black/80 transition-colors"
-          >
-            tmux:detach
-          </button>
-        )}
-
         {isMobile && isConnected && (
           <Toolbar
             adapter={sshAdapter}
