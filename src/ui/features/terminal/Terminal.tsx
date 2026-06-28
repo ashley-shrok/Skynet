@@ -39,6 +39,7 @@ import {
   TERMINAL_FONTS,
 } from "@/lib/terminal-themes.ts";
 import "./terminal-global-styles.ts";
+import { hueFromSessionName } from "./session-hue.ts";
 import { useTheme } from "@/components/theme-provider.tsx";
 import { useCommandTracker } from "@/features/terminal/command-history/useCommandTracker.ts";
 import { highlightTerminalOutput } from "@/lib/terminal-syntax-highlighter.ts";
@@ -209,6 +210,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       }>;
     } | null>(null);
     const tmuxSessionNameRef = useRef<string | null>(null);
+    const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
+    const sessionHue = useMemo(
+      () => hueFromSessionName(tmuxSessionName),
+      [tmuxSessionName],
+    );
     const [isTmuxAttached, setIsTmuxAttached] = useState(false);
     const tmuxCopyModeHintShownRef = useRef(false);
 
@@ -1546,6 +1552,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             const sessionName =
               typeof msg.sessionName === "string" ? msg.sessionName : "";
             tmuxSessionNameRef.current = sessionName || "(active)";
+            setTmuxSessionName(tmuxSessionNameRef.current);
             setIsTmuxAttached(true);
             onTmuxSessionChange?.(tmuxSessionNameRef.current);
             addLog({
@@ -1573,6 +1580,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             });
           } else if (msg.type === "tmux_detached") {
             tmuxSessionNameRef.current = null;
+            setTmuxSessionName(null);
             setIsTmuxAttached(false);
             onTmuxSessionChange?.(null);
             toast.info(t("terminal.tmuxDetached"), { duration: 3000 });
@@ -2690,7 +2698,17 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     );
 
     return (
-      <div className="h-full w-full relative" style={{ backgroundColor }}>
+      <div
+        className="h-full w-full relative"
+        style={
+          sessionHue != null
+            ? {
+                backgroundColor,
+                ["--session-hue" as never]: String(sessionHue),
+              }
+            : { backgroundColor }
+        }
+      >
         <div
           ref={xtermRef}
           className="h-full w-full"
@@ -2708,8 +2726,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }}
         />
 
-        {isIdle && isConnected && (
-          <div className="claude-idle-overlay" aria-hidden="true" />
+        {isConnected && (sessionHue != null || isIdle) && (
+          <div
+            className={`claude-idle-overlay${sessionHue != null ? " has-session" : ""}${isIdle ? " idle" : ""}`}
+            aria-hidden="true"
+          />
         )}
 
         {isTmuxAttached && isConnected && (
