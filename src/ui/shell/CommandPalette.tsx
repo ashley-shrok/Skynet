@@ -262,7 +262,7 @@ export function CommandPalette({
                     key={`${row.hostId}-${row.sessionName}`}
                     onClick={() => handleRowClick(row)}
                     className={cn(
-                      "flex items-center justify-between px-4 py-3 border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer text-left transition-colors",
+                      "flex items-center justify-between px-4 py-3 border-b border-border last:border-b-0 hover:bg-muted/50 cursor-pointer text-left transition-colors",
                       newHostGroup && "border-t-[3px] border-t-accent-brand/40",
                     )}
                   >
