@@ -14,6 +14,7 @@ import {
 import {
   NewSessionHostChips,
   isAutoTmuxHost,
+  isSshLaunchableHost,
 } from "@/dashboard/NewSessionHostChips";
 
 interface SessionDashboardProps {
@@ -59,7 +60,10 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
   }, [hosts]);
 
   const protocolHosts = useMemo(() => hosts.filter(isProtocolHost), [hosts]);
-  const autoTmuxHosts = useMemo(() => hosts.filter(isAutoTmuxHost), [hosts]);
+  const launchableHosts = useMemo(
+    () => hosts.filter(isSshLaunchableHost),
+    [hosts],
+  );
 
   // Cluster sessions by host. Host order = the host whose most recent
   // session is newest goes first (so "what I was just working on" stays
@@ -117,11 +121,17 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
 
   return (
     <div className="flex flex-col w-full h-full min-h-0 overflow-hidden p-5 gap-4">
-      {autoTmuxHosts.length > 0 && (
+      {launchableHosts.length > 0 && (
         <Card className="shrink-0 py-0 gap-0">
           <NewSessionHostChips
-            hosts={autoTmuxHosts}
-            onSelect={(host) => setDialogHost(host)}
+            hosts={launchableHosts}
+            onSelect={(host) => {
+              if (isAutoTmuxHost(host)) {
+                setDialogHost(host);
+              } else {
+                onOpenTab(host, "terminal");
+              }
+            }}
           />
         </Card>
       )}
@@ -170,8 +180,8 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
         {state !== "loading" && state !== "error" && sessions.length === 0 && (
           <div className="flex-1 flex items-center justify-center gap-2 text-xs text-muted-foreground/60">
             <span>
-              {autoTmuxHosts.length > 0
-                ? "No active sessions. Pick a host above to start one."
+              {launchableHosts.length > 0
+                ? "No active sessions. Pick a host above to open one."
                 : "No active sessions."}
             </span>
           </div>

@@ -6,8 +6,16 @@ interface NewSessionHostChipsProps {
   onSelect: (host: Host) => void;
 }
 
-// SSH+autoTmux hosts only — clicking a chip kicks off the
-// name-only NewSessionDialog flow.
+// Any SSH host can be a terminal launch target. autoTmux hosts route through
+// the named-session dialog; non-autoTmux ones (e.g. Windows) open a plain
+// terminal directly — that branching lives at the callsite.
+export function isSshLaunchableHost(h: Host): boolean {
+  return Boolean(h.enableSsh);
+}
+
+// Subset of the above: hosts where Termix will start/attach a named tmux
+// session on connect. The click handler uses this to decide whether to pop
+// the name dialog vs. open a plain terminal.
 export function isAutoTmuxHost(h: Host): boolean {
   return Boolean(h.enableSsh && h.terminalConfig?.autoTmux === true);
 }
@@ -25,16 +33,29 @@ export function NewSessionHostChips({
         New Session
       </div>
       <div className="flex flex-wrap gap-2">
-        {hosts.map((h) => (
-          <button
-            key={h.id}
-            onClick={() => onSelect(h)}
-            className="inline-flex items-center gap-2 px-3 py-1.5 border border-border bg-muted hover:bg-muted/50 text-xs cursor-pointer transition-colors"
-          >
-            <Terminal className="size-3 text-accent-brand shrink-0" />
-            <span className="truncate">{h.name || h.ip}</span>
-          </button>
-        ))}
+        {hosts.map((h) => {
+          const tmux = isAutoTmuxHost(h);
+          return (
+            <button
+              key={h.id}
+              onClick={() => onSelect(h)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 border border-border bg-muted hover:bg-muted/50 text-xs cursor-pointer transition-colors"
+              title={
+                tmux
+                  ? "Open named tmux session"
+                  : "Open terminal (no tmux on this host)"
+              }
+            >
+              <Terminal className="size-3 text-accent-brand shrink-0" />
+              <span className="truncate">{h.name || h.ip}</span>
+              {tmux && (
+                <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
+                  tmux
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

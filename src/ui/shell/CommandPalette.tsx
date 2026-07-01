@@ -15,6 +15,7 @@ import {
 import {
   NewSessionHostChips,
   isAutoTmuxHost,
+  isSshLaunchableHost,
 } from "@/dashboard/NewSessionHostChips";
 
 interface CommandPaletteProps {
@@ -121,9 +122,9 @@ export function CommandPalette({
     return all.filter((h) => h.name.toLowerCase().includes(q));
   }, [hosts, search]);
 
-  const filteredAutoTmuxHosts = useMemo(() => {
+  const filteredLaunchableHosts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const all = hosts.filter(isAutoTmuxHost);
+    const all = hosts.filter(isSshLaunchableHost);
     if (!q) return all;
     return all.filter((h) => h.name.toLowerCase().includes(q));
   }, [hosts, search]);
@@ -194,11 +195,18 @@ export function CommandPalette({
           </div>
         </div>
 
-        {filteredAutoTmuxHosts.length > 0 && (
+        {filteredLaunchableHosts.length > 0 && (
           <div className="border-b border-border shrink-0">
             <NewSessionHostChips
-              hosts={filteredAutoTmuxHosts}
-              onSelect={(host) => setDialogHost(host)}
+              hosts={filteredLaunchableHosts}
+              onSelect={(host) => {
+                if (isAutoTmuxHost(host)) {
+                  setDialogHost(host);
+                } else {
+                  onOpenTab(host, "terminal");
+                  setIsOpen(false);
+                }
+              }}
             />
           </div>
         )}
@@ -231,8 +239,8 @@ export function CommandPalette({
             sessions.length === 0 && (
               <div className="flex-1 flex items-center justify-center gap-2 text-xs text-muted-foreground/60 py-12">
                 <span>
-                  {filteredAutoTmuxHosts.length > 0
-                    ? "No active sessions. Pick a host above to start one."
+                  {filteredLaunchableHosts.length > 0
+                    ? "No active sessions. Pick a host above to open one."
                     : "No active sessions."}
                 </span>
               </div>
