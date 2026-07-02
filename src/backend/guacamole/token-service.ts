@@ -3,8 +3,6 @@ import { guacLogger } from "../utils/logger.js";
 
 export interface GuacamoleConnectionSettings {
   type: "rdp" | "vnc" | "telnet";
-  userId?: string;
-  hostId?: number;
   settings: {
     hostname: string;
     port?: number;
@@ -29,6 +27,15 @@ export interface GuacamoleConnectionSettings {
 
 export interface GuacamoleToken {
   connection: GuacamoleConnectionSettings;
+  // Termix session-takeover metadata — top-level on purpose. guacamole-lite's
+  // ClientConnection.mergeConnectionOptions() overwrites .connection with a
+  // flat compiledSettings dict (see node_modules/guacamole-lite/lib/
+  // ClientConnection.js), so anything inside `connection` other than
+  // .settings.* is gone by the time `on("open")` fires. Top-level fields
+  // survive because guacamole-lite's default processConnectionSettings
+  // is a pass-through and never touches keys outside `.connection`.
+  userId?: string;
+  hostId?: number;
 }
 
 const CIPHER = "aes-256-cbc";
@@ -128,9 +135,6 @@ export class GuacamoleTokenService {
     const token: GuacamoleToken = {
       connection: {
         type: "rdp",
-        ...(takeover
-          ? { userId: takeover.userId, hostId: takeover.hostId }
-          : {}),
         settings: {
           hostname,
           username,
@@ -140,6 +144,9 @@ export class GuacamoleTokenService {
           ...options,
         },
       },
+      ...(takeover
+        ? { userId: takeover.userId, hostId: takeover.hostId }
+        : {}),
     };
     return this.encryptToken(token);
   }

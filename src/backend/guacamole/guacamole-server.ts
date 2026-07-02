@@ -161,13 +161,16 @@ function installWsHeartbeat(ws: WsLike): void {
 // taken over. If a future patch wants to widen it, insert on those types
 // too — nothing else changes.
 type TrackableConn = {
+  // Post-decrypt token payload. guacamole-lite overwrites `.connection` with a
+  // flat guacd-param dict, so takeover metadata (userId/hostId) has to sit at
+  // the TOP LEVEL of the token to survive — see token-service.ts. The protocol
+  // type is captured earlier by guacamole-lite into `connectionSelector`
+  // (ClientConnection.js line 42), so we read type from there.
   connectionSettings?: {
-    connection?: {
-      type?: string;
-      userId?: string;
-      hostId?: number;
-    };
+    userId?: string;
+    hostId?: number;
   };
+  connectionSelector?: string;
   webSocket?: WsLike;
   sendErrorToClient?: (message: string, errorCode?: string) => void;
   close?: (error?: unknown) => void;
@@ -180,10 +183,12 @@ function takeoverKey(userId: string, hostId: number, type: string): string {
 function readTakeoverIds(
   conn: TrackableConn,
 ): { userId: string; hostId: number; type: string } | null {
-  const c = conn.connectionSettings?.connection;
-  if (!c || c.type !== "rdp") return null;
-  if (typeof c.userId !== "string" || typeof c.hostId !== "number") return null;
-  return { userId: c.userId, hostId: c.hostId, type: c.type };
+  const type = conn.connectionSelector;
+  if (type !== "rdp") return null;
+  const s = conn.connectionSettings;
+  if (!s) return null;
+  if (typeof s.userId !== "string" || typeof s.hostId !== "number") return null;
+  return { userId: s.userId, hostId: s.hostId, type };
 }
 
 function createGuacServer(): GuacamoleLite {
@@ -197,7 +202,7 @@ function createGuacServer(): GuacamoleLite {
   server.on("open", (clientConnection: TrackableConn) => {
     guacLogger.info("Guacamole connection opened", {
       operation: "guac_connection_open",
-      type: clientConnection.connectionSettings?.connection?.type,
+      type: clientConnection.connectionSelector,
     });
     if (clientConnection.webSocket) {
       installWsHeartbeat(clientConnection.webSocket);
@@ -236,7 +241,7 @@ function createGuacServer(): GuacamoleLite {
   server.on("close", (clientConnection: TrackableConn) => {
     guacLogger.info("Guacamole connection closed", {
       operation: "guac_connection_close",
-      type: clientConnection.connectionSettings?.connection?.type,
+      type: clientConnection.connectionSelector,
     });
     const ids = readTakeoverIds(clientConnection);
     if (ids) {
