@@ -133,6 +133,15 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const displayRef = useRef<GuacamoleDisplayHandle>(null);
+  // Takeover-vs-auto-reconnect race guard. The Guacamole client fires
+  // `onerror` (with the TERMIX_SUPERSEDED message) and state-5 `ondisconnect`
+  // in the same tick. `connectionError` state doesn't commit until the next
+  // React render, so `onDisconnect` reading the state would still see null
+  // and trigger patch #10's auto-reconnect — which fights the takeover and
+  // ping-pongs guacd workers. This ref updates synchronously in `onError`
+  // so `onDisconnect` can suppress the reconnect on the same tick. Cleared
+  // when the user explicitly hits Reconnect (they want a fresh takeover).
+  const takenOverRef = useRef(false);
 
   const resolvedProtocol = (protocol ?? hostConfig.connectionType) as
     | "rdp"
@@ -162,6 +171,7 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
   }, [hostId, protocol, retryCount, t]);
 
   const handleReconnect = useCallback(() => {
+    takenOverRef.current = false;
     setConnectionError(null);
     setError(null);
     setToken(null);
@@ -280,13 +290,18 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
           type: resolvedProtocol,
         }}
         isVisible={isVisible}
-        onError={(err) => setConnectionError(err)}
+        onError={(err) => {
+          if (err.startsWith(TAKEOVER_MARKER)) takenOverRef.current = true;
+          setConnectionError(err);
+        }}
         onDisconnect={() => {
           // Unexpected tunnel close (server-side ping failure, network blip,
           // backgrounded-tab idle drop). Re-issue a token and remount the
           // display. Skipped if we already surfaced an explicit error from
-          // onError — that path needs the user's eyeballs.
-          if (!connectionError) handleReconnect();
+          // onError — that path needs the user's eyeballs. Also skipped on
+          // takeover (read from the ref, not the state, because both events
+          // fire in the same tick and the state update hasn't committed).
+          if (!connectionError && !takenOverRef.current) handleReconnect();
         }}
       />
       <Toolbar adapter={guacamoleAdapter} guacamoleDisplayRef={displayRef} />
