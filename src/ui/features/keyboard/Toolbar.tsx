@@ -153,7 +153,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const [position, setPosition] = useState({ x: 0, y: 12 });
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [showFKeys, setShowFKeys] = useState(false);
   const [stickyKeys, setStickyKeys] = useState<Record<ModifierName, boolean>>({
     ctrl: false,
