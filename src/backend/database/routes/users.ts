@@ -2100,6 +2100,51 @@ router.post("/change-password", authenticateJWT, async (req, res) => {
   res.json({ message: "Password changed successfully. Please log in again." });
 });
 
+router.post("/change-username", authenticateJWT, async (req, res) => {
+  const userId = (req as AuthenticatedRequest).userId;
+  const { newUsername } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ error: "User not authenticated" });
+  }
+  if (!isNonEmptyString(newUsername)) {
+    return res.status(400).json({ error: "newUsername is required" });
+  }
+
+  const trimmed = newUsername.trim();
+  const user = await db.select().from(users).where(eq(users.id, userId));
+  if (!user || user.length === 0) {
+    return res.status(404).json({ error: "User not found" });
+  }
+  if (user[0].username === trimmed) {
+    return res
+      .status(400)
+      .json({ error: "New username is the same as current" });
+  }
+
+  const existing = await db
+    .select()
+    .from(users)
+    .where(eq(users.username, trimmed));
+  if (existing && existing.length > 0) {
+    return res.status(409).json({ error: "Username already taken" });
+  }
+
+  await db
+    .update(users)
+    .set({ username: trimmed })
+    .where(eq(users.id, userId));
+
+  authLogger.success("Username changed", {
+    operation: "username_change_complete",
+    userId,
+    oldUsername: user[0].username,
+    newUsername: trimmed,
+  });
+
+  res.json({ message: "Username changed successfully.", username: trimmed });
+});
+
 registerUserAdminRoutes(router, authenticateJWT);
 
 registerUserTotpRoutes(router, {
