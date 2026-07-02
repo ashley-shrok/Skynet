@@ -24,13 +24,23 @@ interface GuacamoleAppProps {
   tabId?: string;
   protocol?: "rdp" | "vnc" | "telnet";
   isVisible?: boolean;
+  onClose?: () => void;
 }
+
+// Server-side marker prefix on the Guacamole error instruction emitted
+// when this session was closed because a NEWER window opened the same
+// (userId, hostId) — see backend guacamole-server.ts. The frontend uses
+// the presence of this prefix to switch the disconnect overlay from the
+// single-Reconnect "connection failed" copy to the friendlier
+// Reconnect + Close Tab pair with "taken over by another window" text.
+const TAKEOVER_MARKER = "TERMIX_SUPERSEDED:";
 
 const GuacamoleApp: React.FC<GuacamoleAppProps> = ({
   hostId,
   tabId,
   protocol,
   isVisible = true,
+  onClose,
 }) => {
   const { t } = useTranslation();
 
@@ -92,6 +102,7 @@ const GuacamoleApp: React.FC<GuacamoleAppProps> = ({
             tabId={tabId}
             protocol={protocol}
             isVisible={isVisible}
+            onClose={onClose}
           />
         );
       }}
@@ -105,6 +116,7 @@ interface GuacamoleAppInnerProps {
   tabId?: string;
   protocol?: "rdp" | "vnc" | "telnet";
   isVisible: boolean;
+  onClose?: () => void;
 }
 
 const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
@@ -113,6 +125,7 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
   tabId,
   protocol,
   isVisible,
+  onClose,
 }) => {
   const { t } = useTranslation();
   const [token, setToken] = useState<string | null>(null);
@@ -215,33 +228,49 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
 
   return (
     <div className="relative w-full h-full">
-      {connectionError && (
-        <div
-          className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-50"
-          style={{ backgroundColor: "var(--bg-base)" }}
-        >
-          <AlertCircle
-            className="size-10"
-            style={{ color: "var(--foreground)" }}
-          />
-          <p
-            className="text-sm font-semibold"
-            style={{ color: "var(--foreground)" }}
-          >
-            {t("guacamole.connectionFailed")}
-          </p>
-          <p
-            className="text-xs max-w-xs text-center"
-            style={{ color: "var(--foreground-secondary)" }}
-          >
-            {connectionError}
-          </p>
-          <Button variant="outline" size="sm" onClick={handleReconnect}>
-            <RefreshCw className="size-4 mr-2" />
-            {t("guacamole.reconnect")}
-          </Button>
-        </div>
-      )}
+      {connectionError &&
+        (() => {
+          const superseded = connectionError.startsWith(TAKEOVER_MARKER);
+          const displayText = superseded
+            ? connectionError.slice(TAKEOVER_MARKER.length).trim()
+            : connectionError;
+          return (
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-50"
+              style={{ backgroundColor: "var(--bg-base)" }}
+            >
+              <AlertCircle
+                className="size-10"
+                style={{ color: "var(--foreground)" }}
+              />
+              <p
+                className="text-sm font-semibold"
+                style={{ color: "var(--foreground)" }}
+              >
+                {superseded
+                  ? t("guacamole.sessionTakenOver")
+                  : t("guacamole.connectionFailed")}
+              </p>
+              <p
+                className="text-xs max-w-xs text-center"
+                style={{ color: "var(--foreground-secondary)" }}
+              >
+                {displayText}
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleReconnect}>
+                  <RefreshCw className="size-4 mr-2" />
+                  {t("guacamole.reconnect")}
+                </Button>
+                {superseded && onClose && (
+                  <Button variant="outline" size="sm" onClick={onClose}>
+                    {t("terminal.closeTab")}
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       <GuacamoleDisplay
         key={token}
         ref={displayRef}

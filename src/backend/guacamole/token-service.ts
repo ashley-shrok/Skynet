@@ -3,6 +3,8 @@ import { guacLogger } from "../utils/logger.js";
 
 export interface GuacamoleConnectionSettings {
   type: "rdp" | "vnc" | "telnet";
+  userId?: string;
+  hostId?: number;
   settings: {
     hostname: string;
     port?: number;
@@ -121,10 +123,14 @@ export class GuacamoleTokenService {
     username: string,
     password: string,
     options: Partial<GuacamoleConnectionSettings["settings"]> = {},
+    takeover?: { userId: string; hostId: number },
   ): string {
     const token: GuacamoleToken = {
       connection: {
         type: "rdp",
+        ...(takeover
+          ? { userId: takeover.userId, hostId: takeover.hostId }
+          : {}),
         settings: {
           hostname,
           username,

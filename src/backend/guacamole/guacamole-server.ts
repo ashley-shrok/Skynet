@@ -146,6 +146,46 @@ function installWsHeartbeat(ws: WsLike): void {
   ws.on("close", () => clearInterval(interval));
 }
 
+// Single-active-RDP-per-(user, host) enforcement — when a new RDP client
+// opens for a (userId, hostId) that already has a live client, the prior
+// one is closed with a Guacamole "error" instruction whose message starts
+// with the marker below. The frontend detects the marker and switches its
+// disconnect overlay to the Reconnect + Close Tab pair, so a window that
+// gets taken over reads as "moved to another window, not broken." Killing
+// the prior client also releases its guacd worker (the CPU-heavy piece of
+// each concurrent RDP session — 50-80% of a core per stream), which is the
+// whole point: Ashley opens the same host in multiple browser windows to
+// grab it quickly, and only the newest window should hold a live guacd.
+//
+// Scoped to RDP only. VNC and Telnet don't insert into the map, don't get
+// taken over. If a future patch wants to widen it, insert on those types
+// too — nothing else changes.
+type TrackableConn = {
+  connectionSettings?: {
+    connection?: {
+      type?: string;
+      userId?: string;
+      hostId?: number;
+    };
+  };
+  webSocket?: WsLike;
+  sendErrorToClient?: (message: string, errorCode?: string) => void;
+  close?: (error?: unknown) => void;
+};
+const TAKEOVER_MARKER = "TERMIX_SUPERSEDED:";
+const activeGuacClients = new Map<string, TrackableConn>();
+function takeoverKey(userId: string, hostId: number, type: string): string {
+  return `${userId}:${hostId}:${type}`;
+}
+function readTakeoverIds(
+  conn: TrackableConn,
+): { userId: string; hostId: number; type: string } | null {
+  const c = conn.connectionSettings?.connection;
+  if (!c || c.type !== "rdp") return null;
+  if (typeof c.userId !== "string" || typeof c.hostId !== "number") return null;
+  return { userId: c.userId, hostId: c.hostId, type: c.type };
+}
+
 function createGuacServer(): GuacamoleLite {
   const guacdOptions = readGuacdOptions();
   const server = new GuacamoleLite(
@@ -154,31 +194,62 @@ function createGuacServer(): GuacamoleLite {
     clientOptions,
   );
 
-  server.on(
-    "open",
-    (clientConnection: {
-      connectionSettings?: Record<string, unknown>;
-      webSocket?: WsLike;
-    }) => {
-      guacLogger.info("Guacamole connection opened", {
-        operation: "guac_connection_open",
-        type: clientConnection.connectionSettings?.type,
-      });
-      if (clientConnection.webSocket) {
-        installWsHeartbeat(clientConnection.webSocket);
+  server.on("open", (clientConnection: TrackableConn) => {
+    guacLogger.info("Guacamole connection opened", {
+      operation: "guac_connection_open",
+      type: clientConnection.connectionSettings?.connection?.type,
+    });
+    if (clientConnection.webSocket) {
+      installWsHeartbeat(clientConnection.webSocket);
+    }
+    const ids = readTakeoverIds(clientConnection);
+    if (ids) {
+      const key = takeoverKey(ids.userId, ids.hostId, ids.type);
+      const prior = activeGuacClients.get(key);
+      if (prior && prior !== clientConnection) {
+        try {
+          prior.sendErrorToClient?.(
+            `${TAKEOVER_MARKER} This session was taken over by another window.`,
+            "SUPERSEDED",
+          );
+        } catch {
+          // guacamole-lite may not expose sendErrorToClient in all versions;
+          // fall through to close() which the frontend surfaces as generic
+          // disconnect (still functional, just no "superseded" copy).
+        }
+        try {
+          prior.close?.();
+        } catch {
+          // best-effort: if close throws, the ws heartbeat / guacd close
+          // path will eventually reap the connection.
+        }
+        guacLogger.info("Guacamole session taken over", {
+          operation: "guac_session_takeover",
+          userId: ids.userId,
+          hostId: ids.hostId,
+        });
       }
-    },
-  );
+      activeGuacClients.set(key, clientConnection);
+    }
+  });
 
-  server.on(
-    "close",
-    (clientConnection: { connectionSettings?: Record<string, unknown> }) => {
-      guacLogger.info("Guacamole connection closed", {
-        operation: "guac_connection_close",
-        type: clientConnection.connectionSettings?.type,
-      });
-    },
-  );
+  server.on("close", (clientConnection: TrackableConn) => {
+    guacLogger.info("Guacamole connection closed", {
+      operation: "guac_connection_close",
+      type: clientConnection.connectionSettings?.connection?.type,
+    });
+    const ids = readTakeoverIds(clientConnection);
+    if (ids) {
+      const key = takeoverKey(ids.userId, ids.hostId, ids.type);
+      // Only delete if this connection still owns the slot — a takeover in
+      // between opens set the slot to a different (newer) connection, and
+      // this close is the old one's cleanup firing after we already
+      // replaced it. Deleting there would nuke the newer window's entry.
+      if (activeGuacClients.get(key) === clientConnection) {
+        activeGuacClients.delete(key);
+      }
+    }
+  });
 
   server.on(
     "error",

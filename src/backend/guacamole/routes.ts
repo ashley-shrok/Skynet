@@ -391,21 +391,27 @@ router.post(
             guacConfig["drive-path"] = "/drive";
             guacConfig["create-drive-path"] = true;
           }
-          token = tokenService.createRdpToken(hostname, username, password, {
-            port,
-            domain,
-            security:
-              (host.rdpSecurity as string) ||
-              (host.security as string) ||
-              undefined,
-            "ignore-cert":
-              host.rdpIgnoreCert !== undefined
-                ? !!host.rdpIgnoreCert
-                : host.ignoreCert !== undefined
-                  ? !!host.ignoreCert
-                  : true,
-            ...guacConfig,
-          });
+          token = tokenService.createRdpToken(
+            hostname,
+            username,
+            password,
+            {
+              port,
+              domain,
+              security:
+                (host.rdpSecurity as string) ||
+                (host.security as string) ||
+                undefined,
+              "ignore-cert":
+                host.rdpIgnoreCert !== undefined
+                  ? !!host.rdpIgnoreCert
+                  : host.ignoreCert !== undefined
+                    ? !!host.ignoreCert
+                    : true,
+              ...guacConfig,
+            },
+            { userId, hostId },
+          );
           break;
         case "vnc":
           token = tokenService.createVncToken(

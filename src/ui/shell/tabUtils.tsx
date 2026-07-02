@@ -257,6 +257,7 @@ export function renderTabContent(
           tabId={tab.id}
           protocol={tab.type as "rdp" | "vnc" | "telnet"}
           isVisible={isVisible}
+          onClose={() => onCloseTab?.(tab.id)}
         />
       );
 

@@ -810,6 +810,7 @@
     "connecting": "Connecting to {{type}} session...",
     "connectionError": "Connection error",
     "connectionFailed": "Connection failed",
+    "sessionTakenOver": "Session taken over",
     "failedToConnect": "Failed to get connection token",
     "hostNotFound": "Host not found",
     "noHostSelected": "No host selected",
