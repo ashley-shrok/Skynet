@@ -483,6 +483,26 @@ wss.on("connection", async (ws: WebSocket, req) => {
             }
           }
         }
+        // Mark user activity — keystrokes are 100% intent by definition, so
+        // no burst threshold like the PTY-output path (trackPtyActivity)
+        // needs to guard against tmux clock-tick false positives. Bump
+        // lastActivityAt and clear the idle overlay immediately if it was
+        // emitted, so the "Claude is waiting" pulse stops the moment the
+        // user starts typing.
+        const inputActivitySession = currentSessionId
+          ? sessionManager.getSession(currentSessionId)
+          : null;
+        if (inputActivitySession) {
+          inputActivitySession.lastActivityAt = Date.now();
+          if (inputActivitySession.idleEmitted) {
+            inputActivitySession.idleEmitted = false;
+            if (inputActivitySession.attachedWs?.readyState === WebSocket.OPEN) {
+              inputActivitySession.attachedWs.send(
+                JSON.stringify({ type: "idle", idle: false }),
+              );
+            }
+          }
+        }
         break;
       }
 
