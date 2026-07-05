@@ -53,6 +53,7 @@ import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
 import { ConnectionsPanel } from "@/sidebar/ConnectionsPanel";
 import { TransferMonitor } from "@/features/file-manager/TransferMonitor.tsx";
+import { consumePendingTab, specForTab, writeTabToUrl } from "@/lib/tab-url";
 
 function sshHostToHost(h: SSHHostWithStatus): Host {
   return {
@@ -359,6 +360,28 @@ export function AppShell({
     document.title = tmux || activeTab?.label || "Termix";
   }, [activeTabId, tabs, tmuxSessionNames]);
 
+  // Keep the browser URL in sync with the active tab so Chrome's tab-restore
+  // (or a bookmark, or a fresh incognito window) reopens the exact same
+  // session. Gated on tabsReady so this doesn't fire until the persisted-restore
+  // + URL-driven-open pass has settled activeTabId — otherwise the initial
+  // "dashboard" default would clobber the incoming ?tab= param. See patch 25.
+  useEffect(() => {
+    if (!tabsReady) return;
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+    const tmuxSessionName = tmuxSessionNames[activeTabId];
+    const spec = activeTab
+      ? specForTab({
+          type: activeTab.type,
+          host: activeTab.host,
+          // Prefer the live tmux session name discovered post-connect (patch 1) —
+          // it's what actually persists across reattaches. Fall back to any
+          // explicit target the tab was opened with.
+          targetTmuxSession: tmuxSessionName ?? activeTab.targetTmuxSession,
+        })
+      : null;
+    writeTabToUrl(spec);
+  }, [activeTabId, tabs, tmuxSessionNames, tabsReady]);
+
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);
     if (!activeTab?.terminalRef) return;
@@ -509,12 +532,12 @@ export function AppShell({
             .map((s) => [s.tabInstanceId, s]),
         );
 
+        let restoredTabs: Tab[] = [];
         if (userPrefs.reopenTabsOnLogin) {
           const hasPersistentTabs = tabs.some((t) =>
             PERSISTENT_TAB_TYPES.includes(t.type),
           );
           if (!hasPersistentTabs) {
-            const restoredTabs: Tab[] = [];
             for (const saved of savedTabs as OpenTabRecord[]) {
               const host = saved.hostId
                 ? allHosts.find((h) => h.id === String(saved.hostId))
@@ -567,6 +590,52 @@ export function AppShell({
         } else {
           // Not restoring to tab bar — keep as background records for ConnectionsPanel
           setBackgroundTabRecords(savedTabs as OpenTabRecord[]);
+        }
+
+        // URL-driven initial open — patch 25. Composes with persisted restore:
+        // if the URL target is already in restoredTabs, just focus it; otherwise
+        // open a fresh tab. Runs BEFORE setTabsReady(true) so the URL-sync
+        // effect fires only once with the final activeTabId.
+        const pending = consumePendingTab();
+        if (pending) {
+          const wantType: TabType =
+            pending.protocol === "tmux"
+              ? "terminal"
+              : (pending.protocol as TabType);
+          const wantSession =
+            pending.protocol === "tmux" ? (pending.session ?? null) : null;
+          // Look up host by name (case-insensitive) OR id as a rename-fallback.
+          const needle = pending.host.toLowerCase();
+          const host =
+            allHosts.find((h) => h.name.toLowerCase() === needle) ??
+            allHosts.find((h) => h.id === pending.host);
+          if (host) {
+            const enabledForType =
+              (wantType === "terminal" && host.enableSsh) ||
+              (wantType === "rdp" && host.enableRdp) ||
+              (wantType === "vnc" && host.enableVnc) ||
+              (wantType === "telnet" && host.enableTelnet);
+            if (enabledForType) {
+              const match = restoredTabs.find(
+                (t) =>
+                  t.host?.id === host.id &&
+                  t.type === wantType &&
+                  (t.targetTmuxSession ?? null) === wantSession,
+              );
+              if (match) {
+                setActiveTabId(match.id);
+              } else {
+                openTab(
+                  host,
+                  wantType,
+                  undefined,
+                  wantSession
+                    ? { targetTmuxSession: wantSession, label: wantSession }
+                    : undefined,
+                );
+              }
+            }
+          }
         }
       } catch {
         // silently fail

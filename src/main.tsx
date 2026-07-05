@@ -13,6 +13,12 @@ import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import type { FontSizeId } from "@/types/ui-types";
 import { useServiceWorker } from "@/hooks/use-service-worker";
 import { useTranslation } from "react-i18next";
+import { snapshotPendingTab } from "@/lib/tab-url";
+
+// Preserve ?tab=<spec> across the auth flow. Auth.tsx / LoginPage.tsx call
+// replaceState in several branches that would otherwise strip the query
+// string before AppShell mounts.
+snapshotPendingTab();
 
 const AppShell = lazy(() =>
   import("@/AppShell").then((m) => ({ default: m.AppShell })),
