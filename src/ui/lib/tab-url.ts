@@ -1,19 +1,27 @@
 // URL-encoded tab addressing so Chrome tab-restore preserves the active Termix
 // session in each browser tab. See patch 25.
 //
+// State lives in the URL FRAGMENT (hash), NOT the query string. Chrome's
+// window-restore code path (Ctrl+Shift+T after closing a whole window) reverts
+// to the canonical navigation URL and drops replaceState'd query params — the
+// fragment survives because Chrome treats it as part of the URL identity.
+//
 // Wire URL forms accepted / emitted:
-//   ?tab=tmux:<host>:<session-name>   attach/create named tmux session on SSH host
-//   ?tab=terminal:<host>              plain SSH terminal (Windows / non-tmux hosts)
-//   ?tab=rdp:<host>                   RDP via guacamole
-//   ?tab=vnc:<host>                   VNC via guacamole
-//   ?tab=telnet:<host>                telnet via guacamole
+//   #tab=tmux:<host>:<session-name>   attach/create named tmux session on SSH host
+//   #tab=terminal:<host>              plain SSH terminal (Windows / non-tmux hosts)
+//   #tab=rdp:<host>                   RDP via guacamole
+//   #tab=vnc:<host>                   VNC via guacamole
+//   #tab=telnet:<host>                telnet via guacamole
+//
+// Legacy `?tab=` query form is also accepted on parse for bookmarks predating
+// the switch, but new URLs are always written to the hash.
 //
 // The <host> component is the host record's `name` field (case-insensitive lookup);
-// component IDs work too as a rename-fallback (`?tab=rdp:7`).
+// numeric IDs work too as a rename-fallback (`#tab=rdp:7`).
 //
-// Persistence: snapshot the URL param into sessionStorage at page load BEFORE any
-// auth-flow replaceState can strip it — sessionStorage is per-Chrome-tab and survives
-// login redirects. AppShell consumes it after tabs are restored, then clears it.
+// Persistence: snapshot the URL into sessionStorage at page load BEFORE any
+// auth-flow replaceState can strip it — sessionStorage is per-Chrome-tab.
+// AppShell consumes it after tabs are restored, then clears it.
 
 import type { TabType } from "@/types/ui-types";
 
@@ -82,19 +90,33 @@ export function specForTab(input: {
   return null;
 }
 
+// Read the current wire spec from the URL. Prefers hash form (#tab=...);
+// falls back to query form (?tab=...) for legacy bookmarks.
+function readTabFromUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const hash = window.location.hash;
+  if (hash.startsWith("#tab=")) return hash.slice(5);
+  if (hash.length > 1) {
+    // Support `#foo=bar&tab=xxx` too, though we don't emit that.
+    const params = new URLSearchParams(hash.slice(1));
+    const t = params.get("tab");
+    if (t) return t;
+  }
+  return new URLSearchParams(window.location.search).get("tab");
+}
+
 // Called at module load in main.tsx BEFORE the React tree renders. Reads the
-// URL query and stashes ?tab= into sessionStorage so it survives every
-// downstream replaceState (auth flow, OIDC, etc.). sessionStorage is
-// per-Chrome-tab, so a browser with N Termix tabs open holds N independent
-// pending specs — exactly the property we need.
+// URL and stashes into sessionStorage so it survives every downstream
+// replaceState (auth flow, OIDC, etc.). sessionStorage is per-Chrome-tab, so a
+// browser with N Termix tabs open holds N independent pending specs.
 export function snapshotPendingTab(): void {
   if (typeof window === "undefined") return;
   try {
-    const raw = new URLSearchParams(window.location.search).get("tab");
+    const raw = readTabFromUrl();
     if (raw) window.sessionStorage.setItem(STORAGE_KEY, raw);
   } catch {
     // sessionStorage may be blocked (private mode with strict setting) — the
-    // URL fallback in consumePendingTab still works if the query survives.
+    // URL fallback in consumePendingTab still works if the hash survives.
   }
 }
 
@@ -109,29 +131,27 @@ export function consumePendingTab(): TabSpec | null {
   } catch {
     // ignore
   }
-  if (!raw) {
-    raw = new URLSearchParams(window.location.search).get("tab");
-  }
+  if (!raw) raw = readTabFromUrl();
   return parseTabParam(raw);
 }
 
-// Push a TabSpec into the browser URL bar via replaceState (no history entry).
-// null clears any existing ?tab= param.
+// Push a TabSpec into the URL fragment via replaceState (no history entry).
+// null clears any existing #tab=.
+//
+// We use the fragment specifically because Chrome's window-restore code path
+// (Ctrl+Shift+T after closing a whole window) doesn't preserve replaceState'd
+// query params, but does preserve the fragment. Individual-tab restore works
+// fine with both — this covers both paths.
 export function writeTabToUrl(spec: TabSpec | null): void {
   if (typeof window === "undefined") return;
+  const nextHash = spec ? `#tab=${encodeTabSpec(spec)}` : "";
+  const currentHash = window.location.hash;
+  // Also strip any legacy ?tab= that might be lurking from a bookmarked pre-hash URL.
   const params = new URLSearchParams(window.location.search);
-  if (spec) {
-    params.set("tab", encodeTabSpec(spec));
-  } else {
-    params.delete("tab");
-  }
+  params.delete("tab");
   const qs = params.toString();
-  // Manually re-decode our own colon separators for readability. URLSearchParams
-  // percent-encodes the `:` we intentionally kept unencoded in encodeTabSpec.
-  const cleaned = qs.replace(/tab=([^&]+)/, (_, v) =>
-    "tab=" + v.replace(/%3A/g, ":"),
-  );
-  const url =
-    window.location.pathname + (cleaned ? `?${cleaned}` : "") + window.location.hash;
-  window.history.replaceState({}, "", url);
+  const nextSearch = qs ? `?${qs}` : "";
+  const nextUrl = window.location.pathname + nextSearch + nextHash;
+  if (currentHash === nextHash && window.location.search === nextSearch) return;
+  window.history.replaceState({}, "", nextUrl);
 }
