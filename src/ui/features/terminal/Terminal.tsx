@@ -142,7 +142,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const connectionErrorRef = useRef<string | null>(null);
     const [showDisconnectedOverlay, setShowDisconnectedOverlay] =
       useState(false);
-    const [isIdle, setIsIdle] = useState(false);
+    // Idle state deliberately not tracked anymore: patch 26 removed the visual
+    // pulse. Backend still emits {type:"idle"} messages; frontend ignores them.
 
     const updateConnectionError = useCallback((error: string | null) => {
       connectionErrorRef.current = error;
@@ -1045,7 +1046,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             return;
           }
           if (msg.type === "idle") {
-            setIsIdle(msg.idle === true);
+            // Backend still emits idle transitions (patch 13); frontend no
+            // longer visualizes them (patch 26 replaced pulse with static tint).
             return;
           }
           if (msg.type === "data") {
@@ -2740,11 +2742,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }}
         />
 
-        {isConnected && isIdle && (
-          <div
-            className={`claude-idle-overlay${sessionHue != null ? " has-session" : ""}`}
-            aria-hidden="true"
-          />
+        {isConnected && sessionHue != null && (
+          <div className="session-tint" aria-hidden="true" />
         )}
 
         {isConnected && identityKey && <IdentityBadge identityKey={identityKey} />}
