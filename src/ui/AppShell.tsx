@@ -524,72 +524,83 @@ export function AppShell({
           getActiveSessions(),
         ]);
 
-        if (!Array.isArray(savedTabs) || savedTabs.length === 0) return;
+        // Patch 25 fix: the URL-driven-open block below must run even when
+        // there are no persisted tabs — otherwise a hash-only session
+        // restore falls through to setTabsReady(true), URL-sync fires with
+        // the default dashboard activeTabId, and the hash gets clobbered.
+        // So gate the persisted-restore on `savedTabs.length > 0` inline
+        // instead of returning early.
+        const hasSavedTabs =
+          Array.isArray(savedTabs) && savedTabs.length > 0;
 
         const sessionByInstanceId = new Map(
-          (Array.isArray(activeSessions) ? activeSessions : [])
-            .filter((s) => s.tabInstanceId != null)
-            .map((s) => [s.tabInstanceId, s]),
+          hasSavedTabs
+            ? (Array.isArray(activeSessions) ? activeSessions : [])
+                .filter((s) => s.tabInstanceId != null)
+                .map((s) => [s.tabInstanceId, s])
+            : [],
         );
 
         let restoredTabs: Tab[] = [];
-        if (userPrefs.reopenTabsOnLogin) {
-          const hasPersistentTabs = tabs.some((t) =>
-            PERSISTENT_TAB_TYPES.includes(t.type),
-          );
-          if (!hasPersistentTabs) {
-            for (const saved of savedTabs as OpenTabRecord[]) {
-              const host = saved.hostId
-                ? allHosts.find((h) => h.id === String(saved.hostId))
-                : undefined;
-              const hostlessTypes: TabType[] = ["dashboard", "tunnel"];
-              if (!host && !hostlessTypes.includes(saved.tabType as TabType))
-                continue;
+        if (hasSavedTabs) {
+          if (userPrefs.reopenTabsOnLogin) {
+            const hasPersistentTabs = tabs.some((t) =>
+              PERSISTENT_TAB_TYPES.includes(t.type),
+            );
+            if (!hasPersistentTabs) {
+              for (const saved of savedTabs as OpenTabRecord[]) {
+                const host = saved.hostId
+                  ? allHosts.find((h) => h.id === String(saved.hostId))
+                  : undefined;
+                const hostlessTypes: TabType[] = ["dashboard", "tunnel"];
+                if (!host && !hostlessTypes.includes(saved.tabType as TabType))
+                  continue;
 
-              if (host) {
-                if (saved.tabType === "terminal" && !host.enableSsh) continue;
-                if (saved.tabType === "rdp" && !host.enableRdp) continue;
-                if (saved.tabType === "vnc" && !host.enableVnc) continue;
-                if (saved.tabType === "telnet" && !host.enableTelnet) continue;
+                if (host) {
+                  if (saved.tabType === "terminal" && !host.enableSsh) continue;
+                  if (saved.tabType === "rdp" && !host.enableRdp) continue;
+                  if (saved.tabType === "vnc" && !host.enableVnc) continue;
+                  if (saved.tabType === "telnet" && !host.enableTelnet) continue;
+                }
+
+                // Singleton tabs use their type as the stable ID; host-bound tabs get a unique ID
+                const tabId = host
+                  ? `${host.name}-${saved.tabType}-${Date.now()}-${saved.tabOrder}`
+                  : saved.id;
+                const liveSession = sessionByInstanceId.get(saved.id);
+                const restoredSessionId =
+                  liveSession?.sessionId ?? saved.backendSessionId ?? null;
+
+                restoredTabs.push({
+                  id: tabId,
+                  instanceId: saved.id,
+                  type: saved.tabType as TabType,
+                  label: saved.label,
+                  host,
+                  openedAt: new Date(saved.createdAt).getTime(),
+                  restoredSessionId,
+                  targetTmuxSession: saved.targetTmuxSession ?? null,
+                  terminalRef:
+                    saved.tabType === "terminal" ? createRef() : undefined,
+                });
               }
 
-              // Singleton tabs use their type as the stable ID; host-bound tabs get a unique ID
-              const tabId = host
-                ? `${host.name}-${saved.tabType}-${Date.now()}-${saved.tabOrder}`
-                : saved.id;
-              const liveSession = sessionByInstanceId.get(saved.id);
-              const restoredSessionId =
-                liveSession?.sessionId ?? saved.backendSessionId ?? null;
-
-              restoredTabs.push({
-                id: tabId,
-                instanceId: saved.id,
-                type: saved.tabType as TabType,
-                label: saved.label,
-                host,
-                openedAt: new Date(saved.createdAt).getTime(),
-                restoredSessionId,
-                targetTmuxSession: saved.targetTmuxSession ?? null,
-                terminalRef:
-                  saved.tabType === "terminal" ? createRef() : undefined,
-              });
+              if (restoredTabs.length > 0) {
+                setTabs((prev) => {
+                  const existingIds = new Set(prev.map((t) => t.id));
+                  const newTabs = restoredTabs.filter(
+                    (t) => !existingIds.has(t.id),
+                  );
+                  return newTabs.length > 0 ? [...prev, ...newTabs] : prev;
+                });
+                setActiveTabId(restoredTabs[0].id);
+              }
+              // Restored tabs are in the tab bar, not in background records
             }
-
-            if (restoredTabs.length > 0) {
-              setTabs((prev) => {
-                const existingIds = new Set(prev.map((t) => t.id));
-                const newTabs = restoredTabs.filter(
-                  (t) => !existingIds.has(t.id),
-                );
-                return newTabs.length > 0 ? [...prev, ...newTabs] : prev;
-              });
-              setActiveTabId(restoredTabs[0].id);
-            }
-            // Restored tabs are in the tab bar, not in background records
+          } else {
+            // Not restoring to tab bar — keep as background records for ConnectionsPanel
+            setBackgroundTabRecords(savedTabs as OpenTabRecord[]);
           }
-        } else {
-          // Not restoring to tab bar — keep as background records for ConnectionsPanel
-          setBackgroundTabRecords(savedTabs as OpenTabRecord[]);
         }
 
         // URL-driven initial open — patch 25. Composes with persisted restore:
