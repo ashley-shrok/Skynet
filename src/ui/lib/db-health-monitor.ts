@@ -70,10 +70,28 @@ class DatabaseHealthMonitor {
   }
 
   reportDatabaseError(error: unknown) {
-    const errorLike = error as HttpLikeError;
+    const errorLike = error as HttpLikeError & { name?: string };
+
+    // Client-side request cancellations are NOT a backend health signal.
+    // ERR_CANCELED / CanceledError (axios) and AbortError (fetch/DOMException)
+    // fire on legitimate flows: component unmount mid-request, superseded
+    // polls, tab switching, and Chrome intensive-throttling of backgrounded
+    // tabs. Treating them as backend failures produced brief-flash
+    // "Connection lost / Backend reconnected" toast pairs on this deployment.
+    // See fork patch #27 for the file-manager polling storm that made
+    // this visible.
+    const rawCode = errorLike.response?.data?.code || errorLike.code;
+    if (
+      rawCode === "ERR_CANCELED" ||
+      errorLike.name === "CanceledError" ||
+      errorLike.name === "AbortError"
+    ) {
+      return;
+    }
+
     const errorMessage =
       errorLike.response?.data?.error || errorLike.message || "";
-    const errorCode = errorLike.response?.data?.code || errorLike.code;
+    const errorCode = rawCode;
     const lowerMessage = errorMessage.toLowerCase();
 
     const isDatabaseError =
@@ -89,10 +107,8 @@ class DatabaseHealthMonitor {
       errorCode === "ECONNABORTED" ||
       errorCode === "ECONNRESET" ||
       errorCode === "ETIMEDOUT" ||
-      errorCode === "ERR_CANCELED" ||
       (lowerMessage.includes("network error") &&
         errorLike.response === undefined) ||
-      lowerMessage.includes("request aborted") ||
       lowerMessage.includes("timeout");
 
     if (!(isDatabaseError || isBackendUnreachable)) {

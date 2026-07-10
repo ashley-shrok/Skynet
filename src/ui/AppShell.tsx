@@ -6,7 +6,7 @@ import { Separator } from "@/components/separator";
 import { Button } from "@/components/button";
 import { Sheet, SheetContent } from "@/components/sheet";
 import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
-import { useState, useRef, useCallback, useEffect, createRef } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, createRef } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
@@ -53,6 +53,7 @@ import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
 import { ConnectionsPanel } from "@/sidebar/ConnectionsPanel";
 import { TransferMonitor } from "@/features/file-manager/TransferMonitor.tsx";
+import { getPendingTransferIds } from "@/features/file-manager/transferNotificationStore.ts";
 import { consumePendingTab, specForTab, writeTabToUrl } from "@/lib/tab-url";
 
 function sshHostToHost(h: SSHHostWithStatus): Host {
@@ -1079,6 +1080,21 @@ export function AppShell({
 
   const terminalTabs = tabs.filter((t) => t.type === "terminal");
 
+  // Only mount TransferMonitor when there's actual work for it. Upstream
+  // mounts it unconditionally; combined with the sub-2s polling loop it does
+  // (POLL_INTERVAL_MS = 2000 in TransferMonitor.tsx), that flooded the backend
+  // with /ssh/file_manager/ssh/activeTransfers requests on every browser tab
+  // whether or not the user ever opens the file manager — and any cancelled
+  // request tripped dbHealthMonitor's false-positive "connection lost" toast.
+  // Gate: a "files" tab is open, OR a pending transfer id is in localStorage
+  // (persisted across reloads by transferNotificationStore). See fork patch #27.
+  const needsTransferMonitor = useMemo(
+    () =>
+      tabs.some((t) => t.type === "files") ||
+      getPendingTransferIds().length > 0,
+    [tabs],
+  );
+
   // Sidebar panel content — shared between desktop inline sidebar and mobile sheet
   const sidebarPanelContent = (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -1411,7 +1427,7 @@ export function AppShell({
         setIsOpen={setCommandPaletteOpen}
         onOpenTab={openTab}
       />
-      <TransferMonitor />
+      {needsTransferMonitor && <TransferMonitor />}
     </>
   );
 }
