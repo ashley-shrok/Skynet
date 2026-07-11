@@ -15,6 +15,7 @@ import { CommandPalette } from "@/shell/CommandPalette";
 import { AppRail } from "@/sidebar/AppRail";
 import type { RailView } from "@/sidebar/AppRail";
 import { HostsPanel } from "@/sidebar/HostsPanel";
+import { SessionsPanel } from "@/sidebar/SessionsPanel";
 import { QuickConnectPanel } from "@/sidebar/QuickConnectPanel";
 import { SshToolsPanel } from "@/sidebar/SshToolsPanel";
 import { SnippetsPanel } from "@/sidebar/SnippetsPanel";
@@ -277,6 +278,7 @@ export function AppShell({
 
   const sidebarTitle: Record<RailView, string> = {
     hosts: "Hosts",
+    sessions: "Sessions",
     credentials: "Credentials",
     "quick-connect": "Quick Connect",
     "ssh-tools": "SSH Tools",
@@ -1153,6 +1155,17 @@ export function AppShell({
       {railView === "history" && (
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
           <HistoryPanel terminalTabs={terminalTabs} activeTabId={activeTabId} />
+        </div>
+      )}
+
+      {railView === "sessions" && (
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <SessionsPanel
+            onOpenTab={(host, type, restore, options) => {
+              openTab(host, type, restore, options);
+              if (isMobile) setSidebarOpen(false);
+            }}
+          />
         </div>
       )}
 

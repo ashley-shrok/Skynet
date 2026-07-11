@@ -152,6 +152,7 @@
     "sshTools": "SSH Tools",
     "history": "History",
     "hosts": "Hosts",
+    "sessions": "Sessions",
     "snippets": "Snippets",
     "hostManager": "Host Manager",
     "credentials": "Credentials",

@@ -9,6 +9,7 @@ import {
   Plug,
   Server,
   Settings,
+  Terminal,
   User,
   Zap,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import type { SplitMode, TabType, ToolsTab } from "@/types/ui-types";
 
 export type RailView =
   | "hosts"
+  | "sessions"
   | "credentials"
   | "quick-connect"
   | ToolsTab
@@ -52,6 +54,11 @@ function buildRailButtons(
 ): RailItem[] {
   return [
     { view: "hosts", icon: <Server size={16} />, title: t("nav.hosts") },
+    {
+      view: "sessions",
+      icon: <Terminal size={16} />,
+      title: t("nav.sessions"),
+    },
     {
       view: "credentials",
       icon: <KeyRound size={16} />,
