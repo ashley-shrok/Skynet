@@ -490,6 +490,10 @@ export function UserProfilePanel({
     const v = localStorage.getItem("commandPaletteShortcutEnabled");
     return v !== null ? v === "true" : true;
   });
+  const [keyboardTabNavEnabled, setKeyboardTabNavEnabled] = useState(() => {
+    const v = localStorage.getItem("keyboardTabNavEnabled");
+    return v !== null ? v === "true" : true;
+  });
   const [showHostTags, setShowHostTags] = useState(() => {
     const v = localStorage.getItem("showHostTags");
     return v !== null ? v === "true" : true;
@@ -1014,6 +1018,21 @@ export function UserProfilePanel({
                   );
                   window.dispatchEvent(
                     new Event("commandPaletteShortcutEnabledChanged"),
+                  );
+                }}
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("newUi.sidebar.userProfile.keyboardTabNav")}
+              description={t("newUi.sidebar.userProfile.keyboardTabNavDesc")}
+            >
+              <FakeSwitch
+                checked={keyboardTabNavEnabled}
+                onChange={(v) => {
+                  setKeyboardTabNavEnabled(v);
+                  localStorage.setItem("keyboardTabNavEnabled", v.toString());
+                  window.dispatchEvent(
+                    new Event("keyboardTabNavEnabledChanged"),
                   );
                 }}
               />

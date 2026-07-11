@@ -10,6 +10,7 @@ import { useState, useRef, useCallback, useEffect, useMemo, createRef } from "re
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
+import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { MobileBottomBar } from "@/shell/MobileBottomBar";
 import { CommandPalette } from "@/shell/CommandPalette";
 import { AppRail } from "@/sidebar/AppRail";
@@ -167,6 +168,7 @@ export function AppShell({
   >({});
 
   useGamepadTabNav(tabs, activeTabId, setActiveTabId);
+  useKeyboardTabNav(tabs, activeTabId, setActiveTabId);
   const [userPrefs, setUserPrefs] = useState<UserPreferences>({
     reopenTabsOnLogin: false,
   });
@@ -293,7 +295,13 @@ export function AppShell({
   // Double-shift opens command palette
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "ShiftLeft" && !e.repeat) {
+      if (
+        e.code === "ShiftLeft" &&
+        !e.repeat &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.metaKey
+      ) {
         const now = Date.now();
         if (now - lastShiftTime.current < 300 && commandPaletteShortcutEnabled)
           setCommandPaletteOpen((prev) => !prev);

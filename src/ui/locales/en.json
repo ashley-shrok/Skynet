@@ -2084,6 +2084,8 @@
         "syntaxHighlightingDesc": "Highlight terminal output",
         "commandPalette": "Command Palette",
         "commandPaletteDesc": "Enable keyboard shortcut",
+        "keyboardTabNav": "Tab Switching Shortcut",
+        "keyboardTabNavDesc": "Ctrl+Shift+[ / Ctrl+Shift+] to cycle tabs",
         "reopenTabsOnLogin": "Reopen Tabs on Login",
         "reopenTabsOnLoginDesc": "Restore your open tabs when you log in or refresh the page, even from another device",
         "confirmTabClose": "Confirm Tab Close",
