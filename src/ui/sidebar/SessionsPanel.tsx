@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/button";
-import { RefreshCw, Terminal } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { getSessionList, type RemoteTmuxSession } from "@/api/sessions-api";
 import { getSSHHosts } from "@/main-axios";
 import type { Host, TabType } from "@/types/ui-types";
 import { sshHostToHost } from "@/dashboard/sshHostToHost";
+import { SessionRow } from "@/features/sessions/SessionRow";
 
 type FetchState = "idle" | "loading" | "error";
 
@@ -117,23 +118,13 @@ export function SessionsPanel({ onOpenTab }: SessionsPanelProps) {
             const newHostGroup =
               prevHostId !== null && prevHostId !== row.hostId;
             return (
-              <button
+              <SessionRow
                 key={`${row.hostId}-${row.sessionName}`}
-                onClick={() => handleRowClick(row)}
-                className={`flex items-center justify-between px-3 py-2 border-b border-border last:border-b-0 hover:bg-muted/50 cursor-pointer text-left transition-colors ${newHostGroup ? "border-t-[3px] border-t-accent-brand/40" : ""}`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="size-6 border border-border bg-muted flex items-center justify-center shrink-0">
-                    <Terminal className="size-3 text-accent-brand" />
-                  </div>
-                  <span className="text-sm font-semibold truncate">
-                    {row.sessionName}
-                  </span>
-                </div>
-                <span className="text-[9px] uppercase tracking-widest font-semibold border border-border px-1.5 py-0.5 text-muted-foreground shrink-0 ml-2 truncate max-w-[40%]">
-                  {row.hostName}
-                </span>
-              </button>
+                session={row}
+                newHostGroup={newHostGroup}
+                onSelect={handleRowClick}
+                variant="compact"
+              />
             );
           })}
       </div>

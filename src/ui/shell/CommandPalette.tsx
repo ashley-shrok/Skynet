@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils";
 import { Kbd } from "@/components/kbd";
 import { Button } from "@/components/button.tsx";
-import { RefreshCw, Search, Terminal } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { getSessionList, type RemoteTmuxSession } from "@/api/sessions-api";
 import { getSSHHosts } from "@/main-axios";
 import type { Host, TabType } from "@/types/ui-types";
@@ -17,6 +17,7 @@ import {
   isAutoTmuxHost,
   isSshLaunchableHost,
 } from "@/dashboard/NewSessionHostChips";
+import { SessionRow } from "@/features/sessions/SessionRow";
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -258,28 +259,12 @@ export function CommandPalette({
                 const newHostGroup =
                   prevHostId !== null && prevHostId !== row.hostId;
                 return (
-                  <button
+                  <SessionRow
                     key={`${row.hostId}-${row.sessionName}`}
-                    onClick={() => handleRowClick(row)}
-                    className={cn(
-                      "flex items-center justify-between px-4 py-3 border-b border-border last:border-b-0 hover:bg-muted/50 cursor-pointer text-left transition-colors",
-                      newHostGroup && "border-t-[3px] border-t-accent-brand/40",
-                    )}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="size-7 border border-border bg-muted flex items-center justify-center shrink-0">
-                        <Terminal className="size-3 text-accent-brand" />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-sm font-semibold truncate">
-                          {row.sessionName}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-[10px] uppercase tracking-widest font-semibold border border-border px-2 py-0.5 text-muted-foreground shrink-0">
-                      {row.hostName}
-                    </span>
-                  </button>
+                    session={row}
+                    newHostGroup={newHostGroup}
+                    onSelect={handleRowClick}
+                  />
                 );
               })}
             </div>
