@@ -2092,8 +2092,6 @@
         "showHostTagsDesc": "Display tags in host list",
         "hostTrayOnClick": "Click to Expand Host Actions",
         "hostTrayOnClickDesc": "Always show connection buttons; click to expand management options instead of hover",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Keep the left sidebar app rail always expanded instead of expanding on hover",
         "settingsSnippets": "Snippets",
         "foldersCollapsed": "Folders Collapsed",
         "foldersCollapsedDesc": "Collapse folders by default",

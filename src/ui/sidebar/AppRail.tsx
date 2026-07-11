@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Clock,
@@ -19,6 +18,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/tooltip";
 import type { SplitMode, TabType, ToolsTab } from "@/types/ui-types";
 
 export type RailView =
@@ -89,7 +94,7 @@ function buildRailButtons(
 }
 
 const btnBase =
-  "relative flex items-center gap-2.5 h-7 rounded shrink-0 transition-colors";
+  "relative flex items-center justify-center h-7 rounded shrink-0 transition-colors";
 const btnStyle = { margin: "0 4px", padding: "0 6px" };
 
 export function AppRail({
@@ -116,171 +121,148 @@ export function AppRail({
   onLogout: () => void;
 }) {
   const { t } = useTranslation();
-  const [pinned, setPinned] = useState(
-    () => localStorage.getItem("pinAppRail") === "true",
-  );
-
-  useEffect(() => {
-    const handler = () =>
-      setPinned(localStorage.getItem("pinAppRail") === "true");
-    window.addEventListener("pinAppRailChanged", handler);
-    return () => window.removeEventListener("pinAppRailChanged", handler);
-  }, []);
-
-  const railExpanded = pinned || profileDropdownOpen;
   const railButtons = buildRailButtons(splitMode, t);
 
   return (
-    <div
-      className="hidden md:flex flex-col items-stretch bg-sidebar border-r border-border shrink-0 overflow-hidden pt-2 gap-1 transition-[width] duration-200"
-      style={{ width: railExpanded ? 160 : 40 }}
-    >
-      <div className="flex flex-col flex-1 gap-1">
-        {railButtons.map((item, i) =>
-          item.kind === "separator" ? (
-            <div
-              key={`sep-${i}`}
-              className="mx-auto h-px bg-border my-0.5 shrink-0 transition-[width] duration-200"
-              style={{ width: railExpanded ? "calc(100% - 16px)" : 20 }}
-            />
-          ) : item.kind === "tab" ? (
-            <button
-              key={item.tabType}
-              onClick={() => onOpenTab?.(item.tabType)}
-              style={btnStyle}
-              className={`${btnBase} text-muted-foreground hover:text-foreground hover:bg-muted/60`}
-            >
-              <span
-                className="shrink-0 flex items-center justify-center"
-                style={{ width: 16, height: 16 }}
-              >
-                {item.icon}
-              </span>
-              <span
-                className={`text-xs font-medium whitespace-nowrap overflow-hidden transition-opacity duration-150 ${
-                  railExpanded ? "opacity-100 delay-75" : "opacity-0"
-                }`}
-              >
-                {item.title}
-              </span>
-            </button>
-          ) : (
-            <button
-              key={item.view}
-              onClick={() => onRailClick(item.view)}
-              style={btnStyle}
-              className={`${btnBase} ${
-                sidebarOpen && railView === item.view
-                  ? "text-accent-brand bg-accent-brand/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-              }`}
-            >
-              <span
-                className="shrink-0 flex items-center justify-center"
-                style={{ width: 16, height: 16 }}
-              >
-                {item.icon}
-              </span>
-              <span
-                className={`text-xs font-medium whitespace-nowrap overflow-hidden transition-opacity duration-150 ${
-                  railExpanded ? "opacity-100 delay-75" : "opacity-0"
-                }`}
-              >
-                {item.title}
-              </span>
-              {item.dot && (
-                <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-accent-brand" />
-              )}
-            </button>
-          ),
-        )}
-      </div>
-
-      <div className="shrink-0 flex flex-col gap-1 border-t border-border pt-1 pb-1">
-        {[
-          {
-            view: "user-profile" as RailView,
-            icon: <User size={16} />,
-            title: t("nav.userProfile"),
-          },
-          ...(isAdmin
-            ? [
-                {
-                  view: "admin-settings" as RailView,
-                  icon: <Settings size={16} />,
-                  title: t("nav.admin"),
-                },
-              ]
-            : []),
-        ].map((item) => (
-          <button
-            key={item.view}
-            onClick={() => onRailClick(item.view)}
-            style={btnStyle}
-            className={`${btnBase} ${
-              sidebarOpen && railView === item.view
-                ? "text-accent-brand bg-accent-brand/10"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-            }`}
-          >
-            <span
-              className="shrink-0 flex items-center justify-center"
-              style={{ width: 16, height: 16 }}
-            >
-              {item.icon}
-            </span>
-            <span
-              className={`text-xs font-medium whitespace-nowrap overflow-hidden transition-opacity duration-150 ${railExpanded ? "opacity-100 delay-75" : "opacity-0"}`}
-            >
-              {item.title}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      <div className="shrink-0 border-t border-border">
-        <DropdownMenu
-          open={profileDropdownOpen}
-          onOpenChange={onProfileDropdownChange}
-        >
-          <DropdownMenuTrigger asChild>
-            <button
-              className="flex items-center gap-2.5 w-full h-10 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-              style={{ padding: "0 6px" }}
-            >
+    <TooltipProvider delayDuration={500}>
+      <div
+        className="hidden md:flex flex-col items-stretch bg-sidebar border-r border-border shrink-0 overflow-hidden pt-2 gap-1"
+        style={{ width: 40 }}
+      >
+        <div className="flex flex-col flex-1 gap-1">
+          {railButtons.map((item, i) =>
+            item.kind === "separator" ? (
               <div
-                className="rounded-full bg-accent-brand/20 border border-accent-brand/30 flex items-center justify-center font-bold text-accent-brand shrink-0"
-                style={{ width: 24, height: 24, fontSize: 11 }}
-              >
-                {username.charAt(0).toUpperCase() || "U"}
-              </div>
-              <div
-                className={`flex flex-col items-start overflow-hidden transition-opacity duration-150 ${
-                  railExpanded ? "opacity-100 delay-75" : "opacity-0"
-                }`}
-              >
-                <span className="text-xs font-semibold leading-tight whitespace-nowrap">
-                  {username || "User"}
-                </span>
-                <span className="text-[10px] text-muted-foreground leading-tight whitespace-nowrap">
-                  {isAdmin ? t("nav.roleAdministrator") : t("nav.roleUser")}
-                </span>
-              </div>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="right"
-            align="end"
-            sideOffset={1}
-            className="!w-auto min-w-max [clip-path:inset(-4px_-4px_-4px_0px)]"
+                key={`sep-${i}`}
+                className="mx-auto h-px bg-border my-0.5 shrink-0"
+                style={{ width: 20 }}
+              />
+            ) : item.kind === "tab" ? (
+              <Tooltip key={item.tabType}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => onOpenTab?.(item.tabType)}
+                    style={btnStyle}
+                    className={`${btnBase} text-muted-foreground hover:text-foreground hover:bg-muted/60`}
+                  >
+                    <span
+                      className="shrink-0 flex items-center justify-center"
+                      style={{ width: 16, height: 16 }}
+                    >
+                      {item.icon}
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{item.title}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Tooltip key={item.view}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => onRailClick(item.view)}
+                    style={btnStyle}
+                    className={`${btnBase} ${
+                      sidebarOpen && railView === item.view
+                        ? "text-accent-brand bg-accent-brand/10"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    <span
+                      className="shrink-0 flex items-center justify-center"
+                      style={{ width: 16, height: 16 }}
+                    >
+                      {item.icon}
+                    </span>
+                    {item.dot && (
+                      <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-accent-brand" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{item.title}</TooltipContent>
+              </Tooltip>
+            ),
+          )}
+        </div>
+
+        <div className="shrink-0 flex flex-col gap-1 border-t border-border pt-1 pb-1">
+          {[
+            {
+              view: "user-profile" as RailView,
+              icon: <User size={16} />,
+              title: t("nav.userProfile"),
+            },
+            ...(isAdmin
+              ? [
+                  {
+                    view: "admin-settings" as RailView,
+                    icon: <Settings size={16} />,
+                    title: t("nav.admin"),
+                  },
+                ]
+              : []),
+          ].map((item) => (
+            <Tooltip key={item.view}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onRailClick(item.view)}
+                  style={btnStyle}
+                  className={`${btnBase} ${
+                    sidebarOpen && railView === item.view
+                      ? "text-accent-brand bg-accent-brand/10"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                  }`}
+                >
+                  <span
+                    className="shrink-0 flex items-center justify-center"
+                    style={{ width: 16, height: 16 }}
+                  >
+                    {item.icon}
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{item.title}</TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+
+        <div className="shrink-0 border-t border-border">
+          <DropdownMenu
+            open={profileDropdownOpen}
+            onOpenChange={onProfileDropdownChange}
           >
-            <DropdownMenuItem variant="destructive" onClick={onLogout}>
-              <KeyRound size={14} />
-              Logout
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="flex items-center justify-center w-full h-10 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                  >
+                    <div
+                      className="rounded-full bg-accent-brand/20 border border-accent-brand/30 flex items-center justify-center font-bold text-accent-brand shrink-0"
+                      style={{ width: 24, height: 24, fontSize: 11 }}
+                    >
+                      {username.charAt(0).toUpperCase() || "U"}
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {username || "User"} · {isAdmin ? t("nav.roleAdministrator") : t("nav.roleUser")}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent
+              side="right"
+              align="end"
+              sideOffset={1}
+              className="!w-auto min-w-max [clip-path:inset(-4px_-4px_-4px_0px)]"
+            >
+              <DropdownMenuItem variant="destructive" onClick={onLogout}>
+                <KeyRound size={14} />
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

@@ -497,9 +497,6 @@ export function UserProfilePanel({
   const [hostTrayOnClick, setHostTrayOnClick] = useState(
     () => localStorage.getItem("hostTrayOnClick") === "true",
   );
-  const [pinAppRail, setPinAppRail] = useState(
-    () => localStorage.getItem("pinAppRail") === "true",
-  );
   const [foldersCollapsed, setFoldersCollapsed] = useState(
     () => localStorage.getItem("defaultSnippetFoldersCollapsed") !== "false",
   );
@@ -1078,19 +1075,6 @@ export function UserProfilePanel({
                   setHostTrayOnClick(v);
                   localStorage.setItem("hostTrayOnClick", v.toString());
                   window.dispatchEvent(new Event("hostTrayOnClickChanged"));
-                }}
-              />
-            </SettingRow>
-            <SettingRow
-              label={t("newUi.sidebar.userProfile.pinAppRail")}
-              description={t("newUi.sidebar.userProfile.pinAppRailDesc")}
-            >
-              <FakeSwitch
-                checked={pinAppRail}
-                onChange={(v) => {
-                  setPinAppRail(v);
-                  localStorage.setItem("pinAppRail", v.toString());
-                  window.dispatchEvent(new Event("pinAppRailChanged"));
                 }}
               />
             </SettingRow>

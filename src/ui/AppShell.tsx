@@ -1271,19 +1271,24 @@ export function AppShell({
   return (
     <>
       <div className="flex w-screen bg-background" style={{ height: "100dvh" }}>
-        {/* Skinny icon rail — desktop only, hidden on mobile */}
-        <AppRail
-          railView={railView}
-          sidebarOpen={sidebarOpen}
-          splitMode={splitMode}
-          username={username}
-          isAdmin={isAdmin}
-          profileDropdownOpen={profileDropdownOpen}
-          onProfileDropdownChange={setProfileDropdownOpen}
-          onRailClick={handleRailClick}
-          onOpenTab={openSingletonTab}
-          onLogout={onLogout}
-        />
+        {/* Skinny icon rail — desktop only, hidden on mobile.
+            Also hidden when the sidebar panel is collapsed: rail + panel
+            behave as one unit. The chevron-right reveal button at the left
+            of the main content brings BOTH back on click. See fork patch #28. */}
+        {sidebarOpen && (
+          <AppRail
+            railView={railView}
+            sidebarOpen={sidebarOpen}
+            splitMode={splitMode}
+            username={username}
+            isAdmin={isAdmin}
+            profileDropdownOpen={profileDropdownOpen}
+            onProfileDropdownChange={setProfileDropdownOpen}
+            onRailClick={handleRailClick}
+            onOpenTab={openSingletonTab}
+            onLogout={onLogout}
+          />
+        )}
 
         {/* Desktop: inline resizable sidebar */}
         {!isMobile && (
