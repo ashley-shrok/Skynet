@@ -17,7 +17,6 @@ import {
   Minus,
   ExternalLink,
 } from "lucide-react";
-import { toast } from "sonner";
 import { tabIcon } from "@/shell/tabUtils";
 import { useIdentities } from "@/state/identities-store";
 import { firstSessionWord } from "@/features/terminal/session-hue";
@@ -525,13 +524,29 @@ export function TabBar({
                       window.location.origin +
                       window.location.pathname +
                       `#tab=${encodeTabSpec(spec)}&only=1`;
-                    const win = window.open(url, "_blank");
-                    if (!win) {
-                      toast.warning(
-                        "Couldn't open new window — check your browser popup blocker.",
-                      );
-                      return;
-                    }
+                    // Open in the BACKGROUND so the user stays on the
+                    // current window. Chrome honors the ctrl/meta modifier
+                    // on a synthesized anchor click exactly as if the user
+                    // had ctrl-clicked a real link → new background tab.
+                    // `window.open` has no cross-browser background flag;
+                    // this anchor trick is the standard workaround. Popup-
+                    // blocker detection isn't possible from this form, but
+                    // browsers don't block popups spawned inside a user
+                    // click event handler, so in practice this is safe.
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.target = "_blank";
+                    a.rel = "noopener noreferrer";
+                    const isMac = /Mac|iPhone|iPad/.test(
+                      navigator.platform,
+                    );
+                    a.dispatchEvent(
+                      new MouseEvent("click", {
+                        ctrlKey: !isMac,
+                        metaKey: isMac,
+                        bubbles: false,
+                      }),
+                    );
                     setContextTabId(null);
                     onCloseTab(contextTabId);
                   }}
