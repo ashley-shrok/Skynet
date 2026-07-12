@@ -56,7 +56,12 @@ import type { SSHHostWithStatus } from "@/main-axios";
 import { ConnectionsPanel } from "@/sidebar/ConnectionsPanel";
 import { TransferMonitor } from "@/features/file-manager/TransferMonitor.tsx";
 import { getPendingTransferIds } from "@/features/file-manager/transferNotificationStore.ts";
-import { consumePendingTab, specForTab, writeTabToUrl } from "@/lib/tab-url";
+import {
+  consumePendingWorkspace,
+  specForTab,
+  writeWorkspaceToUrl,
+} from "@/lib/tab-url";
+import type { TabSpec } from "@/lib/tab-url";
 
 function sshHostToHost(h: SSHHostWithStatus): Host {
   return {
@@ -243,6 +248,10 @@ export function AppShell({
   const terminalRefs = useRef<Map<string, ReturnType<typeof createRef>>>(
     new Map(),
   );
+  // Patch #35: monotonic counter appended to each generated tabId so
+  // multiple openTab calls in the same ms (URL-driven multi-tab restore
+  // loop) don't collide when Date.now() returns identical values.
+  const openTabCounter = useRef(0);
   const [paneContentEls, setPaneContentEls] = useState<
     (HTMLDivElement | null)[]
   >(Array(6).fill(null));
@@ -383,26 +392,34 @@ export function AppShell({
     document.title = tmux || activeTab?.label || "Termix";
   }, [activeTabId, tabs, tmuxSessionNames]);
 
-  // Keep the browser URL in sync with the active tab so Chrome's tab-restore
-  // (or a bookmark, or a fresh incognito window) reopens the exact same
-  // session. Gated on tabsReady so this doesn't fire until the persisted-restore
-  // + URL-driven-open pass has settled activeTabId — otherwise the initial
-  // "dashboard" default would clobber the incoming ?tab= param. See patch 25.
+  // Keep the browser URL in sync with the full open-tab set so Chrome's
+  // tab-restore (or a bookmark, or a fresh incognito window) reopens the exact
+  // same workspace. Emits `#tab=X&tab=Y&active=N` — see patch #35. `only=1`
+  // is intentionally NOT emitted here; it's a one-shot marker set only by
+  // Move-to-new-window (patch #34). Gated on tabsReady so this doesn't fire
+  // until the persisted-restore + URL-driven-open pass has settled the
+  // initial tab set — otherwise the default dashboard would clobber the
+  // incoming `#tab=` param. See patch #25.
   useEffect(() => {
     if (!tabsReady) return;
-    const activeTab = tabs.find((t) => t.id === activeTabId);
-    const tmuxSessionName = tmuxSessionNames[activeTabId];
-    const spec = activeTab
-      ? specForTab({
-          type: activeTab.type,
-          host: activeTab.host,
-          // Prefer the live tmux session name discovered post-connect (patch 1) —
-          // it's what actually persists across reattaches. Fall back to any
-          // explicit target the tab was opened with.
-          targetTmuxSession: tmuxSessionName ?? activeTab.targetTmuxSession,
-        })
-      : null;
-    writeTabToUrl(spec);
+    const tabSpecs: TabSpec[] = [];
+    let activeIndex: number | undefined;
+    for (const t of tabs) {
+      const spec = specForTab({
+        type: t.type,
+        host: t.host,
+        // Prefer the live tmux session name discovered post-connect
+        // (patch #1) — it's what actually persists across reattaches.
+        // Fall back to any explicit target the tab was opened with.
+        targetTmuxSession: tmuxSessionNames[t.id] ?? t.targetTmuxSession,
+      });
+      if (!spec) continue;
+      if (t.id === activeTabId) activeIndex = tabSpecs.length;
+      tabSpecs.push(spec);
+    }
+    writeWorkspaceToUrl(
+      tabSpecs.length === 0 ? null : { tabs: tabSpecs, activeIndex },
+    );
   }, [activeTabId, tabs, tmuxSessionNames, tabsReady]);
 
   useEffect(() => {
@@ -556,12 +573,14 @@ export function AppShell({
         const hasSavedTabs =
           Array.isArray(savedTabs) && savedTabs.length > 0;
 
-        // Hoisted for patch #34: consume the pending URL spec BEFORE the
-        // restore branch so the `only` flag can suppress rehydrate for
+        // Hoisted for patch #34: consume the pending URL workspace BEFORE
+        // the restore branch so the `only` flag can suppress rehydrate for
         // "Move to new window" origin URLs. Reused below in the URL-driven
-        // open block. Idempotent: consumePendingTab clears sessionStorage
-        // on first call; a second call would return null.
-        const pending = consumePendingTab();
+        // open block. Idempotent: consumePendingWorkspace clears
+        // sessionStorage on first call; a second call would return null.
+        // Patch #35: pending is now a WorkspaceSpec (list of tabs + optional
+        // active index + optional only) instead of a single TabSpec.
+        const pending = consumePendingWorkspace();
 
         const sessionByInstanceId = new Map(
           hasSavedTabs
@@ -633,49 +652,65 @@ export function AppShell({
           }
         }
 
-        // URL-driven initial open — patch 25. Composes with persisted restore:
-        // if the URL target is already in restoredTabs, just focus it; otherwise
-        // open a fresh tab. Runs BEFORE setTabsReady(true) so the URL-sync
-        // effect fires only once with the final activeTabId. `pending` is
-        // hoisted above so patch #34's `only` flag can gate rehydrate.
+        // URL-driven initial open — patches #25 (single tab), #35 (multi-tab).
+        // Composes with persisted restore: for each spec in the URL, if it
+        // matches a restoredTabs entry, capture that id; otherwise open a
+        // fresh tab and capture its id. After the loop, focus the tab at
+        // pending.activeIndex. Runs BEFORE setTabsReady(true) so the URL-sync
+        // effect fires only once with the final tab set.
         if (pending) {
-          const wantType: TabType =
-            pending.protocol === "tmux"
-              ? "terminal"
-              : (pending.protocol as TabType);
-          const wantSession =
-            pending.protocol === "tmux" ? (pending.session ?? null) : null;
-          // Look up host by name (case-insensitive) OR id as a rename-fallback.
-          const needle = pending.host.toLowerCase();
-          const host =
-            allHosts.find((h) => h.name.toLowerCase() === needle) ??
-            allHosts.find((h) => h.id === pending.host);
-          if (host) {
+          const openedIds: string[] = [];
+          for (const spec of pending.tabs) {
+            const wantType: TabType =
+              spec.protocol === "tmux"
+                ? "terminal"
+                : (spec.protocol as TabType);
+            const wantSession =
+              spec.protocol === "tmux" ? (spec.session ?? null) : null;
+            // Look up host by name (case-insensitive) OR id as a rename-fallback.
+            const needle = spec.host.toLowerCase();
+            const host =
+              allHosts.find((h) => h.name.toLowerCase() === needle) ??
+              allHosts.find((h) => h.id === spec.host);
+            if (!host) continue;
             const enabledForType =
               (wantType === "terminal" && host.enableSsh) ||
               (wantType === "rdp" && host.enableRdp) ||
               (wantType === "vnc" && host.enableVnc) ||
               (wantType === "telnet" && host.enableTelnet);
-            if (enabledForType) {
-              const match = restoredTabs.find(
-                (t) =>
-                  t.host?.id === host.id &&
-                  t.type === wantType &&
-                  (t.targetTmuxSession ?? null) === wantSession,
+            if (!enabledForType) continue;
+            const match = restoredTabs.find(
+              (t) =>
+                t.host?.id === host.id &&
+                t.type === wantType &&
+                (t.targetTmuxSession ?? null) === wantSession,
+            );
+            if (match) {
+              openedIds.push(match.id);
+            } else {
+              const newId = openTab(
+                host,
+                wantType,
+                undefined,
+                wantSession
+                  ? { targetTmuxSession: wantSession, label: wantSession }
+                  : undefined,
               );
-              if (match) {
-                setActiveTabId(match.id);
-              } else {
-                openTab(
-                  host,
-                  wantType,
-                  undefined,
-                  wantSession
-                    ? { targetTmuxSession: wantSession, label: wantSession }
-                    : undefined,
-                );
-              }
+              if (newId) openedIds.push(newId);
             }
+          }
+          // Focus the requested active tab. If activeIndex is missing or
+          // out of range, fall back to the first opened id (openTab already
+          // sets active on each call, so the last iteration wins if we don't
+          // override — this restores predictable focus regardless).
+          if (openedIds.length > 0) {
+            const idx =
+              typeof pending.activeIndex === "number" &&
+              pending.activeIndex >= 0 &&
+              pending.activeIndex < openedIds.length
+                ? pending.activeIndex
+                : 0;
+            setActiveTabId(openedIds[idx]);
           }
         }
       } catch {
@@ -726,8 +761,12 @@ export function AppShell({
       label?: string;
       allowCreateTmux?: boolean;
     },
-  ) {
-    const tabId = `${host.name}-${type}-${Date.now()}`;
+  ): string {
+    // Patch #35: append a monotonic counter suffix so multiple openTab
+    // calls in the same synchronous tick (e.g. URL-driven multi-tab
+    // restore) don't collide when Date.now() returns identical values.
+    // Same-ms is possible in a tight for-loop over an array of specs.
+    const tabId = `${host.name}-${type}-${Date.now()}-${openTabCounter.current++}`;
     const instanceId =
       restore?.instanceId ??
       (typeof crypto.randomUUID === "function"
@@ -809,6 +848,7 @@ export function AppShell({
         targetTmuxSession,
       }).catch(() => {});
     }
+    return tabId;
   }, []);
 
   function connectHost(host: Host, preferredType?: TabType) {

@@ -1,23 +1,36 @@
-// URL-encoded tab addressing so Chrome tab-restore preserves the active Termix
-// session in each browser tab. See patch 25.
+// URL-encoded workspace addressing so Chrome tab-restore preserves the
+// full Termix tab set in each browser tab. See patches #25 (single tab),
+// #34 (only=1 marker), #35 (multi-tab).
 //
 // State lives in the URL FRAGMENT (hash), NOT the query string. Chrome's
 // window-restore code path (Ctrl+Shift+T after closing a whole window) reverts
 // to the canonical navigation URL and drops replaceState'd query params — the
 // fragment survives because Chrome treats it as part of the URL identity.
 //
-// Wire URL forms accepted / emitted:
-//   #tab=tmux:<host>:<session-name>   attach/create named tmux session on SSH host
-//   #tab=terminal:<host>              plain SSH terminal (Windows / non-tmux hosts)
-//   #tab=rdp:<host>                   RDP via guacamole
-//   #tab=vnc:<host>                   VNC via guacamole
-//   #tab=telnet:<host>                telnet via guacamole
+// Wire URL form:
+//   #tab=<spec>[&tab=<spec>...][&active=<index>][&only=1]
+// Each <spec>:
+//   tmux:<host>:<session-name>   attach named tmux session on SSH host
+//   terminal:<host>              plain SSH terminal (Windows / non-tmux hosts)
+//   rdp:<host>                   RDP via guacamole
+//   vnc:<host>                   VNC via guacamole
+//   telnet:<host>                telnet via guacamole
+//
+// active=<N> is the zero-based index (within the emitted `tab=` list) of the
+// tab that should be focused on restore. Omitted if the active tab isn't
+// URL-addressable (e.g. Dashboard).
+//
+// only=1 is a one-shot marker set ONLY by Move-to-new-window (patch #34).
+// Tells AppShell.loadSavedTabs to skip the persisted-tab rehydrate pass so
+// the new Chrome tab shows JUST the URL's tabs. The ambient URL-sync effect
+// never sets it, preserving `reopenTabsOnLogin` compatibility.
 //
 // Legacy `?tab=` query form is also accepted on parse for bookmarks predating
-// the switch, but new URLs are always written to the hash.
+// patch #25, and single-tab bookmarks (`#tab=one:spec`) predating patch #35
+// still parse as a length-1 workspace.
 //
-// The <host> component is the host record's `name` field (case-insensitive lookup);
-// numeric IDs work too as a rename-fallback (`#tab=rdp:7`).
+// The <host> component is the host record's `name` field (case-insensitive
+// lookup); numeric IDs work as a rename-fallback (`#tab=rdp:7`).
 //
 // Persistence: snapshot the URL into sessionStorage at page load BEFORE any
 // auth-flow replaceState can strip it — sessionStorage is per-Chrome-tab.
@@ -31,13 +44,13 @@ export interface TabSpec {
   protocol: "tmux" | "terminal" | "rdp" | "vnc" | "telnet";
   host: string;
   session?: string;
-  // One-shot marker: when true, AppShell.loadSavedTabs skips the
-  // persisted-tab rehydrate pass and only opens this URL's target.
-  // Set by the "Move to new window" tab-context-menu action (patch #34)
-  // so the new Chrome tab shows JUST the moved tab instead of restoring
-  // the source window's whole persisted set. Not preserved on tab-switch
-  // URL rewrites — the natural `writeTabToUrl` scrub strips it within
-  // milliseconds of page load.
+}
+
+// Full workspace state carried in the URL: an ordered list of tab specs,
+// optional active-index, optional one-shot `only` marker.
+export interface WorkspaceSpec {
+  tabs: TabSpec[];
+  activeIndex?: number;
   only?: boolean;
 }
 
@@ -77,6 +90,25 @@ export function encodeTabSpec(spec: TabSpec): string {
   return parts.join(":");
 }
 
+// Build the fragment payload from a WorkspaceSpec:
+// tab=X&tab=Y[&active=N][&only=1]. URLSearchParams handles the multi-value
+// tab= keys natively.
+export function encodeWorkspaceSpec(ws: WorkspaceSpec): string {
+  const params = new URLSearchParams();
+  for (const spec of ws.tabs) {
+    params.append("tab", encodeTabSpec(spec));
+  }
+  if (
+    typeof ws.activeIndex === "number" &&
+    ws.activeIndex >= 0 &&
+    ws.activeIndex < ws.tabs.length
+  ) {
+    params.set("active", String(ws.activeIndex));
+  }
+  if (ws.only) params.set("only", "1");
+  return params.toString();
+}
+
 // Derive the wire spec from a Tab-shaped input. Returns null for tabs that
 // aren't URL-addressable (dashboard, singletons without a host).
 export function specForTab(input: {
@@ -98,36 +130,36 @@ export function specForTab(input: {
   return null;
 }
 
-// Read tab= and only= from the URL. Prefers hash form (#tab=...),
-// falls back to query form (?tab=...) for legacy bookmarks predating
-// patch 25. Returns the URLSearchParams-shaped payload string
-// (e.g. "tab=tmux:host:name&only=1"), or null if no tab param present.
+// Read the full workspace payload from the URL. Prefers hash form
+// (#tab=...&tab=...), falls back to query form (?tab=...) for legacy
+// bookmarks predating patch #25. Preserves ALL tab= values plus active
+// and only. Returns null if no tab param present.
 function readTabPayloadFromUrl(): string | null {
   if (typeof window === "undefined") return null;
+
+  const build = (p: URLSearchParams): string | null => {
+    const tabs = p.getAll("tab");
+    if (tabs.length === 0) return null;
+    const out = new URLSearchParams();
+    for (const t of tabs) out.append("tab", t);
+    const active = p.get("active");
+    if (active !== null) out.set("active", active);
+    if (p.get("only") === "1") out.set("only", "1");
+    return out.toString();
+  };
+
   const hash = window.location.hash;
   if (hash.length > 1) {
-    const p = new URLSearchParams(hash.slice(1));
-    if (p.has("tab")) {
-      const out = new URLSearchParams();
-      out.set("tab", p.get("tab")!);
-      if (p.get("only") === "1") out.set("only", "1");
-      return out.toString();
-    }
+    const payload = build(new URLSearchParams(hash.slice(1)));
+    if (payload) return payload;
   }
-  const q = new URLSearchParams(window.location.search);
-  if (q.has("tab")) {
-    const out = new URLSearchParams();
-    out.set("tab", q.get("tab")!);
-    if (q.get("only") === "1") out.set("only", "1");
-    return out.toString();
-  }
-  return null;
+  return build(new URLSearchParams(window.location.search));
 }
 
 // Called at module load in main.tsx BEFORE the React tree renders. Reads the
 // URL and stashes into sessionStorage so it survives every downstream
 // replaceState (auth flow, OIDC, etc.). sessionStorage is per-Chrome-tab, so a
-// browser with N Termix tabs open holds N independent pending specs.
+// browser with N Termix tabs open holds N independent pending workspaces.
 export function snapshotPendingTab(): void {
   if (typeof window === "undefined") return;
   try {
@@ -135,13 +167,14 @@ export function snapshotPendingTab(): void {
     if (payload) window.sessionStorage.setItem(STORAGE_KEY, payload);
   } catch {
     // sessionStorage may be blocked (private mode with strict setting) — the
-    // URL fallback in consumePendingTab still works if the hash survives.
+    // URL fallback in consumePendingWorkspace still works if the hash survives.
   }
 }
 
-// Consumed once by AppShell after tabs are ready. Prefers sessionStorage (which
-// survives auth-flow URL-stripping), falls back to the current URL.
-export function consumePendingTab(): TabSpec | null {
+// Consumed once by AppShell after tabs are ready. Prefers sessionStorage
+// (which survives auth-flow URL-stripping), falls back to the current URL.
+// Returns the full workspace spec (or null if no tab param decoded).
+export function consumePendingWorkspace(): WorkspaceSpec | null {
   if (typeof window === "undefined") return null;
   let payload: string | null = null;
   try {
@@ -153,26 +186,39 @@ export function consumePendingTab(): TabSpec | null {
   if (!payload) payload = readTabPayloadFromUrl();
   if (!payload) return null;
   const params = new URLSearchParams(payload);
-  const spec = parseTabParam(params.get("tab"));
-  if (!spec) return null;
-  if (params.get("only") === "1") spec.only = true;
-  return spec;
+  const tabs = params.getAll("tab").map(parseTabParam).filter(
+    (t): t is TabSpec => t !== null,
+  );
+  if (tabs.length === 0) return null;
+  const ws: WorkspaceSpec = { tabs };
+  const activeRaw = params.get("active");
+  if (activeRaw !== null) {
+    const n = parseInt(activeRaw, 10);
+    if (Number.isFinite(n) && n >= 0 && n < tabs.length) {
+      ws.activeIndex = n;
+    }
+  }
+  if (params.get("only") === "1") ws.only = true;
+  return ws;
 }
 
-// Push a TabSpec into the URL fragment via replaceState (no history entry).
-// null clears any existing #tab=.
+// Push a WorkspaceSpec into the URL fragment via replaceState (no history
+// entry). null clears any existing #tab=. Called from AppShell's URL-sync
+// effect on every tab-set / active-tab / tmux-session change.
 //
 // We use the fragment specifically because Chrome's window-restore code path
 // (Ctrl+Shift+T after closing a whole window) doesn't preserve replaceState'd
-// query params, but does preserve the fragment. Individual-tab restore works
-// fine with both — this covers both paths.
-export function writeTabToUrl(spec: TabSpec | null): void {
+// query params, but does preserve the fragment.
+export function writeWorkspaceToUrl(ws: WorkspaceSpec | null): void {
   if (typeof window === "undefined") return;
-  const nextHash = spec ? `#tab=${encodeTabSpec(spec)}` : "";
+  const payload = ws && ws.tabs.length > 0 ? encodeWorkspaceSpec(ws) : "";
+  const nextHash = payload ? `#${payload}` : "";
   const currentHash = window.location.hash;
   // Also strip any legacy ?tab= that might be lurking from a bookmarked pre-hash URL.
   const params = new URLSearchParams(window.location.search);
   params.delete("tab");
+  params.delete("active");
+  params.delete("only");
   const qs = params.toString();
   const nextSearch = qs ? `?${qs}` : "";
   const nextUrl = window.location.pathname + nextSearch + nextHash;
