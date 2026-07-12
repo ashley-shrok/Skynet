@@ -17,6 +17,8 @@ import {
   Minus,
 } from "lucide-react";
 import { tabIcon } from "@/shell/tabUtils";
+import { useIdentities } from "@/state/identities-store";
+import { firstSessionWord } from "@/features/terminal/session-hue";
 import type { Tab, TabType, SplitMode } from "@/types/ui-types";
 import { SPLIT_MODES, PANE_COUNTS } from "@/lib/theme";
 
@@ -50,7 +52,37 @@ export function TabBar({
   onRemoveFromSplit: (tabId: string) => void;
 }) {
   const { t } = useTranslation();
+  const { byKey: identitiesByKey } = useIdentities();
   const [open, setOpen] = useState(true);
+
+  function renderTabIcon(tab: Tab) {
+    const key = firstSessionWord(tab.targetTmuxSession);
+    const identity = key ? identitiesByKey.get(key) ?? null : null;
+    if (identity) {
+      return (
+        <img
+          src={identity.avatarUrl}
+          alt=""
+          className="size-3.5 object-cover shrink-0"
+          draggable={false}
+        />
+      );
+    }
+    return tabIcon(tab.type);
+  }
+
+  function tabTintStyle(tab: Tab): React.CSSProperties {
+    const key = firstSessionWord(tab.targetTmuxSession);
+    const identity = key ? identitiesByKey.get(key) ?? null : null;
+    const hue = identity?.colorHue ?? null;
+    if (hue == null) return {};
+    // linear-gradient sits on top of background-color (hover:bg-surface stays
+    // visible underneath), so we get identity wash + working hover in one go —
+    // no overlay div, no relative-on-content dance.
+    const tint = `hsla(${hue}, 75%, 52%, 0.18)`;
+    return { backgroundImage: `linear-gradient(${tint}, ${tint})` };
+  }
+
   const [dragTabId, setDragTabId] = useState<string | null>(null);
   const [dragTargetIndex, setDragTargetIndex] = useState<number | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
@@ -288,6 +320,7 @@ export function TabBar({
                         ? "grabbing"
                         : "grab",
                   userSelect: "none",
+                  ...tabTintStyle(tab),
                 }}
                 className={`group/tab relative flex items-center gap-2 shrink-0 transition-colors border-r border-border text-sm
                 ${index === 0 && tab.type !== "dashboard" ? "border-l border-border" : ""}
@@ -305,7 +338,7 @@ export function TabBar({
                 {showInPaneIndicator && (
                   <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 size-1 rounded-full bg-muted-foreground/40 z-10" />
                 )}
-                {tabIcon(tab.type)}
+                {renderTabIcon(tab)}
                 {tab.type !== "dashboard" && tab.label}
                 {tab.type !== "dashboard" && (
                   <div
@@ -356,6 +389,7 @@ export function TabBar({
                     pointerEvents: "none",
                     zIndex: 9999,
                     opacity: 0.85,
+                    ...tabTintStyle(tab),
                   }}
                   className={`flex items-center gap-2 shrink-0 border border-border text-sm shadow-lg
                 ${
@@ -364,7 +398,7 @@ export function TabBar({
                     : `px-4 font-medium ${active ? "border-b-2 border-b-accent-brand bg-surface text-foreground" : "bg-sidebar text-muted-foreground"}`
                 }`}
                 >
-                  {tabIcon(tab.type)}
+                  {renderTabIcon(tab)}
                   {tab.type !== "dashboard" && tab.label}
                 </div>
               );
@@ -394,10 +428,11 @@ export function TabBar({
                 <div
                   key={tab.id}
                   onClick={() => onSetActiveTab(tab.id)}
+                  style={tabTintStyle(tab)}
                   className={`flex items-center justify-between px-2 py-2 text-xs cursor-default hover:bg-accent hover:text-accent-foreground ${tab.id === activeTabId ? "text-foreground" : "text-muted-foreground"}`}
                 >
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    {tabIcon(tab.type)}
+                    {renderTabIcon(tab)}
                     <span className="truncate">
                       {tab.type === "dashboard"
                         ? t("nav.dashboard")
