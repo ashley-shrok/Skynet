@@ -68,10 +68,18 @@ interface ConnectToHostData {
   };
   initialPath?: string;
   executeCommand?: string;
-  // When set, autoTmux will `new-session -A -s <name>` (attach if exists,
-  // create otherwise) instead of generating a random termix-* name or
-  // auto-attaching to whatever sole session happens to exist.
+  // When set, autoTmux will attach to the named session. Combined with
+  // tmuxAllowCreate:
+  //   allow=true  -> `new-session -A -s <name>` (attach or create; the
+  //                  "New Session" dialog uses this).
+  //   allow=false -> attach-only. If the session is missing on the host,
+  //                  emit `tmux_session_missing` and close, rather than
+  //                  spawning a phantom. URL-restored tabs
+  //                  (#tab=tmux:host:name) and server-persisted
+  //                  open_tabs rehydrations use this so a killed session
+  //                  never silently resurrects as an empty pane.
   targetTmuxSession?: string;
+  tmuxAllowCreate?: boolean;
 }
 
 interface ResizeData {
@@ -847,7 +855,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
   });
 
   async function handleConnectToHost(data: ConnectToHostData) {
-    const { hostConfig, initialPath, executeCommand, targetTmuxSession } = data;
+    const {
+      hostConfig,
+      initialPath,
+      executeCommand,
+      targetTmuxSession,
+      tmuxAllowCreate,
+    } = data;
     const {
       id,
       ip: rawIp,
@@ -1581,18 +1595,52 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   targetTmuxSession &&
                   targetTmuxSession.trim() !== ""
                 ) {
-                  // Caller asked for a specific named session. Use new-session
-                  // -A so we attach if it exists or create it if it doesn't,
-                  // without prompting the user to pick from the existing list.
+                  // Caller asked for a specific named session. Distinguish
+                  // "exists" (attach), "missing + allow create" (New Session
+                  // dialog: create), and "missing + attach-only" (URL /
+                  // persisted-tab restore: emit tmux_session_missing so the
+                  // client paints an inline error instead of spawning a
+                  // phantom empty session with the same name).
                   const name = targetTmuxSession.trim();
-                  attachOrCreateTmuxSession(stream, undefined, name);
+                  const exists = detection.sessions.some(
+                    (s) => s.name === name,
+                  );
+
+                  if (!exists && !tmuxAllowCreate) {
+                    sshLogger.info(
+                      "Requested tmux session missing on host; attach-only",
+                      {
+                        operation: "tmux_target_missing",
+                        sessionName: name,
+                        hostId: id,
+                      },
+                    );
+                    ws.send(
+                      JSON.stringify({
+                        type: "tmux_session_missing",
+                        sessionName: name,
+                      }),
+                    );
+                    try {
+                      stream.end();
+                    } catch {}
+                    return;
+                  }
+
+                  if (exists) {
+                    attachOrCreateTmuxSession(stream, name);
+                  } else {
+                    attachOrCreateTmuxSession(stream, undefined, name);
+                  }
                   const confirmed = await waitForTmuxSession(conn, name);
                   const session = sessionManager.getSession(boundSessionId);
                   if (session) {
                     session.tmuxSessionName = confirmed ?? name;
                   }
                   sshLogger.info(
-                    "Attached/created targeted tmux session",
+                    exists
+                      ? "Attached to targeted tmux session"
+                      : "Created targeted tmux session",
                     {
                       operation: "tmux_target_session",
                       sessionName: confirmed ?? name,
@@ -1601,7 +1649,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   );
                   ws.send(
                     JSON.stringify({
-                      type: "tmux_session_attached",
+                      type: exists
+                        ? "tmux_session_attached"
+                        : "tmux_session_created",
                       sessionName: confirmed ?? name,
                     }),
                   );

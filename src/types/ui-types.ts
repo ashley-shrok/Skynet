@@ -191,8 +191,14 @@ export type Tab = {
   host?: Host;
   openedAt: number;
   restoredSessionId?: string | null;
-  // Named tmux session to attach to on connect (`tmux new-session -A -s <name>`)
+  // Named tmux session to attach to on connect.
   targetTmuxSession?: string | null;
+  // Ephemeral: when true (only set by the New Session dialog paths), the
+  // backend may create the target session if it doesn't exist. Restored
+  // tabs (URL fragment / server-persisted open_tabs) leave this false so
+  // a killed session doesn't silently resurrect as an empty pane. Not
+  // persisted server-side; not encoded in #tab=.
+  allowCreateTmux?: boolean;
   terminalRef?: import("react").RefObject<{
     sendInput?: (data: string) => void;
     reconnect?: () => void;

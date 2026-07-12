@@ -352,6 +352,18 @@ export function AppShell({
     [],
   );
 
+  // Backend reported the target tmux session doesn't exist on the host
+  // (attach-only path; the tab was restored from URL or persisted state).
+  // Purge the row from server-side open_tabs so a broken tab doesn't
+  // rehydrate on next login. The tab stays visible so the inline pane
+  // error is still readable — the user closes it manually.
+  const handleTmuxSessionMissing = useCallback(
+    (instanceId: string, _sessionName: string) => {
+      deleteOpenTab(instanceId).catch(() => {});
+    },
+    [],
+  );
+
   useEffect(() => {
     setTmuxSessionNames((prev) => {
       const live = new Set(tabs.map((t) => t.id));
@@ -702,7 +714,11 @@ export function AppShell({
     host: Host,
     type: TabType,
     restore?: { instanceId: string; restoredSessionId: string | null },
-    options?: { targetTmuxSession?: string | null; label?: string },
+    options?: {
+      targetTmuxSession?: string | null;
+      label?: string;
+      allowCreateTmux?: boolean;
+    },
   ) {
     const tabId = `${host.name}-${type}-${Date.now()}`;
     const instanceId =
@@ -714,6 +730,11 @@ export function AppShell({
     const ref = type === "terminal" ? createRef() : undefined;
     if (ref) terminalRefs.current.set(tabId, ref);
     const targetTmuxSession = options?.targetTmuxSession ?? null;
+    // Ephemeral (see Tab type): only set true when the New Session dialog
+    // asked for a fresh session name. Restored tabs (URL, persisted) never
+    // set it, so a killed target session errors instead of resurrecting
+    // as an empty pane.
+    const allowCreateTmux = options?.allowCreateTmux ?? false;
     // If caller supplied a tmux session label, use it directly (skip the
     // "(2)", "(3)" duplicate-host-name dedupe pass since the session name
     // is what disambiguates).
@@ -734,6 +755,7 @@ export function AppShell({
             terminalRef: ref,
             restoredSessionId: restore?.restoredSessionId ?? null,
             targetTmuxSession,
+            allowCreateTmux,
           },
         ];
       }
@@ -764,6 +786,7 @@ export function AppShell({
           terminalRef: ref,
           restoredSessionId: restore?.restoredSessionId ?? null,
           targetTmuxSession,
+          allowCreateTmux,
         },
       ];
     });
@@ -1429,6 +1452,7 @@ export function AppShell({
                       closeTab,
                       inPane || activeInline,
                       handleTmuxSessionChange,
+                      handleTmuxSessionMissing,
                     ),
                     tabNode,
                     tab.id,

@@ -83,9 +83,18 @@ interface SSHTerminalProps {
   onTmuxSessionChange?: (sessionName: string | null) => void;
   initialPath?: string;
   executeCommand?: string;
-  // Named tmux session to attach/create on connect. When set, autoTmux
-  // bypasses detection and uses `new-session -A -s <name>`.
+  // Named tmux session to attach on connect. Combined with allowCreateTmux:
+  //   allowCreateTmux=true  -> attach or create (New Session dialog).
+  //   allowCreateTmux=false -> attach-only. Missing session triggers a
+  //                            tmux_session_missing WS event and the
+  //                            disconnect overlay paints an inline error.
   targetTmuxSession?: string | null;
+  allowCreateTmux?: boolean;
+  hostName?: string;
+  // Fires when the backend reports the target session doesn't exist on the
+  // host. AppShell uses this to delete the tab from server-persisted
+  // open_tabs so a broken tab doesn't rehydrate on next login.
+  onTmuxSessionMissing?: (sessionName: string) => void;
   onOpenFileManager?: (path?: string) => void;
   previewTheme?: string | null;
 }
@@ -101,6 +110,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       initialPath,
       executeCommand,
       targetTmuxSession,
+      allowCreateTmux,
+      hostName,
+      onTmuxSessionMissing,
       onOpenFileManager,
       previewTheme,
     },
@@ -1002,6 +1014,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
                 initialPath,
                 executeCommand,
                 targetTmuxSession: targetTmuxSession ?? undefined,
+                tmuxAllowCreate: allowCreateTmux ?? false,
               },
             }),
           );
@@ -1594,6 +1607,27 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               stage: "connection",
               message: t("terminal.tmuxUnavailable"),
             });
+          } else if (msg.type === "tmux_session_missing") {
+            const missingName =
+              typeof msg.sessionName === "string" ? msg.sessionName : "";
+            const message = t("terminal.tmuxSessionMissing", {
+              name: missingName || "?",
+              host: hostName || "?",
+            });
+            addLog({
+              type: "error",
+              stage: "connection",
+              message,
+            });
+            updateConnectionError(message);
+            setIsConnecting(false);
+            shouldNotReconnectRef.current = true;
+            onTmuxSessionMissing?.(missingName);
+            if (webSocketRef.current) {
+              try {
+                webSocketRef.current.close();
+              } catch {}
+            }
           } else if (msg.type === "tmux_detached") {
             tmuxSessionNameRef.current = null;
             setTmuxSessionName(null);

@@ -122,6 +122,7 @@ function TerminalTabContent({
   isVisible,
   onCloseTab,
   onTmuxSessionChange,
+  onTmuxSessionMissing,
 }: {
   tab: Tab;
   host: Host;
@@ -129,6 +130,7 @@ function TerminalTabContent({
   isVisible: boolean;
   onCloseTab?: (id: string) => void;
   onTmuxSessionChange?: (sessionName: string | null) => void;
+  onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
 }) {
   const { previewTerminalTheme } = useTabsSafe();
   return (
@@ -144,12 +146,17 @@ function TerminalTabContent({
           } as TerminalHostConfig
         }
         targetTmuxSession={tab.targetTmuxSession ?? null}
+        allowCreateTmux={tab.allowCreateTmux ?? false}
+        hostName={host.name}
         isVisible={isVisible}
         title={label}
         showTitle={false}
         splitScreen={false}
         onClose={() => onCloseTab?.(tab.id)}
         onTmuxSessionChange={onTmuxSessionChange}
+        onTmuxSessionMissing={(sessionName) =>
+          onTmuxSessionMissing?.(tab.instanceId, sessionName)
+        }
         previewTheme={previewTerminalTheme}
       />
     </CommandHistoryProvider>
@@ -163,11 +170,16 @@ export function renderTabContent(
     host: Host,
     type: TabType,
     restore?: { instanceId: string; restoredSessionId: string | null },
-    options?: { targetTmuxSession?: string | null; label?: string },
+    options?: {
+      targetTmuxSession?: string | null;
+      label?: string;
+      allowCreateTmux?: boolean;
+    },
   ) => void,
   onCloseTab?: (id: string) => void,
   isVisible = true,
   onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void,
+  onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void,
 ) {
   const { host, label } = tab;
 
@@ -200,6 +212,7 @@ export function renderTabContent(
               ? (name) => onTmuxSessionChange(tab.id, name)
               : undefined
           }
+          onTmuxSessionMissing={onTmuxSessionMissing}
         />
       );
 

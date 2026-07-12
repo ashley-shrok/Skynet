@@ -864,6 +864,7 @@
     "reconnected": "Reconnected successfully",
     "tmuxSessionCreated": "tmux session created: {{name}}",
     "tmuxSessionAttached": "tmux session attached: {{name}}",
+    "tmuxSessionMissing": "tmux session '{{name}}' not found on {{host}} — this tab was restored from a URL or persisted state. Close this tab or start a fresh session from the sidebar.",
     "tmuxUnavailable": "tmux is not installed on the remote host, falling back to standard shell",
     "tmuxSessionPickerTitle": "tmux Sessions",
     "tmuxSessionPickerDesc": "Existing tmux sessions found on this host. Select one to reattach or create a new session.",

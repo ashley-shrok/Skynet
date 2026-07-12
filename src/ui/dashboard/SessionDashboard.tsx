@@ -23,7 +23,11 @@ interface SessionDashboardProps {
     host: Host,
     type: TabType,
     restore?: { instanceId: string; restoredSessionId: string | null },
-    options?: { targetTmuxSession?: string | null; label?: string },
+    options?: {
+      targetTmuxSession?: string | null;
+      label?: string;
+      allowCreateTmux?: boolean;
+    },
   ) => void;
 }
 
@@ -101,6 +105,7 @@ export function SessionDashboard({ onOpenTab }: SessionDashboardProps) {
     onOpenTab(host, "terminal", undefined, {
       targetTmuxSession: sessionName,
       label: sessionName,
+      allowCreateTmux: true,
     });
     // Optimistic: bump the new session into the list so the user sees
     // it appear immediately instead of needing to refresh.
