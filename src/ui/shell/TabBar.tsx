@@ -15,10 +15,13 @@ import {
   LayoutPanelLeft,
   Plus,
   Minus,
+  ExternalLink,
 } from "lucide-react";
+import { toast } from "sonner";
 import { tabIcon } from "@/shell/tabUtils";
 import { useIdentities } from "@/state/identities-store";
 import { firstSessionWord } from "@/features/terminal/session-hue";
+import { specForTab, encodeTabSpec } from "@/lib/tab-url";
 import type { Tab, TabType, SplitMode } from "@/types/ui-types";
 import { SPLIT_MODES, PANE_COUNTS } from "@/lib/theme";
 
@@ -510,6 +513,31 @@ export function TabBar({
                 >
                   <RefreshCw className="size-3" />
                   Refresh connection
+                </button>
+              )}
+              {specForTab(ctxTab) && (
+                <button
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    const spec = specForTab(ctxTab);
+                    if (!spec) return;
+                    const url =
+                      window.location.origin +
+                      window.location.pathname +
+                      `#tab=${encodeTabSpec(spec)}&only=1`;
+                    const win = window.open(url, "_blank");
+                    if (!win) {
+                      toast.warning(
+                        "Couldn't open new window — check your browser popup blocker.",
+                      );
+                      return;
+                    }
+                    setContextTabId(null);
+                    onCloseTab(contextTabId);
+                  }}
+                >
+                  <ExternalLink className="size-3" />
+                  Move to new window
                 </button>
               )}
               <div className="h-px bg-border my-1" />

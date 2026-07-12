@@ -556,6 +556,13 @@ export function AppShell({
         const hasSavedTabs =
           Array.isArray(savedTabs) && savedTabs.length > 0;
 
+        // Hoisted for patch #34: consume the pending URL spec BEFORE the
+        // restore branch so the `only` flag can suppress rehydrate for
+        // "Move to new window" origin URLs. Reused below in the URL-driven
+        // open block. Idempotent: consumePendingTab clears sessionStorage
+        // on first call; a second call would return null.
+        const pending = consumePendingTab();
+
         const sessionByInstanceId = new Map(
           hasSavedTabs
             ? (Array.isArray(activeSessions) ? activeSessions : [])
@@ -566,7 +573,7 @@ export function AppShell({
 
         let restoredTabs: Tab[] = [];
         if (hasSavedTabs) {
-          if (userPrefs.reopenTabsOnLogin) {
+          if (userPrefs.reopenTabsOnLogin && !pending?.only) {
             const hasPersistentTabs = tabs.some((t) =>
               PERSISTENT_TAB_TYPES.includes(t.type),
             );
@@ -629,8 +636,8 @@ export function AppShell({
         // URL-driven initial open — patch 25. Composes with persisted restore:
         // if the URL target is already in restoredTabs, just focus it; otherwise
         // open a fresh tab. Runs BEFORE setTabsReady(true) so the URL-sync
-        // effect fires only once with the final activeTabId.
-        const pending = consumePendingTab();
+        // effect fires only once with the final activeTabId. `pending` is
+        // hoisted above so patch #34's `only` flag can gate rehydrate.
         if (pending) {
           const wantType: TabType =
             pending.protocol === "tmux"

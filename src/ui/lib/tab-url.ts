@@ -31,6 +31,14 @@ export interface TabSpec {
   protocol: "tmux" | "terminal" | "rdp" | "vnc" | "telnet";
   host: string;
   session?: string;
+  // One-shot marker: when true, AppShell.loadSavedTabs skips the
+  // persisted-tab rehydrate pass and only opens this URL's target.
+  // Set by the "Move to new window" tab-context-menu action (patch #34)
+  // so the new Chrome tab shows JUST the moved tab instead of restoring
+  // the source window's whole persisted set. Not preserved on tab-switch
+  // URL rewrites — the natural `writeTabToUrl` scrub strips it within
+  // milliseconds of page load.
+  only?: boolean;
 }
 
 const PROTOCOLS: TabSpec["protocol"][] = [
@@ -90,19 +98,30 @@ export function specForTab(input: {
   return null;
 }
 
-// Read the current wire spec from the URL. Prefers hash form (#tab=...);
-// falls back to query form (?tab=...) for legacy bookmarks.
-function readTabFromUrl(): string | null {
+// Read tab= and only= from the URL. Prefers hash form (#tab=...),
+// falls back to query form (?tab=...) for legacy bookmarks predating
+// patch 25. Returns the URLSearchParams-shaped payload string
+// (e.g. "tab=tmux:host:name&only=1"), or null if no tab param present.
+function readTabPayloadFromUrl(): string | null {
   if (typeof window === "undefined") return null;
   const hash = window.location.hash;
-  if (hash.startsWith("#tab=")) return hash.slice(5);
   if (hash.length > 1) {
-    // Support `#foo=bar&tab=xxx` too, though we don't emit that.
-    const params = new URLSearchParams(hash.slice(1));
-    const t = params.get("tab");
-    if (t) return t;
+    const p = new URLSearchParams(hash.slice(1));
+    if (p.has("tab")) {
+      const out = new URLSearchParams();
+      out.set("tab", p.get("tab")!);
+      if (p.get("only") === "1") out.set("only", "1");
+      return out.toString();
+    }
   }
-  return new URLSearchParams(window.location.search).get("tab");
+  const q = new URLSearchParams(window.location.search);
+  if (q.has("tab")) {
+    const out = new URLSearchParams();
+    out.set("tab", q.get("tab")!);
+    if (q.get("only") === "1") out.set("only", "1");
+    return out.toString();
+  }
+  return null;
 }
 
 // Called at module load in main.tsx BEFORE the React tree renders. Reads the
@@ -112,8 +131,8 @@ function readTabFromUrl(): string | null {
 export function snapshotPendingTab(): void {
   if (typeof window === "undefined") return;
   try {
-    const raw = readTabFromUrl();
-    if (raw) window.sessionStorage.setItem(STORAGE_KEY, raw);
+    const payload = readTabPayloadFromUrl();
+    if (payload) window.sessionStorage.setItem(STORAGE_KEY, payload);
   } catch {
     // sessionStorage may be blocked (private mode with strict setting) — the
     // URL fallback in consumePendingTab still works if the hash survives.
@@ -124,15 +143,20 @@ export function snapshotPendingTab(): void {
 // survives auth-flow URL-stripping), falls back to the current URL.
 export function consumePendingTab(): TabSpec | null {
   if (typeof window === "undefined") return null;
-  let raw: string | null = null;
+  let payload: string | null = null;
   try {
-    raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (raw) window.sessionStorage.removeItem(STORAGE_KEY);
+    payload = window.sessionStorage.getItem(STORAGE_KEY);
+    if (payload) window.sessionStorage.removeItem(STORAGE_KEY);
   } catch {
     // ignore
   }
-  if (!raw) raw = readTabFromUrl();
-  return parseTabParam(raw);
+  if (!payload) payload = readTabPayloadFromUrl();
+  if (!payload) return null;
+  const params = new URLSearchParams(payload);
+  const spec = parseTabParam(params.get("tab"));
+  if (!spec) return null;
+  if (params.get("only") === "1") spec.only = true;
+  return spec;
 }
 
 // Push a TabSpec into the URL fragment via replaceState (no history entry).
