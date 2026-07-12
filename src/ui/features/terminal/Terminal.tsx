@@ -39,7 +39,7 @@ import {
   TERMINAL_FONTS,
 } from "@/lib/terminal-themes.ts";
 import "./terminal-global-styles.ts";
-import { firstSessionWord, hueFromSessionName } from "./session-hue.ts";
+import { sessionMatchKey, hueFromSessionName } from "./session-hue.ts";
 import { IdentityBadge } from "./IdentityBadge.tsx";
 import { useIdentities } from "@/state/identities-store";
 import { useTheme } from "@/components/theme-provider.tsx";
@@ -227,7 +227,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const tmuxSessionNameRef = useRef<string | null>(null);
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
     const identityKey = useMemo(
-      () => firstSessionWord(tmuxSessionName),
+      () => sessionMatchKey(tmuxSessionName),
       [tmuxSessionName],
     );
     const { byKey: identitiesByKey } = useIdentities();

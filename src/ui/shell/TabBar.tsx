@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { tabIcon } from "@/shell/tabUtils";
 import { useIdentities } from "@/state/identities-store";
-import { firstSessionWord } from "@/features/terminal/session-hue";
+import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { specForTab, encodeTabSpec } from "@/lib/tab-url";
 import type { Tab, TabType, SplitMode } from "@/types/ui-types";
 import { SPLIT_MODES, PANE_COUNTS } from "@/lib/theme";
@@ -58,7 +58,7 @@ export function TabBar({
   const [open, setOpen] = useState(true);
 
   function renderTabIcon(tab: Tab) {
-    const key = firstSessionWord(tab.targetTmuxSession);
+    const key = sessionMatchKey(tab.targetTmuxSession);
     const identity = key ? identitiesByKey.get(key) ?? null : null;
     if (identity) {
       return (
@@ -74,7 +74,7 @@ export function TabBar({
   }
 
   function tabTintStyle(tab: Tab): React.CSSProperties {
-    const key = firstSessionWord(tab.targetTmuxSession);
+    const key = sessionMatchKey(tab.targetTmuxSession);
     const identity = key ? identitiesByKey.get(key) ?? null : null;
     const hue = identity?.colorHue ?? null;
     if (hue == null) return {};
