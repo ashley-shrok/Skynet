@@ -93,7 +93,7 @@ export function MessageQueueDrawer({
       if (!text.trim()) return;
       const collapsed = text.replace(/\r?\n/g, " ");
       setSendingId(item.id);
-      const ok = onSend(collapsed + "\r");
+      const ok = onSend(collapsed);
       setSendingId(null);
       if (!ok) {
         setError("Terminal not connected — message not sent");

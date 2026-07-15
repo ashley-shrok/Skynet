@@ -42,6 +42,7 @@ import "./terminal-global-styles.ts";
 import { sessionMatchKey, hueFromSessionName } from "./session-hue.ts";
 import { IdentityBadge } from "./IdentityBadge.tsx";
 import { MessageQueueDrawer } from "./MessageQueueDrawer.tsx";
+import { listMessageQueueItems } from "@/api/message-queue-api";
 import { useIdentities } from "@/state/identities-store";
 import { useTheme } from "@/components/theme-provider.tsx";
 import { useCommandTracker } from "@/features/terminal/command-history/useCommandTracker.ts";
@@ -228,6 +229,23 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const tmuxSessionNameRef = useRef<string | null>(null);
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
+    const autoOpenCheckedKeysRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+      const hostId = hostConfig.id;
+      if (hostId == null) return;
+      const key = `${hostId}:${tmuxSessionName ?? ""}`;
+      if (autoOpenCheckedKeysRef.current.has(key)) return;
+      autoOpenCheckedKeysRef.current.add(key);
+      let cancelled = false;
+      listMessageQueueItems({ hostId, tmuxSession: tmuxSessionName })
+        .then((items) => {
+          if (!cancelled && items.length > 0) setIsMessageQueueOpen(true);
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, [hostConfig.id, tmuxSessionName]);
     const identityKey = useMemo(
       () => sessionMatchKey(tmuxSessionName),
       [tmuxSessionName],
@@ -2788,6 +2806,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               const ws = webSocketRef.current;
               if (!ws || ws.readyState !== 1) return false;
               ws.send(JSON.stringify({ type: "input", data: text }));
+              setTimeout(() => {
+                const ws2 = webSocketRef.current;
+                if (ws2 && ws2.readyState === 1) {
+                  ws2.send(JSON.stringify({ type: "input", data: "\r" }));
+                }
+              }, 60);
               return true;
             }}
             onClose={() => setIsMessageQueueOpen(false)}
