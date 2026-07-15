@@ -130,7 +130,7 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
 
 router.patch("/:id", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
-  const id = req.params.id;
+  const id = String(req.params.id);
   try {
     const existing = db
       .select()
@@ -178,7 +178,7 @@ router.patch("/:id", authenticateJWT, async (req: Request, res: Response) => {
 
 router.delete("/:id", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
-  const id = req.params.id;
+  const id = String(req.params.id);
   try {
     const existing = db
       .select()
