@@ -671,6 +671,25 @@ export const identities = sqliteTable("identities", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const messageQueueItems = sqliteTable("message_queue_items", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  hostId: integer("host_id")
+    .notNull()
+    .references(() => hosts.id, { onDelete: "cascade" }),
+  tmuxSession: text("tmux_session"),
+  body: text("body").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const userOpenTabs = sqliteTable("user_open_tabs", {
   id: text("id").primaryKey(),
   userId: text("user_id")

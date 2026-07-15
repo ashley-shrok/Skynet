@@ -498,6 +498,11 @@ export function UserProfilePanel({
     const v = localStorage.getItem("keyboardCloseTabEnabled");
     return v !== null ? v === "true" : true;
   });
+  const [keyboardMessageQueueEnabled, setKeyboardMessageQueueEnabled] =
+    useState(() => {
+      const v = localStorage.getItem("keyboardMessageQueueEnabled");
+      return v !== null ? v === "true" : true;
+    });
   const [showHostTags, setShowHostTags] = useState(() => {
     const v = localStorage.getItem("showHostTags");
     return v !== null ? v === "true" : true;
@@ -1052,6 +1057,26 @@ export function UserProfilePanel({
                   localStorage.setItem("keyboardCloseTabEnabled", v.toString());
                   window.dispatchEvent(
                     new Event("keyboardCloseTabEnabledChanged"),
+                  );
+                }}
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("newUi.sidebar.userProfile.keyboardMessageQueue")}
+              description={t(
+                "newUi.sidebar.userProfile.keyboardMessageQueueDesc",
+              )}
+            >
+              <FakeSwitch
+                checked={keyboardMessageQueueEnabled}
+                onChange={(v) => {
+                  setKeyboardMessageQueueEnabled(v);
+                  localStorage.setItem(
+                    "keyboardMessageQueueEnabled",
+                    v.toString(),
+                  );
+                  window.dispatchEvent(
+                    new Event("keyboardMessageQueueEnabledChanged"),
                   );
                 }}
               />

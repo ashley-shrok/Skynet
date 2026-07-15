@@ -2089,6 +2089,8 @@
         "keyboardTabNavDesc": "Ctrl+Shift+[ / Ctrl+Shift+] to cycle tabs",
         "keyboardCloseTab": "Close Tab Shortcut",
         "keyboardCloseTabDesc": "Ctrl+Shift+L to close the active tab",
+        "keyboardMessageQueue": "Message Queue Shortcut",
+        "keyboardMessageQueueDesc": "Ctrl+Shift+; to show/hide the message queue drawer",
         "reopenTabsOnLogin": "Reopen Tabs on Login",
         "reopenTabsOnLoginDesc": "Restore your open tabs when you log in or refresh the page, even from another device",
         "confirmTabClose": "Confirm Tab Close",

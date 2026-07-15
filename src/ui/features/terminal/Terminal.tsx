@@ -41,6 +41,7 @@ import {
 import "./terminal-global-styles.ts";
 import { sessionMatchKey, hueFromSessionName } from "./session-hue.ts";
 import { IdentityBadge } from "./IdentityBadge.tsx";
+import { MessageQueueDrawer } from "./MessageQueueDrawer.tsx";
 import { useIdentities } from "@/state/identities-store";
 import { useTheme } from "@/components/theme-provider.tsx";
 import { useCommandTracker } from "@/features/terminal/command-history/useCommandTracker.ts";
@@ -226,6 +227,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     } | null>(null);
     const tmuxSessionNameRef = useRef<string | null>(null);
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
+    const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const identityKey = useMemo(
       () => sessionMatchKey(tmuxSessionName),
       [tmuxSessionName],
@@ -737,6 +739,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           if (webSocketRef.current?.readyState === 1) {
             webSocketRef.current.send(JSON.stringify({ type: "input", data }));
           }
+        },
+        toggleMessageQueue: () => {
+          setIsMessageQueueOpen((v) => !v);
         },
         notifyResize: () => {
           try {
@@ -2749,7 +2754,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     return (
       <div
-        className="h-full w-full relative"
+        className="h-full w-full relative flex flex-col"
         style={
           sessionHue != null
             ? {
@@ -2761,7 +2766,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       >
         <div
           ref={xtermRef}
-          className="h-full w-full"
+          className="flex-1 min-h-0 w-full"
           style={{
             pointerEvents: isVisible ? "auto" : "none",
             visibility:
@@ -2775,6 +2780,19 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }
           }}
         />
+        {isMessageQueueOpen && hostConfig.id != null && (
+          <MessageQueueDrawer
+            hostId={hostConfig.id}
+            tmuxSession={tmuxSessionName}
+            onSend={(text) => {
+              const ws = webSocketRef.current;
+              if (!ws || ws.readyState !== 1) return false;
+              ws.send(JSON.stringify({ type: "input", data: text }));
+              return true;
+            }}
+            onClose={() => setIsMessageQueueOpen(false)}
+          />
+        )}
 
         {isConnected && sessionHue != null && (
           <div className="session-tint" aria-hidden="true" />

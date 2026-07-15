@@ -1,0 +1,65 @@
+import { authApi, handleApiError } from "@/main-axios";
+
+export interface MessageQueueItem {
+  id: string;
+  hostId: number;
+  tmuxSession: string | null;
+  body: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MessageQueueKey {
+  hostId: number;
+  tmuxSession: string | null;
+}
+
+export async function listMessageQueueItems(
+  key: MessageQueueKey,
+): Promise<MessageQueueItem[]> {
+  try {
+    const params: Record<string, string> = { hostId: String(key.hostId) };
+    if (key.tmuxSession != null) params.tmuxSession = key.tmuxSession;
+    const response = await authApi.get("/message-queue", { params });
+    return response.data ?? [];
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
+
+export async function createMessageQueueItem(
+  key: MessageQueueKey,
+  body: string = "",
+): Promise<MessageQueueItem> {
+  try {
+    const response = await authApi.post("/message-queue", {
+      hostId: key.hostId,
+      tmuxSession: key.tmuxSession,
+      body,
+    });
+    return response.data;
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
+
+export async function updateMessageQueueItem(
+  id: string,
+  patch: { body?: string; sortOrder?: number },
+): Promise<MessageQueueItem> {
+  try {
+    const response = await authApi.patch(`/message-queue/${id}`, patch);
+    return response.data;
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
+
+export async function deleteMessageQueueItem(id: string): Promise<void> {
+  try {
+    await authApi.delete(`/message-queue/${id}`);
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
