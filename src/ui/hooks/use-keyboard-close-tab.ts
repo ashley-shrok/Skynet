@@ -34,7 +34,7 @@ export function useKeyboardCloseTab(
     const onKeyDown = (e: KeyboardEvent) => {
       if (!enabledRef.current) return;
       if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
-      if (e.code === "KeyK") {
+      if (e.code === "KeyL") {
         e.preventDefault();
         e.stopImmediatePropagation();
         e.stopPropagation();
