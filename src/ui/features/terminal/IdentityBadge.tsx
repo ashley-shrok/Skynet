@@ -12,8 +12,8 @@ export function IdentityBadge({
   return (
     <div
       aria-hidden="true"
-      className="absolute top-2 right-2 z-[101] flex flex-col items-center gap-1.5 bg-card border border-border px-2.5 py-2.5 select-none"
-      style={{ pointerEvents: "none", width: 120 }}
+      className="absolute top-2 right-2 z-[101] flex flex-col items-center gap-1.5 bg-card border border-border px-2.5 py-2.5 select-none transition-opacity duration-150 hover:opacity-0"
+      style={{ width: 120 }}
     >
       <img
         src={identity.avatarUrl}
