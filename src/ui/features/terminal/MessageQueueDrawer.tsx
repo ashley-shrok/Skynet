@@ -35,8 +35,19 @@ export function MessageQueueDrawer({
     setLoading(true);
     setError(null);
     listMessageQueueItems({ hostId, tmuxSession })
-      .then((rows) => {
-        if (!cancelled) setItems(rows);
+      .then(async (rows) => {
+        if (cancelled) return;
+        setItems(rows);
+        if (rows.length === 0) {
+          try {
+            const created = await createMessageQueueItem({ hostId, tmuxSession });
+            if (cancelled) return;
+            focusNewId.current = created.id;
+            setItems([created]);
+          } catch (e) {
+            if (!cancelled) setError(String((e as Error)?.message ?? e));
+          }
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(String(e?.message ?? e));
