@@ -2087,6 +2087,8 @@
         "commandPaletteDesc": "Enable keyboard shortcut",
         "keyboardTabNav": "Tab Switching Shortcut",
         "keyboardTabNavDesc": "Ctrl+Shift+[ / Ctrl+Shift+] to cycle tabs",
+        "keyboardCloseTab": "Close Tab Shortcut",
+        "keyboardCloseTabDesc": "Ctrl+Shift+K to close the active tab",
         "reopenTabsOnLogin": "Reopen Tabs on Login",
         "reopenTabsOnLoginDesc": "Restore your open tabs when you log in or refresh the page, even from another device",
         "confirmTabClose": "Confirm Tab Close",

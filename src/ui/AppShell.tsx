@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
 import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
+import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
 import { MobileBottomBar } from "@/shell/MobileBottomBar";
 import { CommandPalette } from "@/shell/CommandPalette";
 import { AppRail } from "@/sidebar/AppRail";
@@ -174,6 +175,7 @@ export function AppShell({
 
   useGamepadTabNav(tabs, activeTabId, setActiveTabId);
   useKeyboardTabNav(tabs, activeTabId, setActiveTabId);
+  useKeyboardCloseTab(tabs, activeTabId, closeTab);
   const [userPrefs, setUserPrefs] = useState<UserPreferences>({
     reopenTabsOnLogin: false,
   });

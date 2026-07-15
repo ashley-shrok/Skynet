@@ -494,6 +494,10 @@ export function UserProfilePanel({
     const v = localStorage.getItem("keyboardTabNavEnabled");
     return v !== null ? v === "true" : true;
   });
+  const [keyboardCloseTabEnabled, setKeyboardCloseTabEnabled] = useState(() => {
+    const v = localStorage.getItem("keyboardCloseTabEnabled");
+    return v !== null ? v === "true" : true;
+  });
   const [showHostTags, setShowHostTags] = useState(() => {
     const v = localStorage.getItem("showHostTags");
     return v !== null ? v === "true" : true;
@@ -1033,6 +1037,21 @@ export function UserProfilePanel({
                   localStorage.setItem("keyboardTabNavEnabled", v.toString());
                   window.dispatchEvent(
                     new Event("keyboardTabNavEnabledChanged"),
+                  );
+                }}
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("newUi.sidebar.userProfile.keyboardCloseTab")}
+              description={t("newUi.sidebar.userProfile.keyboardCloseTabDesc")}
+            >
+              <FakeSwitch
+                checked={keyboardCloseTabEnabled}
+                onChange={(v) => {
+                  setKeyboardCloseTabEnabled(v);
+                  localStorage.setItem("keyboardCloseTabEnabled", v.toString());
+                  window.dispatchEvent(
+                    new Event("keyboardCloseTabEnabledChanged"),
                   );
                 }}
               />
