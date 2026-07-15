@@ -2321,8 +2321,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         }, 50);
       });
 
-      const observeTarget = xtermRef.current.parentElement ?? xtermRef.current;
-      resizeObserver.observe(observeTarget);
+      resizeObserver.observe(xtermRef.current);
 
       return () => {
         isFittingRef.current = false;
