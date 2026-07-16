@@ -97,6 +97,11 @@ export async function detectTmux(conn: Client): Promise<TmuxDetectionResult> {
 // - Enter: copy the (possibly adjusted) selection and exit copy mode
 // - pane-mode-changed hook: on copy-mode entry, show a brief hint so users
 //   know to press Enter to copy the selection
+// - copy-mode WheelUp/Down: 2 lines per tick (tmux default is 5) for more
+//   control while reading through scrollback. Deliberately NOT touching the
+//   root WheelUp binding — tmux's default already correctly enters copy mode
+//   at the shell prompt and passes wheel events through inside fullscreen
+//   apps (less/vim/htop) via alternate_on detection.
 // Using -q on set/set-hook to suppress errors on older tmux versions that don't support
 // a particular option (e.g. set-clipboard on tmux < 2.5). Note: set-hook doesn't support -q.
 const TMUX_OPTS =
@@ -107,6 +112,10 @@ const TMUX_OPTS =
   ` \\; set -gq mode-keys vi` +
   ` \\; bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X stop-selection` +
   ` \\; bind-key -T copy-mode-vi Enter send-keys -X copy-selection-and-cancel` +
+  ` \\; bind-key -T copy-mode-vi WheelUpPane send-keys -X -N 2 scroll-up` +
+  ` \\; bind-key -T copy-mode-vi WheelDownPane send-keys -X -N 2 scroll-down` +
+  ` \\; bind-key -T copy-mode WheelUpPane send-keys -X -N 2 scroll-up` +
+  ` \\; bind-key -T copy-mode WheelDownPane send-keys -X -N 2 scroll-down` +
   ` \\; set-hook -g pane-mode-changed` +
   ` 'if -F "#{pane_in_mode}"` +
   ` "display-message -d 2500 \\"Adjust selection and press Enter to copy\\""'`;
