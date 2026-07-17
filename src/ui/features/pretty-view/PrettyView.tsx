@@ -76,6 +76,16 @@ export function PrettyView({
 
   const { scrollToBottom, isPinnedToBottom } = useAutoScroll(listRef);
 
+  // Mirror isPinnedToBottom into a ref so the WS on-message closure reads
+  // the latest value WITHOUT being re-created (and thus without needing
+  // isPinnedToBottom in the effect deps below). Prior to this fix, every
+  // scroll-flip tore down the WebSocket and reset the message list — which
+  // is exactly why the jump-to-latest pill never had a chance to render.
+  const isPinnedToBottomRef = useRef<boolean>(true);
+  useEffect(() => {
+    isPinnedToBottomRef.current = isPinnedToBottom;
+  }, [isPinnedToBottom]);
+
   useEffect(() => {
     // Reset all state for this (hostId, tmuxSession) mount.
     setMessages([]);
@@ -124,7 +134,7 @@ export function PrettyView({
           break;
         }
         case "message": {
-          wasPinnedRef.current = isPinnedToBottom;
+          wasPinnedRef.current = isPinnedToBottomRef.current;
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
@@ -173,7 +183,7 @@ export function PrettyView({
       }
       wsRef.current = null;
     };
-  }, [hostId, tmuxSession, isPinnedToBottom]);
+  }, [hostId, tmuxSession]);
 
   // Chat-app auto-scroll — only pin to bottom if the user was already
   // there immediately before the setMessages call that added this row.
