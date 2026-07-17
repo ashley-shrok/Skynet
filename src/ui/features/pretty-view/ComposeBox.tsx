@@ -80,6 +80,18 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
     }
   }
 
+  // Quick-reply: fires a canned message through onSend without touching the
+  // compose textarea's text/focus state. Independent of what the user is
+  // currently composing — same disabled gate as Send (canSend===false only).
+  function handleQuickSend(quickText: string) {
+    setErrorMessage(null);
+    const dispatched = onSend(quickText);
+    if (!dispatched) {
+      setErrorMessage("Not connected — try again in a moment");
+    }
+    textareaRef.current?.focus();
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
@@ -107,6 +119,17 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
         className,
       )}
     >
+      <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => handleQuickSend("go ahead")}
+          disabled={canSend === false}
+          title="Send 'go ahead'"
+        >
+          go ahead
+        </Button>
+      </div>
       <div className="flex items-end gap-2">
         <Textarea
           ref={textareaRef}

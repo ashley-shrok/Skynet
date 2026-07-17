@@ -83,12 +83,6 @@ export function PrettyView({
   const isPinnedToBottomRef = useRef<boolean>(true);
   useEffect(() => {
     isPinnedToBottomRef.current = isPinnedToBottom;
-    // Diagnostic — the jump-to-latest pill only renders when this is false.
-    // If the pill never appears in the UI but this log shows the flag flipping,
-    // the render/positioning is wrong; if it never flips, the scroll observer
-    // isn't seeing scroll events. Safe to leave in; low-frequency.
-    // eslint-disable-next-line no-console
-    console.debug("[PrettyView] isPinnedToBottom =", isPinnedToBottom);
   }, [isPinnedToBottom]);
 
   useEffect(() => {
@@ -127,14 +121,7 @@ export function PrettyView({
       }
       switch (parsed.type) {
         case "session": {
-          // Session-info frame — flip to streaming and note the file
-          // for dev debugging. Not rendered.
-          // eslint-disable-next-line no-console
-          console.debug(
-            "[PrettyView] session",
-            parsed.pid,
-            parsed.sessionFile,
-          );
+          // Session-info frame — flip to streaming; not rendered.
           setStatus("streaming");
           break;
         }
