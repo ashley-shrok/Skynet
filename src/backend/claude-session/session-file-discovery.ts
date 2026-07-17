@@ -56,22 +56,44 @@ export async function discoverClaudeSession(
     return { status: "inactive", reason: "pid_unavailable" };
   }
 
-  // Step 4: walk pgrep descendants + the pane PID itself for an open JSONL
-  // under ~/.claude/projects/. The regex sees `\.` (literal dot) — the double
-  // backslash in the template literal produces a single backslash for grep.
-  const fdWalkCommand =
-    `for p in $(pgrep -P ${pid}; echo ${pid}); do ` +
-    `readlink -f /proc/$p/fd/* 2>/dev/null; ` +
-    `done | grep -E '/\\.claude/projects/.*\\.jsonl$' | head -n 1`;
+  // Step 4: derive the session file from the pane's Claude CWD, then pick the
+  // newest matching .jsonl. Claude Code does NOT keep the JSONL fd open across
+  // the process lifetime — it opens, appends, closes per event. The initial
+  // fd-walk approach silently found nothing on every pane. Instead:
+  //
+  //   1. Read /proc/<pane pid>/cwd (fall back to the first child if the parent
+  //      proc doesn't expose it — some launchers exec the real claude in a
+  //      child that owns the cwd).
+  //   2. Slugify the CWD to a project-dir name: replace every `/` and `.` with
+  //      `-`. So /home/ubuntu/.claude/identities/poppy/... becomes
+  //      -home-ubuntu--claude-identities-poppy-... (the `--` around `.claude`
+  //      is the correct output of the transform, verified on live Claude
+  //      Code layouts).
+  //   3. Pick the newest .jsonl in ~/.claude/projects/<slug>/. If multiple
+  //      claude sessions have run in the same CWD, mtime is the mental-model-
+  //      correct pick (v1 shape: one file per pane, the "current" one).
+  //
+  // If neither the parent nor a child pid exposes /proc/*/cwd, or the slug
+  // dir has no .jsonl files, return inactive.
+  const discoveryScript =
+    `PID=${pid}; ` +
+    `CWD=$(readlink -f /proc/$PID/cwd 2>/dev/null); ` +
+    `if [ -z "$CWD" ]; then ` +
+    `  KID=$(pgrep -P $PID | head -n 1); ` +
+    `  [ -n "$KID" ] && CWD=$(readlink -f /proc/$KID/cwd 2>/dev/null); ` +
+    `fi; ` +
+    `[ -z "$CWD" ] && exit 0; ` +
+    `SLUG=$(printf '%s' "$CWD" | sed 's|[./]|-|g'); ` +
+    `ls -t "$HOME/.claude/projects/$SLUG"/*.jsonl 2>/dev/null | head -n 1`;
 
   let sessionFile: string;
   try {
     const raced = await Promise.race([
-      execCommand(conn, fdWalkCommand),
+      execCommand(conn, discoveryScript),
       new Promise<string>((_, reject) =>
         setTimeout(
           () =>
-            reject(new Error(`fd-walk timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
+            reject(new Error(`discovery timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
           DISCOVERY_EXEC_TIMEOUT_MS,
         ),
       ),
