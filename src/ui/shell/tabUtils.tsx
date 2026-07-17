@@ -13,8 +13,10 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useMemo } from "react";
 import { CommandHistoryProvider } from "@/features/terminal/command-history/CommandHistoryContext";
 import { Terminal as TerminalFeature } from "@/features/terminal/Terminal";
+import { PrettyView } from "@/features/pretty-view/PrettyView";
 import type {
   TerminalHandle,
   TerminalHostConfig,
@@ -132,7 +134,24 @@ function TerminalTabContent({
   onTmuxSessionChange?: (sessionName: string | null) => void;
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
 }) {
+  const isPrettyMode = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const hash = window.location.hash || "";
+    // Substring test — the fragment may already carry a #tab=... payload
+    // per patch #25; presence of the marker anywhere in it flips the mode.
+    return hash.includes("pretty=1");
+  }, []);
+  const targetTmuxSession = tab.targetTmuxSession ?? null;
   const { previewTerminalTheme } = useTabsSafe();
+  if (isPrettyMode && targetTmuxSession && host?.id) {
+    return (
+      <PrettyView
+        hostId={parseInt(host.id, 10)}
+        tmuxSession={targetTmuxSession}
+        className="h-full w-full"
+      />
+    );
+  }
   return (
     <CommandHistoryProvider>
       <TerminalFeature
