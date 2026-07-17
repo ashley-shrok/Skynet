@@ -30,7 +30,7 @@ deadman rollback timer per the fork's DEPLOY DISCIPLINE.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Live session stream to browser + read-only pretty view** - Backend discovers the Claude process in the pane's tmux session, locates the JSONL session file, tails it, streams parsed conversational events over WebSocket, and renders them in a minimal read-only pretty view (with the no-active-session fallback) ✓ deployed to production 2026-07-17
-- [ ] **Phase 2: Toggle, compose, and native web ergonomics** - Keyboard chord flips the top pane between tmux and pretty modes with the queue drawer preserved, plus compose box with split-send and native browser text-selection / click-to-focus / readable-paste behavior
+- [x] **Phase 2: Toggle, compose, and native web ergonomics** - Keyboard chord flips the top pane between tmux and pretty modes with the queue drawer preserved, plus compose box with split-send and native browser text-selection / click-to-focus / readable-paste behavior ✓ deployed to production 2026-07-17 (Ctrl+Shift+O toggle + ComposeBox with inline send button + jump-to-latest pill)
 
 ## Phase Details
 
@@ -107,4 +107,4 @@ Phases execute in numeric order: 1 → 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Live session stream to browser + read-only pretty view | 5/5 | Complete | 2026-07-17 |
-| 2. Toggle, compose, and native web ergonomics | 2/3 | In Progress | - |
+| 2. Toggle, compose, and native web ergonomics | 3/3 | Complete | 2026-07-17 |

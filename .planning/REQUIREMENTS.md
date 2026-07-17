@@ -14,25 +14,25 @@ Requirements for patch #43. Each maps to a roadmap phase.
 
 ### Toggle & Layout
 
-- [ ] **TOGGLE-01**: User can flip the top pane between tmux mode and pretty mode via a dedicated keyboard chord on the active terminal tab
-- [ ] **TOGGLE-02**: Every fresh terminal tab opens in tmux mode; the mode choice is not remembered across tab opens
-- [ ] **TOGGLE-03**: The message queue drawer at the bottom of the terminal tab persists across mode flips, unchanged in position and behaviour
+- [x] **TOGGLE-01**: User can flip the top pane between tmux mode and pretty mode via a dedicated keyboard chord on the active terminal tab
+- [x] **TOGGLE-02**: Every fresh terminal tab opens in tmux mode; the mode choice is not remembered across tab opens
+- [x] **TOGGLE-03**: The message queue drawer at the bottom of the terminal tab persists across mode flips, unchanged in position and behaviour
 
 ### Conversation Render
 
 - [x] **RENDER-01**: Pretty view renders only conversational messages — the user's typed messages and Claude's text replies. Tool calls, tool results, thinking blocks, tokens, and metadata are excluded from v1
 - [x] **RENDER-02**: The rendered conversation scrolls back to the start of the current session file (session boundary = one Claude Code invocation on this pane)
 - [x] **RENDER-03**: Auto-scroll follows the newest message when the user is at the bottom; if the user scrolls up, the view holds position instead of yanking them back
-- [ ] **RENDER-04**: Rendered text is selectable with native browser text selection — no copy-mode dance, no highlight-then-Enter contract
-- [ ] **RENDER-05**: Click-to-focus behaves like a normal web app — clicking the pane focuses it without accidentally starting a text selection
+- [x] **RENDER-04**: Rendered text is selectable with native browser text selection — no copy-mode dance, no highlight-then-Enter contract
+- [x] **RENDER-05**: Click-to-focus behaves like a normal web app — clicking the pane focuses it without accidentally starting a text selection
 
 ### Compose & Send
 
-- [ ] **COMPOSE-01**: The pretty view includes a compose text box directly below the conversation
-- [ ] **COMPOSE-02**: Enter sends the composed message; Shift-Enter inserts a newline in the compose box
-- [ ] **COMPOSE-03**: Sent messages travel through the same tmux WebSocket input path the message queue drawer uses (patch #40's split-send: text + Enter as two separate input events ~60ms apart, defeating Ink's bracketed-paste batching)
-- [ ] **COMPOSE-04**: Sent messages appear in the conversation only when the session file confirms the send landed — no optimistic display
-- [ ] **COMPOSE-05**: Pastes into the compose box remain fully readable — no "[pasted N lines]" collapse or hiding
+- [x] **COMPOSE-01**: The pretty view includes a compose text box directly below the conversation
+- [x] **COMPOSE-02**: Enter sends the composed message; Shift-Enter inserts a newline in the compose box
+- [x] **COMPOSE-03**: Sent messages travel through the same tmux WebSocket input path the message queue drawer uses (patch #40's split-send: text + Enter as two separate input events ~60ms apart, defeating Ink's bracketed-paste batching)
+- [x] **COMPOSE-04**: Sent messages appear in the conversation only when the session file confirms the send landed — no optimistic display
+- [x] **COMPOSE-05**: Pastes into the compose box remain fully readable — no "[pasted N lines]" collapse or hiding
 
 ### Backend Session-File Tail
 
@@ -88,25 +88,25 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TOGGLE-01 | Phase 2 | Pending |
-| TOGGLE-02 | Phase 2 | Pending |
-| TOGGLE-03 | Phase 2 | Pending |
-| RENDER-01 | Phase 1 | Pending |
-| RENDER-02 | Phase 1 | Pending |
-| RENDER-03 | Phase 1 | Pending |
-| RENDER-04 | Phase 2 | Pending |
-| RENDER-05 | Phase 2 | Pending |
-| COMPOSE-01 | Phase 2 | Pending |
-| COMPOSE-02 | Phase 2 | Pending |
-| COMPOSE-03 | Phase 2 | Pending |
-| COMPOSE-04 | Phase 2 | Pending |
-| COMPOSE-05 | Phase 2 | Pending |
-| BACKEND-01 | Phase 1 | Pending |
-| BACKEND-02 | Phase 1 | Pending |
-| BACKEND-03 | Phase 1 | Pending |
-| BACKEND-04 | Phase 1 | Pending |
-| FALLBACK-01 | Phase 1 | Pending |
-| FALLBACK-02 | Phase 1 | Pending |
+| TOGGLE-01 | Phase 2 | Complete |
+| TOGGLE-02 | Phase 2 | Complete |
+| TOGGLE-03 | Phase 2 | Complete |
+| RENDER-01 | Phase 1 | Complete |
+| RENDER-02 | Phase 1 | Complete |
+| RENDER-03 | Phase 1 | Complete |
+| RENDER-04 | Phase 2 | Complete |
+| RENDER-05 | Phase 2 | Complete |
+| COMPOSE-01 | Phase 2 | Complete |
+| COMPOSE-02 | Phase 2 | Complete |
+| COMPOSE-03 | Phase 2 | Complete |
+| COMPOSE-04 | Phase 2 | Complete |
+| COMPOSE-05 | Phase 2 | Complete |
+| BACKEND-01 | Phase 1 | Complete |
+| BACKEND-02 | Phase 1 | Complete |
+| BACKEND-03 | Phase 1 | Complete |
+| BACKEND-04 | Phase 1 | Complete |
+| FALLBACK-01 | Phase 1 | Complete |
+| FALLBACK-02 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 19 total
@@ -115,4 +115,4 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-17 after roadmap creation (traceability populated)*
+*Last updated: 2026-07-17 after Phase 2 close-out (all 19 v1 requirements complete)*
