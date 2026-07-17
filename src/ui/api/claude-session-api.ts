@@ -2,7 +2,7 @@
  * Live Claude-session WebSocket client wrapper.
  *
  * Opens a same-origin WebSocket to the backend `claude-session-server`
- * (Plan 01-02 output, listening on port 30003 behind nginx). The browser
+ * (Plan 01-02 output, listening on port 30011 behind nginx). The browser
  * attaches the `jwt` HttpOnly cookie automatically via same-origin, so no
  * query-string JWT fallback is appended here — that fallback in the
  * backend exists for wscat-based smoke testing, not for browsers.

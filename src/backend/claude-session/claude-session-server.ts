@@ -10,7 +10,7 @@ import { parseSessionLine } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 
 /**
- * Live Claude-session WebSocket server on port 30003.
+ * Live Claude-session WebSocket server on port 30011.
  *
  * Wire protocol (V1 hard-lock, RENDER-01):
  *
@@ -44,7 +44,7 @@ import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 const authManager = AuthManager.getInstance();
 const userCrypto = UserCrypto.getInstance();
 
-const wss = new WebSocketServer({ port: 30003 });
+const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
   let userId: string | undefined;
@@ -378,7 +378,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   });
 });
 
-const CLAUDE_SESSION_WS_PORT = 30003;
+const CLAUDE_SESSION_WS_PORT = 30011;
 sshLogger.info("Claude session WebSocket server listening", {
   operation: "claude_session_ws_boot",
   port: CLAUDE_SESSION_WS_PORT,
