@@ -25,10 +25,11 @@ import { ComposeBox } from "./ComposeBox";
 //      is "message" becomes a bubble; the parser (Plan 01-01) and the
 //      WS server (Plan 01-02) already drop non-text blocks upstream.
 //
-//   2. RENDER-03 auto-scroll: `wasPinnedRef` captures isPinnedToBottom
-//      BEFORE each setMessages call. The post-add effect only pins to
-//      the bottom when the user was already there — scrolled-up users
-//      are not yanked back on new messages.
+//   2. RENDER-03 auto-scroll: handled entirely by `useAutoScroll` via a
+//      ResizeObserver on the inner content wrapper (`contentRef`). Any
+//      resize — initial mount, appended message, font swap, viewport
+//      change — re-pins to the bottom iff the user was pinned just
+//      before. Scrolled-up users are never yanked back.
 //
 //   3. FALLBACK-01 clean inactive render: on `type:"inactive"` we
 //      render exactly one literal string (see the JSX below) inside a
@@ -71,19 +72,9 @@ export function PrettyView({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const wasPinnedRef = useRef<boolean>(true);
 
-  const { scrollRef, scrollToBottom, isPinnedToBottom } = useAutoScroll();
-
-  // Mirror isPinnedToBottom into a ref so the WS on-message closure reads
-  // the latest value WITHOUT being re-created (and thus without needing
-  // isPinnedToBottom in the effect deps below). Prior to this fix, every
-  // scroll-flip tore down the WebSocket and reset the message list — which
-  // is exactly why the jump-to-latest pill never had a chance to render.
-  const isPinnedToBottomRef = useRef<boolean>(true);
-  useEffect(() => {
-    isPinnedToBottomRef.current = isPinnedToBottom;
-  }, [isPinnedToBottom]);
+  const { scrollRef, contentRef, scrollToBottom, isPinnedToBottom } =
+    useAutoScroll();
 
   useEffect(() => {
     // Reset all state for this (hostId, tmuxSession) mount.
@@ -91,7 +82,6 @@ export function PrettyView({
     setStatus("connecting");
     setInactiveReason(null);
     setErrorMessage(null);
-    wasPinnedRef.current = true;
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -126,7 +116,6 @@ export function PrettyView({
           break;
         }
         case "message": {
-          wasPinnedRef.current = isPinnedToBottomRef.current;
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
@@ -177,12 +166,6 @@ export function PrettyView({
     };
   }, [hostId, tmuxSession]);
 
-  // Chat-app auto-scroll — only pin to bottom if the user was already
-  // there immediately before the setMessages call that added this row.
-  useEffect(() => {
-    if (wasPinnedRef.current) scrollToBottom();
-  }, [messages.length, scrollToBottom]);
-
   return (
     <div
       className={cn("h-full w-full flex flex-col bg-background", className)}
@@ -206,29 +189,28 @@ export function PrettyView({
         (status === "connecting" && messages.length > 0)) && (
         <div
           ref={scrollRef}
-          className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3"
+          className="flex-1 min-h-0 overflow-y-auto px-4 py-3"
         >
-          {messages.map((m) => (
-            <ChatMessage key={m.eventId} role={m.role} content={m.content} />
-          ))}
-          {/* Jump-to-bottom pill — standard chat-app affordance. Rendered as
-              the LAST flex item inside the scroll container with `sticky`
-              positioning so it stays anchored to the bottom-right of the
-              visible scroll viewport regardless of where the user has scrolled
-              to. Only shown when the user has scrolled up (isPinnedToBottom
-              becomes true again once they scroll back to within 16px of the
-              bottom, per use-auto-scroll's tolerance). Clicking scrolls to
-              bottom AND flips wasPinnedRef so the next incoming message pins
-              normally. */}
+          {/* Inner content wrapper: the ResizeObserver in useAutoScroll
+              watches THIS element for content-size changes (new messages,
+              markdown re-layout, Inter font swap). The outer scrollRef div
+              is watched separately for viewport-size changes. */}
+          <div ref={contentRef} className="flex flex-col gap-3">
+            {messages.map((m) => (
+              <ChatMessage key={m.eventId} role={m.role} content={m.content} />
+            ))}
+          </div>
+          {/* Jump-to-bottom pill — sibling of the content wrapper, still
+              inside the scroll container so `sticky bottom-2` anchors it
+              to the bottom-right of the visible viewport. Shown only when
+              the user has scrolled up. `scrollToBottom` itself flips the
+              internal pin ref+state, so the next incoming message pins. */}
           {!isPinnedToBottom && messages.length > 0 && (
-            <div className="sticky bottom-2 self-end pointer-events-none flex justify-end">
+            <div className="sticky bottom-2 pointer-events-none flex justify-end">
               <Button
                 size="icon-sm"
                 variant="secondary"
-                onClick={() => {
-                  wasPinnedRef.current = true;
-                  scrollToBottom();
-                }}
+                onClick={scrollToBottom}
                 aria-label="Jump to latest"
                 title="Jump to latest"
                 className="pointer-events-auto shadow-md"

@@ -1,86 +1,119 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // Chat-app auto-scroll observation hook — implements RENDER-03.
 //
-// Reports whether the observed scroll container is currently pinned to the
-// bottom (small tolerance for sub-pixel rounding) and exposes a
-// `scrollToBottom` action the caller can invoke AFTER appending a new
-// message when `isPinnedToBottom` was true immediately before the append.
-// The hook does NOT auto-scroll on its own — the timing is left to the
-// caller so a fresh render can capture the "was pinned" bit before setState
-// re-derives it.
+// Design (2026-07-17 second rewrite after Ashley reported unreliable
+// initial-load scroll):
 //
-// **Callback-ref pattern** (Ashley 2026-07-17): the hook returns a `scrollRef`
-// callback function instead of consuming a `RefObject` passed in. The caller
-// assigns it to `<div ref={scrollRef}>`. React invokes the callback with the
-// DOM element when it attaches (and null when it detaches), and the internal
-// effect keys on the element identity — so the scroll listener is guaranteed
-// to attach AFTER the element exists in the DOM. The prior useRef+useEffect
-// pattern raced: on first render `scrollRef.current` was null (because the
-// scrollable div was gated behind `status === "streaming"`, and status started
-// at "connecting"), the effect ran once returning early, and the ref later
-// pointed at a live DOM node but the effect never re-fired.
+// Two observations drive the auto-scroll:
+//   (1) A `scroll` listener on the outer scroll container updates a
+//       "was pinned just before this?" ref every time the user's scroll
+//       position changes. This tracks user intent (are they reading
+//       history vs. following the live tail).
+//   (2) A `ResizeObserver` on an INNER content wrapper (provided by the
+//       caller via `contentRef`) plus the outer scroll container fires
+//       whenever anything resizes — initial mount, new message appended,
+//       async web-font swap (Inter loading and re-laying out text
+//       metrics), markdown code-block layout, sidebar/drawer toggle
+//       shrinking the viewport, etc. If the user was pinned just
+//       before the resize, we re-pin to the new bottom.
+//
+// The prior design listened for `messages.length` changes and called
+// `scrollToBottom` from a `useEffect`, which raced with the callback-ref
+// attach on first render (scrollEl was often null when the first message
+// arrived) and with async layout shifts after the initial scroll (Inter
+// font swap moved the bottom out from under us). ResizeObserver's
+// initial-observe callback fires immediately with the current size, so
+// the "scroll to bottom on load" case is handled by the same code path
+// as "scroll on new message" — no first-render timing to get wrong.
 //
 // Caller usage pattern:
 //
-//     const { scrollRef, scrollToBottom, isPinnedToBottom } = useAutoScroll();
-//     const wasPinnedRef = useRef(true);
+//     const { scrollRef, contentRef, scrollToBottom, isPinnedToBottom }
+//       = useAutoScroll();
 //
-//     // On each new WS message:
-//     wasPinnedRef.current = isPinnedToBottom;   // capture BEFORE setState
-//     setMessages(prev => [...prev, next]);
+//     <div ref={scrollRef} className="overflow-y-auto ...">
+//       <div ref={contentRef} className="flex flex-col gap-3">
+//         {messages.map(m => <ChatMessage key={m.eventId} ... />)}
+//       </div>
+//       {/* Jump-to-latest pill can live here as a sibling of contentRef;
+//           its sticky positioning still works against the scroll container. */}
+//     </div>
 //
-//     // Then in a useEffect keyed on messages.length:
-//     useEffect(() => {
-//       if (wasPinnedRef.current) scrollToBottom();
-//     }, [messages.length]);
-//
-//     // And on the scrollable element:
-//     <div ref={scrollRef} className="overflow-y-auto ...">…</div>
-//
-// A fresh mount with an empty list is trivially "at the bottom" so initial
-// state is `true` — the first render of loaded messages pins.
+// `isPinnedToBottom` is state (re-renders the pill visibility); the
+// internal `isPinnedRef` is a ref so the ResizeObserver reads the latest
+// value without re-subscribing.
 
 const BOTTOM_TOLERANCE_PX = 16;
 
 export function useAutoScroll(): {
   scrollRef: (el: HTMLElement | null) => void;
+  contentRef: (el: HTMLElement | null) => void;
   scrollToBottom: () => void;
   isPinnedToBottom: boolean;
 } {
   const [isPinnedToBottom, setIsPinnedToBottom] = useState<boolean>(true);
   const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
+  // Ref mirror of the pin state so the ResizeObserver callback reads the
+  // latest value without needing to re-attach on every state flip.
+  const isPinnedRef = useRef<boolean>(true);
 
-  // React calls this with the element when the ref attaches, null when it
-  // detaches. Storing in state (not useRef) is what makes the effect below
-  // re-run on element identity change — the whole reason for the callback-
-  // ref refactor.
   const scrollRef = useCallback((el: HTMLElement | null) => {
     setScrollEl(el);
   }, []);
+  const contentRef = useCallback((el: HTMLElement | null) => {
+    setContentEl(el);
+  }, []);
 
+  // Track user scroll: whenever the user (or our own programmatic
+  // scrollTop assignment) shifts the position, recompute "am I at the
+  // bottom?" and mirror to both the ref and the state.
   useEffect(() => {
     if (scrollEl == null) return;
-    const handleScroll = () => {
+    const updatePinned = () => {
       const distance =
         scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
-      setIsPinnedToBottom(distance <= BOTTOM_TOLERANCE_PX);
+      const pinned = distance <= BOTTOM_TOLERANCE_PX;
+      isPinnedRef.current = pinned;
+      setIsPinnedToBottom(pinned);
     };
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
-    // Sync once on mount so the initial state reflects the actual scroll
-    // position (e.g., a re-mount after route change).
-    handleScroll();
-    return () => {
-      scrollEl.removeEventListener("scroll", handleScroll);
-    };
+    updatePinned(); // sync on mount / re-attach
+    scrollEl.addEventListener("scroll", updatePinned, { passive: true });
+    return () => scrollEl.removeEventListener("scroll", updatePinned);
   }, [scrollEl]);
+
+  // Re-pin on any resize (content growth, viewport shrink, font swap).
+  // The condition is the PRE-resize pin state (isPinnedRef, updated only
+  // by scroll events, not by our own programmatic scrolls). New content
+  // appended below a bottom-pinned user WOULD normally shift them off
+  // the bottom (scrollTop unchanged, scrollHeight grew), but the scroll
+  // event from the growth is what would flip the pin — the RO callback
+  // fires BEFORE that scroll event, catching the pre-growth state.
+  useEffect(() => {
+    if (scrollEl == null || contentEl == null) return;
+    const ro = new ResizeObserver(() => {
+      if (isPinnedRef.current) {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+      }
+    });
+    // Observe the CONTENT wrapper for growth (new messages, markdown
+    // re-layout, font swap) AND the outer container for viewport-size
+    // changes (sidebar collapse, MessageQueueDrawer open/close, window
+    // resize). Either can put a pinned user off the bottom.
+    ro.observe(contentEl);
+    ro.observe(scrollEl);
+    return () => ro.disconnect();
+  }, [scrollEl, contentEl]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollEl == null) return;
-    // Imperative direct assignment — no smooth behavior. Smooth scroll would
-    // visibly chase every new message in a streaming feed.
     scrollEl.scrollTop = scrollEl.scrollHeight;
+    // Optimistically flip the pin ref/state now so a subsequent
+    // synchronous resize (before the scroll event fires) re-pins.
+    isPinnedRef.current = true;
+    setIsPinnedToBottom(true);
   }, [scrollEl]);
 
-  return { scrollRef, scrollToBottom, isPinnedToBottom };
+  return { scrollRef, contentRef, scrollToBottom, isPinnedToBottom };
 }
