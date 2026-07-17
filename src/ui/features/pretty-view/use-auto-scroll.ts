@@ -58,6 +58,8 @@ export function useAutoScroll(): {
   // Ref mirror of the pin state so the ResizeObserver callback reads the
   // latest value without needing to re-attach on every state flip.
   const isPinnedRef = useRef<boolean>(true);
+  // Ratchet for user-scroll direction detection. See updatePinned below.
+  const lastScrollTopRef = useRef<number>(0);
 
   const scrollRef = useCallback((el: HTMLElement | null) => {
     setScrollEl(el);
@@ -66,27 +68,45 @@ export function useAutoScroll(): {
     setContentEl(el);
   }, []);
 
-  // Track user scroll: whenever the user (or our own programmatic
-  // scrollTop assignment) shifts the position, recompute "am I at the
-  // bottom?" and mirror to both the ref and the state.
+  // Track scroll direction and update the pin state, ratcheted so that
+  // content growth from underneath cannot silently un-pin.
   //
-  // Deliberately NOT running updatePinned() sync on mount. When the
-  // container mounts with content already batched-in (a hard refresh
-  // on a session with existing history), scrollTop starts at 0 and
-  // scrollHeight is already large — the sync would set isPinnedRef =
-  // false, which would then gate out the ResizeObserver's initial
-  // scroll-to-bottom below. Instead we let isPinnedRef stay at its
-  // default `true` so the RO's initial callback pins us to the
-  // bottom, and let the resulting programmatic scroll event update
-  // the state to reflect reality.
+  // The naive "am I within tolerance of the bottom now?" check is not
+  // enough because our OWN programmatic scrollTop set queues a scroll
+  // event that fires ASYNC — and if content grew between the set and
+  // the event (async web-font swap being the common case), the event
+  // computes distance against the NEW scrollHeight, sees distance > 16,
+  // and flips the pin off. Then the next RO fire is gated out and we're
+  // stuck slightly above bottom.
+  //
+  // Ratchet rule: flip pin OFF only when the user actively scrolled UP
+  // (currentScrollTop < lastScrollTop). Flip pin ON when we reach the
+  // bottom (near). Content growth without a user scroll — scrollTop
+  // stays put while scrollHeight grows — takes neither branch and
+  // preserves whatever pin state we had.
   useEffect(() => {
     if (scrollEl == null) return;
     const updatePinned = () => {
+      const currentScrollTop = scrollEl.scrollTop;
       const distance =
-        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
-      const pinned = distance <= BOTTOM_TOLERANCE_PX;
-      isPinnedRef.current = pinned;
-      setIsPinnedToBottom(pinned);
+        scrollEl.scrollHeight - currentScrollTop - scrollEl.clientHeight;
+      const nearBottom = distance <= BOTTOM_TOLERANCE_PX;
+      const userScrolledUp = currentScrollTop < lastScrollTopRef.current;
+      if (nearBottom) {
+        if (!isPinnedRef.current) {
+          isPinnedRef.current = true;
+          setIsPinnedToBottom(true);
+        }
+      } else if (userScrolledUp) {
+        if (isPinnedRef.current) {
+          isPinnedRef.current = false;
+          setIsPinnedToBottom(false);
+        }
+      }
+      // Else: content grew from underneath but user didn't scroll up —
+      // keep the current pin state. If pinned, the RO callback will
+      // re-scroll on this same tick's growth event.
+      lastScrollTopRef.current = currentScrollTop;
     };
     scrollEl.addEventListener("scroll", updatePinned, { passive: true });
     return () => scrollEl.removeEventListener("scroll", updatePinned);
