@@ -88,31 +88,31 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TOGGLE-01 | Phase [N] | Pending |
-| TOGGLE-02 | Phase [N] | Pending |
-| TOGGLE-03 | Phase [N] | Pending |
-| RENDER-01 | Phase [N] | Pending |
-| RENDER-02 | Phase [N] | Pending |
-| RENDER-03 | Phase [N] | Pending |
-| RENDER-04 | Phase [N] | Pending |
-| RENDER-05 | Phase [N] | Pending |
-| COMPOSE-01 | Phase [N] | Pending |
-| COMPOSE-02 | Phase [N] | Pending |
-| COMPOSE-03 | Phase [N] | Pending |
-| COMPOSE-04 | Phase [N] | Pending |
-| COMPOSE-05 | Phase [N] | Pending |
-| BACKEND-01 | Phase [N] | Pending |
-| BACKEND-02 | Phase [N] | Pending |
-| BACKEND-03 | Phase [N] | Pending |
-| BACKEND-04 | Phase [N] | Pending |
-| FALLBACK-01 | Phase [N] | Pending |
-| FALLBACK-02 | Phase [N] | Pending |
+| TOGGLE-01 | Phase 2 | Pending |
+| TOGGLE-02 | Phase 2 | Pending |
+| TOGGLE-03 | Phase 2 | Pending |
+| RENDER-01 | Phase 1 | Pending |
+| RENDER-02 | Phase 1 | Pending |
+| RENDER-03 | Phase 1 | Pending |
+| RENDER-04 | Phase 2 | Pending |
+| RENDER-05 | Phase 2 | Pending |
+| COMPOSE-01 | Phase 2 | Pending |
+| COMPOSE-02 | Phase 2 | Pending |
+| COMPOSE-03 | Phase 2 | Pending |
+| COMPOSE-04 | Phase 2 | Pending |
+| COMPOSE-05 | Phase 2 | Pending |
+| BACKEND-01 | Phase 1 | Pending |
+| BACKEND-02 | Phase 1 | Pending |
+| BACKEND-03 | Phase 1 | Pending |
+| BACKEND-04 | Phase 1 | Pending |
+| FALLBACK-01 | Phase 1 | Pending |
+| FALLBACK-02 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 19 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 19 ⚠️
+- Mapped to phases: 19 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-17 after initial definition*
+*Last updated: 2026-07-17 after roadmap creation (traceability populated)*
