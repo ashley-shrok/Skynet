@@ -70,11 +70,10 @@ export function PrettyView({
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const listRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const wasPinnedRef = useRef<boolean>(true);
 
-  const { scrollToBottom, isPinnedToBottom } = useAutoScroll(listRef);
+  const { scrollRef, scrollToBottom, isPinnedToBottom } = useAutoScroll();
 
   // Mirror isPinnedToBottom into a ref so the WS on-message closure reads
   // the latest value WITHOUT being re-created (and thus without needing
@@ -219,7 +218,7 @@ export function PrettyView({
       {(status === "streaming" ||
         (status === "connecting" && messages.length > 0)) && (
         <div
-          ref={listRef}
+          ref={scrollRef}
           className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3"
         >
           {messages.map((m) => (
