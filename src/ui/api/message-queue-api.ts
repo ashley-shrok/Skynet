@@ -63,3 +63,24 @@ export async function deleteMessageQueueItem(id: string): Promise<void> {
     throw new Error(handleApiError(error));
   }
 }
+
+// Fire-and-forget PATCH that survives page unload — for flushing dirty
+// drafts in pagehide/visibilitychange. Axios cancels in-flight XHRs on
+// unload; fetch with keepalive:true is the modern browser primitive that
+// stays in flight after the page is gone. Response is unreachable by
+// design — treat this as best-effort.
+export function flushMessageQueueItemKeepalive(id: string, body: string): void {
+  try {
+    const base = authApi.defaults.baseURL ?? "";
+    const url = `${base}/message-queue/${id}`;
+    fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+      credentials: "include",
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // never throw during unload
+  }
+}
