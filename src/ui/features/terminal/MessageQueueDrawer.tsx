@@ -144,6 +144,35 @@ export function MessageQueueDrawer({
     };
   }, []);
 
+  // Mirror `items` into a ref so the unmount cleanup reads the LATEST
+  // items without re-firing on every items change.
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  // On unmount, delete any drafts with an empty body. Patch #41 auto-primes
+  // an empty draft when the drawer opens on an empty-list, and without this
+  // cleanup that empty draft persists on the server — later triggering the
+  // drawer's auto-open gate in Terminal.tsx as if the queue had real
+  // content. Cleanup fires BEFORE the keepalive-flush cleanup above (React
+  // runs cleanups in reverse effect order), so we check `item.body` from
+  // React state — which reflects the latest local typing even if the
+  // debounced server-side save hasn't fired yet. Any body with non-empty
+  // trim survives; only genuinely-empty drafts are removed.
+  useEffect(() => {
+    return () => {
+      for (const item of itemsRef.current) {
+        if (item.body.trim().length === 0) {
+          deleteMessageQueueItem(item.id).catch(() => {
+            // Best-effort. Any leftover empty item is caught by the
+            // auto-open filter in Terminal.tsx as belt-and-braces.
+          });
+        }
+      }
+    };
+  }, []);
+
   const handleAdd = useCallback(async () => {
     try {
       const created = await createMessageQueueItem({ hostId, tmuxSession });

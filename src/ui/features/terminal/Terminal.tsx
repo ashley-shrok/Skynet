@@ -241,7 +241,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       let cancelled = false;
       listMessageQueueItems({ hostId, tmuxSession: tmuxSessionName })
         .then((items) => {
-          if (!cancelled && items.length > 0) setIsMessageQueueOpen(true);
+          // Auto-open ONLY when the queue has at least one meaningful
+          // draft. Empty-body items (e.g. an auto-primed draft the user
+          // never typed into) would otherwise pop the drawer with just
+          // an empty textarea visible — ghost-open bug.
+          const hasContent = items.some((it) => it.body.trim().length > 0);
+          if (!cancelled && hasContent) setIsMessageQueueOpen(true);
         })
         .catch(() => {});
       return () => {

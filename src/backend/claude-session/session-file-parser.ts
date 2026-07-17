@@ -85,6 +85,24 @@ export function parseSessionLine(line: string): ParsedLine {
   const content = extractText(msg.content);
   if (content === "") return { kind: "skip", why: "empty_content" };
 
+  // Skip harness-injected wrapper-only user turns. The Monitor tool
+  // ("<task-notification>") and stop-hook nudges ("<system-reminder>")
+  // land as user turns because the harness stitches them into the user
+  // stream — but they're not real user speech and add noise to pretty
+  // view. Filter is intentionally strict: whole trimmed content must BE
+  // the wrapper (startsWith AND endsWith), so a user turn that mixes a
+  // reminder with real speech (both text blocks concatenated) still
+  // renders. Nobody legitimately types these tags as prose.
+  if (isUser) {
+    const t = content.trim();
+    if (
+      (t.startsWith("<task-notification>") && t.endsWith("</task-notification>")) ||
+      (t.startsWith("<system-reminder>") && t.endsWith("</system-reminder>"))
+    ) {
+      return { kind: "skip", why: "harness_wrapper" };
+    }
+  }
+
   const uuid = obj.uuid;
   const messageId = obj.messageId;
   const eventId =
