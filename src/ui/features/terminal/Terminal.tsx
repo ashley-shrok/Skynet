@@ -42,6 +42,7 @@ import "./terminal-global-styles.ts";
 import { sessionMatchKey, hueFromSessionName } from "./session-hue.ts";
 import { IdentityBadge } from "./IdentityBadge.tsx";
 import { MessageQueueDrawer } from "./MessageQueueDrawer.tsx";
+import { PrettyView } from "@/features/pretty-view/PrettyView";
 import { listMessageQueueItems } from "@/api/message-queue-api";
 import { useIdentities } from "@/state/identities-store";
 import { useTheme } from "@/components/theme-provider.tsx";
@@ -229,6 +230,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const tmuxSessionNameRef = useRef<string | null>(null);
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
+    const [isPrettyMode, setIsPrettyMode] = useState(false);
     const autoOpenCheckedKeysRef = useRef<Set<string>>(new Set());
     useEffect(() => {
       const hostId = hostConfig.id;
@@ -760,6 +762,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         },
         toggleMessageQueue: () => {
           setIsMessageQueueOpen((v) => !v);
+        },
+        togglePrettyMode: () => {
+          setIsPrettyMode((v) => !v);
         },
         notifyResize: () => {
           try {
@@ -2785,11 +2790,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           ref={xtermRef}
           className="flex-1 min-h-0 w-full"
           style={{
-            pointerEvents: isVisible ? "auto" : "none",
+            pointerEvents: isVisible && !isPrettyMode ? "auto" : "none",
             visibility:
               isConnected && isFitted && !connectionError
                 ? "visible"
                 : "hidden",
+            display: isPrettyMode ? "none" : undefined,
           }}
           onClick={() => {
             if (terminal && !splitScreen) {
@@ -2797,6 +2803,18 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }
           }}
         />
+        {isPrettyMode && hostConfig.id != null && tmuxSessionName && (
+          <PrettyView
+            hostId={hostConfig.id}
+            tmuxSession={tmuxSessionName}
+            className="flex-1 min-h-0"
+          />
+        )}
+        {isPrettyMode && (hostConfig.id == null || !tmuxSessionName) && (
+          <div className="flex-1 min-h-0 flex items-center justify-center p-4 text-sm text-muted-foreground">
+            no active Claude session
+          </div>
+        )}
         {isMessageQueueOpen && hostConfig.id != null && (
           <MessageQueueDrawer
             hostId={hostConfig.id}

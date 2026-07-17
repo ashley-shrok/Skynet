@@ -25,4 +25,5 @@ export interface TerminalHandle {
   notifyResize: () => void;
   refresh: () => void;
   toggleMessageQueue: () => void;
+  togglePrettyMode: () => void;
 }
