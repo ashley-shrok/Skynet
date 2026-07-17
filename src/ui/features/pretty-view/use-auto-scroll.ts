@@ -69,6 +69,16 @@ export function useAutoScroll(): {
   // Track user scroll: whenever the user (or our own programmatic
   // scrollTop assignment) shifts the position, recompute "am I at the
   // bottom?" and mirror to both the ref and the state.
+  //
+  // Deliberately NOT running updatePinned() sync on mount. When the
+  // container mounts with content already batched-in (a hard refresh
+  // on a session with existing history), scrollTop starts at 0 and
+  // scrollHeight is already large — the sync would set isPinnedRef =
+  // false, which would then gate out the ResizeObserver's initial
+  // scroll-to-bottom below. Instead we let isPinnedRef stay at its
+  // default `true` so the RO's initial callback pins us to the
+  // bottom, and let the resulting programmatic scroll event update
+  // the state to reflect reality.
   useEffect(() => {
     if (scrollEl == null) return;
     const updatePinned = () => {
@@ -78,7 +88,6 @@ export function useAutoScroll(): {
       isPinnedRef.current = pinned;
       setIsPinnedToBottom(pinned);
     };
-    updatePinned(); // sync on mount / re-attach
     scrollEl.addEventListener("scroll", updatePinned, { passive: true });
     return () => scrollEl.removeEventListener("scroll", updatePinned);
   }, [scrollEl]);

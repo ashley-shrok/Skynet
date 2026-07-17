@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Send, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -119,17 +119,6 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
         className,
       )}
     >
-      <div className="flex items-center gap-1">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => handleQuickSend("go ahead")}
-          disabled={canSend === false}
-          title="Send 'go ahead'"
-        >
-          go ahead
-        </Button>
-      </div>
       <div className="flex items-end gap-2">
         <Textarea
           ref={textareaRef}
@@ -143,15 +132,32 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
           // during a transient disconnect and send when WS reconnects.
           // The send button is disabled; the error will surface on attempt.
         />
-        <Button
-          size="icon-sm"
-          onClick={handleSend}
-          disabled={sendDisabled}
-          aria-label="Send message"
-          title="Send (Enter)"
-        >
-          <Send className="size-4" />
-        </Button>
+        {/* Icon-button column: thumbs-up "go ahead" quick-reply on top,
+            paper-airplane Send on the bottom. Bottom-aligned to the
+            textarea via the parent's items-end. If the textarea grows
+            past the stack's height (~60px), empty space appears above
+            the go-ahead button rather than pushing the send button up. */}
+        <div className="flex flex-col gap-1">
+          <Button
+            size="icon-sm"
+            variant="outline"
+            onClick={() => handleQuickSend("go ahead")}
+            disabled={canSend === false}
+            aria-label="Send 'go ahead'"
+            title="Send 'go ahead'"
+          >
+            <ThumbsUp className="size-4" />
+          </Button>
+          <Button
+            size="icon-sm"
+            onClick={handleSend}
+            disabled={sendDisabled}
+            aria-label="Send message"
+            title="Send (Enter)"
+          >
+            <Send className="size-4" />
+          </Button>
+        </div>
       </div>
       {errorMessage && (
         <div className="text-xs text-destructive">{errorMessage}</div>
