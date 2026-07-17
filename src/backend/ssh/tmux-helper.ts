@@ -197,6 +197,31 @@ export async function queryPaneCurrentCommand(
 }
 
 /**
+ * Query the PID of the foreground process running in the first pane of a
+ * tmux session. Used by claude-session discovery to walk /proc/<pid>/fd
+ * for open JSONL session files. Returns null on any failure (session gone,
+ * tmux unavailable, non-integer output, etc.) — matches the silent-null
+ * posture of queryPaneCurrentCommand so callers can log at the discovery
+ * layer where they have richer context.
+ */
+export async function queryPanePid(
+  conn: Client,
+  sessionName: string,
+): Promise<number | null> {
+  try {
+    const output = await execCommand(
+      conn,
+      `tmux display-message -p -t ${shellEscape(sessionName)} '#{pane_pid}' 2>/dev/null`,
+    );
+    const pid = parseInt(output, 10);
+    if (Number.isNaN(pid) || pid <= 0) return null;
+    return pid;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Query the name of the most recently created tmux session via exec channel.
  */
 export async function queryNewestTmuxSession(
