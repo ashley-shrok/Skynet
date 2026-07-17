@@ -8,6 +8,7 @@ import {
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
 import { useAutoScroll } from "./use-auto-scroll";
+import { ComposeBox } from "./ComposeBox";
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
@@ -39,6 +40,10 @@ export interface PrettyViewProps {
   tmuxSession: string;
   className?: string;
   style?: React.CSSProperties;
+  // Optional; when omitted, PrettyView renders as read-only (Phase
+  // 1 backward-compat). When provided, the compose box mounts at
+  // the bottom and pipes typed messages through this callback.
+  onSend?: (text: string) => boolean;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -56,6 +61,7 @@ export function PrettyView({
   tmuxSession,
   className,
   style,
+  onSend,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<ChatMessageEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
@@ -208,6 +214,19 @@ export function PrettyView({
         <div className="border-t border-border bg-destructive/10 text-destructive text-xs px-3 py-1">
           {errorMessage}
         </div>
+      )}
+
+      {/* ComposeBox mounts only when onSend is provided (caller is wiring
+          a live terminal WS) AND status is "streaming" (a Claude session
+          is confirmed active). When status is "inactive" or "error", the
+          compose box is intentionally absent — FALLBACK-01 ensures the
+          inactive branch renders only the "no active Claude session" string. */}
+      {onSend && status === "streaming" && (
+        <ComposeBox
+          onSend={onSend}
+          canSend={status === "streaming"}
+          className="shrink-0"
+        />
       )}
 
       {/* inactiveReason is captured in state for potential future use
