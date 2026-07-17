@@ -140,6 +140,7 @@ import {
     const dbServer = await import("./database/database.js");
     await (dbServer as unknown as { serverReady: Promise<void> }).serverReady;
     await import("./ssh/terminal.js");
+    await import("./claude-session/claude-session-server.js");
     await import("./ssh/tunnel.js");
     await import("./ssh/file-manager.js");
     await import("./ssh/server-stats.js");
