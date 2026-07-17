@@ -5,7 +5,7 @@ milestone_name: milestone
 status: completed
 stopped_at: Roadmap created; requirements traceability populated; ready for `/gsd-plan-phase 1`
 last_updated: "2026-07-17T16:40:50.904Z"
-last_activity: 2026-07-17 -- Phase 01 marked complete
+last_activity: 2026-07-17 -- Quick task 260717-vbw (patch #51 WIP indicator) built + 5 atomic commits ready for deploy
 progress:
   total_phases: 2
   completed_phases: 1
@@ -75,6 +75,12 @@ None yet.
 ### Blockers/Concerns
 
 None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY DISCIPLINE — not a blocker, a standing constraint.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260717-vbw | Pretty-view WIP indicator (patch #51) — JSONL state-machine spinner bubble | 2026-07-17 | caafaa5 | [260717-vbw-work-in-progress-indicator-for-pretty-vi](./quick/260717-vbw-work-in-progress-indicator-for-pretty-vi/) |
 
 ## Deferred Items
 
