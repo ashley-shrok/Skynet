@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/button";
 import {
   openClaudeSessionSocket,
   type ClaudeSessionServerEvent,
@@ -200,13 +202,35 @@ export function PrettyView({
 
       {(status === "streaming" ||
         (status === "connecting" && messages.length > 0)) && (
-        <div
-          ref={listRef}
-          className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3"
-        >
-          {messages.map((m) => (
-            <ChatMessage key={m.eventId} role={m.role} content={m.content} />
-          ))}
+        <div className="relative flex-1 min-h-0">
+          <div
+            ref={listRef}
+            className="absolute inset-0 overflow-y-auto px-4 py-3 flex flex-col gap-3"
+          >
+            {messages.map((m) => (
+              <ChatMessage key={m.eventId} role={m.role} content={m.content} />
+            ))}
+          </div>
+          {/* Jump-to-bottom pill — standard chat-app affordance. Only shown
+              when the user has scrolled up (isPinnedToBottom becomes true again
+              once they scroll back to within 16px of the bottom, per
+              use-auto-scroll's tolerance). Clicking scrolls to bottom AND
+              flips wasPinnedRef so the next incoming message pins normally. */}
+          {!isPinnedToBottom && messages.length > 0 && (
+            <Button
+              size="icon-sm"
+              variant="secondary"
+              onClick={() => {
+                wasPinnedRef.current = true;
+                scrollToBottom();
+              }}
+              aria-label="Jump to latest"
+              title="Jump to latest"
+              className="absolute bottom-2 right-4 shadow-md"
+            >
+              <ArrowDown className="size-4" />
+            </Button>
+          )}
         </div>
       )}
 
