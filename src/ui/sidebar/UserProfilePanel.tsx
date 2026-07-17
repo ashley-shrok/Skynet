@@ -503,6 +503,11 @@ export function UserProfilePanel({
       const v = localStorage.getItem("keyboardMessageQueueEnabled");
       return v !== null ? v === "true" : true;
     });
+  const [keyboardTogglePrettyModeEnabled, setKeyboardTogglePrettyModeEnabled] =
+    useState(() => {
+      const v = localStorage.getItem("keyboardTogglePrettyModeEnabled");
+      return v !== null ? v === "true" : true;
+    });
   const [showHostTags, setShowHostTags] = useState(() => {
     const v = localStorage.getItem("showHostTags");
     return v !== null ? v === "true" : true;
@@ -1077,6 +1082,26 @@ export function UserProfilePanel({
                   );
                   window.dispatchEvent(
                     new Event("keyboardMessageQueueEnabledChanged"),
+                  );
+                }}
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("newUi.sidebar.userProfile.keyboardTogglePrettyMode")}
+              description={t(
+                "newUi.sidebar.userProfile.keyboardTogglePrettyModeDesc",
+              )}
+            >
+              <FakeSwitch
+                checked={keyboardTogglePrettyModeEnabled}
+                onChange={(v) => {
+                  setKeyboardTogglePrettyModeEnabled(v);
+                  localStorage.setItem(
+                    "keyboardTogglePrettyModeEnabled",
+                    v.toString(),
+                  );
+                  window.dispatchEvent(
+                    new Event("keyboardTogglePrettyModeEnabledChanged"),
                   );
                 }}
               />
