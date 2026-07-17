@@ -72,6 +72,13 @@ export function parseSessionLine(line: string): ParsedLine {
   }
   const role: "user" | "assistant" = isUser ? "user" : "assistant";
 
+  // Skip machinery-injected turns (skill bodies, <local-command-caveat>
+  // notices). Real user speech is never `isMeta: true`; cross-verified on
+  // 4 live sessions with 0 false positives.
+  if (obj.isMeta === true) {
+    return { kind: "skip", why: "meta" };
+  }
+
   const msg = obj.message as Record<string, unknown> | null | undefined;
   if (msg == null) return { kind: "skip", why: "no_message" };
 
