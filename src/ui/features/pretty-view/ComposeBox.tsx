@@ -96,6 +96,10 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
 
   const sendDisabled = text.trim() === "" || canSend === false;
 
+  // Layout: textarea and send button share a single horizontal row so the
+  // compose area stays as short as possible and yields more vertical space
+  // to the conversation above (Ashley feedback 2026-07-17). Error text, when
+  // present, sits below the row.
   return (
     <div
       className={cn(
@@ -103,35 +107,32 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
         className,
       )}
     >
-      <Textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Message Claude…"
-        rows={rows}
-        className="resize-none"
-        // Note: NOT disabled when canSend===false — user can compose
-        // during a transient disconnect and send when WS reconnects.
-        // The send button is disabled; the error will surface on attempt.
-      />
-      <div className="flex items-center justify-between gap-2">
-        {errorMessage ? (
-          <div className="text-xs text-destructive flex-1">{errorMessage}</div>
-        ) : (
-          <div className="flex-1" />
-        )}
+      <div className="flex items-end gap-2">
+        <Textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Message Claude…"
+          rows={rows}
+          className="resize-none flex-1"
+          // Note: NOT disabled when canSend===false — user can compose
+          // during a transient disconnect and send when WS reconnects.
+          // The send button is disabled; the error will surface on attempt.
+        />
         <Button
-          size="sm"
+          size="icon-sm"
           onClick={handleSend}
           disabled={sendDisabled}
           aria-label="Send message"
           title="Send (Enter)"
         >
-          <Send className="size-4 mr-1" />
-          Send
+          <Send className="size-4" />
         </Button>
       </div>
+      {errorMessage && (
+        <div className="text-xs text-destructive">{errorMessage}</div>
+      )}
     </div>
   );
 }
