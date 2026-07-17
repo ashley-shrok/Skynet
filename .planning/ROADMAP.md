@@ -84,8 +84,20 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The compose box below the conversation accepts typed and pasted text with full readable content (no "[pasted N lines]" collapse), Enter sends the message via the same split-send WebSocket input path the queue drawer uses (text and Enter as two events ~60ms apart), and Shift-Enter inserts a newline
   5. A sent message appears in the conversation only after the session file confirms it landed — never as an optimistic bubble that could lie about state
 
-**Plans**: TBD
+**Plans**: 3 (02-01 mode toggle, 02-02 compose box, 02-03 deploy checkpoint)
 **UI hint**: yes
+
+**Wave 1** *(complete)*
+
+- [x] 02-01-PLAN.md — Mode toggle chord Ctrl+Shift+O + layout preservation (TOGGLE-01, TOGGLE-02, TOGGLE-03)
+
+**Wave 2** *(blocked on Wave 1 completion, complete)*
+
+- [x] 02-02-PLAN.md — Compose box + split-send through terminal WebSocket (COMPOSE-01..05)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — Deploy checkpoint + UAT verification (RENDER-04, RENDER-05, COMPOSE-04, COMPOSE-05)
 
 ## Progress
 
@@ -95,4 +107,4 @@ Phases execute in numeric order: 1 → 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Live session stream to browser + read-only pretty view | 5/5 | Complete | 2026-07-17 |
-| 2. Toggle, compose, and native web ergonomics | 0/TBD | Not started | - |
+| 2. Toggle, compose, and native web ergonomics | 2/3 | In Progress | - |

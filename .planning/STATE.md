@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 01 — COMPLETE
-Plan: 1 of 5
-Status: Phase 01 complete
-Last activity: 2026-07-17 -- Phase 01 marked complete
+Phase: 02 — In Progress
+Plan: 2 of 3 (Wave 2 complete)
+Status: Phase 02 Wave 2 complete — Wave 3 ready
+Last activity: 2026-07-17 -- Phase 02 Plan 02 (compose box + split-send) complete
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -44,7 +44,8 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| Phase 02 Plan 01 | 1 | 250s | 250s |
+| Phase 02 Plan 02 | 1 | 420s | 420s |
 
 **Recent Trend:**
 
@@ -63,6 +64,9 @@ Recent decisions affecting current work:
 - 2026-07-17: Adopt GSD for the fork — patch #43 is large enough (~500+ lines, backend session-file tail + WS bridge + new pane component + compose box + layout refactor) to justify one-time GSD bootstrap
 - 2026-07-17: Vertical-MVP phase mode (phase = user-visible slice) — matches how the fork has always worked
 - 2026-07-17 (roadmap): Two-phase split — Phase 1 delivers the backend session-stream pipeline plus a minimal read-only view so the pipe is observable end-to-end before layering on toggle/compose/ergonomics ergonomic payoff in Phase 2
+- 2026-07-17 (02-02): Newlines collapsed to spaces on send (D-50 Ink safety) — multi-line send-side preservation is a potential follow-up if Ashley requests it
+- 2026-07-17 (02-02): ComposeBox independent of MessageQueueDrawer (D-73) — intentional duplication of split-send pattern; any future patch changing split-send timing must update both call sites
+- 2026-07-17 (02-02): ComposeBox gated on status === streaming only — no compose box in connecting/inactive/error states
 
 ### Pending Todos
 
@@ -83,5 +87,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-07-17
-Stopped at: Roadmap created; requirements traceability populated; ready for `/gsd-plan-phase 1`
+Stopped at: Phase 02 Plan 02 complete — ComposeBox created, PrettyView wired, Terminal.tsx split-send threaded. Ready for Wave 3 (Plan 03 deploy checkpoint).
 Resume file: None
