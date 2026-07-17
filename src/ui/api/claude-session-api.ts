@@ -36,6 +36,11 @@ export type MessageEvent = {
   ts: number;
 };
 
+export type WipEvent = {
+  type: "wip";
+  active: boolean;
+};
+
 export type InactiveEvent = {
   type: "inactive";
   reason: string;
@@ -55,6 +60,7 @@ export type ErrorEvent = {
 export type ClaudeSessionServerEvent =
   | SessionMetaEvent
   | MessageEvent
+  | WipEvent
   | InactiveEvent
   | TailErrorEvent
   | ErrorEvent;
