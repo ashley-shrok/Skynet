@@ -2808,6 +2808,18 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             hostId={hostConfig.id}
             tmuxSession={tmuxSessionName}
             className="flex-1 min-h-0"
+            onSend={(text) => {
+              const ws = webSocketRef.current;
+              if (!ws || ws.readyState !== 1) return false;
+              ws.send(JSON.stringify({ type: "input", data: text }));
+              setTimeout(() => {
+                const ws2 = webSocketRef.current;
+                if (ws2 && ws2.readyState === 1) {
+                  ws2.send(JSON.stringify({ type: "input", data: "\r" }));
+                }
+              }, 60);
+              return true;
+            }}
           />
         )}
         {isPrettyMode && (hostConfig.id == null || !tmuxSessionName) && (
