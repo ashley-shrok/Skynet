@@ -9,6 +9,7 @@ import {
   type MessageEvent as ChatMessageEvent,
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
+import { WipBubble } from "./WipBubble";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 
@@ -70,6 +71,7 @@ export function PrettyView({
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [wipActive, setWipActive] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -82,6 +84,7 @@ export function PrettyView({
     setStatus("connecting");
     setInactiveReason(null);
     setErrorMessage(null);
+    setWipActive(false);
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -117,6 +120,10 @@ export function PrettyView({
         }
         case "message": {
           setMessages((prev) => appendDedup(prev, parsed));
+          break;
+        }
+        case "wip": {
+          setWipActive(parsed.active);
           break;
         }
         case "inactive": {
@@ -199,6 +206,7 @@ export function PrettyView({
             {messages.map((m) => (
               <ChatMessage key={m.eventId} role={m.role} content={m.content} />
             ))}
+            {wipActive && <WipBubble />}
           </div>
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
