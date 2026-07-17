@@ -84,6 +84,12 @@ export function PrettyView({
   const isPinnedToBottomRef = useRef<boolean>(true);
   useEffect(() => {
     isPinnedToBottomRef.current = isPinnedToBottom;
+    // Diagnostic — the jump-to-latest pill only renders when this is false.
+    // If the pill never appears in the UI but this log shows the flag flipping,
+    // the render/positioning is wrong; if it never flips, the scroll observer
+    // isn't seeing scroll events. Safe to leave in; low-frequency.
+    // eslint-disable-next-line no-console
+    console.debug("[PrettyView] isPinnedToBottom =", isPinnedToBottom);
   }, [isPinnedToBottom]);
 
   useEffect(() => {
@@ -212,34 +218,38 @@ export function PrettyView({
 
       {(status === "streaming" ||
         (status === "connecting" && messages.length > 0)) && (
-        <div className="relative flex-1 min-h-0">
-          <div
-            ref={listRef}
-            className="absolute inset-0 overflow-y-auto px-4 py-3 flex flex-col gap-3"
-          >
-            {messages.map((m) => (
-              <ChatMessage key={m.eventId} role={m.role} content={m.content} />
-            ))}
-          </div>
-          {/* Jump-to-bottom pill — standard chat-app affordance. Only shown
-              when the user has scrolled up (isPinnedToBottom becomes true again
-              once they scroll back to within 16px of the bottom, per
-              use-auto-scroll's tolerance). Clicking scrolls to bottom AND
-              flips wasPinnedRef so the next incoming message pins normally. */}
+        <div
+          ref={listRef}
+          className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3"
+        >
+          {messages.map((m) => (
+            <ChatMessage key={m.eventId} role={m.role} content={m.content} />
+          ))}
+          {/* Jump-to-bottom pill — standard chat-app affordance. Rendered as
+              the LAST flex item inside the scroll container with `sticky`
+              positioning so it stays anchored to the bottom-right of the
+              visible scroll viewport regardless of where the user has scrolled
+              to. Only shown when the user has scrolled up (isPinnedToBottom
+              becomes true again once they scroll back to within 16px of the
+              bottom, per use-auto-scroll's tolerance). Clicking scrolls to
+              bottom AND flips wasPinnedRef so the next incoming message pins
+              normally. */}
           {!isPinnedToBottom && messages.length > 0 && (
-            <Button
-              size="icon-sm"
-              variant="secondary"
-              onClick={() => {
-                wasPinnedRef.current = true;
-                scrollToBottom();
-              }}
-              aria-label="Jump to latest"
-              title="Jump to latest"
-              className="absolute bottom-2 right-4 shadow-md"
-            >
-              <ArrowDown className="size-4" />
-            </Button>
+            <div className="sticky bottom-2 self-end pointer-events-none flex justify-end">
+              <Button
+                size="icon-sm"
+                variant="secondary"
+                onClick={() => {
+                  wasPinnedRef.current = true;
+                  scrollToBottom();
+                }}
+                aria-label="Jump to latest"
+                title="Jump to latest"
+                className="pointer-events-auto shadow-md"
+              >
+                <ArrowDown className="size-4" />
+              </Button>
+            </div>
           )}
         </div>
       )}
