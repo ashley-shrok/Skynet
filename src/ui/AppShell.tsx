@@ -13,6 +13,7 @@ import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
 import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
 import { useKeyboardMessageQueue } from "@/hooks/use-keyboard-message-queue";
+import { useKeyboardTogglePrettyMode } from "@/hooks/use-keyboard-toggle-pretty-mode";
 import type { TerminalHandle } from "@/features/terminal/terminal-types";
 import { MobileBottomBar } from "@/shell/MobileBottomBar";
 import { CommandPalette } from "@/shell/CommandPalette";
@@ -182,6 +183,11 @@ export function AppShell({
     const ref = terminalRefs.current.get(id);
     const handle = (ref?.current as TerminalHandle | null) ?? null;
     handle?.toggleMessageQueue?.();
+  });
+  useKeyboardTogglePrettyMode(tabs, activeTabId, (id) => {
+    const ref = terminalRefs.current.get(id);
+    const handle = (ref?.current as TerminalHandle | null) ?? null;
+    handle?.togglePrettyMode?.();
   });
   const [userPrefs, setUserPrefs] = useState<UserPreferences>({
     reopenTabsOnLogin: false,
