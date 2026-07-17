@@ -20,9 +20,9 @@ Requirements for patch #43. Each maps to a roadmap phase.
 
 ### Conversation Render
 
-- [ ] **RENDER-01**: Pretty view renders only conversational messages — the user's typed messages and Claude's text replies. Tool calls, tool results, thinking blocks, tokens, and metadata are excluded from v1
-- [ ] **RENDER-02**: The rendered conversation scrolls back to the start of the current session file (session boundary = one Claude Code invocation on this pane)
-- [ ] **RENDER-03**: Auto-scroll follows the newest message when the user is at the bottom; if the user scrolls up, the view holds position instead of yanking them back
+- [x] **RENDER-01**: Pretty view renders only conversational messages — the user's typed messages and Claude's text replies. Tool calls, tool results, thinking blocks, tokens, and metadata are excluded from v1
+- [x] **RENDER-02**: The rendered conversation scrolls back to the start of the current session file (session boundary = one Claude Code invocation on this pane)
+- [x] **RENDER-03**: Auto-scroll follows the newest message when the user is at the bottom; if the user scrolls up, the view holds position instead of yanking them back
 - [ ] **RENDER-04**: Rendered text is selectable with native browser text selection — no copy-mode dance, no highlight-then-Enter contract
 - [ ] **RENDER-05**: Click-to-focus behaves like a normal web app — clicking the pane focuses it without accidentally starting a text selection
 
@@ -36,15 +36,15 @@ Requirements for patch #43. Each maps to a roadmap phase.
 
 ### Backend Session-File Tail
 
-- [ ] **BACKEND-01**: The backend identifies the Claude Code process running in the pane's tmux session on the remote host (via existing SSH exec channel; no new subsystem)
-- [ ] **BACKEND-02**: The backend locates the JSONL session file that process is writing to disk (typically under `~/.claude/projects/*/`)
-- [ ] **BACKEND-03**: The backend reads the file from the beginning and tails it forward as new events land
-- [ ] **BACKEND-04**: The backend streams parsed conversational-message events to the frontend over a WebSocket bridge
+- [x] **BACKEND-01**: The backend identifies the Claude Code process running in the pane's tmux session on the remote host (via existing SSH exec channel; no new subsystem)
+- [x] **BACKEND-02**: The backend locates the JSONL session file that process is writing to disk (typically under `~/.claude/projects/*/`)
+- [x] **BACKEND-03**: The backend reads the file from the beginning and tails it forward as new events land
+- [x] **BACKEND-04**: The backend streams parsed conversational-message events to the frontend over a WebSocket bridge
 
 ### No-Active-Session Fallback
 
-- [ ] **FALLBACK-01**: When pretty mode is toggled on a pane that has no active Claude Code process, the view shows "no active Claude session" and does nothing else — no reaching back to prior session files
-- [ ] **FALLBACK-02**: The no-active-session state applies whether the pane is at a shell prompt, was running Claude and exited, or is running something else entirely
+- [x] **FALLBACK-01**: When pretty mode is toggled on a pane that has no active Claude Code process, the view shows "no active Claude session" and does nothing else — no reaching back to prior session files
+- [x] **FALLBACK-02**: The no-active-session state applies whether the pane is at a shell prompt, was running Claude and exited, or is running something else entirely
 
 ## v2 Requirements
 
