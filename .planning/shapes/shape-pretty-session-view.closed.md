@@ -96,3 +96,46 @@ GSD is **not yet bootstrapped** on the fork worktree. First operational step aft
 Maintainer of the Termix fork is Tina (the current identity on this box). Execution happens on this box against the local fork worktree; commits push to the fork remote. Every deploy along the way is guarded by the mandatory 15-minute deadman rollback timer per Tina's standing DEPLOY DISCIPLINE rule — external to this shape but binding on every commit landed during execute-phase.
 
 Close-out at the end via `/close pretty-session-view`.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-07-17
+**Vehicle used:** Full GSD phase (one-time bootstrap on the fork worktree → `/gsd:plan-phase` + `/gsd:execute-phase` for Phase 1, same for Phase 2, with polish + a latent-bug fix landed ad-hoc between deploys). Every deploy behind the mandatory 15-min deadman rollback per fork discipline.
+**Overall verdict:** closed-hit
+
+### Per-facet
+
+- **What this is** — hit · Second top-pane mode on the existing Termix terminal tab holding a Claude Code session; chat-style rendering backed by the session file on the remote host; drawer preserved; own inline compose distinct from the drawer.
+- **Shape (three pieces coexist)** — hit · Terminal is a flex-column with xterm hidden via `display:none` when pretty is on, PrettyView mounted alongside, drawer sibling below — drawer's presence orthogonal to mode.
+- **Shape (tmux is default, no memory)** — hit · Plain useState default false; nothing persists it; every fresh mount lands on tmux.
+- **Shape (keyboard chord flip)** — hit · Ctrl+Shift+O, document capture-phase intercept, layout-independent, matches the established sibling-hooks pattern exactly.
+- **Shape (pretty view content = conversational only + compose below)** — hit · Parser drops everything that isn't a text block (tool_use / tool_result / thinking structurally never surfaced). Compose sits directly below the conversation.
+- **Shape (Enter sends / Shift-Enter newlines / same input channel as drawer / no optimistic display)** — hit · Split-send text + `\r` with 60ms gap, exactly the drawer's proven path; textarea clears only on confirmed dispatch; no local echo.
+- **Shape (scrolls from beginning of current session file, one file boundary)** — hit · Tail from line 1 for one file per WS connection.
+- **Shape (no-Claude fallback says only "no active Claude session")** — hit · Backend sends exactly one `inactive` frame and stops; frontend renders exactly that string; inactiveReason state exists but is deliberately not rendered.
+- **Philosophy — native web chat experience escaping the tmux ergonomic mines** — hit · Browser-default paste (no interception), no user-select restrictions, native cursor selection, native click-to-focus, chat-app auto-scroll with jump-to-latest pill.
+- **Prior context: queue drawer send mechanism reused** — hit · Same split-send path.
+- **Prior context: claude-code-trace as reference not dependency** — hit · Own implementation; no import.
+- **Prior context: pane keys off own tmux session** — hit · Discovery walks the pane's own tmux session's Claude process, not the host's.
+- **Prior context: fork build/deadman/deploy flow** — hit · Every deploy armed the 15-min deadman.
+- **What would make it wrong: Ergonomic mines survive** — hit · All four named mines (copy dance, hidden paste, click-to-select, cramped un-selectable reading) verified addressed by native browser semantics.
+- **What would make it wrong: Scope creep** — hit · No tool-call indicators, no status pips, no thinking spinners, no metadata; RENDER-01 lock enforced at the parser AND commented as "defense in depth" at the renderer.
+- **What would make it wrong: Non-native chat behavior** — hit · No optimistic bubbles; Enter/Shift-Enter correct; failure surfaces inline and preserves typed text.
+- **What would make it wrong: Heavy flip** — hit · Ashley confirmed the flip feels free — fast, no state loss, no fight. xterm stays alive via display:none so tmux session persists underneath and flip-back is instant.
+- **What would make it wrong: Cleverness that gets it wrong** — hit · No "Claude is waiting" auto-detect, no "your last send might have failed" heuristic — no false-positive vectors added.
+- **Scope edges (in)** — hit · Every in-scope item shipped and verified.
+- **Scope edges (out)** — hit · Nothing rejected snuck in (no tool call/result/thinking/token rendering, no cross-session browsing, no persistence of mode choice, no smart tmux-attention detection, no optimistic display, no rich paste treatment).
+- **Scope edges (tempting but no)** — hit · No compact tool-call pill, no session boundary marker/picker, no reveal-tmux hint, no per-tab mode memory.
+
+### Follow-ups
+
+- Remove the `console.debug` diagnostic left in the pretty view from the jump-to-latest debug session (filtered by default so invisible in normal use, but not shipping-clean) — bounty
+- AGENTS.md write-ups for patches #42 (tmux 2-line wheel scroll), #43 (Phase 1 pretty pipe), #44 (Phase 2 toggle + compose + native ergonomics), #45 (polish: inline send button + jump-to-latest pill + useAutoScroll callback-ref fix) — bounty (already tracked as an existing todo on the `pretty-session-view` bounty)
+
+### Notes
+
+The latent `useAutoScroll` bug found during Phase 2 polish was silently hurting Phase 1 too — the scroll observer never attached in Phase 1 either, but `wasPinnedRef` defaulted to true so auto-scroll worked on the happy path (nothing in Phase 1 depended on the flag flipping false). The chat-app jump-to-latest pill from Phase 2 is what surfaced it: the pill's render gate needed the flag to flip, which forced the callback-ref refactor. Worth remembering: hooks that observe DOM state via `useRef` + `useEffect(deps=[refObj])` will silently no-op when the ref target is conditionally rendered. Prefer callback-ref for any DOM-observation hook.
+
+The `#pretty=1` URL-fragment gate from Phase 1 was scaffolding only — worth calling out that Phase 2's plan explicitly named its removal as a task, and that removal was verified via `grep -n "pretty" src/ui/shell/tabUtils.tsx` returning zero. Mixed-mechanism state avoided by making the removal an explicit plan step, not an incidental cleanup.
