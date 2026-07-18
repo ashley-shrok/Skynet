@@ -373,8 +373,8 @@ export function PrettyView({
           // that use `hsla(var(--pv-id-hue),...)` are FINE because they
           // resolve at paint time (custom props are dynamic per-cascade).
           backgroundImage: `
-            radial-gradient(ellipse 800px 400px at 20% 0%, hsla(${pvHue}, 60%, 45%, 0.14), transparent 60%),
-            radial-gradient(ellipse 700px 500px at 90% 100%, rgba(90, 60, 120, 0.15), transparent 60%),
+            radial-gradient(ellipse 800px 400px at 20% 0%, rgba(255,240,215,0.08), transparent 60%),
+            radial-gradient(ellipse 700px 500px at 90% 100%, rgba(255,240,215,0.05), transparent 60%),
             linear-gradient(160deg, var(--color-pv-base) 0%, var(--color-pv-base-mid) 50%, var(--color-pv-base-end) 100%)
           `,
           ...style,
