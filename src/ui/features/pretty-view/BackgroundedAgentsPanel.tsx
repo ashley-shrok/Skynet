@@ -75,9 +75,9 @@ export function BackgroundedAgentsPanel({
                   className={cn(
                     "text-[10px] font-medium uppercase tracking-wide shrink-0",
                     "px-1.5 py-0.5 rounded-sm",
-                    "bg-[hsla(var(--pv-id-hue),75%,52%,0.14)]",
-                    "border border-[hsla(var(--pv-id-hue),75%,52%,0.22)]",
-                    "text-[hsla(var(--pv-id-hue),40%,72%,1)]",
+                    "bg-[rgba(255,240,215,0.08)]",
+                    "border border-[rgba(255,240,215,0.16)]",
+                    "text-[rgba(232,220,190,1)]",
                   )}
                 >
                   {tag}

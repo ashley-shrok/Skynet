@@ -395,9 +395,9 @@ export function ComposeBox({
               className={cn(
                 "absolute bottom-0 left-0 right-0 transition-[height] duration-300",
                 contextPct < 50
-                  ? "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),75%,66%,1),hsla(var(--pv-id-hue),75%,42%,1))] shadow-[0_0_10px_hsla(var(--pv-id-hue),75%,52%,0.6),_inset_0_1px_0_rgba(255,220,150,0.4)]"
+                  ? "bg-[linear-gradient(180deg,rgba(240,225,195,1),rgba(180,165,140,1))] shadow-[0_0_10px_rgba(240,225,195,0.35),_inset_0_1px_0_rgba(255,240,215,0.4)]"
                   : contextPct < 80
-                    ? "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),70%,60%,0.9),hsla(var(--pv-id-hue),70%,40%,0.9))] shadow-[0_0_8px_hsla(var(--pv-id-hue),70%,50%,0.45),_inset_0_1px_0_rgba(255,220,150,0.3)]"
+                    ? "bg-[linear-gradient(180deg,rgba(220,205,175,0.9),rgba(160,145,120,0.9))] shadow-[0_0_8px_rgba(220,205,175,0.25),_inset_0_1px_0_rgba(255,240,215,0.3)]"
                     : "bg-[linear-gradient(180deg,hsla(0,75%,60%,1),hsla(0,75%,40%,1))] shadow-[0_0_10px_hsla(0,75%,50%,0.6),_inset_0_1px_0_rgba(255,220,150,0.4)]",
               )}
               style={{
@@ -432,8 +432,8 @@ export function ComposeBox({
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(255,240,215,0.04)]",
             "transition-[box-shadow,border-color] duration-200",
-            "focus:border-[hsla(var(--pv-id-hue),65%,55%,0.35)]",
-            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(255,240,215,0.07),_0_0_0_1px_hsla(var(--pv-id-hue),65%,55%,0.3),_0_0_22px_hsla(var(--pv-id-hue),65%,55%,0.18)]",
+            "focus:border-[rgba(255,240,215,0.28)]",
+            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(255,240,215,0.07),_0_0_0_1px_rgba(255,240,215,0.2),_0_0_22px_rgba(255,240,215,0.12)]",
             "focus-visible:ring-0 focus-visible:outline-none",
           )}
           // Note: NOT disabled when canSend===false — user can compose
@@ -466,8 +466,8 @@ export function ComposeBox({
               "text-[#e8e4d8]",
               "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
               "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-              "hover:border-[hsla(var(--pv-id-hue),75%,55%,0.35)]",
-              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_hsla(var(--pv-id-hue),75%,52%,0.22)]",
+              "hover:border-[rgba(255,240,215,0.22)]",
+              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
             )}
           >
             <RotateCcw className="size-4" />
@@ -485,8 +485,8 @@ export function ComposeBox({
               "text-[#e8e4d8]",
               "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
               "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-              "hover:border-[hsla(var(--pv-id-hue),75%,55%,0.35)]",
-              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_hsla(var(--pv-id-hue),75%,52%,0.22)]",
+              "hover:border-[rgba(255,240,215,0.22)]",
+              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
             )}
           >
             <ThumbsUp className="size-4" />
@@ -498,12 +498,12 @@ export function ComposeBox({
             aria-label="Send message"
             title="Send (Enter)"
             className={cn(
-              "border-[rgba(255,220,170,0.5)]",
-              "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),75%,66%,0.85),hsla(var(--pv-id-hue),75%,42%,0.9))]",
+              "border-[rgba(255,240,215,0.4)]",
+              "bg-[linear-gradient(180deg,rgba(230,220,195,0.85),rgba(140,130,110,0.9))]",
               "text-[#1a0f04]",
-              "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,235,190,0.4),_0_0_24px_hsla(var(--pv-id-hue),75%,52%,0.35)]",
-              "hover:bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),80%,72%,0.9),hsla(var(--pv-id-hue),80%,48%,0.95))]",
-              "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,235,190,0.5),_0_0_32px_hsla(var(--pv-id-hue),75%,52%,0.45)]",
+              "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,215,0.4),_0_0_24px_rgba(240,225,195,0.22)]",
+              "hover:bg-[linear-gradient(180deg,rgba(245,235,210,0.9),rgba(160,150,130,0.95))]",
+              "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,215,0.5),_0_0_32px_rgba(240,225,195,0.28)]",
               "disabled:opacity-40 disabled:cursor-not-allowed",
             )}
           >

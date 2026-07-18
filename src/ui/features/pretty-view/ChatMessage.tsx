@@ -66,11 +66,11 @@ export function ChatMessage({
           "prose-code:border prose-code:border-white/[0.06]",
           isUser
             ? cn(
-                // Identity-hue gradient + hue-tinted rim + outer glow (VISUAL-03).
-                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),60%,45%,0.55),hsla(var(--pv-id-hue),55%,30%,0.6))]",
+                // No-tint experiment — warm neutral gradient + off-white rim.
+                "bg-[linear-gradient(160deg,rgba(95,88,72,0.55),rgba(60,54,44,0.6))]",
                 "text-[#fbf5e8]",
-                "border-[hsla(var(--pv-id-hue),75%,52%,0.28)]",
-                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),75%,52%,0.18),_0_0_30px_hsla(var(--pv-id-hue),75%,52%,0.18)]",
+                "border-[rgba(255,240,215,0.15)]",
+                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_rgba(255,240,215,0.1),_0_0_30px_rgba(255,240,215,0.08)]",
                 "prose-invert",
               )
             : cn(

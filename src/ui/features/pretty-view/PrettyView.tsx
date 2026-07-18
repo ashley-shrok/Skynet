@@ -487,7 +487,7 @@ export function PrettyView({
       )}
 
       {errorMessage && status === "streaming" && (
-        <div className="border-t border-white/[0.08] bg-[hsla(var(--pv-id-hue),75%,52%,0.06)] text-destructive text-xs px-3 py-1">
+        <div className="border-t border-white/[0.08] bg-[rgba(255,240,215,0.04)] text-destructive text-xs px-3 py-1">
           {errorMessage}
         </div>
       )}
