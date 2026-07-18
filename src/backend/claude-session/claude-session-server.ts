@@ -388,25 +388,60 @@ wss.on("connection", async (ws: WebSocket, req) => {
             }
           }
         }
-      } else if (
-        obj?.type === "attachment" &&
-        (obj as { attachment?: { commandMode?: string; prompt?: unknown } })
-          ?.attachment?.commandMode === "task-notification"
-      ) {
-        // Patch #66 completion signal: harness writes a task-notification
-        // attachment turn when a backgrounded Agent finishes. Its
-        // attachment.prompt is the raw <task-notification>...</task-notification>
-        // XML including <tool-use-id> and <status>. Parse those two fields
-        // and clear the agent from the map on any terminal status.
-        const prompt =
-          typeof (obj as { attachment?: { prompt?: unknown } })?.attachment
-            ?.prompt === "string"
-            ? ((obj as { attachment: { prompt: string } }).attachment.prompt)
-            : "";
-        const idMatch = prompt.match(
+      }
+      // Patch #66 completion signal for backgrounded Agents. Claude Code /
+      // its harness lands the task-notification payload in the JSONL in
+      // AT LEAST three observed shapes across versions and states:
+      //   (1) type:"attachment" with attachment.commandMode:"task-
+      //       notification" and attachment.prompt carrying the XML.
+      //   (2) type:"queue-operation" with a top-level `content` string
+      //       carrying the XML (harness enqueue bookkeeping).
+      //   (3) type:"user" with message.content being a raw STRING that
+      //       starts with "<task-notification>" (the user-turn form
+      //       observed on this box's Claude Code v2.1.143).
+      // Detect any of the three by picking whichever field carries the
+      // payload; require the STRING to START with "<task-notification>"
+      // (not merely contain it) so a normal user message or tool_result
+      // that happens to quote the phrase does NOT false-positive — same
+      // discipline as patch #65's anchored /exit scan.
+      const notifPayload = ((): string | null => {
+        // Shape 1: type:"attachment" + attachment.prompt
+        const attachmentAny = obj as {
+          type?: string;
+          attachment?: { commandMode?: string; prompt?: unknown };
+        };
+        if (
+          attachmentAny?.type === "attachment" &&
+          attachmentAny?.attachment?.commandMode === "task-notification" &&
+          typeof attachmentAny?.attachment?.prompt === "string" &&
+          attachmentAny.attachment.prompt.startsWith("<task-notification>")
+        ) {
+          return attachmentAny.attachment.prompt;
+        }
+        // Shape 2: type:"queue-operation" + top-level content string
+        const qopAny = obj as { type?: string; content?: unknown };
+        if (
+          qopAny?.type === "queue-operation" &&
+          typeof qopAny?.content === "string" &&
+          qopAny.content.startsWith("<task-notification>")
+        ) {
+          return qopAny.content;
+        }
+        // Shape 3: type:"user" + message.content as raw XML string
+        if (
+          obj?.type === "user" &&
+          typeof content === "string" &&
+          content.startsWith("<task-notification>")
+        ) {
+          return content;
+        }
+        return null;
+      })();
+      if (notifPayload) {
+        const idMatch = notifPayload.match(
           /<tool-use-id>(toolu_[^<]+)<\/tool-use-id>/,
         );
-        const statusMatch = prompt.match(
+        const statusMatch = notifPayload.match(
           /<status>(completed|failed|stopped|cancelled|error)<\/status>/,
         );
         if (idMatch && statusMatch) {
