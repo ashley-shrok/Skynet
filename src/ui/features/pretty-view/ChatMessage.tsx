@@ -56,7 +56,20 @@ export function ChatMessage({
             : "bg-card text-card-foreground border border-border dark:prose-invert",
         )}
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ node, ...props }) => (
+              <a
+                {...props}
+                target="_blank"
+                rel="noopener noreferrer"
+              />
+            ),
+          }}
+        >
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   );
