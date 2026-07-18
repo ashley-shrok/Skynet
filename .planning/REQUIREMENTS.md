@@ -46,6 +46,14 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [x] **FALLBACK-01**: When pretty mode is toggled on a pane that has no active Claude Code process, the view shows "no active Claude session" and does nothing else — no reaching back to prior session files
 - [x] **FALLBACK-02**: The no-active-session state applies whether the pane is at a shell prompt, was running Claude and exited, or is running something else entirely
 
+### Session Changeover Detection (Phase 3)
+
+- [ ] **CHANGEOVER-01**: When the current Claude session is recycled (via `/id reset`) or recovered (crash/reboot → `claude --resume`), pretty view detects the changeover and switches to tailing the new session's file without any user intervention (no tab close/reopen)
+- [ ] **CHANGEOVER-02**: Detection is edge-triggered on the `<command-name>/exit</command-name>` marker in the current session's JSONL for sub-second latency in the graceful-recycle case, with a discovery-repoll backstop on the existing 3s poller for the SIGTERM-fallback and recover-in-different-cwd cases
+- [ ] **CHANGEOVER-03**: During the changeover gap (old session dead, new session not yet up), pretty view shows a "session recycling…" indication without tearing down its WebSocket connection or displaying the terminal no-active-session fallback
+- [ ] **CHANGEOVER-04**: Once the new session is detected, pretty view resets its message list, harness-tasks list, and context-% state; the new session's conversation re-hydrates from the top via existing `tail -F -n +1` semantics; the identity badge and pane-tint (which follow the pane, not the session) are unaffected
+- [ ] **CHANGEOVER-05**: Detection handles both recycle (new session id → new .jsonl filename) and recover (`claude --resume <oldId>` → same session id but potentially different `projects/<slug>/` subdir when the resume-workdir differs from the original)
+
 ## v2 Requirements
 
 Deferred to future patches. Each add earns its way in as its own separate design conversation.
@@ -107,12 +115,17 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BACKEND-04 | Phase 1 | Complete |
 | FALLBACK-01 | Phase 1 | Complete |
 | FALLBACK-02 | Phase 1 | Complete |
+| CHANGEOVER-01 | Phase 3 | Pending |
+| CHANGEOVER-02 | Phase 3 | Pending |
+| CHANGEOVER-03 | Phase 3 | Pending |
+| CHANGEOVER-04 | Phase 3 | Pending |
+| CHANGEOVER-05 | Phase 3 | Pending |
 
 **Coverage:**
-- v1 requirements: 19 total
-- Mapped to phases: 19 ✓
+- v1 requirements: 24 total (19 shipped, 5 pending for Phase 3)
+- Mapped to phases: 24 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-17 after Phase 2 close-out (all 19 v1 requirements complete)*
+*Last updated: 2026-07-18 — added CHANGEOVER-01..05 for Phase 3 (session changeover detection)*

@@ -31,6 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Live session stream to browser + read-only pretty view** - Backend discovers the Claude process in the pane's tmux session, locates the JSONL session file, tails it, streams parsed conversational events over WebSocket, and renders them in a minimal read-only pretty view (with the no-active-session fallback) ✓ deployed to production 2026-07-17
 - [x] **Phase 2: Toggle, compose, and native web ergonomics** - Keyboard chord flips the top pane between tmux and pretty modes with the queue drawer preserved, plus compose box with split-send and native browser text-selection / click-to-focus / readable-paste behavior ✓ deployed to production 2026-07-17 (Ctrl+Shift+O toggle + ComposeBox with inline send button + jump-to-latest pill)
+- [ ] **Phase 3: Session changeover detection** - Pretty view detects when the current Claude session was recycled (via `/id reset`) or recovered (crash/reboot → `claude --resume`) and switches to tailing the new session's file without user intervention; edge-triggered on `/exit` marker with a discovery-repoll backstop on the existing 3s poller for SIGTERM-fallback and recover-in-different-cwd cases
 
 ## Phase Details
 
@@ -99,12 +100,38 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] 02-03-PLAN.md — Deploy checkpoint + UAT verification (RENDER-04, RENDER-05, COMPOSE-04, COMPOSE-05)
 
+### Phase 3: Session changeover detection
+
+**Goal**: When the current Claude session is recycled (`/id reset`) or recovered (`claude --resume`), pretty view detects the changeover within seconds and re-tails the new session without the user having to close and reopen the tab
+**Depends on**: Phase 1, Phase 2
+**Requirements**: CHANGEOVER-01, CHANGEOVER-02, CHANGEOVER-03, CHANGEOVER-04, CHANGEOVER-05
+**Success Criteria** (what must be TRUE):
+
+  1. When Ashley runs `/id reset` in a pane whose pretty view is open, the pretty view shows a "session recycling…" indication within ~1s of `/exit` landing in the current JSONL, then automatically switches to the new session and shows its conversation from the top — no manual tab close/reopen needed
+  2. If the graceful `/exit` fails and the supervisor falls back to SIGTERM, the discovery-repoll on the existing 3s poller catches the changeover within ~5s and the same switch happens (no `/exit` seen, but same end state)
+  3. If the pane's Claude process crashes and the supervisor recovers via `claude --resume <oldId>` — even to a different cwd → same session id but a different `projects/<slug>/` subdir — the pretty view detects the new file location and re-tails it
+  4. During the ~5s bare-shell gap between old-session death and new-session launch, the pretty view holds the "recycling" indication instead of falling to the terminal "no active Claude session" fallback; the WebSocket connection is NOT torn down
+  5. On the successful changeover, the messages / harness-tasks / context-% state resets to the new session; the identity badge and pane-tint (pane-scoped) remain unchanged
+  6. If no new session appears within ~30-60s of the changeover trigger (rare — recycle failed to relaunch), the pretty view falls through to the terminal `no-active-session` state (existing FALLBACK-01 behavior)
+
+**Plans**: 2 (03-01 backend state machine + two-layer detection, 03-02 frontend event handlers + holding banner)
+**UI hint**: yes
+
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Backend state machine + Layer 1 raw-line /exit scan + Layer 2 discovery-repoll on the existing 3s ticker + new WS emits session_holding / session_changed / holding_timeout inactive (CHANGEOVER-01, CHANGEOVER-02, CHANGEOVER-05)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — Frontend WS handlers for session_holding + session_changed + SessionHoldingBanner sibling component + client-side state reset (CHANGEOVER-01, CHANGEOVER-03, CHANGEOVER-04)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2
+Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Live session stream to browser + read-only pretty view | 5/5 | Complete | 2026-07-17 |
 | 2. Toggle, compose, and native web ergonomics | 3/3 | Complete | 2026-07-17 |
+| 3. Session changeover detection | 0/2 | Planning | — |

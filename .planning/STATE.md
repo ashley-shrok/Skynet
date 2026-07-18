@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Roadmap created; requirements traceability populated; ready for `/gsd-plan-phase 1`
-last_updated: "2026-07-18T06:05:00.000Z"
-last_activity: 2026-07-18 -- Completed quick task 260718-87h: backgrounded-agents panel in pretty view (patch #61)
+status: in_progress
+stopped_at: Phase 03 waves 1+2 committed locally (99f1837 backend, fa24b09 frontend); awaiting batch deploy with pending patches #61/#62/#63
+last_updated: "2026-07-18T17:00:00.000Z"
+last_activity: 2026-07-18 -- Executed Phase 3 waves 1+2 (session-changeover detection, patch #64): backend state machine (99f1837) + frontend banner (fa24b09); build clean; not deployed
 progress:
-  total_phases: 2
-  completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
-  percent: 50
+  total_phases: 3
+  completed_phases: 2
+  total_plans: 10
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 02 — In Progress
-Plan: 2 of 3 (Wave 2 complete)
-Status: Phase 02 Wave 2 complete — Wave 3 ready
-Last activity: 2026-07-17 -- Phase 02 Plan 02 (compose box + split-send) complete
+Phase: 03 — Code Complete, Awaiting Batch Deploy
+Plan: 2 of 2 (both waves complete)
+Status: Phase 03 waves 1+2 committed on `feat/tab-title-from-tmux`; batched with pending patches #61/#62/#63 for a single deadman-armed deploy at Ashley's greenlight (bounty `pending-patch-batch-post-60`)
+Last activity: 2026-07-18 -- Phase 03 Wave 2 (frontend banner + WS handlers) complete
 
-Progress: [████░░░░░░] 40%
+Progress: [██████████] 100% (code); deploy pending
 
 ## Performance Metrics
 
