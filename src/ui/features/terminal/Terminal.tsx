@@ -231,6 +231,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const [isPrettyMode, setIsPrettyMode] = useState(false);
+    // PTY-side "Claude is currently working" signal. Backend emits
+    // {type:"idle", idle:bool} on transitions (patch #13) plus an initial
+    // state on WS attach. `null` = we haven't heard from the backend yet;
+    // consumers treat null as "unknown / do not show WIP indicator" so a
+    // fresh open doesn't false-positive before the first ticker fires.
+    const [isIdle, setIsIdle] = useState<boolean | null>(null);
     const autoOpenCheckedKeysRef = useRef<Set<string>>(new Set());
     useEffect(() => {
       const hostId = hostConfig.id;
@@ -1092,8 +1098,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             return;
           }
           if (msg.type === "idle") {
-            // Backend still emits idle transitions (patch 13); frontend no
-            // longer visualizes them (patch 26 replaced pulse with static tint).
+            // Backend emits idle transitions (patch #13) + an initial-state
+            // frame on WS attach. Threaded down to PrettyView for the WIP
+            // spinner bubble (patch #51 rework). Pane tint (patch #26) is
+            // static and does not consume this signal.
+            if (typeof msg.idle === "boolean") {
+              setIsIdle(msg.idle);
+            }
             return;
           }
           if (msg.type === "data") {
@@ -2813,6 +2824,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             hostId={hostConfig.id}
             tmuxSession={tmuxSessionName}
             className="flex-1 min-h-0"
+            isIdle={isIdle}
             onSend={(text) => {
               const ws = webSocketRef.current;
               if (!ws || ws.readyState !== 1) return false;
