@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: completed
 stopped_at: Roadmap created; requirements traceability populated; ready for `/gsd-plan-phase 1`
-last_updated: "2026-07-18T01:48:05.000Z"
-last_activity: 2026-07-18 -- Completed quick task 260718-2dt: Message queue drawer auto-closes when send empties the queue
+last_updated: "2026-07-18T03:36:00.000Z"
+last_activity: 2026-07-18 -- Completed quick task 260718-4oi: persist pretty-view ComposeBox draft body server-side per pane (patch #57)
 progress:
   total_phases: 2
   completed_phases: 1
@@ -82,6 +82,9 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 |---|-------------|------|--------|-----------|
 | 260717-vbw | Pretty-view WIP indicator (patch #51) — JSONL state-machine spinner bubble | 2026-07-17 | caafaa5 | [260717-vbw-work-in-progress-indicator-for-pretty-vi](./quick/260717-vbw-work-in-progress-indicator-for-pretty-vi/) |
 | 260718-2dt | Message queue drawer auto-closes when send empties the queue | 2026-07-18 | 5f209ff | [260718-2dt-message-queue-drawer-auto-closes-when-se](./quick/260718-2dt-message-queue-drawer-auto-closes-when-se/) |
+| 260718-340 | Fix message queue sync bugs (patch #55) — keepalive delete + full dirty flush on unload + 10s interval retry | 2026-07-18 | f4b845e | [260718-340-fix-message-queue-sync-bugs-patch-55-kee](./quick/260718-340-fix-message-queue-sync-bugs-patch-55-kee/) |
+| 260718-43f | Fix pretty-view context% false-positive (patch #56) — bottom-8-lines slice + bar-glyph fallback | 2026-07-18 | 17c4079 | [260718-43f-fix-pretty-view-context-false-positive-m](./quick/260718-43f-fix-pretty-view-context-false-positive-m/) |
+| 260718-4oi | Persist pretty-view ComposeBox draft body server-side per pane (patch #57) | 2026-07-18 | 4579ca7 | [260718-4oi-persist-pretty-view-composebox-draft-bod](./quick/260718-4oi-persist-pretty-view-composebox-draft-bod/) |
 
 ## Deferred Items
 
