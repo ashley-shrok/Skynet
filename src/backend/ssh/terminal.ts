@@ -1538,9 +1538,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
               )
                 return;
               if (s.idleCheckInFlight) return;
-              if (s.idleEmitted) return;
               if (!s.tmuxSessionName || !s.sshConn) return;
-              if (Date.now() - s.lastActivityAt < IDLE_THRESHOLD_MS) return;
+
+              // Fast path: after the initial state has been emitted, only run
+              // the tmux query when we have a chance of transitioning idle:true.
+              // Activity bursts trigger idle:false via the data handler, not here.
+              if (
+                s.initialStateEmitted &&
+                (s.idleEmitted ||
+                  Date.now() - s.lastActivityAt < IDLE_THRESHOLD_MS)
+              ) {
+                return;
+              }
 
               s.idleCheckInFlight = true;
               try {
@@ -1548,11 +1557,29 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   s.sshConn,
                   s.tmuxSessionName,
                 );
-                if (
-                  cmd === "claude" &&
-                  !s.idleEmitted &&
-                  Date.now() - s.lastActivityAt >= IDLE_THRESHOLD_MS
-                ) {
+                if (cmd !== "claude") return;
+
+                const nowIdle =
+                  Date.now() - s.lastActivityAt >= IDLE_THRESHOLD_MS;
+
+                if (!s.initialStateEmitted) {
+                  // First tick after WS attach: emit a definitive answer
+                  // whichever direction it is, so consumers like pretty view's
+                  // WIP bubble have an initial state without waiting for a
+                  // transition that may never come on a session that's
+                  // continuously busy.
+                  s.initialStateEmitted = true;
+                  s.idleEmitted = nowIdle;
+                  if (s.attachedWs?.readyState === WebSocket.OPEN) {
+                    s.attachedWs.send(
+                      JSON.stringify({ type: "idle", idle: nowIdle }),
+                    );
+                  }
+                  return;
+                }
+
+                // Post-initial: only emit on the busy → idle transition.
+                if (nowIdle && !s.idleEmitted) {
                   s.idleEmitted = true;
                   if (s.attachedWs?.readyState === WebSocket.OPEN) {
                     s.attachedWs.send(
