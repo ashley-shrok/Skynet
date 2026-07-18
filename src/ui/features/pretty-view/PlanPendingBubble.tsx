@@ -36,8 +36,18 @@ export function PlanPendingBubble() {
         role="status"
         aria-label="Plan waiting for your approval"
         className={cn(
-          "rounded-lg px-3 py-2 leading-relaxed",
-          "bg-card text-card-foreground border border-border",
+          // Phase 4 Glass: shared assistant-bubble treatment (matches
+          // ChatMessage assistant branch and WipBubble — same raised-object
+          // depth). Static ClipboardList glyph preserved per patch #63 —
+          // motion channel stays owned by WipBubble.
+          "leading-relaxed",
+          "rounded-[var(--radius-pv-bubble)] px-3 py-2",
+          "backdrop-blur-xl saturate-150",
+          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
+          "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
+          "text-[#dfe3ee]",
+          "border border-white/[0.08]",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
           "flex items-center gap-2 text-sm",
         )}
       >

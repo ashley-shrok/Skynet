@@ -358,7 +358,15 @@ export function ComposeBox({
   return (
     <div
       className={cn(
-        "border-t border-border bg-background flex flex-col gap-1 px-3 py-2 shrink-0",
+        // Phase 4 Glass: QUIET compose surround (VISUAL-06) — NO card
+        // treatment, NO bright top rim, NO hard separator. Compose
+        // blends into the atmosphere; the only visual cue that this
+        // is a distinct region is a subtle inset shadow that shades
+        // the bottom strip. The compose intentionally does NOT compete
+        // with the chat above for attention.
+        "flex flex-col gap-1 px-3 py-3 shrink-0",
+        "bg-[linear-gradient(180deg,rgba(0,0,0,0.15),rgba(0,0,0,0.3))]",
+        "shadow-[inset_0_2px_10px_rgba(0,0,0,0.35)]",
         className,
       )}
     >
@@ -371,7 +379,11 @@ export function ComposeBox({
             rows). */}
         {typeof contextPct === "number" && (
           <div
-            className="w-1.5 self-stretch bg-muted/40 rounded-sm relative overflow-hidden"
+            // Phase 4 Glass: track is a dark inset well; fill is the
+            // per-pane identity hue (with red as the ≥80 breakout for
+            // "approaching-full is alarming regardless of pane identity"
+            // per plan HARD LOCK).
+            className="w-1.5 self-stretch rounded-sm relative overflow-hidden bg-black/55 shadow-[inset_0_0_4px_rgba(0,0,0,0.7),_0_1px_0_rgba(255,240,215,0.08)]"
             role="meter"
             aria-label="Context window"
             aria-valuemin={0}
@@ -383,10 +395,10 @@ export function ComposeBox({
               className={cn(
                 "absolute bottom-0 left-0 right-0 transition-[height] duration-300",
                 contextPct < 50
-                  ? "bg-green-500"
+                  ? "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),75%,66%,1),hsla(var(--pv-id-hue),75%,42%,1))] shadow-[0_0_10px_hsla(var(--pv-id-hue),75%,52%,0.6),_inset_0_1px_0_rgba(255,220,150,0.4)]"
                   : contextPct < 80
-                    ? "bg-yellow-500"
-                    : "bg-red-500",
+                    ? "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),70%,60%,0.9),hsla(var(--pv-id-hue),70%,40%,0.9))] shadow-[0_0_8px_hsla(var(--pv-id-hue),70%,50%,0.45),_inset_0_1px_0_rgba(255,220,150,0.3)]"
+                    : "bg-[linear-gradient(180deg,hsla(0,75%,60%,1),hsla(0,75%,40%,1))] shadow-[0_0_10px_hsla(0,75%,50%,0.6),_inset_0_1px_0_rgba(255,220,150,0.4)]",
               )}
               style={{
                 height: `${Math.min(100, Math.max(0, contextPct))}%`,
@@ -402,7 +414,28 @@ export function ComposeBox({
           onKeyDown={handleKeyDown}
           placeholder="Message Claude…"
           rows={rows}
-          className="resize-none flex-1"
+          // Phase 4 Glass: lightest-touch textarea outline (VISUAL-07) +
+          // identity-hue focus ring (VISUAL-03/VISUAL-07). The 1px warm-
+          // white 9% border is the ONLY affordance that makes the textarea
+          // findable within the otherwise-blending compose surround.
+          // Focus reveals a hue-tinted border + soft outer glow — subtle
+          // grow-into-view, not a sudden pop. `focus-visible:ring-0` and
+          // `focus-visible:outline-none` disable the shadcn Textarea's
+          // default focus ring (`focus-visible:border-ring
+          // focus-visible:ring-ring/50 focus-visible:ring-[3px]`) so our
+          // own hue ring wins cleanly.
+          className={cn(
+            "resize-none flex-1",
+            "bg-white/[0.03] text-[#f0ebe0]",
+            "border border-[rgba(255,240,215,0.09)]",
+            "rounded-[10px] px-4 py-3",
+            "placeholder:text-[var(--color-pv-fg-dim)]",
+            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(255,240,215,0.04)]",
+            "transition-[box-shadow,border-color] duration-200",
+            "focus:border-[hsla(var(--pv-id-hue),65%,55%,0.35)]",
+            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(255,240,215,0.07),_0_0_0_1px_hsla(var(--pv-id-hue),65%,55%,0.3),_0_0_22px_hsla(var(--pv-id-hue),65%,55%,0.18)]",
+            "focus-visible:ring-0 focus-visible:outline-none",
+          )}
           // Note: NOT disabled when canSend===false — user can compose
           // during a transient disconnect and send when WS reconnects.
           // The send button is disabled; the error will surface on attempt.
@@ -415,6 +448,11 @@ export function ComposeBox({
             If the textarea grows past the stack's height, empty space
             appears above the top button rather than pushing Send up. */}
         <div className="flex flex-col gap-1">
+          {/* Phase 4 Glass: RotateCcw + ThumbsUp adopt the mock's
+              `.pv-icon-btn` quiet treatment (warm-neutral gradient +
+              hue-tinted hover glow). Only Send gets the saturated
+              identity-hue treatment — VISUAL-08 HARD LOCK: send is
+              the ONE compose attention grab-point. */}
           <Button
             size="icon-sm"
             variant="outline"
@@ -422,6 +460,15 @@ export function ComposeBox({
             disabled={canSend === false}
             aria-label="Send with /id reset prefix"
             title="Send with /id reset prefix"
+            className={cn(
+              "border-white/10",
+              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
+              "text-[#e8e4d8]",
+              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
+              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
+              "hover:border-[hsla(var(--pv-id-hue),75%,55%,0.35)]",
+              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_hsla(var(--pv-id-hue),75%,52%,0.22)]",
+            )}
           >
             <RotateCcw className="size-4" />
           </Button>
@@ -432,6 +479,15 @@ export function ComposeBox({
             disabled={canSend === false}
             aria-label="Send 'go ahead'"
             title="Send 'go ahead'"
+            className={cn(
+              "border-white/10",
+              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
+              "text-[#e8e4d8]",
+              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
+              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
+              "hover:border-[hsla(var(--pv-id-hue),75%,55%,0.35)]",
+              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_hsla(var(--pv-id-hue),75%,52%,0.22)]",
+            )}
           >
             <ThumbsUp className="size-4" />
           </Button>
@@ -441,6 +497,15 @@ export function ComposeBox({
             disabled={sendDisabled}
             aria-label="Send message"
             title="Send (Enter)"
+            className={cn(
+              "border-[rgba(255,220,170,0.5)]",
+              "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),75%,66%,0.85),hsla(var(--pv-id-hue),75%,42%,0.9))]",
+              "text-[#1a0f04]",
+              "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,235,190,0.4),_0_0_24px_hsla(var(--pv-id-hue),75%,52%,0.35)]",
+              "hover:bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),80%,72%,0.9),hsla(var(--pv-id-hue),80%,48%,0.95))]",
+              "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,235,190,0.5),_0_0_32px_hsla(var(--pv-id-hue),75%,52%,0.45)]",
+              "disabled:opacity-40 disabled:cursor-not-allowed",
+            )}
           >
             <Send className="size-4" />
           </Button>

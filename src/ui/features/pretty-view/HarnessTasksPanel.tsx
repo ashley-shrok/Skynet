@@ -42,18 +42,28 @@ export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) 
   return (
     <div
       className={cn(
-        "border-t border-border bg-muted/30 shrink-0 max-h-40 overflow-y-auto",
+        // Phase 4 Glass: ambient-panel-shelf treatment (VISUAL-05) —
+        // a subtle floating card that reads as calm chrome above the
+        // compose area, distinct from the raised chat bubbles.
+        "shrink-0 max-h-40 overflow-y-auto",
+        "mx-3 my-1 px-3 py-1.5",
+        "bg-[linear-gradient(160deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
+        "border border-[var(--color-pv-border-quiet)]",
+        "rounded-[var(--radius-pv-card)]",
+        "shadow-[var(--shadow-pv-quiet-card)]",
+        "backdrop-blur-md",
+        "[-webkit-backdrop-filter:blur(12px)]",
         className,
       )}
       aria-label="Harness tasks"
     >
-      <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+      <div className="py-1 text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase tracking-wide flex items-center gap-2">
         <span>Tasks</span>
-        <span className="text-muted-foreground/70 normal-case font-normal">
+        <span className="text-[var(--color-pv-fg-dim)] normal-case font-normal">
           ({tasks.length})
         </span>
       </div>
-      <ul className="px-3 pb-2 flex flex-col gap-1">
+      <ul className="pb-1 flex flex-col gap-1">
         {tasks.map((t) => {
           // In-progress tasks: show activeForm ("Refactoring foo") over the
           // subject ("Refactor foo") when present — that's Claude Code's own
@@ -70,8 +80,9 @@ export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) 
               <span
                 className={cn(
                   "break-words",
-                  t.status === "in_progress" && "text-foreground font-medium",
-                  t.status === "pending" && "text-foreground/90",
+                  t.status === "in_progress" &&
+                    "text-[var(--color-pv-fg)] font-medium",
+                  t.status === "pending" && "text-[var(--color-pv-fg)]/90",
                 )}
               >
                 {label}

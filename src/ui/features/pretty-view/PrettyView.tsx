@@ -331,7 +331,16 @@ export function PrettyView({
   return (
     <div
       data-pv-root
-      className={cn("h-full w-full flex flex-col bg-background", className)}
+      className={cn(
+        // Phase 4 Glass atmospheric base — warm-neutral dark with
+        // radial-gradient depth cues. `relative overflow-hidden` gives
+        // the IdentityBadge (absolute) a positioning anchor and clips
+        // any glass-blur bleed at the edges.
+        "h-full w-full flex flex-col relative overflow-hidden",
+        "text-[var(--color-pv-fg)]",
+        "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
+        className,
+      )}
       style={
         {
           // Phase 4: expose per-pane identity hue as a CSS custom
@@ -345,6 +354,29 @@ export function PrettyView({
           // rather than composing hsla — but they use the SAME
           // fallback of 35 for consistency.
           "--pv-id-hue": String(pvHue),
+          // Atmospheric depth = TWO radial-gradient overlays (warm
+          // hue-tinted from top-left, fixed cool violet from bottom-right)
+          // over a warm-neutral linear-gradient base. HARD LOCK: this
+          // uses `background-image` ONLY. Do NOT add backdropFilter,
+          // filter, transform, willChange, or perspective to this root
+          // div — any of those would establish a new containing block
+          // for the SessionHoldingBanner's `sticky top-0` descendant and
+          // break it per the FRAGILITY WARNING below. `background-image`
+          // is safe (it never establishes a containing block).
+          //
+          // Note: the top-left warm radial uses the resolved `${pvHue}`
+          // numeric literal rather than `hsla(var(--pv-id-hue),...)`
+          // because CSS custom properties in gradient stops sometimes
+          // need @property declarations to interpolate cleanly across
+          // browsers; embedding the number at style-compute time avoids
+          // that edge case. Inner components' arbitrary-value classes
+          // that use `hsla(var(--pv-id-hue),...)` are FINE because they
+          // resolve at paint time (custom props are dynamic per-cascade).
+          backgroundImage: `
+            radial-gradient(ellipse 800px 400px at 20% 0%, hsla(${pvHue}, 60%, 45%, 0.14), transparent 60%),
+            radial-gradient(ellipse 700px 500px at 90% 100%, rgba(90, 60, 120, 0.15), transparent 60%),
+            linear-gradient(160deg, var(--color-pv-base) 0%, var(--color-pv-base-mid) 50%, var(--color-pv-base-end) 100%)
+          `,
           ...style,
         } as React.CSSProperties
       }
@@ -361,11 +393,13 @@ export function PrettyView({
         <IdentityBadge identityKey={pvIdentityKey} size="lg" />
       )}
       {status === "connecting" && (
-        <div className="p-4 text-sm text-muted-foreground">Connecting…</div>
+        <div className="p-4 text-sm text-[var(--color-pv-fg-muted)]">
+          Connecting…
+        </div>
       )}
 
       {status === "inactive" && (
-        <div className="flex-1 flex items-center justify-center p-4 text-sm text-muted-foreground">
+        <div className="flex-1 flex items-center justify-center p-4 text-sm text-[var(--color-pv-fg-muted)]">
           no active Claude session
         </div>
       )}
@@ -415,7 +449,7 @@ export function PrettyView({
               not for the sticky element itself. The W4 fragility is about
               ancestors, not the sticky element's own filter properties. */}
           {isHolding && (
-            <div className="sticky top-0 z-10 -mx-4 -mt-3 mb-3 px-4 py-2 bg-background/95 backdrop-blur-sm border-b border-border">
+            <div className="sticky top-0 z-10 -mx-4 -mt-3 mb-3 px-4 py-2 bg-[rgba(20,18,14,0.92)] backdrop-blur-sm border-b border-[var(--color-pv-border-quiet)]">
               <SessionHoldingBanner />
             </div>
           )}
@@ -453,7 +487,7 @@ export function PrettyView({
       )}
 
       {errorMessage && status === "streaming" && (
-        <div className="border-t border-border bg-destructive/10 text-destructive text-xs px-3 py-1">
+        <div className="border-t border-white/[0.08] bg-[hsla(var(--pv-id-hue),75%,52%,0.06)] text-destructive text-xs px-3 py-1">
           {errorMessage}
         </div>
       )}

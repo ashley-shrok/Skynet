@@ -21,12 +21,22 @@ export function WipBubble() {
       <div
         role="status"
         className={cn(
-          "rounded-lg px-3 py-2 leading-relaxed",
-          "bg-card text-card-foreground border border-border",
+          // Phase 4 Glass: shared assistant-bubble treatment (matches ChatMessage
+          // assistant branch — same raised-object depth, so the WIP bubble reads
+          // as belonging to the same visual family as the surrounding assistant
+          // turns).
+          "leading-relaxed",
+          "rounded-[var(--radius-pv-bubble)] px-3 py-2",
+          "backdrop-blur-xl saturate-150",
+          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
+          "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
+          "text-[#dfe3ee]",
+          "border border-white/[0.08]",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
         )}
       >
         <Loader2
-          className="h-4 w-4 animate-spin"
+          className="h-4 w-4 animate-spin motion-reduce:animate-none text-[rgba(150,180,220,0.9)]"
           aria-label="Claude is working"
         />
       </div>

@@ -34,11 +34,20 @@ export function SessionHoldingBanner() {
       role="status"
       aria-label="Session recycling — reconnecting"
       className={cn(
+        // Phase 4 Glass: banner adopts the ambient-panels-shelf visual
+        // language (subtle floating-card) rather than the raised-bubble
+        // treatment — this is chrome, not content. Static RefreshCcw
+        // glyph preserved per Plan 03-02 (motion channel owned by
+        // WipBubble; a spinner here would be semantically wrong).
         "flex items-center gap-2",
-        "rounded-md px-3 py-1.5",
-        "bg-muted/60 text-muted-foreground",
-        "border border-border",
+        "rounded-[var(--radius-pv-card)] px-3 py-1.5",
+        "bg-[linear-gradient(160deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
+        "text-[var(--color-pv-fg-muted)]",
+        "border border-[var(--color-pv-border-quiet)]",
+        "backdrop-blur-md",
+        "[-webkit-backdrop-filter:blur(12px)]",
         "text-xs",
+        "shadow-[var(--shadow-pv-quiet-card)]",
       )}
     >
       <RefreshCcw className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />

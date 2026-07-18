@@ -33,18 +33,26 @@ export function BackgroundedAgentsPanel({
   return (
     <div
       className={cn(
-        "border-t border-border bg-muted/30 shrink-0 max-h-40 overflow-y-auto",
+        // Phase 4 Glass: shared ambient-panel-shelf treatment (VISUAL-05).
+        "shrink-0 max-h-40 overflow-y-auto",
+        "mx-3 my-1 px-3 py-1.5",
+        "bg-[linear-gradient(160deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
+        "border border-[var(--color-pv-border-quiet)]",
+        "rounded-[var(--radius-pv-card)]",
+        "shadow-[var(--shadow-pv-quiet-card)]",
+        "backdrop-blur-md",
+        "[-webkit-backdrop-filter:blur(12px)]",
         className,
       )}
       aria-label="Backgrounded agents"
     >
-      <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+      <div className="py-1 text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase tracking-wide flex items-center gap-2">
         <span>Agents</span>
-        <span className="text-muted-foreground/70 normal-case font-normal">
+        <span className="text-[var(--color-pv-fg-dim)] normal-case font-normal">
           ({agents.length})
         </span>
       </div>
-      <ul className="px-3 pb-2 flex flex-col gap-1">
+      <ul className="pb-1 flex flex-col gap-1">
         {agents.map((a) => {
           const tag = a.subagentType || "Agent";
           const label = a.description || a.subagentType || "Agent";
@@ -60,10 +68,23 @@ export function BackgroundedAgentsPanel({
             >
               <ArrowRight className="size-3.5 shrink-0 text-primary mt-0.5" />
               <span className="min-w-0 flex items-baseline gap-2 flex-wrap">
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                {/* Phase 4: subagentType tag picks up the per-pane identity
+                    hue so the panel visually ties to the pane it belongs
+                    to (VISUAL-03 color-chain). */}
+                <span
+                  className={cn(
+                    "text-[10px] font-medium uppercase tracking-wide shrink-0",
+                    "px-1.5 py-0.5 rounded-sm",
+                    "bg-[hsla(var(--pv-id-hue),75%,52%,0.14)]",
+                    "border border-[hsla(var(--pv-id-hue),75%,52%,0.22)]",
+                    "text-[hsla(var(--pv-id-hue),40%,72%,1)]",
+                  )}
+                >
                   {tag}
                 </span>
-                <span className="text-foreground/90 break-words">{label}</span>
+                <span className="text-[var(--color-pv-fg)]/90 break-words">
+                  {label}
+                </span>
               </span>
             </li>
           );

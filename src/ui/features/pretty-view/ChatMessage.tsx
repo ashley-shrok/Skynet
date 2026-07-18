@@ -42,18 +42,43 @@ export function ChatMessage({
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-lg px-3 py-2 break-words text-sm leading-relaxed",
+          // Phase 4 Glass: raised-object bubble treatment.
+          "max-w-[85%] break-words text-sm leading-relaxed",
+          "rounded-[var(--radius-pv-bubble)] px-3 py-2",
+          "backdrop-blur-xl saturate-150",
+          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
+          "border border-white/[0.08]",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
+          // Prose scaffolding (typography plugin).
           "prose prose-sm max-w-[85%]",
           "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
           "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          // Preformatted code blocks: Glass depth (inner shadow + hairline border).
           "prose-pre:my-2 prose-pre:p-2 prose-pre:rounded",
+          "prose-pre:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+          "prose-pre:bg-[rgba(10,12,20,0.6)] prose-pre:border prose-pre:border-white/[0.06]",
+          "prose-pre:shadow-[inset_0_2px_8px_rgba(0,0,0,0.4)]",
+          // Inline code: warm coral foreground + subtle chip rectangle.
           "prose-code:before:content-none prose-code:after:content-none",
           "prose-code:rounded prose-code:px-1 prose-code:py-0.5",
           "prose-code:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-          "prose-pre:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+          "prose-code:bg-white/[0.08] prose-code:text-[var(--color-pv-code-fg)]",
+          "prose-code:border prose-code:border-white/[0.06]",
           isUser
-            ? "bg-primary text-primary-foreground prose-invert"
-            : "bg-card text-card-foreground border border-border dark:prose-invert",
+            ? cn(
+                // Identity-hue gradient + hue-tinted rim + outer glow (VISUAL-03).
+                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),60%,45%,0.55),hsla(var(--pv-id-hue),55%,30%,0.6))]",
+                "text-[#fbf5e8]",
+                "border-[hsla(var(--pv-id-hue),75%,52%,0.28)]",
+                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),75%,52%,0.18),_0_0_30px_hsla(var(--pv-id-hue),75%,52%,0.18)]",
+                "prose-invert",
+              )
+            : cn(
+                // Assistant: translucent mid-blue-gray gradient over the depth.
+                "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
+                "text-[#dfe3ee]",
+                "dark:prose-invert",
+              ),
         )}
       >
         <ReactMarkdown

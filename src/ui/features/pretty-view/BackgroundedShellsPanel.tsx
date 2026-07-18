@@ -33,18 +33,26 @@ export function BackgroundedShellsPanel({
   return (
     <div
       className={cn(
-        "border-t border-border bg-muted/30 shrink-0 max-h-40 overflow-y-auto",
+        // Phase 4 Glass: shared ambient-panel-shelf treatment (VISUAL-05).
+        "shrink-0 max-h-40 overflow-y-auto",
+        "mx-3 my-1 px-3 py-1.5",
+        "bg-[linear-gradient(160deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
+        "border border-[var(--color-pv-border-quiet)]",
+        "rounded-[var(--radius-pv-card)]",
+        "shadow-[var(--shadow-pv-quiet-card)]",
+        "backdrop-blur-md",
+        "[-webkit-backdrop-filter:blur(12px)]",
         className,
       )}
       aria-label="Backgrounded shells"
     >
-      <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+      <div className="py-1 text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase tracking-wide flex items-center gap-2">
         <span>Shells</span>
-        <span className="text-muted-foreground/70 normal-case font-normal">
+        <span className="text-[var(--color-pv-fg-dim)] normal-case font-normal">
           ({shells.length})
         </span>
       </div>
-      <ul className="px-3 pb-2 flex flex-col gap-1">
+      <ul className="pb-1 flex flex-col gap-1">
         {shells.map((s) => {
           const primary = s.description || s.command || "Shell";
           const showCommandLine =
@@ -57,11 +65,11 @@ export function BackgroundedShellsPanel({
             >
               <Terminal className="size-3.5 shrink-0 text-primary mt-0.5" />
               <span className="min-w-0 flex flex-col gap-0.5">
-                <span className="text-foreground/90 break-words">
+                <span className="text-[var(--color-pv-fg)]/90 break-words">
                   {primary}
                 </span>
                 {showCommandLine && (
-                  <code className="text-xs text-muted-foreground/80 font-mono break-all">
+                  <code className="text-xs text-[var(--color-pv-fg-dim)] font-mono break-all">
                     {s.command}
                   </code>
                 )}
