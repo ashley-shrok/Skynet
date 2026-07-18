@@ -84,3 +84,23 @@ export function flushMessageQueueItemKeepalive(id: string, body: string): void {
     // never throw during unload
   }
 }
+
+// Fire-and-forget DELETE that survives page unload. Used by handleSend to
+// remove a successfully-sent message-queue item without leaving a window
+// where a cancelled axios request lets the item come back as a ghost on
+// next list. Axios cancels in-flight XHRs on page unload; fetch with
+// keepalive:true stays in flight after the page is gone. Response is
+// unreachable — treat as best-effort.
+export function deleteMessageQueueItemKeepalive(id: string): void {
+  try {
+    const base = authApi.defaults.baseURL ?? "";
+    const url = `${base}/message-queue/${id}`;
+    fetch(url, {
+      method: "DELETE",
+      credentials: "include",
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // never throw during unload
+  }
+}

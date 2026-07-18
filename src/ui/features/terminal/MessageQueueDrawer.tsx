@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   createMessageQueueItem,
   deleteMessageQueueItem,
+  deleteMessageQueueItemKeepalive,
   flushMessageQueueItemKeepalive,
   listMessageQueueItems,
   updateMessageQueueItem,
@@ -103,12 +104,17 @@ export function MessageQueueDrawer({
   // Best-effort flush on tab close / refresh / navigation. pagehide fires
   // for all unload paths incl. bfcache; visibilitychange→hidden catches
   // mobile-Safari-style backgrounding where pagehide is unreliable.
+  // Iterates dirtyBodiesRef (the source of truth for what needs saving) so
+  // the failed-and-re-queued case is covered — a body put back by
+  // flushDirty's .catch path has no corresponding timer but still needs
+  // flushing. Clears both maps after.
   useEffect(() => {
     const flushAllKeepalive = () => {
-      for (const [id, timer] of debounceTimersRef.current) {
+      for (const [id, body] of dirtyBodiesRef.current) {
+        flushMessageQueueItemKeepalive(id, body);
+      }
+      for (const timer of debounceTimersRef.current.values()) {
         clearTimeout(timer);
-        const body = dirtyBodiesRef.current.get(id);
-        if (body !== undefined) flushMessageQueueItemKeepalive(id, body);
       }
       debounceTimersRef.current.clear();
       dirtyBodiesRef.current.clear();
@@ -124,20 +130,34 @@ export function MessageQueueDrawer({
     };
   }, []);
 
-  // On unmount (drawer closed, host switched): flush anything still dirty
-  // synchronously via normal axios path. This is the "closed the drawer
-  // while typing" case where blur has already fired but keepalive isn't
-  // needed — we can just await.
+  // Failed saves put the body back in dirtyBodiesRef with no timer.
+  // Without this interval, those bodies would only get another chance on
+  // the next keystroke (which resets a new debounce) or on pagehide/
+  // unmount. 10s interval retry closes the gap so a transient network
+  // blip during autosave doesn't leave a dirty body sitting until the
+  // user closes the tab.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      for (const id of dirtyBodiesRef.current.keys()) {
+        void flushDirty(id);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [flushDirty]);
+
+  // On unmount (drawer closed, host switched): flush every dirty body
+  // (with or without a pending debounce timer) via keepalive so it
+  // survives if the whole tab is going down at the same time as the
+  // drawer closing. Iterates dirtyBodiesRef (source of truth) to cover
+  // the failed-and-re-queued case where a body was put back with no
+  // corresponding timer. Clears both maps after.
   useEffect(() => {
     return () => {
-      for (const [id, timer] of debounceTimersRef.current) {
+      for (const [id, body] of dirtyBodiesRef.current) {
+        flushMessageQueueItemKeepalive(id, body);
+      }
+      for (const timer of debounceTimersRef.current.values()) {
         clearTimeout(timer);
-        const body = dirtyBodiesRef.current.get(id);
-        if (body !== undefined) {
-          // Fire-and-forget (component is unmounting); keepalive too so
-          // it survives if the whole tab is going down at the same time.
-          flushMessageQueueItemKeepalive(id, body);
-        }
       }
       debounceTimersRef.current.clear();
       dirtyBodiesRef.current.clear();
@@ -250,9 +270,6 @@ export function MessageQueueDrawer({
 
   const handleSend = useCallback(
     async (item: MessageQueueItem) => {
-      // Flush any pending debounce for this item first so the server has
-      // the freshest body before we try to delete it — belt-and-braces in
-      // case the DELETE fails and we need to leave the row visible.
       await flushDirty(item.id);
 
       const text = item.body;
@@ -265,29 +282,20 @@ export function MessageQueueDrawer({
         setError("Terminal not connected — message not sent");
         return;
       }
-      try {
-        await deleteMessageQueueItem(item.id);
-        setItems((p) => {
-          const next = p.filter((it) => it.id !== item.id);
-          if (next.length === 0) onClose?.();
-          return next;
-        });
-      } catch (e) {
-        // WS send happened but server DELETE failed. Keep the row so it
-        // doesn't come back as a ghost on reload; mark it sent-pending
-        // so the UI shows "Retry cleanup" instead of "Send" — otherwise
-        // Ashley might Send again and re-fire the same message.
-        setSentPendingIds((p) => {
-          const next = new Set(p);
-          next.add(item.id);
-          return next;
-        });
-        setError(
-          `Sent to terminal but cleanup failed — retry cleanup or delete. (${String((e as Error)?.message ?? e)})`,
-        );
-      } finally {
-        setSendingId(null);
-      }
+      // Keepalive DELETE — survives tab close mid-send, cannot leave a
+      // ghost item on reload the way an axios call cancelled by unload
+      // would. Fire-and-forget; local state update is authoritative.
+      // Note: sent-pending state machinery (setSentPendingIds,
+      // handleRetryCleanup, sentPending rendering in MessageQueueRow) is
+      // now dead code from handleSend's path — left in place for
+      // minimal-diff; remove in a future cleanup patch if desired.
+      deleteMessageQueueItemKeepalive(item.id);
+      setItems((p) => {
+        const next = p.filter((it) => it.id !== item.id);
+        if (next.length === 0) onClose?.();
+        return next;
+      });
+      setSendingId(null);
     },
     [onSend, flushDirty, onClose],
   );
