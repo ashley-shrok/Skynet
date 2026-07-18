@@ -292,7 +292,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     if (
       !hasSeenExit &&
       changeoverState === "active" &&
-      line.includes("<command-name>/exit</command-name>")
+      line.includes('"content":"<command-name>/exit</command-name>')
     ) {
       hasSeenExit = true;
       transitionToHolding("exit_marker");
