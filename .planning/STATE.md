@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Phase 03 waves 1+2 committed locally (99f1837 backend, fa24b09 frontend); awaiting batch deploy with pending patches #61/#62/#63
-last_updated: "2026-07-18T17:00:00.000Z"
-last_activity: 2026-07-18 -- Executed Phase 3 waves 1+2 (session-changeover detection, patch #64): backend state machine (99f1837) + frontend banner (fa24b09); build clean; not deployed
+stopped_at: Phase 04 Wave 1 committed locally (06b1f08); Phase 4 foundation shipped (design tokens + IdentityBadge lg + PrettyView hue plumbing); Phase 3 + Phase 4 batches awaiting deploy
+last_updated: "2026-07-18T18:00:00.000Z"
+last_activity: 2026-07-18 -- Executed Phase 4 Wave 1 (visual reskin foundation): design tokens + @keyframes pv-identity-breathe + IdentityBadge size prop + PrettyView --pv-id-hue plumbing (06b1f08); Terminal.tsx untouched; build clean; not deployed
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 2
-  total_plans: 10
-  completed_plans: 10
-  percent: 100
+  total_plans: 13
+  completed_plans: 11
+  percent: 85
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 03 — Code Complete, Awaiting Batch Deploy
-Plan: 2 of 2 (both waves complete)
-Status: Phase 03 waves 1+2 committed on `feat/tab-title-from-tmux`; batched with pending patches #61/#62/#63 for a single deadman-armed deploy at Ashley's greenlight (bounty `pending-patch-batch-post-60`)
-Last activity: 2026-07-18 -- Phase 03 Wave 2 (frontend banner + WS handlers) complete
+Phase: 04 — Wave 1 Complete, Wave 2 Pending
+Plan: 1 of 3 (foundation shipped; Plans 04-02 reskin, 04-03 deploy-checkpoint remain)
+Status: Phase 04 Wave 1 (design tokens + IdentityBadge lg + PrettyView hue plumbing, commit 06b1f08) committed on `feat/tab-title-from-tmux`; Phase 3 (patch #64) still queued; batched with pending patches for a single deadman-armed deploy at Ashley's greenlight
+Last activity: 2026-07-18 -- Phase 04 Wave 1 committed; Terminal.tsx UNCHANGED; build clean
 
-Progress: [██████████] 100% (code); deploy pending
+Progress: [████████░░] 85% (code); deploy pending; Phase 4 continues at 04-02
 
 ## Performance Metrics
 

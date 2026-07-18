@@ -54,6 +54,19 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [ ] **CHANGEOVER-04**: Once the new session is detected, pretty view resets its message list, harness-tasks list, and context-% state; the new session's conversation re-hydrates from the top via existing `tail -F -n +1` semantics; the identity badge and pane-tint (which follow the pane, not the session) are unaffected
 - [ ] **CHANGEOVER-05**: Detection handles both recycle (new session id → new .jsonl filename) and recover (`claude --resume <oldId>` → same session id but potentially different `projects/<slug>/` subdir when the resume-workdir differs from the original)
 
+### Visual Reskin — Glass Depth Aesthetic (Phase 4)
+
+- [ ] **VISUAL-01**: Pretty view's base surface reads as a warm-neutral dark atmosphere (not cool navy-black or pure black) with subtle radial-gradient depth cues implying an ambient light source — a physical space, not a flat fill
+- [ ] **VISUAL-02**: Chat bubbles read as raised physical objects on that atmospheric background, with multi-layer shadow stacks (ambient + contact + inset rim highlight) creating perceived elevation, plus backdrop-filter blur so translucent surfaces read as layered glass planes over the depth
+- [ ] **VISUAL-03**: The identity's stored `colorHue` (patch #17 identities registry) is dynamically carried through the user-bubble accent + border glow, the context-bar fill, the send-button glow, and the textarea focus ring — one coherent per-pane color chain that identifies which agent this pane is talking to; falls back to a neutral accent when the identity has no `colorHue`
+- [ ] **VISUAL-04**: Identity badge in the top-right corner of pretty view uses a large avatar (~56px, up from patch #17/#38's smaller size), name + title stacked to the right of the avatar, with a subtle slow breathing brightness animation (~5s cycle) as an ambient grounding anchor
+- [ ] **VISUAL-05**: The ambient panels shelf (HarnessTasksPanel + BackgroundedAgentsPanel + BackgroundedShellsPanel) reads as a single quiet floating card treatment — distinct enough from the message area above to know where it ends, but visually calm and not competing for attention
+- [ ] **VISUAL-06**: The compose surface itself is intentionally low-prominence — no card treatment, no bright top rim, blends into the atmospheric depth. You go to it when you're ready to type; it does not demand attention
+- [ ] **VISUAL-07**: The textarea within the compose has a lightest-touch 1px warm-white outline (~0.09 opacity) that makes it findable as a receptacle for typing, without becoming visually loud; focused textarea gets an identity-hue focus ring
+- [ ] **VISUAL-08**: The send button retains a saturated identity-hue glow — the ONE intentional attention-grab-point in the compose area for "I am ready to fire this message"
+- [ ] **VISUAL-09**: All existing pretty-view functionality (chat rendering, ComposeBox split-send + reset + go-ahead paths, HarnessTasksPanel, BackgroundedAgentsPanel, BackgroundedShellsPanel, WipBubble, PlanPendingBubble, session-changeover holding/changed banners, empty state, error states, keyboard chords) is preserved end-to-end — the reskin is CSS-only, no behavior changes to any component's props, state, effects, or WebSocket handling
+- [ ] **VISUAL-10**: The reskin does NOT visually touch terminal / RDP / VNC / file manager / dashboard / sidebar / tab bar / AppRail chrome — pretty view remains a themed island in the current Termix visual system. Identity badge specifically preserves its existing patch #38 hover-fade behavior wherever it's used (including terminal panes, not just pretty view)
+
 ## v2 Requirements
 
 Deferred to future patches. Each add earns its way in as its own separate design conversation.
@@ -120,12 +133,22 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CHANGEOVER-03 | Phase 3 | Pending |
 | CHANGEOVER-04 | Phase 3 | Pending |
 | CHANGEOVER-05 | Phase 3 | Pending |
+| VISUAL-01 | Phase 4 | Pending |
+| VISUAL-02 | Phase 4 | Pending |
+| VISUAL-03 | Phase 4 | Pending |
+| VISUAL-04 | Phase 4 | Pending |
+| VISUAL-05 | Phase 4 | Pending |
+| VISUAL-06 | Phase 4 | Pending |
+| VISUAL-07 | Phase 4 | Pending |
+| VISUAL-08 | Phase 4 | Pending |
+| VISUAL-09 | Phase 4 | Pending |
+| VISUAL-10 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 24 total (19 shipped, 5 pending for Phase 3)
-- Mapped to phases: 24 ✓
+- v1 requirements: 34 total (19 shipped, 5 pending for Phase 3, 10 pending for Phase 4)
+- Mapped to phases: 34 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-18 — added CHANGEOVER-01..05 for Phase 3 (session changeover detection)*
+*Last updated: 2026-07-18 — added VISUAL-01..10 for Phase 4 (Glass depth visual reskin, spec: bounties/pretty-view-visual-overhaul/mock/index.html)*
