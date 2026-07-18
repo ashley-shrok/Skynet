@@ -20,6 +20,11 @@ import { ComposeBox } from "./ComposeBox";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
 import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
 import { BackgroundedShellsPanel } from "./BackgroundedShellsPanel";
+import {
+  sessionMatchKey,
+  useSessionIdentity,
+} from "@/features/terminal/session-hue";
+import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
@@ -144,6 +149,25 @@ export function PrettyView({
 
   const { scrollRef, contentRef, scrollToBottom, isPinnedToBottom } =
     useAutoScroll();
+
+  // Phase 4: derive per-pane identity + hue for the Glass reskin.
+  //
+  // useSessionIdentity(tmuxSession) reads the identities registry
+  // (patch #17) via the shared session-hue helper (patch #30 lifted the
+  // reader). Returns the matched identity or null; identityHue is the
+  // identity's stored colorHue (0-360) or null when the identity has
+  // no colorHue set.
+  //
+  // Fallback: hue 35 (warm neutral amber, matches the design mock's
+  // Tina hue and the IdentityBadge lg treatment's own fallback). This
+  // gives every pretty-view pane a coherent color chain even when the
+  // pane's identity has no colorHue set OR the pane has no identity
+  // at all. NOTE: this differs from the terminal pane (patch #26)
+  // which uses hueFromSessionName as a hash-based fallback — pretty
+  // view is deliberately more restrained per CONTEXT.md § Decisions 2.
+  const { identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession);
+  const pvIdentityKey = sessionMatchKey(tmuxSession);
+  const pvHue = pvIdentityHue ?? 35;
 
   useEffect(() => {
     // Reset all state for this (hostId, tmuxSession) mount.
@@ -306,9 +330,36 @@ export function PrettyView({
 
   return (
     <div
+      data-pv-root
       className={cn("h-full w-full flex flex-col bg-background", className)}
-      style={style}
+      style={
+        {
+          // Phase 4: expose per-pane identity hue as a CSS custom
+          // property that all descendants can consume via
+          // `hsla(var(--pv-id-hue), 75%, 52%, X)`. Plan 04-02 wires
+          // this into ChatMessage user-bubble accents, ComposeBox
+          // ctxbar fill + send-button glow + textarea focus ring,
+          // ambient panel tag styling, etc. The IdentityBadge (lg)
+          // below reads identity.colorHue directly (not via this
+          // var) because its accents apply per-pixel color values
+          // rather than composing hsla — but they use the SAME
+          // fallback of 35 for consistency.
+          "--pv-id-hue": String(pvHue),
+          ...style,
+        } as React.CSSProperties
+      }
     >
+      {/* Phase 4: pretty-view IdentityBadge in the lg treatment.
+          Mounts only when a matching identity is registered for this
+          pane (sessionMatchKey → useIdentities().byKey lookup — same
+          semantic as the terminal-pane mount). z-[101] matches the
+          terminal-pane badge so layering is consistent when flipping
+          between modes with Ctrl+Shift+O. hover:opacity-0 is inherited
+          from IdentityBadge itself (patch #38 preserved in both
+          size branches — see Task 2 of Plan 04-01). */}
+      {pvIdentityKey && (
+        <IdentityBadge identityKey={pvIdentityKey} size="lg" />
+      )}
       {status === "connecting" && (
         <div className="p-4 text-sm text-muted-foreground">Connecting…</div>
       )}

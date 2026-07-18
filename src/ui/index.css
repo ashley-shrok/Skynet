@@ -89,6 +89,43 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* ── Phase 4: pretty-view Glass depth aesthetic ─────────────
+     Design tokens for src/ui/features/pretty-view/*. Additive
+     to the existing token set — consumed by pretty-view
+     components via `bg-[var(--color-pv-base)]` / `shadow-[var(
+     --shadow-pv-raised-md)]` / etc. Dynamic identity hue is
+     NOT a token — it's a per-pane CSS custom property
+     `--pv-id-hue` set at runtime on PrettyView's root by
+     useSessionIdentity + inline style; downstream classes
+     consume `hsla(var(--pv-id-hue), 75%, 52%, X)` directly.
+     Design spec:
+     /home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html
+     (Glass tab final iterated state, 2026-07-18). */
+  --color-pv-base: #14120e;               /* warm off-black top of gradient */
+  --color-pv-base-mid: #100e0b;
+  --color-pv-base-end: #0a0907;
+  --color-pv-surface-quiet: rgba(255, 240, 215, 0.025);
+  --color-pv-surface-quiet-alt: rgba(255, 240, 215, 0.008);
+  --color-pv-border-quiet: rgba(255, 240, 215, 0.05);
+  --color-pv-border-quiet-strong: rgba(255, 240, 215, 0.09);
+  --color-pv-fg: #e8e4d8;                 /* warm off-white primary text */
+  --color-pv-fg-muted: #a89a80;
+  --color-pv-fg-dim: #7a6f60;
+  --color-pv-code-fg: #ffb896;
+  --radius-pv-bubble: 14px;
+  --radius-pv-card: 10px;
+  --shadow-pv-raised-md:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    0 1px 0 rgba(255, 255, 255, 0.12) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.05);
+  --shadow-pv-quiet-card:
+    0 4px 12px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 240, 215, 0.06);
+  --shadow-pv-root:
+    0 30px 80px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 :root {
@@ -519,6 +556,26 @@ html.fs-xl {
   }
   50% {
     opacity: 0;
+  }
+}
+
+/* Phase 4: pretty-view IdentityBadge (size=lg) breathing brightness cycle.
+ * ~5s cycle, subtle 1.0 → 1.08 → 1.0. Used ONLY in pretty view's
+ * identity treatment; terminal-pane badge (size=md default) does NOT
+ * animate. Reduced-motion variant below disables. */
+@keyframes pv-identity-breathe {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv-identity-breathe {
+    animation: none !important;
   }
 }
 
