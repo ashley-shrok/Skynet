@@ -357,13 +357,38 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // rather than blank out. Recipe cribbed from nelly's context-watch.py
     // (2026-07-18 DM — see tina bounty history).
     //
-    // Regex is anchored on `context)` (from "(1M context)") so transcript
-    // matches on stray "\d+%" don't poison the read. `matchAll` + last
-    // wins so if the transcript above the status line contains an older
-    // "context) NN%" quoted somewhere, the live status line at the bottom
-    // (last on-screen) still takes precedence.
+    // PRIMARY regex is anchored on `context)` (from "(1M context)") so
+    // stray "\d+%" elsewhere in the pane output doesn't poison the read.
+    //
+    // Transcript-pollution fix (patch #56): `matchAll` + last-wins only
+    // produces the correct result IF the true status line is the last match
+    // in the full capture. In practice, any `context)...NN%` string quoted
+    // anywhere in the pane transcript (assistant messages discussing the
+    // status line, old redraw fragments in tmux scrollback) can create a
+    // false match that wins over the real status line when Claude Code's
+    // footer is transiently absent from the capture (mid-tool-execution
+    // redraws). Fix: slice to the BOTTOM 8 LINES of capture-pane output
+    // before matchAll. Claude Code's footer is always at the bottom of the
+    // pane, so this guarantees we only look at the footer region. N=8:
+    // footer=5 lines (2 separator + prompt + status + bypass/permissions)
+    // plus 3-line buffer for footer variations (weekly-limit warnings,
+    // narrow-terminal wrap). If the status line is transiently absent from
+    // those bottom 8 lines, we correctly get zero matches → hold-last
+    // semantics apply — much better than accepting a stale transcript match.
+    //
+    // FALLBACK regex (defense-in-depth): if the primary regex gets zero
+    // matches in the bottom 8 lines, try a bar-glyph pattern (░ / █ chars).
+    // Claude Code's visual context bar uses those block glyphs; no other
+    // footer element does. Safe: weekly-limit warnings, autocompact prompts,
+    // and other footer text are all plain ASCII. Future-proofs against Claude
+    // Code ever dropping "(1M context)" from the status line while keeping
+    // the visual bar.
     const CONTEXT_PCT_INTERVAL_MS = 3000;
     const CONTEXT_PCT_REGEX = /context\)[^%]{0,120}?(\d{1,3})%/g;
+    // Fallback for cases where Claude Code's footer text changes but the
+    // visual context bar (block glyphs) remains — ░/█ are unique to that
+    // indicator; no other footer element uses them.
+    const CONTEXT_PCT_FALLBACK_REGEX = /[░█]\s*(\d{1,3})%/g;
     // Single-quote wrap for the session name. Tmux session names are
     // validated by the frontend to a tmux-safe subset (alphanumeric,
     // dash, underscore), so single-quote escape is sufficient.
@@ -377,7 +402,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
       execCommand(connSnapshot, captureCmd)
         .then((output) => {
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
-          const matches = [...output.matchAll(CONTEXT_PCT_REGEX)];
+          // Slice to bottom 8 lines to defeat transcript pollution (patch #56).
+          const bottom = output.split("\n").slice(-8).join("\n");
+          let matches = [...bottom.matchAll(CONTEXT_PCT_REGEX)];
+          if (matches.length === 0) {
+            // Primary regex missed — try bar-glyph fallback (defense-in-depth).
+            matches = [...bottom.matchAll(CONTEXT_PCT_FALLBACK_REGEX)];
+          }
           if (matches.length === 0) return; // hold last on miss
           const last = matches[matches.length - 1];
           const pct = parseInt(last[1], 10);
