@@ -50,6 +50,21 @@ import { execCommand } from "../ssh/tmux-helper.js";
 const authManager = AuthManager.getInstance();
 const userCrypto = UserCrypto.getInstance();
 
+// Phase 3 session-changeover tuning constants. Holding timeout: 15 * 3s = 45s.
+// Per D-31 and CONTEXT.md § holding timeout — Nelly's timing note: "new .jsonl
+// appears within ~5s; fully-loaded identity ~30-70s later." 45s catches the
+// "no new file appeared" degenerate case (recycle failed to relaunch anything)
+// while giving normal recycles headroom. If this tunes out on live use, bump
+// it up by editing this constant only — no state machine change required.
+const HOLDING_TIMEOUT_TICKS = 15;
+const DISCOVERY_REPOLL_INTERVAL_MS = 3000;
+// Harness-tasks poller tuning — moved to module scope from the pre-refactor
+// inline block so the setupHarnessTasksPoller helper (per BLOCKER fix from
+// plan-checker 2026-07-18) can reference them without re-allocating per call.
+const HARNESS_TASKS_INTERVAL_MS = 3000;
+const UUID_RE =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
@@ -163,6 +178,33 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let pendingPlansLastSerialized = "null";
   let stopped = false;
 
+  // Phase 3 session-changeover state machine. Per D-30 (two-layer detection):
+  // `active`  — currently tailing a live session; ticker also polls context-% + tasks.
+  // `holding` — recycle in progress: /exit was seen OR discovery repoll showed a
+  //             changed sessionFile, but the new tail has not started yet
+  //             (Layer 1 fires this on `/exit`; Layer 2 fires it same-tick when
+  //             it spots a changed file with no prior /exit).
+  // `dead`    — holding timed out (~45s); one final `{type:"inactive"}` was sent
+  //             and all pollers/tail were stopped. WS remains open so the client
+  //             can render FALLBACK-01; no auto-restart from here.
+  type ChangeoverState = "active" | "holding" | "dead";
+  let changeoverState: ChangeoverState = "active";
+  let currentSessionFile: string | null = null; // set on first discovery success and each session_changed
+  let sessionIdFromFile: string | null = null; // UUID basename of currentSessionFile; drives harness-tasks poller cmd (BLOCKER fix)
+  let hasSeenExit = false; // Layer 1 flag; reset on session_changed
+  let holdingTicks = 0; // # of 3s ticks in `holding`; timeout at HOLDING_TIMEOUT_TICKS
+  let discoveryRepollInFlight = false; // guard against slow SSH pileups (mirrors contextPctInFlight)
+  let discoveryRepollTimer: NodeJS.Timeout | null = null;
+  // Phase 3: current pane's hostId/tmuxSession hoisted to connection scope so
+  // the state-transition helpers (defined once per connection) can log with
+  // the right context and so `transitionToActiveNew` can pass tmuxSession into
+  // `discoverClaudeSession` if needed. Set on connectToPane after successful
+  // discovery; cleared in teardownPane. The connection callback enforces
+  // one active pane per WS (line 295 `if (sshConn || tailHandle) teardownPane()`),
+  // so these are effectively read-only for the lifetime of a pane.
+  let currentHostId: number | null = null;
+  let currentTmuxSession: string | null = null;
+
   const teardownPane = () => {
     if (contextPctTimer) {
       clearInterval(contextPctTimer);
@@ -172,9 +214,26 @@ wss.on("connection", async (ws: WebSocket, req) => {
       clearInterval(harnessTasksTimer);
       harnessTasksTimer = null;
     }
+    if (discoveryRepollTimer) {
+      clearInterval(discoveryRepollTimer);
+      discoveryRepollTimer = null;
+    }
     harnessTasksLastSerialized = null;
     pendingPlans.clear();
     pendingPlansLastSerialized = "null";
+    // Phase 3: reset changeover state so a full pane teardown-and-reconnect
+    // (e.g. via a fresh connectToPane) starts clean. connectToPane already
+    // calls teardownPane before starting a new pane; being defensive here
+    // means the state is guaranteed reset even if teardownPane is called
+    // from elsewhere (e.g. transitionToDead) without a follow-up reconnect.
+    changeoverState = "active";
+    currentSessionFile = null;
+    sessionIdFromFile = null;
+    hasSeenExit = false;
+    holdingTicks = 0;
+    discoveryRepollInFlight = false;
+    currentHostId = null;
+    currentTmuxSession = null;
     if (tailHandle) {
       try {
         tailHandle.stop();
@@ -191,6 +250,497 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
       sshConn = null;
     }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Phase 3 canonical declaration order (W1 fix from plan-checker):
+  //   state vars (above)
+  //   → teardownPane (above)
+  //   → const onLine (here)
+  //   → const onError (here)
+  //   → setupHarnessTasksPoller (here)
+  //   → transitionToHolding (here)
+  //   → transitionToActiveNew (here; references onLine, onError, setupHarnessTasksPoller)
+  //   → transitionToDead (here; references teardownPane)
+  //   → ws.on("message") handler body (below, unchanged shape)
+  //
+  // All cross-references between helpers happen at call-time inside async
+  // callbacks (setInterval, tail's onLine), never at synchronous handler-body
+  // execution — so TypeScript's TDZ and JS's const-scoping are both happy
+  // with this order. `hostId` and `tmuxSession` from the connectToPane
+  // message handler are captured via connection-scoped `let currentHostId` /
+  // `let currentTmuxSession` (set on discovery success, cleared in
+  // teardownPane) so these helpers can log with the correct context.
+  // ---------------------------------------------------------------------------
+
+  // Tail's onLine handler — extracted from the pre-Phase-3 inline lambda so
+  // `transitionToActiveNew` can restart the tail with the SAME callbacks
+  // rather than duplicating them. Body is byte-for-byte preserved from the
+  // pre-refactor code with ONE addition: the Layer 1 raw-line /exit scan
+  // right after the ws-open guard.
+  const onLine = (line: string) => {
+    if (stopped || ws.readyState !== WebSocket.OPEN) return;
+
+    // Phase 3 Layer 1: raw-line /exit marker scan (BEFORE JSON.parse for
+    // cheapness). Empirical (verified 2026-07-18): /exit lands as a
+    // type:"user" turn with content
+    // "<command-name>/exit</command-name>\n            <command-message>exit</command-message>..."
+    // Sub-second edge-triggered detection of graceful recycle. The
+    // discovery repoll in the ticker (Layer 2) catches SIGTERM-fallback
+    // and recover-in-different-cwd. See CONTEXT.md D-30 for two-layer
+    // rationale.
+    if (
+      !hasSeenExit &&
+      changeoverState === "active" &&
+      line.includes("<command-name>/exit</command-name>")
+    ) {
+      hasSeenExit = true;
+      transitionToHolding("exit_marker");
+      // Fall through — the parser may still emit the /exit turn as a
+      // message (per Ashley's HARD LOCK: slash commands must remain
+      // visible in pretty view). The state transition is orthogonal to
+      // whether the /exit text renders as a chat bubble. DO NOT `return`
+      // here.
+    }
+
+    // Parallel raw-line scan for backgrounded Agent invocations (patch
+    // #61). Runs ALONGSIDE parseSessionLine, not through it — RENDER-01
+    // HARD LOCK strips tool_use/tool_result blocks structurally at the
+    // parser, so they never reach parseSessionLine's output. A second
+    // JSON.parse is trivially cheap at these volumes.
+    //
+    // Detection (from github.com/delexw/claude-code-trace spec 09):
+    //   - tool_use with name === "Agent" and input.run_in_background ===
+    //     true → started; keyed by tool_use.id.
+    //   - tool_result with matching tool_use_id → completed; drop.
+    // Emit `backgrounded_agents` only when the sorted-serialized list
+    // changes vs last emit. The tail's `-n +1` replay converges the map
+    // naturally through history — a completed subagent adds then removes
+    // within a few lines, and the initial `lastSerialized = "[]"` matches
+    // the empty-list stringification so no spurious empty emit fires.
+    try {
+      const obj = JSON.parse(line) as {
+        type?: string;
+        timestamp?: string;
+        message?: { content?: unknown };
+      };
+      const content = obj?.message?.content;
+      if (obj?.type === "assistant" && Array.isArray(content)) {
+        for (const block of content as unknown[]) {
+          const b = block as {
+            type?: string;
+            name?: string;
+            id?: string;
+            input?: {
+              run_in_background?: boolean;
+              subagent_type?: unknown;
+              description?: unknown;
+            };
+          };
+          if (
+            b?.type === "tool_use" &&
+            b?.name === "Agent" &&
+            b?.input?.run_in_background === true &&
+            typeof b?.id === "string"
+          ) {
+            const startedAt =
+              typeof obj.timestamp === "string"
+                ? Date.parse(obj.timestamp) || Date.now()
+                : Date.now();
+            backgroundedAgents.set(b.id, {
+              toolUseId: b.id,
+              subagentType:
+                typeof b.input.subagent_type === "string"
+                  ? b.input.subagent_type
+                  : "",
+              description:
+                typeof b.input.description === "string"
+                  ? b.input.description
+                  : "",
+              startedAt,
+            });
+          }
+        }
+      } else if (obj?.type === "user" && Array.isArray(content)) {
+        for (const block of content as unknown[]) {
+          const b = block as {
+            type?: string;
+            tool_use_id?: string;
+          };
+          if (
+            b?.type === "tool_result" &&
+            typeof b?.tool_use_id === "string"
+          ) {
+            backgroundedAgents.delete(b.tool_use_id);
+          }
+        }
+      }
+      // Plan-pending scan (patch #63). Reuses `obj` + `content` from the
+      // patch-#61 backgrounded-agents scan above; do NOT re-parse.
+      //   - assistant turn whose content[] contains a tool_use block with
+      //     name === "ExitPlanMode" → pending; keyed by tool_use.id.
+      //   - user turn whose content[] contains a tool_result with matching
+      //     tool_use_id → cleared. (The patch-#61 branch already iterates
+      //     tool_result blocks for its Agent correlation; adding one more
+      //     `pendingPlans.delete(id)` call in the same loop is the cheap
+      //     option, but for readability we do a fresh iteration here — the
+      //     line volume is low enough that it does not matter.)
+      if (obj?.type === "assistant" && Array.isArray(content)) {
+        for (const block of content as unknown[]) {
+          const b = block as {
+            type?: string;
+            name?: string;
+            id?: string;
+            input?: { planFilePath?: unknown };
+          };
+          if (
+            b?.type === "tool_use" &&
+            b?.name === "ExitPlanMode" &&
+            typeof b?.id === "string"
+          ) {
+            pendingPlans.set(b.id, {
+              planFilePath:
+                typeof b.input?.planFilePath === "string"
+                  ? b.input.planFilePath
+                  : "",
+              ts:
+                typeof obj.timestamp === "string"
+                  ? Date.parse(obj.timestamp) || Date.now()
+                  : Date.now(),
+            });
+          }
+        }
+      } else if (obj?.type === "user" && Array.isArray(content)) {
+        for (const block of content as unknown[]) {
+          const b = block as { type?: string; tool_use_id?: string };
+          if (
+            b?.type === "tool_result" &&
+            typeof b?.tool_use_id === "string"
+          ) {
+            pendingPlans.delete(b.tool_use_id);
+          }
+        }
+      }
+      // Only one ExitPlanMode can be pending at a time in practice (Claude
+      // Code's Ink UI serializes Plan Mode prompts), so taking any entry
+      // (via `.values().next()`) is correct. If somehow more than one
+      // survives, we still emit a stable answer — whichever entry the map
+      // returns first — until one is closed.
+      const pendingIter = pendingPlans.values().next();
+      const currentPending = pendingIter.done
+        ? null
+        : { planFilePath: pendingIter.value.planFilePath };
+      const planSerialized = JSON.stringify(currentPending);
+      if (planSerialized !== pendingPlansLastSerialized) {
+        pendingPlansLastSerialized = planSerialized;
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "plan_pending",
+              pending: currentPending,
+            }),
+          );
+        } catch {
+          /* ws may be mid-close */
+        }
+      }
+      const agents = Array.from(backgroundedAgents.values()).sort(
+        (a, b) => a.startedAt - b.startedAt,
+      );
+      const serialized = JSON.stringify(agents);
+      if (serialized !== backgroundedAgentsLastSerialized) {
+        backgroundedAgentsLastSerialized = serialized;
+        try {
+          ws.send(
+            JSON.stringify({ type: "backgrounded_agents", agents }),
+          );
+        } catch {
+          /* ws may be mid-close */
+        }
+      }
+    } catch {
+      /* malformed line — silently ignore, same posture as parser */
+    }
+
+    const parsed = parseSessionLine(line);
+    // Silent drop on kind === "skip" and kind === "malformed" — this
+    // is the RENDER-01 hard-lock enforcement point.
+    if (parsed.kind === "message") {
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "message",
+            role: parsed.role,
+            content: parsed.content,
+            eventId: parsed.eventId,
+            ts: parsed.ts,
+          }),
+        );
+      } catch {
+        /* ws may be mid-close; drop */
+      }
+    }
+  };
+
+  // Tail's onError handler — byte-for-byte preserved from the pre-refactor
+  // inline lambda apart from swapping the message-scoped `hostId` /
+  // `tmuxSession` for the connection-scoped `currentHostId` /
+  // `currentTmuxSession` (set on connectToPane discovery success, both are
+  // non-null whenever the tail is running).
+  const onError = (err: Error) => {
+    sshLogger.error("Claude session tail error", err, {
+      operation: "claude_session_tail_error",
+      userId,
+      sessionId,
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+    });
+    if (stopped || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "tail_error",
+          message: err.message,
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // BLOCKER fix (plan-checker 2026-07-18): the harness-tasks poller setup
+  // is extracted into a helper so `transitionToActiveNew` can rebind it
+  // against the NEW sessionId after a recycle. The pre-Phase-3 code baked
+  // the initial-connect UUID into `tasksCmd` as a `const`, so post-recycle
+  // the poller kept querying the DEAD session's tasks directory forever.
+  //
+  // The helper is idempotent — safe to call at any state; teardown-and-
+  // restart against any UUID (including the same UUID, which is the
+  // CHANGEOVER-05 recover-in-different-cwd case). The setInterval body is
+  // byte-for-byte preserved from the pre-refactor block.
+  const setupHarnessTasksPoller = (
+    newSessionIdFromFile: string,
+  ): void => {
+    if (harnessTasksTimer) {
+      clearInterval(harnessTasksTimer);
+      harnessTasksTimer = null;
+    }
+    // Belt-and-braces: clear the dedupe sentinel so the first emit after
+    // a restart fires unconditionally. transitionToActiveNew ALSO resets
+    // this — doing it here means direct callers (e.g. the initial-connect
+    // path) don't need to remember.
+    harnessTasksLastSerialized = null;
+    // No UUID → no tasks dir → no poller. Same guard the pre-refactor
+    // patch-#52c code used; also protects against shell injection via a
+    // malformed sessionId basename.
+    if (!UUID_RE.test(newSessionIdFromFile)) return;
+
+    const tasksCmd = `for f in "$HOME/.claude/tasks/${newSessionIdFromFile}"/*.json; do [ -f "$f" ] && { tr '\\n' ' ' < "$f"; echo; }; done 2>/dev/null`;
+    harnessTasksTimer = setInterval(() => {
+      if (stopped || ws.readyState !== WebSocket.OPEN) return;
+      if (!sshConn) return;
+      if (harnessTasksInFlight) return;
+      harnessTasksInFlight = true;
+      const connSnapshot = sshConn;
+      execCommand(connSnapshot, tasksCmd)
+        .then((output) => {
+          if (stopped || ws.readyState !== WebSocket.OPEN) return;
+          const tasks: unknown[] = [];
+          for (const raw of output.split("\n")) {
+            const line = raw.trim();
+            if (!line) continue;
+            try {
+              tasks.push(JSON.parse(line));
+            } catch {
+              /* skip malformed lines silently */
+            }
+          }
+          // Sort by numeric id ascending so display order matches /queue.
+          tasks.sort((a, b) => {
+            const ai = parseInt(
+              String((a as { id?: unknown }).id ?? ""),
+              10,
+            );
+            const bi = parseInt(
+              String((b as { id?: unknown }).id ?? ""),
+              10,
+            );
+            if (Number.isFinite(ai) && Number.isFinite(bi))
+              return ai - bi;
+            return 0;
+          });
+          const serialized = JSON.stringify(tasks);
+          if (serialized === harnessTasksLastSerialized) return;
+          harnessTasksLastSerialized = serialized;
+          try {
+            ws.send(
+              JSON.stringify({ type: "harness_tasks", tasks }),
+            );
+          } catch {
+            /* ws may be mid-close */
+          }
+        })
+        .catch(() => {
+          /* Silent — same posture as the context-pct poller. */
+        })
+        .finally(() => {
+          harnessTasksInFlight = false;
+        });
+    }, HARNESS_TASKS_INTERVAL_MS);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Phase 3 state-transition helpers. All three close over the connection-
+  // scoped state (changeoverState, currentSessionFile, sessionIdFromFile,
+  // hasSeenExit, holdingTicks, ws, sshConn, etc.) and the connection-scoped
+  // context (currentHostId, currentTmuxSession — set on connectToPane).
+  // ---------------------------------------------------------------------------
+
+  // Called when the tail's onLine sees an `/exit` marker (Layer 1, edge-
+  // triggered, sub-second) OR when the ticker's discovery-repoll notices a
+  // changed sessionFile without a prior /exit having been seen (Layer 2's
+  // SIGTERM-fallback path). Idempotent against double-fire — if state is
+  // already `holding` or `dead`, this is a no-op. That protects against the
+  // race where Layer 1 fires on the tail's onLine milliseconds before the
+  // ticker's Layer 2 repoll notices the same recycle.
+  const transitionToHolding = (
+    reason: "exit_marker" | "discovery_diff",
+  ): void => {
+    if (changeoverState !== "active") return;
+    changeoverState = "holding";
+    holdingTicks = 0;
+    if (!stopped && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "session_holding" }));
+      } catch {
+        /* ws may be mid-close */
+      }
+    }
+    sshLogger.info("Claude session entering holding state", {
+      operation: "claude_session_holding",
+      reason,
+      userId,
+      sessionId,
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      oldSessionFile: currentSessionFile,
+    });
+  };
+
+  // Called by the discovery-repoll branch when a changed sessionFile is
+  // detected. Tears down the old tail, clears ALL buffered per-session
+  // state (CHANGEOVER-04 backend-side reset), rebinds the harness-tasks
+  // poller against the new UUID (BLOCKER fix), starts a new tail on the
+  // new file, and emits `session_changed`. Does NOT close the WS and does
+  // NOT touch `sshConn` — the same SSH connection multiplexes the new tail
+  // + the same three pollers.
+  const transitionToActiveNew = (newSessionFile: string): void => {
+    const oldSessionFile = currentSessionFile;
+    const oldSessionIdFromFile = sessionIdFromFile;
+    if (tailHandle) {
+      try {
+        tailHandle.stop();
+      } catch {
+        /* ignore */
+      }
+      tailHandle = null;
+    }
+    // Clear ALL buffered per-session state before the new tail starts so
+    // the fresh session's `-n +1` replay converges on clean bookkeeping.
+    harnessTasksLastSerialized = null;
+    backgroundedAgents.clear();
+    backgroundedAgentsLastSerialized = "[]";
+    pendingPlans.clear();
+    pendingPlansLastSerialized = "null";
+    hasSeenExit = false;
+    holdingTicks = 0;
+
+    // Derive the new UUID basename using the same slug logic the initial-
+    // connect path uses. Kept inline to keep this file self-contained.
+    const newSessionIdFromFile = newSessionFile
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop()!
+      .replace(/\.jsonl$/, "");
+    currentSessionFile = newSessionFile;
+    sessionIdFromFile = newSessionIdFromFile;
+
+    // BLOCKER fix: rebind the harness-tasks poller against the NEW UUID.
+    // For CHANGEOVER-05 (recover-in-different-cwd, UUID preserved), this
+    // is an idempotent no-op restart against the same UUID — still safe.
+    setupHarnessTasksPoller(newSessionIdFromFile);
+
+    changeoverState = "active";
+
+    if (!stopped && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "session_changed",
+            newSessionFile,
+          }),
+        );
+      } catch {
+        /* ws may be mid-close */
+      }
+    }
+    sshLogger.info("Claude session changed", {
+      operation: "claude_session_changed",
+      userId,
+      sessionId,
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      oldSessionFile,
+      newSessionFile,
+      // For post-deploy debugging: distinguishes recycle (UUID changed)
+      // from recover-in-different-cwd (UUID preserved, projects/slug
+      // subdir moved).
+      sessionIdChanged:
+        oldSessionIdFromFile !== newSessionIdFromFile,
+    });
+
+    // Restart the tail on the new file with the SAME onLine/onError
+    // closures — do NOT create new lambdas; that would defeat the point
+    // of extracting them.
+    if (sshConn) {
+      tailHandle = tailSessionFile(
+        sshConn,
+        newSessionFile,
+        onLine,
+        onError,
+      );
+    }
+  };
+
+  // Called by the discovery-repoll branch when holdingTicks reaches the
+  // timeout without a new sessionFile having appeared. Emits a terminal
+  // inactive frame with `reason:"holding_timeout"`, then teardownPane
+  // (which stops all pollers, stops the tail, and closes the SSH
+  // connection). WS stays open by default so the client renders FALLBACK-01
+  // per the existing initial-inactive-exit path (~line 407-423).
+  const transitionToDead = (reason: "holding_timeout"): void => {
+    const finalSessionFile = currentSessionFile;
+    if (!stopped && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "inactive", reason }));
+      } catch {
+        /* ws may be mid-close */
+      }
+    }
+    sshLogger.info("Claude session dead", {
+      operation: "claude_session_dead",
+      reason,
+      userId,
+      sessionId,
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      currentSessionFile: finalSessionFile,
+    });
+    // teardownPane resets changeoverState back to "active" among other
+    // things — set `dead` AFTER teardown so the state accurately reflects
+    // "terminal, no recovery attempts."
+    teardownPane();
+    changeoverState = "dead";
   };
 
   let wsAlive = true;
@@ -383,6 +933,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
       sessionFile: result.sessionFile,
     });
 
+    // Phase 3: pin the connection-scoped context so the state-transition
+    // helpers can log with the right hostId/tmuxSession without needing to
+    // re-thread them through every callsite. Also gives the discovery-repoll
+    // ticker its baseline to compare `result.sessionFile` against — without
+    // seeding `currentSessionFile` here, the first ticker comparison would
+    // treat the current file as "changed" and immediately fire
+    // transitionToActiveNew on itself.
+    currentHostId = hostId;
+    currentTmuxSession = tmuxSession;
+    currentSessionFile = result.sessionFile;
+    sessionIdFromFile = result.sessionFile
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop()!
+      .replace(/\.jsonl$/, "");
+
     // Context-% poller: scrape Claude Code's status-line percentage every
     // ~3s via `tmux capture-pane -p -t <session>` over a fresh exec channel
     // on the same SSH connection. ssh2 multiplexes channels so this runs
@@ -476,271 +1042,103 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // tick. The client filters completed tasks for display and hides the
     // panel entirely when no active tasks remain.
     //
-    // sessionId is derived from the JSONL basename (verified 2026-07-18:
-    // the tasks dir UUID matches the JSONL basename exactly — Claude Code
-    // keys both on the same sessionId).
-    const sessionIdFromFile = result.sessionFile
-      .replace(/\\/g, "/")
-      .split("/")
-      .pop()!
-      .replace(/\.jsonl$/, "");
-    // Defensive: only run the poller if sessionId looks like a UUID —
-    // otherwise skip. Prevents shell-injection via a malformed path.
-    const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-    if (UUID_RE.test(sessionIdFromFile)) {
-      const HARNESS_TASKS_INTERVAL_MS = 3000;
-      const tasksCmd = `for f in "$HOME/.claude/tasks/${sessionIdFromFile}"/*.json; do [ -f "$f" ] && { tr '\\n' ' ' < "$f"; echo; }; done 2>/dev/null`;
-      harnessTasksTimer = setInterval(() => {
-        if (stopped || ws.readyState !== WebSocket.OPEN) return;
-        if (!sshConn) return;
-        if (harnessTasksInFlight) return;
-        harnessTasksInFlight = true;
-        const connSnapshot = sshConn;
-        execCommand(connSnapshot, tasksCmd)
-          .then((output) => {
-            if (stopped || ws.readyState !== WebSocket.OPEN) return;
-            const tasks: unknown[] = [];
-            for (const raw of output.split("\n")) {
-              const line = raw.trim();
-              if (!line) continue;
-              try {
-                tasks.push(JSON.parse(line));
-              } catch {
-                /* skip malformed lines silently */
-              }
-            }
-            // Sort by numeric id ascending so display order matches /queue.
-            tasks.sort((a, b) => {
-              const ai = parseInt(String((a as { id?: unknown }).id ?? ""), 10);
-              const bi = parseInt(String((b as { id?: unknown }).id ?? ""), 10);
-              if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
-              return 0;
-            });
-            const serialized = JSON.stringify(tasks);
-            if (serialized === harnessTasksLastSerialized) return;
-            harnessTasksLastSerialized = serialized;
-            try {
-              ws.send(
-                JSON.stringify({ type: "harness_tasks", tasks }),
-              );
-            } catch {
-              /* ws may be mid-close */
-            }
-          })
-          .catch(() => {
-            /* Silent — same posture as the context-pct poller. */
-          })
-          .finally(() => {
-            harnessTasksInFlight = false;
-          });
-      }, HARNESS_TASKS_INTERVAL_MS);
-    }
+    // BLOCKER fix (plan-checker 2026-07-18): setup is now via the module-
+    // scoped `setupHarnessTasksPoller` helper so `transitionToActiveNew`
+    // can rebind against the fresh session's UUID after a recycle. Pre-
+    // Phase-3, the poller was baked into a local `const tasksCmd` at
+    // connect time and stayed pointed at the DEAD session's UUID forever
+    // after a recycle. `sessionIdFromFile` is set just above in the initial
+    // session-file assignment block.
+    setupHarnessTasksPoller(sessionIdFromFile!);
 
-    tailHandle = tailSessionFile(
-      conn,
-      result.sessionFile,
-      (line: string) => {
-        if (stopped || ws.readyState !== WebSocket.OPEN) return;
+    // Phase 3 Layer 2: discovery-repoll backstop. Runs the SAME full
+    // `discoverClaudeSession` call the initial connectToPane branch used,
+    // once per tick, on the same SSH connection. On change:
+    //   - active + new file  → transitionToHolding("discovery_diff") then
+    //                          transitionToActiveNew(newFile) same tick
+    //                          (SIGTERM-fallback path — /exit never landed)
+    //   - holding + new file → transitionToActiveNew(newFile)
+    //                          (normal recycle after /exit)
+    //   - holding + no file  → increment holdingTicks; if >= timeout, dead
+    //   - active + inactive  → transitionToHolding (defensive — treated as
+    //                          recover-pending; may resolve as file appears
+    //                          in a future tick or as dead on timeout)
+    //
+    // Full discovery each tick (not a cached `ls -t $projects_dir/*.jsonl`)
+    // is LOAD-BEARING per Nelly's recover-in-different-cwd case (2026-07-15):
+    // the same session id can move projects subdirs, so the projects dir
+    // may not be the same one we started from. `discoverClaudeSession`
+    // walks pane→pid→cwd→slug fresh each tick and correctly follows the
+    // move. See CONTEXT.md D-30 and CHANGEOVER-05.
+    discoveryRepollTimer = setInterval(() => {
+      if (stopped || ws.readyState !== WebSocket.OPEN) return;
+      if (!sshConn) return;
+      if (discoveryRepollInFlight) return;
+      discoveryRepollInFlight = true;
+      const connSnapshot = sshConn;
+      discoverClaudeSession(connSnapshot, tmuxSession)
+        .then((result) => {
+          if (stopped || ws.readyState !== WebSocket.OPEN) return;
+          if (changeoverState === "dead") return; // idempotent guard
 
-        // Parallel raw-line scan for backgrounded Agent invocations (patch
-        // #61). Runs ALONGSIDE parseSessionLine, not through it — RENDER-01
-        // HARD LOCK strips tool_use/tool_result blocks structurally at the
-        // parser, so they never reach parseSessionLine's output. A second
-        // JSON.parse is trivially cheap at these volumes.
-        //
-        // Detection (from github.com/delexw/claude-code-trace spec 09):
-        //   - tool_use with name === "Agent" and input.run_in_background ===
-        //     true → started; keyed by tool_use.id.
-        //   - tool_result with matching tool_use_id → completed; drop.
-        // Emit `backgrounded_agents` only when the sorted-serialized list
-        // changes vs last emit. The tail's `-n +1` replay converges the map
-        // naturally through history — a completed subagent adds then removes
-        // within a few lines, and the initial `lastSerialized = "[]"` matches
-        // the empty-list stringification so no spurious empty emit fires.
-        try {
-          const obj = JSON.parse(line) as {
-            type?: string;
-            timestamp?: string;
-            message?: { content?: unknown };
-          };
-          const content = obj?.message?.content;
-          if (obj?.type === "assistant" && Array.isArray(content)) {
-            for (const block of content as unknown[]) {
-              const b = block as {
-                type?: string;
-                name?: string;
-                id?: string;
-                input?: {
-                  run_in_background?: boolean;
-                  subagent_type?: unknown;
-                  description?: unknown;
-                };
-              };
-              if (
-                b?.type === "tool_use" &&
-                b?.name === "Agent" &&
-                b?.input?.run_in_background === true &&
-                typeof b?.id === "string"
-              ) {
-                const startedAt =
-                  typeof obj.timestamp === "string"
-                    ? Date.parse(obj.timestamp) || Date.now()
-                    : Date.now();
-                backgroundedAgents.set(b.id, {
-                  toolUseId: b.id,
-                  subagentType:
-                    typeof b.input.subagent_type === "string"
-                      ? b.input.subagent_type
-                      : "",
-                  description:
-                    typeof b.input.description === "string"
-                      ? b.input.description
-                      : "",
-                  startedAt,
-                });
+          if (result.status === "active") {
+            if (result.sessionFile !== currentSessionFile) {
+              // File moved: recycle OR recover-in-different-cwd.
+              if (changeoverState === "active") {
+                // SIGTERM-fallback path: /exit never landed but the file
+                // changed. Emit both holding and changed on the SAME tick.
+                transitionToHolding("discovery_diff");
               }
+              transitionToActiveNew(result.sessionFile);
             }
-          } else if (obj?.type === "user" && Array.isArray(content)) {
-            for (const block of content as unknown[]) {
-              const b = block as {
-                type?: string;
-                tool_use_id?: string;
-              };
-              if (
-                b?.type === "tool_result" &&
-                typeof b?.tool_use_id === "string"
-              ) {
-                backgroundedAgents.delete(b.tool_use_id);
-              }
+            // else: same file, still active — no state change here. If we
+            // were already in `holding` AND the file matches
+            // currentSessionFile, that means our pre-holding file is still
+            // on disk (unusual — supervisor should have rotated it after
+            // /exit). We fall through to the holdingTicks++ block below,
+            // which lets the timeout progress. Do NOT reset holdingTicks
+            // in this same-file branch: reset happens only in
+            // transitionToActiveNew.
+          } else {
+            // status === "inactive": no claude in the pane right now.
+            // Bare-shell gap during recycle is expected — do NOT flip to
+            // dead on a single inactive tick. Only flip on holding
+            // timeout. (If we were in `active` and suddenly the pane has
+            // no claude AND no /exit was seen, something crashed —
+            // transition to holding so the client shows the banner while
+            // we wait for a recover.)
+            if (changeoverState === "active") {
+              transitionToHolding("discovery_diff");
             }
           }
-          // Plan-pending scan (patch #63). Reuses `obj` + `content` from the
-          // patch-#61 backgrounded-agents scan above; do NOT re-parse.
-          //   - assistant turn whose content[] contains a tool_use block with
-          //     name === "ExitPlanMode" → pending; keyed by tool_use.id.
-          //   - user turn whose content[] contains a tool_result with matching
-          //     tool_use_id → cleared. (The patch-#61 branch already iterates
-          //     tool_result blocks for its Agent correlation; adding one more
-          //     `pendingPlans.delete(id)` call in the same loop is the cheap
-          //     option, but for readability we do a fresh iteration here — the
-          //     line volume is low enough that it does not matter.)
-          if (obj?.type === "assistant" && Array.isArray(content)) {
-            for (const block of content as unknown[]) {
-              const b = block as {
-                type?: string;
-                name?: string;
-                id?: string;
-                input?: { planFilePath?: unknown };
-              };
-              if (
-                b?.type === "tool_use" &&
-                b?.name === "ExitPlanMode" &&
-                typeof b?.id === "string"
-              ) {
-                pendingPlans.set(b.id, {
-                  planFilePath:
-                    typeof b.input?.planFilePath === "string"
-                      ? b.input.planFilePath
-                      : "",
-                  ts:
-                    typeof obj.timestamp === "string"
-                      ? Date.parse(obj.timestamp) || Date.now()
-                      : Date.now(),
-                });
-              }
-            }
-          } else if (obj?.type === "user" && Array.isArray(content)) {
-            for (const block of content as unknown[]) {
-              const b = block as { type?: string; tool_use_id?: string };
-              if (
-                b?.type === "tool_result" &&
-                typeof b?.tool_use_id === "string"
-              ) {
-                pendingPlans.delete(b.tool_use_id);
-              }
-            }
-          }
-          // Only one ExitPlanMode can be pending at a time in practice (Claude
-          // Code's Ink UI serializes Plan Mode prompts), so taking any entry
-          // (via `.values().next()`) is correct. If somehow more than one
-          // survives, we still emit a stable answer — whichever entry the map
-          // returns first — until one is closed.
-          const pendingIter = pendingPlans.values().next();
-          const currentPending = pendingIter.done
-            ? null
-            : { planFilePath: pendingIter.value.planFilePath };
-          const planSerialized = JSON.stringify(currentPending);
-          if (planSerialized !== pendingPlansLastSerialized) {
-            pendingPlansLastSerialized = planSerialized;
-            try {
-              ws.send(
-                JSON.stringify({
-                  type: "plan_pending",
-                  pending: currentPending,
-                }),
-              );
-            } catch {
-              /* ws may be mid-close */
-            }
-          }
-          const agents = Array.from(backgroundedAgents.values()).sort(
-            (a, b) => a.startedAt - b.startedAt,
-          );
-          const serialized = JSON.stringify(agents);
-          if (serialized !== backgroundedAgentsLastSerialized) {
-            backgroundedAgentsLastSerialized = serialized;
-            try {
-              ws.send(
-                JSON.stringify({ type: "backgrounded_agents", agents }),
-              );
-            } catch {
-              /* ws may be mid-close */
-            }
-          }
-        } catch {
-          /* malformed line — silently ignore, same posture as parser */
-        }
 
-        const parsed = parseSessionLine(line);
-        // Silent drop on kind === "skip" and kind === "malformed" — this
-        // is the RENDER-01 hard-lock enforcement point.
-        if (parsed.kind === "message") {
-          try {
-            ws.send(
-              JSON.stringify({
-                type: "message",
-                role: parsed.role,
-                content: parsed.content,
-                eventId: parsed.eventId,
-                ts: parsed.ts,
-              }),
-            );
-          } catch {
-            /* ws may be mid-close; drop */
+          // W2 fix from plan-checker: the holdingTicks++ check below fires
+          // on EVERY holding tick — including this same-file-active branch
+          // above (where we did NOT reset holdingTicks) and the inactive
+          // branch (which may have just flipped us to holding this tick).
+          // Intentional: if the pre-holding file still exists but no new
+          // file has appeared for HOLDING_TIMEOUT_TICKS, declare dead. A
+          // stuck same-file result during holding still counts against the
+          // timeout, otherwise the pane could sit in "recycling…"
+          // indefinitely on a supervisor bug.
+          if (changeoverState === "holding") {
+            holdingTicks++;
+            if (holdingTicks >= HOLDING_TIMEOUT_TICKS) {
+              transitionToDead("holding_timeout");
+            }
           }
-        }
-      },
-      (err: Error) => {
-        sshLogger.error("Claude session tail error", err, {
-          operation: "claude_session_tail_error",
-          userId,
-          sessionId,
-          hostId,
-          tmuxSession,
+        })
+        .catch(() => {
+          /* Silent — same posture as the context-pct and harness-tasks
+             pollers. A discovery failure on one tick shouldn't kill the
+             session; the next tick tries again. */
+        })
+        .finally(() => {
+          discoveryRepollInFlight = false;
         });
-        if (stopped || ws.readyState !== WebSocket.OPEN) return;
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "tail_error",
-              message: err.message,
-            }),
-          );
-        } catch {
-          /* ignore */
-        }
-      },
-    );
+    }, DISCOVERY_REPOLL_INTERVAL_MS);
+
+    tailHandle = tailSessionFile(conn, result.sessionFile, onLine, onError);
   });
 });
 
