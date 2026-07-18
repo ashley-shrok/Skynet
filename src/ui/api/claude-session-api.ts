@@ -73,6 +73,18 @@ export type BackgroundedAgentsEvent = {
   agents: BackgroundedAgent[]; // currently-running only; empty = none
 };
 
+export interface BackgroundedShell {
+  toolUseId: string;
+  description: string; // input.description; may be ""
+  command: string; // input.command, truncated to ~120 chars
+  ts: number; // ms epoch of the tool_use turn
+}
+
+export interface BackgroundedShellsEvent {
+  type: "backgrounded_shells";
+  shells: BackgroundedShell[]; // currently-running only; empty = none
+}
+
 export type PlanPendingEvent = {
   type: "plan_pending";
   pending: { planFilePath: string } | null;
@@ -105,6 +117,7 @@ export type ClaudeSessionServerEvent =
   | ContextPctEvent
   | HarnessTasksEvent
   | BackgroundedAgentsEvent
+  | BackgroundedShellsEvent
   | PlanPendingEvent
   | SessionHoldingEvent
   | SessionChangedEvent

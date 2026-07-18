@@ -8,6 +8,7 @@ import {
   type ConnectToPanePayload,
   type HarnessTask,
   type BackgroundedAgent,
+  type BackgroundedShell,
   type MessageEvent as ChatMessageEvent,
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
@@ -18,6 +19,7 @@ import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
 import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
+import { BackgroundedShellsPanel } from "./BackgroundedShellsPanel";
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
@@ -103,6 +105,16 @@ export function PrettyView({
   const [backgroundedAgents, setBackgroundedAgents] = useState<
     BackgroundedAgent[]
   >([]);
+  // Currently-running background Bash{run_in_background:true} invocations,
+  // derived by the backend from parent-JSONL tool_use + task-notification
+  // correlation (patch #68). The backend only sends this list when it
+  // CHANGES; unchanged ticks are suppressed. The panel below mounts only
+  // when non-empty — a completed shell drops out on the completion
+  // task-notification event, so a session with no live background shells
+  // carries no chrome. Scope: Bash-only; Monitor invocations are excluded.
+  const [backgroundedShells, setBackgroundedShells] = useState<
+    BackgroundedShell[]
+  >([]);
   // Currently-pending ExitPlanMode prompt from the parent JSONL
   // (patch #63). Backend emits `pending: {...}` when Claude is
   // waiting on the user's "1"/"2" Plan Mode reply, and `pending:
@@ -142,6 +154,7 @@ export function PrettyView({
     setContextPct(null);
     setHarnessTasks([]);
     setBackgroundedAgents([]);
+    setBackgroundedShells([]);
     setPlanPending(null);
     setIsHolding(false);
 
@@ -199,6 +212,10 @@ export function PrettyView({
           setBackgroundedAgents(parsed.agents);
           break;
         }
+        case "backgrounded_shells": {
+          setBackgroundedShells(parsed.shells);
+          break;
+        }
         case "plan_pending": {
           setPlanPending(parsed.pending);
           break;
@@ -237,6 +254,7 @@ export function PrettyView({
           setHarnessTasks([]);
           setContextPct(null);
           setBackgroundedAgents([]);
+          setBackgroundedShells([]);
           setPlanPending(null);
           setIsHolding(false);
           setStatus("streaming");
@@ -416,6 +434,15 @@ export function PrettyView({
           invocations out via tool_result correlation (patch #61). */}
       {status === "streaming" && backgroundedAgents.length > 0 && (
         <BackgroundedAgentsPanel agents={backgroundedAgents} />
+      )}
+
+      {/* Backgrounded-shells panel — sibling to BackgroundedAgentsPanel, mounts
+          directly below it (patch #68). Scope: Bash{run_in_background:true}
+          ONLY — Monitor invocations are excluded by the backend. Mounts only
+          when the currently-running-shells list is non-empty; the backend
+          filters completed shells via task-notification correlation. */}
+      {status === "streaming" && backgroundedShells.length > 0 && (
+        <BackgroundedShellsPanel shells={backgroundedShells} />
       )}
 
       {onSend && status === "streaming" && (

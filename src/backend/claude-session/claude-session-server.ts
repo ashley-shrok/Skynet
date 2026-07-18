@@ -25,6 +25,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *     { type: "context_pct", pct }                               // 0-100, live scrape of Claude Code status-line "context) NN%"
  *     { type: "harness_tasks", tasks }                           // Claude Code /queue + TaskCreate items — read from ~/.claude/tasks/<sid>/*.json
  *     { type: "backgrounded_agents", agents }                    // currently-running Agent{run_in_background:true} subagents — derived from JSONL tool_use/tool_result correlation (patch #61)
+ *     { type: "backgrounded_shells", shells }                    // currently-running Bash{run_in_background:true} shells — derived from JSONL tool_use / task-notification correlation (patch #68)
  *     { type: "plan_pending", pending }                          // unmatched ExitPlanMode tool_use in the parent JSONL — non-null when Claude is waiting on the user's "1"/"2" Plan Mode reply (patch #63)
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
@@ -161,6 +162,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
   >();
   let backgroundedAgentsLastSerialized = "[]";
+  // Backgrounded-shells tracking (patch #68): parent-JSONL scan for Bash
+  // tool_use blocks with run_in_background:true, paired against subsequent
+  // <task-notification> completion payloads. Unlike backgroundedAgents,
+  // there is NO tool_result-removal branch — Bash BG tool_results are
+  // ALWAYS launch-acks (content starts with "Command running in background
+  // with ID:"). Real completion arrives via task-notification only, handled
+  // in the shared patch-#66 IIFE below.
+  // `backgroundedShellsLastSerialized` is initialized to "[]" (not "") so
+  // an empty initial state doesn't emit a spurious frame.
+  const backgroundedShells = new Map<
+    string,
+    {
+      toolUseId: string;
+      description: string;
+      command: string;
+      ts: number;
+    }
+  >();
+  let backgroundedShellsLastSerialized = "[]";
   // Plan-pending tracking (patch #63): parent-JSONL scan for
   // ExitPlanMode tool_use blocks (Claude asking Ashley to accept /
   // keep-planning in Plan Mode), paired against subsequent
@@ -221,6 +241,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
     harnessTasksLastSerialized = null;
     pendingPlans.clear();
     pendingPlansLastSerialized = "null";
+    backgroundedAgents.clear();
+    backgroundedAgentsLastSerialized = "[]";
+    backgroundedShells.clear();
+    backgroundedShellsLastSerialized = "[]";
     // Phase 3: reset changeover state so a full pane teardown-and-reconnect
     // (e.g. via a fresh connectToPane) starts clean. connectToPane already
     // calls teardownPane before starting a new pane; being defensive here
@@ -335,6 +359,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               run_in_background?: boolean;
               subagent_type?: unknown;
               description?: unknown;
+              command?: unknown;
             };
           };
           if (
@@ -358,6 +383,28 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   ? b.input.description
                   : "",
               startedAt,
+            });
+          }
+          if (
+            b?.type === "tool_use" &&
+            b?.name === "Bash" &&
+            b?.input?.run_in_background === true &&
+            typeof b?.id === "string"
+          ) {
+            const ts =
+              typeof obj.timestamp === "string"
+                ? Date.parse(obj.timestamp) || Date.now()
+                : Date.now();
+            const rawCommand =
+              typeof b.input.command === "string" ? b.input.command : "";
+            backgroundedShells.set(b.id, {
+              toolUseId: b.id,
+              description:
+                typeof b.input.description === "string"
+                  ? b.input.description
+                  : "",
+              command: rawCommand.slice(0, 120),
+              ts,
             });
           }
         }
@@ -446,6 +493,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         if (idMatch && statusMatch) {
           backgroundedAgents.delete(idMatch[1]);
+          backgroundedShells.delete(idMatch[1]);
         }
       }
       // Plan-pending scan (patch #63). Reuses `obj` + `content` from the
@@ -526,6 +574,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
         try {
           ws.send(
             JSON.stringify({ type: "backgrounded_agents", agents }),
+          );
+        } catch {
+          /* ws may be mid-close */
+        }
+      }
+      const shells = Array.from(backgroundedShells.values()).sort(
+        (a, b) => a.ts - b.ts,
+      );
+      const shellsSerialized = JSON.stringify(shells);
+      if (shellsSerialized !== backgroundedShellsLastSerialized) {
+        backgroundedShellsLastSerialized = shellsSerialized;
+        try {
+          ws.send(
+            JSON.stringify({ type: "backgrounded_shells", shells }),
           );
         } catch {
           /* ws may be mid-close */
@@ -723,6 +785,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
     harnessTasksLastSerialized = null;
     backgroundedAgents.clear();
     backgroundedAgentsLastSerialized = "[]";
+    backgroundedShells.clear();
+    backgroundedShellsLastSerialized = "[]";
     pendingPlans.clear();
     pendingPlansLastSerialized = "null";
     hasSeenExit = false;
