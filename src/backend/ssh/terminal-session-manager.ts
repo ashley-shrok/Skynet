@@ -43,6 +43,12 @@ export interface TerminalSession {
   lastByteAt: number;
   burstBytes: number;
   idleEmitted: boolean;
+  // Set once the ticker emits an initial idle:{true|false} frame after WS
+  // attach. Distinguishes "we never told the client anything yet" from
+  // "we told them idle:true and are waiting on activity to flip." Reset
+  // on every attachSession so a fresh WS always gets a definitive first
+  // frame regardless of whether the pane is currently busy or quiet.
+  initialStateEmitted: boolean;
   idleCheckTimer: NodeJS.Timeout | null;
   idleCheckInFlight: boolean;
 }
@@ -143,6 +149,7 @@ class TerminalSessionManager {
       lastByteAt: 0,
       burstBytes: 0,
       idleEmitted: false,
+      initialStateEmitted: false,
       idleCheckTimer: null,
       idleCheckInFlight: false,
     };
@@ -286,6 +293,7 @@ class TerminalSessionManager {
     session.lastDetachedAt = null;
     // Force the idle ticker to re-evaluate and re-emit on the new WS.
     session.idleEmitted = false;
+    session.initialStateEmitted = false;
 
     sshLogger.info("WebSocket attached to session", {
       operation: "session_attach",
