@@ -24,6 +24,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *     { type: "wip", active }                                    // work-in-progress state (emitted on transitions + once as initial state)
  *     { type: "context_pct", pct }                               // 0-100, live scrape of Claude Code status-line "context) NN%"
  *     { type: "harness_tasks", tasks }                           // Claude Code /queue + TaskCreate items — read from ~/.claude/tasks/<sid>/*.json
+ *     { type: "backgrounded_agents", agents }                    // currently-running Agent{run_in_background:true} subagents — derived from JSONL tool_use/tool_result correlation (patch #61)
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
@@ -128,6 +129,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let harnessTasksTimer: NodeJS.Timeout | null = null;
   let harnessTasksInFlight = false;
   let harnessTasksLastSerialized: string | null = null;
+  // Backgrounded-agent tracking (patch #61): parent-JSONL scan for Agent
+  // tool_use blocks with run_in_background:true, paired against subsequent
+  // tool_result blocks by tool_use_id. Emit on serialized-change only.
+  // `backgroundedAgentsLastSerialized` is initialized to "[]" (not "") so
+  // a JSONL with no background agents produces net-zero emits after the
+  // initial `tail -F -n +1` replay.
+  const backgroundedAgents = new Map<
+    string,
+    {
+      toolUseId: string;
+      subagentType: string;
+      description: string;
+      startedAt: number;
+    }
+  >();
+  let backgroundedAgentsLastSerialized = "[]";
   let stopped = false;
 
   const teardownPane = () => {
@@ -506,6 +523,96 @@ wss.on("connection", async (ws: WebSocket, req) => {
       result.sessionFile,
       (line: string) => {
         if (stopped || ws.readyState !== WebSocket.OPEN) return;
+
+        // Parallel raw-line scan for backgrounded Agent invocations (patch
+        // #61). Runs ALONGSIDE parseSessionLine, not through it — RENDER-01
+        // HARD LOCK strips tool_use/tool_result blocks structurally at the
+        // parser, so they never reach parseSessionLine's output. A second
+        // JSON.parse is trivially cheap at these volumes.
+        //
+        // Detection (from github.com/delexw/claude-code-trace spec 09):
+        //   - tool_use with name === "Agent" and input.run_in_background ===
+        //     true → started; keyed by tool_use.id.
+        //   - tool_result with matching tool_use_id → completed; drop.
+        // Emit `backgrounded_agents` only when the sorted-serialized list
+        // changes vs last emit. The tail's `-n +1` replay converges the map
+        // naturally through history — a completed subagent adds then removes
+        // within a few lines, and the initial `lastSerialized = "[]"` matches
+        // the empty-list stringification so no spurious empty emit fires.
+        try {
+          const obj = JSON.parse(line) as {
+            type?: string;
+            timestamp?: string;
+            message?: { content?: unknown };
+          };
+          const content = obj?.message?.content;
+          if (obj?.type === "assistant" && Array.isArray(content)) {
+            for (const block of content as unknown[]) {
+              const b = block as {
+                type?: string;
+                name?: string;
+                id?: string;
+                input?: {
+                  run_in_background?: boolean;
+                  subagent_type?: unknown;
+                  description?: unknown;
+                };
+              };
+              if (
+                b?.type === "tool_use" &&
+                b?.name === "Agent" &&
+                b?.input?.run_in_background === true &&
+                typeof b?.id === "string"
+              ) {
+                const startedAt =
+                  typeof obj.timestamp === "string"
+                    ? Date.parse(obj.timestamp) || Date.now()
+                    : Date.now();
+                backgroundedAgents.set(b.id, {
+                  toolUseId: b.id,
+                  subagentType:
+                    typeof b.input.subagent_type === "string"
+                      ? b.input.subagent_type
+                      : "",
+                  description:
+                    typeof b.input.description === "string"
+                      ? b.input.description
+                      : "",
+                  startedAt,
+                });
+              }
+            }
+          } else if (obj?.type === "user" && Array.isArray(content)) {
+            for (const block of content as unknown[]) {
+              const b = block as {
+                type?: string;
+                tool_use_id?: string;
+              };
+              if (
+                b?.type === "tool_result" &&
+                typeof b?.tool_use_id === "string"
+              ) {
+                backgroundedAgents.delete(b.tool_use_id);
+              }
+            }
+          }
+          const agents = Array.from(backgroundedAgents.values()).sort(
+            (a, b) => a.startedAt - b.startedAt,
+          );
+          const serialized = JSON.stringify(agents);
+          if (serialized !== backgroundedAgentsLastSerialized) {
+            backgroundedAgentsLastSerialized = serialized;
+            try {
+              ws.send(
+                JSON.stringify({ type: "backgrounded_agents", agents }),
+              );
+            } catch {
+              /* ws may be mid-close */
+            }
+          }
+        } catch {
+          /* malformed line — silently ignore, same posture as parser */
+        }
 
         const parsed = parseSessionLine(line);
         // Silent drop on kind === "skip" and kind === "malformed" — this

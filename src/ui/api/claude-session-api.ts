@@ -61,6 +61,18 @@ export type HarnessTasksEvent = {
   tasks: HarnessTask[]; // raw list — client filters completed for display
 };
 
+export type BackgroundedAgent = {
+  toolUseId: string;
+  subagentType: string; // input.subagent_type; may be ""
+  description: string; // input.description; may be ""
+  startedAt: number; // ms epoch
+};
+
+export type BackgroundedAgentsEvent = {
+  type: "backgrounded_agents";
+  agents: BackgroundedAgent[]; // currently-running only; empty = none
+};
+
 export type TailErrorEvent = {
   type: "tail_error";
   message: string;
@@ -78,6 +90,7 @@ export type ClaudeSessionServerEvent =
   | InactiveEvent
   | ContextPctEvent
   | HarnessTasksEvent
+  | BackgroundedAgentsEvent
   | TailErrorEvent
   | ErrorEvent;
 

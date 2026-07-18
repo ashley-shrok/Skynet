@@ -7,6 +7,7 @@ import {
   type ClaudeSessionServerEvent,
   type ConnectToPanePayload,
   type HarnessTask,
+  type BackgroundedAgent,
   type MessageEvent as ChatMessageEvent,
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
@@ -14,6 +15,7 @@ import { WipBubble } from "./WipBubble";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
+import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
@@ -90,6 +92,15 @@ export function PrettyView({
   // The panel above the compose box mounts only when the FILTERED list
   // (pending + in_progress) is non-empty.
   const [harnessTasks, setHarnessTasks] = useState<HarnessTask[]>([]);
+  // Currently-running background Agent invocations, derived by the backend
+  // from parent-JSONL tool_use/tool_result correlation (patch #61). The
+  // backend only sends this list when it CHANGES; unchanged ticks are
+  // suppressed. The panel below mounts only when non-empty — a completed
+  // subagent drops out within one tail line, so a session with no live
+  // background work carries no chrome.
+  const [backgroundedAgents, setBackgroundedAgents] = useState<
+    BackgroundedAgent[]
+  >([]);
   // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
   // (patch #51 rework — was previously state fed by a JSONL classifier
   // over the claude-session WS, which turned out to be unreliable
@@ -110,6 +121,7 @@ export function PrettyView({
     setErrorMessage(null);
     setContextPct(null);
     setHarnessTasks([]);
+    setBackgroundedAgents([]);
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -158,6 +170,10 @@ export function PrettyView({
         }
         case "harness_tasks": {
           setHarnessTasks(parsed.tasks);
+          break;
+        }
+        case "backgrounded_agents": {
+          setBackgroundedAgents(parsed.agents);
           break;
         }
         case "tail_error": {
@@ -284,6 +300,15 @@ export function PrettyView({
             <HarnessTasksPanel tasks={active} />
           ) : null;
         })()}
+
+      {/* Backgrounded-agents panel — sibling to HarnessTasksPanel, mounts
+          BELOW it (agents are causally downstream of tasks — a task can
+          spawn an agent). Mounts only when the currently-running-agents
+          list is non-empty; the backend already filters completed
+          invocations out via tool_result correlation (patch #61). */}
+      {status === "streaming" && backgroundedAgents.length > 0 && (
+        <BackgroundedAgentsPanel agents={backgroundedAgents} />
+      )}
 
       {onSend && status === "streaming" && (
         <ComposeBox
