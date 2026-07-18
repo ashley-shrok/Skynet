@@ -87,6 +87,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260718-4oi | Persist pretty-view ComposeBox draft body server-side per pane (patch #57) | 2026-07-18 | 4579ca7 | [260718-4oi-persist-pretty-view-composebox-draft-bod](./quick/260718-4oi-persist-pretty-view-composebox-draft-bod/) |
 | 260718-87h | Backgrounded-agents panel in pretty view (patch #61) | 2026-07-18 | fe506e0 | [260718-87h-backgrounded-agents-panel-in-pretty-view](./quick/260718-87h-backgrounded-agents-panel-in-pretty-view/) |
 | 260718-8tk | Plan-mode pending indicator in pretty view (patch #63) | 2026-07-18 | fb65084 | [260718-8tk-patch63-plan-mode-pending-indicator](./quick/260718-8tk-patch63-plan-mode-pending-indicator/) |
+| 260718-s52 | Backgrounded-shells panel in pretty view (patch #68) | 2026-07-18 | 0a9d7a6 | [260718-s52-patch-68-add-backgrounded-shells-panel-t](./quick/260718-s52-patch-68-add-backgrounded-shells-panel-t/) |
 
 ## Deferred Items
 
