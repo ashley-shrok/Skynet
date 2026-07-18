@@ -3,16 +3,22 @@
 // Mounted by PrettyView.tsx as a sibling of WipBubble at the tail of
 // the content wrapper when the claude-session WebSocket reports
 // {type:"plan_pending", pending: {...}} with a non-null pending
-// object. Unmounted when the session returns pending: null (Ashley
-// has replied "1" or "2" and Claude Code recorded the tool_result).
+// object. Unmounted when the session returns pending: null (Claude
+// Code recorded the plan-mode reply's tool_result).
 //
 // The visual is intentionally compact and text-light: a
 // ClipboardList glyph in an assistant-aligned bubble matching
-// ChatMessage's assistant treatment, plus one line explaining the
-// reply contract. No plan body is shown — this is a status
-// indicator, not a preview. The planFilePath is not displayed
-// either (Plan Mode is between Ashley and Claude Code; the pretty
-// view surfaces only THAT the prompt is open).
+// ChatMessage's assistant treatment, plus a single line stating
+// that a plan is waiting for approval. Copy DELIBERATELY does NOT
+// mention typing "1" or "2" (patch #67 correction): those keys are
+// consumed by Claude Code's Ink Plan Mode prompt directly in the
+// tmux pane, NOT by pretty view's ComposeBox. The ComposeBox's
+// split-send (patch #44) writes a body event + a separate \r event
+// with a 60ms gap, which Ink does NOT recognize as a plan-mode
+// selection. So do NOT surface "reply 1/2" copy — it's misleading
+// (Ashley verified 2026-07-18 by trying it). This bubble is a
+// pure PRESENCE indicator; the reply UI lives in the tmux pane
+// (which she can flip to with Ctrl+Shift+O — patch #44).
 //
 // Static ClipboardList (not a spinner) — the motion channel is
 // owned by WipBubble. A spinner reads as "Claude is working";
@@ -36,10 +42,7 @@ export function PlanPendingBubble() {
         )}
       >
         <ClipboardList className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span>
-          Plan proposed — reply <code>1</code> to accept,{" "}
-          <code>2</code> to keep planning
-        </span>
+        <span>Plan proposed — awaiting your approval</span>
       </div>
     </div>
   );
