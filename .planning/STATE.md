@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Phase 04 Wave 2 committed locally (e04396a); Phase 4 per-component Glass reskin shipped across all 9 pretty-view components; Terminal.tsx untouched; Phase 3 + Phase 4 batches still awaiting deploy
-last_updated: "2026-07-18T18:15:00.000Z"
-last_activity: 2026-07-18 -- Executed Phase 4 Wave 2 (per-component Glass reskin): ChatMessage + WipBubble + PlanPendingBubble + SessionHoldingBanner + HarnessTasksPanel + BackgroundedAgentsPanel + BackgroundedShellsPanel + PrettyView root + ComposeBox all reskinned (e04396a); Terminal.tsx untouched; build clean (8.59s); not deployed
+stopped_at: Phase 04 Wave 3 committed locally; Phase 4 code-side COMPLETE (Waves 1+2+3); UAT checklist + AGENTS.md draft ready for Ashley's separate deploy green-light; standalone deploy (Scenario B) since Phase 3 patches #61-#68 already pinned
+last_updated: "2026-07-18T18:30:00.000Z"
+last_activity: 2026-07-18 -- Executed Phase 4 Wave 3 (verification + UAT prep + AGENTS.md draft): npm run build clean (9.13s), Phase 4 tokens survived Vite tree-shake (--pv-id-hue + --color-pv-base + pv-identity-breathe all present in dist/assets/*.css), Terminal.tsx + backend + docker + deps UNTOUCHED; created 04-UAT-CHECKLIST.md + 04-AGENTS-MD-ENTRY.md (draft for patch #69, Scenario B standalone deploy); NO production code diffs in this wave; ready for deploy green-light
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
-  completed_plans: 12
-  percent: 92
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 04 — Wave 2 Complete, Wave 3 Pending
-Plan: 2 of 3 (foundation + reskin shipped; Plan 04-03 deploy-checkpoint remains)
-Status: Phase 04 Wave 2 (per-component Glass reskin across all 9 pretty-view components, commit e04396a) committed on `feat/tab-title-from-tmux`; Phase 3 (patch #64) still queued; batched with pending patches for a single deadman-armed deploy at Ashley's greenlight
-Last activity: 2026-07-18 -- Phase 04 Wave 2 committed; Terminal.tsx UNCHANGED; build clean (8.59s)
+Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
+Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
+Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
+Last activity: 2026-07-18 -- Phase 04 Wave 3 committed; verification-only (zero source diffs); ready for deploy
 
-Progress: [█████████░] 92% (code); deploy pending; Phase 4 continues at 04-03
+Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
 ## Performance Metrics
 
