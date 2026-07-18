@@ -362,17 +362,55 @@ wss.on("connection", async (ws: WebSocket, req) => {
           }
         }
       } else if (obj?.type === "user" && Array.isArray(content)) {
-        for (const block of content as unknown[]) {
-          const b = block as {
-            type?: string;
-            tool_use_id?: string;
-          };
-          if (
-            b?.type === "tool_result" &&
-            typeof b?.tool_use_id === "string"
-          ) {
-            backgroundedAgents.delete(b.tool_use_id);
+        // Async launch acks (patch #66 fix): for run_in_background:true Agent
+        // invocations, Claude Code writes a tool_result within ~100ms of the
+        // tool_use as a LAUNCH ACKNOWLEDGEMENT ("Async agent launched
+        // successfully...") — NOT completion. The turn carries
+        // toolUseResult.isAsync === true and status: "async_launched". Real
+        // completion arrives ~seconds-to-minutes later as a task-notification
+        // attachment turn (see the new branch below). Skip removal for the
+        // ack so the panel stays mounted; the attachment branch clears it
+        // on the actual completion event.
+        const isAsyncAck =
+          (obj as { toolUseResult?: { isAsync?: boolean } })?.toolUseResult
+            ?.isAsync === true;
+        if (!isAsyncAck) {
+          for (const block of content as unknown[]) {
+            const b = block as {
+              type?: string;
+              tool_use_id?: string;
+            };
+            if (
+              b?.type === "tool_result" &&
+              typeof b?.tool_use_id === "string"
+            ) {
+              backgroundedAgents.delete(b.tool_use_id);
+            }
           }
+        }
+      } else if (
+        obj?.type === "attachment" &&
+        (obj as { attachment?: { commandMode?: string; prompt?: unknown } })
+          ?.attachment?.commandMode === "task-notification"
+      ) {
+        // Patch #66 completion signal: harness writes a task-notification
+        // attachment turn when a backgrounded Agent finishes. Its
+        // attachment.prompt is the raw <task-notification>...</task-notification>
+        // XML including <tool-use-id> and <status>. Parse those two fields
+        // and clear the agent from the map on any terminal status.
+        const prompt =
+          typeof (obj as { attachment?: { prompt?: unknown } })?.attachment
+            ?.prompt === "string"
+            ? ((obj as { attachment: { prompt: string } }).attachment.prompt)
+            : "";
+        const idMatch = prompt.match(
+          /<tool-use-id>(toolu_[^<]+)<\/tool-use-id>/,
+        );
+        const statusMatch = prompt.match(
+          /<status>(completed|failed|stopped|cancelled|error)<\/status>/,
+        );
+        if (idMatch && statusMatch) {
+          backgroundedAgents.delete(idMatch[1]);
         }
       }
       // Plan-pending scan (patch #63). Reuses `obj` + `content` from the
