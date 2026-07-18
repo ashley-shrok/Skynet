@@ -41,8 +41,8 @@ export function IdentityBadge({
             "linear-gradient(160deg, rgba(60,50,35,0.75), rgba(34,28,20,0.8))",
           backdropFilter: "blur(24px) saturate(1.4)",
           WebkitBackdropFilter: "blur(24px) saturate(1.4)",
-          border: `1px solid rgba(255,240,215,0.18)`,
-          boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 40px rgba(255,240,215,0.1)`,
+          border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
+          boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 40px hsla(${hue}, 65%, 55%, 0.22)`,
           color: "#e8e4d8",
           animation: "pv-identity-breathe 5s ease-in-out infinite",
         }}
@@ -55,7 +55,7 @@ export function IdentityBadge({
             width: 56,
             height: 56,
             borderRadius: "50%",
-            boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px rgba(255,240,215,0.22)`,
+            boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
           }}
           draggable={false}
         />

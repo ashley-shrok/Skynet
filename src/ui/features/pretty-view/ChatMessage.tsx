@@ -66,7 +66,9 @@ export function ChatMessage({
           "prose-code:border prose-code:border-white/[0.06]",
           isUser
             ? cn(
-                // No-tint experiment — warm neutral gradient + off-white rim.
+                // User bubble stays warm-neutral — user is always Ashley,
+                // no per-pane variation. Assistant bubbles carry the identity
+                // hue (see below); this stable warm base lets that hue pop.
                 "bg-[linear-gradient(160deg,rgba(95,88,72,0.55),rgba(60,54,44,0.6))]",
                 "text-[#fbf5e8]",
                 "border-[rgba(255,240,215,0.15)]",
@@ -74,9 +76,16 @@ export function ChatMessage({
                 "prose-invert",
               )
             : cn(
-                // Assistant: translucent mid-blue-gray gradient over the depth.
-                "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
+                // Assistant carries the identity-hue tint — "the identity is
+                // the one speaking these bubbles" semantic. Low-saturation
+                // warm-hue-shifted gradient (~28% sat, warm-dark lightness)
+                // + subtle hue border + faint hue outer glow. Per-pane color
+                // story lives here; user + send + ctx-bar stay neutral so
+                // this reads clearly against them.
+                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),28%,28%,0.5),hsla(var(--pv-id-hue),22%,18%,0.55))]",
                 "text-[#dfe3ee]",
+                "border-[hsla(var(--pv-id-hue),40%,45%,0.22)]",
+                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.08)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),50%,50%,0.14),_0_0_28px_hsla(var(--pv-id-hue),55%,45%,0.1)]",
                 "dark:prose-invert",
               ),
         )}
