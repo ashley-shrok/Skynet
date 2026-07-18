@@ -267,7 +267,11 @@ export function MessageQueueDrawer({
       }
       try {
         await deleteMessageQueueItem(item.id);
-        setItems((p) => p.filter((it) => it.id !== item.id));
+        setItems((p) => {
+          const next = p.filter((it) => it.id !== item.id);
+          if (next.length === 0) onClose?.();
+          return next;
+        });
       } catch (e) {
         // WS send happened but server DELETE failed. Keep the row so it
         // doesn't come back as a ghost on reload; mark it sent-pending
@@ -285,7 +289,7 @@ export function MessageQueueDrawer({
         setSendingId(null);
       }
     },
-    [onSend, flushDirty],
+    [onSend, flushDirty, onClose],
   );
 
   return (
