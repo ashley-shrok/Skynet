@@ -8,7 +8,7 @@ const { Client, utils: ssh2Utils } = ssh2Pkg;
 import { SSH_ALGORITHMS } from "../utils/ssh-algorithms.js";
 import axios from "axios";
 import { getDb } from "../database/db/index.js";
-import { hosts } from "../database/db/schema.js";
+import { hosts, messageQueueItems } from "../database/db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { sshLogger, authLogger } from "../utils/logger.js";
 import { SimpleDBOps } from "../utils/simple-db-ops.js";
@@ -510,6 +510,37 @@ wss.on("connection", async (ws: WebSocket, req) => {
               );
             }
           }
+        }
+        // Atomic delete-on-send (patch #60): if this input event carries a
+        // `messageQueueItemId`, delete the row from the DB in the same
+        // handler that wrote the input to the SSH stream. Eliminates the
+        // separate HTTP DELETE round-trip that patch #55 had to keepalive-
+        // fire — no keepalive race, no post-unload retry gap, no ghost
+        // items on subsequent loads if the network was unhealthy at
+        // send time. Fire-and-forget with error logging: if the delete
+        // fails, the row remains and can be trashed via the drawer.
+        const mqid = (parsed as { messageQueueItemId?: unknown })
+          .messageQueueItemId;
+        if (typeof mqid === "string" && mqid.length > 0 && userId) {
+          getDb()
+            .delete(messageQueueItems)
+            .where(
+              and(
+                eq(messageQueueItems.id, mqid),
+                eq(messageQueueItems.userId, userId),
+              ),
+            )
+            .catch((err: unknown) => {
+              sshLogger.error(
+                "message-queue delete-on-send failed",
+                err instanceof Error ? err : new Error(String(err)),
+                {
+                  operation: "message_queue_delete_on_send",
+                  userId,
+                  messageQueueItemId: mqid,
+                },
+              );
+            });
         }
         break;
       }

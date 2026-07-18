@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   createMessageQueueItem,
   deleteMessageQueueItem,
-  deleteMessageQueueItemKeepalive,
   flushMessageQueueItemKeepalive,
   listMessageQueueItems,
   updateMessageQueueItem,
@@ -16,7 +15,7 @@ import {
 interface MessageQueueDrawerProps {
   hostId: number;
   tmuxSession: string | null;
-  onSend: (text: string) => boolean;
+  onSend: (text: string, messageQueueItemId: string) => boolean;
   onClose: () => void;
 }
 
@@ -276,20 +275,18 @@ export function MessageQueueDrawer({
       if (!text.trim()) return;
       const collapsed = text.replace(/\r?\n/g, " ");
       setSendingId(item.id);
-      const ok = onSend(collapsed);
+      const ok = onSend(collapsed, item.id);
       if (!ok) {
         setSendingId(null);
         setError("Terminal not connected — message not sent");
         return;
       }
-      // Keepalive DELETE — survives tab close mid-send, cannot leave a
-      // ghost item on reload the way an axios call cancelled by unload
-      // would. Fire-and-forget; local state update is authoritative.
-      // Note: sent-pending state machinery (setSentPendingIds,
-      // handleRetryCleanup, sentPending rendering in MessageQueueRow) is
-      // now dead code from handleSend's path — left in place for
-      // minimal-diff; remove in a future cleanup patch if desired.
-      deleteMessageQueueItemKeepalive(item.id);
+      // Patch #60: no HTTP DELETE. The onSend WS payload carried the item
+      // id in its second event (the \r), so the backend deleted the row
+      // atomically as part of the input handler. Local state removal is
+      // authoritative — if the backend delete somehow failed (extremely
+      // narrow: WS delivered but DB write threw), the row shows up on
+      // next load and the trash button handles it.
       setItems((p) => {
         const next = p.filter((it) => it.id !== item.id);
         if (next.length === 0) onClose?.();

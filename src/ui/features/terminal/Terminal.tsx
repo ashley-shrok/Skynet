@@ -766,9 +766,15 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             isFittingRef.current = false;
           }
         },
-        sendInput: (data: string) => {
+        sendInput: (data: string, messageQueueItemId?: string) => {
           if (webSocketRef.current?.readyState === 1) {
-            webSocketRef.current.send(JSON.stringify({ type: "input", data }));
+            const payload: {
+              type: "input";
+              data: string;
+              messageQueueItemId?: string;
+            } = { type: "input", data };
+            if (messageQueueItemId) payload.messageQueueItemId = messageQueueItemId;
+            webSocketRef.current.send(JSON.stringify(payload));
           }
         },
         toggleMessageQueue: () => {
@@ -2848,14 +2854,25 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           <MessageQueueDrawer
             hostId={hostConfig.id}
             tmuxSession={tmuxSessionName}
-            onSend={(text) => {
+            onSend={(text, messageQueueItemId) => {
               const ws = webSocketRef.current;
               if (!ws || ws.readyState !== 1) return false;
+              // First WS event: body only. Second event (60ms later): the
+              // \r that Ink treats as submit, PLUS the messageQueueItemId
+              // so the backend deletes the row atomically after both writes
+              // have been applied to the SSH stream (patch #60).
               ws.send(JSON.stringify({ type: "input", data: text }));
               setTimeout(() => {
                 const ws2 = webSocketRef.current;
                 if (ws2 && ws2.readyState === 1) {
-                  ws2.send(JSON.stringify({ type: "input", data: "\r" }));
+                  const payload: {
+                    type: "input";
+                    data: string;
+                    messageQueueItemId?: string;
+                  } = { type: "input", data: "\r" };
+                  if (messageQueueItemId)
+                    payload.messageQueueItemId = messageQueueItemId;
+                  ws2.send(JSON.stringify(payload));
                 }
               }, 60);
               return true;

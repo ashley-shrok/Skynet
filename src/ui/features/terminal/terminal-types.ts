@@ -21,7 +21,7 @@ export interface TerminalHandle {
   disconnect: () => void;
   reconnect: () => void;
   fit: () => void;
-  sendInput: (data: string) => void;
+  sendInput: (data: string, messageQueueItemId?: string) => void;
   notifyResize: () => void;
   refresh: () => void;
   toggleMessageQueue: () => void;
