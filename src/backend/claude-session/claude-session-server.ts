@@ -8,7 +8,6 @@ import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession } from "./session-file-discovery.js";
 import { parseSessionLine } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
-import { classifyWipTransition } from "./wip-classifier.js";
 
 /**
  * Live Claude-session WebSocket server on port 30011.
@@ -122,8 +121,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let sshConn: SSHClientType | null = null;
   let tailHandle: TailHandle | null = null;
   let stopped = false;
-  let wipActive: boolean | null = null;
-  let initialWipEmitted = false;
 
   const teardownPane = () => {
     if (tailHandle) {
@@ -339,44 +336,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       result.sessionFile,
       (line: string) => {
         if (stopped || ws.readyState !== WebSocket.OPEN) return;
-
-        // WIP classification: derive and emit work-in-progress transitions
-        // from the raw JSONL before handing off to the message parser.
-        // Runs on every line; the classifier is pure and never throws.
-        let rawObj: Record<string, unknown> | null = null;
-        try {
-          rawObj = JSON.parse(line) as Record<string, unknown>;
-        } catch {
-          /* malformed JSON — skip WIP classification, still run parser below */
-        }
-        if (rawObj !== null) {
-          const transition = classifyWipTransition(rawObj);
-          if (transition !== null) {
-            const nextState = transition === "start" ? true : false;
-            if (!initialWipEmitted) {
-              // Emit initial state regardless of what it is.
-              try {
-                if (!stopped && ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({ type: "wip", active: nextState }));
-                }
-              } catch {
-                /* ws may be mid-close; drop */
-              }
-              initialWipEmitted = true;
-              wipActive = nextState;
-            } else if (nextState !== wipActive) {
-              // Only emit on state transitions to avoid WS chatter.
-              try {
-                if (!stopped && ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({ type: "wip", active: nextState }));
-                }
-              } catch {
-                /* ws may be mid-close; drop */
-              }
-              wipActive = nextState;
-            }
-          }
-        }
 
         const parsed = parseSessionLine(line);
         // Silent drop on kind === "skip" and kind === "malformed" — this
