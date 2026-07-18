@@ -86,6 +86,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260718-43f | Fix pretty-view context% false-positive (patch #56) — bottom-8-lines slice + bar-glyph fallback | 2026-07-18 | 17c4079 | [260718-43f-fix-pretty-view-context-false-positive-m](./quick/260718-43f-fix-pretty-view-context-false-positive-m/) |
 | 260718-4oi | Persist pretty-view ComposeBox draft body server-side per pane (patch #57) | 2026-07-18 | 4579ca7 | [260718-4oi-persist-pretty-view-composebox-draft-bod](./quick/260718-4oi-persist-pretty-view-composebox-draft-bod/) |
 | 260718-87h | Backgrounded-agents panel in pretty view (patch #61) | 2026-07-18 | fe506e0 | [260718-87h-backgrounded-agents-panel-in-pretty-view](./quick/260718-87h-backgrounded-agents-panel-in-pretty-view/) |
+| 260718-8tk | Plan-mode pending indicator in pretty view (patch #63) | 2026-07-18 | fb65084 | [260718-8tk-patch63-plan-mode-pending-indicator](./quick/260718-8tk-patch63-plan-mode-pending-indicator/) |
 
 ## Deferred Items
 
