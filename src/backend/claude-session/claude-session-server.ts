@@ -25,6 +25,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *     { type: "context_pct", pct }                               // 0-100, live scrape of Claude Code status-line "context) NN%"
  *     { type: "harness_tasks", tasks }                           // Claude Code /queue + TaskCreate items — read from ~/.claude/tasks/<sid>/*.json
  *     { type: "backgrounded_agents", agents }                    // currently-running Agent{run_in_background:true} subagents — derived from JSONL tool_use/tool_result correlation (patch #61)
+ *     { type: "plan_pending", pending }                          // unmatched ExitPlanMode tool_use in the parent JSONL — non-null when Claude is waiting on the user's "1"/"2" Plan Mode reply (patch #63)
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
@@ -145,6 +146,21 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
   >();
   let backgroundedAgentsLastSerialized = "[]";
+  // Plan-pending tracking (patch #63): parent-JSONL scan for
+  // ExitPlanMode tool_use blocks (Claude asking Ashley to accept /
+  // keep-planning in Plan Mode), paired against subsequent
+  // tool_result blocks by tool_use_id. Emit on serialized-change
+  // only. `pendingPlansLastSerialized` is initialized to "null" (not
+  // "") so a JSONL with no unmatched ExitPlanMode produces net-zero
+  // emits after the initial `tail -F -n +1` replay — the emit shape
+  // when pending is null is `{ type: "plan_pending", pending: null }`
+  // and JSON.stringify(null) === "null", so matching the initial
+  // sentinel to "null" suppresses the spurious first empty emit.
+  const pendingPlans = new Map<
+    string,
+    { planFilePath: string; ts: number }
+  >();
+  let pendingPlansLastSerialized = "null";
   let stopped = false;
 
   const teardownPane = () => {
@@ -157,6 +173,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
       harnessTasksTimer = null;
     }
     harnessTasksLastSerialized = null;
+    pendingPlans.clear();
+    pendingPlansLastSerialized = "null";
     if (tailHandle) {
       try {
         tailHandle.stop();
@@ -594,6 +612,75 @@ wss.on("connection", async (ws: WebSocket, req) => {
               ) {
                 backgroundedAgents.delete(b.tool_use_id);
               }
+            }
+          }
+          // Plan-pending scan (patch #63). Reuses `obj` + `content` from the
+          // patch-#61 backgrounded-agents scan above; do NOT re-parse.
+          //   - assistant turn whose content[] contains a tool_use block with
+          //     name === "ExitPlanMode" → pending; keyed by tool_use.id.
+          //   - user turn whose content[] contains a tool_result with matching
+          //     tool_use_id → cleared. (The patch-#61 branch already iterates
+          //     tool_result blocks for its Agent correlation; adding one more
+          //     `pendingPlans.delete(id)` call in the same loop is the cheap
+          //     option, but for readability we do a fresh iteration here — the
+          //     line volume is low enough that it does not matter.)
+          if (obj?.type === "assistant" && Array.isArray(content)) {
+            for (const block of content as unknown[]) {
+              const b = block as {
+                type?: string;
+                name?: string;
+                id?: string;
+                input?: { planFilePath?: unknown };
+              };
+              if (
+                b?.type === "tool_use" &&
+                b?.name === "ExitPlanMode" &&
+                typeof b?.id === "string"
+              ) {
+                pendingPlans.set(b.id, {
+                  planFilePath:
+                    typeof b.input?.planFilePath === "string"
+                      ? b.input.planFilePath
+                      : "",
+                  ts:
+                    typeof obj.timestamp === "string"
+                      ? Date.parse(obj.timestamp) || Date.now()
+                      : Date.now(),
+                });
+              }
+            }
+          } else if (obj?.type === "user" && Array.isArray(content)) {
+            for (const block of content as unknown[]) {
+              const b = block as { type?: string; tool_use_id?: string };
+              if (
+                b?.type === "tool_result" &&
+                typeof b?.tool_use_id === "string"
+              ) {
+                pendingPlans.delete(b.tool_use_id);
+              }
+            }
+          }
+          // Only one ExitPlanMode can be pending at a time in practice (Claude
+          // Code's Ink UI serializes Plan Mode prompts), so taking any entry
+          // (via `.values().next()`) is correct. If somehow more than one
+          // survives, we still emit a stable answer — whichever entry the map
+          // returns first — until one is closed.
+          const pendingIter = pendingPlans.values().next();
+          const currentPending = pendingIter.done
+            ? null
+            : { planFilePath: pendingIter.value.planFilePath };
+          const planSerialized = JSON.stringify(currentPending);
+          if (planSerialized !== pendingPlansLastSerialized) {
+            pendingPlansLastSerialized = planSerialized;
+            try {
+              ws.send(
+                JSON.stringify({
+                  type: "plan_pending",
+                  pending: currentPending,
+                }),
+              );
+            } catch {
+              /* ws may be mid-close */
             }
           }
           const agents = Array.from(backgroundedAgents.values()).sort(

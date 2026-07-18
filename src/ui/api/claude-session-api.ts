@@ -73,6 +73,11 @@ export type BackgroundedAgentsEvent = {
   agents: BackgroundedAgent[]; // currently-running only; empty = none
 };
 
+export type PlanPendingEvent = {
+  type: "plan_pending";
+  pending: { planFilePath: string } | null;
+};
+
 export type TailErrorEvent = {
   type: "tail_error";
   message: string;
@@ -91,6 +96,7 @@ export type ClaudeSessionServerEvent =
   | ContextPctEvent
   | HarnessTasksEvent
   | BackgroundedAgentsEvent
+  | PlanPendingEvent
   | TailErrorEvent
   | ErrorEvent;
 

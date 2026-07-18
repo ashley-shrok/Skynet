@@ -12,6 +12,7 @@ import {
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
 import { WipBubble } from "./WipBubble";
+import { PlanPendingBubble } from "./PlanPendingBubble";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
@@ -101,6 +102,16 @@ export function PrettyView({
   const [backgroundedAgents, setBackgroundedAgents] = useState<
     BackgroundedAgent[]
   >([]);
+  // Currently-pending ExitPlanMode prompt from the parent JSONL
+  // (patch #63). Backend emits `pending: {...}` when Claude is
+  // waiting on the user's "1"/"2" Plan Mode reply, and `pending:
+  // null` when the tool_result closes the pair. Only the presence
+  // of a pending value drives the indicator — `planFilePath` is
+  // tracked but not displayed (Plan Mode is between Ashley and
+  // Claude Code; pretty view surfaces only THAT the prompt is open).
+  const [planPending, setPlanPending] = useState<
+    { planFilePath: string } | null
+  >(null);
   // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
   // (patch #51 rework — was previously state fed by a JSONL classifier
   // over the claude-session WS, which turned out to be unreliable
@@ -122,6 +133,7 @@ export function PrettyView({
     setContextPct(null);
     setHarnessTasks([]);
     setBackgroundedAgents([]);
+    setPlanPending(null);
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -174,6 +186,10 @@ export function PrettyView({
         }
         case "backgrounded_agents": {
           setBackgroundedAgents(parsed.agents);
+          break;
+        }
+        case "plan_pending": {
+          setPlanPending(parsed.pending);
           break;
         }
         case "tail_error": {
@@ -252,6 +268,7 @@ export function PrettyView({
               <ChatMessage key={m.eventId} role={m.role} content={m.content} />
             ))}
             {wipActive && <WipBubble />}
+            {planPending && <PlanPendingBubble />}
           </div>
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
