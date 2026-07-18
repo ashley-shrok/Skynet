@@ -289,14 +289,15 @@ export function ComposeBox({
   }
 
   // Reset-send: mirrors handleSend (clears textarea on success, surfaces
-  // inline error on failure) except (a) it prepends "/id reset " to the
-  // trimmed body, and (b) it fires even when the body is blank — in which
-  // case it sends just "/id reset".
+  // inline error on failure) except (a) it wraps the trimmed body in
+  // parentheses appended to "/id reset " so the reset carries a hint
+  // through to the fresh session, and (b) it fires even when the body is
+  // blank — in which case it sends just "/id reset".
   function handleResetSend() {
     setErrorMessage(null);
     const trimmed = text.trim();
     const payload = trimmed
-      ? `/id reset ${trimmed.replace(/\r?\n/g, " ")}`
+      ? `/id reset (${trimmed.replace(/\r?\n/g, " ")})`
       : "/id reset";
     const dispatched = onSend(payload);
     if (dispatched) {
