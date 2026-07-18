@@ -13,6 +13,7 @@ import {
 import { ChatMessage } from "./ChatMessage";
 import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
+import { SessionHoldingBanner } from "./SessionHoldingBanner";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
@@ -112,6 +113,14 @@ export function PrettyView({
   const [planPending, setPlanPending] = useState<
     { planFilePath: string } | null
   >(null);
+  // Phase 3: session-changeover holding state. True during the ~5s gap
+  // between the old Claude session's death and the new one's launch (per
+  // Plan 03-01 backend's Layer 1 raw-line /exit scan OR Layer 2 discovery-
+  // repoll's SIGTERM-fallback path). Cleared by `session_changed` (recycle
+  // completed) or `inactive` with reason "holding_timeout" (recycle failed).
+  // WebSocket is NOT closed during holding — the tail restart is server-side
+  // and transparent to this client (see CONTEXT.md § Frontend event handling).
+  const [isHolding, setIsHolding] = useState(false);
   // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
   // (patch #51 rework — was previously state fed by a JSONL classifier
   // over the claude-session WS, which turned out to be unreliable
@@ -134,6 +143,7 @@ export function PrettyView({
     setHarnessTasks([]);
     setBackgroundedAgents([]);
     setPlanPending(null);
+    setIsHolding(false);
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -174,6 +184,7 @@ export function PrettyView({
         case "inactive": {
           setStatus("inactive");
           setInactiveReason(parsed.reason);
+          setIsHolding(false);
           break;
         }
         case "context_pct": {
@@ -190,6 +201,47 @@ export function PrettyView({
         }
         case "plan_pending": {
           setPlanPending(parsed.pending);
+          break;
+        }
+        case "session_holding": {
+          // Phase 3 Layer 1 / Layer 2 SIGTERM-fallback edge. Show the banner;
+          // do NOT clear messages yet (Ashley may want to scroll back through
+          // the old conversation while the new one starts). Do NOT close the
+          // WS — the tail restart is server-side and transparent (CONTEXT.md
+          // § Frontend event handling).
+          setIsHolding(true);
+          break;
+        }
+        case "session_changed": {
+          // Phase 3 recycle completed: server has stopped the old tail and
+          // started a fresh one on the new sessionFile. Reset ALL per-session
+          // state; the incoming `message` events from the fresh tail (which
+          // uses `tail -F -n +1`) will re-hydrate the conversation from line 1.
+          // Auto-dismiss the holding banner. Do NOT touch IdentityBadge (pane-
+          // scoped, owned by Terminal.tsx) or ComposeBox draft (per patch #57's
+          // key is userId+hostId+tmuxSession, so it correctly survives).
+          //
+          // W3 fix from plan-checker: defensively setStatus("streaming"). Under
+          // normal operation, status is already "streaming" when session_changed
+          // arrives (holding only fires from active/streaming). But if a fatal
+          // `error` frame from the WS layer landed in the same window (rare —
+          // e.g. a network blip that produced a tail_error escalated to error
+          // right before the recycle completed), status would be "error" and
+          // the scroll region would not re-mount after our state reset,
+          // stranding the user on the error banner even though the backend
+          // has successfully switched to a fresh session. One extra line
+          // closes the edge case at zero cost. Do NOT clear errorMessage
+          // here — if the executor decides errorMessage cleanup is needed too,
+          // add it in a follow-up (the plan does not require it).
+          setMessages([]);
+          setHarnessTasks([]);
+          setContextPct(null);
+          setBackgroundedAgents([]);
+          setPlanPending(null);
+          setIsHolding(false);
+          setStatus("streaming");
+          // Diagnostic: parsed.newSessionFile is available if a future console
+          // log is wanted; do not add ambient debug logging in this patch.
           break;
         }
         case "tail_error": {
@@ -259,6 +311,45 @@ export function PrettyView({
           ref={scrollRef}
           className="flex-1 min-h-0 overflow-y-auto px-4 py-3"
         >
+          {/* Session-holding banner — sticky at the top of the scroll region
+              so scrolling up through the old conversation during the ~5s
+              recycle gap still shows the status. Mounted only when the
+              backend has flagged holding; auto-dismissed on session_changed
+              or inactive (per Task 3 handlers above). Positioned BEFORE the
+              content wrapper so it visually sits above the messages list.
+              Uses sticky top-0 with a small negative margin (-mx-4 -mt-3)
+              to cancel the scroll container's own px-4 py-3 padding on the
+              top and horizontal edges so the banner reads as a full-width
+              band rather than a pill inset inside the messages.
+              z-10 keeps it above scrolling content.
+
+              FRAGILITY WARNING (W4 fix from plan-checker 2026-07-18): the
+              `sticky top-0` positioning silently breaks if ANY ancestor
+              gains a CSS `transform` or `will-change` property — those
+              establish a new containing block for fixed/sticky descendants
+              and the banner will scroll away with the content rather than
+              sticking. If a future patch adds `transform`, `will-change`,
+              `filter`, `perspective`, or `backdrop-filter` to Terminal.tsx's
+              flex-column wrapper, PrettyView's outer div, or any element
+              between them and the scroll container HERE, this sticky banner
+              stops working correctly. If that happens, options:
+                (a) find and remove the transform-inducing ancestor property.
+                (b) hoist the banner OUT of the scroll container as a sibling
+                    of the scroll container inside PrettyView's flex-column
+                    (would need `shrink-0` and to relocate the {isHolding &&}
+                    gate to PrettyView's outer JSX). See CONTEXT.md § W4
+                    discussion for the option-(b) restructure.
+              The sticky pattern is proven elsewhere in Termix so option-(a)
+              is preferred; option-(b) is a bigger refactor. Note:
+              `backdrop-filter` on THIS sticky element itself is fine — it
+              establishes a containing block only for its own descendants,
+              not for the sticky element itself. The W4 fragility is about
+              ancestors, not the sticky element's own filter properties. */}
+          {isHolding && (
+            <div className="sticky top-0 z-10 -mx-4 -mt-3 mb-3 px-4 py-2 bg-background/95 backdrop-blur-sm border-b border-border">
+              <SessionHoldingBanner />
+            </div>
+          )}
           {/* Inner content wrapper: the ResizeObserver in useAutoScroll
               watches THIS element for content-size changes (new messages,
               markdown re-layout, Inter font swap). The outer scrollRef div

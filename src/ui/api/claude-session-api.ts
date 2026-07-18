@@ -78,6 +78,15 @@ export type PlanPendingEvent = {
   pending: { planFilePath: string } | null;
 };
 
+export type SessionHoldingEvent = {
+  type: "session_holding";
+};
+
+export type SessionChangedEvent = {
+  type: "session_changed";
+  newSessionFile: string;
+};
+
 export type TailErrorEvent = {
   type: "tail_error";
   message: string;
@@ -97,6 +106,8 @@ export type ClaudeSessionServerEvent =
   | HarnessTasksEvent
   | BackgroundedAgentsEvent
   | PlanPendingEvent
+  | SessionHoldingEvent
+  | SessionChangedEvent
   | TailErrorEvent
   | ErrorEvent;
 
