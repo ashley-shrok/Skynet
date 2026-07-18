@@ -2881,7 +2881,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           />
         )}
 
-        {isConnected && sessionHue != null && (
+        {isConnected && sessionHue != null && !isPrettyMode && (
           <div className="session-tint" aria-hidden="true" />
         )}
 
