@@ -16,6 +16,7 @@ import rbacRoutes from "./routes/rbac.js";
 import openTabsRoutes from "./routes/open-tabs.js";
 import identitiesRoutes from "./routes/identities.js";
 import messageQueueRoutes from "./routes/message-queue.js";
+import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import { createCorsMiddleware } from "../utils/cors-config.js";
@@ -1786,6 +1787,7 @@ app.use("/rbac", rbacRoutes);
 app.use("/open-tabs", openTabsRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
+app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/sessions", sessionsRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 

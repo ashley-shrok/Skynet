@@ -290,6 +290,8 @@ export function PrettyView({
           onSend={onSend}
           canSend={status === "streaming"}
           contextPct={contextPct}
+          hostId={hostId}
+          tmuxSession={tmuxSession}
           className="shrink-0"
         />
       )}

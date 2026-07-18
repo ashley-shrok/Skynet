@@ -494,6 +494,19 @@ async function initializeCompleteDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_mqi_user_host_session
         ON message_queue_items (user_id, host_id, tmux_session);
 
+    CREATE TABLE IF NOT EXISTS compose_drafts (
+        user_id TEXT NOT NULL,
+        host_id INTEGER NOT NULL,
+        tmux_session TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, host_id, tmux_session),
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        FOREIGN KEY (host_id) REFERENCES ssh_data (id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_compose_drafts_user_host_session
+        ON compose_drafts (user_id, host_id, tmux_session);
+
     CREATE TABLE IF NOT EXISTS user_open_tabs (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,

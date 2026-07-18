@@ -1,8 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, Send, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
+import {
+  flushComposeDraftKeepalive,
+  getComposeDraft,
+  putComposeDraft,
+} from "@/api/compose-drafts-api";
 
 // Compose-and-send box for the pretty view.
 //
@@ -26,6 +31,23 @@ import { cn } from "@/lib/utils";
 //
 // 5. Newlines collapsed to spaces on send (per D-50 policy — Ink
 //    safety; mirrors MessageQueueDrawer's established behavior).
+//
+// 6. Draft body persistence (patch #57).
+//
+//    Body is autosaved to the server on every keystroke via a 400ms
+//    debounced PUT /compose-drafts, mirroring MessageQueueDrawer's
+//    autosave/flush/retry machinery (patches #39/#49/#55). onBlur
+//    flushes immediately. pagehide + visibilitychange fire a
+//    fetch(keepalive:true) so a mid-typing tab close survives. A 10s
+//    setInterval retries any dirty body after failed saves. Successful
+//    send (any of Send / go-ahead / reset-send) clears the persisted
+//    draft.
+//
+//    NO ERROR UI on failed autosave — mirrors the COMPOSE-04 HARD LOCK
+//    posture: no ghost UI that lies about state. The retry loop is the
+//    recovery mechanism.
+
+const DEBOUNCE_MS = 400;
 
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
@@ -47,6 +69,11 @@ export interface ComposeBoxProps {
   // <50 green, 50-79 yellow, >=80 red; hidden entirely when null so a
   // brief "unknown" flash doesn't distract on mount.
   contextPct?: number | null;
+  // Patch #57: identity of the pane the compose box belongs to. Draft
+  // body is persisted server-side keyed on (userId, hostId, tmuxSession)
+  // — tmuxSession null for non-tmux SSH hosts (Windows / no-tmux).
+  hostId: number;
+  tmuxSession?: string | null;
   className?: string;
 }
 
@@ -54,11 +81,149 @@ export function ComposeBox({
   onSend,
   canSend,
   contextPct,
+  hostId,
+  tmuxSession,
   className,
 }: ComposeBoxProps) {
   const [text, setText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Patch #57 persistence refs.
+  // dirtyBodyRef: null = no pending save; string (including "") = the
+  // most-recent unsaved value that needs to reach the server. Mirrors
+  // MessageQueueDrawer's dirtyBodiesRef per-item semantics but scoped
+  // to the single draft this component owns.
+  const dirtyBodyRef = useRef<string | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mirror of `text` so async callbacks (interval tick, pagehide handler)
+  // can read the latest value without stale-closure surprises.
+  const latestBodyRef = useRef<string>("");
+  latestBodyRef.current = text;
+
+  // Normalize the nullable prop for storage-boundary calls.
+  const tmuxSessionKey: string | null = tmuxSession ?? null;
+
+  const clearDebounce = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
+
+  // Flush the pending dirty body (if any). Best-effort — on error,
+  // re-queue the LATEST body (prefer latestBodyRef over the captured
+  // dirty snapshot; user may have typed more while the request was
+  // in flight) so the next flush chance retries with the freshest
+  // content.
+  const flushDirty = useCallback(async () => {
+    if (dirtyBodyRef.current === null) return;
+    const body = dirtyBodyRef.current;
+    dirtyBodyRef.current = null;
+    try {
+      await putComposeDraft(hostId, tmuxSessionKey, body);
+    } catch {
+      // Re-queue latest — prefer newer edits over the snapshot we just
+      // tried to send. No error UI (COMPOSE-04 HARD LOCK).
+      const latest = latestBodyRef.current;
+      dirtyBodyRef.current = latest;
+    }
+  }, [hostId, tmuxSessionKey]);
+
+  const scheduleAutosave = useCallback(
+    (nextBody: string) => {
+      dirtyBodyRef.current = nextBody;
+      clearDebounce();
+      debounceTimerRef.current = setTimeout(() => {
+        debounceTimerRef.current = null;
+        void flushDirty();
+      }, DEBOUNCE_MS);
+    },
+    [clearDebounce, flushDirty],
+  );
+
+  // Load-on-mount: seed text state from the persisted draft for this
+  // (hostId, tmuxSession). On a key change (host or session switches),
+  // flush the previous key's dirty body via keepalive BEFORE loading
+  // the new key — otherwise a mid-typing switch would silently drop
+  // the draft. Any load error silently keeps the empty seed (no error
+  // UI on autosave/autoload failures).
+  useEffect(() => {
+    let cancelled = false;
+
+    // Reset per-key local state.
+    setText("");
+    clearDebounce();
+    dirtyBodyRef.current = null;
+    latestBodyRef.current = "";
+
+    getComposeDraft(hostId, tmuxSessionKey)
+      .then((data) => {
+        if (cancelled) return;
+        const seed = data.body ?? "";
+        setText(seed);
+        latestBodyRef.current = seed;
+      })
+      .catch(() => {
+        // Silent — the empty seed is a safe default; the 10s retry
+        // loop won't fire until the user actually types (dirtyBodyRef
+        // stays null).
+      });
+
+    // The pagehide / visibilitychange / interval effects capture the
+    // SAME hostId/tmuxSessionKey via their own closures, so when this
+    // effect re-runs on key change, those effects also re-run and
+    // capture the new key. This cleanup fires BEFORE the new run of
+    // those effects, flushing any dirty body under the OLD key.
+    return () => {
+      cancelled = true;
+      if (dirtyBodyRef.current !== null) {
+        flushComposeDraftKeepalive(
+          hostId,
+          tmuxSessionKey,
+          dirtyBodyRef.current,
+        );
+        dirtyBodyRef.current = null;
+      }
+      clearDebounce();
+    };
+  }, [hostId, tmuxSessionKey, clearDebounce]);
+
+  // pagehide + visibilitychange keepalive flush. Fires only when there's
+  // a dirty body pending — idle panes cost zero unload-time bandwidth.
+  useEffect(() => {
+    const onPageHide = () => {
+      if (dirtyBodyRef.current !== null) {
+        flushComposeDraftKeepalive(
+          hostId,
+          tmuxSessionKey,
+          dirtyBodyRef.current,
+        );
+        dirtyBodyRef.current = null;
+      }
+    };
+    const onVisChange = () => {
+      if (document.visibilityState === "hidden") onPageHide();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisChange);
+    };
+  }, [hostId, tmuxSessionKey]);
+
+  // 10s retry loop. Debounced saves that fail re-queue into
+  // dirtyBodyRef with no pending timer; without this interval, the
+  // only recovery paths are another keystroke (which resets the
+  // debounce) or unload. Users who typed then walked away sit
+  // orphaned. Interval catches that case.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (dirtyBodyRef.current !== null) void flushDirty();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [flushDirty]);
 
   // Auto-focus on mount so Ashley can start typing immediately after
   // flipping to pretty mode (COMPOSE-01 ergonomic requirement).
@@ -69,6 +234,35 @@ export function ComposeBox({
   // Auto-grow rows: 2 minimum, 6 maximum, based on line count.
   // Matches MessageQueueDrawer's simple approach (no ResizeObserver).
   const rows = Math.min(6, Math.max(2, text.split("\n").length));
+
+  // Clear both local state and persisted draft after a successful send.
+  // Best-effort: the PUT is fire-and-forget; the 10s retry loop will
+  // recover if it fails. latestBodyRef is updated so any interval tick
+  // between now and the next render sees the empty body.
+  const clearAfterSend = useCallback(() => {
+    clearDebounce();
+    dirtyBodyRef.current = null;
+    latestBodyRef.current = "";
+    putComposeDraft(hostId, tmuxSessionKey, "").catch(() => {
+      // Best-effort; on failure the next flushDirty tick will re-try
+      // once the user types again OR the next 10s tick fires (though
+      // dirtyBodyRef is null here, the retry gate skips it — the
+      // server-side state may be stale-non-empty until the next real
+      // save). Acceptable tradeoff: worst case is a stale draft
+      // pre-populating a future reload, which is exactly the state
+      // the retry loop was already tolerating.
+    });
+  }, [clearDebounce, hostId, tmuxSessionKey]);
+
+  function handleTextChange(next: string) {
+    setText(next);
+    scheduleAutosave(next);
+  }
+
+  function handleBlur() {
+    clearDebounce();
+    void flushDirty();
+  }
 
   function handleSend() {
     const trimmed = text.trim();
@@ -82,12 +276,15 @@ export function ComposeBox({
     const dispatched = onSend(payload);
     if (dispatched) {
       setText(""); // clear compose textarea on success
+      clearAfterSend();
       // COMPOSE-04 HARD LOCK: do NOT emit any local optimistic bubble.
       // The message will render in the conversation when the
       // session-file tail confirms it (Phase 1 WS bridge).
     } else {
       setErrorMessage("Not connected — try again in a moment");
       // COMPOSE-04 + D-56: do NOT clear text; user may want to retry.
+      // Do NOT clear the persisted draft either — failed send should
+      // leave the composition intact server-side too.
     }
   }
 
@@ -104,6 +301,7 @@ export function ComposeBox({
     const dispatched = onSend(payload);
     if (dispatched) {
       setText("");
+      clearAfterSend();
     } else {
       setErrorMessage("Not connected — try again in a moment");
     }
@@ -112,10 +310,25 @@ export function ComposeBox({
   // Quick-reply: fires a canned message through onSend without touching the
   // compose textarea's text/focus state. Independent of what the user is
   // currently composing — same disabled gate as Send (canSend===false only).
+  //
+  // The persisted DRAFT is still cleared on successful dispatch: Ashley
+  // may have been composing something in the textarea, then decided to
+  // fire "go ahead" instead. Textarea `text` state is untouched (the
+  // user's in-progress composition stays visible) but the persisted
+  // draft resets to '' so a reload doesn't resurrect it. Failed
+  // dispatch leaves both intact.
   function handleQuickSend(quickText: string) {
     setErrorMessage(null);
     const dispatched = onSend(quickText);
-    if (!dispatched) {
+    if (dispatched) {
+      // NOTE: intentionally does NOT setText("") — the user's typed
+      // draft stays visible for continued editing (the quick reply
+      // fires independently of composed text). But the persisted
+      // draft still clears per plan spec so a reload doesn't
+      // surface stale content Ashley abandoned in favour of the
+      // canned reply.
+      clearAfterSend();
+    } else {
       setErrorMessage("Not connected — try again in a moment");
     }
     textareaRef.current?.focus();
@@ -183,7 +396,8 @@ export function ComposeBox({
         <Textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => handleTextChange(e.target.value)}
+          onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           placeholder="Message Claude…"
           rows={rows}

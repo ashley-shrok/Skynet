@@ -690,6 +690,29 @@ export const messageQueueItems = sqliteTable("message_queue_items", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Patch #57: per-pane ComposeBox draft persistence. Singleton row per
+// (userId, hostId, tmuxSession) — no `id` primary key column; composite
+// PK is enforced by the CREATE TABLE statement in db/index.ts, not by
+// Drizzle's type definition. `tmuxSession` is stored as `NOT NULL DEFAULT ''`
+// at the SQL layer (SQLite treats NULL as distinct in UNIQUE / PRIMARY KEY,
+// which would break the ON CONFLICT upsert path for non-tmux hosts); the
+// column here mirrors messageQueueItems' `text("tmux_session")` typing for
+// consistency at the ORM boundary but the route layer coalesces null → ''
+// before every insert / update / select.
+export const composeDrafts = sqliteTable("compose_drafts", {
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  hostId: integer("host_id")
+    .notNull()
+    .references(() => hosts.id, { onDelete: "cascade" }),
+  tmuxSession: text("tmux_session").notNull().default(""),
+  body: text("body").notNull().default(""),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const userOpenTabs = sqliteTable("user_open_tabs", {
   id: text("id").primaryKey(),
   userId: text("user_id")
