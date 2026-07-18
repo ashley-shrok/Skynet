@@ -6,12 +6,14 @@ import {
   openClaudeSessionSocket,
   type ClaudeSessionServerEvent,
   type ConnectToPanePayload,
+  type HarnessTask,
   type MessageEvent as ChatMessageEvent,
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
 import { WipBubble } from "./WipBubble";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
+import { HarnessTasksPanel } from "./HarnessTasksPanel";
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
@@ -78,6 +80,16 @@ export function PrettyView({
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Context-window fill %, scraped by the backend from Claude Code's tmux
+  // status line every 3s. null = backend hasn't emitted a reading yet on
+  // the current attach; hold-last is enforced upstream (the server doesn't
+  // emit on regex miss), so once set this value only moves on a real read.
+  const [contextPct, setContextPct] = useState<number | null>(null);
+  // Claude Code harness task list (TaskCreate + /queue items). Empty array
+  // = confirmed no tasks; the backend polls every 3s and emits on change.
+  // The panel above the compose box mounts only when the FILTERED list
+  // (pending + in_progress) is non-empty.
+  const [harnessTasks, setHarnessTasks] = useState<HarnessTask[]>([]);
   // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
   // (patch #51 rework — was previously state fed by a JSONL classifier
   // over the claude-session WS, which turned out to be unreliable
@@ -96,6 +108,8 @@ export function PrettyView({
     setStatus("connecting");
     setInactiveReason(null);
     setErrorMessage(null);
+    setContextPct(null);
+    setHarnessTasks([]);
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -136,6 +150,14 @@ export function PrettyView({
         case "inactive": {
           setStatus("inactive");
           setInactiveReason(parsed.reason);
+          break;
+        }
+        case "context_pct": {
+          setContextPct(parsed.pct);
+          break;
+        }
+        case "harness_tasks": {
+          setHarnessTasks(parsed.tasks);
           break;
         }
         case "tail_error": {
@@ -248,10 +270,26 @@ export function PrettyView({
           is confirmed active). When status is "inactive" or "error", the
           compose box is intentionally absent — FALLBACK-01 ensures the
           inactive branch renders only the "no active Claude session" string. */}
+      {/* Harness tasks panel — mounts directly above the compose area,
+          in-flow (takes real layout space, not an overlay). Filtered to
+          active tasks only (pending + in_progress); when the filtered list
+          is empty the panel does NOT render, so no chrome / no empty state.
+          Read-only for v1 — Claude Code owns writes to ~/.claude/tasks/. */}
+      {status === "streaming" &&
+        (() => {
+          const active = harnessTasks.filter(
+            (t) => t.status !== "completed",
+          );
+          return active.length > 0 ? (
+            <HarnessTasksPanel tasks={active} />
+          ) : null;
+        })()}
+
       {onSend && status === "streaming" && (
         <ComposeBox
           onSend={onSend}
           canSend={status === "streaming"}
+          contextPct={contextPct}
           className="shrink-0"
         />
       )}

@@ -8,6 +8,7 @@ import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession } from "./session-file-discovery.js";
 import { parseSessionLine } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+import { execCommand } from "../ssh/tmux-helper.js";
 
 /**
  * Live Claude-session WebSocket server on port 30011.
@@ -21,6 +22,8 @@ import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
  *     { type: "session", pid, sessionFile }                      // metadata
  *     { type: "message", role, content, eventId, ts }            // per parsed JSONL line
  *     { type: "wip", active }                                    // work-in-progress state (emitted on transitions + once as initial state)
+ *     { type: "context_pct", pct }                               // 0-100, live scrape of Claude Code status-line "context) NN%"
+ *     { type: "harness_tasks", tasks }                           // Claude Code /queue + TaskCreate items — read from ~/.claude/tasks/<sid>/*.json
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
@@ -120,9 +123,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   let sshConn: SSHClientType | null = null;
   let tailHandle: TailHandle | null = null;
+  let contextPctTimer: NodeJS.Timeout | null = null;
+  let contextPctInFlight = false;
+  let harnessTasksTimer: NodeJS.Timeout | null = null;
+  let harnessTasksInFlight = false;
+  let harnessTasksLastSerialized: string | null = null;
   let stopped = false;
 
   const teardownPane = () => {
+    if (contextPctTimer) {
+      clearInterval(contextPctTimer);
+      contextPctTimer = null;
+    }
+    if (harnessTasksTimer) {
+      clearInterval(harnessTasksTimer);
+      harnessTasksTimer = null;
+    }
+    harnessTasksLastSerialized = null;
     if (tailHandle) {
       try {
         tailHandle.stop();
@@ -330,6 +347,135 @@ wss.on("connection", async (ws: WebSocket, req) => {
       pid: result.pid,
       sessionFile: result.sessionFile,
     });
+
+    // Context-% poller: scrape Claude Code's status-line percentage every
+    // ~3s via `tmux capture-pane -p -t <session>` over a fresh exec channel
+    // on the same SSH connection. ssh2 multiplexes channels so this runs
+    // alongside the JSONL tail without blocking it. On regex miss (redraws
+    // are intermittent — mid-tool-execution the status bar can be absent)
+    // we DON'T emit; the client is expected to hold its last known value
+    // rather than blank out. Recipe cribbed from nelly's context-watch.py
+    // (2026-07-18 DM — see tina bounty history).
+    //
+    // Regex is anchored on `context)` (from "(1M context)") so transcript
+    // matches on stray "\d+%" don't poison the read. `matchAll` + last
+    // wins so if the transcript above the status line contains an older
+    // "context) NN%" quoted somewhere, the live status line at the bottom
+    // (last on-screen) still takes precedence.
+    const CONTEXT_PCT_INTERVAL_MS = 3000;
+    const CONTEXT_PCT_REGEX = /context\)[^%]{0,120}?(\d{1,3})%/g;
+    // Single-quote wrap for the session name. Tmux session names are
+    // validated by the frontend to a tmux-safe subset (alphanumeric,
+    // dash, underscore), so single-quote escape is sufficient.
+    const captureCmd = `tmux capture-pane -p -t '${tmuxSession}'`;
+    contextPctTimer = setInterval(() => {
+      if (stopped || ws.readyState !== WebSocket.OPEN) return;
+      if (!sshConn) return;
+      if (contextPctInFlight) return; // guard against slow SSH pileups
+      contextPctInFlight = true;
+      const connSnapshot = sshConn;
+      execCommand(connSnapshot, captureCmd)
+        .then((output) => {
+          if (stopped || ws.readyState !== WebSocket.OPEN) return;
+          const matches = [...output.matchAll(CONTEXT_PCT_REGEX)];
+          if (matches.length === 0) return; // hold last on miss
+          const last = matches[matches.length - 1];
+          const pct = parseInt(last[1], 10);
+          if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
+          try {
+            ws.send(JSON.stringify({ type: "context_pct", pct }));
+          } catch {
+            /* ws may be mid-close */
+          }
+        })
+        .catch(() => {
+          /* Silent on scrape failure — the tail's error handler covers
+             connection health; this is a nice-to-have signal, not
+             load-bearing. */
+        })
+        .finally(() => {
+          contextPctInFlight = false;
+        });
+    }, CONTEXT_PCT_INTERVAL_MS);
+
+    // Harness-tasks poller: read Claude Code's on-disk task queue (populated
+    // by TaskCreate + /queue) and emit it to the client on change. Storage
+    // layout: ~/.claude/tasks/<sessionId>/<n>.json — one JSON file per task
+    // numbered from 1. sessionId is the JSONL basename we already have from
+    // the discovery result. Each task is
+    //   { id, subject, description?, activeForm?, status, blocks[], blockedBy[] }
+    // with status in {pending, in_progress, completed, ...}. Files are
+    // pretty-printed multi-line JSON; we collapse each to one line with
+    // `tr '\n' ' '` on the remote (valid JSON is whitespace-insensitive,
+    // and escaped `\n` inside string literals is TWO bytes `\` + `n` so
+    // tr on real LF only touches formatter whitespace, not string data).
+    //
+    // Live update: 3s polling on the same SSH connection as the tail (ssh2
+    // multiplexes channels — concurrent execs are fine). On payload change
+    // vs last-emitted, emit a fresh `{type:"harness_tasks", tasks}` frame;
+    // when unchanged, skip the emit to avoid pushing identical arrays every
+    // tick. The client filters completed tasks for display and hides the
+    // panel entirely when no active tasks remain.
+    //
+    // sessionId is derived from the JSONL basename (verified 2026-07-18:
+    // the tasks dir UUID matches the JSONL basename exactly — Claude Code
+    // keys both on the same sessionId).
+    const sessionIdFromFile = result.sessionFile
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop()!
+      .replace(/\.jsonl$/, "");
+    // Defensive: only run the poller if sessionId looks like a UUID —
+    // otherwise skip. Prevents shell-injection via a malformed path.
+    const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+    if (UUID_RE.test(sessionIdFromFile)) {
+      const HARNESS_TASKS_INTERVAL_MS = 3000;
+      const tasksCmd = `for f in "$HOME/.claude/tasks/${sessionIdFromFile}"/*.json; do [ -f "$f" ] && { tr '\\n' ' ' < "$f"; echo; }; done 2>/dev/null`;
+      harnessTasksTimer = setInterval(() => {
+        if (stopped || ws.readyState !== WebSocket.OPEN) return;
+        if (!sshConn) return;
+        if (harnessTasksInFlight) return;
+        harnessTasksInFlight = true;
+        const connSnapshot = sshConn;
+        execCommand(connSnapshot, tasksCmd)
+          .then((output) => {
+            if (stopped || ws.readyState !== WebSocket.OPEN) return;
+            const tasks: unknown[] = [];
+            for (const raw of output.split("\n")) {
+              const line = raw.trim();
+              if (!line) continue;
+              try {
+                tasks.push(JSON.parse(line));
+              } catch {
+                /* skip malformed lines silently */
+              }
+            }
+            // Sort by numeric id ascending so display order matches /queue.
+            tasks.sort((a, b) => {
+              const ai = parseInt(String((a as { id?: unknown }).id ?? ""), 10);
+              const bi = parseInt(String((b as { id?: unknown }).id ?? ""), 10);
+              if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
+              return 0;
+            });
+            const serialized = JSON.stringify(tasks);
+            if (serialized === harnessTasksLastSerialized) return;
+            harnessTasksLastSerialized = serialized;
+            try {
+              ws.send(
+                JSON.stringify({ type: "harness_tasks", tasks }),
+              );
+            } catch {
+              /* ws may be mid-close */
+            }
+          })
+          .catch(() => {
+            /* Silent — same posture as the context-pct poller. */
+          })
+          .finally(() => {
+            harnessTasksInFlight = false;
+          });
+      }, HARNESS_TASKS_INTERVAL_MS);
+    }
 
     tailHandle = tailSessionFile(
       conn,

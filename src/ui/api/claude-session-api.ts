@@ -41,6 +41,26 @@ export type InactiveEvent = {
   reason: string;
 };
 
+export type ContextPctEvent = {
+  type: "context_pct";
+  pct: number; // 0-100 inclusive
+};
+
+export type HarnessTask = {
+  id: string;
+  subject: string;
+  description?: string;
+  activeForm?: string;
+  status: "pending" | "in_progress" | "completed" | string;
+  blocks?: string[];
+  blockedBy?: string[];
+};
+
+export type HarnessTasksEvent = {
+  type: "harness_tasks";
+  tasks: HarnessTask[]; // raw list — client filters completed for display
+};
+
 export type TailErrorEvent = {
   type: "tail_error";
   message: string;
@@ -56,6 +76,8 @@ export type ClaudeSessionServerEvent =
   | SessionMetaEvent
   | MessageEvent
   | InactiveEvent
+  | ContextPctEvent
+  | HarnessTasksEvent
   | TailErrorEvent
   | ErrorEvent;
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, ThumbsUp } from "lucide-react";
+import { RotateCcw, Send, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -41,10 +41,21 @@ export interface ComposeBoxProps {
   // show the inline error — the component does not need to pre-emptively
   // block the attempt since onSend returns false when WS is not ready.
   canSend?: boolean;
+  // Live Claude Code context-window percentage (0-100), scraped by the
+  // backend from the tmux status line. null = unknown yet on this attach.
+  // Rendered as a vertical fill bar to the left of the textarea:
+  // <50 green, 50-79 yellow, >=80 red; hidden entirely when null so a
+  // brief "unknown" flash doesn't distract on mount.
+  contextPct?: number | null;
   className?: string;
 }
 
-export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
+export function ComposeBox({
+  onSend,
+  canSend,
+  contextPct,
+  className,
+}: ComposeBoxProps) {
   const [text, setText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -77,6 +88,24 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
     } else {
       setErrorMessage("Not connected — try again in a moment");
       // COMPOSE-04 + D-56: do NOT clear text; user may want to retry.
+    }
+  }
+
+  // Reset-send: mirrors handleSend (clears textarea on success, surfaces
+  // inline error on failure) except (a) it prepends "/id reset " to the
+  // trimmed body, and (b) it fires even when the body is blank — in which
+  // case it sends just "/id reset".
+  function handleResetSend() {
+    setErrorMessage(null);
+    const trimmed = text.trim();
+    const payload = trimmed
+      ? `/id reset ${trimmed.replace(/\r?\n/g, " ")}`
+      : "/id reset";
+    const dispatched = onSend(payload);
+    if (dispatched) {
+      setText("");
+    } else {
+      setErrorMessage("Not connected — try again in a moment");
     }
   }
 
@@ -120,6 +149,37 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
       )}
     >
       <div className="flex items-end gap-2">
+        {/* Context-window fill bar: thin vertical strip left of the textarea.
+            Fills from bottom to top. Green <50, yellow 50-79, red >=80.
+            Mounts only when contextPct is a number — brief "unknown" state
+            on mount stays visually quiet. self-stretch overrides the row's
+            items-end so the bar spans full row height (grows with textarea
+            rows). */}
+        {typeof contextPct === "number" && (
+          <div
+            className="w-1.5 self-stretch bg-muted/40 rounded-sm relative overflow-hidden"
+            role="meter"
+            aria-label="Context window"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={contextPct}
+            title={`Context ${contextPct}%`}
+          >
+            <div
+              className={cn(
+                "absolute bottom-0 left-0 right-0 transition-[height] duration-300",
+                contextPct < 50
+                  ? "bg-green-500"
+                  : contextPct < 80
+                    ? "bg-yellow-500"
+                    : "bg-red-500",
+              )}
+              style={{
+                height: `${Math.min(100, Math.max(0, contextPct))}%`,
+              }}
+            />
+          </div>
+        )}
         <Textarea
           ref={textareaRef}
           value={text}
@@ -132,12 +192,24 @@ export function ComposeBox({ onSend, canSend, className }: ComposeBoxProps) {
           // during a transient disconnect and send when WS reconnects.
           // The send button is disabled; the error will surface on attempt.
         />
-        {/* Icon-button column: thumbs-up "go ahead" quick-reply on top,
-            paper-airplane Send on the bottom. Bottom-aligned to the
-            textarea via the parent's items-end. If the textarea grows
-            past the stack's height (~60px), empty space appears above
-            the go-ahead button rather than pushing the send button up. */}
+        {/* Icon-button column: rotate-ccw "/id reset" send on top,
+            thumbs-up "go ahead" quick-reply in the middle, paper-airplane
+            Send on the bottom. Ordered least-used at top, most-used at
+            bottom (closest to the mouse arriving from the textarea).
+            Bottom-aligned to the textarea via the parent's items-end.
+            If the textarea grows past the stack's height, empty space
+            appears above the top button rather than pushing Send up. */}
         <div className="flex flex-col gap-1">
+          <Button
+            size="icon-sm"
+            variant="outline"
+            onClick={handleResetSend}
+            disabled={canSend === false}
+            aria-label="Send with /id reset prefix"
+            title="Send with /id reset prefix"
+          >
+            <RotateCcw className="size-4" />
+          </Button>
           <Button
             size="icon-sm"
             variant="outline"
