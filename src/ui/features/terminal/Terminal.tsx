@@ -2885,7 +2885,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           <div className="session-tint" aria-hidden="true" />
         )}
 
-        {isConnected && identityKey && <IdentityBadge identityKey={identityKey} />}
+        {isConnected && identityKey && !isPrettyMode && <IdentityBadge identityKey={identityKey} />}
 
         {isMobile && isConnected && (
           <Toolbar
