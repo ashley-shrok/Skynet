@@ -351,44 +351,28 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Context-% poller: scrape Claude Code's status-line percentage every
     // ~3s via `tmux capture-pane -p -t <session>` over a fresh exec channel
     // on the same SSH connection. ssh2 multiplexes channels so this runs
-    // alongside the JSONL tail without blocking it. On regex miss (redraws
-    // are intermittent — mid-tool-execution the status bar can be absent)
-    // we DON'T emit; the client is expected to hold its last known value
-    // rather than blank out. Recipe cribbed from nelly's context-watch.py
-    // (2026-07-18 DM — see tina bounty history).
+    // alongside the JSONL tail without blocking it. On miss we DON'T emit;
+    // the client holds its last known value rather than blank out. Recipe
+    // cribbed from nelly's context-watch.py (2026-07-18).
     //
-    // PRIMARY regex is anchored on `context)` (from "(1M context)") so
-    // stray "\d+%" elsewhere in the pane output doesn't poison the read.
-    //
-    // Transcript-pollution fix (patch #56): `matchAll` + last-wins only
-    // produces the correct result IF the true status line is the last match
-    // in the full capture. In practice, any `context)...NN%` string quoted
-    // anywhere in the pane transcript (assistant messages discussing the
-    // status line, old redraw fragments in tmux scrollback) can create a
-    // false match that wins over the real status line when Claude Code's
-    // footer is transiently absent from the capture (mid-tool-execution
-    // redraws). Fix: slice to the BOTTOM 8 LINES of capture-pane output
-    // before matchAll. Claude Code's footer is always at the bottom of the
-    // pane, so this guarantees we only look at the footer region. N=8:
-    // footer=5 lines (2 separator + prompt + status + bypass/permissions)
-    // plus 3-line buffer for footer variations (weekly-limit warnings,
-    // narrow-terminal wrap). If the status line is transiently absent from
-    // those bottom 8 lines, we correctly get zero matches → hold-last
-    // semantics apply — much better than accepting a stale transcript match.
-    //
-    // FALLBACK regex (defense-in-depth): if the primary regex gets zero
-    // matches in the bottom 8 lines, try a bar-glyph pattern (░ / █ chars).
-    // Claude Code's visual context bar uses those block glyphs; no other
-    // footer element does. Safe: weekly-limit warnings, autocompact prompts,
-    // and other footer text are all plain ASCII. Future-proofs against Claude
-    // Code ever dropping "(1M context)" from the status line while keeping
-    // the visual bar.
+    // Three-part hardening:
+    //   * BOTTOM 8 LINES (patch #56): only look at the footer region so
+    //     transcript quotes of "context) NN%" elsewhere in the pane can't
+    //     win. N=8: footer=5 lines (2 separator + prompt + status +
+    //     bypass/permissions) plus a 3-line buffer for footer variations
+    //     (weekly-limit warnings, narrow-terminal wrap).
+    //   * PER-LINE + RIGHTMOST-% anchored on `context)` (patch #59): for
+    //     each line containing the label, take the RIGHTMOST NN% on that
+    //     line. Claude Code's real context % renders far-right, so a
+    //     custom statusline (opengsd's milestone bar was the observed
+    //     case) that injects a NN% between `context)` and the real % on
+    //     the SAME line can't win. Mirrors nelly's source-side hardening
+    //     in context-watch.py. Last matching line across the 8-line slice
+    //     wins (multi-line last-wins semantic preserved).
+    //   * FALLBACK: bar-glyph pattern (░/█ chars unique to the visual
+    //     context bar) with the same per-line rightmost-% rule, for hosts
+    //     where "(1M context)" is absent but the visual bar remains.
     const CONTEXT_PCT_INTERVAL_MS = 3000;
-    const CONTEXT_PCT_REGEX = /context\)[^%]{0,120}?(\d{1,3})%/g;
-    // Fallback for cases where Claude Code's footer text changes but the
-    // visual context bar (block glyphs) remains — ░/█ are unique to that
-    // indicator; no other footer element uses them.
-    const CONTEXT_PCT_FALLBACK_REGEX = /[░█]\s*(\d{1,3})%/g;
     // Single-quote wrap for the session name. Tmux session names are
     // validated by the frontend to a tmux-safe subset (alphanumeric,
     // dash, underscore), so single-quote escape is sufficient.
@@ -402,17 +386,26 @@ wss.on("connection", async (ws: WebSocket, req) => {
       execCommand(connSnapshot, captureCmd)
         .then((output) => {
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
-          // Slice to bottom 8 lines to defeat transcript pollution (patch #56).
-          const bottom = output.split("\n").slice(-8).join("\n");
-          let matches = [...bottom.matchAll(CONTEXT_PCT_REGEX)];
-          if (matches.length === 0) {
-            // Primary regex missed — try bar-glyph fallback (defense-in-depth).
-            matches = [...bottom.matchAll(CONTEXT_PCT_FALLBACK_REGEX)];
+          const lines = output.split("\n").slice(-8);
+          // Per-line scan anchored on `context)`, rightmost NN% wins.
+          let pct: number | null = null;
+          for (const line of lines) {
+            if (!line.includes("context)")) continue;
+            const pcts = [...line.matchAll(/(\d{1,3})%/g)];
+            if (pcts.length === 0) continue;
+            pct = parseInt(pcts[pcts.length - 1][1], 10);
           }
-          if (matches.length === 0) return; // hold last on miss
-          const last = matches[matches.length - 1];
-          const pct = parseInt(last[1], 10);
-          if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
+          if (pct === null) {
+            // Fallback: bar-glyph anchor, same rightmost-per-line rule.
+            for (const line of lines) {
+              if (!/[░█]/.test(line)) continue;
+              const pcts = [...line.matchAll(/(\d{1,3})%/g)];
+              if (pcts.length === 0) continue;
+              pct = parseInt(pcts[pcts.length - 1][1], 10);
+            }
+          }
+          if (pct === null || !Number.isFinite(pct) || pct < 0 || pct > 100)
+            return;
           try {
             ws.send(JSON.stringify({ type: "context_pct", pct }));
           } catch {
