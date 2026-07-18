@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Phase 04 Wave 1 committed locally (06b1f08); Phase 4 foundation shipped (design tokens + IdentityBadge lg + PrettyView hue plumbing); Phase 3 + Phase 4 batches awaiting deploy
-last_updated: "2026-07-18T18:00:00.000Z"
-last_activity: 2026-07-18 -- Executed Phase 4 Wave 1 (visual reskin foundation): design tokens + @keyframes pv-identity-breathe + IdentityBadge size prop + PrettyView --pv-id-hue plumbing (06b1f08); Terminal.tsx untouched; build clean; not deployed
+stopped_at: Phase 04 Wave 2 committed locally (e04396a); Phase 4 per-component Glass reskin shipped across all 9 pretty-view components; Terminal.tsx untouched; Phase 3 + Phase 4 batches still awaiting deploy
+last_updated: "2026-07-18T18:15:00.000Z"
+last_activity: 2026-07-18 -- Executed Phase 4 Wave 2 (per-component Glass reskin): ChatMessage + WipBubble + PlanPendingBubble + SessionHoldingBanner + HarnessTasksPanel + BackgroundedAgentsPanel + BackgroundedShellsPanel + PrettyView root + ComposeBox all reskinned (e04396a); Terminal.tsx untouched; build clean (8.59s); not deployed
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 13
-  completed_plans: 11
-  percent: 85
+  completed_plans: 12
+  percent: 92
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 04 — Wave 1 Complete, Wave 2 Pending
-Plan: 1 of 3 (foundation shipped; Plans 04-02 reskin, 04-03 deploy-checkpoint remain)
-Status: Phase 04 Wave 1 (design tokens + IdentityBadge lg + PrettyView hue plumbing, commit 06b1f08) committed on `feat/tab-title-from-tmux`; Phase 3 (patch #64) still queued; batched with pending patches for a single deadman-armed deploy at Ashley's greenlight
-Last activity: 2026-07-18 -- Phase 04 Wave 1 committed; Terminal.tsx UNCHANGED; build clean
+Phase: 04 — Wave 2 Complete, Wave 3 Pending
+Plan: 2 of 3 (foundation + reskin shipped; Plan 04-03 deploy-checkpoint remains)
+Status: Phase 04 Wave 2 (per-component Glass reskin across all 9 pretty-view components, commit e04396a) committed on `feat/tab-title-from-tmux`; Phase 3 (patch #64) still queued; batched with pending patches for a single deadman-armed deploy at Ashley's greenlight
+Last activity: 2026-07-18 -- Phase 04 Wave 2 committed; Terminal.tsx UNCHANGED; build clean (8.59s)
 
-Progress: [████████░░] 85% (code); deploy pending; Phase 4 continues at 04-02
+Progress: [█████████░] 92% (code); deploy pending; Phase 4 continues at 04-03
 
 ## Performance Metrics
 
