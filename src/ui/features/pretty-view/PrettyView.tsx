@@ -48,6 +48,12 @@ export interface PrettyViewProps {
   // 1 backward-compat). When provided, the compose box mounts at
   // the bottom and pipes typed messages through this callback.
   onSend?: (text: string) => boolean;
+  // PTY-side "Claude is currently working" signal from the terminal
+  // WebSocket (patch #13 mechanism). `false` = Claude quiet ≥4s AND
+  // foreground = claude → hide the WIP bubble. `true` = actively
+  // working → show the WIP bubble. `null` = backend has not spoken
+  // yet on the current attach → do not show (unknown).
+  isIdle?: boolean | null;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -66,12 +72,18 @@ export function PrettyView({
   className,
   style,
   onSend,
+  isIdle,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<ChatMessageEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [wipActive, setWipActive] = useState(false);
+  // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
+  // (patch #51 rework — was previously state fed by a JSONL classifier
+  // over the claude-session WS, which turned out to be unreliable
+  // because Claude Code 2.1 emits many `type:"user"` events that are
+  // not real user speech).
+  const wipActive = isIdle === false;
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -84,7 +96,6 @@ export function PrettyView({
     setStatus("connecting");
     setInactiveReason(null);
     setErrorMessage(null);
-    setWipActive(false);
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -120,10 +131,6 @@ export function PrettyView({
         }
         case "message": {
           setMessages((prev) => appendDedup(prev, parsed));
-          break;
-        }
-        case "wip": {
-          setWipActive(parsed.active);
           break;
         }
         case "inactive": {
