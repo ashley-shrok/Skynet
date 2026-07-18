@@ -1,4 +1,4 @@
-import { Circle, CircleDot, Loader2 } from "lucide-react";
+import { ArrowRight, Circle, CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HarnessTask } from "@/api/claude-session-api";
 
@@ -24,7 +24,12 @@ export interface HarnessTasksPanelProps {
 
 function statusIcon(status: string) {
   if (status === "in_progress") {
-    return <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />;
+    // Static right-pointing arrow, NOT an animated spinner — the WipBubble
+    // above already carries the "session is working" motion signal, and
+    // stacking a second animated glyph in the tasks panel was visually
+    // ambiguous (Ashley 2026-07-18). Arrow reads as "this is what's being
+    // worked on right now" while leaving motion for the working state alone.
+    return <ArrowRight className="size-3.5 shrink-0 text-primary" />;
   }
   if (status === "completed") {
     // completed shouldn't reach us (parent filters), but render defensively
