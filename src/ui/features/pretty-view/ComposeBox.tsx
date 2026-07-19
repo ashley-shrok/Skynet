@@ -49,6 +49,12 @@ import {
 
 const DEBOUNCE_MS = 400;
 
+// Patch #83: number of vertical segments in the compose meter well.
+// The well always mounts (even when contextPct is null) so the compose
+// row's geometry doesn't jitter on first attach. Segments light bottom-to-
+// top per contextPct at `litCount = round(contextPct / 100 * SEG_COUNT)`.
+const SEG_COUNT = 12;
+
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
   // The caller collapses newlines to spaces before calling onSend, so
@@ -91,6 +97,39 @@ export function ComposeBox({
   const [text, setText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Patch #83: drain-sweep animation state for the reset cell click.
+  // isDraining triggers "all segments render as dim" so the well
+  // visually empties (each segment's transition-delay is
+  // (SEG_COUNT - 1 - i) * 35ms, so the topmost segment fades first and
+  // the bottommost last — top→bottom sweep). isPulsing peaks the reset
+  // cell's lit-green styling near the end of the drain (~420–770ms)
+  // rather than at click-time, so the cell reads as "flushing the well
+  // through itself" rather than a naked hover flash.
+  const [isDraining, setIsDraining] = useState(false);
+  const [isPulsing, setIsPulsing] = useState(false);
+  const drainEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseOnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseOffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearDrainTimers = useCallback(() => {
+    if (drainEndTimerRef.current) {
+      clearTimeout(drainEndTimerRef.current);
+      drainEndTimerRef.current = null;
+    }
+    if (pulseOnTimerRef.current) {
+      clearTimeout(pulseOnTimerRef.current);
+      pulseOnTimerRef.current = null;
+    }
+    if (pulseOffTimerRef.current) {
+      clearTimeout(pulseOffTimerRef.current);
+      pulseOffTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => {
+    return () => {
+      clearDrainTimers();
+    };
+  }, [clearDrainTimers]);
 
   // Patch #57 persistence refs.
   // dirtyBodyRef: null = no pending save; string (including "") = the
@@ -238,6 +277,13 @@ export function ComposeBox({
   // Matches MessageQueueDrawer's simple approach (no ResizeObserver).
   const rows = Math.min(6, Math.max(2, text.split("\n").length));
 
+  // Patch #83: how many meter-well segments should be lit right now.
+  // Null contextPct → 0 (well mounts all-dim so the row geometry is
+  // stable, and role="meter"'s aria-valuenow stays undefined so
+  // assistive tech reports "unknown" rather than "0%").
+  const litCount =
+    contextPct != null ? Math.round((contextPct / 100) * SEG_COUNT) : 0;
+
   // Clear both local state and persisted draft after a successful send.
   // Best-effort: the PUT is fire-and-forget; the 10s retry loop will
   // recover if it fails. latestBodyRef is updated so any interval tick
@@ -298,6 +344,30 @@ export function ComposeBox({
   // blank — in which case it sends just "/id reset".
   function handleResetSend() {
     setErrorMessage(null);
+
+    // Patch #83: fire the drain-sweep animation IMMEDIATELY on click,
+    // regardless of dispatch success. Visual feedback on click reads
+    // better than post-hoc gating; the /id reset payload is dispatched
+    // synchronously in the same function anyway, so the drain matches
+    // reality within the ~800ms window. Clear any in-flight drain
+    // first so back-to-back clicks restart cleanly rather than
+    // stacking timers.
+    clearDrainTimers();
+    setIsDraining(true);
+    setIsPulsing(false);
+    pulseOnTimerRef.current = setTimeout(() => {
+      pulseOnTimerRef.current = null;
+      setIsPulsing(true);
+    }, 420);
+    pulseOffTimerRef.current = setTimeout(() => {
+      pulseOffTimerRef.current = null;
+      setIsPulsing(false);
+    }, 770);
+    drainEndTimerRef.current = setTimeout(() => {
+      drainEndTimerRef.current = null;
+      setIsDraining(false);
+    }, 800);
+
     const trimmed = text.trim();
     const payload = trimmed
       ? `/id reset (${trimmed.replace(/\r?\n/g, " ")})`
@@ -376,7 +446,7 @@ export function ComposeBox({
         // the send button and at low alpha elsewhere. Deepened top
         // inset shadow reinforces the shelf depth. Result: textured,
         // dimensional, but still quiet.
-        "flex flex-col gap-1 px-3 py-3 shrink-0",
+        "flex flex-col gap-1 px-2 py-2 shrink-0",
         // Patch #82 palette shift: warm-brown → cool blue-black to
         // match the mock. RGB polarity flipped (was R>G>B, now B>R>G)
         // with the same alpha structure so the shelf still reads at
@@ -388,41 +458,142 @@ export function ComposeBox({
       )}
     >
       <div className="flex items-end gap-2">
-        {/* Context-window fill bar: thin vertical strip left of the textarea.
-            Fills from bottom to top. Green <50, yellow 50-79, red >=80.
-            Mounts only when contextPct is a number — brief "unknown" state
-            on mount stays visually quiet. self-stretch overrides the row's
-            items-end so the bar spans full row height (grows with textarea
-            rows). */}
-        {typeof contextPct === "number" && (
-          <div
-            // Phase 4 Glass: track is a dark inset well; fill is the
-            // per-pane identity hue (with red as the ≥80 breakout for
-            // "approaching-full is alarming regardless of pane identity"
-            // per plan HARD LOCK).
-            className="w-1.5 self-stretch rounded-sm relative overflow-hidden bg-black/55 shadow-[inset_0_0_4px_rgba(0,0,0,0.7),_0_1px_0_rgba(255,240,215,0.08)]"
-            role="meter"
-            aria-label="Context window"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={contextPct}
-            title={`Context ${contextPct}%`}
-          >
-            <div
-              className={cn(
-                "absolute bottom-0 left-0 right-0 transition-[height] duration-300",
-                contextPct < 50
-                  ? "bg-[linear-gradient(180deg,hsla(140,65%,55%,1),hsla(140,60%,38%,1))] shadow-[0_0_10px_hsla(140,60%,45%,0.55),_inset_0_1px_0_rgba(220,255,220,0.4)]"
-                  : contextPct < 80
-                    ? "bg-[linear-gradient(180deg,hsla(45,90%,60%,1),hsla(40,85%,45%,1))] shadow-[0_0_10px_hsla(45,85%,55%,0.55),_inset_0_1px_0_rgba(255,240,180,0.4)]"
-                    : "bg-[linear-gradient(180deg,hsla(0,75%,60%,1),hsla(0,75%,40%,1))] shadow-[0_0_10px_hsla(0,75%,50%,0.6),_inset_0_1px_0_rgba(255,220,150,0.4)]",
-              )}
-              style={{
-                height: `${Math.min(100, Math.max(0, contextPct))}%`,
-              }}
-            />
+        {/* Patch #83: cohesive segmented-well meter with integrated reset
+            cell. The well ALWAYS mounts (12 dim segments show when
+            contextPct is null so the row geometry never jitters on
+            first attach). Segments light bottom-to-top per
+            litCount = round(contextPct / 100 * SEG_COUNT), colored by
+            position band: bottom green (< 45%) → middle amber (45-77%)
+            → top red (≥ 78%). The bottom slot of the well is a native
+            <button> reset cell — clicking it dispatches /id reset AND
+            fires a top-to-bottom drain sweep animation (~600ms) with
+            the reset cell pulsing lit-green at the drain peak. The
+            meter and reset read as one instrument, not two widgets. */}
+        <div
+          className="w-7 self-stretch rounded-md flex flex-col p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
+          role="meter"
+          aria-label="Context window"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={contextPct ?? undefined}
+          title={
+            contextPct != null ? `Context ${contextPct}%` : "Context (unknown)"
+          }
+        >
+          {/* Segments: flex-col-reverse so index 0 renders at the
+              bottom of the well and index SEG_COUNT-1 at the top.
+              transition-delay = (SEG_COUNT - 1 - i) * 35ms so the
+              topmost segment transitions first — during a drain
+              (isDraining=true, all segments render dim) this reads
+              as a top→bottom sweep; when contextPct rises during
+              normal use it reads as a bottom→top fill. */}
+          <div className="flex-1 flex flex-col-reverse gap-[2px] min-h-[30px]">
+            {Array.from({ length: SEG_COUNT }, (_, i) => {
+              const posPct = (i / (SEG_COUNT - 1)) * 100;
+              const band =
+                posPct >= 78 ? "red" : posPct >= 45 ? "amber" : "green";
+              const litGreenBg =
+                "linear-gradient(90deg, hsla(155,45%,52%,1), hsla(155,45%,42%,1))";
+              const litAmberBg =
+                "linear-gradient(90deg, hsla(38,75%,55%,1), hsla(38,75%,45%,1))";
+              const litRedBg =
+                "linear-gradient(90deg, hsla(0,72%,55%,1), hsla(0,72%,42%,1))";
+              const litGreenShadow =
+                "0 0 5px hsla(155,45%,45%,0.5), inset 0 0 2px rgba(220,255,235,0.45)";
+              const litAmberShadow =
+                "0 0 5px hsla(38,75%,55%,0.55), inset 0 0 2px rgba(255,240,200,0.5)";
+              const litRedShadow =
+                "0 0 6px hsla(0,72%,55%,0.7), inset 0 0 2px rgba(255,220,200,0.5)";
+              const dimGreenBg = "hsla(155,35%,20%,0.4)";
+              const dimAmberBg = "hsla(38,45%,22%,0.4)";
+              const dimRedBg = "hsla(0,50%,22%,0.4)";
+              const isLit =
+                typeof contextPct === "number" &&
+                i < litCount &&
+                !isDraining;
+              let background: string;
+              let boxShadow: string;
+              if (isLit) {
+                background =
+                  band === "red"
+                    ? litRedBg
+                    : band === "amber"
+                      ? litAmberBg
+                      : litGreenBg;
+                boxShadow =
+                  band === "red"
+                    ? litRedShadow
+                    : band === "amber"
+                      ? litAmberShadow
+                      : litGreenShadow;
+              } else {
+                background =
+                  band === "red"
+                    ? dimRedBg
+                    : band === "amber"
+                      ? dimAmberBg
+                      : dimGreenBg;
+                boxShadow = "none";
+              }
+              return (
+                <div
+                  key={i}
+                  className="flex-1 min-h-[2px] rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
+                  style={{
+                    transitionDelay: `${(SEG_COUNT - 1 - i) * 35}ms`,
+                    background,
+                    boxShadow,
+                  }}
+                />
+              );
+            })}
           </div>
-        )}
+          {/* Divider between segment stack and reset cell — a hair-
+              line inset that reads as a shelf seam inside the well. */}
+          <div className="h-px my-[3px] bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
+          {/* Reset cell: native <button> (NOT shadcn Button — the
+              outline variant's `dark:bg-input/30` would force `!`
+              gymnastics per patch #81-fix, and the icon-sm size-7
+              rounded-none default doesn't fit the w-full h-6
+              rounded-[2px] cell shape we need inside the w-7 well).
+              Rests as unlit-green; hover brightens to lit-green;
+              during a drain the cell holds lit-green while
+              isPulsing (~420-770ms after click) so it reads as the
+              flush-point of the emptying meter. */}
+          <button
+            type="button"
+            onClick={handleResetSend}
+            disabled={canSend === false}
+            aria-label="Send with /id reset prefix"
+            title="Send with /id reset prefix"
+            className={cn(
+              "w-full h-6 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
+              "transition-[background,box-shadow,color] duration-[180ms]",
+              "disabled:opacity-40 disabled:cursor-not-allowed",
+              isPulsing
+                ? [
+                    "bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
+                    "shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
+                    "text-[#f0f8f4]",
+                  ]
+                : [
+                    "bg-[hsla(155,35%,20%,0.5)]",
+                    "shadow-[inset_0_0_3px_rgba(0,0,0,0.4)]",
+                    "text-[rgba(220,255,235,0.55)]",
+                    // Only offer hover styling when NOT draining, so
+                    // the pulse-peak lit-green isn't being fought by
+                    // a hover selector at the same time.
+                    !isDraining &&
+                      "hover:bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
+                    !isDraining &&
+                      "hover:shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
+                    !isDraining && "hover:text-[#f0f8f4]",
+                  ],
+            )}
+          >
+            <RotateCcw className="size-3.5" />
+          </button>
+        </div>
         <Textarea
           ref={textareaRef}
           value={text}
@@ -487,42 +658,24 @@ export function ComposeBox({
           // during a transient disconnect and send when WS reconnects.
           // The send button is disabled; the error will surface on attempt.
         />
-        {/* Icon-button column: rotate-ccw "/id reset" send on top,
-            thumbs-up "go ahead" quick-reply in the middle, paper-airplane
-            Send on the bottom. Ordered least-used at top, most-used at
-            bottom (closest to the mouse arriving from the textarea).
-            Bottom-aligned to the textarea via the parent's items-end.
-            If the textarea grows past the stack's height, empty space
-            appears above the top button rather than pushing Send up. */}
+        {/* Icon-button column: thumbs-up "go ahead" quick-reply on top,
+            paper-airplane Send on the bottom. Ordered least-used at top,
+            most-used at bottom (closest to the mouse arriving from the
+            textarea). Bottom-aligned to the textarea via the parent's
+            items-end. If the textarea grows past the stack's height,
+            empty space appears above ThumbsUp rather than pushing Send
+            up. Patch #83: RotateCcw moved OUT of this column into the
+            meter well's bottom slot — the reset lives with the meter
+            it drains, not with the send/quick-reply buttons. */}
         <div className="flex flex-col gap-1">
-          {/* Phase 4 Glass: RotateCcw + ThumbsUp adopt the mock's
-              `.pv-icon-btn` quiet treatment (warm-neutral gradient +
-              hue-tinted hover glow). Send gets a saturated warm-AMBER
-              treatment (fixed hue 38°) — VISUAL-08 HARD LOCK: send is
-              the ONE compose attention grab-point AND it's the USER's
-              button, so it deliberately does NOT wear the assistant's
-              identity hue. Kept vibrant (90% sat + brighter hover) so
-              it still dominates the composer visually. */}
-          <Button
-            size="icon-sm"
-            variant="outline"
-            onClick={handleResetSend}
-            disabled={canSend === false}
-            aria-label="Send with /id reset prefix"
-            title="Send with /id reset prefix"
-            className={cn(
-              "rounded-md cursor-pointer",
-              "border-white/10",
-              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
-              "text-[#e8e4d8]",
-              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
-              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-              "hover:border-[rgba(255,240,215,0.22)]",
-              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-            )}
-          >
-            <RotateCcw className="size-4" />
-          </Button>
+          {/* Phase 4 Glass: ThumbsUp adopts the mock's `.pv-icon-btn`
+              quiet treatment (warm-neutral gradient + hue-tinted hover
+              glow). Send gets a saturated warm-AMBER treatment (fixed
+              hue 38°) — VISUAL-08 HARD LOCK: send is the ONE compose
+              attention grab-point AND it's the USER's button, so it
+              deliberately does NOT wear the assistant's identity hue.
+              Kept vibrant (90% sat + brighter hover) so it still
+              dominates the composer visually. */}
           <Button
             size="icon-sm"
             variant="outline"
