@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
 Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
 Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-19 -- Completed quick task 260719-4yz: WIP indicator on BG agents/shells + strip bubble (patch #72)
+Last activity: 2026-07-19 -- Completed quick task 260719-5eh: pretty-view auto-activate on identity resolution (patch #73)
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
@@ -91,6 +91,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260719-1mn | Prettify slash-command triplets in pretty-view chat bubbles | 2026-07-19 | b7ed756 | [260719-1mn-prettify-slash-command-triplets-in-prett](./quick/260719-1mn-prettify-slash-command-triplets-in-prett/) |
 | 260719-4p8 | Identity-aware ComposeBox placeholder (patch #71) — "Message {displayName}…" | 2026-07-19 | 1a97a87 | [260719-4p8-replace-hard-coded-message-claude-placeh](./quick/260719-4p8-replace-hard-coded-message-claude-placeh/) |
 | 260719-4yz | WIP indicator on BG agents/shells + strip bubble (patch #72) | 2026-07-19 | 9dfc406 | [260719-4yz-wip-indicator-on-bg-agents-shells-strip-](./quick/260719-4yz-wip-indicator-on-bg-agents-shells-strip-/) |
+| 260719-5eh | Pretty-view auto-activate on identity resolution (patch #73) | 2026-07-19 | 21089f3 | [260719-5eh-pretty-view-auto-activate-on-identity-re](./quick/260719-5eh-pretty-view-auto-activate-on-identity-re/) |
 
 ## Deferred Items
 
