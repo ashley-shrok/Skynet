@@ -44,7 +44,7 @@ export function ChatMessage({
         className={cn(
           // Phase 4 Glass: raised-object bubble treatment.
           "max-w-[85%] break-words text-sm leading-relaxed",
-          "rounded-[var(--radius-pv-bubble)] px-3 py-2",
+          "rounded-[var(--radius-pv-bubble)] px-[18px] py-[14px]",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
           "border border-white/[0.08]",
@@ -66,27 +66,28 @@ export function ChatMessage({
           "prose-code:border prose-code:border-white/[0.06]",
           isUser
             ? cn(
-                // User bubble stays warm-neutral — user is always Ashley,
-                // no per-pane variation. Assistant bubbles carry the identity
-                // hue (see below); this stable warm base lets that hue pop.
-                "bg-[linear-gradient(160deg,rgba(95,88,72,0.55),rgba(60,54,44,0.6))]",
-                "text-[#fbf5e8]",
-                "border-[rgba(255,240,215,0.15)]",
-                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_rgba(255,240,215,0.1),_0_0_30px_rgba(255,240,215,0.08)]",
-                "prose-invert",
+                // User bubble = mock's original assistant treatment
+                // (translucent mid-blue-gray gradient over the depth). Ashley
+                // is always Ashley, no per-pane variation. Reads as the
+                // stable "not-the-agent" side; assistant bubbles pop against
+                // it with their identity hue.
+                "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
+                "text-[#dfe3ee]",
+                "border-[rgba(120,140,180,0.2)]",
+                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.1)_inset,_0_0_0_0.5px_rgba(120,140,180,0.15)]",
+                "dark:prose-invert",
               )
             : cn(
                 // Assistant carries the identity-hue tint — "the identity is
-                // the one speaking these bubbles" semantic. Low-saturation
-                // warm-hue-shifted gradient (~28% sat, warm-dark lightness)
-                // + subtle hue border + faint hue outer glow. Per-pane color
-                // story lives here; user + send + ctx-bar stay neutral so
-                // this reads clearly against them.
-                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),28%,28%,0.5),hsla(var(--pv-id-hue),22%,18%,0.55))]",
-                "text-[#dfe3ee]",
-                "border-[hsla(var(--pv-id-hue),40%,45%,0.22)]",
-                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.08)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),50%,50%,0.14),_0_0_28px_hsla(var(--pv-id-hue),55%,45%,0.1)]",
-                "dark:prose-invert",
+                // the one speaking these bubbles" semantic. More saturated
+                // than the first pass (28% → 50% sat) per Ashley's "colors
+                // should be more vibrant" round. Rich hue border + hue outer
+                // glow at ~15-20% alpha.
+                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
+                "text-[#fbf5e8]",
+                "border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
+                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
+                "prose-invert",
               ),
         )}
       >

@@ -498,12 +498,12 @@ export function ComposeBox({
             aria-label="Send message"
             title="Send (Enter)"
             className={cn(
-              "border-[rgba(255,240,215,0.4)]",
-              "bg-[linear-gradient(180deg,rgba(230,220,195,0.85),rgba(140,130,110,0.9))]",
+              "border-[rgba(255,220,170,0.5)]",
+              "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),75%,66%,0.9),hsla(var(--pv-id-hue),75%,42%,0.92))]",
               "text-[#1a0f04]",
-              "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,215,0.4),_0_0_24px_rgba(240,225,195,0.22)]",
-              "hover:bg-[linear-gradient(180deg,rgba(245,235,210,0.9),rgba(160,150,130,0.95))]",
-              "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,215,0.5),_0_0_32px_rgba(240,225,195,0.28)]",
+              "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,235,190,0.45),_0_0_24px_hsla(var(--pv-id-hue),75%,52%,0.4)]",
+              "hover:bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),80%,72%,0.95),hsla(var(--pv-id-hue),80%,48%,0.97))]",
+              "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,235,190,0.55),_0_0_32px_hsla(var(--pv-id-hue),75%,52%,0.5)]",
               "disabled:opacity-40 disabled:cursor-not-allowed",
             )}
           >

@@ -34,15 +34,19 @@ export function IdentityBadge({
     return (
       <div
         aria-hidden="true"
-        className="pv-identity-breathe absolute top-3 right-3 z-[101] flex flex-row items-center gap-3 px-3 py-2.5 select-none transition-opacity duration-150 hover:opacity-0 font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]"
+        className="pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-3 select-none transition-opacity duration-150 hover:opacity-0 font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]"
         style={{
-          borderRadius: 12,
-          background:
-            "linear-gradient(160deg, rgba(60,50,35,0.75), rgba(34,28,20,0.8))",
+          // Pill shape (mock reference): border-radius 36 with padding 8 16 8 8
+          // makes a proper capsule where the 56px avatar circle sits concentric
+          // to the pill's left semicircle inner curve. Background carries the
+          // identity hue (deep warm-tinted gradient) — per-pane color anchor.
+          borderRadius: 36,
+          padding: "8px 18px 8px 8px",
+          background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
           backdropFilter: "blur(24px) saturate(1.4)",
           WebkitBackdropFilter: "blur(24px) saturate(1.4)",
-          border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
-          boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 40px hsla(${hue}, 65%, 55%, 0.22)`,
+          border: `1px solid hsla(${hue}, 65%, 55%, 0.4)`,
+          boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.18), 0 0 40px hsla(${hue}, 65%, 55%, 0.28)`,
           color: "#e8e4d8",
           animation: "pv-identity-breathe 5s ease-in-out infinite",
         }}

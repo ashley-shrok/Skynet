@@ -457,7 +457,7 @@ export function PrettyView({
               watches THIS element for content-size changes (new messages,
               markdown re-layout, Inter font swap). The outer scrollRef div
               is watched separately for viewport-size changes. */}
-          <div ref={contentRef} className="flex flex-col gap-3">
+          <div ref={contentRef} className="flex flex-col gap-[18px]">
             {messages.map((m) => (
               <ChatMessage key={m.eventId} role={m.role} content={m.content} />
             ))}
