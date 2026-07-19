@@ -395,9 +395,9 @@ export function ComposeBox({
               className={cn(
                 "absolute bottom-0 left-0 right-0 transition-[height] duration-300",
                 contextPct < 50
-                  ? "bg-[linear-gradient(180deg,rgba(240,225,195,1),rgba(180,165,140,1))] shadow-[0_0_10px_rgba(240,225,195,0.35),_inset_0_1px_0_rgba(255,240,215,0.4)]"
+                  ? "bg-[linear-gradient(180deg,hsla(140,65%,55%,1),hsla(140,60%,38%,1))] shadow-[0_0_10px_hsla(140,60%,45%,0.55),_inset_0_1px_0_rgba(220,255,220,0.4)]"
                   : contextPct < 80
-                    ? "bg-[linear-gradient(180deg,rgba(220,205,175,0.9),rgba(160,145,120,0.9))] shadow-[0_0_8px_rgba(220,205,175,0.25),_inset_0_1px_0_rgba(255,240,215,0.3)]"
+                    ? "bg-[linear-gradient(180deg,hsla(45,90%,60%,1),hsla(40,85%,45%,1))] shadow-[0_0_10px_hsla(45,85%,55%,0.55),_inset_0_1px_0_rgba(255,240,180,0.4)]"
                     : "bg-[linear-gradient(180deg,hsla(0,75%,60%,1),hsla(0,75%,40%,1))] shadow-[0_0_10px_hsla(0,75%,50%,0.6),_inset_0_1px_0_rgba(255,220,150,0.4)]",
               )}
               style={{
@@ -461,6 +461,7 @@ export function ComposeBox({
             aria-label="Send with /id reset prefix"
             title="Send with /id reset prefix"
             className={cn(
+              "rounded-md",
               "border-white/10",
               "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
               "text-[#e8e4d8]",
@@ -480,6 +481,7 @@ export function ComposeBox({
             aria-label="Send 'go ahead'"
             title="Send 'go ahead'"
             className={cn(
+              "rounded-md",
               "border-white/10",
               "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
               "text-[#e8e4d8]",
@@ -498,6 +500,7 @@ export function ComposeBox({
             aria-label="Send message"
             title="Send (Enter)"
             className={cn(
+              "rounded-md",
               "border-[rgba(255,220,170,0.5)]",
               "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),75%,66%,0.9),hsla(var(--pv-id-hue),75%,42%,0.92))]",
               "text-[#1a0f04]",
