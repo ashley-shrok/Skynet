@@ -361,15 +361,24 @@ export function ComposeBox({
   return (
     <div
       className={cn(
-        // Phase 4 Glass: QUIET compose surround (VISUAL-06) — NO card
-        // treatment, NO bright top rim, NO hard separator. Compose
-        // blends into the atmosphere; the only visual cue that this
-        // is a distinct region is a subtle inset shadow that shades
-        // the bottom strip. The compose intentionally does NOT compete
-        // with the chat above for attention.
+        // Phase 4 Glass: QUIET compose surround (VISUAL-06) — still no
+        // card, no border, no hard separator; compose does NOT compete
+        // with the chat above for attention. But the previous
+        // pure-black low-alpha gradient (rgba(0,0,0,0.15/0.3)) read as
+        // FLAT SOLID BLACK against every other pretty-view surface
+        // (chat bubbles, panels, badges — all warm-glass). This
+        // revision (patch #79) gives compose the same warm-glass
+        // character as the rest of pretty view: a warm-dark tint
+        // (rgba(38,30,18)/rgba(20,15,8) instead of rgba(0,0,0)) so it
+        // reads as "warm shelf darker than the pane" rather than "hole
+        // in the pane," plus a very faint warm-cream 1px inset top
+        // highlight — the same glass-rim trick used at high alpha on
+        // the send button and at low alpha elsewhere. Deepened top
+        // inset shadow reinforces the shelf depth. Result: textured,
+        // dimensional, but still quiet.
         "flex flex-col gap-1 px-3 py-3 shrink-0",
-        "bg-[linear-gradient(180deg,rgba(0,0,0,0.15),rgba(0,0,0,0.3))]",
-        "shadow-[inset_0_2px_10px_rgba(0,0,0,0.35)]",
+        "bg-[linear-gradient(180deg,rgba(38,30,18,0.55),rgba(20,15,8,0.62))]",
+        "shadow-[inset_0_1px_0_rgba(255,235,190,0.06),_inset_0_2px_12px_rgba(0,0,0,0.4)]",
         className,
       )}
     >
