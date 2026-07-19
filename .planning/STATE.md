@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
 Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
 Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-19 -- Completed quick task 260719-tjk: cohesive-instrument compose meter (patch #83)
+Last activity: 2026-07-19 -- Completed quick task 260719-u29: queue button with isIdle watchdog (patch #84)
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
@@ -94,6 +94,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260719-5eh | Pretty-view auto-activate on identity resolution (patch #73) | 2026-07-19 | 21089f3 | [260719-5eh-pretty-view-auto-activate-on-identity-re](./quick/260719-5eh-pretty-view-auto-activate-on-identity-re/) |
 | 260719-5ym | Centered blocking session-holding overlay (patch #74) — replaces top-bar banner with backdrop-blur scrim + glass card | 2026-07-19 | 72c4bd4 | [260719-5ym-patch-74-replace-pretty-view-top-bar-ses](./quick/260719-5ym-patch-74-replace-pretty-view-top-bar-ses/) |
 | 260719-tjk | Cohesive-instrument compose meter (patch #83) — segmented meter well with integrated reset cell + top-to-bottom drain animation | 2026-07-19 | a4d38eb | [260719-tjk-patch-83-cohesive-instrument-compose-met](./quick/260719-tjk-patch-83-cohesive-instrument-compose-met/) |
+| 260719-u29 | Queue button with isIdle watchdog + textarea pending overlay (patch #84) — Hourglass button between ThumbsUp and Send, fires message after 3s continuous idle | 2026-07-19 | 317ad17 | [260719-u29-patch-84-queue-button-hourglass-icon-in-](./quick/260719-u29-patch-84-queue-button-hourglass-icon-in-/) |
 
 ## Deferred Items
 
