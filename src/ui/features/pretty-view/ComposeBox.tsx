@@ -426,20 +426,28 @@ export function ComposeBox({
           onKeyDown={handleKeyDown}
           placeholder={`Message ${identityName || "Claude"}…`}
           rows={rows}
-          // Phase 4 Glass: lightest-touch textarea outline (VISUAL-07) +
-          // identity-hue focus ring (VISUAL-03/VISUAL-07). The 1px warm-
-          // white 9% border is the ONLY affordance that makes the textarea
-          // findable within the otherwise-blending compose surround.
-          // Focus reveals a hue-tinted border + soft outer glow — subtle
-          // grow-into-view, not a sudden pop. `focus-visible:ring-0` and
+          // Phase 4 Glass: recessed textarea well (patch #81) +
+          // identity-hue focus ring (VISUAL-03/VISUAL-07). Fill is a
+          // warm-black rgba(15,10,5,0.42) — sits DEEPER than #79's
+          // warm-glass surround, so the textarea reads as a well
+          // pressed INTO the shelf, not a raised patch ON it. Ashley
+          // 2026-07-19: at rest the textarea should not draw
+          // attention; focus IS the moment attention is wanted, so
+          // brightening on focus reads correctly against the darker
+          // resting state. The 1px warm-cream 7% border is now the
+          // SECONDARY affordance — the darker fill's contrast
+          // against the surround does the primary work of finding
+          // the textarea. Focus reveals a brightened warm-cream
+          // border + identity-hue outer glow — subtle grow-into-
+          // view, not a sudden pop. `focus-visible:ring-0` and
           // `focus-visible:outline-none` disable the shadcn Textarea's
           // default focus ring (`focus-visible:border-ring
-          // focus-visible:ring-ring/50 focus-visible:ring-[3px]`) so our
-          // own hue ring wins cleanly.
+          // focus-visible:ring-ring/50 focus-visible:ring-[3px]`) so
+          // our own hue ring wins cleanly.
           className={cn(
             "resize-none flex-1 self-stretch",
-            "bg-white/[0.03] text-[#f0ebe0]",
-            "border border-[rgba(255,240,215,0.09)]",
+            "bg-[rgba(15,10,5,0.42)] text-[#f0ebe0]",
+            "border border-[rgba(255,240,215,0.07)]",
             "rounded-[10px] px-4 py-3",
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(255,240,215,0.04)]",
