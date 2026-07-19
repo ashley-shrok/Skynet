@@ -7,15 +7,24 @@ export interface IdentityBadgeProps {
   // "lg" = Phase 4 pretty-view Glass treatment: bigger pill with a
   // 56px avatar on the LEFT, name + title stacked to the RIGHT of the
   // avatar, backdrop-blur, identity-hue rim/glow accents, ~5s subtle
-  // breathing brightness animation. Both sizes preserve patch #38's
-  // hover-fade (`hover:opacity-0`) so terminal content behind the badge
-  // stays reachable on hover.
+  // breathing brightness animation.
+  //
+  // Patch #38 hover-fade rule: the md branch preserves the hover-opacity-fade
+  // class BYTE-IDENTICAL. The lg branch replaces it with a click affordance
+  // (cursor-pointer + hover scale + hover glow bump) when `onClick` is
+  // provided. See patch #87 for rationale.
   size?: "md" | "lg";
+  // lg-only: when provided, the badge renders as a <button> element with
+  // click affordance (cursor-pointer, hover scale, aria-label). When absent,
+  // the badge renders as a <div aria-hidden> (backward-compat for callers
+  // that don't wire the click).
+  onClick?: () => void;
 }
 
 export function IdentityBadge({
   identityKey,
   size = "md",
+  onClick,
 }: IdentityBadgeProps) {
   const { byKey } = useIdentities();
   const identity = identityKey ? byKey.get(identityKey.toLowerCase()) : null;
@@ -30,27 +39,32 @@ export function IdentityBadge({
     // Breathing animation is applied via inline animation shorthand
     // AND the `.pv-identity-breathe` class marker so the
     // prefers-reduced-motion @media rule in index.css can disable it.
+    //
+    // Patch #87: when `onClick` is provided, the badge is interactive —
+    // rendered as <button> with cursor-pointer, hover scale, active scale,
+    // hover glow bump, and aria-label. When `onClick` is absent, behavior
+    // is backward-compatible: plain <div aria-hidden> with no click affordance.
+    // The hover-opacity-fade class is REMOVED from the lg branch in this patch
+    // (patch #38 byte-preservation is on the md branch only — see md return).
     const hue = identity.colorHue ?? 35;
-    return (
-      <div
-        aria-hidden="true"
-        className="pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-3 select-none transition-opacity duration-150 hover:opacity-0 font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]"
-        style={{
-          // Pill shape (mock reference): border-radius 36 with padding 8 16 8 8
-          // makes a proper capsule where the 56px avatar circle sits concentric
-          // to the pill's left semicircle inner curve. Background carries the
-          // identity hue (deep warm-tinted gradient) — per-pane color anchor.
-          borderRadius: 36,
-          padding: "8px 18px 8px 8px",
-          background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
-          backdropFilter: "blur(24px) saturate(1.4)",
-          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
-          border: `1px solid hsla(${hue}, 65%, 55%, 0.4)`,
-          boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.18), 0 0 40px hsla(${hue}, 65%, 55%, 0.28)`,
-          color: "#e8e4d8",
-          animation: "pv-identity-breathe 5s ease-in-out infinite",
-        }}
-      >
+    const lgClassName = `pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-3 select-none font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif] transition-transform hover:scale-[1.015] active:scale-[0.995] hover:shadow-[0_8px_24px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,220,170,0.22),_0_0_56px_hsla(${hue},65%,55%,0.42)]`;
+    const lgStyle = {
+      // Pill shape (mock reference): border-radius 36 with padding 8 16 8 8
+      // makes a proper capsule where the 56px avatar circle sits concentric
+      // to the pill's left semicircle inner curve. Background carries the
+      // identity hue (deep warm-tinted gradient) — per-pane color anchor.
+      borderRadius: 36,
+      padding: "8px 18px 8px 8px",
+      background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
+      backdropFilter: "blur(24px) saturate(1.4)",
+      WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+      border: `1px solid hsla(${hue}, 65%, 55%, 0.4)`,
+      boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.18), 0 0 40px hsla(${hue}, 65%, 55%, 0.28)`,
+      color: "#e8e4d8",
+      animation: "pv-identity-breathe 5s ease-in-out infinite",
+    };
+    const lgInner = (
+      <>
         <img
           src={identity.avatarUrl}
           alt=""
@@ -79,6 +93,29 @@ export function IdentityBadge({
             </span>
           )}
         </div>
+      </>
+    );
+    if (onClick) {
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label="Open identity info"
+          title="Identity info"
+          className={lgClassName}
+          style={lgStyle}
+        >
+          {lgInner}
+        </button>
+      );
+    }
+    return (
+      <div
+        aria-hidden="true"
+        className={lgClassName}
+        style={lgStyle}
+      >
+        {lgInner}
       </div>
     );
   }

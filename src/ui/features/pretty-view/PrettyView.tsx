@@ -17,6 +17,7 @@ import { ImageBubble } from "./ImageBubble";
 import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
+import { IdentityModal } from "./IdentityModal";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
@@ -147,6 +148,10 @@ export function PrettyView({
   // WebSocket is NOT closed during holding — the tail restart is server-side
   // and transparent to this client (see CONTEXT.md § Frontend event handling).
   const [isHolding, setIsHolding] = useState(false);
+  // Patch #87: identity modal open state. Clicking the lg IdentityBadge sets
+  // this to true; the IdentityModal handles close via onOpenChange (Esc,
+  // backdrop, X button all route through shadcn Dialog's onOpenChange).
+  const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
   // Patch #74: `showOverlay` gates the full-surface SessionHoldingOverlay
   // mount. It is delay-armed (~350ms) after `isHolding` flips true — see
   // the useEffect below. Held separately from `isHolding` because
@@ -440,11 +445,16 @@ export function PrettyView({
           pane (sessionMatchKey → useIdentities().byKey lookup — same
           semantic as the terminal-pane mount). z-[101] matches the
           terminal-pane badge so layering is consistent when flipping
-          between modes with Ctrl+Shift+O. hover:opacity-0 is inherited
-          from IdentityBadge itself (patch #38 preserved in both
-          size branches — see Task 2 of Plan 04-01). */}
+          between modes with Ctrl+Shift+O.
+          Patch #87: onClick wires the lg badge as a click target that opens
+          the IdentityModal. The md terminal-pane badge (patch #38) is
+          unaffected — this onClick prop is lg-only and ignored by md. */}
       {pvIdentityKey && (
-        <IdentityBadge identityKey={pvIdentityKey} size="lg" />
+        <IdentityBadge
+          identityKey={pvIdentityKey}
+          size="lg"
+          onClick={() => setIsIdentityModalOpen(true)}
+        />
       )}
       {/* Patch #74: full-surface session-recycle overlay. Absolute-
           positioned via SessionHoldingOverlay's own `absolute inset-0`,
@@ -459,6 +469,19 @@ export function PrettyView({
           read — the old bar was too subtle for how significant the
           state actually is. */}
       {showOverlay && <SessionHoldingOverlay />}
+      {/* Patch #87: identity bounties modal. Portals to document.body via
+          shadcn Dialog so it escapes this root's relative/overflow context.
+          Mount guarded by pvIdentity non-null (Modal needs displayName,
+          title, avatarUrl from the full Identity object). onOpenChange
+          handles all close paths (Esc, backdrop click, X button). */}
+      {pvIdentity && (
+        <IdentityModal
+          open={isIdentityModalOpen}
+          onOpenChange={setIsIdentityModalOpen}
+          identity={pvIdentity}
+          hue={pvHue}
+        />
+      )}
       {status === "connecting" && (
         <div className="p-4 text-sm text-[var(--color-pv-fg-muted)]">
           Connecting…
