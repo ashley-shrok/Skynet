@@ -557,6 +557,7 @@ export function PrettyView({
           onSend={onSend}
           canSend={status === "streaming"}
           contextPct={contextPct}
+          isIdle={isIdle}
           hostId={hostId}
           tmuxSession={tmuxSession}
           identityName={pvIdentity?.displayName}

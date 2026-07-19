@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RotateCcw, Send, ThumbsUp } from "lucide-react";
+import { Hourglass, RotateCcw, Send, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -82,6 +82,18 @@ export interface ComposeBoxProps {
   tmuxSession?: string | null;
   // Optional: pane's registered identity displayName (e.g. "Tina"). Used to personalize the "Message …" textarea placeholder. Falls back to "Claude" when omitted or empty.
   identityName?: string;
+  // Patch #84: PTY-side "Claude is currently working" signal from the
+  // terminal WebSocket (patch #13 mechanism). `false` = Claude quiet
+  // ≥4s AND foreground = claude → session idle. `true` = actively
+  // working. `null` = backend has not spoken yet on the current
+  // attach → do not treat as idle.
+  //
+  // Used by the Queue (Hourglass) button watchdog: while a message is
+  // queued, we wait for isIdle === true to hold continuously for 3s
+  // before dispatching. Combined with the backend's ~4s isIdle
+  // debounce this yields ~7s effective delay from Claude's last
+  // output — locked with Ashley 2026-07-19.
+  isIdle?: boolean | null;
   className?: string;
 }
 
@@ -92,11 +104,21 @@ export function ComposeBox({
   hostId,
   tmuxSession,
   identityName,
+  isIdle,
   className,
 }: ComposeBoxProps) {
   const [text, setText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Patch #84: single-slot "queue send for when session goes idle" state.
+  // queuedText === null → nothing queued (button rests). queuedText === string →
+  // armed: overlay is up, textarea disabled, watchdog effect will fire dispatch
+  // after `isIdle === true` holds continuously for 3s. dispatchTimerRef holds
+  // the pending setTimeout id (mirrors the drainEndTimerRef pattern above).
+  // Single-slot by design: no queue depth, no retry, no configurable threshold.
+  const [queuedText, setQueuedText] = useState<string | null>(null);
+  const dispatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Patch #83: drain-sweep animation state for the reset cell click.
   // isDraining triggers "all segments render as dim" so the well
@@ -303,6 +325,77 @@ export function ComposeBox({
     });
   }, [clearDebounce, hostId, tmuxSessionKey]);
 
+  // Patch #84: dispatch the queued message when the idle watchdog fires.
+  // Guaranteed queuedText !== null when this runs (watchdog effect gates
+  // on that). D-50 Ink safety: collapse newlines to spaces before send,
+  // matching handleSend. Fail-loud on dispatch failure per Ashley
+  // 2026-07-19 (do NOT retry silently). useCallback is REQUIRED here —
+  // the watchdog effect keeps a ref to this function via its dependency
+  // array, and a bare function decl would capture a stale queuedText
+  // between the arm and the timer fire.
+  const fireQueuedDispatch = useCallback(() => {
+    if (queuedText === null) return;
+    const payload = queuedText.replace(/\r?\n/g, " ");
+    const dispatched = onSend(payload);
+    if (dispatched) {
+      setText("");
+      setQueuedText(null);
+      clearAfterSend();
+    } else {
+      setQueuedText(null);
+      setErrorMessage("Not connected — queued send failed");
+    }
+  }, [queuedText, onSend, clearAfterSend]);
+
+  // Patch #84: idle watchdog — while a queue is armed, wait for
+  // isIdle === true to hold continuously for 3s before firing dispatch.
+  // Strict `=== true` — `null` (unknown / backend hasn't spoken) does
+  // NOT trigger, matching the ergonomic contract that the queue only
+  // fires when we KNOW the session went idle. Combined with the
+  // backend's ~4s isIdle debounce this yields ~7s effective delay from
+  // Claude's last output. Locked with Ashley 2026-07-19.
+  useEffect(() => {
+    if (queuedText === null) return;
+    if (isIdle !== true) {
+      // Session is working (or unknown) — cancel any pending fire so
+      // the 3s window resets from the NEXT idle=true transition.
+      if (dispatchTimerRef.current) {
+        clearTimeout(dispatchTimerRef.current);
+        dispatchTimerRef.current = null;
+      }
+      return;
+    }
+    // Idle. If a timer is already pending, keep it — this effect is
+    // idempotent; do NOT restart the countdown just because the deps
+    // rerendered (e.g. via a parent-driven re-render carrying the same
+    // isIdle=true).
+    if (dispatchTimerRef.current !== null) return;
+    dispatchTimerRef.current = setTimeout(() => {
+      dispatchTimerRef.current = null;
+      fireQueuedDispatch();
+    }, 3000);
+    return () => {
+      if (dispatchTimerRef.current) {
+        clearTimeout(dispatchTimerRef.current);
+        dispatchTimerRef.current = null;
+      }
+    };
+  }, [queuedText, isIdle, fireQueuedDispatch]);
+
+  // Patch #84: unmount cleanup — belt-and-suspenders against the
+  // unmount-while-idle-transitioning race. The watchdog effect's own
+  // cleanup fires on every deps change and would already handle the
+  // common case; this extra effect (empty deps) guarantees a final
+  // timer clear if the component unmounts between deps ticks.
+  useEffect(() => {
+    return () => {
+      if (dispatchTimerRef.current) {
+        clearTimeout(dispatchTimerRef.current);
+        dispatchTimerRef.current = null;
+      }
+    };
+  }, []);
+
   function handleTextChange(next: string) {
     setText(next);
     scheduleAutosave(next);
@@ -313,7 +406,37 @@ export function ComposeBox({
     void flushDirty();
   }
 
+  // Patch #84: Queue button click. If armed → cancel (clear timer, drop
+  // queue, refocus textarea). If idle → arm with the current trimmed
+  // text (empty text is a no-op, matching handleSend's early return).
+  // Silent cancel — no error UI on cancel branch.
+  function handleQueue() {
+    if (queuedText !== null) {
+      if (dispatchTimerRef.current) {
+        clearTimeout(dispatchTimerRef.current);
+        dispatchTimerRef.current = null;
+      }
+      setQueuedText(null);
+      textareaRef.current?.focus();
+      return;
+    }
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setErrorMessage(null);
+    setQueuedText(trimmed);
+  }
+
   function handleSend() {
+    // Patch #84: immediate action wins — cancel any armed queue silently
+    // and proceed with the direct send. No error UI on the dropped queue.
+    if (queuedText !== null) {
+      if (dispatchTimerRef.current) {
+        clearTimeout(dispatchTimerRef.current);
+        dispatchTimerRef.current = null;
+      }
+      setQueuedText(null);
+    }
+
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -343,6 +466,15 @@ export function ComposeBox({
   // through to the fresh session, and (b) it fires even when the body is
   // blank — in which case it sends just "/id reset".
   function handleResetSend() {
+    // Patch #84: immediate action wins — cancel any armed queue silently.
+    if (queuedText !== null) {
+      if (dispatchTimerRef.current) {
+        clearTimeout(dispatchTimerRef.current);
+        dispatchTimerRef.current = null;
+      }
+      setQueuedText(null);
+    }
+
     setErrorMessage(null);
 
     // Patch #83: fire the drain-sweep animation IMMEDIATELY on click,
@@ -392,6 +524,15 @@ export function ComposeBox({
   // draft resets to '' so a reload doesn't resurrect it. Failed
   // dispatch leaves both intact.
   function handleQuickSend(quickText: string) {
+    // Patch #84: immediate action wins — cancel any armed queue silently.
+    if (queuedText !== null) {
+      if (dispatchTimerRef.current) {
+        clearTimeout(dispatchTimerRef.current);
+        dispatchTimerRef.current = null;
+      }
+      setQueuedText(null);
+    }
+
     setErrorMessage(null);
     const dispatched = onSend(quickText);
     if (dispatched) {
@@ -409,6 +550,12 @@ export function ComposeBox({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Patch #84: while a queue is armed the textarea is disabled (Edit K
+    // adds `disabled={queuedText !== null}`), so keydown normally cannot
+    // reach us. Defense in depth against any focus-restoration race —
+    // swallow all keys silently while armed.
+    if (queuedText !== null) return;
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
       handleSend();
@@ -423,6 +570,15 @@ export function ComposeBox({
   }
 
   const sendDisabled = text.trim() === "" || canSend === false;
+
+  // Patch #84: derived state for the Queue (Hourglass) button. Armed
+  // when queuedText !== null. Disabled when either the transport is
+  // down (mirrors sendDisabled's canSend gate) OR when text is empty
+  // AND we're not already armed — an armed button must always be
+  // clickable so the user can cancel.
+  const queueArmed = queuedText !== null;
+  const queueDisabled =
+    canSend === false || (queuedText === null && text.trim() === "");
 
   // Layout: textarea and send button share a single horizontal row so the
   // compose area stays as short as possible and yields more vertical space
@@ -594,12 +750,19 @@ export function ComposeBox({
             <RotateCcw className="size-3.5" />
           </button>
         </div>
+        {/* Patch #84: textarea wrapper. The wrapper owns flex sizing
+            (`flex-1 self-stretch`) so the pending overlay can position
+            absolute-inset over the Textarea while the Textarea itself
+            fills the wrapper. `relative` is the positioning context for
+            the overlay. */}
+        <div className="relative flex-1 self-stretch">
         <Textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => handleTextChange(e.target.value)}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
+          disabled={queueArmed}
           placeholder={`Message ${identityName || "Claude"}…`}
           rows={rows}
           // Phase 4 Glass: recessed textarea well (patch #81) +
@@ -621,7 +784,7 @@ export function ComposeBox({
           // focus-visible:ring-ring/50 focus-visible:ring-[3px]`) so
           // our own hue ring wins cleanly.
           className={cn(
-            "resize-none flex-1 self-stretch",
+            "resize-none w-full h-full",
             // `!` (Tailwind v4 important suffix) is required on the bg
             // arbitrary class: the shadcn `Textarea` wrapper's base
             // className carries `dark:bg-input/30` (see
@@ -657,7 +820,27 @@ export function ComposeBox({
           // Note: NOT disabled when canSend===false — user can compose
           // during a transient disconnect and send when WS reconnects.
           // The send button is disabled; the error will surface on attempt.
+          // (Patch #84 DOES disable via `disabled={queueArmed}` above —
+          // that gate is orthogonal: it applies only while the queue is
+          // armed, restoring editability the instant the queue clears
+          // or is cancelled.)
         />
+        {/* Patch #84: pending overlay. Mounts only while queue is armed.
+            `pointer-events-none` so the Textarea underneath still owns
+            all interaction (it's already disabled, but this keeps the
+            overlay from stealing pointer focus). `rounded-[10px]`
+            matches the Textarea's own rounded-[10px] so corners align.
+            Dark warm-cool scrim + tight blur reads as "held, waiting"
+            without hiding whatever the user composed. */}
+        {queueArmed && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pointer-events-none rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]">
+            <Hourglass className="size-5 text-[hsla(38,70%,72%,0.9)]" />
+            <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
+              Queued — waiting for idle
+            </span>
+          </div>
+        )}
+        </div>
         {/* Icon-button column: thumbs-up "go ahead" quick-reply on top,
             paper-airplane Send on the bottom. Ordered least-used at top,
             most-used at bottom (closest to the mouse arriving from the
@@ -695,6 +878,55 @@ export function ComposeBox({
             )}
           >
             <ThumbsUp className="size-4" />
+          </Button>
+          {/* Patch #84: Queue button — arms a single-slot "send when
+              session goes idle" queue. Rests warm-neutral (matches
+              ThumbsUp's `.pv-icon-btn` treatment). When armed, glows
+              amber + pulses to signal "waiting" — semantically distinct
+              from Send's saturated warm-amber (VISUAL-08 send is
+              always-on attention grab; Queue's amber is TRANSIENT
+              status). `!` load-bearing on all bg-[linear-gradient(...)]
+              classes: the shadcn `outline` variant carries
+              `dark:bg-input/30 dark:hover:bg-input/50` (specificity
+              0-2-0) which would beat plain 0-1-0 arbitrary bg. Same
+              trap as patch #81-fix on the Textarea. */}
+          <Button
+            size="icon-sm"
+            variant="outline"
+            onClick={handleQueue}
+            disabled={queueDisabled}
+            aria-label={
+              queueArmed
+                ? "Cancel queued send"
+                : "Queue send for when session goes idle"
+            }
+            title={
+              queueArmed
+                ? "Cancel queued send"
+                : "Queue send for when session goes idle"
+            }
+            className={cn(
+              "rounded-md cursor-pointer",
+              queueArmed
+                ? [
+                    "bg-[linear-gradient(180deg,hsla(38,55%,50%,0.9),hsla(38,60%,32%,0.95))]!",
+                    "border-[hsla(38,70%,55%,0.5)]",
+                    "text-[#fff5e0]",
+                    "shadow-[0_2px_6px_rgba(0,0,0,0.45),_inset_0_1px_0_rgba(255,235,190,0.35),_0_0_16px_hsla(38,70%,52%,0.35)]",
+                    "animate-pulse",
+                  ]
+                : [
+                    "border-white/10",
+                    "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]!",
+                    "text-[#e8e4d8]",
+                    "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
+                    "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]!",
+                    "hover:border-[rgba(255,240,215,0.22)]",
+                    "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+                  ],
+            )}
+          >
+            <Hourglass className="size-4" />
           </Button>
           <Button
             size="icon-sm"
