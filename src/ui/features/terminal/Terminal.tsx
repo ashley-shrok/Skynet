@@ -231,6 +231,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const [isPrettyMode, setIsPrettyMode] = useState(false);
+    // Auto-activate pretty view once per tab when the tab's tmux session
+    // resolves to a registered identity. A ref (not state) tracks the
+    // one-shot flag so a later Ctrl+Shift+O off is respected forever after —
+    // auto-activate never fights the manual toggle.
+    const hasAutoActivatedPrettyRef = useRef(false);
     // PTY-side "Claude is currently working" signal. Backend emits
     // {type:"idle", idle:bool} on transitions (patch #13) plus an initial
     // state on WS attach. `null` = we haven't heard from the backend yet;
@@ -275,6 +280,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           : hueFromSessionName(tmuxSessionName),
       [identityColorHue, tmuxSessionName],
     );
+    useEffect(() => {
+      if (hasAutoActivatedPrettyRef.current) return;
+      if (identityKey == null) return;
+      if (!identitiesByKey.has(identityKey)) return;
+      hasAutoActivatedPrettyRef.current = true;
+      setIsPrettyMode(true);
+    }, [identityKey, identitiesByKey]);
     const [isTmuxAttached, setIsTmuxAttached] = useState(false);
     const tmuxCopyModeHintShownRef = useRef(false);
 
