@@ -377,8 +377,13 @@ export function ComposeBox({
         // inset shadow reinforces the shelf depth. Result: textured,
         // dimensional, but still quiet.
         "flex flex-col gap-1 px-3 py-3 shrink-0",
-        "bg-[linear-gradient(180deg,rgba(38,30,18,0.55),rgba(20,15,8,0.62))]",
-        "shadow-[inset_0_1px_0_rgba(255,235,190,0.06),_inset_0_2px_12px_rgba(0,0,0,0.4)]",
+        // Patch #82 palette shift: warm-brown → cool blue-black to
+        // match the mock. RGB polarity flipped (was R>G>B, now B>R>G)
+        // with the same alpha structure so the shelf still reads at
+        // the same visual weight. Warm-cream inset rim shifted to
+        // cool-cream (220,225,245) to match.
+        "bg-[linear-gradient(180deg,rgba(28,30,40,0.55),rgba(18,20,28,0.62))]",
+        "shadow-[inset_0_1px_0_rgba(220,225,245,0.06),_inset_0_2px_12px_rgba(0,0,0,0.4)]",
         className,
       )}
     >
@@ -462,14 +467,20 @@ export function ComposeBox({
             // Border does NOT need `!` — shadcn's base is plain
             // `border-input` (no dark: variant → same specificity as
             // ours → tailwind-merge dedupes → later class wins cleanly).
-            "bg-[rgba(15,10,5,0.42)]! text-[#f0ebe0]",
-            "border border-[rgba(255,240,215,0.07)]",
+            // Patch #82 palette shift: warm-black well → cool-black
+            // well (rgba(15,10,5) → rgba(10,12,20)), alpha bumped
+            // 0.42→0.5 to preserve visibility on the cool-tinted
+            // surround. Warm-cream border/focus glow shifted to
+            // cool-cream (220,225,245). `!` load-bearing on bg per
+            // #81-fix (see comment above).
+            "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
+            "border border-[rgba(220,225,245,0.07)]",
             "rounded-[10px] px-4 py-3",
             "placeholder:text-[var(--color-pv-fg-dim)]",
-            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(255,240,215,0.04)]",
+            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
             "transition-[box-shadow,border-color] duration-200",
-            "focus:border-[rgba(255,240,215,0.28)]",
-            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(255,240,215,0.07),_0_0_0_1px_rgba(255,240,215,0.2),_0_0_22px_rgba(255,240,215,0.12)]",
+            "focus:border-[rgba(220,225,245,0.28)]",
+            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(220,225,245,0.07),_0_0_0_1px_rgba(220,225,245,0.2),_0_0_22px_rgba(220,225,245,0.12)]",
             "focus-visible:ring-0 focus-visible:outline-none",
           )}
           // Note: NOT disabled when canSend===false — user can compose

@@ -102,13 +102,28 @@
      Design spec:
      /home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html
      (Glass tab final iterated state, 2026-07-18). */
-  --color-pv-base: #14120e;               /* warm off-black top of gradient */
-  --color-pv-base-mid: #100e0b;
-  --color-pv-base-end: #0a0907;
-  --color-pv-surface-quiet: rgba(255, 240, 215, 0.025);
-  --color-pv-surface-quiet-alt: rgba(255, 240, 215, 0.008);
-  --color-pv-border-quiet: rgba(255, 240, 215, 0.05);
-  --color-pv-border-quiet-strong: rgba(255, 240, 215, 0.09);
+  /* Patch #82 shift: pretty-view dark surfaces shifted from warm-brown
+     (R>G>B) to cool blue-black (B>R>G) to match the original design
+     mock's palette (see bounties/archive/pretty-view-visual-overhaul/
+     mock/index.html — cool blacks like #0a0b12, #101218, #14151a).
+     Prior warm values (#14120e / #100e0b / #0a0907) drifted through
+     patches #62/#79/#81 into a yellow-leaning aesthetic Ashley flagged
+     as off-mock 2026-07-19. Warm rims stay warm on identity-hue
+     chrome (chat bubbles, send button); dark surface rims shift to
+     cool-cream (220,225,245) for consistency with the cool base. */
+  --color-pv-base: #141520;               /* cool off-black top of gradient */
+  --color-pv-base-mid: #101118;
+  --color-pv-base-end: #0a0b12;
+  /* Panel-shelf surface + rim (patch #82 shelf treatment). Panels used
+     to be floating cards with warm-cream 2.5% overlay; they're now
+     wall-to-wall shelves with cool-black-glass gradient stacked above
+     the compose surround. Values repurpose the surface-quiet/border-
+     quiet names because the semantic (quiet panel surface) still
+     applies. */
+  --color-pv-surface-quiet: rgba(25, 26, 34, 0.5);
+  --color-pv-surface-quiet-alt: rgba(15, 16, 22, 0.55);
+  --color-pv-border-quiet: rgba(220, 225, 245, 0.06);
+  --color-pv-border-quiet-strong: rgba(220, 225, 245, 0.1);
   --color-pv-fg: #e8e4d8;                 /* warm off-white primary text */
   --color-pv-fg-muted: #a89a80;
   --color-pv-fg-dim: #7a6f60;
@@ -119,9 +134,12 @@
     0 8px 24px rgba(0, 0, 0, 0.5),
     0 1px 0 rgba(255, 255, 255, 0.12) inset,
     0 0 0 0.5px rgba(255, 255, 255, 0.05);
-  --shadow-pv-quiet-card:
-    0 4px 12px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 240, 215, 0.06);
+  /* Patch #82: repurposed from "quiet floating card" (drop shadow +
+     inset rim) to "quiet shelf" (inset rim only). The drop-shadow was
+     the "slightly-bigger black rectangle" Ashley called out; a wall-
+     to-wall shelf has nothing to float over so no drop shadow. Just
+     the cool-cream 1px top rim for glass definition. */
+  --shadow-pv-quiet-card: inset 0 1px 0 rgba(220, 225, 245, 0.04);
   --shadow-pv-root:
     0 30px 80px rgba(0, 0, 0, 0.7),
     0 0 0 1px rgba(255, 255, 255, 0.04),

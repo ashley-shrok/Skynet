@@ -42,17 +42,22 @@ export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) 
   return (
     <div
       className={cn(
-        // Phase 4 Glass: ambient-panel-shelf treatment (VISUAL-05) —
-        // a subtle floating card that reads as calm chrome above the
-        // compose area, distinct from the raised chat bubbles.
+        // Patch #82 shelf treatment (VISUAL-05 revised): wall-to-wall
+        // cool-black shelf stacked above the compose surround, replacing
+        // the prior floating-card + margin + drop-shadow look. Ashley
+        // 2026-07-19: the floating-card visual implied chat bubbles
+        // could scroll behind it, but layout-wise the panel took its
+        // own vertical space with mx-3 my-1 margin gaps that the chat
+        // couldn't extend into — so the illusion broke. Shelves match
+        // the actual layout: continuous rows above compose that never
+        // overlap chat. Cool-cream 1px top border serves as the divider
+        // between this shelf and whatever's above (chat or another
+        // shelf); the shelf's own bg is a subtle cool-glass gradient.
         "shrink-0 max-h-40 overflow-y-auto",
-        "mx-3 my-1 px-3 py-1.5",
-        "bg-[linear-gradient(160deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
-        "border border-[var(--color-pv-border-quiet)]",
-        "rounded-[var(--radius-pv-card)]",
+        "px-3 py-1.5",
+        "bg-[linear-gradient(180deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
+        "border-t border-[var(--color-pv-border-quiet)]",
         "shadow-[var(--shadow-pv-quiet-card)]",
-        "backdrop-blur-md",
-        "[-webkit-backdrop-filter:blur(12px)]",
         className,
       )}
       aria-label="Harness tasks"

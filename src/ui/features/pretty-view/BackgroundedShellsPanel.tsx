@@ -38,15 +38,16 @@ export function BackgroundedShellsPanel({
   return (
     <div
       className={cn(
-        // Phase 4 Glass: shared ambient-panel-shelf treatment (VISUAL-05).
+        // Patch #82 shelf treatment (VISUAL-05 revised) — identical to
+        // HarnessTasksPanel's shelf. See that file for the full rationale
+        // (Ashley 2026-07-19 flagged the floating-card + margin illusion
+        // as off-mock; shelves match the actual layout: continuous rows
+        // above compose, cool-cream 1px top border between shelves).
         "shrink-0 max-h-40 overflow-y-auto",
-        "mx-3 my-1 px-3 py-1.5",
-        "bg-[linear-gradient(160deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
-        "border border-[var(--color-pv-border-quiet)]",
-        "rounded-[var(--radius-pv-card)]",
+        "px-3 py-1.5",
+        "bg-[linear-gradient(180deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
+        "border-t border-[var(--color-pv-border-quiet)]",
         "shadow-[var(--shadow-pv-quiet-card)]",
-        "backdrop-blur-md",
-        "[-webkit-backdrop-filter:blur(12px)]",
         className,
       )}
       aria-label="Backgrounded shells"
