@@ -16,9 +16,14 @@ import type { BackgroundedShell } from "@/api/claude-session-api";
 //   - Hidden entirely when no running shells. Zero-chrome empty state.
 //   - Static Terminal glyph — motion channel is owned by WipBubble
 //     (patch #53's rationale). Stacking spinners is visually ambiguous.
-//   - Label: description as primary; if description is empty, use the
-//     truncated command as primary. If BOTH are present, description is
-//     primary and command renders as a small muted-monospace line below.
+//   - Label: description as primary; if description is empty, fall back
+//     to the command as primary. Description-only rendering
+//     (patch #80): the command NEVER renders as a visible secondary
+//     line. Ashley called the second-line command-truncation visual
+//     noise during #68 pin-time; this patch is the followup that
+//     drops it. The full command remains on the wire
+//     (BackgroundedShell.command) AND on the row's hover `title`
+//     for on-demand inspection.
 //   - Scope (patch #68): Bash{run_in_background:true} ONLY. NEVER Monitor.
 
 export interface BackgroundedShellsPanelProps {
@@ -55,8 +60,6 @@ export function BackgroundedShellsPanel({
       <ul className="pb-1 flex flex-col gap-1">
         {shells.map((s) => {
           const primary = s.description || s.command || "Shell";
-          const showCommandLine =
-            !!s.description && !!s.command && s.command !== s.description;
           return (
             <li
               key={s.toolUseId}
@@ -64,15 +67,8 @@ export function BackgroundedShellsPanel({
               title={s.command || undefined}
             >
               <Terminal className="size-3.5 shrink-0 text-primary mt-0.5" />
-              <span className="min-w-0 flex flex-col gap-0.5">
-                <span className="text-[var(--color-pv-fg)]/90 break-words">
-                  {primary}
-                </span>
-                {showCommandLine && (
-                  <code className="text-xs text-[var(--color-pv-fg-dim)] font-mono break-all">
-                    {s.command}
-                  </code>
-                )}
+              <span className="min-w-0 text-[var(--color-pv-fg)]/90 break-words">
+                {primary}
               </span>
             </li>
           );
