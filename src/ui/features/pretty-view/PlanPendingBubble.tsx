@@ -36,18 +36,20 @@ export function PlanPendingBubble() {
         role="status"
         aria-label="Plan waiting for your approval"
         className={cn(
-          // Phase 4 Glass: shared assistant-bubble treatment (matches
-          // ChatMessage assistant branch and WipBubble — same raised-object
-          // depth). Static ClipboardList glyph preserved per patch #63 —
-          // motion channel stays owned by WipBubble.
+          // Phase 4 Glass: identity-hue assistant-bubble treatment (matches
+          // ChatMessage's assistant branch). Plan-pending is the identity
+          // speaking — "here is a plan, waiting on you" — so the bubble
+          // wears the identity hue, not the user blue-gray. Static
+          // ClipboardList glyph preserved per patch #63 — motion channel
+          // stays owned by WipBubble.
           "leading-relaxed",
           "rounded-[var(--radius-pv-bubble)] px-3 py-2",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
-          "text-[#dfe3ee]",
-          "border border-white/[0.08]",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
+          "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
+          "text-[#fbf5e8]",
+          "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
           "flex items-center gap-2 text-sm",
         )}
       >
