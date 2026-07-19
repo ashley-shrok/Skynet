@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //       caller via `contentRef`) plus the outer scroll container fires
 //       whenever anything resizes — initial mount, new message appended,
 //       async web-font swap (Inter loading and re-laying out text
-//       metrics), markdown code-block layout, sidebar/drawer toggle
+//       metrics), markdown code-block layout, sidebar/drawer open/close
 //       shrinking the viewport, etc. If the user was pinned just
 //       before the resize, we re-pin to the new bottom.
 //
@@ -30,7 +30,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // Caller usage pattern:
 //
 //     const { scrollRef, contentRef, scrollToBottom, isPinnedToBottom }
-//       = useAutoScroll();
+//       = useAutoScroll(messages.length);
 //
 //     <div ref={scrollRef} className="overflow-y-auto ...">
 //       <div ref={contentRef} className="flex flex-col gap-3">
@@ -43,10 +43,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // `isPinnedToBottom` is state (re-renders the pill visibility); the
 // internal `isPinnedRef` is a ref so the ResizeObserver reads the latest
 // value without re-subscribing.
+//
+// messageCount argument:
+//   Pass the current messages array length; the hook uses the transition
+//   (prev < current) as the "new message appended" trigger for the
+//   tall-message top-align branch. Growth of an existing message
+//   (streaming token deltas) does NOT change this number, so it does NOT
+//   re-anchor.
 
 const BOTTOM_TOLERANCE_PX = 16;
 
-export function useAutoScroll(): {
+export function useAutoScroll(messageCount: number): {
   scrollRef: (el: HTMLElement | null) => void;
   contentRef: (el: HTMLElement | null) => void;
   scrollToBottom: () => void;
@@ -60,6 +67,10 @@ export function useAutoScroll(): {
   const isPinnedRef = useRef<boolean>(true);
   // Ratchet for user-scroll direction detection. See updatePinned below.
   const lastScrollTopRef = useRef<number>(0);
+  // Tracks the last message count seen by the message-add effect so we can
+  // distinguish "new message appended" (messageCount increased) from
+  // "existing message grew" (messageCount unchanged — streaming token deltas).
+  const prevMessageCountRef = useRef<number>(0);
 
   const scrollRef = useCallback((el: HTMLElement | null) => {
     setScrollEl(el);
@@ -134,6 +145,79 @@ export function useAutoScroll(): {
     ro.observe(scrollEl);
     return () => ro.disconnect();
   }, [scrollEl, contentEl]);
+
+  // Tall-message top-align branch — fires ONLY on new-message-append.
+  //
+  // Why this belongs in the hook (not in PrettyView): the messageCount
+  // transition is the SIGNAL that distinguishes "new message appended"
+  // from "existing message grew" (streaming token deltas). PrettyView
+  // sees the same messageCount change but cannot safely call scrollTop
+  // without also carrying refs to scrollEl + isPinnedRef, which live
+  // here. Centralizing in the hook keeps the scroll contract in one file.
+  //
+  // Why the existing ratchet in the scroll handler correctly flips the
+  // pin OFF after top-align (no explicit isPinnedRef.current = false
+  // needed here): setting scrollEl.scrollTop causes the browser to fire a
+  // synchronous "scroll" event. updatePinned runs, sees currentScrollTop <
+  // lastScrollTopRef.current (we jumped UP from the bottom), and flips
+  // isPinnedRef.current = false via the ratchet. Subsequent streaming deltas
+  // grow contentEl but isPinnedRef is already false, so the ResizeObserver
+  // effect's if-guard does nothing — the user stays at the top-aligned
+  // position. No additional state write is needed.
+  //
+  // Why we use direct scrollTop assignment rather than the Element scroll-
+  // into-view API: that API scrolls the nearest scrollable ANCESTOR — in
+  // nested-scroll layouts (e.g. parent tab pane can also scroll on very
+  // narrow viewports) this can jump the wrong container. Direct
+  // scrollEl.scrollTop = ... is unambiguous.
+  //
+  // Why we use offsetTop (not getBoundingClientRect): offsetTop is relative
+  // to the offsetParent. The scroll container IS the offsetParent for direct
+  // children of contentEl when contentEl has no positioning of its own.
+  // If this check ever fails in practice (e.g. a future patch adds `relative`
+  // to contentEl), fall back to computing the target scrollTop as:
+  //   newEl.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top
+  //   + scrollEl.scrollTop - BOTTOM_TOLERANCE_PX
+  // Do NOT add the fallback preemptively — verify the offsetTop path first.
+  useEffect(() => {
+    if (scrollEl == null || contentEl == null) return;
+
+    const prev = prevMessageCountRef.current;
+    // ALWAYS update the ref before any further early-returns so the ref
+    // stays in sync even when we do not anchor (streaming grows, resets
+    // to [], etc.).
+    prevMessageCountRef.current = messageCount;
+
+    // No new message: covers streaming grows (messageCount unchanged),
+    // initial mount (0 → 0), and the reset path in PrettyView (messages
+    // set back to [] → messageCount drops back to 0).
+    if (messageCount <= prev) return;
+
+    // User has scrolled up — leave them alone. Matches the existing
+    // ResizeObserver gate so scrolled-up users are never yanked.
+    if (!isPinnedRef.current) return;
+
+    // Defensive: contentEl may be momentarily empty during a StrictMode
+    // double-invoke or between React reconciliation cycles.
+    const newEl = contentEl.lastElementChild as HTMLElement | null;
+    if (newEl == null) return;
+
+    const messageHeight = newEl.offsetHeight;
+    const viewportHeight = scrollEl.clientHeight;
+
+    if (messageHeight > viewportHeight) {
+      // Tall message: top-align with BOTTOM_TOLERANCE_PX (16px) margin so
+      // the very first line of the new message sits just below the
+      // viewport top. The scroll event from this write will fire
+      // updatePinned, which detects the upward jump (currentScrollTop <
+      // lastScrollTopRef.current) and flips isPinnedRef.current = false —
+      // subsequent streaming deltas into this message will NOT re-anchor.
+      scrollEl.scrollTop = newEl.offsetTop - BOTTOM_TOLERANCE_PX;
+    }
+    // Else (short message): return WITHOUT scrolling. The existing
+    // ResizeObserver-driven bottom-pin fires on the append's content
+    // growth and lands at scrollHeight, preserving current behavior.
+  }, [scrollEl, contentEl, messageCount]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollEl == null) return;
