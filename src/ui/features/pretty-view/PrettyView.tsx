@@ -170,7 +170,7 @@ export function PrettyView({
   const wsRef = useRef<WebSocket | null>(null);
 
   const { scrollRef, contentRef, scrollToBottom, isPinnedToBottom } =
-    useAutoScroll();
+    useAutoScroll(messages.length);
 
   // Phase 4: derive per-pane identity + hue for the Glass reskin.
   //
