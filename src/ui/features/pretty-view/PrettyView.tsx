@@ -10,8 +10,10 @@ import {
   type BackgroundedAgent,
   type BackgroundedShell,
   type MessageEvent as ChatMessageEvent,
+  type ImageEvent,
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
+import { ImageBubble } from "./ImageBubble";
 import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
@@ -71,10 +73,17 @@ export interface PrettyViewProps {
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
 
+// Patch #86: pretty-view's message stream now interleaves text messages
+// and image bubbles in strict wire order (the whole point of the patch —
+// Ashley sees "the agent read this image" at the correct chronological
+// position). Both event shapes share `eventId` + `ts`, so appendDedup's
+// dedup logic remains a one-line hash check.
+type StreamEvent = ChatMessageEvent | ImageEvent;
+
 function appendDedup(
-  prev: ChatMessageEvent[],
-  next: ChatMessageEvent,
-): ChatMessageEvent[] {
+  prev: StreamEvent[],
+  next: StreamEvent,
+): StreamEvent[] {
   if (prev.some((m) => m.eventId === next.eventId)) return prev;
   return [...prev, next];
 }
@@ -87,7 +96,7 @@ export function PrettyView({
   onSend,
   isIdle,
 }: PrettyViewProps) {
-  const [messages, setMessages] = useState<ChatMessageEvent[]>([]);
+  const [messages, setMessages] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -224,6 +233,13 @@ export function PrettyView({
           break;
         }
         case "message": {
+          setMessages((prev) => appendDedup(prev, parsed));
+          break;
+        }
+        case "image": {
+          // Patch #86: image bubbles interleave with text messages in strict
+          // wire order — same state channel, same dedup on eventId. The
+          // render branch below discriminates on `m.type`.
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
@@ -470,9 +486,24 @@ export function PrettyView({
               markdown re-layout, Inter font swap). The outer scrollRef div
               is watched separately for viewport-size changes. */}
           <div ref={contentRef} className="flex flex-col gap-[18px]">
-            {messages.map((m) => (
-              <ChatMessage key={m.eventId} role={m.role} content={m.content} />
-            ))}
+            {messages.map((m) =>
+              m.type === "image" ? (
+                <ImageBubble
+                  key={m.eventId}
+                  role={m.role}
+                  images={m.images}
+                  text={m.text}
+                  eventId={m.eventId}
+                  ts={m.ts}
+                />
+              ) : (
+                <ChatMessage
+                  key={m.eventId}
+                  role={m.role}
+                  content={m.content}
+                />
+              ),
+            )}
             {(wipActive || backgroundedAgents.length > 0 || backgroundedShells.length > 0) && <WipBubble />}
             {planPending && <PlanPendingBubble />}
           </div>

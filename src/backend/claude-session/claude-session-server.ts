@@ -13,7 +13,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
 /**
  * Live Claude-session WebSocket server on port 30011.
  *
- * Wire protocol (V1 hard-lock, RENDER-01):
+ * Wire protocol (V1 hard-lock, RENDER-01 — IMAGES EXCEPTED per patch #86):
  *
  *   client -> server:
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
@@ -21,6 +21,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *   server -> client:
  *     { type: "session", pid, sessionFile }                      // metadata
  *     { type: "message", role, content, eventId, ts }            // per parsed JSONL line
+ *     { type: "image", role, images, text, eventId, ts }         // per parsed JSONL turn carrying base64 image content (patch #86, WS-inline b64)
  *     { type: "wip", active }                                    // work-in-progress state (emitted on transitions + once as initial state)
  *     { type: "context_pct", pct }                               // 0-100, live scrape of Claude Code status-line "context) NN%"
  *     { type: "harness_tasks", tasks }                           // Claude Code /queue + TaskCreate items — read from ~/.claude/tasks/<sid>/*.json
@@ -30,6 +31,13 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
+ *
+ * Image frames carry inline base64 payloads: each `images[]` element is
+ * `{ data: string, mediaType: string, toolUseId?: string }` where `data`
+ * is raw base64 with no `data:` URI prefix (the frontend adds one at
+ * render time). A typical PNG Read is ~150KB on the wire — acceptable
+ * for the read-only sessions pretty-view targets, and there is no HTTP
+ * fallback endpoint to bolt onto (pretty-view is WS-only architecture).
  *
  * Auth model mirrors `src/backend/ssh/terminal.ts` exactly: cookie `jwt=`
  * then `Authorization: Bearer <token>` then `?token=` query fallback. JWT
@@ -599,7 +607,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
     const parsed = parseSessionLine(line);
     // Silent drop on kind === "skip" and kind === "malformed" — this
-    // is the RENDER-01 hard-lock enforcement point.
+    // is the RENDER-01 hard-lock enforcement point. `message` and
+    // `image` are mutually exclusive per parseSessionLine's contract
+    // (a single line returns exactly one kind), so the two branches
+    // below never both fire for the same line.
     if (parsed.kind === "message") {
       try {
         ws.send(
@@ -607,6 +618,27 @@ wss.on("connection", async (ws: WebSocket, req) => {
             type: "message",
             role: parsed.role,
             content: parsed.content,
+            eventId: parsed.eventId,
+            ts: parsed.ts,
+          }),
+        );
+      } catch {
+        /* ws may be mid-close; drop */
+      }
+    }
+    if (parsed.kind === "image") {
+      // Patch #86: images that survived the parser's dedup + role
+      // derivation. Wire shape mirrors the parser's ImageMessage 1:1;
+      // frontend adds the `data:${mediaType};base64,` URI prefix when
+      // building the <img src>. Same try/catch-empty guard as the
+      // text-message branch above.
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "image",
+            role: parsed.role,
+            images: parsed.images,
+            text: parsed.text,
             eventId: parsed.eventId,
             ts: parsed.ts,
           }),

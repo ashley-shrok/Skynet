@@ -36,6 +36,26 @@ export type MessageEvent = {
   ts: number;
 };
 
+// Patch #86: WS-inline base64 image payload. `data` is raw base64 — the
+// consumer prepends `data:${mediaType};base64,` when building `<img src>`.
+// `toolUseId` is populated only for images that arrived via the canonical
+// Anthropic tool_result path; absent for bare image content blocks and
+// for the Claude-Code-local `toolUseResult.file.base64` convenience path.
+export type ImageBlock = {
+  data: string;
+  mediaType: string;
+  toolUseId?: string;
+};
+
+export type ImageEvent = {
+  type: "image";
+  role: "user" | "assistant" | "tool_result";
+  images: ImageBlock[];
+  text: string;
+  eventId: string;
+  ts: number;
+};
+
 export type InactiveEvent = {
   type: "inactive";
   reason: string;
@@ -113,6 +133,7 @@ export type ErrorEvent = {
 export type ClaudeSessionServerEvent =
   | SessionMetaEvent
   | MessageEvent
+  | ImageEvent
   | InactiveEvent
   | ContextPctEvent
   | HarnessTasksEvent
