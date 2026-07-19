@@ -1,3 +1,6 @@
+import os from "os";
+import path from "path";
+import fs from "fs/promises";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { Client as SSHClientType } from "ssh2";
 import { AuthManager } from "../utils/auth-manager.js";
@@ -17,6 +20,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *
  *   client -> server:
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
+ *     { type: "identity:list-bounties", identityKey: string }    // patch #87: fetch identity bounties (one-shot; no pane needed)
  *
  *   server -> client:
  *     { type: "session", pid, sessionFile }                      // metadata
@@ -31,6 +35,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
+ *     { type: "identity:bounties", bounties, archivedBounties, error? } // patch #87: response to identity:list-bounties (one-shot; WS closed by client after receipt)
  *
  * Image frames carry inline base64 payloads: each `images[]` element is
  * `{ data: string, mediaType: string, toolUseId?: string }` where `data`
@@ -979,6 +984,191 @@ wss.on("connection", async (ws: WebSocket, req) => {
       ws.send(
         JSON.stringify({ type: "error", message: "Malformed message" }),
       );
+      return;
+    }
+
+    // Patch #87: identity:list-bounties — read-only bounty fetch, independent
+    // of connectToPane. Handled BEFORE the connectToPane branch so the error
+    // return below only fires for truly unknown types.
+    if (msg.type === "identity:list-bounties") {
+      const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
+      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "identity:bounties",
+              bounties: [],
+              archivedBounties: [],
+              error: "invalid identityKey",
+            }),
+          );
+        } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const baseDir = path.join(
+        os.homedir(),
+        ".claude",
+        "identities",
+        identityKey,
+        "bounties",
+      );
+
+      // Helper: read all bounty.json files in a given directory (non-recursive).
+      // Skips entries that are not directories (defensive). Wraps each parse in
+      // try/catch so one malformed bounty.json does NOT poison the response.
+      const readBountiesFromDir = async (dir: string): Promise<unknown[]> => {
+        let entries: string[];
+        try {
+          entries = await fs.readdir(dir);
+        } catch (err: unknown) {
+          if (
+            typeof err === "object" &&
+            err !== null &&
+            (err as NodeJS.ErrnoException).code === "ENOENT"
+          ) {
+            return [];
+          }
+          throw err;
+        }
+        const results: unknown[] = [];
+        for (const entry of entries) {
+          const filePath = path.join(dir, entry, "bounty.json");
+          try {
+            const raw = await fs.readFile(filePath, "utf-8");
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            // Normalize to Bounty shape — missing fields get safe defaults.
+            results.push({
+              id: typeof parsed.id === "string" ? parsed.id : entry,
+              title: typeof parsed.title === "string" ? parsed.title : "",
+              premise: typeof parsed.premise === "string" ? parsed.premise : "",
+              status: typeof parsed.status === "string" ? parsed.status : "",
+              priority: typeof parsed.priority === "string" ? parsed.priority : "unprioritized",
+              keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
+              requested_by: typeof parsed.requested_by === "string" ? parsed.requested_by : null,
+              created_at: typeof parsed.created_at === "string" ? parsed.created_at : "",
+              updated_at: typeof parsed.updated_at === "string" ? parsed.updated_at : "",
+              timeline: Array.isArray(parsed.timeline) ? parsed.timeline : [],
+              todos: Array.isArray(parsed.todos) ? parsed.todos : [],
+            });
+          } catch (err) {
+            sshLogger.error(
+              "identity:list-bounties failed to parse bounty.json",
+              err instanceof Error ? err : new Error(String(err)),
+              {
+                operation: "identity_list_bounties_parse_error",
+                userId,
+                identityKey,
+                filePath,
+              },
+            );
+            // Skip this entry and continue — one bad file must not poison the list.
+          }
+        }
+        return results;
+      };
+
+      try {
+        // Open bounties: all subdirs of baseDir EXCEPT "archive".
+        // We read baseDir entries and filter out "archive" to exclude it.
+        let openEntries: string[];
+        try {
+          openEntries = (await fs.readdir(baseDir)).filter(
+            (e) => e !== "archive",
+          );
+        } catch (err: unknown) {
+          if (
+            typeof err === "object" &&
+            err !== null &&
+            (err as NodeJS.ErrnoException).code === "ENOENT"
+          ) {
+            // Identity has no bounties dir — valid empty state.
+            ws.send(
+              JSON.stringify({
+                type: "identity:bounties",
+                bounties: [],
+                archivedBounties: [],
+              }),
+            );
+            return;
+          }
+          throw err;
+        }
+
+        // Read open bounties from the filtered non-archive subdirs.
+        const bounties: unknown[] = [];
+        for (const entry of openEntries) {
+          const filePath = path.join(baseDir, entry, "bounty.json");
+          try {
+            const raw = await fs.readFile(filePath, "utf-8");
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            bounties.push({
+              id: typeof parsed.id === "string" ? parsed.id : entry,
+              title: typeof parsed.title === "string" ? parsed.title : "",
+              premise: typeof parsed.premise === "string" ? parsed.premise : "",
+              status: typeof parsed.status === "string" ? parsed.status : "",
+              priority: typeof parsed.priority === "string" ? parsed.priority : "unprioritized",
+              keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
+              requested_by: typeof parsed.requested_by === "string" ? parsed.requested_by : null,
+              created_at: typeof parsed.created_at === "string" ? parsed.created_at : "",
+              updated_at: typeof parsed.updated_at === "string" ? parsed.updated_at : "",
+              timeline: Array.isArray(parsed.timeline) ? parsed.timeline : [],
+              todos: Array.isArray(parsed.todos) ? parsed.todos : [],
+            });
+          } catch (err) {
+            sshLogger.error(
+              "identity:list-bounties failed to parse open bounty.json",
+              err instanceof Error ? err : new Error(String(err)),
+              {
+                operation: "identity_list_bounties_parse_error",
+                userId,
+                identityKey,
+                filePath,
+              },
+            );
+          }
+        }
+
+        // Archived bounties: subdirs of baseDir/archive/*.
+        const archivedBounties = await readBountiesFromDir(
+          path.join(baseDir, "archive"),
+        );
+
+        sshLogger.info("identity:list-bounties", {
+          operation: "identity_list_bounties",
+          userId,
+          identityKey,
+          openCount: bounties.length,
+          archivedCount: archivedBounties.length,
+        });
+
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "identity:bounties",
+              bounties,
+              archivedBounties,
+            }),
+          );
+        } catch { /* ws may be mid-close */ }
+      } catch (err) {
+        sshLogger.error(
+          "identity:list-bounties unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_list_bounties_error", userId, identityKey },
+        );
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "identity:bounties",
+              bounties: [],
+              archivedBounties: [],
+              error: err instanceof Error ? err.message : String(err),
+            }),
+          );
+        } catch { /* ignore */ }
+      }
       return;
     }
 

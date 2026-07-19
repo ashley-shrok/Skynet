@@ -143,10 +143,50 @@ export type ClaudeSessionServerEvent =
   | SessionHoldingEvent
   | SessionChangedEvent
   | TailErrorEvent
-  | ErrorEvent;
+  | ErrorEvent
+  | IdentityBountiesEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
   hostId: number;
   tmuxSession: string;
+};
+
+// Patch #87: identity bounties WS wire types.
+//
+//   client -> server:
+//     { type: "identity:list-bounties", identityKey: string }
+//
+//   server -> client:
+//     { type: "identity:bounties", bounties: Bounty[], archivedBounties: Bounty[], error?: string }
+//
+// `identityKey` is the lowercased identity name (matches the identity dir under
+// ~/.claude/identities/<key>/bounties/). The client passes it from the resolved
+// `identity.identityKey` from `useSessionIdentity()` — no additional backend
+// resolution needed (D-01).
+
+export type Bounty = {
+  id: string;
+  title: string;
+  premise: string;
+  status: string;
+  priority: string;
+  keywords: string[];
+  requested_by: string | null;
+  created_at: string;
+  updated_at: string;
+  timeline: string[];
+  todos: { text: string; done: boolean }[];
+};
+
+export type IdentityListBountiesPayload = {
+  type: "identity:list-bounties";
+  identityKey: string;
+};
+
+export type IdentityBountiesEvent = {
+  type: "identity:bounties";
+  bounties: Bounty[];
+  archivedBounties: Bounty[];
+  error?: string;
 };
