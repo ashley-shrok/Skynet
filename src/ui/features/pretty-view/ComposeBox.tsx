@@ -453,9 +453,12 @@ export function ComposeBox({
         <div className="flex flex-col gap-1">
           {/* Phase 4 Glass: RotateCcw + ThumbsUp adopt the mock's
               `.pv-icon-btn` quiet treatment (warm-neutral gradient +
-              hue-tinted hover glow). Only Send gets the saturated
-              identity-hue treatment — VISUAL-08 HARD LOCK: send is
-              the ONE compose attention grab-point. */}
+              hue-tinted hover glow). Send gets a saturated warm-AMBER
+              treatment (fixed hue 38°) — VISUAL-08 HARD LOCK: send is
+              the ONE compose attention grab-point AND it's the USER's
+              button, so it deliberately does NOT wear the assistant's
+              identity hue. Kept vibrant (90% sat + brighter hover) so
+              it still dominates the composer visually. */}
           <Button
             size="icon-sm"
             variant="outline"
@@ -505,11 +508,11 @@ export function ComposeBox({
             className={cn(
               "rounded-md cursor-pointer",
               "border-[rgba(255,220,170,0.5)]",
-              "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),75%,66%,0.9),hsla(var(--pv-id-hue),75%,42%,0.92))]",
+              "bg-[linear-gradient(180deg,hsla(38,90%,66%,0.92),hsla(38,90%,44%,0.94))]",
               "text-[#1a0f04]",
-              "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,235,190,0.45),_0_0_24px_hsla(var(--pv-id-hue),75%,52%,0.4)]",
-              "hover:bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),80%,72%,0.95),hsla(var(--pv-id-hue),80%,48%,0.97))]",
-              "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,235,190,0.55),_0_0_32px_hsla(var(--pv-id-hue),75%,52%,0.5)]",
+              "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,235,190,0.5),_0_0_24px_hsla(38,90%,55%,0.42)]",
+              "hover:bg-[linear-gradient(180deg,hsla(38,95%,72%,0.96),hsla(38,95%,50%,0.98))]",
+              "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,235,190,0.6),_0_0_32px_hsla(38,90%,55%,0.5)]",
               "disabled:opacity-40 disabled:cursor-not-allowed",
             )}
           >
