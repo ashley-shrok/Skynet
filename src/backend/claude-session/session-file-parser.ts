@@ -2,13 +2,18 @@
  * Parse one line of a Claude Code JSONL session file into a conversational
  * message event, or classify it as skip/malformed.
  *
- * V1 scope is a HARD LOCK (RENDER-01, .planning/shapes/shape-pretty-session-view.md
- * "aggressive minimalism"): only user-typed text and Claude's text replies
- * become messages. Anthropic content blocks come in four shapes — text,
- * tool_use, tool_result, thinking — and v1 emits ONLY text. tool_use,
- * tool_result, and thinking are dropped structurally (never surfaced as
- * content), and turns whose only non-text content is those types return
- * {kind:"skip"}.
+ * V1 scope was a HARD LOCK (RENDER-01, .planning/shapes/shape-pretty-session-view.md
+ * "aggressive minimalism, IMAGES EXCEPTED (patch #86)"): only user-typed
+ * text and Claude's text replies became messages. Anthropic content blocks
+ * come in four shapes — text, tool_use, tool_result, thinking — and V1
+ * emitted ONLY text. tool_use, non-image tool_result, and thinking are
+ * still dropped structurally (never surfaced as content).
+ *
+ * Patch #86 lifts the restriction for IMAGES ONLY. Turns carrying inline
+ * base64 image content (either as a bare `image` content block or as an
+ * `image` inner block inside a `tool_result`, or via the Claude-Code-local
+ * `toolUseResult.file.base64` convenience path) are now surfaced as a
+ * `kind:"image"` variant. Non-image tool_results still drop.
  *
  * Informational-only prior art (NOT a dependency): github.com/delexw/claude-code-trace
  * has already worked out the file format; we reimplement here because the
@@ -23,8 +28,24 @@ export type ConversationalMessage = {
   ts: number;
 };
 
+export type ImageBlock = {
+  data: string; // raw b64, no data-URI prefix
+  mediaType: string;
+  toolUseId?: string;
+};
+
+export type ImageMessage = {
+  kind: "image";
+  role: "user" | "assistant" | "tool_result";
+  images: ImageBlock[];
+  text: string;
+  eventId: string;
+  ts: number;
+};
+
 export type ParsedLine =
   | ConversationalMessage
+  | ImageMessage
   | { kind: "skip"; why: string }
   | { kind: "malformed" };
 
@@ -47,6 +68,111 @@ function extractText(content: unknown): string {
     return parts.join("");
   }
   return "";
+}
+
+/**
+ * Scan a parsed JSONL turn for inline base64 image references.
+ *
+ * Returns an array of ImageBlock descriptors (empty if none). Two canonical
+ * paths are scanned within `message.content[]`:
+ *   1. `tool_result` blocks with `content[]` containing `image` inner blocks
+ *      whose `source.type === "base64"`. The outer tool_result's
+ *      `tool_use_id` is preserved on each ImageBlock.
+ *   2. Bare `image` content blocks with `source.type === "base64"` (per
+ *      Anthropic API valid on any role; rare in Claude Code JSONL).
+ *
+ * DEDUP: the Claude-Code-local convenience path (`toolUseResult.file.base64`)
+ * carries the SAME base64 as the canonical path in the common case. To avoid
+ * double-emitting, the CC-local scan runs ONLY when the canonical scan
+ * yielded ZERO refs. `originalSize` is intentionally dropped — out of scope
+ * for the wire type.
+ */
+export function extractImageRefs(obj: Record<string, unknown>): ImageBlock[] {
+  const refs: ImageBlock[] = [];
+  const msg = obj.message;
+  if (msg && typeof msg === "object") {
+    const content = (msg as Record<string, unknown>).content;
+    if (Array.isArray(content)) {
+      for (const outer of content as unknown[]) {
+        if (!outer || typeof outer !== "object") continue;
+        const outerObj = outer as Record<string, unknown>;
+
+        // Canonical path: tool_result carrying image inner blocks.
+        if (
+          outerObj.type === "tool_result" &&
+          Array.isArray(outerObj.content)
+        ) {
+          const toolUseId =
+            typeof outerObj.tool_use_id === "string"
+              ? outerObj.tool_use_id
+              : undefined;
+          for (const inner of outerObj.content as unknown[]) {
+            if (!inner || typeof inner !== "object") continue;
+            const innerObj = inner as Record<string, unknown>;
+            if (innerObj.type !== "image") continue;
+            const source = innerObj.source;
+            if (!source || typeof source !== "object") continue;
+            const sourceObj = source as Record<string, unknown>;
+            if (
+              sourceObj.type === "base64" &&
+              typeof sourceObj.data === "string"
+            ) {
+              const mediaType =
+                typeof sourceObj.media_type === "string"
+                  ? sourceObj.media_type
+                  : "image/png";
+              const ref: ImageBlock = {
+                data: sourceObj.data,
+                mediaType,
+              };
+              if (toolUseId !== undefined) ref.toolUseId = toolUseId;
+              refs.push(ref);
+            }
+          }
+          continue;
+        }
+
+        // Bare image content block.
+        if (outerObj.type === "image") {
+          const source = outerObj.source;
+          if (!source || typeof source !== "object") continue;
+          const sourceObj = source as Record<string, unknown>;
+          if (
+            sourceObj.type === "base64" &&
+            typeof sourceObj.data === "string"
+          ) {
+            const mediaType =
+              typeof sourceObj.media_type === "string"
+                ? sourceObj.media_type
+                : "image/png";
+            refs.push({ data: sourceObj.data, mediaType });
+          }
+        }
+      }
+    }
+  }
+
+  // Claude-Code-local convenience path — only if canonical scan was empty
+  // (dedup: same b64, different field names).
+  if (refs.length === 0) {
+    const tur = obj.toolUseResult;
+    if (tur && typeof tur === "object") {
+      const turObj = tur as Record<string, unknown>;
+      if (turObj.type === "image") {
+        const file = turObj.file;
+        if (file && typeof file === "object") {
+          const fileObj = file as Record<string, unknown>;
+          if (typeof fileObj.base64 === "string") {
+            const mediaType =
+              typeof fileObj.type === "string" ? fileObj.type : "image/png";
+            refs.push({ data: fileObj.base64, mediaType });
+          }
+        }
+      }
+    }
+  }
+
+  return refs;
 }
 
 function fallbackEventId(): string {
@@ -83,7 +209,13 @@ export function parseSessionLine(line: string): ParsedLine {
   if (msg == null) return { kind: "skip", why: "no_message" };
 
   const content = extractText(msg.content);
-  if (content === "") return { kind: "skip", why: "empty_content" };
+  const imageRefs = extractImageRefs(obj);
+
+  // Empty-content skip only applies when there are no images. If images are
+  // present, the image bubble carries the turn even when text is empty.
+  if (content === "" && imageRefs.length === 0) {
+    return { kind: "skip", why: "empty_content" };
+  }
 
   // Skip harness-injected wrapper-only user turns. The Monitor tool
   // ("<task-notification>") and stop-hook nudges ("<system-reminder>")
@@ -93,7 +225,11 @@ export function parseSessionLine(line: string): ParsedLine {
   // the wrapper (startsWith AND endsWith), so a user turn that mixes a
   // reminder with real speech (both text blocks concatenated) still
   // renders. Nobody legitimately types these tags as prose.
-  if (isUser) {
+  //
+  // Patch #86 edge case: when images are present, the wrapper-only skip
+  // is bypassed — an image bubble is worth showing even if the
+  // accompanying text is a harness wrapper.
+  if (isUser && imageRefs.length === 0) {
     const t = content.trim();
     if (
       (t.startsWith("<task-notification>") && t.endsWith("</task-notification>")) ||
@@ -117,6 +253,32 @@ export function parseSessionLine(line: string): ParsedLine {
   if (typeof rawTs === "string") {
     const parsed = Date.parse(rawTs);
     if (Number.isFinite(parsed)) ts = parsed;
+  }
+
+  if (imageRefs.length > 0) {
+    // Role derivation: images that arrived via ANY tool_result path get
+    // role "tool_result" — that includes both (a) the canonical Anthropic
+    // path where an image block sits inside `tool_result.content[]` (any
+    // resulting ref carries a toolUseId), AND (b) the Claude-Code-local
+    // convenience path via `obj.toolUseResult` which is by construction a
+    // tool_result payload (Claude Code never populates that key for
+    // user-typed or assistant-generated bare images). Bare image content
+    // blocks with no tool_result wrapping keep their JSONL role
+    // (user/assistant) since they represent direct user/assistant image
+    // content rather than a tool response.
+    const anyToolUseId = imageRefs.some((r) => r.toolUseId !== undefined);
+    const cameFromToolUseResult =
+      obj.toolUseResult !== undefined && obj.toolUseResult !== null;
+    const imageRole: "user" | "assistant" | "tool_result" =
+      anyToolUseId || cameFromToolUseResult ? "tool_result" : role;
+    return {
+      kind: "image",
+      role: imageRole,
+      images: imageRefs,
+      text: content,
+      eventId,
+      ts,
+    };
   }
 
   return {
