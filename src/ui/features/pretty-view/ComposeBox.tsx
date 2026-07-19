@@ -446,7 +446,23 @@ export function ComposeBox({
           // our own hue ring wins cleanly.
           className={cn(
             "resize-none flex-1 self-stretch",
-            "bg-[rgba(15,10,5,0.42)] text-[#f0ebe0]",
+            // `!` (Tailwind v4 important suffix) is required on the bg
+            // arbitrary class: the shadcn `Textarea` wrapper's base
+            // className carries `dark:bg-input/30` (see
+            // src/ui/components/textarea.tsx), which compiles to the
+            // selector `.dark .dark\:bg-input\/30` — specificity 0-2-0.
+            // A plain arbitrary `.bg-\[rgba\(...\)\]` is only 0-1-0 and
+            // silently LOSES the cascade even though it appears later in
+            // the classList (tailwind-merge preserves both because the
+            // variant differs). `!` promotes ours to !important so it
+            // beats the dark: variant. Verified via a DOM diag snippet
+            // 2026-07-19: without `!`, computed bg was
+            // `oklab(1 0 0 / 0.045)` (dark:bg-input/30 winning); with
+            // `!` it resolves to rgba(15,10,5,0.42) as intended.
+            // Border does NOT need `!` — shadcn's base is plain
+            // `border-input` (no dark: variant → same specificity as
+            // ours → tailwind-merge dedupes → later class wins cleanly).
+            "bg-[rgba(15,10,5,0.42)]! text-[#f0ebe0]",
             "border border-[rgba(255,240,215,0.07)]",
             "rounded-[10px] px-4 py-3",
             "placeholder:text-[var(--color-pv-fg-dim)]",
