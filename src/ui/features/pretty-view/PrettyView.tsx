@@ -477,7 +477,17 @@ export function PrettyView({
                 onClick={scrollToBottom}
                 aria-label="Jump to latest"
                 title="Jump to latest"
-                className="pointer-events-auto shadow-md"
+                className={cn(
+                  "pointer-events-auto rounded-full cursor-pointer",
+                  "border border-white/10",
+                  "bg-[linear-gradient(180deg,rgba(70,66,58,0.75),rgba(38,34,28,0.85))]",
+                  "text-[#e8e4d8]",
+                  "backdrop-blur-md",
+                  "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.15)]",
+                  "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.85),rgba(60,50,32,0.9))]",
+                  "hover:border-[rgba(255,240,215,0.22)]",
+                  "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,210,0.22),_0_0_20px_rgba(255,240,215,0.16)]",
+                )}
               >
                 <ArrowDown className="size-4" />
               </Button>

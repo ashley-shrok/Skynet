@@ -425,7 +425,7 @@ export function ComposeBox({
           // focus-visible:ring-ring/50 focus-visible:ring-[3px]`) so our
           // own hue ring wins cleanly.
           className={cn(
-            "resize-none flex-1",
+            "resize-none flex-1 self-stretch",
             "bg-white/[0.03] text-[#f0ebe0]",
             "border border-[rgba(255,240,215,0.09)]",
             "rounded-[10px] px-4 py-3",
@@ -461,7 +461,7 @@ export function ComposeBox({
             aria-label="Send with /id reset prefix"
             title="Send with /id reset prefix"
             className={cn(
-              "rounded-md",
+              "rounded-md cursor-pointer",
               "border-white/10",
               "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
               "text-[#e8e4d8]",
@@ -481,7 +481,7 @@ export function ComposeBox({
             aria-label="Send 'go ahead'"
             title="Send 'go ahead'"
             className={cn(
-              "rounded-md",
+              "rounded-md cursor-pointer",
               "border-white/10",
               "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
               "text-[#e8e4d8]",
@@ -500,7 +500,7 @@ export function ComposeBox({
             aria-label="Send message"
             title="Send (Enter)"
             className={cn(
-              "rounded-md",
+              "rounded-md cursor-pointer",
               "border-[rgba(255,220,170,0.5)]",
               "bg-[linear-gradient(180deg,hsla(var(--pv-id-hue),75%,66%,0.9),hsla(var(--pv-id-hue),75%,42%,0.92))]",
               "text-[#1a0f04]",
