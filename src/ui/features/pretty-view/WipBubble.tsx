@@ -22,7 +22,7 @@ export function WipBubble() {
       <Loader2
         role="status"
         aria-label="Claude is working"
-        className="h-5 w-5 animate-spin motion-reduce:animate-none text-[rgba(150,180,220,0.9)]"
+        className="h-7 w-7 animate-spin motion-reduce:animate-none text-[rgba(150,180,220,0.9)]"
       />
     </div>
   );
