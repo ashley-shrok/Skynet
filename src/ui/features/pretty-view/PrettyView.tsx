@@ -461,7 +461,7 @@ export function PrettyView({
             {messages.map((m) => (
               <ChatMessage key={m.eventId} role={m.role} content={m.content} />
             ))}
-            {wipActive && <WipBubble />}
+            {(wipActive || backgroundedAgents.length > 0 || backgroundedShells.length > 0) && <WipBubble />}
             {planPending && <PlanPendingBubble />}
           </div>
           {/* Jump-to-bottom pill — sibling of the content wrapper, still

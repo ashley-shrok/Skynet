@@ -1,16 +1,17 @@
-// Patch #51: work-in-progress spinner bubble for the pretty view.
+// Patch #51 introduced the WIP indicator; patch #72 reworked it.
 //
 // Mounted by PrettyView.tsx as the last child of the content wrapper when
-// the claude-session WebSocket reports {type:"wip", active:true}. Unmounted
-// when the session returns {type:"wip", active:false} (i.e. when Claude Code
-// returns control to the user).
+// EITHER (a) the Terminal PTY reports non-idle (Claude is mid-turn) OR
+// (b) backgrounded agents/shells are running. All three states share one
+// practical meaning to the operator: "session is busy, come back later."
 //
-// The visual is intentionally text-free: a Loader2 spinner inside an
-// assistant-aligned bubble is self-explanatory in the chat context — it means
-// "Claude Code is working." Adding a text label ("Thinking…", "Working…")
-// would be guesswork about what stage the session is in, which the JSONL does
-// not expose at this resolution. The aria-label carries the semantic for
-// assistive technology.
+// Deliberately NOT a bubble. WIP is a naked, floating, assistant-aligned
+// spinner so at-a-glance parsing distinguishes "session is busy" (spinner,
+// no bubble) from "assistant said something" (bubble). Contrast with
+// PlanPendingBubble, which KEEPS its bubble because plan-pending semantics
+// are "idle, waiting on you" — message-shaped, message chrome.
+//
+// aria-label + role="status" carry the semantic for assistive technology.
 
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,28 +19,11 @@ import { cn } from "@/lib/utils";
 export function WipBubble() {
   return (
     <div className={cn("flex", "justify-start")}>
-      <div
+      <Loader2
         role="status"
-        className={cn(
-          // Phase 4 Glass: shared assistant-bubble treatment (matches ChatMessage
-          // assistant branch — same raised-object depth, so the WIP bubble reads
-          // as belonging to the same visual family as the surrounding assistant
-          // turns).
-          "leading-relaxed",
-          "rounded-[var(--radius-pv-bubble)] px-3 py-2",
-          "backdrop-blur-xl saturate-150",
-          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
-          "text-[#dfe3ee]",
-          "border border-white/[0.08]",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
-        )}
-      >
-        <Loader2
-          className="h-4 w-4 animate-spin motion-reduce:animate-none text-[rgba(150,180,220,0.9)]"
-          aria-label="Claude is working"
-        />
-      </div>
+        aria-label="Claude is working"
+        className="h-5 w-5 animate-spin motion-reduce:animate-none text-[rgba(150,180,220,0.9)]"
+      />
     </div>
   );
 }
