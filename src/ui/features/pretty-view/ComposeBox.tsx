@@ -74,6 +74,8 @@ export interface ComposeBoxProps {
   // — tmuxSession null for non-tmux SSH hosts (Windows / no-tmux).
   hostId: number;
   tmuxSession?: string | null;
+  // Optional: pane's registered identity displayName (e.g. "Tina"). Used to personalize the "Message …" textarea placeholder. Falls back to "Claude" when omitted or empty.
+  identityName?: string;
   className?: string;
 }
 
@@ -83,6 +85,7 @@ export function ComposeBox({
   contextPct,
   hostId,
   tmuxSession,
+  identityName,
   className,
 }: ComposeBoxProps) {
   const [text, setText] = useState("");
@@ -412,7 +415,7 @@ export function ComposeBox({
           onChange={(e) => handleTextChange(e.target.value)}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
-          placeholder="Message Claude…"
+          placeholder={`Message ${identityName || "Claude"}…`}
           rows={rows}
           // Phase 4 Glass: lightest-touch textarea outline (VISUAL-07) +
           // identity-hue focus ring (VISUAL-03/VISUAL-07). The 1px warm-

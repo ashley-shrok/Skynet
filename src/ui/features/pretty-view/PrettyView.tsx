@@ -165,7 +165,7 @@ export function PrettyView({
   // at all. NOTE: this differs from the terminal pane (patch #26)
   // which uses hueFromSessionName as a hash-based fallback — pretty
   // view is deliberately more restrained per CONTEXT.md § Decisions 2.
-  const { identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession);
+  const { identity: pvIdentity, identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession);
   const pvIdentityKey = sessionMatchKey(tmuxSession);
   const pvHue = pvIdentityHue ?? 35;
 
@@ -547,6 +547,7 @@ export function PrettyView({
           contextPct={contextPct}
           hostId={hostId}
           tmuxSession={tmuxSession}
+          identityName={pvIdentity?.displayName}
           className="shrink-0"
         />
       )}
