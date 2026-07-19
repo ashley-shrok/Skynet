@@ -14,7 +14,7 @@ import {
 import { ChatMessage } from "./ChatMessage";
 import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
-import { SessionHoldingBanner } from "./SessionHoldingBanner";
+import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
@@ -138,6 +138,14 @@ export function PrettyView({
   // WebSocket is NOT closed during holding — the tail restart is server-side
   // and transparent to this client (see CONTEXT.md § Frontend event handling).
   const [isHolding, setIsHolding] = useState(false);
+  // Patch #74: `showOverlay` gates the full-surface SessionHoldingOverlay
+  // mount. It is delay-armed (~350ms) after `isHolding` flips true — see
+  // the useEffect below. Held separately from `isHolding` because
+  // genuinely-instant resets (tiny JSONL rewrites, sub-second recycles)
+  // should NEVER flash the overlay. If `isHolding` flips false before
+  // the 350ms timer fires, `showOverlay` stays false and no overlay ever
+  // renders.
+  const [showOverlay, setShowOverlay] = useState(false);
   // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
   // (patch #51 rework — was previously state fed by a JSONL classifier
   // over the claude-session WS, which turned out to be unreliable
@@ -181,6 +189,7 @@ export function PrettyView({
     setBackgroundedShells([]);
     setPlanPending(null);
     setIsHolding(false);
+    setShowOverlay(false);
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -328,6 +337,28 @@ export function PrettyView({
     };
   }, [hostId, tmuxSession]);
 
+  // Patch #74: delay-armed gate for the SessionHoldingOverlay. When
+  // `isHolding` becomes true, arm a ~350ms timer; only after it fires
+  // does `showOverlay` flip true (and the overlay mounts). When
+  // `isHolding` becomes false, clear the pending timer AND drop
+  // `showOverlay` immediately — so genuinely-instant resets (tiny
+  // JSONL rewrites, sub-second recycles) NEVER flash the overlay. If
+  // `isHolding` clears before 350ms elapses, `showOverlay` stays false
+  // and no overlay ever renders. Effect cleanup also clears the timer,
+  // so an unmount mid-hold never leaves an orphaned setState.
+  useEffect(() => {
+    if (!isHolding) {
+      setShowOverlay(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      setShowOverlay(true);
+    }, 350);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [isHolding]);
+
   return (
     <div
       data-pv-root
@@ -359,10 +390,17 @@ export function PrettyView({
           // over a warm-neutral linear-gradient base. HARD LOCK: this
           // uses `background-image` ONLY. Do NOT add backdropFilter,
           // filter, transform, willChange, or perspective to this root
-          // div — any of those would establish a new containing block
-          // for the SessionHoldingBanner's `sticky top-0` descendant and
-          // break it per the FRAGILITY WARNING below. `background-image`
-          // is safe (it never establishes a containing block).
+          // div. Reason (patch #74 rewrite): the absolute-positioned
+          // SessionHoldingOverlay (`absolute inset-0`) resolves against
+          // this root's `relative` positioning. If the root gained
+          // `transform` or `filter`, that would still create a valid
+          // containing block for the overlay (it's absolute, so `inset-0`
+          // would still land correctly) — BUT it would ALSO shift the
+          // stacking context in ways that can steal IdentityBadge's
+          // z-[101] out from under the app-modal z-band, and can trap
+          // any future sticky/fixed descendants inside pretty-view.
+          // `background-image` is safe (it never establishes a
+          // containing block or a new stacking context).
           //
           // Note: the top-left warm radial uses the resolved `${pvHue}`
           // numeric literal rather than `hsla(var(--pv-id-hue),...)`
@@ -392,6 +430,19 @@ export function PrettyView({
       {pvIdentityKey && (
         <IdentityBadge identityKey={pvIdentityKey} size="lg" />
       )}
+      {/* Patch #74: full-surface session-recycle overlay. Absolute-
+          positioned via SessionHoldingOverlay's own `absolute inset-0`,
+          anchored to this root's `relative overflow-hidden`. Mount gate
+          is `showOverlay` (delay-armed by ~350ms after isHolding=true)
+          rather than raw `isHolding` — see the useEffect above for the
+          gate rationale. Sits above IdentityBadge (z-[110] > z-[101])
+          but below app-modal dialogs (z-[500]), which is intentional:
+          session-recycle is component-local state, not an app-modal
+          event. Replaces the previous sticky top-of-scroll banner
+          (retired in patch #74) per Ashley's live 2026-07-19 design
+          read — the old bar was too subtle for how significant the
+          state actually is. */}
+      {showOverlay && <SessionHoldingOverlay />}
       {status === "connecting" && (
         <div className="p-4 text-sm text-[var(--color-pv-fg-muted)]">
           Connecting…
@@ -414,45 +465,6 @@ export function PrettyView({
           ref={scrollRef}
           className="flex-1 min-h-0 overflow-y-auto px-4 py-3"
         >
-          {/* Session-holding banner — sticky at the top of the scroll region
-              so scrolling up through the old conversation during the ~5s
-              recycle gap still shows the status. Mounted only when the
-              backend has flagged holding; auto-dismissed on session_changed
-              or inactive (per Task 3 handlers above). Positioned BEFORE the
-              content wrapper so it visually sits above the messages list.
-              Uses sticky top-0 with a small negative margin (-mx-4 -mt-3)
-              to cancel the scroll container's own px-4 py-3 padding on the
-              top and horizontal edges so the banner reads as a full-width
-              band rather than a pill inset inside the messages.
-              z-10 keeps it above scrolling content.
-
-              FRAGILITY WARNING (W4 fix from plan-checker 2026-07-18): the
-              `sticky top-0` positioning silently breaks if ANY ancestor
-              gains a CSS `transform` or `will-change` property — those
-              establish a new containing block for fixed/sticky descendants
-              and the banner will scroll away with the content rather than
-              sticking. If a future patch adds `transform`, `will-change`,
-              `filter`, `perspective`, or `backdrop-filter` to Terminal.tsx's
-              flex-column wrapper, PrettyView's outer div, or any element
-              between them and the scroll container HERE, this sticky banner
-              stops working correctly. If that happens, options:
-                (a) find and remove the transform-inducing ancestor property.
-                (b) hoist the banner OUT of the scroll container as a sibling
-                    of the scroll container inside PrettyView's flex-column
-                    (would need `shrink-0` and to relocate the {isHolding &&}
-                    gate to PrettyView's outer JSX). See CONTEXT.md § W4
-                    discussion for the option-(b) restructure.
-              The sticky pattern is proven elsewhere in Termix so option-(a)
-              is preferred; option-(b) is a bigger refactor. Note:
-              `backdrop-filter` on THIS sticky element itself is fine — it
-              establishes a containing block only for its own descendants,
-              not for the sticky element itself. The W4 fragility is about
-              ancestors, not the sticky element's own filter properties. */}
-          {isHolding && (
-            <div className="sticky top-0 z-10 -mx-4 -mt-3 mb-3 px-4 py-2 bg-[rgba(20,18,14,0.92)] backdrop-blur-sm border-b border-[var(--color-pv-border-quiet)]">
-              <SessionHoldingBanner />
-            </div>
-          )}
           {/* Inner content wrapper: the ResizeObserver in useAutoScroll
               watches THIS element for content-size changes (new messages,
               markdown re-layout, Inter font swap). The outer scrollRef div
