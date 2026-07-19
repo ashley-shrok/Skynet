@@ -17,19 +17,57 @@ import {
   type Identity,
 } from "@/api/identities-api";
 
+// 40-hue palette at 9° gaps. Denser than the original 12 so a fleet with
+// many identities can hand-pick distinct pane hues without collisions
+// (with only 12 slots, four+ identities routinely landed on the same
+// hue). Slot names are picked for hover-tooltip clarity; the actual
+// rendered bubble at `hsla(H, 50%, 38%)` blurs perceptually-adjacent
+// hues in dark realm, so some near-adjacent picks may look similar in
+// the message stream even though their swatches look distinct. Further
+// collision-reduction would need to layer saturation/lightness
+// variants (thread `--pv-id-sat` / `--pv-id-light` through the
+// consumer classes); punting that until we outgrow 40.
 const SWATCH_HUES = [
   { hue: 0, label: "Red" },
-  { hue: 30, label: "Orange" },
-  { hue: 50, label: "Yellow" },
-  { hue: 90, label: "Lime" },
-  { hue: 130, label: "Green" },
-  { hue: 165, label: "Teal" },
-  { hue: 195, label: "Sky" },
+  { hue: 9, label: "Scarlet" },
+  { hue: 18, label: "Vermillion" },
+  { hue: 27, label: "Orange" },
+  { hue: 36, label: "Amber" },
+  { hue: 45, label: "Gold" },
+  { hue: 54, label: "Yellow" },
+  { hue: 63, label: "Chartreuse" },
+  { hue: 72, label: "Yellow-Green" },
+  { hue: 81, label: "Lime" },
+  { hue: 90, label: "Light Green" },
+  { hue: 99, label: "Grass" },
+  { hue: 108, label: "Kelly Green" },
+  { hue: 117, label: "Green" },
+  { hue: 126, label: "Emerald" },
+  { hue: 135, label: "Forest" },
+  { hue: 144, label: "Jade" },
+  { hue: 153, label: "Teal" },
+  { hue: 162, label: "Aqua" },
+  { hue: 171, label: "Cyan" },
+  { hue: 180, label: "Turquoise" },
+  { hue: 189, label: "Sky Cyan" },
+  { hue: 198, label: "Sky" },
+  { hue: 207, label: "Azure" },
+  { hue: 216, label: "Cornflower" },
   { hue: 225, label: "Blue" },
-  { hue: 265, label: "Indigo" },
-  { hue: 290, label: "Violet" },
-  { hue: 320, label: "Pink" },
-  { hue: 345, label: "Rose" },
+  { hue: 234, label: "Cobalt" },
+  { hue: 243, label: "Deep Blue" },
+  { hue: 252, label: "Indigo" },
+  { hue: 261, label: "Blue Violet" },
+  { hue: 270, label: "Violet" },
+  { hue: 279, label: "Purple" },
+  { hue: 288, label: "Magenta" },
+  { hue: 297, label: "Orchid" },
+  { hue: 306, label: "Fuchsia" },
+  { hue: 315, label: "Hot Pink" },
+  { hue: 324, label: "Pink" },
+  { hue: 333, label: "Rose" },
+  { hue: 342, label: "Cherry" },
+  { hue: 351, label: "Coral" },
 ];
 const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
