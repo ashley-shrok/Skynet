@@ -1,0 +1,94 @@
+import { cn } from "@/lib/utils";
+import type { ImageBlock } from "@/api/claude-session-api";
+
+// Patch #86: pretty-view image bubble.
+//
+// Renders one image WebSocket event (`{type:"image", ...}`) as a
+// left-aligned Glass bubble carrying one or more `<img>` elements with
+// inline base64 data-URI srcs.
+//
+// Aesthetic contract (Ashley 2026-07-19 design read): ALWAYS use the
+// assistant identity-hue treatment regardless of `role`. Semantically the
+// Read that produced the image was invoked by the assistant, so the image
+// visually lives on the assistant side of the conversation. This matches
+// ChatMessage's assistant branch byte-for-byte (gradient / border /
+// shadow tokens) — the only difference is padding (12px here vs.
+// 18px/14px in ChatMessage) because images want tighter breathing room
+// around their edges than prose does.
+//
+// Non-obvious behaviors:
+//
+//   1. NO markdown parsing on the accompanying `text`. Image bubbles are
+//      not prose surfaces — the text field is usually empty (tool_results
+//      are typically image-only), and when non-empty it's a short caption
+//      like "<system-reminder>foo</system-reminder>" (see parser test 9)
+//      that we want to render as literal text, not interpret. Preserves
+//      whitespace via `whitespace-pre-wrap`.
+//
+//   2. Index-based `key` on the image list. Image order within a single
+//      event is stable within the parser's emit, and the parent
+//      PrettyView already dedups on `eventId`, so index keys are safe.
+//
+//   3. NO click-to-zoom, NO filename caption from tool_use correlation.
+//      Out of scope for this patch — the bubble is a passive viewer.
+//
+//   4. NO `!` important overrides. This is a plain <div> wrapper, not a
+//      shadcn UI primitive, so the patch-#81 wrapper defense doesn't
+//      apply.
+export function ImageBubble({
+  role,
+  images,
+  text,
+  eventId,
+  ts,
+}: {
+  role: "user" | "assistant" | "tool_result";
+  images: ImageBlock[];
+  text: string;
+  eventId: string;
+  ts: number;
+}) {
+  const caption = `${role === "tool_result" ? "tool_result" : role} · ${images.length} image${images.length === 1 ? "" : "s"}`;
+  const shortEventId = eventId.slice(0, 8);
+  const timeLabel = new Date(ts).toLocaleTimeString();
+  const hasText = text.trim() !== "";
+  return (
+    <div className="flex justify-start">
+      <div
+        className={cn(
+          // Layout — 12px padding tighter than ChatMessage per scope_detail.
+          "max-w-[min(85%,640px)]",
+          "rounded-[var(--radius-pv-bubble)] px-3 py-3",
+          "flex flex-col gap-2",
+          // Glass.
+          "backdrop-blur-xl saturate-150",
+          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
+          // Assistant identity-hue treatment (byte-identical to
+          // ChatMessage assistant branch — gradient / border / shadow).
+          "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
+          "text-[#fbf5e8]",
+          "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
+          // Font override matches ChatMessage.
+          "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
+        )}
+      >
+        <div className="text-xs font-mono opacity-70">{caption}</div>
+        {hasText && (
+          <div className="text-sm break-words whitespace-pre-wrap">{text}</div>
+        )}
+        {images.map((img, i) => (
+          <img
+            key={i}
+            src={`data:${img.mediaType};base64,${img.data}`}
+            alt={`image ${i + 1}`}
+            className="max-w-full max-h-[480px] object-contain rounded"
+          />
+        ))}
+        <div className="text-xs font-mono opacity-70">
+          {shortEventId} · {timeLabel}
+        </div>
+      </div>
+    </div>
+  );
+}
