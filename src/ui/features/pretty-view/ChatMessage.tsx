@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ThumbsUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 
@@ -39,6 +40,13 @@ export function ChatMessage({
   content: string;
 }) {
   const isUser = role === "user";
+  // "go ahead" as-a-thumbs-up: a user message whose text is exactly "go ahead"
+  // (case-insensitive, ignoring surrounding whitespace) renders as a ThumbsUp
+  // glyph inside the normal user bubble. Mirrors the ComposeBox quick-send
+  // button that produces this message, so what she sent visually matches what
+  // she clicked. Client-render-only — session file stays faithful.
+  const isGoAhead =
+    isUser && content.trim().toLowerCase() === "go ahead";
   // Prettify slash-command triplets before markdown parsing. Runs of
   // <command-message>/<command-name>/<command-args> tags become ⟨cmd:...⟩
   // sentinel markers, then the `p` component override below splits those
@@ -98,23 +106,27 @@ export function ChatMessage({
               ),
         )}
       >
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            a: ({ node, ...props }) => (
-              <a
-                {...props}
-                target="_blank"
-                rel="noopener noreferrer"
-              />
-            ),
-            p: ({ node, children, ...props }) => (
-              <p {...props}>{splitMarkers(children)}</p>
-            ),
-          }}
-        >
-          {processedContent}
-        </ReactMarkdown>
+        {isGoAhead ? (
+          <ThumbsUp className="size-6" aria-label="go ahead" />
+        ) : (
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a: ({ node, ...props }) => (
+                <a
+                  {...props}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                />
+              ),
+              p: ({ node, children, ...props }) => (
+                <p {...props}>{splitMarkers(children)}</p>
+              ),
+            }}
+          >
+            {processedContent}
+          </ReactMarkdown>
+        )}
       </div>
     </div>
   );
