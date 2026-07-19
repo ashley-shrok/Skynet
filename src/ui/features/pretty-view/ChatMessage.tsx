@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 
 // Presentational chat bubble for one conversational message.
 //
@@ -38,6 +39,12 @@ export function ChatMessage({
   content: string;
 }) {
   const isUser = role === "user";
+  // Prettify slash-command triplets before markdown parsing. Runs of
+  // <command-message>/<command-name>/<command-args> tags become ⟨cmd:...⟩
+  // sentinel markers, then the `p` component override below splits those
+  // markers out into <CommandChip> pills. Backend session-file-parser stays
+  // faithful to the wire format — this transform is client-render-only.
+  const processedContent = preprocessCommandTriplets(content);
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
@@ -101,9 +108,12 @@ export function ChatMessage({
                 rel="noopener noreferrer"
               />
             ),
+            p: ({ node, children, ...props }) => (
+              <p {...props}>{splitMarkers(children)}</p>
+            ),
           }}
         >
-          {content}
+          {processedContent}
         </ReactMarkdown>
       </div>
     </div>
