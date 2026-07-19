@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
 Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
 Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-19 -- Completed quick task 260719-w8h: pretty-view identity modal (v1 read-only bounties)
+Last activity: 2026-07-19 -- Completed quick task 260719-wyt: scroll new message to top of viewport (patch #88)
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
@@ -98,6 +98,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260719-uqx | Bump WipBubble spinner size (patch #85) — h-5 w-5 → h-7 w-7 (20px → 28px) | 2026-07-19 | d818d9c | [260719-uqx-patch-85-bump-wipbubble-spinner-size-fro](./quick/260719-uqx-patch-85-bump-wipbubble-spinner-size-fro/) |
 | 260719-vil | Pretty-view image support (patch #86) — WS-inline b64 render of tool_result image blocks | 2026-07-19 | ab20b18 | [260719-vil-add-pretty-view-image-support-patch-86-w](./quick/260719-vil-add-pretty-view-image-support-patch-86-w/) |
 | 260719-w8h | Pretty-view identity modal (v1 read-only bounties) — click badge → tabbed modal with current identity's bounties | 2026-07-19 | f17924f | [260719-w8h-pretty-view-identity-modal-v1-read-only-](./quick/260719-w8h-pretty-view-identity-modal-v1-read-only-/) |
+| 260719-wyt | Pretty-view scroll new message to top of viewport when taller than viewport (patch #88) | 2026-07-19 | d6e40d1 | [260719-wyt-pretty-view-scroll-new-message-to-top-of](./quick/260719-wyt-pretty-view-scroll-new-message-to-top-of/) |
 
 ## Deferred Items
 
