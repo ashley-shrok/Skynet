@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
 Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
 Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-18 -- Phase 04 Wave 3 committed; verification-only (zero source diffs); ready for deploy
+Last activity: 2026-07-19 -- Completed quick task 260719-1mn: Prettify slash-command triplets in pretty-view chat bubbles
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
@@ -88,6 +88,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260718-87h | Backgrounded-agents panel in pretty view (patch #61) | 2026-07-18 | fe506e0 | [260718-87h-backgrounded-agents-panel-in-pretty-view](./quick/260718-87h-backgrounded-agents-panel-in-pretty-view/) |
 | 260718-8tk | Plan-mode pending indicator in pretty view (patch #63) | 2026-07-18 | fb65084 | [260718-8tk-patch63-plan-mode-pending-indicator](./quick/260718-8tk-patch63-plan-mode-pending-indicator/) |
 | 260718-s52 | Backgrounded-shells panel in pretty view (patch #68) | 2026-07-18 | 0a9d7a6 | [260718-s52-patch-68-add-backgrounded-shells-panel-t](./quick/260718-s52-patch-68-add-backgrounded-shells-panel-t/) |
+| 260719-1mn | Prettify slash-command triplets in pretty-view chat bubbles | 2026-07-19 | b7ed756 | [260719-1mn-prettify-slash-command-triplets-in-prett](./quick/260719-1mn-prettify-slash-command-triplets-in-prett/) |
 
 ## Deferred Items
 
