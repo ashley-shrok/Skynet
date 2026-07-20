@@ -643,7 +643,21 @@ export function ComposeBox({
               (isDraining=true, all segments render dim) this reads
               as a top→bottom sweep; when contextPct rises during
               normal use it reads as a bottom→top fill. */}
-          <div className="flex-1 flex flex-col-reverse gap-[2px] min-h-[30px]">
+          {/* Patch #89: swapped flex-col-reverse + flex-1-children for CSS
+              Grid with grid-template-rows: repeat(SEG_COUNT, 1fr) to fix
+              visibly uneven segment heights that Ashley called out on the
+              first #83 deploy eyeball. Root cause: flexbox `flex-1` in a
+              12-child column with 2px gaps and non-divisible available
+              height distributes rounding sub-pixels unevenly (some
+              segments 6px, others 7px depending on browser round). Grid
+              1fr rows distribute space more evenly. Explicit
+              gridRowStart on each segment preserves index-0=bottom-most
+              ordering that the color/lit logic already assumes without
+              needing flex-col-reverse. */}
+          <div
+            className="flex-1 grid gap-[2px] min-h-[30px]"
+            style={{ gridTemplateRows: `repeat(${SEG_COUNT}, 1fr)` }}
+          >
             {Array.from({ length: SEG_COUNT }, (_, i) => {
               const posPct = (i / (SEG_COUNT - 1)) * 100;
               const band =
@@ -694,8 +708,13 @@ export function ComposeBox({
               return (
                 <div
                   key={i}
-                  className="flex-1 min-h-[2px] rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
+                  className="min-h-[2px] rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
                   style={{
+                    // Patch #89: gridRowStart maps index-0=bottom-most,
+                    // index-(SEG_COUNT-1)=topmost — the ordering the
+                    // color/lit-count logic already assumes. Replaces the
+                    // prior flex-col-reverse visual flip.
+                    gridRowStart: SEG_COUNT - i,
                     transitionDelay: `${(SEG_COUNT - 1 - i) * 35}ms`,
                     background,
                     boxShadow,
