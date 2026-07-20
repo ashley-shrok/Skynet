@@ -54,6 +54,23 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [ ] **CHANGEOVER-04**: Once the new session is detected, pretty view resets its message list, harness-tasks list, and context-% state; the new session's conversation re-hydrates from the top via existing `tail -F -n +1` semantics; the identity badge and pane-tint (which follow the pane, not the session) are unaffected
 - [ ] **CHANGEOVER-05**: Detection handles both recycle (new session id → new .jsonl filename) and recover (`claude --resume <oldId>` → same session id but potentially different `projects/<slug>/` subdir when the resume-workdir differs from the original)
 
+### File Upload Support (Phase 5)
+
+- [ ] **UPLOAD-01**: Drag-and-drop anywhere on the pretty-view surface stages files as attachments; while a drag is over the surface, a full-surface "drop files here" overlay is visible; dropping outside the surface has no effect
+- [ ] **UPLOAD-02**: Clipboard paste into the compose area — screenshots, images, or any file-shaped clipboard payload — stages that payload as an attachment through the same landing path as drag-and-drop
+- [ ] **UPLOAD-03**: On touch devices only (gated by the same `useIsTouchDevice` signal that gates the mobile bottom nav), a paperclip button appears in the compose area and opens the native file picker on tap; desktop never renders the paperclip
+- [ ] **UPLOAD-04**: Staged attachments render as a chip strip above the compose textarea; each chip shows the original filename + human-readable size and has a × control to remove that attachment before send; the strip is only present when at least one attachment is staged (no empty-strip chrome)
+- [ ] **UPLOAD-05**: During transfer, each chip shows its own progress indicator (per-chip progress preferred; a single aggregate indicator across the batch is an acceptable fallback if per-chip proves fiddly)
+- [ ] **UPLOAD-06**: Send is atomic — the injected user turn does NOT go until every attachment has successfully landed on the receiving box; if any file fails mid-transfer, chips turn red, the message stays in staging, and the user can retry
+- [ ] **UPLOAD-07**: When the pane's SSH channel is down at send time, attachments + caption queue locally alongside the draft and send when the connection returns; when transfer fails mid-flight, retry is available without re-attaching
+- [ ] **UPLOAD-08**: Caption text inherits the existing message-queue-draft persistence model (patch #49) and survives tab close and reload; attachment bytes do NOT persist across tab close (user re-drags from the file still on their desktop) — no client-side blob storage
+- [ ] **UPLOAD-09**: Once all files have landed, a message is injected into the tmux session containing the caption text plus a compact metadata block per file: original filename, size, mimetype, upload timestamp, and full landing path on the receiving box; file BYTES are never inlined into the injected message (path-only-with-metadata)
+- [ ] **UPLOAD-10**: Files land at `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>` under the receiving user's home directory; day-organized subfolders are created on demand; the receiving side does NOT auto-clean any uploads (agent or user deletes them when done)
+- [ ] **UPLOAD-11**: In the sender's own pretty-view stream, the just-sent message renders as a single bubble containing the caption text and inline chips for each attachment (filename + size only); no inline previews or thumbnails, consistent across all mimetypes
+- [ ] **UPLOAD-12**: Attempting to drop a folder is refused with an in-surface nudge ("please attach files or zip first") and no attachments are staged; recursive folder uploads never happen
+- [ ] **UPLOAD-13**: Multiple attachments in one send share a single caption input (one caption per batch); there is no per-chip caption; empty caption is allowed (send with attachments only)
+- [ ] **UPLOAD-14**: The feature works on any pretty-view pane whose receiving-box shell can write to the user's home — including plain-shell panes as well as Claude Code panes; the injected metadata block is human-readable so a shell user can `cat`/`less` the file at the given path just as readily as an agent can `@`-reference it
+
 ### Visual Reskin — Glass Depth Aesthetic (Phase 4)
 
 - [ ] **VISUAL-01**: Pretty view's base surface reads as a warm-neutral dark atmosphere (not cool navy-black or pure black) with subtle radial-gradient depth cues implying an ambient light source — a physical space, not a flat fill
@@ -143,12 +160,26 @@ Which phases cover which requirements. Populated during roadmap creation.
 | VISUAL-08 | Phase 4 | Pending |
 | VISUAL-09 | Phase 4 | Pending |
 | VISUAL-10 | Phase 4 | Pending |
+| UPLOAD-01 | Phase 5 | Pending |
+| UPLOAD-02 | Phase 5 | Pending |
+| UPLOAD-03 | Phase 5 | Pending |
+| UPLOAD-04 | Phase 5 | Pending |
+| UPLOAD-05 | Phase 5 | Pending |
+| UPLOAD-06 | Phase 5 | Pending |
+| UPLOAD-07 | Phase 5 | Pending |
+| UPLOAD-08 | Phase 5 | Pending |
+| UPLOAD-09 | Phase 5 | Pending |
+| UPLOAD-10 | Phase 5 | Pending |
+| UPLOAD-11 | Phase 5 | Pending |
+| UPLOAD-12 | Phase 5 | Pending |
+| UPLOAD-13 | Phase 5 | Pending |
+| UPLOAD-14 | Phase 5 | Pending |
 
 **Coverage:**
-- v1 requirements: 34 total (19 shipped, 5 pending for Phase 3, 10 pending for Phase 4)
-- Mapped to phases: 34 ✓
+- v1 requirements: 48 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5)
+- Mapped to phases: 48 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-18 — added VISUAL-01..10 for Phase 4 (Glass depth visual reskin, spec: bounties/pretty-view-visual-overhaul/mock/index.html)*
+*Last updated: 2026-07-20 — added UPLOAD-01..14 for Phase 5 (pretty-view file upload support, spec: shapes/shape-pretty-view-file-upload-support.md)*
