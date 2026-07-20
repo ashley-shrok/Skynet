@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
 Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
 Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-20 -- Completed quick task 260720-7m1: broadened harness-wrapper filter (patch #97) — combined system-reminder+task-notification wakes were slipping through strict startsWith/endsWith filter and resetting patch #96's scroll anchor per wake; replaced with strip-all-wrappers-and-check-empty; 10 new tests, tsc clean; awaiting Ashley's deploy green-light.
+Last activity: 2026-07-20 -- Completed quick task 260720-8nj: gesture-based mode flip in useAutoScroll (patch #98) — replaced the rAF-counter scroll-event heuristic with wheel/touchmove/keydown listeners after live console diagnostic proved delayed scroll events were misfiring as user gestures 200ms+ after programmatic writes; 12 new tests (F removed, F'/K/L/M/N added), 301/301 vitest, tsc clean, build clean; awaiting Ashley's deploy green-light.
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
@@ -103,6 +103,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260720-3n2 | Identity modal cross-machine fetch (patch #92) — SSH to pane's host for identity artifacts | 2026-07-20 | 168b40d | [260720-3n2-identity-modal-cross-machine-fetch-ssh-t](./quick/260720-3n2-identity-modal-cross-machine-fetch-ssh-t/) |
 | 260720-6rl | Pretty-view scroll model: clamp-anchor + Slack-follow (patch #96) — replaces broken patch-#88 scroll-to-top + broken GTG bottom-scroll with unified `scrollTop=min(followBottomTop, anchorPinTop)` state machine | 2026-07-20 | 3908b8b | [260720-6rl-pretty-view-scroll-model-clamp-anchor-sl](./quick/260720-6rl-pretty-view-scroll-model-clamp-anchor-sl/) |
 | 260720-7m1 | Broaden pretty-view harness-wrapper filter (patch #97) — fixes #96 anchor-doesn't-hold bug caused by combined `<system-reminder>` + `<task-notification>` wakes slipping through strict startsWith/endsWith filter | 2026-07-20 | 0381b57 | [260720-7m1-broaden-pretty-view-harness-wrapper-filt](./quick/260720-7m1-broaden-pretty-view-harness-wrapper-filt/) |
+| 260720-8nj | Gesture-based mode flip in useAutoScroll (patch #98) — replaces rAF-counter scroll-event heuristic with wheel/touchmove/keydown listeners; delayed programmatic scrolls no longer misfire as user gestures. Diagnosed via live console diagnostic. | 2026-07-20 | 7edd1d8 | [260720-8nj-replace-scroll-event-mode-flip-with-real](./quick/260720-8nj-replace-scroll-event-mode-flip-with-real/) |
 
 ## Deferred Items
 
