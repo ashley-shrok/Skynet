@@ -45,6 +45,9 @@ import { HandoffTab } from "./HandoffTab";
 //   (identity file, history, wakeups, handoff) on modal open; tab renderers
 //   extracted to sibling files (IdentityFileTab / HistoryTab / WakeupsTab /
 //   HandoffTab). Bounties tab structure and patch #87 attribution preserved.
+// Patch #92: hostId prop threads pane host to backend for cross-machine identity reads.
+//   All 5 WS request payloads now carry hostId; useEffect deps include hostId so
+//   switching panes re-fetches against the correct host.
 //
 // Opens on click of the lg IdentityBadge in PrettyView (Task 3). Fetches
 // bounties via a one-shot identity:list-bounties WS request (D-02). Closes
@@ -94,11 +97,14 @@ export function IdentityModal({
   onOpenChange,
   identity,
   hue,
+  hostId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   identity: Identity;
   hue: number;
+  /** patch #92: pane's SSH host id — threads into all 5 WS requests for cross-machine reads. */
+  hostId: number;
 }) {
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [archivedBounties, setArchivedBounties] = useState<Bounty[]>([]);
@@ -175,12 +181,13 @@ export function IdentityModal({
       return sock;
     }
 
-    // Existing bounties WS (patch #87 — unchanged).
+    // Existing bounties WS (patch #87/#92 — now includes hostId).
     ws.onopen = () => {
       if (cancelled) return;
       const payload: IdentityListBountiesPayload = {
         type: "identity:list-bounties",
         identityKey: identity.identityKey,
+        hostId,
       };
       try {
         ws.send(JSON.stringify(payload));
@@ -225,9 +232,9 @@ export function IdentityModal({
       }
     };
 
-    // Patch #17g: fire 4 new artifact fetches in parallel.
+    // Patch #17g/#92: fire 4 new artifact fetches in parallel; each carries hostId.
     openOneShot<IdentityGetIdentityFilePayload, IdentityIdentityFileEvent>(
-      { type: "identity:get-identity-file", identityKey: identity.identityKey },
+      { type: "identity:get-identity-file", identityKey: identity.identityKey, hostId, },
       "identity:identity-file",
       (ev) => setIdentityFileState(ev.error
         ? { status: "error", error: ev.error }
@@ -236,7 +243,7 @@ export function IdentityModal({
     );
 
     openOneShot<IdentityGetHistoryPayload, IdentityHistoryEvent>(
-      { type: "identity:get-history", identityKey: identity.identityKey },
+      { type: "identity:get-history", identityKey: identity.identityKey, hostId, },
       "identity:history",
       (ev) => setHistoryState(ev.error
         ? { status: "error", error: ev.error }
@@ -245,7 +252,7 @@ export function IdentityModal({
     );
 
     openOneShot<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
-      { type: "identity:list-wakeups", identityKey: identity.identityKey },
+      { type: "identity:list-wakeups", identityKey: identity.identityKey, hostId, },
       "identity:wakeups",
       (ev) => setWakeupsState(ev.error
         ? { status: "error", error: ev.error }
@@ -254,7 +261,7 @@ export function IdentityModal({
     );
 
     openOneShot<IdentityGetHandoffPayload, IdentityHandoffEvent>(
-      { type: "identity:get-handoff", identityKey: identity.identityKey },
+      { type: "identity:get-handoff", identityKey: identity.identityKey, hostId, },
       "identity:handoff",
       (ev) => setHandoffState(ev.error
         ? { status: "error", error: ev.error }
@@ -271,7 +278,7 @@ export function IdentityModal({
       wsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, identity.identityKey, refetchKey]);
+  }, [open, identity.identityKey, hostId, refetchKey]);
 
   // Sort/group open bounties by status group then priority (D-08, D-09).
   const grouped = useMemo(() => {

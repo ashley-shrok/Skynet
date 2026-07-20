@@ -480,6 +480,7 @@ export function PrettyView({
           onOpenChange={setIsIdentityModalOpen}
           identity={pvIdentity}
           hue={pvHue}
+          hostId={hostId}
         />
       )}
       {status === "connecting" && (
