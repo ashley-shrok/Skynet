@@ -1,6 +1,3 @@
-import os from "os";
-import path from "path";
-import fs from "fs/promises";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { Client as SSHClientType } from "ssh2";
 import { AuthManager } from "../utils/auth-manager.js";
@@ -12,6 +9,16 @@ import { discoverClaudeSession } from "./session-file-discovery.js";
 import { parseSessionLine } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 import { execCommand } from "../ssh/tmux-helper.js";
+import {
+  isLocalHostId,
+  IDENTITY_KEY_RE,
+  humanizeWakeupSchedule,
+  readIdentityFile,
+  readIdentityHistory,
+  readIdentityWakeups,
+  readIdentityHandoff,
+  readIdentityBounties,
+} from "./identity-artifact-reader.js";
 
 /**
  * Live Claude-session WebSocket server on port 30011.
@@ -20,12 +27,15 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *
  *   client -> server:
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
- *     { type: "identity:list-bounties", identityKey: string }    // patch #87: fetch identity bounties (one-shot; no pane needed)
- *     // patch #17g: identity artifact fetches (one-shot; no pane needed):
- *     { type: "identity:get-identity-file", identityKey: string } // patch #17g: fetch <key>.md
- *     { type: "identity:get-history", identityKey: string }       // patch #17g: fetch history.md
- *     { type: "identity:list-wakeups", identityKey: string }      // patch #17g: list wakeups/*.json
- *     { type: "identity:get-handoff", identityKey: string }       // patch #17g: fetch handoff.md
+ *     { type: "identity:list-bounties", identityKey: string, hostId?: number }    // patch #87/#92: fetch identity bounties; hostId routes to pane's box (omit = local bind-mount)
+ *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
+ *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
+ *     { type: "identity:get-history", identityKey: string, hostId?: number }       // patch #17g/#92: fetch history.md
+ *     { type: "identity:list-wakeups", identityKey: string, hostId?: number }      // patch #17g/#92: list wakeups/*.json
+ *     { type: "identity:get-handoff", identityKey: string, hostId?: number }       // patch #17g/#92: fetch handoff.md
+ *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
+ *     // reads from the local bind-mount (IDENTITIES_HOST_DIR); otherwise SSHes to the pane's host.
+ *     // Response shapes UNCHANGED — only request payloads gain the optional hostId field.
  *
  *   server -> client:
  *     { type: "session", pid, sessionFile }                      // metadata
@@ -74,36 +84,10 @@ import { execCommand } from "../ssh/tmux-helper.js";
 const authManager = AuthManager.getInstance();
 const userCrypto = UserCrypto.getInstance();
 
-// Patch #17g: humanize a wakeup schedule object into a human-readable string.
-// Handles interval / daily / weekly schedule types; falls back to "custom schedule".
-function humanizeWakeupSchedule(schedule: unknown): string {
-  if (typeof schedule !== "object" || schedule === null) return "custom schedule";
-  const s = schedule as Record<string, unknown>;
-  const type = s.type;
-  if (type === "interval") {
-    const every = s.every;
-    if (typeof every === "string" && every.length > 0) {
-      return `Every ${every}`;
-    }
-    if (typeof every === "number") {
-      return `Every ${every}m`;
-    }
-    return "custom schedule";
-  }
-  if (type === "daily") {
-    const at = typeof s.at === "string" ? s.at : "";
-    return at ? `Daily at ${at} (box-local)` : "Daily (box-local)";
-  }
-  if (type === "weekly") {
-    const at = typeof s.at === "string" ? s.at : "";
-    const dayRaw = typeof s.day === "string" ? s.day : "";
-    const day = dayRaw.length > 0
-      ? dayRaw.charAt(0).toUpperCase() + dayRaw.slice(1).toLowerCase()
-      : "?";
-    return at ? `Weekly on ${day} at ${at} (box-local)` : `Weekly on ${day} (box-local)`;
-  }
-  return "custom schedule";
-}
+// Patch #92: humanizeWakeupSchedule moved to identity-artifact-reader.ts to avoid
+// circular dependency (reader imports from server → server imports from reader would cycle).
+// Imported above and re-exported so callers outside this module can still use it if needed.
+export { humanizeWakeupSchedule };
 
 // Phase 3 session-changeover tuning constants. Holding timeout: 15 * 3s = 45s.
 // Per D-31 and CONTEXT.md § holding timeout — Nelly's timing note: "new .jsonl
@@ -1028,12 +1012,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Patch #87: identity:list-bounties — read-only bounty fetch, independent
-    // of connectToPane. Handled BEFORE the connectToPane branch so the error
-    // return below only fires for truly unknown types.
+    // Patch #87/#92: identity:list-bounties — read-only bounty fetch, independent
+    // of connectToPane. Patch #92: routes via identity-artifact-reader.ts helper;
+    // local branch when hostId is in IDENTITIES_LOCAL_HOST_IDS, SSH branch otherwise.
     if (msg.type === "identity:list-bounties") {
       const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
-      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(
@@ -1048,163 +1031,63 @@ wss.on("connection", async (ws: WebSocket, req) => {
         return;
       }
       const identityKey = rawKey;
-      // Patch #89: identities root is configurable via IDENTITIES_HOST_DIR
-      // so containerized deploys can bind-mount the host's
-      // ~/.claude/identities/ at a well-known path (e.g. /host-identities)
-      // and point us at it. Without this, the container's os.homedir()
-      // resolves to /root inside the image and the bounties dir is
-      // invisible (Ashley reported "no bounties open no matter who I
-      // check" on the first #87 deploy eyeball — every identity looked
-      // empty because we were scanning /root/.claude/identities in a
-      // container where /root is untouched). Fallback preserves the
-      // local-dev behavior of running the backend under Ashley's user.
-      const identitiesRoot =
-        process.env.IDENTITIES_HOST_DIR ||
-        path.join(os.homedir(), ".claude", "identities");
-      const baseDir = path.join(identitiesRoot, identityKey, "bounties");
-
-      // Helper: read all bounty.json files in a given directory (non-recursive).
-      // Skips entries that are not directories (defensive). Wraps each parse in
-      // try/catch so one malformed bounty.json does NOT poison the response.
-      const readBountiesFromDir = async (dir: string): Promise<unknown[]> => {
-        let entries: string[];
-        try {
-          entries = await fs.readdir(dir);
-        } catch (err: unknown) {
-          if (
-            typeof err === "object" &&
-            err !== null &&
-            (err as NodeJS.ErrnoException).code === "ENOENT"
-          ) {
-            return [];
-          }
-          throw err;
-        }
-        const results: unknown[] = [];
-        for (const entry of entries) {
-          const filePath = path.join(dir, entry, "bounty.json");
-          try {
-            const raw = await fs.readFile(filePath, "utf-8");
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            // Normalize to Bounty shape — missing fields get safe defaults.
-            results.push({
-              id: typeof parsed.id === "string" ? parsed.id : entry,
-              title: typeof parsed.title === "string" ? parsed.title : "",
-              premise: typeof parsed.premise === "string" ? parsed.premise : "",
-              status: typeof parsed.status === "string" ? parsed.status : "",
-              priority: typeof parsed.priority === "string" ? parsed.priority : "unprioritized",
-              keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
-              requested_by: typeof parsed.requested_by === "string" ? parsed.requested_by : null,
-              created_at: typeof parsed.created_at === "string" ? parsed.created_at : "",
-              updated_at: typeof parsed.updated_at === "string" ? parsed.updated_at : "",
-              timeline: Array.isArray(parsed.timeline) ? parsed.timeline : [],
-              todos: Array.isArray(parsed.todos) ? parsed.todos : [],
-            });
-          } catch (err) {
-            sshLogger.error(
-              "identity:list-bounties failed to parse bounty.json",
-              err instanceof Error ? err : new Error(String(err)),
-              {
-                operation: "identity_list_bounties_parse_error",
-                userId,
-                identityKey,
-                filePath,
-              },
-            );
-            // Skip this entry and continue — one bad file must not poison the list.
-          }
-        }
-        return results;
-      };
+      const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
 
       try {
-        // Open bounties: all subdirs of baseDir EXCEPT "archive".
-        // We read baseDir entries and filter out "archive" to exclude it.
-        let openEntries: string[];
-        try {
-          openEntries = (await fs.readdir(baseDir)).filter(
-            (e) => e !== "archive",
-          );
-        } catch (err: unknown) {
-          if (
-            typeof err === "object" &&
-            err !== null &&
-            (err as NodeJS.ErrnoException).code === "ENOENT"
-          ) {
-            // Identity has no bounties dir — valid empty state.
-            ws.send(
-              JSON.stringify({
-                type: "identity:bounties",
-                bounties: [],
-                archivedBounties: [],
-              }),
-            );
+        let bounties: unknown[];
+        let archivedBounties: unknown[];
+
+        if (useLocal) {
+          // LOCAL branch — bind-mount fast-path (patch #89, preserved byte-for-byte)
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          sshLogger.info("identity:list-bounties", {
+            operation: "identity_list_bounties",
+            userId,
+            identityKey,
+            hostId: hostIdNum,
+            useLocal: true,
+            openCount: bounties.length,
+            archivedCount: archivedBounties.length,
+          });
+        } else {
+          // REMOTE branch — SSH to the pane's host
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try {
+              ws.send(JSON.stringify({ type: "identity:bounties", bounties: [], archivedBounties: [], error: "host not found" }));
+            } catch { /* ignore */ }
             return;
           }
-          throw err;
-        }
-
-        // Read open bounties from the filtered non-archive subdirs.
-        const bounties: unknown[] = [];
-        for (const entry of openEntries) {
-          const filePath = path.join(baseDir, entry, "bounty.json");
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
-            const raw = await fs.readFile(filePath, "utf-8");
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            bounties.push({
-              id: typeof parsed.id === "string" ? parsed.id : entry,
-              title: typeof parsed.title === "string" ? parsed.title : "",
-              premise: typeof parsed.premise === "string" ? parsed.premise : "",
-              status: typeof parsed.status === "string" ? parsed.status : "",
-              priority: typeof parsed.priority === "string" ? parsed.priority : "unprioritized",
-              keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
-              requested_by: typeof parsed.requested_by === "string" ? parsed.requested_by : null,
-              created_at: typeof parsed.created_at === "string" ? parsed.created_at : "",
-              updated_at: typeof parsed.updated_at === "string" ? parsed.updated_at : "",
-              timeline: Array.isArray(parsed.timeline) ? parsed.timeline : [],
-              todos: Array.isArray(parsed.todos) ? parsed.todos : [],
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            sshLogger.info("identity:list-bounties", {
+              operation: "identity_list_bounties",
+              userId,
+              identityKey,
+              hostId: hostIdNum,
+              useLocal: false,
+              openCount: bounties.length,
+              archivedCount: archivedBounties.length,
             });
-          } catch (err) {
-            sshLogger.error(
-              "identity:list-bounties failed to parse open bounty.json",
-              err instanceof Error ? err : new Error(String(err)),
-              {
-                operation: "identity_list_bounties_parse_error",
-                userId,
-                identityKey,
-                filePath,
-              },
-            );
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
           }
         }
 
-        // Archived bounties: subdirs of baseDir/archive/*.
-        const archivedBounties = await readBountiesFromDir(
-          path.join(baseDir, "archive"),
-        );
-
-        sshLogger.info("identity:list-bounties", {
-          operation: "identity_list_bounties",
-          userId,
-          identityKey,
-          openCount: bounties.length,
-          archivedCount: archivedBounties.length,
-        });
-
         try {
-          ws.send(
-            JSON.stringify({
-              type: "identity:bounties",
-              bounties,
-              archivedBounties,
-            }),
-          );
+          ws.send(JSON.stringify({ type: "identity:bounties", bounties, archivedBounties }));
         } catch { /* ws may be mid-close */ }
       } catch (err) {
         sshLogger.error(
           "identity:list-bounties unexpected error",
           err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_list_bounties_error", userId, identityKey },
+          { operation: "identity_list_bounties_error", userId, identityKey, hostId: hostIdNum },
         );
         try {
           ws.send(
@@ -1220,10 +1103,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Patch #17g: identity:get-identity-file — read <identityKey>/<identityKey>.md as markdown.
+    // Patch #17g/#92: identity:get-identity-file — read <identityKey>/<identityKey>.md as markdown.
+    // Patch #92: routes via helper; local branch for local hosts, SSH branch for remote hosts.
     if (msg.type === "identity:get-identity-file") {
       const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
-      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: "invalid identityKey" }));
@@ -1231,38 +1114,56 @@ wss.on("connection", async (ws: WebSocket, req) => {
         return;
       }
       const identityKey = rawKey;
-      const identitiesRoot = process.env.IDENTITIES_HOST_DIR || path.join(os.homedir(), ".claude", "identities");
-      const filePath = path.join(identitiesRoot, identityKey, identityKey + ".md");
+      const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+
       try {
-        const markdown = await fs.readFile(filePath, "utf-8");
-        sshLogger.info("identity:get-identity-file", {
-          operation: "identity_get_identity_file",
-          userId,
-          identityKey,
-          payloadSize: markdown.length,
-        });
+        let markdown: string;
+        if (useLocal) {
+          ({ markdown } = await readIdentityFile(null, identityKey));
+          sshLogger.info("identity:get-identity-file", {
+            operation: "identity_get_identity_file",
+            userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: markdown.length,
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            ({ markdown } = await readIdentityFile(conn, identityKey));
+            sshLogger.info("identity:get-identity-file", {
+              operation: "identity_get_identity_file",
+              userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
         try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown })); } catch { /* ignore */ }
       } catch (err: unknown) {
-        if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
-          try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "" })); } catch { /* ignore */ }
-        } else {
-          sshLogger.error(
-            "identity:get-identity-file error",
-            err instanceof Error ? err : new Error(String(err)),
-            { operation: "identity_get_identity_file_error", userId, identityKey },
-          );
-          try {
-            ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: err instanceof Error ? err.message : String(err) }));
-          } catch { /* ignore */ }
-        }
+        sshLogger.error(
+          "identity:get-identity-file error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_get_identity_file_error", userId, identityKey, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
       }
       return;
     }
 
-    // Patch #17g: identity:get-history — read history.md; reverse lines for most-recent-first.
+    // Patch #17g/#92: identity:get-history — read history.md; reverse lines for most-recent-first.
+    // Patch #92: routes via helper; local branch for local hosts, SSH branch for remote hosts.
     if (msg.type === "identity:get-history") {
       const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
-      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(JSON.stringify({ type: "identity:history", entries: [], error: "invalid identityKey" }));
@@ -1270,43 +1171,56 @@ wss.on("connection", async (ws: WebSocket, req) => {
         return;
       }
       const identityKey = rawKey;
-      const identitiesRoot = process.env.IDENTITIES_HOST_DIR || path.join(os.homedir(), ".claude", "identities");
-      const filePath = path.join(identitiesRoot, identityKey, "history.md");
+      const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+
       try {
-        const contents = await fs.readFile(filePath, "utf-8");
-        const entries = contents
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0 && !line.startsWith("#"))
-          .reverse();
-        sshLogger.info("identity:get-history", {
-          operation: "identity_get_history",
-          userId,
-          identityKey,
-          payloadSize: entries.length,
-        });
+        let entries: string[];
+        if (useLocal) {
+          ({ entries } = await readIdentityHistory(null, identityKey));
+          sshLogger.info("identity:get-history", {
+            operation: "identity_get_history",
+            userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: entries.length,
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:history", entries: [], error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            ({ entries } = await readIdentityHistory(conn, identityKey));
+            sshLogger.info("identity:get-history", {
+              operation: "identity_get_history",
+              userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: entries.length,
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
         try { ws.send(JSON.stringify({ type: "identity:history", entries })); } catch { /* ignore */ }
       } catch (err: unknown) {
-        if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
-          try { ws.send(JSON.stringify({ type: "identity:history", entries: [] })); } catch { /* ignore */ }
-        } else {
-          sshLogger.error(
-            "identity:get-history error",
-            err instanceof Error ? err : new Error(String(err)),
-            { operation: "identity_get_history_error", userId, identityKey },
-          );
-          try {
-            ws.send(JSON.stringify({ type: "identity:history", entries: [], error: err instanceof Error ? err.message : String(err) }));
-          } catch { /* ignore */ }
-        }
+        sshLogger.error(
+          "identity:get-history error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_get_history_error", userId, identityKey, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:history", entries: [], error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
       }
       return;
     }
 
-    // Patch #17g: identity:list-wakeups — enumerate wakeups/*.json and humanize each schedule.
+    // Patch #17g/#92: identity:list-wakeups — enumerate wakeups/*.json and humanize each schedule.
+    // Patch #92: routes via helper; local branch for local hosts, SSH branch for remote hosts.
     if (msg.type === "identity:list-wakeups") {
       const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
-      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: "invalid identityKey" }));
@@ -1314,53 +1228,44 @@ wss.on("connection", async (ws: WebSocket, req) => {
         return;
       }
       const identityKey = rawKey;
-      const identitiesRoot = process.env.IDENTITIES_HOST_DIR || path.join(os.homedir(), ".claude", "identities");
-      const wakeupsDir = path.join(identitiesRoot, identityKey, "wakeups");
+      const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+
       try {
-        let dirEntries: string[];
-        try {
-          dirEntries = await fs.readdir(wakeupsDir);
-        } catch (err: unknown) {
-          if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
-            try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [] })); } catch { /* ignore */ }
+        let wakeups: { name: string; enabled: boolean; scheduleHuman: string; instruction: string }[];
+        if (useLocal) {
+          ({ wakeups } = await readIdentityWakeups(null, identityKey));
+          sshLogger.info("identity:list-wakeups", {
+            operation: "identity_list_wakeups",
+            userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: wakeups.length,
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: "host not found" })); } catch { /* ignore */ }
             return;
           }
-          throw err;
-        }
-        const jsonFiles = dirEntries.filter((e) => e.endsWith(".json"));
-        const wakeups: { name: string; enabled: boolean; scheduleHuman: string; instruction: string }[] = [];
-        for (const filename of jsonFiles) {
-          const filePath = path.join(wakeupsDir, filename);
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
-            const raw = await fs.readFile(filePath, "utf-8");
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            const stem = filename.replace(/\.json$/, "");
-            const name = typeof parsed.name === "string" ? parsed.name : stem;
-            const enabled = typeof parsed.enabled === "boolean" ? parsed.enabled : false;
-            const instruction = typeof parsed.instruction === "string" ? parsed.instruction : "";
-            const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-            wakeups.push({ name, enabled, scheduleHuman, instruction });
-          } catch (err) {
-            sshLogger.error(
-              "identity:list-wakeups failed to parse wakeup JSON",
-              err instanceof Error ? err : new Error(String(err)),
-              { operation: "identity_list_wakeups_parse_error", userId, identityKey, filePath: path.join(wakeupsDir, filename) },
-            );
-            // Skip this file — one bad JSON must not poison the list.
+            ({ wakeups } = await readIdentityWakeups(conn, identityKey));
+            sshLogger.info("identity:list-wakeups", {
+              operation: "identity_list_wakeups",
+              userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: wakeups.length,
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
           }
         }
-        sshLogger.info("identity:list-wakeups", {
-          operation: "identity_list_wakeups",
-          userId,
-          identityKey,
-          payloadSize: wakeups.length,
-        });
         try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups })); } catch { /* ignore */ }
       } catch (err) {
         sshLogger.error(
           "identity:list-wakeups unexpected error",
           err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_list_wakeups_error", userId, identityKey },
+          { operation: "identity_list_wakeups_error", userId, identityKey, hostId: hostIdNum },
         );
         try {
           ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
@@ -1369,10 +1274,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Patch #17g: identity:get-handoff — read handoff.md as markdown.
+    // Patch #17g/#92: identity:get-handoff — read handoff.md as markdown.
+    // Patch #92: routes via helper; local branch for local hosts, SSH branch for remote hosts.
     if (msg.type === "identity:get-handoff") {
       const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
-      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: "invalid identityKey" }));
@@ -1380,30 +1285,48 @@ wss.on("connection", async (ws: WebSocket, req) => {
         return;
       }
       const identityKey = rawKey;
-      const identitiesRoot = process.env.IDENTITIES_HOST_DIR || path.join(os.homedir(), ".claude", "identities");
-      const filePath = path.join(identitiesRoot, identityKey, "handoff.md");
+      const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+
       try {
-        const markdown = await fs.readFile(filePath, "utf-8");
-        sshLogger.info("identity:get-handoff", {
-          operation: "identity_get_handoff",
-          userId,
-          identityKey,
-          payloadSize: markdown.length,
-        });
+        let markdown: string;
+        if (useLocal) {
+          ({ markdown } = await readIdentityHandoff(null, identityKey));
+          sshLogger.info("identity:get-handoff", {
+            operation: "identity_get_handoff",
+            userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: markdown.length,
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            ({ markdown } = await readIdentityHandoff(conn, identityKey));
+            sshLogger.info("identity:get-handoff", {
+              operation: "identity_get_handoff",
+              userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
         try { ws.send(JSON.stringify({ type: "identity:handoff", markdown })); } catch { /* ignore */ }
       } catch (err: unknown) {
-        if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
-          try { ws.send(JSON.stringify({ type: "identity:handoff", markdown: "" })); } catch { /* ignore */ }
-        } else {
-          sshLogger.error(
-            "identity:get-handoff error",
-            err instanceof Error ? err : new Error(String(err)),
-            { operation: "identity_get_handoff_error", userId, identityKey },
-          );
-          try {
-            ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: err instanceof Error ? err.message : String(err) }));
-          } catch { /* ignore */ }
-        }
+        sshLogger.error(
+          "identity:get-handoff error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_get_handoff_error", userId, identityKey, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
       }
       return;
     }
