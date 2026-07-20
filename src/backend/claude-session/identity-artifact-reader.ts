@@ -214,9 +214,15 @@ export async function readIdentityFile(
     }
   }
 
-  // REMOTE branch
+  // REMOTE branch — patch #94: append `|| true` so cat's exit-1 on missing
+  // file resolves as empty stdout (execCommand's `code !== 0 && stdout ===
+  // ""` rejects otherwise; there IS no stderr because we redirected it, so
+  // the reject surfaces as an opaque "Command exited with code 1" in the
+  // modal — that was Ashley's #92 deploy eyeball bug on workstation panes
+  // where the target identity has no file at the expected path). Empty
+  // stdout is treated as "missing artifact = empty state" by callers.
   const escapedKey = shellEscape(identityKey);
-  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/' + escapedKey + '.md" 2>/dev/null';
+  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/' + escapedKey + '.md" 2>/dev/null || true';
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
@@ -254,9 +260,10 @@ export async function readIdentityHistory(
     }
   }
 
-  // REMOTE branch
+  // REMOTE branch — patch #94: `|| true` so missing history.md resolves as
+  // empty stdout instead of throwing "Command exited with code 1".
   const escapedKey = shellEscape(identityKey);
-  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/history.md" 2>/dev/null';
+  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/history.md" 2>/dev/null || true';
   const stdout = await execWithTimeout(conn, cmd);
   if (!stdout) return { entries: [] };
   const entries = stdout
@@ -406,9 +413,10 @@ export async function readIdentityHandoff(
     }
   }
 
-  // REMOTE branch
+  // REMOTE branch — patch #94: `|| true` so missing handoff.md resolves as
+  // empty stdout instead of throwing "Command exited with code 1".
   const escapedKey = shellEscape(identityKey);
-  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/handoff.md" 2>/dev/null';
+  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/handoff.md" 2>/dev/null || true';
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
