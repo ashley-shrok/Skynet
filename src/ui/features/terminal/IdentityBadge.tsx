@@ -96,13 +96,20 @@ export function IdentityBadge({
       </>
     );
     if (onClick) {
+      // Patch #89: explicit cursor-pointer on the interactive branch.
+      // Tailwind v4 does NOT default `<button>` to cursor: pointer (v3
+      // preflight did; v4 dropped it), so the hover cursor stayed as the
+      // default arrow after patch #87 shipped. `cursor-pointer` on the
+      // button className fixes it without touching the aria-hidden div
+      // fallback branch (where a pointer cursor would falsely advertise
+      // a click target).
       return (
         <button
           type="button"
           onClick={onClick}
           aria-label="Open identity info"
           title="Identity info"
-          className={lgClassName}
+          className={`${lgClassName} cursor-pointer`}
           style={lgStyle}
         >
           {lgInner}
