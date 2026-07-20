@@ -186,6 +186,8 @@ export type Bounty = {
 export type IdentityListBountiesPayload = {
   type: "identity:list-bounties";
   identityKey: string;
+  /** patch #92: pane's SSH host id — backend routes reads to the pane's box (local bind-mount when hostId is in IDENTITIES_LOCAL_HOST_IDS). */
+  hostId: number;
 };
 
 export type IdentityBountiesEvent = {
@@ -195,29 +197,52 @@ export type IdentityBountiesEvent = {
   error?: string;
 };
 
-// Patch #17g: identity artifact WS wire types.
+// Patch #17g/#92: identity artifact WS wire types.
 //
 //   client -> server:
-//     { type: "identity:get-identity-file", identityKey: string }
-//     { type: "identity:get-history", identityKey: string }
-//     { type: "identity:list-wakeups", identityKey: string }
-//     { type: "identity:get-handoff", identityKey: string }
+//     { type: "identity:get-identity-file", identityKey: string, hostId: number }
+//     { type: "identity:get-history", identityKey: string, hostId: number }
+//     { type: "identity:list-wakeups", identityKey: string, hostId: number }
+//     { type: "identity:get-handoff", identityKey: string, hostId: number }
 //
-//   server -> client:
+//   server -> client (UNCHANGED — only request payloads gain hostId):
 //     { type: "identity:identity-file", markdown: string, error?: string }
 //     { type: "identity:history", entries: string[], error?: string }
 //     { type: "identity:wakeups", wakeups: Wakeup[], error?: string }
 //     { type: "identity:handoff", markdown: string, error?: string }
+//
+// hostId is the pane's SSH host id — backend uses it to route reads to the pane's box
+// (or falls back to the local bind-mount when the hostId is in IDENTITIES_LOCAL_HOST_IDS).
 
-export type IdentityGetIdentityFilePayload = { type: "identity:get-identity-file"; identityKey: string };
+export type IdentityGetIdentityFilePayload = {
+  type: "identity:get-identity-file";
+  identityKey: string;
+  /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
+  hostId: number;
+};
 export type IdentityIdentityFileEvent = { type: "identity:identity-file"; markdown: string; error?: string };
 
-export type IdentityGetHistoryPayload = { type: "identity:get-history"; identityKey: string };
+export type IdentityGetHistoryPayload = {
+  type: "identity:get-history";
+  identityKey: string;
+  /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
+  hostId: number;
+};
 export type IdentityHistoryEvent = { type: "identity:history"; entries: string[]; error?: string };
 
 export type Wakeup = { name: string; enabled: boolean; scheduleHuman: string; instruction: string };
-export type IdentityListWakeupsPayload = { type: "identity:list-wakeups"; identityKey: string };
+export type IdentityListWakeupsPayload = {
+  type: "identity:list-wakeups";
+  identityKey: string;
+  /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
+  hostId: number;
+};
 export type IdentityWakeupsEvent = { type: "identity:wakeups"; wakeups: Wakeup[]; error?: string };
 
-export type IdentityGetHandoffPayload = { type: "identity:get-handoff"; identityKey: string };
+export type IdentityGetHandoffPayload = {
+  type: "identity:get-handoff";
+  identityKey: string;
+  /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
+  hostId: number;
+};
 export type IdentityHandoffEvent = { type: "identity:handoff"; markdown: string; error?: string };
