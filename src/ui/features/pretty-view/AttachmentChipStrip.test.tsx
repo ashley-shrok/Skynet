@@ -134,4 +134,62 @@ describe("AttachmentChipStrip", () => {
     const bars = screen.queryAllByRole("progressbar");
     expect(bars).toHaveLength(0);
   });
+
+  // Phase 05 Plan 03: readOnly prop for sender-side chip render in
+  // ChatMessage. Chips echo an already-sent injected user turn — no
+  // × remove, no progress ring, no error decorations.
+  it("Test 8: readOnly=true hides the × remove button, progress ring, and error UI", () => {
+    const onRemove = vi.fn();
+    render(
+      <AttachmentChipStrip
+        attachments={[
+          {
+            tempId: "sent-1",
+            file: { name: "screenshot.png", size: 20480, type: "image/png" },
+            status: "complete",
+            bytesUploaded: 20480,
+            error: null,
+          },
+        ]}
+        onRemove={onRemove}
+        readOnly={true}
+      />,
+    );
+    // Filename + size still render (chip is chips-only, filename + size ONLY).
+    expect(screen.getByText(/screenshot\.png/)).toBeTruthy();
+    expect(screen.getByText(/20\.0 KB/)).toBeTruthy();
+    // × remove button MUST NOT render in readOnly mode.
+    expect(
+      screen.queryByLabelText(/Remove attachment screenshot\.png/i),
+    ).toBeNull();
+    // Progress bar MUST NOT render either.
+    expect(screen.queryAllByRole("progressbar")).toHaveLength(0);
+  });
+
+  it("Test 9: readOnly=true with error status still hides destructive glyph (sender-side never shows errored chips)", () => {
+    // Sender-side rendering only happens after the whole batch succeeded
+    // (upload_ready_to_inject only fires on all-complete), so error-state
+    // chips should never actually reach the read-only render. Verify the
+    // component tolerates the case defensively without leaking chrome.
+    const onRemove = vi.fn();
+    render(
+      <AttachmentChipStrip
+        attachments={[
+          {
+            tempId: "sent-e",
+            file: { name: "bad.txt", size: 10, type: "text/plain" },
+            status: "error",
+            bytesUploaded: 0,
+            error: "sftp_error",
+          },
+        ]}
+        onRemove={onRemove}
+        readOnly={true}
+      />,
+    );
+    // No × button.
+    expect(screen.queryByLabelText(/Remove attachment bad\.txt/i)).toBeNull();
+    // No AlertCircle aria-label surfaced.
+    expect(screen.queryByLabelText(/Upload failed/i)).toBeNull();
+  });
 });

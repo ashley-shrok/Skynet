@@ -3,6 +3,8 @@ import remarkGfm from "remark-gfm";
 import { ThumbsUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
+import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
+import { AttachmentChipStrip } from "./AttachmentChipStrip";
 
 // Presentational chat bubble for one conversational message.
 //
@@ -40,6 +42,19 @@ export function ChatMessage({
   content: string;
 }) {
   const isUser = role === "user";
+  // Phase 05 Plan 03: sender-side chip render for injected user turns.
+  // When a user-role message's content matches the exact format produced
+  // by formatInjectedUserTurn (caption + \n\n + INJECTED_DELIMITER + \n +
+  // per-file `N. name (size, mime) → path` + `   uploaded ts` pairs), the
+  // bubble renders as caption text + inline chip strip in the SAME wrapper
+  // instead of the normal markdown render. Non-matching content falls
+  // through to the normal path — the parser returns null quickly for the
+  // vast majority of messages (early indexOf bail on the delimiter
+  // substring), so there is no perf concern for non-injected messages.
+  // Assistant messages never trigger the parser (role gate — defense in
+  // depth against an assistant reply that coincidentally quotes the
+  // delimiter substring in prose).
+  const injected = isUser ? parseInjectedUserTurn(content) : null;
   // Quick-reply as-a-thumbs-up: a user message whose text is exactly the
   // quick-reply payload (case-insensitive, ignoring surrounding whitespace)
   // renders as a ThumbsUp glyph inside the normal user bubble. Mirrors the
@@ -50,6 +65,7 @@ export function ChatMessage({
   // ThumbsUp glyph after the button text swap.
   const isQuickReply =
     isUser &&
+    !injected &&
     (() => {
       const t = content.trim().toLowerCase();
       return t === "good to go" || t === "go ahead";
@@ -115,6 +131,37 @@ export function ChatMessage({
       >
         {isQuickReply ? (
           <ThumbsUp className="size-6" aria-label="quick reply" />
+        ) : injected ? (
+          // Phase 05 Plan 03 (UPLOAD-11): sender-side render of an injected
+          // user turn. Caption text sits above an inline chip strip inside
+          // the SAME bubble. Chips are filename + human-size only — no
+          // thumbnails, no inline previews even for images, no landing-path
+          // display (HARD LOCK from CONTEXT.md § Sender-side rendering).
+          // AttachmentChipStrip runs in readOnly mode: no × remove, no
+          // progress ring, no error decorations.
+          <>
+            {injected.caption.length > 0 && (
+              <div className="pv-injected-caption whitespace-pre-wrap mb-2">
+                {injected.caption}
+              </div>
+            )}
+            <AttachmentChipStrip
+              attachments={injected.files.map((f) => ({
+                // tempId is unique per-file inside this bubble; landingPath
+                // is guaranteed unique by the backend's collision-suffix loop
+                // (Plan 01 orchestrator) so it doubles as a stable key.
+                tempId: f.landingPath,
+                file: { name: f.filename, size: f.size, type: f.mimetype },
+                status: "complete",
+                bytesUploaded: f.size,
+                error: null,
+              }))}
+              onRemove={() => {
+                /* readOnly — never fires */
+              }}
+              readOnly={true}
+            />
+          </>
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}

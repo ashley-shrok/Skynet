@@ -288,3 +288,96 @@ describe("formatInjectedUserTurn", () => {
     expect(parsed?.files[0].landingPath).toBe(files[0].landingPath);
   });
 });
+
+// Phase 05 Plan 03 Task 2: parseInjectedUserTurn edge cases.
+// The parser is the client-side round-trip counterpart of
+// formatInjectedUserTurn. Sender-side chip render (ChatMessage) depends
+// on the parser correctly returning null for non-injected content so the
+// bubble falls through to the normal markdown render.
+describe("parseInjectedUserTurn edge cases (Plan 05-03)", () => {
+  it("Test 2: empty caption round-trips as empty caption", () => {
+    const s = formatInjectedUserTurn({
+      caption: "",
+      files: [
+        {
+          filename: "one.log",
+          size: 42,
+          mimetype: "text/plain",
+          uploadTimestamp: "2026-07-20T14:32:11",
+          landingPath: "/tmp/one.log",
+        },
+      ],
+    });
+    const parsed = parseInjectedUserTurn(s);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.caption).toBe("");
+    expect(parsed?.files).toHaveLength(1);
+  });
+
+  it("Test 3: multi-line caption preserves internal newlines exactly", () => {
+    const s = formatInjectedUserTurn({
+      caption: "line1\nline2\nline3",
+      files: [
+        {
+          filename: "one.log",
+          size: 42,
+          mimetype: "text/plain",
+          uploadTimestamp: "2026-07-20T14:32:11",
+          landingPath: "/tmp/one.log",
+        },
+      ],
+    });
+    const parsed = parseInjectedUserTurn(s);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.caption).toBe("line1\nline2\nline3");
+  });
+
+  it("Test 4: non-injected content returns null (no delimiter present)", () => {
+    expect(parseInjectedUserTurn("plain user message with no delimiter")).toBeNull();
+  });
+
+  it("Test 4b: message that mentions '--- attached files ---' inline but has no proper delimiter line returns null", () => {
+    // The parser requires the delimiter surrounded by newlines. Merely
+    // mentioning the substring in a paragraph does not trigger detection.
+    expect(
+      parseInjectedUserTurn("here I quote --- attached files --- in prose"),
+    ).toBeNull();
+  });
+
+  it("Test 5: delimiter present but NO valid file lines returns null", () => {
+    // A user coincidentally starting a message with the exact
+    // caption+blank+delimiter+text shape but no file lines matching the
+    // `N. name (size, mime) → path` format is a plain message, not an
+    // injected turn. Parser must return null so ChatMessage falls through
+    // to markdown render (T-05-09 false-match resistance).
+    const notInjected =
+      "here is some text\n\n--- attached files ---\nbut no file lines follow\n";
+    expect(parseInjectedUserTurn(notInjected)).toBeNull();
+  });
+
+  it("Test 7: delimiter present with malformed file line (no arrow) returns null", () => {
+    const notInjected =
+      "hi\n\n--- attached files ---\n1. no arrow here\n   uploaded 2026-07-20T14:32:11\n";
+    expect(parseInjectedUserTurn(notInjected)).toBeNull();
+  });
+
+  it("Test 8: content > 1MB returns null immediately (T-05-11 length bound)", () => {
+    // Well-formed shape but pathological length. Parser must bail before
+    // scanning to avoid quadratic worst-case on malicious input.
+    const bigCaption = "a".repeat(1024 * 1024 + 1);
+    const s = formatInjectedUserTurn({
+      caption: bigCaption,
+      files: [
+        {
+          filename: "one.log",
+          size: 42,
+          mimetype: "text/plain",
+          uploadTimestamp: "2026-07-20T14:32:11",
+          landingPath: "/tmp/one.log",
+        },
+      ],
+    });
+    expect(s.length).toBeGreaterThan(1024 * 1024);
+    expect(parseInjectedUserTurn(s)).toBeNull();
+  });
+});

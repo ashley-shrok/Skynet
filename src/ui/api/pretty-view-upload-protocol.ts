@@ -287,9 +287,18 @@ export interface ParsedInjectedTurn {
  * the locked delimiter (i.e. it's not an injected-with-attachments
  * turn — the message is plain text and should render as usual).
  */
+/** Hard length bound for parseInjectedUserTurn (T-05-11 DoS mitigation).
+ *  A legitimate injected turn with 32 files at reasonable filename+path
+ *  lengths is well under 100KB; anything larger is not a legitimate
+ *  injected turn and should not consume parser cycles. */
+const PARSE_MAX_INPUT_BYTES = 1024 * 1024; // 1 MB
+
 export function parseInjectedUserTurn(
   raw: string,
 ): ParsedInjectedTurn | null {
+  // T-05-11: bail out on pathologically large input BEFORE any parsing.
+  if (raw.length > PARSE_MAX_INPUT_BYTES) return null;
+
   const delimIdx = raw.indexOf(`\n${INJECTED_DELIMITER}\n`);
   if (delimIdx < 0) return null;
 
@@ -306,15 +315,24 @@ export function parseInjectedUserTurn(
 
   const files: ParsedInjectedTurn["files"] = [];
   // Each file is two lines: header + "   uploaded ..." indented block.
+  // T-05-09 false-match resistance: require EVERY pair to be a well-formed
+  // (header, indented-timestamp) tuple. A single non-matching pair at any
+  // position bails the whole parse — the user is composing plain text that
+  // just happens to mention the delimiter.
   for (let i = 0; i < fileLines.length; i += 2) {
     const header = fileLines[i];
     const indented = fileLines[i + 1] ?? "";
     const parsed = parseFileHeaderLine(header);
-    if (!parsed) continue;
+    if (!parsed) return null;
     const tsMatch = /^\s*uploaded (.+)$/.exec(indented);
-    parsed.uploadTimestamp = tsMatch ? tsMatch[1] : "";
+    if (!tsMatch) return null;
+    parsed.uploadTimestamp = tsMatch[1];
     files.push(parsed);
   }
+  // T-05-09: require AT LEAST one valid file line for the parse to succeed.
+  // A delimiter-with-no-files is not an injected turn (it may be a user
+  // typing the delimiter substring in a message that has zero attachments).
+  if (files.length === 0) return null;
   return { caption, files };
 }
 
