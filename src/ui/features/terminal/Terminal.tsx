@@ -2808,6 +2808,46 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       [terminal],
     );
 
+    // Phase 05 Plan 03 (patch pending): injected-turn send after
+    // upload_ready_to_inject. Fires as a two-event split-send matching the
+    // MessageQueueDrawer pattern at the mount below (line ~2871): body event
+    // first (no mqid), then \r event with messageQueueItemId 60ms later.
+    // Patch #100's split-and-delay Enter and patch #60's atomic delete-on-send
+    // fire automatically inside terminal.ts case "input" for any event
+    // carrying a mqid AND ending in \r.
+    //
+    // The messageQueueItemId is generated client-side by usePrettyViewUploads
+    // (crypto.randomUUID) — no server queue row is created for uploads (the
+    // queue-row lifecycle is patch #60's mechanism for the MessageQueueDrawer;
+    // uploads reuse ONLY the mqid field on the input event to inherit patch
+    // #60's atomic-post-write side effect and patch #100's split-and-delay
+    // path). If Ashley abandons the pane between the body-send and the \r-
+    // send (60ms window), the tmux pane will simply hold the caption+metadata
+    // in its input buffer un-submitted — same failure mode as any other
+    // sub-second WS disconnect. No parallel send path; no new queue row.
+    //
+    // Deps are `[]` because `webSocketRef` is a React ref (mutation does not
+    // re-render) and the ref's `.current` is read at call time inside the
+    // callback body — never captured at callback-creation time. This is the
+    // same pattern MessageQueueDrawer's inline onSend uses (also reads
+    // webSocketRef.current at call time).
+    const handleInjectedTurnReady = useCallback(
+      (text: string, messageQueueItemId: string) => {
+        const ws = webSocketRef.current;
+        if (!ws || ws.readyState !== 1) return; // silent noop — Plan 02 hook keeps batch in staging for retry
+        ws.send(JSON.stringify({ type: "input", data: text }));
+        setTimeout(() => {
+          const ws2 = webSocketRef.current;
+          if (ws2 && ws2.readyState === 1) {
+            ws2.send(
+              JSON.stringify({ type: "input", data: "\r", messageQueueItemId }),
+            );
+          }
+        }, 60);
+      },
+      [],
+    );
+
     return (
       <div
         className="h-full w-full relative flex flex-col"
@@ -2855,6 +2895,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               }, 60);
               return true;
             }}
+            terminalWs={webSocketRef.current}
+            onInjectedTurnReady={handleInjectedTurnReady}
           />
         )}
         {isPrettyMode && (hostConfig.id == null || !tmuxSessionName) && (
