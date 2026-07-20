@@ -1007,13 +1007,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
         return;
       }
       const identityKey = rawKey;
-      const baseDir = path.join(
-        os.homedir(),
-        ".claude",
-        "identities",
-        identityKey,
-        "bounties",
-      );
+      // Patch #89: identities root is configurable via IDENTITIES_HOST_DIR
+      // so containerized deploys can bind-mount the host's
+      // ~/.claude/identities/ at a well-known path (e.g. /host-identities)
+      // and point us at it. Without this, the container's os.homedir()
+      // resolves to /root inside the image and the bounties dir is
+      // invisible (Ashley reported "no bounties open no matter who I
+      // check" on the first #87 deploy eyeball — every identity looked
+      // empty because we were scanning /root/.claude/identities in a
+      // container where /root is untouched). Fallback preserves the
+      // local-dev behavior of running the backend under Ashley's user.
+      const identitiesRoot =
+        process.env.IDENTITIES_HOST_DIR ||
+        path.join(os.homedir(), ".claude", "identities");
+      const baseDir = path.join(identitiesRoot, identityKey, "bounties");
 
       // Helper: read all bounty.json files in a given directory (non-recursive).
       // Skips entries that are not directories (defensive). Wraps each parse in
