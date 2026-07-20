@@ -40,13 +40,20 @@ export function ChatMessage({
   content: string;
 }) {
   const isUser = role === "user";
-  // "go ahead" as-a-thumbs-up: a user message whose text is exactly "go ahead"
-  // (case-insensitive, ignoring surrounding whitespace) renders as a ThumbsUp
-  // glyph inside the normal user bubble. Mirrors the ComposeBox quick-send
-  // button that produces this message, so what she sent visually matches what
-  // she clicked. Client-render-only — session file stays faithful.
-  const isGoAhead =
-    isUser && content.trim().toLowerCase() === "go ahead";
+  // Quick-reply as-a-thumbs-up: a user message whose text is exactly the
+  // quick-reply payload (case-insensitive, ignoring surrounding whitespace)
+  // renders as a ThumbsUp glyph inside the normal user bubble. Mirrors the
+  // ComposeBox quick-send button that produces this message, so what she
+  // sent visually matches what she clicked. Client-render-only — session
+  // file stays faithful. Patch #93: recognize BOTH "go ahead" (legacy) AND
+  // "good to go" (new payload) so past session files still render as the
+  // ThumbsUp glyph after the button text swap.
+  const isQuickReply =
+    isUser &&
+    (() => {
+      const t = content.trim().toLowerCase();
+      return t === "good to go" || t === "go ahead";
+    })();
   // Prettify slash-command triplets before markdown parsing. Runs of
   // <command-message>/<command-name>/<command-args> tags become ⟨cmd:...⟩
   // sentinel markers, then the `p` component override below splits those
@@ -106,8 +113,8 @@ export function ChatMessage({
               ),
         )}
       >
-        {isGoAhead ? (
-          <ThumbsUp className="size-6" aria-label="go ahead" />
+        {isQuickReply ? (
+          <ThumbsUp className="size-6" aria-label="quick reply" />
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
