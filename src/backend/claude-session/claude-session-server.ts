@@ -21,6 +21,11 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *   client -> server:
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
  *     { type: "identity:list-bounties", identityKey: string }    // patch #87: fetch identity bounties (one-shot; no pane needed)
+ *     // patch #17g: identity artifact fetches (one-shot; no pane needed):
+ *     { type: "identity:get-identity-file", identityKey: string } // patch #17g: fetch <key>.md
+ *     { type: "identity:get-history", identityKey: string }       // patch #17g: fetch history.md
+ *     { type: "identity:list-wakeups", identityKey: string }      // patch #17g: list wakeups/*.json
+ *     { type: "identity:get-handoff", identityKey: string }       // patch #17g: fetch handoff.md
  *
  *   server -> client:
  *     { type: "session", pid, sessionFile }                      // metadata
@@ -36,6 +41,11 @@ import { execCommand } from "../ssh/tmux-helper.js";
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
  *     { type: "identity:bounties", bounties, archivedBounties, error? } // patch #87: response to identity:list-bounties (one-shot; WS closed by client after receipt)
+ *     // patch #17g: identity artifact responses (one-shot; WS closed by client after receipt):
+ *     { type: "identity:identity-file", markdown: string, error?: string } // patch #17g: response to identity:get-identity-file
+ *     { type: "identity:history", entries: string[], error?: string }       // patch #17g: response to identity:get-history
+ *     { type: "identity:wakeups", wakeups: Wakeup[], error?: string }       // patch #17g: response to identity:list-wakeups
+ *     { type: "identity:handoff", markdown: string, error?: string }        // patch #17g: response to identity:get-handoff
  *
  * Image frames carry inline base64 payloads: each `images[]` element is
  * `{ data: string, mediaType: string, toolUseId?: string }` where `data`
@@ -63,6 +73,37 @@ import { execCommand } from "../ssh/tmux-helper.js";
 
 const authManager = AuthManager.getInstance();
 const userCrypto = UserCrypto.getInstance();
+
+// Patch #17g: humanize a wakeup schedule object into a human-readable string.
+// Handles interval / daily / weekly schedule types; falls back to "custom schedule".
+function humanizeWakeupSchedule(schedule: unknown): string {
+  if (typeof schedule !== "object" || schedule === null) return "custom schedule";
+  const s = schedule as Record<string, unknown>;
+  const type = s.type;
+  if (type === "interval") {
+    const every = s.every;
+    if (typeof every === "string" && every.length > 0) {
+      return `Every ${every}`;
+    }
+    if (typeof every === "number") {
+      return `Every ${every}m`;
+    }
+    return "custom schedule";
+  }
+  if (type === "daily") {
+    const at = typeof s.at === "string" ? s.at : "";
+    return at ? `Daily at ${at} (box-local)` : "Daily (box-local)";
+  }
+  if (type === "weekly") {
+    const at = typeof s.at === "string" ? s.at : "";
+    const dayRaw = typeof s.day === "string" ? s.day : "";
+    const day = dayRaw.length > 0
+      ? dayRaw.charAt(0).toUpperCase() + dayRaw.slice(1).toLowerCase()
+      : "?";
+    return at ? `Weekly on ${day} at ${at} (box-local)` : `Weekly on ${day} (box-local)`;
+  }
+  return "custom schedule";
+}
 
 // Phase 3 session-changeover tuning constants. Holding timeout: 15 * 3s = 45s.
 // Per D-31 and CONTEXT.md § holding timeout — Nelly's timing note: "new .jsonl
@@ -1175,6 +1216,194 @@ wss.on("connection", async (ws: WebSocket, req) => {
             }),
           );
         } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Patch #17g: identity:get-identity-file — read <identityKey>/<identityKey>.md as markdown.
+    if (msg.type === "identity:get-identity-file") {
+      const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
+      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try {
+          ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: "invalid identityKey" }));
+        } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const identitiesRoot = process.env.IDENTITIES_HOST_DIR || path.join(os.homedir(), ".claude", "identities");
+      const filePath = path.join(identitiesRoot, identityKey, identityKey + ".md");
+      try {
+        const markdown = await fs.readFile(filePath, "utf-8");
+        sshLogger.info("identity:get-identity-file", {
+          operation: "identity_get_identity_file",
+          userId,
+          identityKey,
+          payloadSize: markdown.length,
+        });
+        try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown })); } catch { /* ignore */ }
+      } catch (err: unknown) {
+        if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
+          try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "" })); } catch { /* ignore */ }
+        } else {
+          sshLogger.error(
+            "identity:get-identity-file error",
+            err instanceof Error ? err : new Error(String(err)),
+            { operation: "identity_get_identity_file_error", userId, identityKey },
+          );
+          try {
+            ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: err instanceof Error ? err.message : String(err) }));
+          } catch { /* ignore */ }
+        }
+      }
+      return;
+    }
+
+    // Patch #17g: identity:get-history — read history.md; reverse lines for most-recent-first.
+    if (msg.type === "identity:get-history") {
+      const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
+      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try {
+          ws.send(JSON.stringify({ type: "identity:history", entries: [], error: "invalid identityKey" }));
+        } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const identitiesRoot = process.env.IDENTITIES_HOST_DIR || path.join(os.homedir(), ".claude", "identities");
+      const filePath = path.join(identitiesRoot, identityKey, "history.md");
+      try {
+        const contents = await fs.readFile(filePath, "utf-8");
+        const entries = contents
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0 && !line.startsWith("#"))
+          .reverse();
+        sshLogger.info("identity:get-history", {
+          operation: "identity_get_history",
+          userId,
+          identityKey,
+          payloadSize: entries.length,
+        });
+        try { ws.send(JSON.stringify({ type: "identity:history", entries })); } catch { /* ignore */ }
+      } catch (err: unknown) {
+        if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
+          try { ws.send(JSON.stringify({ type: "identity:history", entries: [] })); } catch { /* ignore */ }
+        } else {
+          sshLogger.error(
+            "identity:get-history error",
+            err instanceof Error ? err : new Error(String(err)),
+            { operation: "identity_get_history_error", userId, identityKey },
+          );
+          try {
+            ws.send(JSON.stringify({ type: "identity:history", entries: [], error: err instanceof Error ? err.message : String(err) }));
+          } catch { /* ignore */ }
+        }
+      }
+      return;
+    }
+
+    // Patch #17g: identity:list-wakeups — enumerate wakeups/*.json and humanize each schedule.
+    if (msg.type === "identity:list-wakeups") {
+      const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
+      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try {
+          ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: "invalid identityKey" }));
+        } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const identitiesRoot = process.env.IDENTITIES_HOST_DIR || path.join(os.homedir(), ".claude", "identities");
+      const wakeupsDir = path.join(identitiesRoot, identityKey, "wakeups");
+      try {
+        let dirEntries: string[];
+        try {
+          dirEntries = await fs.readdir(wakeupsDir);
+        } catch (err: unknown) {
+          if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
+            try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [] })); } catch { /* ignore */ }
+            return;
+          }
+          throw err;
+        }
+        const jsonFiles = dirEntries.filter((e) => e.endsWith(".json"));
+        const wakeups: { name: string; enabled: boolean; scheduleHuman: string; instruction: string }[] = [];
+        for (const filename of jsonFiles) {
+          const filePath = path.join(wakeupsDir, filename);
+          try {
+            const raw = await fs.readFile(filePath, "utf-8");
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            const stem = filename.replace(/\.json$/, "");
+            const name = typeof parsed.name === "string" ? parsed.name : stem;
+            const enabled = typeof parsed.enabled === "boolean" ? parsed.enabled : false;
+            const instruction = typeof parsed.instruction === "string" ? parsed.instruction : "";
+            const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
+            wakeups.push({ name, enabled, scheduleHuman, instruction });
+          } catch (err) {
+            sshLogger.error(
+              "identity:list-wakeups failed to parse wakeup JSON",
+              err instanceof Error ? err : new Error(String(err)),
+              { operation: "identity_list_wakeups_parse_error", userId, identityKey, filePath: path.join(wakeupsDir, filename) },
+            );
+            // Skip this file — one bad JSON must not poison the list.
+          }
+        }
+        sshLogger.info("identity:list-wakeups", {
+          operation: "identity_list_wakeups",
+          userId,
+          identityKey,
+          payloadSize: wakeups.length,
+        });
+        try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups })); } catch { /* ignore */ }
+      } catch (err) {
+        sshLogger.error(
+          "identity:list-wakeups unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_list_wakeups_error", userId, identityKey },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Patch #17g: identity:get-handoff — read handoff.md as markdown.
+    if (msg.type === "identity:get-handoff") {
+      const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
+      const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try {
+          ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: "invalid identityKey" }));
+        } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const identitiesRoot = process.env.IDENTITIES_HOST_DIR || path.join(os.homedir(), ".claude", "identities");
+      const filePath = path.join(identitiesRoot, identityKey, "handoff.md");
+      try {
+        const markdown = await fs.readFile(filePath, "utf-8");
+        sshLogger.info("identity:get-handoff", {
+          operation: "identity_get_handoff",
+          userId,
+          identityKey,
+          payloadSize: markdown.length,
+        });
+        try { ws.send(JSON.stringify({ type: "identity:handoff", markdown })); } catch { /* ignore */ }
+      } catch (err: unknown) {
+        if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
+          try { ws.send(JSON.stringify({ type: "identity:handoff", markdown: "" })); } catch { /* ignore */ }
+        } else {
+          sshLogger.error(
+            "identity:get-handoff error",
+            err instanceof Error ? err : new Error(String(err)),
+            { operation: "identity_get_handoff_error", userId, identityKey },
+          );
+          try {
+            ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: err instanceof Error ? err.message : String(err) }));
+          } catch { /* ignore */ }
+        }
       }
       return;
     }
