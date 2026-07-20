@@ -53,7 +53,17 @@ const DEBOUNCE_MS = 400;
 // The well always mounts (even when contextPct is null) so the compose
 // row's geometry doesn't jitter on first attach. Segments light bottom-to-
 // top per contextPct at `litCount = round(contextPct / 100 * SEG_COUNT)`.
-const SEG_COUNT = 12;
+//
+// Patch #89 (third try): 12 → 11. The two prior #89 attempts (grid 1fr,
+// then explicit calc heights) both left visible sub-pixel unevenness on
+// Ashley's Retina display because the meter well is only ~58px tall and
+// 12 segments minus 22px of gap leaves ~2.5px per segment — variance of
+// 0.016px CSS rounds to different physical pixels at that size. Ashley
+// tuned live via a DevTools panel and 11 segments "instantly looks
+// good"; odd count breaks the symmetric off-by-1 pattern the eye reads
+// as unevenness in even counts. Loses ~1% of resolution per segment,
+// negligible for context-window read-out.
+const SEG_COUNT = 11;
 
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
