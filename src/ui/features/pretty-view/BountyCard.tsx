@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Flame, ChevronsUp, ChevronUp, Minus } from "lucide-react";
+import { Flame, ChevronsUp, ChevronUp, Minus, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/checkbox";
 import { Button } from "@/components/button";
@@ -82,6 +82,7 @@ export function BountyCard({
   archived?: boolean;
 }) {
   const [premiseExpanded, setPremiseExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const isLongPremise = bounty.premise.length > 400;
 
   const statusClass =
@@ -113,8 +114,16 @@ export function BountyCard({
           "0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.10)",
       }}
     >
-      {/* Row 1: title + status pill + priority */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Row 1: title + status pill + priority + expand chevron.
+          Whole row is the disclosure toggle — collapsed by default so a long
+          list of bounties stays scannable without scrolling through each
+          card's premise/todos/timeline. */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex items-center gap-2 flex-wrap w-full text-left cursor-pointer"
+      >
         <span
           className="font-semibold text-[15px] text-[#f0ebe0] flex-1 min-w-0"
         >
@@ -133,80 +142,90 @@ export function BountyCard({
             <PriorityIcon priority={bounty.priority} />
           </span>
         )}
-      </div>
-
-      {/* Premise block */}
-      {bounty.premise && (
-        <div>
-          <div
-            className={cn(
-              "whitespace-pre-wrap text-sm text-[#e8e4d8]/90 leading-relaxed",
-              isLongPremise && !premiseExpanded && "line-clamp-4",
-            )}
-          >
-            {bounty.premise}
-          </div>
-          {isLongPremise && (
-            <Button
-              variant="link"
-              size="sm"
-              className="h-auto p-0 text-xs text-[#a89a80] hover:text-[#e8e4d8]"
-              onClick={() => setPremiseExpanded((v) => !v)}
-            >
-              {premiseExpanded ? "Show less" : "Show more"}
-            </Button>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-[#a89a80] transition-transform duration-150",
+            expanded && "rotate-180",
           )}
-        </div>
-      )}
+        />
+      </button>
 
-      {/* Todos */}
-      {bounty.todos.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
-            Todos
-          </span>
-          <ul className="flex flex-col gap-1">
-            {bounty.todos.map((t, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  checked={t.done}
-                  disabled
-                  className="mt-0.5 cursor-default opacity-60"
-                />
-                <span
-                  className={cn(
-                    "text-[#e8e4d8]/90",
-                    t.done && "line-through opacity-60",
-                  )}
+      {expanded && (
+        <>
+          {/* Premise block */}
+          {bounty.premise && (
+            <div>
+              <div
+                className={cn(
+                  "whitespace-pre-wrap text-sm text-[#e8e4d8]/90 leading-relaxed",
+                  isLongPremise && !premiseExpanded && "line-clamp-4",
+                )}
+              >
+                {bounty.premise}
+              </div>
+              {isLongPremise && (
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-xs text-[#a89a80] hover:text-[#e8e4d8]"
+                  onClick={() => setPremiseExpanded((v) => !v)}
                 >
-                  {t.text}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+                  {premiseExpanded ? "Show less" : "Show more"}
+                </Button>
+              )}
+            </div>
+          )}
 
-      {/* Timeline tail */}
-      {latestTimeline && (
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
-            Latest
-          </span>
-          <div
-            className="text-xs text-[var(--color-pv-fg-dim)] font-mono whitespace-pre-wrap break-words"
-            title={latestTimeline}
-          >
-            {truncatedTimeline}
-          </div>
-        </div>
-      )}
+          {/* Todos */}
+          {bounty.todos.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                Todos
+              </span>
+              <ul className="flex flex-col gap-1">
+                {bounty.todos.map((t, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <Checkbox
+                      checked={t.done}
+                      disabled
+                      className="mt-0.5 cursor-default opacity-60"
+                    />
+                    <span
+                      className={cn(
+                        "text-[#e8e4d8]/90",
+                        t.done && "line-through opacity-60",
+                      )}
+                    >
+                      {t.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-      {/* Footer: updated_at */}
-      {bounty.updated_at && (
-        <div className="text-[10px] text-[var(--color-pv-fg-dim)] font-mono">
-          {new Date(bounty.updated_at).toLocaleString()}
-        </div>
+          {/* Timeline tail */}
+          {latestTimeline && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                Latest
+              </span>
+              <div
+                className="text-xs text-[var(--color-pv-fg-dim)] font-mono whitespace-pre-wrap break-words"
+                title={latestTimeline}
+              >
+                {truncatedTimeline}
+              </div>
+            </div>
+          )}
+
+          {/* Footer: updated_at */}
+          {bounty.updated_at && (
+            <div className="text-[10px] text-[var(--color-pv-fg-dim)] font-mono">
+              {new Date(bounty.updated_at).toLocaleString()}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
