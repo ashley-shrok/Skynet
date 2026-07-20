@@ -334,9 +334,11 @@ export function IdentityModal({
           Identity: {identity.displayName}
         </DialogTitle>
 
-        {/* Header */}
+        {/* Header — patch #91: symmetric py-4 (was pt-5 pb-3 which pushed
+            the avatar visually above center; Ashley called out on first
+            #90 deploy eyeball). */}
         <DialogHeader
-          className="px-6 pt-5 pb-3 shrink-0 flex flex-row items-center gap-3"
+          className="px-6 py-4 shrink-0 flex flex-row items-center gap-3"
           style={{
             borderBottom: `1px solid hsla(${hue}, 50%, 50%, 0.2)`,
           }}
@@ -363,15 +365,38 @@ export function IdentityModal({
               </span>
             )}
           </div>
+          {/* Patch #91: close button glow-up. Was a ghost square with no
+              rest-state visual weight ("pretty lame looking" per Ashley
+              on first #90 deploy eyeball). Now a proper glass pill with:
+              - rest: subtle warm-glass fill + hairline border, muted icon
+              - hover: brightens fill + border + icon, hue-tinted outer glow
+                that echoes the header border-bottom's own hue.
+              - cursor-pointer (Tailwind v4 dropped v3's button default).
+              `!` on bg per patch #81 shadcn override rule (Button's base
+              has dark: variants that would otherwise win specificity). */}
           <DialogClose asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
+            <button
+              type="button"
               aria-label="Close"
-              className="shrink-0 text-[#a89a80] hover:text-[#e8e4d8] hover:bg-white/10"
+              title="Close"
+              className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
+              style={{
+                background: "rgba(255, 255, 255, 0.04)",
+                border: "1px solid rgba(220, 225, 245, 0.10)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
+                e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.22)";
+                e.currentTarget.style.boxShadow = `0 0 20px hsla(${hue}, 60%, 50%, 0.25)`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
+                e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.10)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
             >
               <X className="size-4" />
-            </Button>
+            </button>
           </DialogClose>
         </DialogHeader>
 
@@ -381,12 +406,43 @@ export function IdentityModal({
           onValueChange={setActiveTab}
           className="flex-1 flex flex-col min-h-0"
         >
-          <TabsList className="mx-6 mt-3 shrink-0 bg-black/20 border border-white/10 w-auto self-start">
-            <TabsTrigger value="identity">Identity</TabsTrigger>
-            <TabsTrigger value="bounties">Bounties</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
-            <TabsTrigger value="wakeups">Wakeups</TabsTrigger>
-            <TabsTrigger value="handoff">Handoff</TabsTrigger>
+          {/* Patch #91: tabs polish.
+              - TabsList: refined glass surface (was flat bg-black/20 border-white/10).
+                Warm-cool-black gradient + slightly stronger border + backdrop-blur
+                so it reads as part of the modal chrome, not a bolted-on strip.
+                p-1 gives active pill some breathing room inside the well.
+              - TabsTrigger: cursor-pointer (Tailwind v4 dropped v3's button
+                default); patch #81 `!` on active bg (shadcn's base carries
+                dark:data-[state=active]:bg-input/30 which would win specificity
+                on our plain override). Active state = brighter warm-cream fill
+                that reads as "pressed in" against the well; hover = subtle
+                brighten of the inactive text. Custom size/padding for a
+                cleaner rhythm than shadcn defaults. */}
+          <TabsList
+            className="mx-6 mt-4 shrink-0 w-auto self-start p-1 rounded-lg h-auto"
+            style={{
+              background: "linear-gradient(180deg, rgba(28,30,40,0.55), rgba(18,20,28,0.62))",
+              border: "1px solid rgba(220, 225, 245, 0.12)",
+              boxShadow: "inset 0 1px 0 rgba(220, 225, 245, 0.05), inset 0 2px 8px rgba(0, 0, 0, 0.35)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+            }}
+          >
+            {[
+              { value: "identity", label: "Identity" },
+              { value: "bounties", label: "Bounties" },
+              { value: "history", label: "History" },
+              { value: "wakeups", label: "Wakeups" },
+              { value: "handoff", label: "Handoff" },
+            ].map((t) => (
+              <TabsTrigger
+                key={t.value}
+                value={t.value}
+                className="cursor-pointer px-3.5 py-1.5 text-sm text-[#a89a80] hover:text-[#e8e4d8] data-[state=active]:bg-[rgba(240,235,224,0.08)]! data-[state=active]:text-[#f0ebe0] data-[state=active]:border-[rgba(220,225,245,0.18)]! data-[state=active]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),_0_1px_2px_rgba(0,0,0,0.3)]"
+              >
+                {t.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           {/* Identity tab — patch #17g: default tab; renders <key>.md as markdown */}
