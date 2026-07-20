@@ -3,6 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // ============================================================================
 // pretty-view scroll model — clamp-anchor + Slack-follow state machine
 // Patch #96 — replaces patch #88's "scroll to top of tall message" one-shot.
+// Patch #98 — user-gesture detection (wheel / touchmove / keydown-scroll-keys)
+//             replaces the scroll-event-based mode-flip counter from patch #96.
+//
+// Rationale (patch #98): browser scroll events can arrive 200ms+ after a
+// programmatic scrollTop write. Direct user-input events cannot be delayed by
+// our own writes, so they are the reliable signal for user-vs-programmatic mode.
 //
 // State machine:
 //   mode: 'clamp' | 'user-driving'
@@ -30,7 +36,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //   if mode === 'user-driving' && followBottom: scroll to bottom (no ceiling)
 //   else:                                do nothing (leave user's view alone)
 //
-// user scroll (real gesture, NOT emitted while programmaticScroll > 0):
+// user gesture (wheel / touchmove / scroll-key keydown):
 //   mode = 'user-driving'
 //   followBottom = (distFromBottom <= BOTTOM_THRESHOLD)
 //
@@ -38,13 +44,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //   mode = 'user-driving', followBottom = true, jump to bottom
 //   (explicit opt-in to "no ceiling; show me the latest")
 //
-// programmatic-scroll counter (doProgScroll):
-//   increment before scrollTop write, double-rAF decrement after — ensures
-//   the browser's async scroll event for our own write is ignored by the
-//   user-scroll handler (which flips mode).
+// doProgScroll:
+//   bare scrollTop write — no counter, no rAF dance. Mode flip is now driven
+//   by user-input events (wheel/touchmove/keydown), so delayed scroll events
+//   from our own writes are harmless.
 // ============================================================================
 
 const BOTTOM_THRESHOLD = 100; // px — matches prototype line 149
+
+// Scroll keys that indicate the user intends to scroll the container.
+const SCROLL_KEYS: readonly string[] = [
+  "PageUp",
+  "PageDown",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+  " ",
+];
 
 // Pure helpers — accept element args so they're testable without the full hook.
 
@@ -99,7 +116,6 @@ export function useAutoScroll(messages: readonly AnchorMessage[]): {
   const modeRef = useRef<"clamp" | "user-driving">("clamp");
   const followBottomRef = useRef<boolean>(false);
   const anchorElRef = useRef<HTMLElement | null>(null);
-  const programmaticScrollRef = useRef<number>(0);
   // Tracks which user-message eventId the current anchor represents.
   // When the derived last-user-role eventId differs from this ref,
   // a new turn has started → reset mode + apply clamp.
@@ -125,20 +141,7 @@ export function useAutoScroll(messages: readonly AnchorMessage[]): {
 
   function doProgScroll(newTop: number): void {
     if (!scrollEl) return;
-    programmaticScrollRef.current++;
     scrollEl.scrollTop = newTop;
-    // Double-rAF: matches prototype lines 188-195 exactly.
-    // The first frame lets the browser fire any pending scroll events;
-    // the second frame is a safety net for browsers that queue scroll events
-    // in a second paint cycle.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        programmaticScrollRef.current = Math.max(
-          0,
-          programmaticScrollRef.current - 1,
-        );
-      });
-    });
   }
 
   function applyClampRule(): void {
@@ -165,23 +168,54 @@ export function useAutoScroll(messages: readonly AnchorMessage[]): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollEl]);
 
-  // --- effect 1: scroll event → user-vs-programmatic detection ---
+  // --- effect 1: scroll event → sync isPinnedToBottom + followBottomRef (NO mode flip) ---
   useEffect(() => {
     if (!scrollEl) return;
     const handleScroll = () => {
-      if (programmaticScrollRef.current > 0) return; // programmatic write — ignore
-      // real user scroll
-      if (modeRef.current === "clamp") {
-        modeRef.current = "user-driving";
+      const distFromBottom =
+        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+      const nb = distFromBottom <= BOTTOM_THRESHOLD;
+      // Update followBottom only when already user-driving (gesture listeners set mode).
+      if (modeRef.current === "user-driving") {
+        followBottomRef.current = nb;
       }
+      // Always keep the jump-pill in sync with current scroll position.
+      setIsPinnedToBottom(nb);
+    };
+    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollEl.removeEventListener("scroll", handleScroll);
+  }, [scrollEl]);
+
+  // --- effect 1b: user gesture listeners → mode flip + followBottom update ---
+  useEffect(() => {
+    if (!scrollEl) return;
+
+    const handleUserGesture = () => {
+      // Flip mode from clamp → user-driving on any direct user input.
+      modeRef.current = "user-driving";
+      // Recompute followBottom from current scroll position regardless of prior mode.
       const distFromBottom =
         scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
       const nb = distFromBottom <= BOTTOM_THRESHOLD;
       followBottomRef.current = nb;
       setIsPinnedToBottom(nb);
     };
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollEl.removeEventListener("scroll", handleScroll);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (SCROLL_KEYS.includes(e.key)) {
+        handleUserGesture();
+      }
+    };
+
+    scrollEl.addEventListener("wheel", handleUserGesture, { passive: true });
+    scrollEl.addEventListener("touchmove", handleUserGesture, { passive: true });
+    scrollEl.addEventListener("keydown", handleKeyDown, { passive: true });
+    return () => {
+      scrollEl.removeEventListener("wheel", handleUserGesture);
+      scrollEl.removeEventListener("touchmove", handleUserGesture);
+      scrollEl.removeEventListener("keydown", handleKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollEl]);
 
   // --- effect 2: ResizeObserver → dispatch clamp or follow-bottom ---
