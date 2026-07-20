@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
 Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
 Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-20 -- Completed quick task 260720-3n2: identity modal cross-machine fetch (patch #92)
+Last activity: 2026-07-20 -- Deployed patches #82-#95 batch (context meter, queue button, WIP bump, image support, identity modal + tabs + polish + cross-machine fetch, scroll-to-top, good-to-go swap). All pinned.
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
