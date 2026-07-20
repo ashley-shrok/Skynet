@@ -1,13 +1,19 @@
 // ResizeObserver polyfill — JSDOM does not ship it.
 // Must be assigned BEFORE the import of useAutoScroll so that
 // the module's ResizeObserver reference picks up the stub at module-init time.
-class NoopResizeObserver {
+// Captures the most recent constructor's callback so tests that need to
+// simulate a browser ResizeObserver firing (Test O) can invoke it directly.
+let capturedROCallback: ResizeObserverCallback | null = null;
+class CapturingResizeObserver {
+  constructor(cb: ResizeObserverCallback) {
+    capturedROCallback = cb;
+  }
   observe() {}
   unobserve() {}
   disconnect() {}
 }
 (globalThis as unknown as Record<string, unknown>).ResizeObserver =
-  NoopResizeObserver;
+  CapturingResizeObserver;
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
@@ -529,5 +535,82 @@ describe("useAutoScroll — Test N: followBottom respects distance after gesture
     });
 
     expect(result.current.isPinnedToBottom).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test O (patch #103 regression): ResizeObserver recomputes isPinnedToBottom.
+// ---------------------------------------------------------------------------
+// When a sent user message anchors the scroll in clamp mode and content
+// grows past the anchor ceiling, applyClampRule's target (apt) equals the
+// current scrollTop → no scroll write → no scroll event → effect 1 does not
+// update isPinnedToBottom. The jump-to-bottom pill was hiding forever even
+// with a full viewport of unread content below the fold. Effect 2's RO
+// callback must recompute pill visibility from current scroll geometry.
+
+describe("useAutoScroll — Test O (patch #103 regression): RO recomputes isPinnedToBottom", () => {
+  it("content growth without a scroll event flips isPinnedToBottom to false via ResizeObserver", () => {
+    // Mutable scrollHeight so we can simulate content growth mid-test.
+    let scrollHeightState = 500;
+    const scrollEl = document.createElement("div");
+    Object.defineProperty(scrollEl, "scrollHeight", {
+      get: () => scrollHeightState,
+      configurable: true,
+    });
+    Object.defineProperty(scrollEl, "clientHeight", {
+      get: () => 400,
+      configurable: true,
+    });
+    let _scrollTop = 100;
+    Object.defineProperty(scrollEl, "scrollTop", {
+      get: () => _scrollTop,
+      set: (v: number) => {
+        _scrollTop = v;
+      },
+      configurable: true,
+    });
+    scrollEl.getBoundingClientRect = () =>
+      ({
+        top: 0,
+        bottom: 400,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    const contentEl = document.createElement("div");
+
+    const { result } = renderHook(() =>
+      useAutoScroll([{ type: "message", role: "user", eventId: "u1" }]),
+    );
+
+    act(() => {
+      result.current.scrollRef(scrollEl);
+      result.current.contentRef(contentEl);
+    });
+
+    // Sync isPinnedToBottom to the initial (pinned) geometry.
+    // scrollHeight=500, scrollTop=100, clientHeight=400 → distFromBottom=0 → pinned=true
+    act(() => {
+      scrollEl.dispatchEvent(new Event("scroll"));
+    });
+    expect(result.current.isPinnedToBottom).toBe(true);
+
+    // Content grows past the fold — WITHOUT any scroll write or scroll event.
+    // scrollHeight 500 → 2000. New distFromBottom = 2000 - 100 - 400 = 1500 >> 100.
+    scrollHeightState = 2000;
+
+    // Fire the captured RO callback (simulates a real ResizeObserver notification).
+    act(() => {
+      capturedROCallback?.([], {} as ResizeObserver);
+    });
+
+    // Without the fix, isPinnedToBottom stays true and the pill hides.
+    // With the fix, the RO callback recomputes and flips it to false.
+    expect(result.current.isPinnedToBottom).toBe(false);
   });
 });

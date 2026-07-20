@@ -227,6 +227,14 @@ export function useAutoScroll(messages: readonly AnchorMessage[]): {
       } else if (followBottomRef.current) {
         scrollToBottom();
       }
+      // Recompute pill visibility. In clamp mode with the anchor at the
+      // ceiling, applyClampRule short-circuits (target === scrollTop) so no
+      // scroll event fires as content grows — effect 1's handler wouldn't
+      // otherwise notice that scrollHeight has moved past scrollTop +
+      // clientHeight and the pill would stay hidden.
+      const distFromBottom =
+        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+      setIsPinnedToBottom(distFromBottom <= BOTTOM_THRESHOLD);
     });
     ro.observe(contentEl);
     ro.observe(scrollEl);
