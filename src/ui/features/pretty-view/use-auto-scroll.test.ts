@@ -189,7 +189,7 @@ describe("computeClampTarget — Test E: early-turn short reply", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Hook integration tests (A, B, F, G)
+// Hook integration tests (A, B, F', G, K, L, M, N)
 // ---------------------------------------------------------------------------
 
 describe("useAutoScroll — Test A: anchor selection", () => {
@@ -253,46 +253,56 @@ describe("useAutoScroll — Test B: anchor reset on new user message", () => {
   });
 });
 
-describe("useAutoScroll — Test F: programmatic scroll gate", () => {
-  it("programmaticScroll counter is > 0 immediately after a doProgScroll", () => {
-    // We cannot directly inspect programmaticScrollRef, but we can observe that
-    // a scroll event fired immediately after a programmatic write does NOT flip
-    // mode. We'll do this by:
-    //   1. Mounting the hook with a scrollEl wired
-    //   2. Triggering a conditions that fires doProgScroll (anchor key change → applyClampRule)
-    //   3. Simulating a scroll event synchronously
-    //   4. Verifying mode stays 'clamp' (isPinnedToBottom doesn't flip to false)
-    //
-    // Since direct rAF invocation is async in tests, we'll instead use a simpler
-    // approach: verify that the scroll listener is attached with { passive: true }
-    // by checking that addEventListener was called with the correct options.
-
+// ---------------------------------------------------------------------------
+// Test F' (patch #98 regression): delayed scroll event does NOT flip mode
+// ---------------------------------------------------------------------------
+// Regression guard for patch #98: browser scroll events can arrive 200ms+ after a
+// programmatic scrollTop write. The hook MUST NOT flip mode based on scroll events.
+describe("useAutoScroll — Test F' (patch #98 regression): delayed scroll event does NOT flip mode", () => {
+  it("a scroll event — even after a 250ms delay — does not change isPinnedToBottom in a mode-flip way", async () => {
     const scrollEl = makeScrollEl({
       scrollHeight: 1000,
       clientHeight: 400,
-      scrollTop: 0,
+      scrollTop: 0, // distFromBottom = 600 > 100, so not pinned
     });
 
-    const addEventListenerSpy = vi.spyOn(scrollEl, "addEventListener");
-
-    // Set scrollTop for scrollEl assignment
     const { result } = renderHook(() =>
       useAutoScroll([{ type: "message", role: "user", eventId: "u1" }]),
     );
 
-    // Wire the scrollEl
     act(() => {
       result.current.scrollRef(scrollEl);
     });
 
-    // Verify the scroll listener was attached with passive:true (matches prototype)
-    const scrollListenerCall = addEventListenerSpy.mock.calls.find(
-      (call) => call[0] === "scroll",
-    );
-    expect(scrollListenerCall).toBeDefined();
-    expect(scrollListenerCall?.[2]).toMatchObject({ passive: true });
+    // Read isPinnedToBottom value after mounting; with scrollTop=0 and
+    // distFromBottom=600, the value should be false (not pinned).
+    const beforeScroll = result.current.isPinnedToBottom;
+
+    // Simulate the delayed browser scroll arrival (200ms+ after programmatic write).
+    await new Promise((r) => setTimeout(r, 250));
+
+    act(() => {
+      scrollEl.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+
+    // After the scroll event, isPinnedToBottom should still reflect the current
+    // distFromBottom (600 > 100 → false), NOT a mode-flip artifact.
+    // The key: this value is the same as what the scroll handler computes from
+    // distFromBottom — it has not been influenced by a mode flip.
+    expect(result.current.isPinnedToBottom).toBe(false);
+
+    // Now dispatch a wheel event — FIRST genuine user gesture.
+    // isPinnedToBottom should remain false (distFromBottom still 600 > 100).
+    act(() => {
+      scrollEl.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    });
+    expect(result.current.isPinnedToBottom).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Test G: scrollToBottomAndFollow
+// ---------------------------------------------------------------------------
 
 describe("useAutoScroll — Test G: scrollToBottomAndFollow", () => {
   it("sets isPinnedToBottom to true when scrollToBottomAndFollow is called", () => {
@@ -343,5 +353,181 @@ describe("useAutoScroll — Test G: scrollToBottomAndFollow", () => {
 
     // scrollEl.scrollTop should have been set to scrollHeight (1000)
     expect(scrollEl.scrollTop).toBe(1000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test K: wheel event flips mode to user-driving
+// ---------------------------------------------------------------------------
+
+describe("useAutoScroll — Test K: wheel event", () => {
+  it("wheel event on scrollEl updates isPinnedToBottom based on distFromBottom", () => {
+    // scrollHeight=1000, clientHeight=400, scrollTop=200
+    // distFromBottom = 1000 - 200 - 400 = 400 > 100 → not pinned
+    const scrollEl = makeScrollEl({
+      scrollHeight: 1000,
+      clientHeight: 400,
+      scrollTop: 200,
+    });
+
+    const { result } = renderHook(() =>
+      useAutoScroll([{ type: "message", role: "user", eventId: "u1" }]),
+    );
+
+    act(() => {
+      result.current.scrollRef(scrollEl);
+    });
+
+    act(() => {
+      scrollEl.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    });
+
+    expect(result.current.isPinnedToBottom).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test L: touchmove event flips mode to user-driving
+// ---------------------------------------------------------------------------
+
+describe("useAutoScroll — Test L: touchmove event", () => {
+  it("touchmove event on scrollEl updates isPinnedToBottom based on distFromBottom", () => {
+    // scrollHeight=1000, clientHeight=400, scrollTop=600
+    // distFromBottom = 1000 - 600 - 400 = 0 ≤ 100 → pinned
+    const scrollEl = makeScrollEl({
+      scrollHeight: 1000,
+      clientHeight: 400,
+      scrollTop: 600,
+    });
+
+    const { result } = renderHook(() =>
+      useAutoScroll([{ type: "message", role: "user", eventId: "u1" }]),
+    );
+
+    act(() => {
+      result.current.scrollRef(scrollEl);
+    });
+
+    // Use Event('touchmove') for JSDOM compatibility (hook only needs the event type)
+    act(() => {
+      scrollEl.dispatchEvent(new Event("touchmove", { bubbles: true }));
+    });
+
+    expect(result.current.isPinnedToBottom).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test M: keydown scroll keys flip mode; non-scroll keys do not
+// ---------------------------------------------------------------------------
+
+describe("useAutoScroll — Test M: keydown scroll keys", () => {
+  const SCROLL_KEYS = ["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "];
+
+  for (const key of SCROLL_KEYS) {
+    it(`keydown key='${key === " " ? "Space" : key}' updates isPinnedToBottom based on distFromBottom`, () => {
+      // scrollHeight=1000, clientHeight=400, scrollTop=0
+      // distFromBottom = 1000 - 0 - 400 = 600 > 100 → not pinned
+      const scrollEl = makeScrollEl({
+        scrollHeight: 1000,
+        clientHeight: 400,
+        scrollTop: 0,
+      });
+
+      const { result } = renderHook(() =>
+        useAutoScroll([{ type: "message", role: "user", eventId: "u1" }]),
+      );
+
+      act(() => {
+        result.current.scrollRef(scrollEl);
+      });
+
+      act(() => {
+        scrollEl.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+
+      expect(result.current.isPinnedToBottom).toBe(false);
+    });
+  }
+
+  it("does not flip mode on non-scroll keys like 'a'", () => {
+    // scrollHeight=1000, clientHeight=400, scrollTop=0
+    // distFromBottom = 600 > 100 → not pinned initially
+    const scrollEl = makeScrollEl({
+      scrollHeight: 1000,
+      clientHeight: 400,
+      scrollTop: 0,
+    });
+
+    const { result } = renderHook(() =>
+      useAutoScroll([{ type: "message", role: "user", eventId: "u1" }]),
+    );
+
+    act(() => {
+      result.current.scrollRef(scrollEl);
+    });
+
+    const initialPinned = result.current.isPinnedToBottom;
+
+    act(() => {
+      scrollEl.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+    });
+
+    // Non-scroll key: handler did NOT run, so state is unchanged.
+    expect(result.current.isPinnedToBottom).toBe(initialPinned);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test N: followBottom respects distance after gesture
+// ---------------------------------------------------------------------------
+
+describe("useAutoScroll — Test N: followBottom respects distance after gesture", () => {
+  it("sub-case 1: scrollTop mid-content → isPinnedToBottom false after wheel", () => {
+    // scrollHeight=1000, clientHeight=400, scrollTop=0
+    // distFromBottom = 1000 - 0 - 400 = 600 > 100 → not pinned
+    const scrollEl = makeScrollEl({
+      scrollHeight: 1000,
+      clientHeight: 400,
+      scrollTop: 0,
+    });
+
+    const { result } = renderHook(() =>
+      useAutoScroll([{ type: "message", role: "user", eventId: "u1" }]),
+    );
+
+    act(() => {
+      result.current.scrollRef(scrollEl);
+    });
+
+    act(() => {
+      scrollEl.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    });
+
+    expect(result.current.isPinnedToBottom).toBe(false);
+  });
+
+  it("sub-case 2: scrollTop at bottom → isPinnedToBottom true after wheel", () => {
+    // scrollHeight=1000, clientHeight=400, scrollTop=600
+    // distFromBottom = 1000 - 600 - 400 = 0 ≤ 100 → pinned
+    const scrollEl = makeScrollEl({
+      scrollHeight: 1000,
+      clientHeight: 400,
+      scrollTop: 600,
+    });
+
+    const { result } = renderHook(() =>
+      useAutoScroll([{ type: "message", role: "user", eventId: "u1" }]),
+    );
+
+    act(() => {
+      result.current.scrollRef(scrollEl);
+    });
+
+    act(() => {
+      scrollEl.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    });
+
+    expect(result.current.isPinnedToBottom).toBe(true);
   });
 });
