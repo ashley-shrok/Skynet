@@ -643,21 +643,22 @@ export function ComposeBox({
               (isDraining=true, all segments render dim) this reads
               as a top→bottom sweep; when contextPct rises during
               normal use it reads as a bottom→top fill. */}
-          {/* Patch #89: swapped flex-col-reverse + flex-1-children for CSS
-              Grid with grid-template-rows: repeat(SEG_COUNT, 1fr) to fix
-              visibly uneven segment heights that Ashley called out on the
-              first #83 deploy eyeball. Root cause: flexbox `flex-1` in a
-              12-child column with 2px gaps and non-divisible available
-              height distributes rounding sub-pixels unevenly (some
-              segments 6px, others 7px depending on browser round). Grid
-              1fr rows distribute space more evenly. Explicit
-              gridRowStart on each segment preserves index-0=bottom-most
-              ordering that the color/lit logic already assumes without
-              needing flex-col-reverse. */}
-          <div
-            className="flex-1 grid gap-[2px] min-h-[30px]"
-            style={{ gridTemplateRows: `repeat(${SEG_COUNT}, 1fr)` }}
-          >
+          {/* Patch #89 (second try): explicit calc-height per segment
+              defeats browser sub-pixel rounding artifacts. First try used
+              CSS Grid with `1fr` rows — Ashley re-eyeballed and reported
+              segments STILL visibly uneven. Both `flex: 1` and grid `1fr`
+              distribute remaining space and let the browser round each
+              row's rendered pixel independently, which produces 1-pixel
+              variance at short segment heights (compose row is only
+              ~60-80px tall; 12 rows minus 22px of gap = ~40-60px / 12 =
+              3-5px per row; a 1px round difference is very visible). The
+              deterministic fix: give every segment the SAME
+              `calc((100% - <total_gap>px) / <SEG_COUNT>)` height. All 12
+              segments share the identical calc expression, so any
+              sub-pixel round the browser applies is applied uniformly to
+              all of them. `flex: 0 0 auto` disables the flex expansion
+              that would otherwise override the explicit height. */}
+          <div className="flex-1 flex flex-col-reverse gap-[2px] min-h-[30px]">
             {Array.from({ length: SEG_COUNT }, (_, i) => {
               const posPct = (i / (SEG_COUNT - 1)) * 100;
               const band =
@@ -708,13 +709,18 @@ export function ComposeBox({
               return (
                 <div
                   key={i}
-                  className="min-h-[2px] rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
+                  className="rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
                   style={{
-                    // Patch #89: gridRowStart maps index-0=bottom-most,
-                    // index-(SEG_COUNT-1)=topmost — the ordering the
-                    // color/lit-count logic already assumes. Replaces the
-                    // prior flex-col-reverse visual flip.
-                    gridRowStart: SEG_COUNT - i,
+                    // Patch #89 (second try): explicit calc height per
+                    // segment, same expression for all 12, so any sub-pixel
+                    // rounding the browser applies is applied uniformly.
+                    // `flex: "0 0 auto"` disables flex-grow/shrink so the
+                    // parent's flexbox does NOT override this height.
+                    // Total: 12 * calc((100% - 22px) / 12) + 22px gap
+                    // = 100% (fills the well exactly, minus at most one
+                    // rounding pixel that appears as a whole at the top).
+                    height: `calc((100% - ${(SEG_COUNT - 1) * 2}px) / ${SEG_COUNT})`,
+                    flex: "0 0 auto",
                     transitionDelay: `${(SEG_COUNT - 1 - i) * 35}ms`,
                     background,
                     boxShadow,
