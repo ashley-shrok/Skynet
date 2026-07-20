@@ -470,6 +470,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
         const inputData = data as string;
         const inputStream =
           sessionManager.getSession(currentSessionId)?.sshStream ?? sshStream;
+        const mqid = (parsed as { messageQueueItemId?: unknown })
+          .messageQueueItemId;
+        const isPrettyViewSubmit =
+          typeof mqid === "string" && mqid.length > 0;
         if (inputStream) {
           if (inputData === "\t") {
             inputStream.write(inputData);
@@ -478,6 +482,43 @@ wss.on("connection", async (ws: WebSocket, req) => {
             inputData.startsWith("\x1b")
           ) {
             inputStream.write(inputData);
+          } else if (
+            isPrettyViewSubmit &&
+            typeof inputData === "string" &&
+            inputData.endsWith("\r")
+          ) {
+            // Patch #100 (2026-07-20): pretty-view submits sometimes lose
+            // their trailing Enter — the whole `text\r` lands as one burst
+            // and Claude Code's TUI reader treats the \r as end-of-paste
+            // instead of firing submit. Split the burst so the Enter arrives
+            // as a distinct keystroke.
+            const body = inputData.slice(0, -1);
+            if (body.length > 0) {
+              try {
+                inputStream.write(Buffer.from(body, "utf8"));
+              } catch (error) {
+                sshLogger.error("Error writing input to SSH stream", error, {
+                  operation: "ssh_input_encoding",
+                  userId,
+                  dataLength: body.length,
+                });
+                inputStream.write(Buffer.from(body, "latin1"));
+              }
+            }
+            setTimeout(() => {
+              try {
+                inputStream.write("\r");
+              } catch (error) {
+                sshLogger.error(
+                  "Delayed Enter write failed",
+                  error instanceof Error ? error : new Error(String(error)),
+                  {
+                    operation: "ssh_input_delayed_enter",
+                    userId,
+                  },
+                );
+              }
+            }, 50);
           } else {
             try {
               inputStream.write(Buffer.from(inputData, "utf8"));
@@ -519,9 +560,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         // items on subsequent loads if the network was unhealthy at
         // send time. Fire-and-forget with error logging: if the delete
         // fails, the row remains and can be trashed via the drawer.
-        const mqid = (parsed as { messageQueueItemId?: unknown })
-          .messageQueueItemId;
-        if (typeof mqid === "string" && mqid.length > 0 && userId) {
+        if (isPrettyViewSubmit && userId) {
           getDb()
             .delete(messageQueueItems)
             .where(
