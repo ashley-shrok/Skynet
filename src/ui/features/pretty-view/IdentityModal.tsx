@@ -21,12 +21,30 @@ import {
   type Bounty,
   type IdentityBountiesEvent,
   type IdentityListBountiesPayload,
+  type IdentityGetIdentityFilePayload,
+  type IdentityIdentityFileEvent,
+  type IdentityGetHistoryPayload,
+  type IdentityHistoryEvent,
+  type IdentityListWakeupsPayload,
+  type IdentityWakeupsEvent,
+  type IdentityGetHandoffPayload,
+  type IdentityHandoffEvent,
+  type Wakeup,
 } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
 import { BountyCard } from "./BountyCard";
 import { cn } from "@/lib/utils";
+import { IdentityFileTab, type TabState } from "./IdentityFileTab";
+import { HistoryTab } from "./HistoryTab";
+import { WakeupsTab } from "./WakeupsTab";
+import { HandoffTab } from "./HandoffTab";
 
 // Patch #87: tabbed near-fullscreen modal for the identity's bounties.
+// Patch #17g: renamed Standing Directives → Identity; promoted Identity to
+//   position 1 + default active tab; parallel fetch of 4 new artifacts
+//   (identity file, history, wakeups, handoff) on modal open; tab renderers
+//   extracted to sibling files (IdentityFileTab / HistoryTab / WakeupsTab /
+//   HandoffTab). Bounties tab structure and patch #87 attribution preserved.
 //
 // Opens on click of the lg IdentityBadge in PrettyView (Task 3). Fetches
 // bounties via a one-shot identity:list-bounties WS request (D-02). Closes
@@ -37,10 +55,9 @@ import { cn } from "@/lib/utils";
 // "expand" to fill the surface. shadcn DialogContent base overrides use `!`
 // important suffix per patch #81 rule (D-06).
 //
-// Five tabs: Bounties (populated), History / Wakeups / Handoff / Standing
-// Directives (placeholder "Coming soon" — D-15). Sort/group logic is
-// client-side only (D-08, D-09). Archive section is a collapsed Accordion
-// below the open groups (D-03).
+// Five tabs: Identity (default) / Bounties / History / Wakeups / Handoff.
+// Sort/group logic is client-side only (D-08, D-09). Archive section is a
+// collapsed Accordion below the open groups (D-03).
 
 const PRIORITY_WEIGHT: Record<string, number> = {
   urgent: 0,
@@ -87,13 +104,21 @@ export function IdentityModal({
   const [archivedBounties, setArchivedBounties] = useState<Bounty[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("bounties");
+  const [activeTab, setActiveTab] = useState("identity");
   // refetchKey increments on Retry to re-trigger the fetch effect.
   const [refetchKey, setRefetchKey] = useState(0);
 
+  // Patch #17g: independent state slots for each new artifact tab.
+  const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
+  const [historyState, setHistoryState] = useState<TabState<string[]>>({ status: "loading" });
+  const [wakeupsState, setWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
+  const [handoffState, setHandoffState] = useState<TabState<string>>({ status: "loading" });
+
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Fetch bounties when modal opens (or refetch key increments).
+  // Fetch bounties + 4 new artifacts when modal opens (or refetch key increments).
+  // All 5 WS requests fire in parallel in a single useEffect — independent state
+  // slots so one broken artifact does not take down the others.
   useEffect(() => {
     if (!open || !identity.identityKey) return;
 
@@ -102,10 +127,55 @@ export function IdentityModal({
     setBounties([]);
     setArchivedBounties([]);
 
+    // Reset all 4 new artifact state slots to loading.
+    setIdentityFileState({ status: "loading" });
+    setHistoryState({ status: "loading" });
+    setWakeupsState({ status: "loading" });
+    setHandoffState({ status: "loading" });
+
     let cancelled = false;
     const ws = openClaudeSessionSocket();
     wsRef.current = ws;
 
+    // Patch #17g: one-shot helper for the 4 new artifact fetches.
+    // Opens its own WS, sends request on open, resolves on first matching response.
+    const artifactSockets: WebSocket[] = [];
+    function openOneShot<Req extends { type: string }, Res extends { type: string }>(
+      request: Req,
+      expectedType: string,
+      onSuccess: (data: Res) => void,
+      onError: (err: string) => void,
+    ): WebSocket {
+      let responded = false;
+      const sock = openClaudeSessionSocket();
+      artifactSockets.push(sock);
+      sock.onopen = () => {
+        if (cancelled) return;
+        try { sock.send(JSON.stringify(request)); } catch { /* ignore */ }
+      };
+      sock.onmessage = (event: MessageEvent<string>) => {
+        if (cancelled || responded) return;
+        try {
+          const raw = JSON.parse(event.data) as { type?: string };
+          if (raw.type !== expectedType) return;
+          responded = true;
+          onSuccess(raw as Res);
+          try { sock.close(); } catch { /* ignore */ }
+        } catch { /* ignore */ }
+      };
+      const handleFail = () => {
+        if (cancelled || responded) return;
+        responded = true;
+        onError("Connection failed");
+      };
+      sock.onerror = handleFail;
+      sock.onclose = () => {
+        if (!responded) handleFail();
+      };
+      return sock;
+    }
+
+    // Existing bounties WS (patch #87 — unchanged).
     ws.onopen = () => {
       if (cancelled) return;
       const payload: IdentityListBountiesPayload = {
@@ -155,12 +225,48 @@ export function IdentityModal({
       }
     };
 
+    // Patch #17g: fire 4 new artifact fetches in parallel.
+    openOneShot<IdentityGetIdentityFilePayload, IdentityIdentityFileEvent>(
+      { type: "identity:get-identity-file", identityKey: identity.identityKey },
+      "identity:identity-file",
+      (ev) => setIdentityFileState(ev.error
+        ? { status: "error", error: ev.error }
+        : { status: "ready", data: ev.markdown }),
+      (e) => setIdentityFileState({ status: "error", error: e }),
+    );
+
+    openOneShot<IdentityGetHistoryPayload, IdentityHistoryEvent>(
+      { type: "identity:get-history", identityKey: identity.identityKey },
+      "identity:history",
+      (ev) => setHistoryState(ev.error
+        ? { status: "error", error: ev.error }
+        : { status: "ready", data: ev.entries }),
+      (e) => setHistoryState({ status: "error", error: e }),
+    );
+
+    openOneShot<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
+      { type: "identity:list-wakeups", identityKey: identity.identityKey },
+      "identity:wakeups",
+      (ev) => setWakeupsState(ev.error
+        ? { status: "error", error: ev.error }
+        : { status: "ready", data: ev.wakeups }),
+      (e) => setWakeupsState({ status: "error", error: e }),
+    );
+
+    openOneShot<IdentityGetHandoffPayload, IdentityHandoffEvent>(
+      { type: "identity:get-handoff", identityKey: identity.identityKey },
+      "identity:handoff",
+      (ev) => setHandoffState(ev.error
+        ? { status: "error", error: ev.error }
+        : { status: "ready", data: ev.markdown }),
+      (e) => setHandoffState({ status: "error", error: e }),
+    );
+
     return () => {
       cancelled = true;
-      try {
-        ws.close();
-      } catch {
-        /* ignore */
+      try { ws.close(); } catch { /* ignore */ }
+      for (const sock of artifactSockets) {
+        try { sock.close(); } catch { /* ignore */ }
       }
       wsRef.current = null;
     };
@@ -269,21 +375,29 @@ export function IdentityModal({
           </DialogClose>
         </DialogHeader>
 
-        {/* Tabs */}
+        {/* Tabs — patch #17g: Identity / Bounties / History / Wakeups / Handoff */}
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
           className="flex-1 flex flex-col min-h-0"
         >
           <TabsList className="mx-6 mt-3 shrink-0 bg-black/20 border border-white/10 w-auto self-start">
+            <TabsTrigger value="identity">Identity</TabsTrigger>
             <TabsTrigger value="bounties">Bounties</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
             <TabsTrigger value="wakeups">Wakeups</TabsTrigger>
             <TabsTrigger value="handoff">Handoff</TabsTrigger>
-            <TabsTrigger value="directives">Standing Directives</TabsTrigger>
           </TabsList>
 
-          {/* Bounties tab — populated */}
+          {/* Identity tab — patch #17g: default tab; renders <key>.md as markdown */}
+          <TabsContent
+            value="identity"
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+          >
+            <IdentityFileTab state={identityFileState} />
+          </TabsContent>
+
+          {/* Bounties tab — populated (patch #87 — unchanged) */}
           <TabsContent
             value="bounties"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
@@ -361,30 +475,28 @@ export function IdentityModal({
             )}
           </TabsContent>
 
-          {/* Placeholder tabs — Coming soon (D-15) */}
+          {/* History tab — patch #17g: reverse-chronological history.md rows */}
           <TabsContent
             value="history"
-            className="flex-1 flex items-center justify-center px-6 py-4 text-sm text-[var(--color-pv-fg-muted)]"
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            Coming soon — recent activity from this identity&apos;s session log.
+            <HistoryTab state={historyState} />
           </TabsContent>
+
+          {/* Wakeups tab — patch #17g: wakeups/*.json cards */}
           <TabsContent
             value="wakeups"
-            className="flex-1 flex items-center justify-center px-6 py-4 text-sm text-[var(--color-pv-fg-muted)]"
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            Coming soon — scheduled wake-up prompts and their spec files.
+            <WakeupsTab state={wakeupsState} hue={hue} />
           </TabsContent>
+
+          {/* Handoff tab — patch #17g: handoff.md as markdown */}
           <TabsContent
             value="handoff"
-            className="flex-1 flex items-center justify-center px-6 py-4 text-sm text-[var(--color-pv-fg-muted)]"
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            Coming soon — checkpointed context for handoff to the next session.
-          </TabsContent>
-          <TabsContent
-            value="directives"
-            className="flex-1 flex items-center justify-center px-6 py-4 text-sm text-[var(--color-pv-fg-muted)]"
-          >
-            Coming soon — long-lived rules this identity carries between sessions.
+            <HandoffTab state={handoffState} />
           </TabsContent>
         </Tabs>
       </DialogContent>
