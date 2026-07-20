@@ -144,7 +144,11 @@ export type ClaudeSessionServerEvent =
   | SessionChangedEvent
   | TailErrorEvent
   | ErrorEvent
-  | IdentityBountiesEvent;
+  | IdentityBountiesEvent
+  | IdentityIdentityFileEvent
+  | IdentityHistoryEvent
+  | IdentityWakeupsEvent
+  | IdentityHandoffEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
@@ -190,3 +194,30 @@ export type IdentityBountiesEvent = {
   archivedBounties: Bounty[];
   error?: string;
 };
+
+// Patch #17g: identity artifact WS wire types.
+//
+//   client -> server:
+//     { type: "identity:get-identity-file", identityKey: string }
+//     { type: "identity:get-history", identityKey: string }
+//     { type: "identity:list-wakeups", identityKey: string }
+//     { type: "identity:get-handoff", identityKey: string }
+//
+//   server -> client:
+//     { type: "identity:identity-file", markdown: string, error?: string }
+//     { type: "identity:history", entries: string[], error?: string }
+//     { type: "identity:wakeups", wakeups: Wakeup[], error?: string }
+//     { type: "identity:handoff", markdown: string, error?: string }
+
+export type IdentityGetIdentityFilePayload = { type: "identity:get-identity-file"; identityKey: string };
+export type IdentityIdentityFileEvent = { type: "identity:identity-file"; markdown: string; error?: string };
+
+export type IdentityGetHistoryPayload = { type: "identity:get-history"; identityKey: string };
+export type IdentityHistoryEvent = { type: "identity:history"; entries: string[]; error?: string };
+
+export type Wakeup = { name: string; enabled: boolean; scheduleHuman: string; instruction: string };
+export type IdentityListWakeupsPayload = { type: "identity:list-wakeups"; identityKey: string };
+export type IdentityWakeupsEvent = { type: "identity:wakeups"; wakeups: Wakeup[]; error?: string };
+
+export type IdentityGetHandoffPayload = { type: "identity:get-handoff"; identityKey: string };
+export type IdentityHandoffEvent = { type: "identity:handoff"; markdown: string; error?: string };
