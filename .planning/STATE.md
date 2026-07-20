@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
 Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
 Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-20 -- Completed quick task 260720-17g: identity modal tabs filled out (patch #90)
+Last activity: 2026-07-20 -- Completed quick task 260720-3n2: identity modal cross-machine fetch (patch #92)
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
@@ -100,6 +100,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260719-w8h | Pretty-view identity modal (v1 read-only bounties) — click badge → tabbed modal with current identity's bounties | 2026-07-19 | f17924f | [260719-w8h-pretty-view-identity-modal-v1-read-only-](./quick/260719-w8h-pretty-view-identity-modal-v1-read-only-/) |
 | 260719-wyt | Pretty-view scroll new message to top of viewport when taller than viewport (patch #88) | 2026-07-19 | d6e40d1 | [260719-wyt-pretty-view-scroll-new-message-to-top-of](./quick/260719-wyt-pretty-view-scroll-new-message-to-top-of/) |
 | 260720-17g | Identity modal — fill out Identity/History/Wakeups/Handoff tabs + rename Standing Directives → Identity + move to front | 2026-07-20 | 65d9577 | [260720-17g-identity-modal-tabs-identity-renamed-fro](./quick/260720-17g-identity-modal-tabs-identity-renamed-fro/) |
+| 260720-3n2 | Identity modal cross-machine fetch (patch #92) — SSH to pane's host for identity artifacts | 2026-07-20 | 168b40d | [260720-3n2-identity-modal-cross-machine-fetch-ssh-t](./quick/260720-3n2-identity-modal-cross-machine-fetch-ssh-t/) |
 
 ## Deferred Items
 
