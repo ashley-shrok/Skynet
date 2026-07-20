@@ -214,12 +214,16 @@ export async function readIdentityFile(
     }
   }
 
-  // REMOTE branch
-  const escapedKey = shellEscape(identityKey);
-  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/' + escapedKey + '.md" 2>/dev/null || true';
-  console.error(`[DBG readIdentityFile REMOTE] key=${identityKey} cmd=${cmd}`);
+  // REMOTE branch — patch #95: shellEscape produces single-quoted
+  // 'identityKey', but wrapping that inside outer double-quotes preserves
+  // the single quotes as LITERAL path characters (path became
+  // $HOME/.claude/identities/'moxie'/'moxie'.md). identityKey is already
+  // validated by IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/ — none of those
+  // characters are shell-special inside double quotes, so direct
+  // interpolation is safe. shellEscape is redundant + broken in this
+  // wrapping and is dropped for the string readers.
+  const cmd = `cat "$HOME/.claude/identities/${identityKey}/${identityKey}.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
-  console.error(`[DBG readIdentityFile REMOTE] key=${identityKey} stdoutLen=${stdout.length} first80=${JSON.stringify(stdout.substring(0, 80))}`);
   return { markdown: stdout };
 }
 
@@ -258,8 +262,9 @@ export async function readIdentityHistory(
 
   // REMOTE branch — patch #94: `|| true` so missing history.md resolves as
   // empty stdout instead of throwing "Command exited with code 1".
-  const escapedKey = shellEscape(identityKey);
-  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/history.md" 2>/dev/null || true';
+  // Patch #95: direct interpolation (see readIdentityFile for the shellEscape
+  // + outer double-quote bug this replaces).
+  const cmd = `cat "$HOME/.claude/identities/${identityKey}/history.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   if (!stdout) return { entries: [] };
   const entries = stdout
@@ -330,9 +335,9 @@ export async function readIdentityWakeups(
   }
 
   // REMOTE branch — delimiter-based one-liner (one round-trip for all wakeup files)
-  const escapedKey = shellEscape(identityKey);
+  // Patch #95: direct interpolation (see readIdentityFile for the bug).
   const cmd =
-    'cd "$HOME/.claude/identities/' + escapedKey + '/wakeups" 2>/dev/null && ' +
+    `cd "$HOME/.claude/identities/${identityKey}/wakeups" 2>/dev/null && ` +
     'for f in *.json; do echo "===FILE:$f==="; cat "$f"; done';
   let stdout: string;
   try {
@@ -411,8 +416,8 @@ export async function readIdentityHandoff(
 
   // REMOTE branch — patch #94: `|| true` so missing handoff.md resolves as
   // empty stdout instead of throwing "Command exited with code 1".
-  const escapedKey = shellEscape(identityKey);
-  const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/handoff.md" 2>/dev/null || true';
+  // Patch #95: direct interpolation (see readIdentityFile for the bug).
+  const cmd = `cat "$HOME/.claude/identities/${identityKey}/handoff.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
@@ -510,13 +515,13 @@ export async function readIdentityBounties(
 
   // REMOTE branch — two commands in parallel (open + archive) via Promise.all,
   // delimiter-based dir enumeration (one round-trip per artifact per R5).
-  const escapedKey = shellEscape(identityKey);
+  // Patch #95: direct interpolation (see readIdentityFile for the bug).
   const openCmd =
-    'cd "$HOME/.claude/identities/' + escapedKey + '/bounties" 2>/dev/null && ' +
+    `cd "$HOME/.claude/identities/${identityKey}/bounties" 2>/dev/null && ` +
     'for d in */; do d="${d%/}"; [ "$d" = "archive" ] && continue; ' +
     '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
   const archiveCmd =
-    'cd "$HOME/.claude/identities/' + escapedKey + '/bounties/archive" 2>/dev/null && ' +
+    `cd "$HOME/.claude/identities/${identityKey}/bounties/archive" 2>/dev/null && ` +
     'for d in */; do d="${d%/}"; ' +
     '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
 
