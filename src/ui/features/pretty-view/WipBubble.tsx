@@ -42,8 +42,8 @@ export function WipBubble() {
     if (!canvas) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = 28 * dpr;
-    canvas.height = 28 * dpr;
+    canvas.width = 50 * dpr;
+    canvas.height = 50 * dpr;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -111,7 +111,7 @@ export function WipBubble() {
         ref={canvasRef}
         role="status"
         aria-label="Claude is working"
-        className="h-7 w-7"
+        className="h-[50px] w-[50px]"
       />
     </div>
   );
