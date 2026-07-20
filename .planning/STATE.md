@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
 Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
 Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-20 -- Completed quick task 260720-8nj: gesture-based mode flip in useAutoScroll (patch #98) — replaced the rAF-counter scroll-event heuristic with wheel/touchmove/keydown listeners after live console diagnostic proved delayed scroll events were misfiring as user gestures 200ms+ after programmatic writes; 12 new tests (F removed, F'/K/L/M/N added), 301/301 vitest, tsc clean, build clean; awaiting Ashley's deploy green-light.
+Last activity: 2026-07-20 -- Pinned patches #96 (pretty-view scroll model — clamp-anchor + Slack-follow), #97 (broaden harness-wrapper filter — combined system-reminder + task-notification), and #98 (gesture-based user-scroll detection — replaces racy rAF-counter). #96 shipped first, verified broken via live Nelly relay test, iterated through parser fix (#97) then gesture-based mode-flip (#98) after a serve-from-tailnet console diagnostic isolated the race. All three verified in production with 25 wakes + 5 replies exercising the ceiling. termix-patches.md updated 95→98.
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
