@@ -74,6 +74,11 @@ export interface ComposeBoxProps {
   // The component uses the return to decide whether to clear the textarea
   // (true) or preserve the text and show an inline error (false).
   onSend: (text: string) => boolean;
+  // Patch #96: invoked by the ThumbsUp "good to go" button BEFORE dispatching
+  // the message text. Jumps scrollTop to bottom and enters Slack-follow mode
+  // so the reply comes in stuck to the tail without waiting for the JSONL echo.
+  // Optional: omitted when PrettyView is read-only (no onSend prop supplied).
+  onGoodToGo?: () => void;
   // When false, Enter is still accepted for typing (textarea not disabled)
   // but Send button is visually disabled. The send attempt will fail and
   // show the inline error — the component does not need to pre-emptively
@@ -115,6 +120,7 @@ export function ComposeBox({
   tmuxSession,
   identityName,
   isIdle,
+  onGoodToGo,
   className,
 }: ComposeBoxProps) {
   const [text, setText] = useState("");
@@ -897,7 +903,7 @@ export function ComposeBox({
           <Button
             size="icon-sm"
             variant="outline"
-            onClick={() => handleQuickSend("good to go")}
+            onClick={() => { onGoodToGo?.(); handleQuickSend("good to go"); }}
             disabled={canSend === false}
             aria-label="Send 'good to go'"
             title="Send 'good to go'"
