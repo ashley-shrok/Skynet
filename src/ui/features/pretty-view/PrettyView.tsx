@@ -169,8 +169,8 @@ export function PrettyView({
 
   const wsRef = useRef<WebSocket | null>(null);
 
-  const { scrollRef, contentRef, scrollToBottom, isPinnedToBottom } =
-    useAutoScroll(messages.length);
+  const { scrollRef, contentRef, anchorRefCallback, scrollToBottomAndFollow, isPinnedToBottom } =
+    useAutoScroll(messages);
 
   // Phase 4: derive per-pane identity + hue for the Glass reskin.
   //
@@ -510,38 +510,54 @@ export function PrettyView({
               markdown re-layout, Inter font swap). The outer scrollRef div
               is watched separately for viewport-size changes. */}
           <div ref={contentRef} className="flex flex-col gap-[18px]">
-            {messages.map((m) =>
-              m.type === "image" ? (
-                <ImageBubble
+            {(() => {
+              // Find last user-role message index for anchor ref attachment.
+              // Manual reverse loop because ES2022 lib does not include findLastIndex (ES2023).
+              let lastUserMsgIdx = -1;
+              for (let i = messages.length - 1; i >= 0; i--) {
+                const e = messages[i];
+                if (e.type === "message" && (e as { role?: string }).role === "user") {
+                  lastUserMsgIdx = i;
+                  break;
+                }
+              }
+              return messages.map((m, idx) => (
+                <div
                   key={m.eventId}
-                  role={m.role}
-                  images={m.images}
-                  text={m.text}
-                  eventId={m.eventId}
-                  ts={m.ts}
-                />
-              ) : (
-                <ChatMessage
-                  key={m.eventId}
-                  role={m.role}
-                  content={m.content}
-                />
-              ),
-            )}
+                  ref={idx === lastUserMsgIdx ? anchorRefCallback : undefined}
+                >
+                  {m.type === "image" ? (
+                    <ImageBubble
+                      role={m.role}
+                      images={m.images}
+                      text={m.text}
+                      eventId={m.eventId}
+                      ts={m.ts}
+                    />
+                  ) : (
+                    <ChatMessage
+                      role={m.role}
+                      content={m.content}
+                    />
+                  )}
+                </div>
+              ));
+            })()}
             {(wipActive || backgroundedAgents.length > 0 || backgroundedShells.length > 0) && <WipBubble />}
             {planPending && <PlanPendingBubble />}
           </div>
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
               to the bottom-right of the visible viewport. Shown only when
-              the user has scrolled up. `scrollToBottom` itself flips the
-              internal pin ref+state, so the next incoming message pins. */}
+              the user has scrolled up. `scrollToBottomAndFollow` jumps to
+              bottom AND enters user-driving/followBottom=true so subsequent
+              growth stays stuck to the tail (same semantic as GTG). */}
           {!isPinnedToBottom && messages.length > 0 && (
             <div className="sticky bottom-2 pointer-events-none flex justify-end">
               <Button
                 size="icon-sm"
                 variant="secondary"
-                onClick={scrollToBottom}
+                onClick={scrollToBottomAndFollow}
                 aria-label="Jump to latest"
                 title="Jump to latest"
                 className={cn(
@@ -616,6 +632,7 @@ export function PrettyView({
           hostId={hostId}
           tmuxSession={tmuxSession}
           identityName={pvIdentity?.displayName}
+          onGoodToGo={scrollToBottomAndFollow}
           className="shrink-0"
         />
       )}
