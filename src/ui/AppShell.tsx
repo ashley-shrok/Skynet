@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 import { useState, useRef, useCallback, useEffect, useMemo, createRef } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
 import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
@@ -237,6 +238,7 @@ export function AppShell({
   }, [paneTabIds]);
 
   const isMobile = useIsMobile();
+  const isTouchDevice = useIsTouchDevice();
 
   const sidebarOpenBeforeMobile = useRef(sidebarOpen);
   useEffect(() => {
@@ -1377,11 +1379,13 @@ export function AppShell({
   return (
     <>
       <div className="flex w-screen bg-background" style={{ height: "100dvh" }}>
-        {/* Skinny icon rail — desktop only, hidden on mobile.
-            Also hidden when the sidebar panel is collapsed: rail + panel
-            behave as one unit. The chevron-right reveal button at the left
-            of the main content brings BOTH back on click. See fork patch #28. */}
-        {sidebarOpen && (
+        {/* Skinny icon rail — non-touch devices only, hidden on touchscreens
+            (they use MobileBottomBar). Gate is pointer/hover, not window
+            width, so narrow desktop windows still get the rail. Also hidden
+            when the sidebar panel is collapsed: rail + panel behave as one
+            unit. The chevron-right reveal button at the left of the main
+            content brings BOTH back on click. See fork patch #28. */}
+        {sidebarOpen && !isTouchDevice && (
           <AppRail
             railView={railView}
             sidebarOpen={sidebarOpen}
@@ -1524,13 +1528,17 @@ export function AppShell({
             </div>
           </div>
 
-          {/* Bottom nav bar — mobile only */}
-          <MobileBottomBar
-            railView={railView}
-            sidebarOpen={sidebarOpen}
-            splitMode={splitMode}
-            onRailClick={handleRailClick}
-          />
+          {/* Bottom nav bar — touchscreen devices only. Gated by pointer/
+              hover, not window width, so narrow desktop windows don't waste
+              vertical real estate on a nav bar they don't need. */}
+          {isTouchDevice && (
+            <MobileBottomBar
+              railView={railView}
+              sidebarOpen={sidebarOpen}
+              splitMode={splitMode}
+              onRailClick={handleRailClick}
+            />
+          )}
         </div>
       </div>
 

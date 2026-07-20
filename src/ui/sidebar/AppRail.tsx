@@ -133,7 +133,7 @@ export function AppRail({
   return (
     <TooltipProvider delayDuration={500}>
       <div
-        className="hidden md:flex flex-col items-stretch bg-sidebar border-r border-border shrink-0 overflow-hidden pt-2 gap-1"
+        className="flex flex-col items-stretch bg-sidebar border-r border-border shrink-0 overflow-hidden pt-2 gap-1"
         style={{ width: 40 }}
       >
         <div className="flex flex-col flex-1 gap-1">
