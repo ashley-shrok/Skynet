@@ -221,20 +221,32 @@ export function parseSessionLine(line: string): ParsedLine {
   // ("<task-notification>") and stop-hook nudges ("<system-reminder>")
   // land as user turns because the harness stitches them into the user
   // stream — but they're not real user speech and add noise to pretty
-  // view. Filter is intentionally strict: whole trimmed content must BE
-  // the wrapper (startsWith AND endsWith), so a user turn that mixes a
-  // reminder with real speech (both text blocks concatenated) still
-  // renders. Nobody legitimately types these tags as prose.
+  // view.
+  //
+  // Patch #97 — strip-all-known-wrappers approach: rather than a strict
+  // startsWith/endsWith match (which only caught single, lone-wrapper
+  // turns), we now strip EVERY <task-notification>…</task-notification>
+  // and <system-reminder>…</system-reminder> block from the content
+  // (globally, non-greedy, dotall-capable via [\s\S]*? to handle
+  // multi-line wrapper bodies) and skip only when nothing else remains
+  // after trimming. This catches combined turns where the Claude Code
+  // harness emits both blocks in the same user-role event (either order,
+  // possibly repeated, possibly separated by whitespace) — these combined
+  // turns were slipping through the old strict check, reaching pretty-view
+  // as user-role messages, and resetting the patch #96 clamp-anchor under
+  // rapid-fire relay wakes (making the scroll ceiling unstable). A user
+  // turn that MIXES a wrapper block with real typed speech still falls
+  // through so the user's words are preserved and rendered.
   //
   // Patch #86 edge case: when images are present, the wrapper-only skip
   // is bypassed — an image bubble is worth showing even if the
   // accompanying text is a harness wrapper.
   if (isUser && imageRefs.length === 0) {
-    const t = content.trim();
-    if (
-      (t.startsWith("<task-notification>") && t.endsWith("</task-notification>")) ||
-      (t.startsWith("<system-reminder>") && t.endsWith("</system-reminder>"))
-    ) {
+    const stripped = content
+      .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, "")
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
+      .trim();
+    if (stripped === "") {
       return { kind: "skip", why: "harness_wrapper" };
     }
   }
