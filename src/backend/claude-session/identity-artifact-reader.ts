@@ -214,16 +214,12 @@ export async function readIdentityFile(
     }
   }
 
-  // REMOTE branch — patch #94: append `|| true` so cat's exit-1 on missing
-  // file resolves as empty stdout (execCommand's `code !== 0 && stdout ===
-  // ""` rejects otherwise; there IS no stderr because we redirected it, so
-  // the reject surfaces as an opaque "Command exited with code 1" in the
-  // modal — that was Ashley's #92 deploy eyeball bug on workstation panes
-  // where the target identity has no file at the expected path). Empty
-  // stdout is treated as "missing artifact = empty state" by callers.
+  // REMOTE branch
   const escapedKey = shellEscape(identityKey);
   const cmd = 'cat "$HOME/.claude/identities/' + escapedKey + '/' + escapedKey + '.md" 2>/dev/null || true';
+  console.error(`[DBG readIdentityFile REMOTE] key=${identityKey} cmd=${cmd}`);
   const stdout = await execWithTimeout(conn, cmd);
+  console.error(`[DBG readIdentityFile REMOTE] key=${identityKey} stdoutLen=${stdout.length} first80=${JSON.stringify(stdout.substring(0, 80))}`);
   return { markdown: stdout };
 }
 
