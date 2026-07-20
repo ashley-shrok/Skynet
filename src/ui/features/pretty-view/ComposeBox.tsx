@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hourglass, RotateCcw, Send, ThumbsUp } from "lucide-react";
+import { Hourglass, Paperclip, RefreshCw, RotateCcw, Send, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ import {
   getComposeDraft,
   putComposeDraft,
 } from "@/api/compose-drafts-api";
+import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
 
 // Compose-and-send box for the pretty view.
 //
@@ -109,6 +110,36 @@ export interface ComposeBoxProps {
   // debounce this yields ~7s effective delay from Claude's last
   // output — locked with Ashley 2026-07-19.
   isIdle?: boolean | null;
+  // ============================================================
+  // Phase 05 upload wiring — all optional so existing read-only /
+  // no-uploads callers stay backward-compatible.
+  // ============================================================
+  // The staged attachments to render as chips above the textarea.
+  // When absent or empty, the chip strip does not mount at all.
+  stagedAttachments?: StagedAttachmentLike[];
+  // Called when the × on a chip is clicked. The parent hook
+  // (usePrettyViewUploads) removes the entry and emits upload_abort
+  // if the file was in flight.
+  onRemoveAttachment?: (tempId: string) => void;
+  // Gate for the mobile paperclip button. Threaded from PrettyView's
+  // useIsTouchDevice() call (patch #102) — desktop NEVER sees the
+  // paperclip regardless of window width.
+  showPaperclip?: boolean;
+  // One callback for BOTH entry points (paperclip picker + textarea
+  // paste). The parent hook's stageAttachments handler consumes this.
+  onAttachFiles?: (files: File[]) => void;
+  // Called instead of onSend when Send is clicked and at least one
+  // attachment is staged. The caller (PrettyView) invokes
+  // usePrettyViewUploads.startBatch(caption). Send remains ENABLED
+  // when attachments are staged even if caption text is empty
+  // (UPLOAD-13).
+  onSendWithAttachments?: (caption: string) => void;
+  // Called when the user clicks the Retry button that appears when at
+  // least one chip has status='error'. Parent hook re-issues the
+  // batch. Empty batches or all-complete batches do not surface this
+  // button (parent hook returns null in those cases, but the button
+  // wouldn't have been visible anyway).
+  onRetryBatch?: () => void;
   className?: string;
 }
 
@@ -121,8 +152,51 @@ export function ComposeBox({
   identityName,
   isIdle,
   onGoodToGo,
+  stagedAttachments,
+  onRemoveAttachment,
+  showPaperclip,
+  onAttachFiles,
+  onSendWithAttachments,
+  onRetryBatch,
   className,
 }: ComposeBoxProps) {
+  // Phase 05 — hidden file input driven by the paperclip button. When the
+  // input's change event fires, we normalize the FileList to a plain array
+  // and hand it to onAttachFiles (which the parent hook's stageAttachments
+  // then consumes). Clearing input.value after selection allows the same
+  // file to be re-picked later — some browsers otherwise no-op a repeat
+  // selection because the "value hasn't changed."
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const handleOpenFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      if (files.length > 0) onAttachFiles?.(files);
+      // Reset so the same file can be picked again in the same session.
+      e.target.value = "";
+    },
+    [onAttachFiles],
+  );
+  // Phase 05 — clipboard paste of file-shaped payloads (screenshots,
+  // dragged-from-Files.app, etc.). Text pastes fall through to the
+  // browser default so the existing "[pasted N lines]" collapse-
+  // avoidance path (COMPOSE-05) is unchanged.
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = Array.from(e.clipboardData?.files ?? []);
+      if (files.length > 0) {
+        e.preventDefault();
+        onAttachFiles?.(files);
+      }
+    },
+    [onAttachFiles],
+  );
+
+  // Phase 05 — derived state for the Send-routing decision + Retry button.
+  const hasAttachments = (stagedAttachments?.length ?? 0) > 0;
+  const hasErroredChip = !!stagedAttachments?.some((a) => a.status === "error");
   const [text, setText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -454,6 +528,25 @@ export function ComposeBox({
     }
 
     const trimmed = text.trim();
+
+    // Phase 05 — attachment path: Send routes to onSendWithAttachments
+    // whenever at least one attachment is staged. Empty caption is
+    // permitted (UPLOAD-13); the caption we pass is `trimmed` (may be
+    // empty string). The parent hook owns the batch lifecycle from
+    // here; it does NOT return a boolean the way onSend does, so we
+    // clear the textarea unconditionally on the attachment path.
+    // Note: draft persistence still uses caption = the empty string
+    // after clearing, which is exactly the desired behavior — patch
+    // #57 draft goes to '' on any send, attachment or not.
+    if (hasAttachments && onSendWithAttachments) {
+      setErrorMessage(null);
+      const captionPayload = trimmed.replace(/\r?\n/g, " ");
+      onSendWithAttachments(captionPayload);
+      setText("");
+      clearAfterSend();
+      return;
+    }
+
     if (!trimmed) return;
 
     setErrorMessage(null); // clear any prior error
@@ -585,7 +678,10 @@ export function ComposeBox({
     // textarea is focused.
   }
 
-  const sendDisabled = text.trim() === "" || canSend === false;
+  // Phase 05 (UPLOAD-13): Send is ENABLED with attachments even when
+  // caption text is empty. Text-only sends still require non-empty text.
+  const sendDisabled =
+    (text.trim() === "" && !hasAttachments) || canSend === false;
 
   // Patch #84: derived state for the Queue (Hourglass) button. Armed
   // when queuedText !== null. Disabled when either the transport is
@@ -629,6 +725,48 @@ export function ComposeBox({
         className,
       )}
     >
+      {/* Phase 05: chip strip mounts above the compose row when at
+          least one attachment is staged (UPLOAD-04 mounting rule).
+          AttachmentChipStrip returns null when the list is empty,
+          so no wrapper conditional needed here. */}
+      <AttachmentChipStrip
+        attachments={stagedAttachments ?? []}
+        onRemove={onRemoveAttachment ?? (() => {})}
+      />
+      {/* Phase 05: retry affordance surfaces only when at least one
+          chip is in the error state. Clicking re-issues the upload
+          batch via the parent hook's retryBatch. Kept in-flow (not
+          floating) so it lives inside the ComposeBox chrome and
+          shares its Glass treatment. */}
+      {hasErroredChip && onRetryBatch && (
+        <div className="px-1">
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            onClick={onRetryBatch}
+            aria-label="Retry upload"
+            title="Retry failed upload"
+            className="gap-1 text-xs"
+          >
+            <RefreshCw className="size-3" />
+            Retry upload
+          </Button>
+        </div>
+      )}
+      {/* Phase 05: hidden file input driven by the paperclip. Kept
+          outside the icon column so it doesn't leak flex sizing;
+          `hidden` keeps it out of tab order and layout entirely. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+        data-testid="compose-file-picker"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       <div className="flex items-end gap-2">
         {/* Patch #83: cohesive segmented-well meter with integrated reset
             cell. The well ALWAYS mounts (12 dim segments show when
@@ -803,6 +941,7 @@ export function ComposeBox({
           onChange={(e) => handleTextChange(e.target.value)}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           disabled={queueArmed}
           placeholder={`Message ${identityName || "Claude"}…`}
           rows={rows}
@@ -892,6 +1031,36 @@ export function ComposeBox({
             meter well's bottom slot — the reset lives with the meter
             it drains, not with the send/quick-reply buttons. */}
         <div className="flex flex-col gap-1">
+          {/* Phase 05: mobile-only paperclip (UPLOAD-03). Gated by
+              showPaperclip which the caller threads from
+              useIsTouchDevice() (patch #102). Desktop NEVER sees this
+              regardless of window width — it's for touch devices only,
+              where drag-drop and file-shape paste aren't available.
+              Placed at the TOP of the icon column so the more-frequent
+              Send stays closest to the mouse (bottom of column).
+              Matches ThumbsUp's warm-neutral Glass treatment. */}
+          {showPaperclip && (
+            <Button
+              size="icon-sm"
+              variant="outline"
+              onClick={handleOpenFilePicker}
+              disabled={canSend === false}
+              aria-label="Attach file"
+              title="Attach file"
+              className={cn(
+                "rounded-md cursor-pointer",
+                "border-white/10",
+                "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
+                "text-[#e8e4d8]",
+                "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
+                "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
+                "hover:border-[rgba(255,240,215,0.22)]",
+                "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+              )}
+            >
+              <Paperclip className="size-4" />
+            </Button>
+          )}
           {/* Phase 4 Glass: ThumbsUp adopts the mock's `.pv-icon-btn`
               quiet treatment (warm-neutral gradient + hue-tinted hover
               glow). Send gets a saturated warm-AMBER treatment (fixed

@@ -20,14 +20,18 @@ import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
 import { IdentityModal } from "./IdentityModal";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
+import { DropOverlay } from "./DropOverlay";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
 import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
 import { BackgroundedShellsPanel } from "./BackgroundedShellsPanel";
+import { usePrettyViewUploads } from "./use-pretty-view-uploads";
 import {
   sessionMatchKey,
   useSessionIdentity,
 } from "@/features/terminal/session-hue";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
+import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
@@ -70,6 +74,22 @@ export interface PrettyViewProps {
   // working → show the WIP bubble. `null` = backend has not spoken
   // yet on the current attach → do not show (unknown).
   isIdle?: boolean | null;
+  // Phase 05: the terminal-pane's SSH WebSocket. When provided, the
+  // upload orchestrator hook uses it to emit upload_start / upload_chunk
+  // and to listen for upload_progress / upload_complete / upload_failed /
+  // upload_ready_to_inject events. When null/undefined, uploads are
+  // effectively disabled — chip strip / drop overlay still render but
+  // startBatch will park pending until the WS arrives (in practice
+  // Terminal.tsx passes the live ref; Plan 03 wires this end).
+  terminalWs?: WebSocket | null;
+  // Phase 05: fires when upload_ready_to_inject arrives from the backend
+  // for a completed batch. The text is the formatInjectedUserTurn(...)
+  // output (caption + delimiter + per-file metadata lines) and the
+  // messageQueueItemId is the id patch #60 uses for atomic delete-on-send.
+  // Plan 03 wires this to Terminal.tsx sendInput so the injected turn
+  // flows through the existing split-and-delay path (patch #100) under
+  // the same lifecycle key.
+  onInjectedTurnReady?: (text: string, messageQueueItemId: string) => void;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -96,6 +116,8 @@ export function PrettyView({
   style,
   onSend,
   isIdle,
+  terminalWs,
+  onInjectedTurnReady,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
@@ -168,6 +190,35 @@ export function PrettyView({
   const wipActive = isIdle === false;
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Phase 05: touch-device gate for the mobile paperclip (UPLOAD-03).
+  // The paperclip appears on touch devices only — desktop NEVER sees it
+  // regardless of window width. Do NOT re-detect touch here; the shared
+  // hook (patch #102) is the single source of truth.
+  const isTouchDevice = useIsTouchDevice();
+
+  // Phase 05: drag/drop state for the DropOverlay. `dragCounter` tracks
+  // enter/leave events, which can misfire when the drag moves over child
+  // elements (each child boundary fires dragenter then dragleave). We
+  // only flip the overlay off when the counter reaches 0.
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  // Phase 05: upload orchestrator. Owns staged-attachment state, chunk
+  // pump, batch atomicity, retry API, and the onUploadReadyToInject seam.
+  // Wired to the terminalWs prop; when the caller doesn't provide a WS
+  // (read-only PrettyView), uploads are effectively parked (startBatch
+  // still works but sits in pending state).
+  const uploads = usePrettyViewUploads({
+    ws: terminalWs ?? null,
+    onUploadReadyToInject: ({ messageQueueItemId, files, caption }) => {
+      const injectedText = formatInjectedUserTurn({ caption, files });
+      onInjectedTurnReady?.(injectedText, messageQueueItemId);
+      // Clear staging after the injected turn is handed off.
+      uploads.resetBatch();
+    },
+    getBufferedAmount: () => terminalWs?.bufferedAmount ?? 0,
+  });
 
   const { scrollRef, contentRef, anchorRefCallback, scrollToBottomAndFollow, isPinnedToBottom } =
     useAutoScroll(messages);
@@ -383,6 +434,41 @@ export function PrettyView({
   return (
     <div
       data-pv-root
+      onDragEnter={(e) => {
+        // Phase 05 (UPLOAD-01): show the drop overlay while any drag
+        // hovers the pretty-view surface. We use a counter because
+        // dragenter/dragleave fire on every child boundary during a
+        // drag — only when the counter returns to 0 do we hide the
+        // overlay.
+        e.preventDefault();
+        dragCounterRef.current += 1;
+        if (dragCounterRef.current > 0) setIsDragOver(true);
+      }}
+      onDragOver={(e) => {
+        // dragover MUST preventDefault to enable the subsequent drop.
+        e.preventDefault();
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+        if (dragCounterRef.current === 0) setIsDragOver(false);
+      }}
+      onDrop={(e) => {
+        // Phase 05: stage the dropped items. Prefer DataTransferItemList
+        // (has webkitGetAsEntry so folder detection works) when available;
+        // fall back to files.
+        e.preventDefault();
+        dragCounterRef.current = 0;
+        setIsDragOver(false);
+        const dt = e.dataTransfer;
+        const items = dt.items;
+        const files = Array.from(dt.files);
+        if (items && items.length > 0) {
+          uploads.stageAttachments(items);
+        } else if (files.length > 0) {
+          uploads.stageAttachments(files);
+        }
+      }}
       className={cn(
         // Phase 4 Glass atmospheric base — warm-neutral dark with
         // radial-gradient depth cues. `relative overflow-hidden` gives
@@ -633,9 +719,37 @@ export function PrettyView({
           tmuxSession={tmuxSession}
           identityName={pvIdentity?.displayName}
           onGoodToGo={scrollToBottomAndFollow}
+          // Phase 05 upload wiring — all sourced from the local
+          // usePrettyViewUploads hook. showPaperclip is the
+          // useIsTouchDevice() output (patch #102) — SOLE gate.
+          stagedAttachments={uploads.stagedAttachments}
+          onRemoveAttachment={uploads.removeAttachment}
+          showPaperclip={isTouchDevice}
+          onAttachFiles={uploads.stageAttachments}
+          onSendWithAttachments={(caption) => {
+            // Fire-and-forget: the promise resolves when upload_start has
+            // been issued, not when uploads complete. The batch's
+            // onUploadReadyToInject callback (wired above at hook
+            // creation) handles the "ready to send injected turn" step.
+            void uploads.startBatch(caption);
+          }}
+          onRetryBatch={() => {
+            void uploads.retryBatch();
+          }}
           className="shrink-0"
         />
       )}
+
+      {/* Phase 05: full-surface drop overlay. Mounts inside data-pv-root
+          so its `absolute inset-0` positioning resolves against the
+          pretty-view container (which is `relative overflow-hidden`).
+          The overlay is `pointer-events-none` — the drop event lands on
+          data-pv-root's own handler. folderDropRejected is driven by
+          the upload hook's ~3s auto-clearing state. */}
+      <DropOverlay
+        isDragOver={isDragOver}
+        folderDropRejected={uploads.folderDropRejected}
+      />
 
       {/* inactiveReason is captured in state for potential future use
           (e.g. Phase 2 diagnostic tooltip) but MUST NOT render as
