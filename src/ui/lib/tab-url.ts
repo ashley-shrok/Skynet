@@ -47,11 +47,17 @@ export interface TabSpec {
 }
 
 // Full workspace state carried in the URL: an ordered list of tab specs,
-// optional active-index, optional one-shot `only` marker.
+// optional active-index, optional one-shot `only` marker, and (phase 6)
+// an optional `mobileView` marker indicating "the user is on the mobile
+// view screen right now, not the list screen." Only mobile viewports
+// consume the flag; desktop ignores it. See src/ui/lib/mobile-flow.ts.
+// Lives in the URL fragment for the same Chrome-window-restore reason
+// the `tab=` scheme does — see the module doc-comment above.
 export interface WorkspaceSpec {
   tabs: TabSpec[];
   activeIndex?: number;
   only?: boolean;
+  mobileView?: boolean;
 }
 
 const PROTOCOLS: TabSpec["protocol"][] = [
@@ -106,6 +112,7 @@ export function encodeWorkspaceSpec(ws: WorkspaceSpec): string {
     params.set("active", String(ws.activeIndex));
   }
   if (ws.only) params.set("only", "1");
+  if (ws.mobileView) params.set("mv", "1");
   return params.toString();
 }
 
@@ -145,6 +152,7 @@ function readTabPayloadFromUrl(): string | null {
     const active = p.get("active");
     if (active !== null) out.set("active", active);
     if (p.get("only") === "1") out.set("only", "1");
+    if (p.get("mv") === "1") out.set("mv", "1");
     return out.toString();
   };
 
@@ -199,6 +207,11 @@ export function consumePendingWorkspace(): WorkspaceSpec | null {
     }
   }
   if (params.get("only") === "1") ws.only = true;
+  // Phase 6 (mobile-flow.ts): `mv=1` means "the user is on the mobile view
+  // screen." Strict boolean coerce — only exact `1` counts. Absent, or any
+  // other value (including `0`, `yes`, `true`), parses to `mobileView: false`
+  // (via the field being undefined). See mobile-flow.ts for the reader path.
+  if (params.get("mv") === "1") ws.mobileView = true;
   return ws;
 }
 
@@ -219,6 +232,7 @@ export function writeWorkspaceToUrl(ws: WorkspaceSpec | null): void {
   params.delete("tab");
   params.delete("active");
   params.delete("only");
+  params.delete("mv");
   const qs = params.toString();
   const nextSearch = qs ? `?${qs}` : "";
   const nextUrl = window.location.pathname + nextSearch + nextHash;
