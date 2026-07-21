@@ -158,7 +158,12 @@
     "credentials": "Credentials",
     "connections": "Connections",
     "roleAdministrator": "Administrator",
-    "roleUser": "User"
+    "roleUser": "User",
+    "conversations": {
+      "empty": "No active conversations",
+      "pin": "Pin",
+      "unpin": "Unpin"
+    }
   },
   "hosts": {
     "hosts": "Hosts",
