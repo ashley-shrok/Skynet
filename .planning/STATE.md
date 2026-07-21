@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-21T02:05:46.276Z"
+last_updated: "2026-07-21T02:23:13.720Z"
 last_activity: 2026-07-21
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
-  completed_plans: 18
+  completed_plans: 19
   percent: 67
 ---
 
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 05 (pretty-view-file-upload-support) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-21
 
-Progress: [████████░░] 82%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [████████░░] 82%
 
 *Updated after each plan completion*
 | Phase 6 P01 | 15min | 2 tasks | 5 files |
+| Phase 6 P2 | 25min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,8 @@ Recent decisions affecting current work:
 - [Phase ?]: conversation-store: allow-list of TabTypes (not deny-list) to prevent silent inclusion of future TabTypes
 - [Phase ?]: ConversationsPanel header slot left empty for Plan 06-04 NewSessionButton insertion (NOTE-02)
 - [Phase ?]: Reference-equality + shallow no-op guards in updateOpenTabs to prevent host-tree poll thrash (NOTE-05)
+- [Phase ?]: Phase 6 Plan 02: TabBar.tsx DELETED (TG-11); conversation-store.selectedId drives visible pane via effectiveSelectedTabId in patch #35 DOM-move mechanism byte-for-byte preserved; T-06-02-01 mount-lifecycle contract proven by MountManager scaffold (Tests 1-3 programmatic, Tests 4-6 deferred to Plan 06-05 UAT per NOTE-08).
+- [Phase ?]: Phase 6 Plan 02: SettingsRow at src/ui/sidebar/SettingsRow.tsx with renderSettingsMenuItems shared renderer — desktop gear + Plan 06-03 mobile row consume ONE canonical SETTINGS_MENU_ITEMS registry (NOTE-07 resolved).
 
 ### Pending Todos
 
@@ -123,6 +126,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-21T02:05:26.853Z
+Last session: 2026-07-21T02:22:45.462Z
 Stopped at: Phase 02 Plan 02 complete — ComposeBox created, PrettyView wired, Terminal.tsx split-send threaded. Ready for Wave 3 (Plan 03 deploy checkpoint).
 Resume file: None
