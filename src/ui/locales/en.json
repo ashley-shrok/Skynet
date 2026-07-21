@@ -174,7 +174,8 @@
       "settingsMenuSplitScreen": "Split Screen",
       "settingsMenuConnections": "Connections",
       "settingsMenuUserProfile": "User Profile",
-      "settingsMenuAdminSettings": "Admin Settings"
+      "settingsMenuAdminSettings": "Admin Settings",
+      "backToList": "Back to conversations"
     }
   },
   "hosts": {

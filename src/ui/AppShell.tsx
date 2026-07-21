@@ -16,7 +16,6 @@ import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
 import { useKeyboardMessageQueue } from "@/hooks/use-keyboard-message-queue";
 import { useKeyboardTogglePrettyMode } from "@/hooks/use-keyboard-toggle-pretty-mode";
 import type { TerminalHandle } from "@/features/terminal/terminal-types";
-import { MobileBottomBar } from "@/shell/MobileBottomBar";
 import { CommandPalette } from "@/shell/CommandPalette";
 import { AppRail } from "@/sidebar/AppRail";
 import type { RailView } from "@/sidebar/AppRail";
@@ -72,6 +71,12 @@ import {
   writeWorkspaceToUrl,
 } from "@/lib/tab-url";
 import type { TabSpec } from "@/lib/tab-url";
+import {
+  useMobileScreen,
+  navigateToView,
+  navigateToList,
+} from "@/lib/mobile-flow";
+import { SettingsRow } from "@/sidebar/SettingsRow";
 
 function sshHostToHost(h: SSHHostWithStatus): Host {
   return {
@@ -244,16 +249,28 @@ export function AppShell({
 
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
+  // Plan 06-03: mobile-flow drives list-vs-view rendering on touchscreen
+  // viewports. Reads the `#mv=1` URL fragment key (patch #25 pattern
+  // extended); AppShell gates ALL mobile-flow-driven rendering on
+  // `isTouchDevice` so desktop is untouched.
+  const mobileScreen = useMobileScreen();
 
   const sidebarOpenBeforeMobile = useRef(sidebarOpen);
   useEffect(() => {
+    // Plan 06-03: gate this legacy narrow-window sidebar auto-close effect
+    // on `!isTouchDevice`. On touchscreens the sidebar IS the list screen
+    // (full viewport when mobileScreen === "list"), so auto-closing it
+    // makes no sense. The effect still fires for the original use case —
+    // a narrow desktop window (mouse-based, `pointer: fine`) transitioning
+    // through the isMobile width breakpoint.
+    if (isTouchDevice) return;
     if (isMobile) {
       sidebarOpenBeforeMobile.current = sidebarOpen;
       setSidebarOpen(false);
     } else {
       setSidebarOpen(sidebarOpenBeforeMobile.current);
     }
-  }, [isMobile]);
+  }, [isMobile, isTouchDevice]);
 
   useEffect(() => {
     getUserInfo()
@@ -479,6 +496,21 @@ export function AppShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversationId]);
 
+  // Plan 06-03 T-06-03-06 defense: if the user is on the mobile view screen
+  // (`mobileScreen === "view"`) but no conversation is currently selected
+  // — because it ended, was closed elsewhere, or the store's stale-selection
+  // defense (T-06-01-01) coerced selectedId to null — navigate back to the
+  // list so the user isn't stranded on an empty view.
+  useEffect(() => {
+    if (
+      isTouchDevice &&
+      mobileScreen === "view" &&
+      !selectedConversationId
+    ) {
+      navigateToList();
+    }
+  }, [isTouchDevice, mobileScreen, selectedConversationId]);
+
   // Keep the browser URL in sync with the full open-tab set so Chrome's
   // tab-restore (or a bookmark, or a fresh incognito window) reopens the exact
   // same workspace. Emits `#tab=X&tab=Y&active=N` — see patch #35. `only=1`
@@ -505,9 +537,23 @@ export function AppShell({
       tabSpecs.push(spec);
     }
     writeWorkspaceToUrl(
-      tabSpecs.length === 0 ? null : { tabs: tabSpecs, activeIndex },
+      tabSpecs.length === 0
+        ? null
+        : {
+            tabs: tabSpecs,
+            activeIndex,
+            // Plan 06-03: preserve the mobile-view marker so patch #25's
+            // URL-sync effect doesn't clobber `#mv=1` on every tabs change.
+            // Only emitted when we're actually on the view screen; on the
+            // list screen the field is undefined and encodeWorkspaceSpec
+            // omits `&mv=1`. Desktop viewport passes undefined too (mobile-
+            // Screen is "list" when isTouchDevice is false because
+            // navigateToView is only called from the touchscreen row-tap
+            // handler below).
+            mobileView: mobileScreen === "view" ? true : undefined,
+          },
     );
-  }, [activeTabId, tabs, tmuxSessionNames, tabsReady]);
+  }, [activeTabId, tabs, tmuxSessionNames, tabsReady, mobileScreen]);
 
   useEffect(() => {
     // Fire on whichever id drives the visible pane. Plan 06-02: activeTabId
@@ -1282,6 +1328,26 @@ export function AppShell({
             if (isMobile) setSidebarOpen(false);
           }}
           isAdmin={isAdmin}
+          // Plan 06-03: on touchscreen viewports, a row tap ALSO transitions
+          // to the mobile view screen (Telegram-style list-vs-view). Desktop
+          // ignores this handler — the row-select is already handled by the
+          // store's selectConversation which drives the effectiveSelectedTabId
+          // portal path (Plan 06-02).
+          onConversationSelected={
+            isTouchDevice ? () => navigateToView() : undefined
+          }
+          // Plan 06-03: mobile-only settings row. Absent on desktop — desktop
+          // reaches settings via the gear icon in the ConversationsPanel
+          // header (Plan 06-02). SettingsRow lives at the BOTTOM of the
+          // scroller so it doesn't compete with pinned or active rows for
+          // prime attention (TG-10). Uses the same handleRailClick + isAdmin
+          // pair so mobile row and desktop gear route to the same
+          // destinations from one canonical menu-item registry.
+          settingsRowSlot={
+            isTouchDevice ? (
+              <SettingsRow onRailClick={handleRailClick} isAdmin={isAdmin} />
+            ) : undefined
+          }
         />
       </div>
 
@@ -1466,15 +1532,33 @@ export function AppShell({
     </div>
   );
 
+  // Plan 06-03: touchscreen viewports render the Telegram-style two-screen
+  // flow — "list" (full-screen ConversationsPanel) and "view" (full-screen
+  // conversation content with a top-left back button). The screen is driven
+  // by the `#mv=1` URL fragment key via useMobileScreen (mobile-flow.ts).
+  // Desktop (`!isTouchDevice`) is UNCHANGED from Plan 06-02.
+  const isMobileListScreen = isTouchDevice && mobileScreen === "list";
+  const isMobileViewScreen = isTouchDevice && mobileScreen === "view";
+
+  // The active conversation's label — used as the title in the mobile-view
+  // header. Falls back to a generic string when nothing is selected (which
+  // shouldn't happen thanks to T-06-03-06 stranded-user defense, but a
+  // safe fallback is cheap).
+  const activeConversationLabel =
+    tabs.find((t) => t.id === effectiveSelectedTabId)?.label ??
+    t("nav.conversations.title", { defaultValue: "Conversations" });
+
   return (
     <>
       <div className="flex w-screen bg-background" style={{ height: "100dvh" }}>
-        {/* Skinny icon rail — non-touch devices only, hidden on touchscreens
-            (they use MobileBottomBar). Gate is pointer/hover, not window
-            width, so narrow desktop windows still get the rail. Also hidden
-            when the sidebar panel is collapsed: rail + panel behave as one
-            unit. The chevron-right reveal button at the left of the main
-            content brings BOTH back on click. See fork patch #28. */}
+        {/* Skinny icon rail — non-touch devices only. Gate is pointer/hover,
+            not window width, so narrow desktop windows still get the rail.
+            Also hidden when the sidebar panel is collapsed: rail + panel
+            behave as one unit. The chevron-right reveal button at the left
+            of the main content brings BOTH back on click. See fork patch #28.
+            Plan 06-03: touchscreen viewports never get the rail — the
+            mobile flow's SettingsRow (inside ConversationsPanel) is where
+            touchscreens reach the destinations the rail routes to. */}
         {sidebarOpen && !isTouchDevice && (
           <AppRail
             railView={railView}
@@ -1490,8 +1574,10 @@ export function AppShell({
           />
         )}
 
-        {/* Desktop: inline resizable sidebar */}
-        {!isMobile && (
+        {/* Desktop (non-touch): inline resizable sidebar. Plan 06-03: also
+            gated on `!isTouchDevice` so touchscreens don't get the inline
+            column even when the viewport is wide (an iPad in landscape). */}
+        {!isMobile && !isTouchDevice && (
           <div
             className={`relative flex flex-col bg-sidebar shrink-0 overflow-hidden ${sidebarOpen ? `border-r transition-colors ${sidebarDragging ? "border-accent-brand/60" : "border-border"}` : ""}`}
             style={{
@@ -1511,8 +1597,11 @@ export function AppShell({
           </div>
         )}
 
-        {/* Mobile: sidebar as overlay sheet */}
-        {isMobile && (
+        {/* Narrow non-touch desktop (e.g. resized laptop window without a
+            touchscreen): sidebar as an overlay Sheet. Plan 06-03: excluded
+            from touchscreens — those use the mobile flow's full-screen
+            list-vs-view branch below. */}
+        {isMobile && !isTouchDevice && (
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetContent
               side="left"
@@ -1526,11 +1615,44 @@ export function AppShell({
           </Sheet>
         )}
 
-        {/* Main content area */}
+        {/* Touchscreen list screen: full-viewport sidebar column, no
+            main-content column visible. Uses a plain `<div>` (NOT the Sheet
+            component) per plan Step D — the mobile flow's two screens
+            REPLACE each other, they don't peek/panel/overlay. `sidebarHeader`
+            + `sidebarPanelContent` are reused verbatim so the ConversationsPanel
+            renders the same content (with the mobile SettingsRow slot filled
+            in above). The main-content region below is CSS-hidden (not
+            conditionally unmounted) so the createPortal loop's tab nodes
+            and normalViewRef stay mounted — the T-06-02-01 mount-lifecycle-
+            regression mitigation depends on that identity being preserved
+            across list-vs-view switches too. */}
+        {isMobileListScreen && (
+          <div
+            className="flex flex-col flex-1 min-w-0 bg-sidebar"
+            style={{ height: "100dvh" }}
+          >
+            {sidebarHeader}
+            {sidebarPanelContent}
+          </div>
+        )}
+
+        {/* Main content area. On touchscreen viewports, hidden via CSS when
+            mobileScreen === "list" (0-width) so the createPortal loop and
+            normalViewRef stay mounted — persistence-contract mitigation
+            (T-06-02-01) applies across list-vs-view switches, not just
+            across conversation switches. When mobileScreen === "view",
+            takes the full width and prepends a top-left back button
+            header. Desktop path is unchanged. */}
         <div
-          className={`relative flex flex-col flex-1 min-w-0 overflow-hidden transition-all duration-200 ${!isMobile && !sidebarOpen ? "pl-6" : ""}`}
+          className={`relative flex flex-col flex-1 min-w-0 overflow-hidden transition-all duration-200 ${!isMobile && !sidebarOpen && !isTouchDevice ? "pl-6" : ""}`}
+          style={
+            isMobileListScreen
+              ? { width: 0, flex: "0 0 0px", overflow: "hidden" }
+              : undefined
+          }
+          aria-hidden={isMobileListScreen ? true : undefined}
         >
-          {!isMobile && !sidebarOpen && (
+          {!isMobile && !sidebarOpen && !isTouchDevice && (
             <button
               onClick={() => setSidebarOpen(true)}
               title="Open Sidebar"
@@ -1538,6 +1660,38 @@ export function AppShell({
             >
               <ChevronRight className="size-3.5" />
             </button>
+          )}
+          {/* Plan 06-03: mobile-view header with a top-left back button.
+              Renders ONLY when the user is on the mobile view screen
+              (`isMobileViewScreen`). Back button calls navigateToList()
+              which pops the pushState entry via history.back() (or
+              replaceState-strips the `mv=1` fragment key when the entry
+              is a fresh deep-link — see mobile-flow.ts). Title shows the
+              active conversation's label so the user has visual context
+              for what they're viewing. Reuses the sidebarHeader chrome
+              idiom for consistency (h-12.5 row, ChevronLeft icon, muted-
+              foreground default with hover:text-foreground). */}
+          {isMobileViewScreen && (
+            <div className="flex flex-row items-center border-b border-border h-12.5 shrink-0 bg-sidebar">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-full w-12.5 rounded-none text-muted-foreground hover:text-foreground shrink-0"
+                onClick={() => navigateToList()}
+                aria-label={t("nav.conversations.backToList", {
+                  defaultValue: "Back to conversations",
+                })}
+                title={t("nav.conversations.backToList", {
+                  defaultValue: "Back to conversations",
+                })}
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Separator orientation="vertical" />
+              <span className="flex-1 text-base font-bold tracking-tight text-foreground px-3 truncate">
+                {activeConversationLabel}
+              </span>
+            </div>
           )}
           <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
             {/* Plan 06-02: tab strip DELETED unconditionally (TG-11 — full
@@ -1624,17 +1778,15 @@ export function AppShell({
             </div>
           </div>
 
-          {/* Bottom nav bar — touchscreen devices only. Gated by pointer/
-              hover, not window width, so narrow desktop windows don't waste
-              vertical real estate on a nav bar they don't need. */}
-          {isTouchDevice && (
-            <MobileBottomBar
-              railView={railView}
-              sidebarOpen={sidebarOpen}
-              splitMode={splitMode}
-              onRailClick={handleRailClick}
-            />
-          )}
+          {/* Plan 06-03: MobileBottomBar mount DELETED unconditionally
+              (TG-07 — bottom nav bar removed as a UI surface). Its
+              destinations (host-manager, credentials, quick-connect,
+              ssh-tools, snippets, history, split-screen, user-profile,
+              admin-settings) migrated to the SettingsRow component
+              (Plan 06-02) which this plan mounts at the bottom of the
+              mobile ConversationsPanel via the `settingsRowSlot` prop
+              above. No feature flag, no conditional rendering, no
+              per-user opt-in — deletion is total. */}
         </div>
       </div>
 

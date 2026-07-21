@@ -25,6 +25,7 @@
 // Zero touches to AppShell (from this file), TabBar, MobileBottomBar,
 // pretty-view, terminal, guacamole (Phase 6 scope-fence).
 
+import type { ReactNode } from "react";
 import { MessagesSquare, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -53,6 +54,8 @@ import type { RailView } from "@/sidebar/AppRail";
 export function ConversationsPanel({
   onRailClick,
   isAdmin,
+  onConversationSelected,
+  settingsRowSlot,
 }: {
   // Route to admin destinations via AppShell's handleRailClick. Passed in
   // from AppShell in Plan 06-02 Step G. Optional so the panel can render
@@ -61,6 +64,17 @@ export function ConversationsPanel({
   // onRailClick is provided.
   onRailClick?: (view: RailView) => void;
   isAdmin?: boolean;
+  // Plan 06-03: fired AFTER the store's selectConversation runs on a row
+  // tap. AppShell's mobile branch passes a handler that calls
+  // navigateToView() so touchscreen viewports transition list→view.
+  // Optional so desktop mounts + isolated tests don't have to supply it.
+  onConversationSelected?: (id: string) => void;
+  // Plan 06-03: mobile-only settings-row slot rendered at the bottom of
+  // the scroll region (below the last host group, above any padding).
+  // The desktop mount does NOT pass this — desktop reaches settings via
+  // the gear icon in the header slot (Plan 06-02). Not competing with
+  // pinned/active rows for prime attention per TG-10.
+  settingsRowSlot?: ReactNode;
 }) {
   const { t } = useTranslation();
   const { pinned, grouped } = useConversations();
@@ -139,7 +153,10 @@ export function ConversationsPanel({
                     row={row}
                     selected={row.id === selectedId}
                     pinned={true}
-                    onSelect={() => selectConversation(row.id)}
+                    onSelect={() => {
+                      selectConversation(row.id);
+                      onConversationSelected?.(row.id);
+                    }}
                     onTogglePin={() => togglePinConversation(row.id)}
                   />
                 ))}
@@ -168,7 +185,10 @@ export function ConversationsPanel({
                     row={row}
                     selected={row.id === selectedId}
                     pinned={pinnedIds.has(row.id)}
-                    onSelect={() => selectConversation(row.id)}
+                    onSelect={() => {
+                      selectConversation(row.id);
+                      onConversationSelected?.(row.id);
+                    }}
                     onTogglePin={() => togglePinConversation(row.id)}
                   />
                 ))}
@@ -176,6 +196,18 @@ export function ConversationsPanel({
             ))}
           </>
         )}
+        {/* Plan 06-03: mobile settings-row slot. Rendered at the BOTTOM of
+            the scroller (below the last host group) so it does not compete
+            with pinned/active rows for prime attention (TG-10). Absent on
+            desktop; the desktop settings surface is the gear icon in the
+            header above. Not rendered inside the empty-state branch because
+            an empty list already offers zero attention competition — the
+            SettingsRow living above the empty-state message would read as
+            the primary CTA, which is not what we want. AppShell always
+            provides the slot on mobile mounts either way; when the list is
+            empty the mobile row is still useful — it's still reachable
+            below the empty-state block. */}
+        {settingsRowSlot}
       </div>
     </div>
   );
