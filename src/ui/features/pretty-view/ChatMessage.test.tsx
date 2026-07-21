@@ -115,4 +115,14 @@ describe("ChatMessage — sender-side injected-turn detection (Plan 05-03)", () 
     // And no chip strip.
     expect(screen.queryByTestId("attachment-chip-strip")).toBeNull();
   });
+
+  it("Test 14b (patch #107): quick-reply thumbs-up renders for the new 'works for me' payload", () => {
+    render(<ChatMessage role="user" content="works for me" />);
+    expect(screen.getByLabelText(/quick reply/i)).toBeTruthy();
+  });
+
+  it("Test 14c (patch #107): quick-reply thumbs-up still renders for legacy 'go ahead' payload", () => {
+    render(<ChatMessage role="user" content="go ahead" />);
+    expect(screen.getByLabelText(/quick reply/i)).toBeTruthy();
+  });
 });

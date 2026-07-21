@@ -1072,10 +1072,10 @@ export function ComposeBox({
           <Button
             size="icon-sm"
             variant="outline"
-            onClick={() => { onGoodToGo?.(); handleQuickSend("good to go"); }}
+            onClick={() => { onGoodToGo?.(); handleQuickSend("works for me"); }}
             disabled={canSend === false}
-            aria-label="Send 'good to go'"
-            title="Send 'good to go'"
+            aria-label="Send 'works for me'"
+            title="Send 'works for me'"
             className={cn(
               "rounded-md cursor-pointer",
               "border-white/10",
