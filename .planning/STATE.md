@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in_progress
-stopped_at: Phase 04 Wave 3 committed locally; Phase 4 code-side COMPLETE (Waves 1+2+3); UAT checklist + AGENTS.md draft ready for Ashley's separate deploy green-light; standalone deploy (Scenario B) since Phase 3 patches #61-#68 already pinned
-last_updated: "2026-07-18T18:30:00.000Z"
-last_activity: 2026-07-18 -- Executed Phase 4 Wave 3 (verification + UAT prep + AGENTS.md draft): npm run build clean (9.13s), Phase 4 tokens survived Vite tree-shake (--pv-id-hue + --color-pv-base + pv-identity-breathe all present in dist/assets/*.css), Terminal.tsx + backend + docker + deps UNTOUCHED; created 04-UAT-CHECKLIST.md + 04-AGENTS-MD-ENTRY.md (draft for patch #69, Scenario B standalone deploy); NO production code diffs in this wave; ready for deploy green-light
+status: executing
+last_updated: "2026-07-21T00:16:00.000Z"
+last_activity: 2026-07-21 -- Phase 06 (Telegram-like interface) added to ROADMAP
 progress:
-  total_phases: 4
-  completed_phases: 3
-  total_plans: 13
+  total_phases: 6
+  completed_phases: 4
+  total_plans: 18
   completed_plans: 13
-  percent: 100
+  percent: 72
 ---
 
 # Project State
@@ -21,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 01 — live-session-stream-to-browser-read-only-pretty-view
+**Current focus:** Phase 05 — pretty-view-file-upload-support
 
 ## Current Position
 
-Phase: 04 — CODE-SIDE COMPLETE (Waves 1+2+3 shipped); Deploy Pending
-Plan: 3 of 3 (foundation + reskin + verification-and-UAT-prep all shipped)
-Status: Phase 04 Wave 3 committed on `feat/tab-title-from-tmux`; Phase 4 Glass reskin fully in-tree (12 files across 06b1f08 Wave 1 + e04396a Wave 2); `npm run build` clean (9.13s); all Phase 4 tokens survived Vite tree-shake; Terminal.tsx / backend / docker / nginx / deps UNTOUCHED throughout; UAT checklist + AGENTS.md draft (patch #69, Scenario B standalone) prepared; awaiting Ashley's per-deploy green-light (blanket pre-authorization ≠ per-deploy green light per tina.md)
-Last activity: 2026-07-20 -- Pinned patches #96 (pretty-view scroll model — clamp-anchor + Slack-follow), #97 (broaden harness-wrapper filter — combined system-reminder + task-notification), and #98 (gesture-based user-scroll detection — replaces racy rAF-counter). #96 shipped first, verified broken via live Nelly relay test, iterated through parser fix (#97) then gesture-based mode-flip (#98) after a serve-from-tailnet console diagnostic isolated the race. All three verified in production with 25 wakes + 5 replies exercising the ceiling. termix-patches.md updated 95→98.
+Phase: 05 (pretty-view-file-upload-support) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 05
+Last activity: 2026-07-20 -- Phase 05 execution started
 
 Progress: [██████████] 100% (code); deploy pending Ashley's green-light
 
@@ -75,6 +74,10 @@ None yet.
 ### Blockers/Concerns
 
 None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY DISCIPLINE — not a blocker, a standing constraint.
+
+### Roadmap Evolution
+
+- 2026-07-21: Phase 6 added — Telegram-like interface. Shape agreed via `/open telegram-like-interface`; full shape file at `.planning/shapes/shape-telegram-like-interface.md`. Bounty tracker: `~/.claude/identities/tina/bounties/telegram-like-interface/`.
 
 ### Quick Tasks Completed
 

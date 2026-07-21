@@ -33,7 +33,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Toggle, compose, and native web ergonomics** - Keyboard chord flips the top pane between tmux and pretty modes with the queue drawer preserved, plus compose box with split-send and native browser text-selection / click-to-focus / readable-paste behavior ✓ deployed to production 2026-07-17 (Ctrl+Shift+O toggle + ComposeBox with inline send button + jump-to-latest pill)
 - [ ] **Phase 3: Session changeover detection** - Pretty view detects when the current Claude session was recycled (via `/id reset`) or recovered (crash/reboot → `claude --resume`) and switches to tailing the new session's file without user intervention; edge-triggered on `/exit` marker with a discovery-repoll backstop on the existing 3s poller for SIGTERM-fallback and recover-in-different-cwd cases
 - [ ] **Phase 4: Pretty view visual reskin — Glass depth aesthetic** - Reskin pretty view away from Termix's flat-brutalist styling to a warm dark Glass depth aesthetic with real physical dimensionality (multi-layer shadows, backdrop-filter blur, subtle rim highlights, atmospheric background gradient) and per-pane identity-hue carry-through (user bubble + context bar + send button + focus ring). CSS-only, no behavior changes; scope confined to `src/ui/features/pretty-view/` — terminal/RDP/dashboard/sidebar chrome untouched. Design spec: `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html` (Glass tab).
-- [ ] **Phase 5: Pretty view file upload support** - Add a cognitively-free "attach a file" affordance to pretty view: drag-and-drop anywhere on the surface (primary), clipboard paste (first-class), mobile-only paperclip button (gated by useIsTouchDevice). Attachments stage as a chip strip; on send, files transfer atomically to the receiving box (landing at `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>`) then an injected user turn carries path-only-with-metadata (never inlined bytes) so context cost is deferred to the moment the agent actually reads. Sender-side rendering as chip-bearing bubble; folder drops refused; one caption per batch; no auto-cleanup. Shape file: `.planning/shapes/shape-pretty-view-file-upload-support.md` (LOCKED, do NOT re-litigate).
+- [x] **Phase 5: Pretty view file upload support** - Add a cognitively-free "attach a file" affordance to pretty view: drag-and-drop anywhere on the surface (primary), clipboard paste (first-class), mobile-only paperclip button (gated by useIsTouchDevice). Attachments stage as a chip strip; on send, files transfer atomically to the receiving box (landing at `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>`) then an injected user turn carries path-only-with-metadata (never inlined bytes) so context cost is deferred to the moment the agent actually reads. Sender-side rendering as chip-bearing bubble; folder drops refused; one caption per batch; no auto-cleanup. Shape file: `.planning/shapes/shape-pretty-view-file-upload-support.md` (LOCKED, do NOT re-litigate). (completed 2026-07-20)
+- [ ] **Phase 6: Telegram-like interface** - Reshape Termix around a Telegram-style conversation-list interface. Sidebar becomes a flat single-select list of currently-active sessions grouped by host (existing tree order preserved); per-session pins float to the top. Only one conversation visible at a time; switching hides/shows without unmount, so sessions stay alive in-memory across switches within a page-load. Tab strip removed entirely. Mobile: list-vs-view flow with top-left back button; bottom navigation bar deleted; admin/settings destinations migrated to unobtrusive gear (desktop) or list row (mobile). Deferred to v2: activity/unread signals of any kind. Out entirely: cross-conversation search, folders, drag-to-reorder, ended-session history. Shape file: `.planning/shapes/shape-telegram-like-interface.md` (LOCKED, do NOT re-litigate).
 
 ## Phase Details
 
@@ -177,10 +178,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 4 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Backend upload orchestrator + shared wire-protocol types (upload_start/upload_chunk/upload_abort cases in terminal.ts, pretty-view-upload.ts module, formatInjectedUserTurn helper, sanitizeFilenameForUpload, all threat-model mitigations at ingress) (UPLOAD-06, UPLOAD-09, UPLOAD-10, UPLOAD-14)
-- [ ] 05-02-PLAN.md — Frontend chip strip + drop overlay + paste + mobile paperclip + usePrettyViewUploads orchestrator hook (chunk pump, batch atomicity, retry, per-chip progress, folder rejection, caption/attachment persistence asymmetry) (UPLOAD-01, UPLOAD-02, UPLOAD-03, UPLOAD-04, UPLOAD-05, UPLOAD-07, UPLOAD-08, UPLOAD-12, UPLOAD-13)
-- [ ] 05-03-PLAN.md — Terminal.tsx wiring (webSocketRef + handleInjectedTurnReady two-event split-send) + ChatMessage sender-side chip render + parseInjectedUserTurn round-trip parser (UPLOAD-06, UPLOAD-09, UPLOAD-11)
-- [ ] 05-04-PLAN.md — Deploy checkpoint: build verification, Nyquist UAT checklist for UPLOAD-01..14, termix-patches.md entry draft, mandatory 15-min deadman deploy under Ashley's separate green-light (all UPLOAD-01..14)
+- [x] 05-01-PLAN.md — Backend upload orchestrator + shared wire-protocol types (upload_start/upload_chunk/upload_abort cases in terminal.ts, pretty-view-upload.ts module, formatInjectedUserTurn helper, sanitizeFilenameForUpload, all threat-model mitigations at ingress) (UPLOAD-06, UPLOAD-09, UPLOAD-10, UPLOAD-14)
+- [x] 05-02-PLAN.md — Frontend chip strip + drop overlay + paste + mobile paperclip + usePrettyViewUploads orchestrator hook (chunk pump, batch atomicity, retry, per-chip progress, folder rejection, caption/attachment persistence asymmetry) (UPLOAD-01, UPLOAD-02, UPLOAD-03, UPLOAD-04, UPLOAD-05, UPLOAD-07, UPLOAD-08, UPLOAD-12, UPLOAD-13)
+- [x] 05-03-PLAN.md — Terminal.tsx wiring (webSocketRef + handleInjectedTurnReady two-event split-send) + ChatMessage sender-side chip render + parseInjectedUserTurn round-trip parser (UPLOAD-06, UPLOAD-09, UPLOAD-11)
+- [x] 05-04-PLAN.md — Deploy checkpoint: build verification, Nyquist UAT checklist for UPLOAD-01..14, termix-patches.md entry draft, mandatory 15-min deadman deploy under Ashley's separate green-light (all UPLOAD-01..14)
 
 **UI hint**: yes
 
@@ -197,4 +198,22 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Toggle, compose, and native web ergonomics | 3/3 | Complete | 2026-07-17 |
 | 3. Session changeover detection | 0/2 | Planning | — |
 | 4. Pretty view visual reskin — Glass depth aesthetic | 0/3 | Planning | — |
-| 5. Pretty view file upload support | 0/4 | Planning | — |
+| 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
+| 6. Telegram-like interface | 0/0 | Not planned | — |
+
+### Phase 6: Telegram-like interface
+
+**Goal:** Reshape Termix's navigation model around a Telegram-style conversation-list interface — sidebar as flat single-select list of active sessions (grouped by host, per-session pins floating on top), tab strip removed, mobile bottom-nav deleted in favor of list-vs-view flow with top-left back button, admin destinations relocated to an unobtrusive settings surface, and in-memory session persistence preserving live connections across switches within a page-load.
+
+**Shape file (LOCKED, do NOT re-litigate):** `.planning/shapes/shape-telegram-like-interface.md`
+
+**Requirements:** TG-01, TG-02, TG-03, TG-04, TG-05, TG-06, TG-07, TG-08, TG-09, TG-10, TG-11 (11 requirements, defined in `.planning/REQUIREMENTS.md` § Telegram-like Interface — Phase 6). Full scope edges — in / out / deferred-to-v2 / tempting-but-no — are enumerated in the shape file's Scope edges section.
+
+**Depends on:** Phase 5
+
+**Plans:** TBD (starting sketch in shape file's Vehicle notes: 4-plan decomposition — sidebar reshape into list → tab-strip removal + session-persistence contract → mobile flow → settings surface migration; planning may re-shape this).
+
+Plans:
+- [ ] TBD (run `/gsd-plan-phase 6` to break down)
+
+**Bounty:** `telegram-like-interface` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/telegram-like-interface/`). Moves to `in_progress` when the first plan enters execution.

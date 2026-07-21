@@ -84,6 +84,20 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [ ] **VISUAL-09**: All existing pretty-view functionality (chat rendering, ComposeBox split-send + reset + go-ahead paths, HarnessTasksPanel, BackgroundedAgentsPanel, BackgroundedShellsPanel, WipBubble, PlanPendingBubble, session-changeover holding/changed banners, empty state, error states, keyboard chords) is preserved end-to-end — the reskin is CSS-only, no behavior changes to any component's props, state, effects, or WebSocket handling
 - [ ] **VISUAL-10**: The reskin does NOT visually touch terminal / RDP / VNC / file manager / dashboard / sidebar / tab bar / AppRail chrome — pretty view remains a themed island in the current Termix visual system. Identity badge specifically preserves its existing patch #38 hover-fade behavior wherever it's used (including terminal panes, not just pretty view)
 
+### Telegram-like Interface (Phase 6)
+
+- [ ] **TG-01**: The sidebar becomes a single flat scrollable list of every currently-active session — no tab strip, no per-view chrome carrying "which tab am I on." Rows are grouped visually by host with separators, using the SAME host-tree order the current sidebar already presents (no new sort rule, no recency-shuffle). Sessions that end vanish from the list immediately — the list only ever shows what's live right now, same lifecycle as today's tabs
+- [ ] **TG-02**: Sessions can be pinned individually. Pinned sessions float to the top of the list above all host-grouped rows; unpinning drops the session back into its host group. Pin state is per-session (not per-host) and persists for the life of the session (a session ending removes it from the list and clears any pin state along with it)
+- [ ] **TG-03**: Only one conversation is visible at a time. The tab strip currently at the top of the main area is removed entirely — there is no per-tab chrome, no active-tab indicator on multiple entries, no ability to have two conversations side-by-side. The sidebar row's selected state IS the "which conversation am I viewing" indicator
+- [ ] **TG-04**: The internal experience of a conversation is unchanged. Identity-attached Claude sessions still open into the pretty view; plain SSH sessions still open into a terminal; RDP hosts still open into a remote desktop. Nothing about the innards of a tab changes — only the tab strip and sidebar's selection semantics around it
+- [ ] **TG-05**: Clicking a conversation for the first time in a page-load mounts its view and opens its underlying connection. Clicking a different conversation hides the previous one but does NOT tear it down — the connection stays alive and its state (terminal buffer, pretty-view scroll position, live WebSocket, ambient panel state) is preserved. Clicking back returns to the previous conversation instantly with no reconnect. Persistence is in-memory only; a full browser refresh resets everything from scratch
+- [ ] **TG-06**: On mobile (any viewport where `useIsTouchDevice()` returns true), the list and the view are two distinct screens — never both visible at once. From the list, tapping a row navigates into that conversation, fully replacing the list view. A back button in the top-left of the view returns to the list, fully replacing the view. The back gesture also works via the browser's back button
+- [ ] **TG-07**: The mobile-only bottom navigation bar (whose current entries — host manager, credentials editor, and adjacent admin surfaces — Ashley does not use) is deleted entirely as a surface. It does not appear on any mobile viewport in any state
+- [ ] **TG-08**: On desktop, the sidebar holding the list preserves its existing collapsible behavior verbatim: a thin clickable strip when collapsed (no icons, no visible content — just enough to be clickable), expanding to show the list when clicked. The expanded/collapsed state is a persisted preference across page loads, not a per-session toggle
+- [ ] **TG-09**: A visible new-session button lives on the list view (both mobile and desktop) at a position that does not compete with pinned or active rows for attention — top of the list on desktop, and a mobile-appropriate placement (top-of-list or bottom-of-screen FAB) on mobile. Pressing it brings up a host picker; Ashley picks a host, provides a session name, and the new session opens. The exact affordance shape (modal / slide-in / popover), the exact mobile position, and whether the name is mandatory-up-front vs. optional-with-tmux-title-auto-fallback are planning-phase decisions, not shape decisions
+- [ ] **TG-10**: The admin/settings destinations previously reachable through the mobile bottom navigation bar (host manager, credentials editor, and adjacent admin surfaces) remain reachable in the product, but from an unobtrusive settings surface — a small gear icon in the sidebar header on desktop, and a settings row somewhere in the list view on mobile that does not sit at the top competing for attention with the pinned or active rows. Ashley never uses these; the constraint is "don't let them occupy real estate she cares about"
+- [ ] **TG-11**: The product ships as a full replacement of the tab metaphor, NOT as an alternate mode alongside it. The tab strip is removed unconditionally. There is no user-facing toggle to bring tabs back. Currently-open tabs on the day this ships are free-fire (they may or may not carry into the new list; no migration story is required)
+
 ## v2 Requirements
 
 Deferred to future patches. Each add earns its way in as its own separate design conversation.
@@ -174,12 +188,23 @@ Which phases cover which requirements. Populated during roadmap creation.
 | UPLOAD-12 | Phase 5 | Pending |
 | UPLOAD-13 | Phase 5 | Pending |
 | UPLOAD-14 | Phase 5 | Pending |
+| TG-01 | Phase 6 | Pending |
+| TG-02 | Phase 6 | Pending |
+| TG-03 | Phase 6 | Pending |
+| TG-04 | Phase 6 | Pending |
+| TG-05 | Phase 6 | Pending |
+| TG-06 | Phase 6 | Pending |
+| TG-07 | Phase 6 | Pending |
+| TG-08 | Phase 6 | Pending |
+| TG-09 | Phase 6 | Pending |
+| TG-10 | Phase 6 | Pending |
+| TG-11 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 48 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5)
-- Mapped to phases: 48 ✓
+- v1 requirements: 59 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6)
+- Mapped to phases: 59 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-20 — added UPLOAD-01..14 for Phase 5 (pretty-view file upload support, spec: shapes/shape-pretty-view-file-upload-support.md)*
+*Last updated: 2026-07-21 — added TG-01..11 for Phase 6 (Telegram-like interface, spec: shapes/shape-telegram-like-interface.md)*
