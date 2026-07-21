@@ -568,6 +568,27 @@ export function AppShell({
     }
   }, [isTouchDevice, mobileScreen, selectedConversationId]);
 
+  // Patch #111 F3: mobile-tap safety-net. Any change to selectedConversationId
+  // on a touch device navigates to the view screen — redundant with the
+  // per-handler navigateToView() calls at each row-tap site (Plan 06-03 /
+  // 07-01 / 07-02) but catches any code path that changes selection without
+  // calling the mobile-flow imperatively (Plan 06-04 selectConversationDeferred
+  // flush from a fresh openTab; keyboard shortcut selection; deep-link that
+  // arrives without `mv=1`). Ashley UAT'd patch #106 and reported taps on
+  // existing fleet-native rows "do nothing" on mobile — the click handlers
+  // fire but something in the URL / mobileScreen propagation edge-cases when
+  // selection is upstream of the tap wiring. navigateToView is a no-op when
+  // already on view (see mobile-flow.ts: `if (hashParams.get(MV_KEY) === MV_VALUE) return`),
+  // so the redundant call is free when the per-handler path worked.
+  //
+  // Deliberately NOT gated on mobileScreen — a stale "list" screen with a
+  // fresh selectedId is exactly the state we want to force out of.
+  useEffect(() => {
+    if (isTouchDevice && selectedConversationId) {
+      navigateToView();
+    }
+  }, [isTouchDevice, selectedConversationId]);
+
   // Keep the browser URL in sync with the full open-tab set so Chrome's
   // tab-restore (or a bookmark, or a fresh incognito window) reopens the exact
   // same workspace. Emits `#tab=X&tab=Y&active=N` — see patch #35. `only=1`
@@ -1449,8 +1470,21 @@ export function AppShell({
           // renders in production; the guard catches the slow-fetch dev
           // case).
           onDetachedRowClick={(row) => {
+            // Patch #111 F3: warn (rather than silently no-op) when row.host
+            // is missing so a future UAT gives us signal. Ashley reported
+            // taps on "existing" fleet-native rows do nothing on mobile —
+            // if this warn fires in her DevTools when she re-taps, we know
+            // hostsFlat is failing to attach on her mobile viewport OR the
+            // fleet session's hostId isn't in her SSH hosts fetch (cross-
+            // scope / stale-host mismatch). Same guard shape, just louder.
             const host = row.host;
-            if (!host) return; // silent no-op — hostsFlat race edge case
+            if (!host) {
+              console.warn(
+                "[F3-diag] onDetachedRowClick: row.host missing; row=",
+                row,
+              );
+              return;
+            }
             const sessionName = row.targetTmuxSession;
             if (!sessionName) return; // defense — fleet rows always have one
             const newTabId = openTab(host, "terminal", undefined, {
