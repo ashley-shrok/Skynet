@@ -223,6 +223,15 @@ export function PrettyView({
   const { scrollRef, contentRef, anchorRefCallback, scrollToBottomAndFollow, isPinnedToBottom } =
     useAutoScroll(messages);
 
+  // Patch #108: IdentityModal anchors its Radix Portal to this DOM element
+  // (the chat-region wrapper below). Callback ref → state so the Portal
+  // container prop updates reactively on ref bind. When null (transient
+  // first render before the ref binds), Portal defaults to document.body —
+  // harmless because the modal doesn't open until user clicks IdentityBadge,
+  // by which point the ref is set. Wrapper needs `position: relative` for
+  // the modal's `absolute inset-4` to resolve against it.
+  const [chatRegionEl, setChatRegionEl] = useState<HTMLDivElement | null>(null);
+
   // Phase 4: derive per-pane identity + hue for the Glass reskin.
   //
   // useSessionIdentity(tmuxSession) reads the identities registry
@@ -567,8 +576,20 @@ export function PrettyView({
           identity={pvIdentity}
           hue={pvHue}
           hostId={hostId}
+          container={chatRegionEl}
         />
       )}
+      {/* Patch #108: chat-region wrapper. IdentityModal portals INTO this
+          element so it covers only the bubble/tasks/shells area — composer
+          below AND identity badge above stay uncovered/typable. Wrapper is
+          `relative` for absolute-positioning of the modal, and `flex-1
+          flex flex-col` so its children (status branches, chat-content,
+          harness/agents/shells panels) arrange vertically as before with
+          chat-content flex-1 filling remaining space. */}
+      <div
+        ref={setChatRegionEl}
+        className="relative flex-1 min-h-0 flex flex-col"
+      >
       {status === "connecting" && (
         <div className="p-4 text-sm text-[var(--color-pv-fg-muted)]">
           Connecting…
@@ -708,6 +729,10 @@ export function PrettyView({
       {status === "streaming" && backgroundedShells.length > 0 && (
         <BackgroundedShellsPanel shells={backgroundedShells} />
       )}
+      </div>
+      {/* Patch #108 wrapper closes here — ComposeBox stays a peer of the
+          wrapper (below it in flex-col), so it's outside the IdentityModal's
+          coverage area. */}
 
       {onSend && status === "streaming" && (
         <ComposeBox

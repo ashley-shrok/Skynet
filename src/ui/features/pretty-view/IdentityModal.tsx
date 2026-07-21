@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import {
-  Dialog,
-  DialogContent,
   DialogHeader,
   DialogTitle,
   DialogClose,
@@ -98,6 +97,7 @@ export function IdentityModal({
   identity,
   hue,
   hostId,
+  container,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -105,6 +105,12 @@ export function IdentityModal({
   hue: number;
   /** patch #92: pane's SSH host id — threads into all 5 WS requests for cross-machine reads. */
   hostId: number;
+  /** patch #108: DOM element to portal into (chat-content region of PrettyView) so the modal
+   *  covers only bubbles/tasks/shells and leaves the composer + identity badge uncovered.
+   *  When null (transient first render), Portal defaults to document.body — harmless because
+   *  the modal doesn't open until the user clicks the IdentityBadge, by which point the ref
+   *  has been set. Container must be `position: relative` for absolute positioning to resolve. */
+  container?: HTMLElement | null;
 }) {
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [archivedBounties, setArchivedBounties] = useState<Bounty[]>([]);
@@ -317,25 +323,46 @@ export function IdentityModal({
   const hasArchive = sortedArchive.length > 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className={cn(
-          // Size overrides — all use `!` important suffix per patch #81 rule (D-06).
-          // These beat shadcn's base: max-w-[calc(100%-2rem)] sm:max-w-sm bg-popover p-4
-          "w-[90vw]! max-w-[1200px]! max-w-none! h-[85vh]!",
-          "p-0! bg-transparent! ring-0!",
-          "flex flex-col overflow-hidden rounded-[24px]!",
-        )}
-        style={{
-          background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.82), hsla(${hue}, 40%, 15%, 0.88))`,
-          backdropFilter: "blur(28px) saturate(1.4)",
-          WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-          border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
-          boxShadow: `0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(${hue}, 65%, 55%, 0.2)`,
-          color: "#e8e4d8",
-        }}
-      >
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      {/* Patch #108: Portal into the chat-content region container (passed in
+          from PrettyView) instead of document.body. Content is
+          absolute-positioned inside that container so it covers only the
+          chat-bubble/tasks/shells region — composer at the bottom AND
+          identity badge at the top stay uncovered. Container prop defaults
+          to body when undefined (Radix behavior) — safe for the transient
+          window before PrettyView's ref binds, since the modal is closed
+          during that window. */}
+      <DialogPrimitive.Portal container={container ?? undefined}>
+        {/* Overlay is absolute-inset-0 relative to the container (chat region),
+            not fixed-inset-0 relative to viewport. Click-outside dismisses. */}
+        <DialogPrimitive.Overlay
+          className={cn(
+            "absolute inset-0 z-40 bg-black/15",
+            "supports-backdrop-filter:backdrop-blur-xs duration-100",
+            "data-open:animate-in data-open:fade-in-0",
+            "data-closed:animate-out data-closed:fade-out-0",
+          )}
+        />
+        <DialogPrimitive.Content
+          data-slot="identity-modal-content"
+          className={cn(
+            // Absolute-positioned INSIDE the chat-region container. inset-4
+            // = 16px padding on all sides so the modal doesn't butt against
+            // the region's edges. z-50 sits above the z-40 overlay.
+            "absolute inset-4 z-50 outline-none",
+            "flex flex-col overflow-hidden rounded-[24px]",
+            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
+            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          )}
+          style={{
+            background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.82), hsla(${hue}, 40%, 15%, 0.88))`,
+            backdropFilter: "blur(28px) saturate(1.4)",
+            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
+            border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
+            boxShadow: `0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(${hue}, 65%, 55%, 0.2)`,
+            color: "#e8e4d8",
+          }}
+        >
         {/* a11y: sr-only title for screen readers; visible header is the visual title */}
         <DialogTitle className="sr-only">
           Identity: {identity.displayName}
@@ -562,7 +589,8 @@ export function IdentityModal({
             <HandoffTab state={handoffState} />
           </TabsContent>
         </Tabs>
-      </DialogContent>
-    </Dialog>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
