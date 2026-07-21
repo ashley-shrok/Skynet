@@ -516,6 +516,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // and Claude Code's TUI reader treats the \r as end-of-paste
             // instead of firing submit. Split the burst so the Enter arrives
             // as a distinct keystroke.
+            //
+            // Patch #111 (2026-07-21): the 50ms gap was too tight — Ashley
+            // UAT'd patch #110 (which finally made this split path actually
+            // fire) and long messages still landed in Claude Code's composer
+            // without submitting. Claude Code's Ink input reader stays in
+            // paste-detection state past 50ms for long bodies, absorbing the
+            // \r as paste content instead of firing submit. Bumping to 250ms
+            // gives Ink enough headroom to exit paste-detection before the
+            // trailing Enter arrives, without adding any new byte sequences
+            // (no bracketed-paste-markers risk on non-Claude-Code targets).
+            // If a future UAT surfaces this again at 250ms, the next escalation
+            // is bracketed-paste wrapping under a target-detects-BPM gate.
             const body = inputData.slice(0, -1);
             if (body.length > 0) {
               try {
@@ -542,7 +554,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   },
                 );
               }
-            }, 50);
+            }, 250);
           } else {
             try {
               inputStream.write(Buffer.from(inputData, "utf8"));
