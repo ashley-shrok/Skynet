@@ -3,14 +3,14 @@
 // output as a flat, single-select, host-grouped list with pins on top.
 //
 // Drop-in for the HostsPanel content slot in AppShell's sidebar under a new
-// RailView. This plan (06-01) does NOT wire it into AppShell — Plan 06-02
-// owns the RailView addition + the atomic tab-strip removal + settings gear.
-// Plan 06-04 owns the NewSessionButton insertion at the top of the scroller.
+// RailView. Plan 06-01 landed the store + panel + row unwired; Plan 06-02
+// (this plan) wires it into AppShell as the default RailView, extends it
+// with the desktop gear-icon settings surface (Step F), and adds
+// `onRailClick`/`isAdmin` props so the gear can route via AppShell's
+// existing handleRailClick.
 //
-// Header treatment per plan Step B: NO new-session button (06-04), NO gear
-// icon (06-02). Empty header — the scroller's top slot is left UNRESERVED
-// so 06-04's NewSessionButton can insert cleanly ABOVE the pinned section
-// without a chrome refactor.
+// Plan 06-04 owns the NewSessionButton insertion at the top of the scroller
+// (the top slot was intentionally left unreserved in 06-01 for this).
 //
 // Reuses (do NOT reinvent):
 //   - HostsPanel outer container idiom: <div className="relative flex flex-col
@@ -18,13 +18,27 @@
 //     size contract AppShell expects.
 //   - SidebarTree FolderItem host-header style + empty-state idiom
 //     (lines 941-943 / 1214-1220).
+//   - SettingsRow.renderSettingsMenuItems for the canonical settings-surface
+//     menu (shared with mobile SettingsRow — Plan 06-03 mounts that on
+//     mobile viewports).
 //
-// Zero touches to AppShell, TabBar, MobileBottomBar, pretty-view, terminal,
-// guacamole (Phase 6 scope-fence).
+// Zero touches to AppShell (from this file), TabBar, MobileBottomBar,
+// pretty-view, terminal, guacamole (Phase 6 scope-fence).
 
-import { MessagesSquare } from "lucide-react";
+import { MessagesSquare, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/tooltip";
 import {
   useConversations,
   useSelectedConversationId,
@@ -33,21 +47,72 @@ import {
   togglePinConversation,
 } from "@/state/conversation-store";
 import { ConversationRow } from "@/sidebar/ConversationRow";
+import { renderSettingsMenuItems } from "@/sidebar/SettingsRow";
+import type { RailView } from "@/sidebar/AppRail";
 
-export function ConversationsPanel() {
+export function ConversationsPanel({
+  onRailClick,
+  isAdmin,
+}: {
+  // Route to admin destinations via AppShell's handleRailClick. Passed in
+  // from AppShell in Plan 06-02 Step G. Optional so the panel can render
+  // in isolation (e.g. a Vitest smoke test that doesn't want to mock the
+  // full sidebar-rail routing) — the gear icon is only shown when
+  // onRailClick is provided.
+  onRailClick?: (view: RailView) => void;
+  isAdmin?: boolean;
+}) {
   const { t } = useTranslation();
   const { pinned, grouped } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
 
   const isEmpty = pinned.length === 0 && grouped.length === 0;
+  const showGear = typeof onRailClick === "function";
 
   return (
     <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
-      {/* Empty header row — kept as a zero-height presence so future plans
-          (06-02 gear, 06-04 NewSessionButton) have a chrome slot to inject
-          into without re-shaping the panel. */}
-      <div className="shrink-0" />
+      {/* Header row: minimal chrome with an optional gear icon on the right.
+          The top-of-scroller slot (below this header) remains unreserved so
+          Plan 06-04's NewSessionButton can insert above the pinned section
+          without competing with the gear. */}
+      {showGear ? (
+        <div className="shrink-0 flex items-center justify-end px-1 py-1 border-b border-border/40">
+          <TooltipProvider delayDuration={500}>
+            <Tooltip>
+              <DropdownMenu>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                      aria-label={t("nav.conversations.settings", {
+                        defaultValue: "Settings & Admin",
+                      })}
+                    >
+                      <Settings className="size-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("nav.conversations.settings", {
+                    defaultValue: "Settings & Admin",
+                  })}
+                </TooltipContent>
+                <DropdownMenuContent align="end" className="w-56">
+                  {renderSettingsMenuItems({
+                    onRailClick: onRailClick!,
+                    isAdmin: Boolean(isAdmin),
+                    t,
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      ) : (
+        <div className="shrink-0" />
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         {isEmpty ? (

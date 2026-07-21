@@ -160,9 +160,21 @@
     "roleAdministrator": "Administrator",
     "roleUser": "User",
     "conversations": {
+      "title": "Conversations",
       "empty": "No active conversations",
       "pin": "Pin",
-      "unpin": "Unpin"
+      "unpin": "Unpin",
+      "settings": "Settings & Admin",
+      "settingsMenuHostManager": "Host Manager",
+      "settingsMenuCredentials": "Credentials",
+      "settingsMenuQuickConnect": "Quick Connect",
+      "settingsMenuSshTools": "SSH Tools",
+      "settingsMenuSnippets": "Snippets",
+      "settingsMenuHistory": "History",
+      "settingsMenuSplitScreen": "Split Screen",
+      "settingsMenuConnections": "Connections",
+      "settingsMenuUserProfile": "User Profile",
+      "settingsMenuAdminSettings": "Admin Settings"
     }
   },
   "hosts": {

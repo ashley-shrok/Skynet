@@ -32,7 +32,6 @@ import { AdminSettingsPanel } from "@/sidebar/AdminSettingsPanel";
 import { CredentialsPanel } from "@/sidebar/CredentialsPanel";
 import { SplitView } from "@/shell/SplitView";
 import { renderTabContent } from "@/shell/tabUtils";
-import { TabBar } from "@/shell/TabBar";
 import type {
   Tab,
   TabType,
@@ -59,6 +58,12 @@ import {
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
 import { ConnectionsPanel } from "@/sidebar/ConnectionsPanel";
+import { ConversationsPanel } from "@/sidebar/ConversationsPanel";
+import {
+  updateHostTree,
+  updateOpenTabs,
+  useSelectedConversationId,
+} from "@/state/conversation-store";
 import { TransferMonitor } from "@/features/file-manager/TransferMonitor.tsx";
 import { getPendingTransferIds } from "@/features/file-manager/transferNotificationStore.ts";
 import {
@@ -216,7 +221,7 @@ export function AppShell({
   >([]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [railView, setRailView] = useState<RailView>("hosts");
+  const [railView, setRailView] = useState<RailView>("conversations");
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("termix_sidebarWidth");
@@ -305,6 +310,7 @@ export function AppShell({
   );
 
   const sidebarTitle: Record<RailView, string> = {
+    conversations: t("nav.conversations.title", { defaultValue: "Conversations" }),
     hosts: "Hosts",
     sessions: "Sessions",
     credentials: "Credentials",
@@ -409,6 +415,70 @@ export function AppShell({
     document.title = tmux || activeTab?.label || "Termix";
   }, [activeTabId, tabs, tmuxSessionNames]);
 
+  // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
+  // The conversation-store is a pure DERIVATION of AppShell's tab state; it
+  // is fed via effects that fire on `tabs` and `realHostTree` changes. The
+  // store's own reference-equality no-op guards (Plan 06-01) elide idle
+  // re-emissions, but as a defense-in-depth (plan-check NOTE-05) we also
+  // memoize the tree by JSON key so a `buildHostTree` rebuild that produces
+  // identical content does not bump the store's snapshot version.
+  const stableHostTreeKey = useMemo(
+    () => (realHostTree ? JSON.stringify(realHostTree) : ""),
+    [realHostTree],
+  );
+  const stableHostTree = useMemo(
+    () => realHostTree,
+    // deliberately keyed on the JSON snapshot, not the ref — this is the
+    // NOTE-05 thrash-guard for host-tree polling that produces reference-
+    // inequal but content-equal trees.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stableHostTreeKey],
+  );
+  useEffect(() => {
+    updateHostTree(stableHostTree);
+  }, [stableHostTree]);
+  useEffect(() => {
+    updateOpenTabs(tabs);
+  }, [tabs]);
+
+  const selectedConversationId = useSelectedConversationId();
+
+  // The "effective active-inline" id is whatever drives the currently-visible
+  // conversation view. For session-type tabs (those the conversation-store
+  // owns) that is `selectedConversationId`; for singleton / dashboard tabs
+  // (host-manager, dashboard, user-profile, admin-settings, tunnel,
+  // network_graph — all excluded from the store's ALLOW-list per Plan
+  // 06-01), it falls back to `activeTabId`.
+  const effectiveSelectedTabId = useMemo(() => {
+    if (
+      selectedConversationId &&
+      tabs.some((t) => t.id === selectedConversationId)
+    ) {
+      return selectedConversationId;
+    }
+    return activeTabId;
+  }, [selectedConversationId, activeTabId, tabs]);
+
+  // One-way store → AppShell sync: when the ConversationsPanel selects a
+  // conversation, mirror it into `activeTabId` so downstream consumers
+  // (URL-sync effect, document-title effect, fit-on-active-change effect,
+  // keyboard nav, split-view gate) continue to work off a single scalar.
+  // Reverse direction (activeTabId → store) is NOT wired — that would
+  // create a feedback loop with URL-restore paths that set `activeTabId`
+  // before `tabs` is populated. The store consumes `tabs` via the
+  // updateOpenTabs effect above and coerces `selectedId` internally when
+  // needed (Plan 06-01 T-06-01-01 defense).
+  useEffect(() => {
+    if (
+      selectedConversationId &&
+      selectedConversationId !== activeTabId &&
+      tabs.some((t) => t.id === selectedConversationId)
+    ) {
+      setActiveTabId(selectedConversationId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConversationId]);
+
   // Keep the browser URL in sync with the full open-tab set so Chrome's
   // tab-restore (or a bookmark, or a fresh incognito window) reopens the exact
   // same workspace. Emits `#tab=X&tab=Y&active=N` — see patch #35. `only=1`
@@ -440,7 +510,13 @@ export function AppShell({
   }, [activeTabId, tabs, tmuxSessionNames, tabsReady]);
 
   useEffect(() => {
-    const activeTab = tabs.find((t) => t.id === activeTabId);
+    // Fire on whichever id drives the visible pane. Plan 06-02: activeTabId
+    // and effectiveSelectedTabId are kept in sync via the store→AppShell
+    // mirror effect above, so this dep list catches both direct-set
+    // (setActiveTabId from a keyboard shortcut, URL restore, or singleton
+    // open) and store-driven changes (a ConversationsPanel row click).
+    const targetId = effectiveSelectedTabId ?? activeTabId;
+    const activeTab = tabs.find((t) => t.id === targetId);
     if (!activeTab?.terminalRef) return;
     let innerRafId: number;
     const outerRafId = requestAnimationFrame(() => {
@@ -455,7 +531,7 @@ export function AppShell({
       cancelAnimationFrame(outerRafId);
       cancelAnimationFrame(innerRafId);
     };
-  }, [activeTabId]);
+  }, [activeTabId, effectiveSelectedTabId]);
 
   useEffect(() => {
     const handleDegraded = () => {
@@ -983,19 +1059,6 @@ export function AppShell({
     });
   }
 
-  function refreshTab(id: string) {
-    const tab = tabs.find((t) => t.id === id);
-    if (!tab) return;
-    if (tab.type === "terminal") {
-      const ref = tab.terminalRef?.current;
-      ref?.reconnect?.();
-    } else if (["rdp", "vnc", "telnet"].includes(tab.type)) {
-      window.dispatchEvent(
-        new CustomEvent("termix:refresh-guacamole", { detail: { tabId: id } }),
-      );
-    }
-  }
-
   function closeTab(id: string) {
     const tab = tabs.find((t) => t.id === id);
     const confirmEnabled = localStorage.getItem("confirmTabClose") === "true";
@@ -1150,7 +1213,15 @@ export function AppShell({
       const paneIdx = isSplit ? paneTabIds.indexOf(tab.id) : -1;
       const inPane = paneIdx !== -1;
       const paneEl = inPane ? paneContentEls[paneIdx] : null;
-      const activeInline = !inPane && tab.id === activeTabId;
+      // Plan 06-02: the "visible-inline" tab is now driven by the
+      // conversation-store's selectedId (falling back to activeTabId for
+      // singleton/dashboard tabs the store doesn't own). The rest of this
+      // effect stays byte-for-byte — same tabNodesRef, same DOM-move via
+      // appendChild, same visibility/display toggles — so patch #35's
+      // load-bearing DOM-node-stability contract is preserved. T-06-02-01
+      // mitigation: only the SELECTION drives which node is visible; the
+      // MOUNT LIFECYCLE mechanism is untouched.
+      const activeInline = !inPane && tab.id === effectiveSelectedTabId;
 
       if (inPane && paneEl) {
         if (node.parentElement !== paneEl) paneEl.appendChild(node);
@@ -1195,6 +1266,25 @@ export function AppShell({
   // Sidebar panel content — shared between desktop inline sidebar and mobile sheet
   const sidebarPanelContent = (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Plan 06-02: conversations panel is the default RailView and lives
+          at the top of the sidebar-panel-content stack. Mounted-always with
+          the `hidden` class toggle (same idiom as hosts / credentials below)
+          so its store subscriptions stay live across rail-view swaps — that
+          matters for Plan 06-04's deferred-select race defense which relies
+          on the store's listener registry being registered even when the
+          panel is not currently visible. */}
+      <div
+        className={`flex flex-col flex-1 min-h-0 ${railView === "conversations" ? "" : "hidden"}`}
+      >
+        <ConversationsPanel
+          onRailClick={(view) => {
+            handleRailClick(view);
+            if (isMobile) setSidebarOpen(false);
+          }}
+          isAdmin={isAdmin}
+        />
+      </div>
+
       <div
         className={`flex flex-col flex-1 min-h-0 ${railView === "hosts" ? "" : "hidden"}`}
       >
@@ -1450,20 +1540,16 @@ export function AppShell({
             </button>
           )}
           <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
-            <TabBar
-              tabs={tabs}
-              activeTabId={activeTabId}
-              splitMode={splitMode}
-              paneTabIds={paneTabIds}
-              focusedPaneIndex={focusedPaneIndex}
-              onSetActiveTab={setActiveTabId}
-              onCloseTab={closeTab}
-              onRefreshTab={refreshTab}
-              onReorderTabs={setTabs}
-              onSplitTab={splitTabQuick}
-              onAddToSplit={addTabToSplit}
-              onRemoveFromSplit={removeTabFromSplit}
-            />
+            {/* Plan 06-02: tab strip DELETED unconditionally (TG-11 — full
+                replacement, no toggle). The conversation-store's selectedId
+                is now the single source of truth for "which conversation is
+                visible"; the sidebar's ConversationsPanel row selection IS
+                the affordance the tab strip used to provide.
+                splitTabQuick / addTabToSplit / removeTabFromSplit are still
+                used by SplitScreenPanel (rail entry). refreshTab is
+                intentionally removed alongside its sole caller (this TabBar
+                mount) — Plan 06-04 or later may re-introduce a per-row
+                refresh affordance if Ashley's workflow needs one. */}
             <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
               {/* Split view — always mounted when not mobile, hidden via CSS when inactive */}
               {!isMobile && (
@@ -1496,11 +1582,14 @@ export function AppShell({
                 className="absolute inset-0"
                 style={{
                   display:
-                    isSplit && !isMobile && paneTabIds.includes(activeTabId)
+                    isSplit &&
+                    !isMobile &&
+                    paneTabIds.includes(effectiveSelectedTabId)
                       ? "none"
                       : undefined,
                   zIndex:
-                    isSplit && !paneTabIds.includes(activeTabId)
+                    isSplit &&
+                    !paneTabIds.includes(effectiveSelectedTabId)
                       ? 10
                       : undefined,
                 }}
@@ -1509,7 +1598,14 @@ export function AppShell({
                   const tabNode = getTabNode(tab.id, tab.type === "terminal");
                   const paneIdx = isSplit ? paneTabIds.indexOf(tab.id) : -1;
                   const inPane = paneIdx !== -1;
-                  const activeInline = !inPane && tab.id === activeTabId;
+                  // Plan 06-02: `isVisible` signal for every mounted pane
+                  // (consumed by PrettyView's WipBubble, PlanPendingBubble,
+                  // MessageQueueDrawer, SessionHoldingOverlay via Terminal.tsx
+                  // isVisible prop pathway) now derives from
+                  // effectiveSelectedTabId — same semantics as before
+                  // ("is this pane the currently-visible one?"), only the
+                  // underlying scalar changed.
+                  const activeInline = !inPane && tab.id === effectiveSelectedTabId;
                   return createPortal(
                     renderTabContent(
                       tab,

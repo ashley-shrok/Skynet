@@ -4,6 +4,7 @@ import {
   Hammer,
   KeyRound,
   LayoutPanelLeft,
+  MessagesSquare,
   Network,
   Play,
   Plug,
@@ -28,6 +29,7 @@ import {
 import type { SplitMode, TabType, ToolsTab } from "@/types/ui-types";
 
 export type RailView =
+  | "conversations"
   | "hosts"
   | "sessions"
   | "credentials"
@@ -53,6 +55,12 @@ function buildRailButtons(
   t: (key: string) => string,
 ): RailItem[] {
   return [
+    {
+      view: "conversations",
+      icon: <MessagesSquare size={16} />,
+      title: t("nav.conversations.title", { defaultValue: "Conversations" }),
+    },
+    { kind: "separator" },
     { view: "hosts", icon: <Server size={16} />, title: t("nav.hosts") },
     {
       view: "sessions",
