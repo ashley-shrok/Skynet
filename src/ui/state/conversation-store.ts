@@ -93,6 +93,14 @@ let state: State = {
   selectedId: null,
 };
 
+// Plan 06-04 race defense (T-06-04-04): openTab's setTabs is batched — the
+// new tab id is NOT visible in `state.openTabs` synchronously after openTab
+// returns. `selectConversationDeferred(newTabId)` parks the id here; the next
+// `updateOpenTabs` call that includes the id flushes it into `state.selectedId`.
+// A direct `selectConversation` call (post stale-guard) also clears pending —
+// see the re-decided placement in selectConversation() below (NOTE-03).
+let pendingSelectId: string | null = null;
+
 // Version bump on every real mutation. Snapshot memoization is keyed on it —
 // consumers of `useSyncExternalStore` see a stable ConversationList reference
 // as long as `snapshotVersion` is unchanged, so React does NOT tear.
@@ -250,6 +258,19 @@ export function updateOpenTabs(tabs: Tab[]): void {
     nextSelectedId = null;
   }
 
+  // Plan 06-04 race defense (T-06-04-04): if a pending deferred-select id
+  // has arrived in the new tabs, promote it into selectedId and clear the
+  // pending slot. Runs AFTER the stale-selection coercion so a pending
+  // arrival takes precedence over a coerced-to-null selection on the same
+  // tick (e.g. the previously-selected tab closed AND the new tab arrived
+  // in the same setTabs commit). Runs BEFORE the no-op short-circuit so a
+  // same-array re-emission that happens to satisfy the pending id still
+  // fires — updateOpenTabs is the flush point.
+  if (pendingSelectId !== null && nextIds.has(pendingSelectId)) {
+    nextSelectedId = pendingSelectId;
+    pendingSelectId = null;
+  }
+
   // Was there a REAL change? We already know tabs !== state.openTabs by ref,
   // but the array MAY be a re-emission with the same contents. Check length
   // + shallow per-element ref equality; if identical, treat as no-op.
@@ -281,9 +302,10 @@ export function updateOpenTabs(tabs: Tab[]): void {
 }
 
 export function selectConversation(id: string | null): void {
-  if (id === state.selectedId) return; // no-op — already selected
+  // T-06-01-01 stale-id guard runs FIRST — a select of a nonexistent id
+  // must NOT clear pendingSelectId (a stale call shouldn't cancel an
+  // in-flight deferred select).
   if (id !== null) {
-    // Stale-id guard: reject selection of an id not in openTabs (T-06-01-01)
     let found = false;
     for (const t of state.openTabs) {
       if (t.id === id) {
@@ -293,8 +315,34 @@ export function selectConversation(id: string | null): void {
     }
     if (!found) return; // silent no-op
   }
+  // Plan 06-04 NOTE-03 re-decision: clear pendingSelectId AFTER the stale
+  // guard has passed but BEFORE the "no change" short-circuit — so a direct
+  // selectConversation(id) call ALWAYS cancels an in-flight deferred select,
+  // even when the id being selected is the id we're already on. Otherwise a
+  // same-id call would leak a stale pending id past its owner's intent.
+  pendingSelectId = null;
+  if (id === state.selectedId) return; // no-op — already selected
   state = { ...state, selectedId: id };
   notify();
+}
+
+// Plan 06-04 (T-06-04-04): defends against the openTab-setTabs / immediate-
+// select race. If the id is already in openTabs, this behaves exactly like
+// selectConversation(id). Otherwise the id is parked in pendingSelectId; the
+// next updateOpenTabs(tabs) that includes it flushes selection to it.
+// Last-write-wins on repeated deferred calls before the flush.
+export function selectConversationDeferred(id: string): void {
+  for (const t of state.openTabs) {
+    if (t.id === id) {
+      // Already present — this is not really "deferred"; delegate to the
+      // direct path (which clears pending as a side effect per re-decision).
+      selectConversation(id);
+      return;
+    }
+  }
+  pendingSelectId = id;
+  // Deliberately NO notify() here — nothing user-visible has changed. The
+  // flush emit happens inside updateOpenTabs when the id arrives.
 }
 
 export function pinConversation(id: string): void {
@@ -378,4 +426,11 @@ export function __getSnapshotForTest(): SnapshotForTest {
     selectedId: state.selectedId,
     pinnedIds: state.pinnedIds,
   };
+}
+
+// Plan 06-04 Task 1: expose the module-scoped pendingSelectId slot so tests
+// can assert the deferred-select semantics (set on absent id / cleared on
+// arrival / cleared on direct selectConversation / last-write-wins).
+export function __getPendingSelectIdForTest(): string | null {
+  return pendingSelectId;
 }

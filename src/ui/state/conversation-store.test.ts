@@ -5,6 +5,7 @@ import {
   updateHostTree,
   updateOpenTabs,
   selectConversation,
+  selectConversationDeferred,
   pinConversation,
   unpinConversation,
   togglePinConversation,
@@ -13,6 +14,7 @@ import {
   usePinnedIds,
   __subscribeForTest,
   __getSnapshotForTest,
+  __getPendingSelectIdForTest,
 } from "./conversation-store.js";
 import type { Tab, Host, HostFolder } from "@/types/ui-types";
 
@@ -45,7 +47,9 @@ function makeTab(
 
 // Reset all module-scoped state between tests. Ordering matters: clear tabs
 // FIRST so pin-pruning + selection-coercion fire on a valid transition, then
-// null out selection explicitly (idempotent), then drop the host tree.
+// null out selection explicitly (idempotent) which ALSO clears any leftover
+// pendingSelectId from a prior test (per Plan 06-04 Task 1: selectConversation
+// clears pending), then drop the host tree.
 beforeEach(() => {
   updateOpenTabs([]);
   selectConversation(null);
@@ -405,5 +409,193 @@ describe("conversation-store: usePinnedIds hook", () => {
     const { result } = renderHook(() => usePinnedIds());
     expect(result.current.has("t2")).toBe(true);
     expect(result.current.has("t1")).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 13: selectConversationDeferred — id not in tabs sets pending, no emit
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan 06-04 Task 1 race defense: openTab's setTabs is batched — the new tab
+// id is NOT visible in `state.openTabs` synchronously after openTab returns.
+// selectConversationDeferred parks the id in a module-scoped pendingSelectId
+// slot; updateOpenTabs flushes it when the id finally arrives.
+describe("conversation-store: selectConversationDeferred — id not in tabs", () => {
+  it("stores id in pendingSelectId and does NOT change selectedId when id is absent", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("existing", "terminal", hostA)]);
+      selectConversation("existing");
+    });
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+    expect(__getPendingSelectIdForTest()).toBeNull();
+
+    act(() => selectConversationDeferred("newid"));
+    // Selection UNCHANGED — the deferred id isn't in openTabs yet
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+    // But it's parked in the pending slot for updateOpenTabs to flush
+    expect(__getPendingSelectIdForTest()).toBe("newid");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 14: deferred flushes when updateOpenTabs adds the id
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: selectConversationDeferred — flush on arrival", () => {
+  it("updateOpenTabs applies the pending id when it appears in the new tabs list", () => {
+    const hostA = makeHost("hA", "alpha");
+    const existingTab = makeTab("existing", "terminal", hostA);
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([existingTab]);
+      selectConversation("existing");
+      selectConversationDeferred("newid");
+    });
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+    expect(__getPendingSelectIdForTest()).toBe("newid");
+
+    // Simulate the batched React setTabs commit — the new tab now arrives
+    const newTab = makeTab("newid", "terminal", hostA);
+    act(() => updateOpenTabs([existingTab, newTab]));
+
+    // Pending id flushes into selection; pending slot clears
+    expect(__getSnapshotForTest().selectedId).toBe("newid");
+    expect(__getPendingSelectIdForTest()).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 15: deferred with id never arriving — selection unchanged, pending sticky
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: selectConversationDeferred — id never arrives", () => {
+  it("updateOpenTabs without the deferred id leaves selection and pending untouched", () => {
+    const hostA = makeHost("hA", "alpha");
+    const existingTab = makeTab("existing", "terminal", hostA);
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([existingTab]);
+      selectConversation("existing");
+      selectConversationDeferred("newid");
+    });
+    expect(__getPendingSelectIdForTest()).toBe("newid");
+
+    // Re-emit the same tabs (without newid) — should NOT flush pending, and
+    // selection should stay put
+    const anotherTab = makeTab("another", "terminal", hostA);
+    act(() => updateOpenTabs([existingTab, anotherTab]));
+
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+    expect(__getPendingSelectIdForTest()).toBe("newid");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 16: deferred applies IMMEDIATELY if id is already in tabs
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: selectConversationDeferred — already present", () => {
+  it("selects synchronously via selectConversation when id is in openTabs; pending stays null", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("existing", "terminal", hostA)]);
+    });
+    expect(__getSnapshotForTest().selectedId).toBeNull();
+    expect(__getPendingSelectIdForTest()).toBeNull();
+
+    act(() => selectConversationDeferred("existing"));
+
+    // Immediate selection — no defer, no pending
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+    expect(__getPendingSelectIdForTest()).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 17: direct selectConversation clears pending
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: selectConversation clears pending", () => {
+  it("a direct selectConversation call clears the pending slot even for same-id", () => {
+    const hostA = makeHost("hA", "alpha");
+    const existingTab = makeTab("existing", "terminal", hostA);
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([existingTab]);
+      selectConversation("existing");
+    });
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+
+    act(() => selectConversationDeferred("pending"));
+    expect(__getPendingSelectIdForTest()).toBe("pending");
+
+    // A direct selectConversation to an id that IS in tabs clears pending.
+    // Re-decision (NOTE-03): even a same-id call clears pending. Here we
+    // select the id we're already on — the pending slot must still clear.
+    act(() => selectConversation("existing"));
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+    expect(__getPendingSelectIdForTest()).toBeNull();
+  });
+
+  it("selecting an id NOT in tabs does NOT clear pending (stale-guard runs first)", () => {
+    const hostA = makeHost("hA", "alpha");
+    const existingTab = makeTab("existing", "terminal", hostA);
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([existingTab]);
+      selectConversation("existing");
+      selectConversationDeferred("pending");
+    });
+    expect(__getPendingSelectIdForTest()).toBe("pending");
+
+    // Stale-id: guard runs first, returns before pending is touched
+    act(() => selectConversation("stale-not-in-tabs"));
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+    expect(__getPendingSelectIdForTest()).toBe("pending");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 18: multiple deferred — last one wins
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: selectConversationDeferred — last-write-wins", () => {
+  it("consecutive deferred calls overwrite pending; only the last-set id flushes", () => {
+    const hostA = makeHost("hA", "alpha");
+    const existingTab = makeTab("existing", "terminal", hostA);
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([existingTab]);
+      selectConversation("existing");
+    });
+
+    act(() => {
+      selectConversationDeferred("p1");
+      selectConversationDeferred("p2");
+    });
+    expect(__getPendingSelectIdForTest()).toBe("p2");
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+
+    // updateOpenTabs adds p2 — pending flushes to p2
+    const tabP2 = makeTab("p2", "terminal", hostA);
+    act(() => updateOpenTabs([existingTab, tabP2]));
+    expect(__getSnapshotForTest().selectedId).toBe("p2");
+    expect(__getPendingSelectIdForTest()).toBeNull();
+  });
+
+  it("if only p1 arrives (not p2), selection stays put and pending stays 'p2'", () => {
+    const hostA = makeHost("hA", "alpha");
+    const existingTab = makeTab("existing", "terminal", hostA);
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([existingTab]);
+      selectConversation("existing");
+      selectConversationDeferred("p1");
+      selectConversationDeferred("p2");
+    });
+    expect(__getPendingSelectIdForTest()).toBe("p2");
+
+    // p1 arrives — but pending is "p2", so pending does NOT flush
+    const tabP1 = makeTab("p1", "terminal", hostA);
+    act(() => updateOpenTabs([existingTab, tabP1]));
+    expect(__getSnapshotForTest().selectedId).toBe("existing");
+    expect(__getPendingSelectIdForTest()).toBe("p2");
   });
 });
