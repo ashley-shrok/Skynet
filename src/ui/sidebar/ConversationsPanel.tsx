@@ -26,7 +26,7 @@
 // pretty-view, terminal, guacamole (Phase 6 scope-fence).
 
 import { useState, type ReactNode } from "react";
-import { MessagesSquare, Settings } from "lucide-react";
+import { MessagesSquare, Monitor, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -52,6 +52,7 @@ import { ConversationRow } from "@/sidebar/ConversationRow";
 import { renderSettingsMenuItems } from "@/sidebar/SettingsRow";
 import { NewSessionButton } from "@/sidebar/NewSessionButton";
 import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import type { RailView } from "@/sidebar/AppRail";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -106,29 +107,55 @@ export function ConversationsPanel({
   // the branch happens ONLY at the click-handler level, INTERNAL to the
   // panel-wiring layer — never visible to Ashley.
   onDetachedRowClick?: (row: ConversationRowShape) => void;
+  // Plan 07-02 (TG-15): fired when the user clicks an RDP-host row (a row
+  // synthesized from a Host with `enableRdp === true` — see
+  // conversation-store §Plan 07-02). AppShell resolves the row → Host via
+  // `row.host` (guaranteed populated by the store since RDP rows are only
+  // emitted for Host entries present in state.hostsFlat) + calls
+  // openTab(host, "rdp") + selectConversationDeferred. Optional so isolated
+  // tests can render the panel without wiring the callback; RDP rows fall
+  // through to the default selectConversation path when undefined (silent
+  // no-op at the store level per T-06-01-01 stale-id guard, since RDP row
+  // ids never appear in openTabs).
+  onRdpRowClick?: (row: ConversationRowShape) => void;
 }) {
   const { t } = useTranslation();
   const { pinned, grouped } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
+  const isTouchDevice = useIsTouchDevice();
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
 
   const isEmpty = pinned.length === 0 && grouped.length === 0;
-  const showGear = typeof onRailClick === "function";
+  // Plan 07-02 (TG-18): gate the header gear on `!useIsTouchDevice()` in
+  // ADDITION to the existing `onRailClick` typeof check. On touch devices
+  // (mobile viewports) the SettingsRow at the bottom of the scroller
+  // (Plan 06-03) is the SOLE admin/settings entry point; on desktop the
+  // gear is the SOLE entry point. Neither renders in both places. Both
+  // route through the same handleRailClick + SETTINGS_MENU_ITEMS registry
+  // (Plan 06-02) — the fix only changes WHICH entry point renders per
+  // viewport, not what happens inside the menu.
+  const showGear = typeof onRailClick === "function" && !isTouchDevice;
   const showNewSessionButton = typeof onCreateSession === "function";
 
-  // Plan 07-01 (TG-14): single row-click dispatcher. Fleet-only rows route
-  // through `onDetachedRowClick` (AppShell handler resolves row → Host →
-  // openTab + selectConversationDeferred); openTabs rows use the direct
-  // `selectConversation` path. Both branches fire `onConversationSelected`
-  // so the mobile list→view transition (Plan 06-03) fires identically for
-  // attached AND detached clicks — Ashley cannot tell the two states apart
-  // per TG-13.
+  // Plan 07-01/07-02 (TG-14, TG-15): single row-click dispatcher. Priority
+  // order (most specific first):
+  //   1. `row.rdpHostRow` → onRdpRowClick (openTab(host, "rdp"))
+  //   2. `row.fleetOnly` → onDetachedRowClick (openTab(host, "terminal", ...))
+  //   3. default → selectConversation(row.id) (openTabs-derived row)
+  // All branches fire `onConversationSelected` so the mobile list→view
+  // transition (Plan 06-03) fires identically for every click — Ashley
+  // cannot tell the three states apart per TG-13.
   //
-  // Extracted here (rather than inlined at both call sites) so the pinned
-  // and grouped row lists stay identical — a future planner adding e.g. a
-  // click-analytics hook only edits one place.
+  // Extracted here (rather than inlined at each call site) so the pinned +
+  // grouped + RDP row lists stay identical — a future planner adding e.g.
+  // a click-analytics hook only edits one place.
   const handleRowSelect = (row: ConversationRowShape) => {
+    if (row.rdpHostRow && onRdpRowClick) {
+      onRdpRowClick(row);
+      onConversationSelected?.(row.id);
+      return;
+    }
     if (row.fleetOnly && onDetachedRowClick) {
       onDetachedRowClick(row);
       onConversationSelected?.(row.id);
@@ -234,29 +261,60 @@ export function ConversationsPanel({
 
             {/* Host-grouped section: for each HostGroup, small semibold host
                 header (matching FolderItem lines 941-943) with a top border
-                separator, then the rows for that group. */}
-            {grouped.map((group) => (
-              <div key={group.hostId} className="flex flex-col">
-                <div className="flex items-center gap-2 px-3 py-2 border-t border-border/40">
-                  <span className="text-[13px] font-semibold text-foreground/80 truncate flex-1">
-                    {group.hostName}
-                  </span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground/40 shrink-0">
-                    {group.rows.length}
-                  </span>
+                separator, then the rows for that group.
+
+                Plan 07-02 (TG-15) NOTE-A: the sentinel `__rdp__` HostGroup
+                emitted at the BOTTOM of the store's grouped output is
+                special-cased — its semibold host-header is SUPPRESSED
+                (there's no meaningful group name — the shape file said
+                "just the host name + monitor glyph"), and its rows render
+                via `RdpRow` (below) instead of ConversationRow so identity
+                resolution, avatar rendering, pin toggle, and the muted
+                host-name secondary line are all skipped. Just monitor icon
+                + host name. Selected treatment is preserved so a currently-
+                active RDP tab still visually highlights its row. */}
+            {grouped.map((group) => {
+              if (group.hostId === "__rdp__") {
+                return (
+                  <div key={group.hostId} className="flex flex-col">
+                    {/* Top border only — no semibold header. Visually
+                        separates the RDP section from the identity-tmux
+                        section above. */}
+                    <div className="border-t border-border/40" />
+                    {group.rows.map((row) => (
+                      <RdpRow
+                        key={row.id}
+                        row={row}
+                        selected={row.id === selectedId}
+                        onSelect={() => handleRowSelect(row)}
+                      />
+                    ))}
+                  </div>
+                );
+              }
+              return (
+                <div key={group.hostId} className="flex flex-col">
+                  <div className="flex items-center gap-2 px-3 py-2 border-t border-border/40">
+                    <span className="text-[13px] font-semibold text-foreground/80 truncate flex-1">
+                      {group.hostName}
+                    </span>
+                    <span className="text-[10px] tabular-nums text-muted-foreground/40 shrink-0">
+                      {group.rows.length}
+                    </span>
+                  </div>
+                  {group.rows.map((row) => (
+                    <ConversationRow
+                      key={row.id}
+                      row={row}
+                      selected={row.id === selectedId}
+                      pinned={pinnedIds.has(row.id)}
+                      onSelect={() => handleRowSelect(row)}
+                      onTogglePin={() => togglePinConversation(row.id)}
+                    />
+                  ))}
                 </div>
-                {group.rows.map((row) => (
-                  <ConversationRow
-                    key={row.id}
-                    row={row}
-                    selected={row.id === selectedId}
-                    pinned={pinnedIds.has(row.id)}
-                    onSelect={() => handleRowSelect(row)}
-                    onTogglePin={() => togglePinConversation(row.id)}
-                  />
-                ))}
-              </div>
-            ))}
+              );
+            })}
           </>
         )}
         {/* Plan 06-03: mobile settings-row slot. Rendered at the BOTTOM of
@@ -292,6 +350,64 @@ export function ConversationsPanel({
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ─── RdpRow ──────────────────────────────────────────────────────────────────
+// Plan 07-02 (TG-15): compact row for remote-desktop host entries at the
+// BOTTOM of the ConversationsPanel scroller. One row per RDP-enabled host.
+// Deliberately parallel to (not a variant of) ConversationRow because the
+// RDP row's shape is meaningfully different:
+//   - NO identity avatar / hue (RDP has no tmux-session identity concept)
+//   - NO host-name secondary line (the label IS the host name)
+//   - NO pin toggle (RDP rows can't be pinned — Test 34 defense)
+//   - Monitor icon in the icon column instead of tabIcon("rdp")'s generic
+// Reusing ConversationRow with heavy prop overrides would be lossier than
+// this small parallel path. Everything else — click affordance, selected
+// treatment, row height, tokens — matches ConversationRow verbatim so the
+// visual rhythm of the scroller stays consistent.
+function RdpRow({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: ConversationRowShape;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const selectedClass = selected
+    ? "bg-accent-brand/10 text-accent-brand"
+    : "text-foreground hover:bg-muted/40";
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={`group/rdprow flex items-stretch cursor-pointer select-none transition-colors ${selectedClass}`}
+      data-conversation-id={row.id}
+      data-rdp-host-row="true"
+      data-selected={selected ? "true" : "false"}
+    >
+      {/* Icon column — Monitor glyph in the avatar slot. No identity hue,
+          no avatar image — just the monitor. Matches the shape-file lock:
+          "monitor icon in the avatar slot". */}
+      <div className="flex items-center justify-center w-7 shrink-0">
+        <Monitor className="size-4 text-muted-foreground" />
+      </div>
+
+      {/* Body: host name only — no secondary line, no metadata. */}
+      <div className="flex flex-col flex-1 min-w-0 px-2 pt-2 pb-1.5 gap-0.5">
+        <span className="text-[13px] font-medium truncate leading-none">
+          {row.label}
+        </span>
+      </div>
     </div>
   );
 }

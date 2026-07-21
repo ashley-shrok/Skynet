@@ -1462,6 +1462,41 @@ export function AppShell({
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
           }}
+          // Plan 07-02 (TG-15): click-an-RDP-row handler. Fires ONLY for
+          // rows where store.computeSnapshot set `rdpHostRow: true` (rows
+          // synthesized from a Host with `enableRdp === true`, living in
+          // the sentinel HostGroup `hostId === "__rdp__"` at the BOTTOM of
+          // grouped). Reuses `openTab(host, "rdp")` — the same lifecycle
+          // entry point HostsPanel + SessionsPanel + connectHost use today.
+          // Zero re-engineering of RDP tab disconnect/reconnect / guacamole /
+          // Terminal.tsx — this is a NEW row-render path that CALLS the
+          // existing RDP open flow.
+          //
+          // `openTab(host, "rdp")` omits the `options` arg — RDP tabs don't
+          // use targetTmuxSession or allowCreateTmux (openTab defaults both
+          // to null/false when omitted, verified at AppShell.tsx:974/979).
+          //
+          // `selectConversationDeferred(newTabId)` mirrors the detached-row-
+          // click path above + Plan 06-04's new-session flow: openTab's
+          // setTabs is batched, so the new tab id is NOT visible in
+          // state.openTabs synchronously; the deferred-select parks the id
+          // in pendingSelectId and updateOpenTabs flushes it when the id
+          // arrives. Consistent behavior across every "opens-a-new-tab"
+          // surface.
+          //
+          // Row → Host resolution goes through `row.host` which the store
+          // populated directly from state.hostsFlat (RDP rows are ONLY
+          // emitted for hosts present in hostsFlat — no race, but the
+          // defensive `!host` guard keeps parity with the detached-row-click
+          // handler above).
+          onRdpRowClick={(row) => {
+            const host = row.host;
+            if (!host) return;
+            const newTabId = openTab(host, "rdp");
+            selectConversationDeferred(newTabId);
+            if (isTouchDevice) navigateToView();
+            if (isMobile) setSidebarOpen(false);
+          }}
         />
       </div>
 
