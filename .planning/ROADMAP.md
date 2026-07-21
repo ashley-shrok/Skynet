@@ -201,7 +201,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 4. Pretty view visual reskin — Glass depth aesthetic | 0/3 | Planning | — |
 | 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
 | 6. Telegram-like interface | 5/5 | Complete   | 2026-07-21 |
-| 7. Fleet-native conversation list | 0/3 | Planning | — |
+| 7. Fleet-native conversation list | 1/3 | In Progress|  |
 
 ### Phase 6: Telegram-like interface
 
@@ -247,10 +247,10 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 **Depends on:** Phase 6
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 07-01-PLAN.md — Fleet-native store extension (FleetSession + updateFleetSessions + updateHostsFlat + union/dedup rows with fleetOnly marker) + AppShell one-shot getSessionList() fetch + detached-row-click transparent-attach handler (TG-12, TG-13, TG-14, TG-17)
+- [x] 07-01-PLAN.md — Fleet-native store extension (FleetSession + updateFleetSessions + updateHostsFlat + union/dedup rows with fleetOnly marker) + AppShell one-shot getSessionList() fetch + detached-row-click transparent-attach handler (TG-12, TG-13, TG-14, TG-17)
 - [ ] 07-02-PLAN.md — RDP row rendering at bottom (monitor icon + no hue + rdpHostRow marker) + NewSessionButton pencil re-style + ConversationsPanel showGear mobile-fix via `!useIsTouchDevice()` gate + AppShell onRdpRowClick handler (TG-15, TG-16, TG-18)
 - [ ] 07-03-PLAN.md — Deploy checkpoint: build verify + Nyquist UAT checklist for TG-12..18 + patches-md #106 draft + mandatory 15-min deadman deploy under Ashley's separate green-light (all TG-12..18)
 
