@@ -25,7 +25,7 @@
 // Zero touches to AppShell (from this file), TabBar, MobileBottomBar,
 // pretty-view, terminal, guacamole (Phase 6 scope-fence).
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { MessagesSquare, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -49,13 +49,18 @@ import {
 } from "@/state/conversation-store";
 import { ConversationRow } from "@/sidebar/ConversationRow";
 import { renderSettingsMenuItems } from "@/sidebar/SettingsRow";
+import { NewSessionButton } from "@/sidebar/NewSessionButton";
+import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
 import type { RailView } from "@/sidebar/AppRail";
+import type { Host, HostFolder } from "@/types/ui-types";
 
 export function ConversationsPanel({
   onRailClick,
   isAdmin,
   onConversationSelected,
   settingsRowSlot,
+  hostTree,
+  onCreateSession,
 }: {
   // Route to admin destinations via AppShell's handleRailClick. Passed in
   // from AppShell in Plan 06-02 Step G. Optional so the panel can render
@@ -75,14 +80,28 @@ export function ConversationsPanel({
   // the gear icon in the header slot (Plan 06-02). Not competing with
   // pinned/active rows for prime attention per TG-10.
   settingsRowSlot?: ReactNode;
+  // Plan 06-04: host tree fed into the NewSessionDialog's host picker.
+  // AppShell threads its memoized realHostTree here. Optional so tests
+  // can render the panel without wiring the picker.
+  hostTree?: HostFolder | null;
+  // Plan 06-04: fired when the user completes the NewSessionDialog with a
+  // host + optional session name. AppShell wires this to openTab +
+  // selectConversationDeferred + (on touchscreens) navigateToView. Panel
+  // itself stays viewport-agnostic — no useIsTouchDevice call inside.
+  // Optional so tests can render the panel without wiring the callback;
+  // NewSessionButton is only mounted when this callback is provided
+  // (Plan 06-04: no button in the isolated-test surface, either).
+  onCreateSession?: (opts: { host: Host; sessionName?: string }) => void;
 }) {
   const { t } = useTranslation();
   const { pinned, grouped } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
+  const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
 
   const isEmpty = pinned.length === 0 && grouped.length === 0;
   const showGear = typeof onRailClick === "function";
+  const showNewSessionButton = typeof onCreateSession === "function";
 
   return (
     <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -129,6 +148,21 @@ export function ConversationsPanel({
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* Plan 06-04: NewSessionButton mounts at the TOP of the scroller
+            (above the pinned section), visible on both mobile and desktop.
+            Primary CTA for TG-09. Distinct from the header gear icon
+            (Plan 06-02) — button = primary action, gear = settings chrome.
+            Renders even in the empty-state branch since Ashley may open a
+            fresh page and need the button to be the very first affordance
+            she sees. Only shown when onCreateSession is wired in — isolated
+            tests that don't want the button can omit the callback. */}
+        {showNewSessionButton && (
+          <div className="px-2 pt-2 pb-1 border-b border-border/40">
+            <NewSessionButton
+              onOpen={() => setNewSessionDialogOpen(true)}
+            />
+          </div>
+        )}
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center py-12 text-center px-4">
             <MessagesSquare className="size-8 text-muted-foreground/20 mb-2" />
@@ -209,6 +243,26 @@ export function ConversationsPanel({
             below the empty-state block. */}
         {settingsRowSlot}
       </div>
+
+      {/* Plan 06-04: NewSessionDialog is mounted OUTSIDE the scroller
+          (Dialog is portaled anyway, so DOM position doesn't drive layout)
+          — kept sibling-to-scroller to make the render-tree responsibilities
+          obvious. Dialog controlled by local dialog-open state; on submit
+          delegates to AppShell's onCreateSession callback (which handles
+          openTab + selectConversationDeferred + navigateToView on mobile).
+          Only mounted when onCreateSession is wired — same gate as the
+          button — so tests that don't want the picker don't pay for it. */}
+      {showNewSessionButton && (
+        <NewSessionDialog
+          open={newSessionDialogOpen}
+          onClose={() => setNewSessionDialogOpen(false)}
+          hostTree={hostTree ?? null}
+          onCreate={(opts) => {
+            onCreateSession!(opts);
+            setNewSessionDialogOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

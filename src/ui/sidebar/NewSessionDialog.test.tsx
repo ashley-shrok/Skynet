@@ -19,9 +19,30 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
+// Test 10 renders ConversationsPanel → ConversationRow which pulls
+// session-hue + identities + useIsTouchDevice. Stub them to inert defaults
+// so the render is deterministic and doesn't drag in identity registry
+// wiring or media-query state.
+vi.mock("@/features/terminal/session-hue", () => ({
+  sessionMatchKey: () => null,
+  useSessionIdentity: () => ({ identity: null, identityHue: null }),
+}));
+vi.mock("@/state/identities-store", () => ({
+  useIdentities: () => ({ byKey: new Map() }),
+}));
+vi.mock("@/hooks/use-is-touch-device", () => ({
+  useIsTouchDevice: () => false,
+}));
+
 import { NewSessionButton } from "./NewSessionButton";
 import { NewSessionDialog } from "./NewSessionDialog";
-import type { Host, HostFolder } from "@/types/ui-types";
+import { ConversationsPanel } from "./ConversationsPanel";
+import {
+  updateHostTree,
+  updateOpenTabs,
+  selectConversation,
+} from "@/state/conversation-store";
+import type { Host, HostFolder, Tab } from "@/types/ui-types";
 
 function makeHost(
   id: string,
@@ -293,5 +314,85 @@ describe("NewSessionDialog: single-host auto-select", () => {
     fireEvent.click(openBtn);
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(onCreate.mock.calls[0][0].host.id).toBe("only");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 10: NewSessionButton appears BEFORE conversation rows in DOM order
+// ─────────────────────────────────────────────────────────────────────────────
+// The button lives at the top of the scroller ABOVE pins (Plan 06-04 hard
+// constraint per CONTEXT.md §Decisions §New-session button). Verified by
+// rendering ConversationsPanel with 2 populated conversations and asserting
+// the button's DOM position precedes the first ConversationRow.
+describe("ConversationsPanel: NewSessionButton DOM order", () => {
+  beforeEach(() => {
+    // Reset the module-scoped conversation-store between renders so Test 10
+    // is independent of Tests 1-9. (Tests 1-9 don't touch the store, but
+    // this pins the invariant.)
+    updateOpenTabs([]);
+    selectConversation(null);
+    updateHostTree(null);
+  });
+
+  it("Test 10: button appears BEFORE conversation rows in DOM order (top-of-scroller mount)", () => {
+    const hostA = makeHost("hA", "alpha", { username: "root", ip: "10.0.0.1" });
+    const hostTree: HostFolder = { name: "root", children: [hostA] };
+    const tab1: Tab = {
+      id: "t1",
+      instanceId: "t1",
+      type: "terminal",
+      label: "session-1",
+      host: hostA,
+      openedAt: 0,
+      targetTmuxSession: null,
+    };
+    const tab2: Tab = {
+      id: "t2",
+      instanceId: "t2",
+      type: "terminal",
+      label: "session-2",
+      host: hostA,
+      openedAt: 0,
+      targetTmuxSession: null,
+    };
+
+    updateHostTree(hostTree);
+    updateOpenTabs([tab1, tab2]);
+
+    const { container } = render(
+      <ConversationsPanel
+        hostTree={hostTree}
+        onCreateSession={vi.fn()}
+      />,
+    );
+
+    // The button and rows both live under the same scroller. Query for the
+    // button by aria-label and rows by data-conversation-id, then compare
+    // absolute DOM-tree order via a walker across the whole container.
+    const button = container.querySelector(
+      'button[aria-label="New session"]',
+    ) as HTMLElement | null;
+    const row1 = container.querySelector(
+      '[data-conversation-id="t1"]',
+    ) as HTMLElement | null;
+    const row2 = container.querySelector(
+      '[data-conversation-id="t2"]',
+    ) as HTMLElement | null;
+    expect(button).toBeTruthy();
+    expect(row1).toBeTruthy();
+    expect(row2).toBeTruthy();
+
+    // Walk all elements in document order; assert button's index precedes
+    // the rows' indices. This is a stable positional check that survives
+    // any future markup refactor as long as the parent-child relationship
+    // (button before rows within the scroller) is preserved.
+    const all = Array.from(container.querySelectorAll("*")) as HTMLElement[];
+    const btnIdx = all.indexOf(button!);
+    const row1Idx = all.indexOf(row1!);
+    const row2Idx = all.indexOf(row2!);
+
+    expect(btnIdx).toBeGreaterThanOrEqual(0);
+    expect(row1Idx).toBeGreaterThan(btnIdx);
+    expect(row2Idx).toBeGreaterThan(btnIdx);
   });
 });

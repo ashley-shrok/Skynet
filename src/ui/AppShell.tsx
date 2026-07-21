@@ -62,6 +62,7 @@ import {
   updateHostTree,
   updateOpenTabs,
   useSelectedConversationId,
+  selectConversationDeferred,
 } from "@/state/conversation-store";
 import { TransferMonitor } from "@/features/file-manager/TransferMonitor.tsx";
 import { getPendingTransferIds } from "@/features/file-manager/transferNotificationStore.ts";
@@ -1348,6 +1349,27 @@ export function AppShell({
               <SettingsRow onRailClick={handleRailClick} isAdmin={isAdmin} />
             ) : undefined
           }
+          // Plan 06-04: host tree for the NewSessionDialog's host picker.
+          // Reuses the same memoized realHostTree HostsPanel consumes below,
+          // so idle host-polls don't thrash either panel.
+          hostTree={realHostTree}
+          // Plan 06-04: new-session flow success handler. openTab creates
+          // the tab (batched setTabs — id NOT yet in tabs on the same tick);
+          // selectConversationDeferred parks the id in the store's
+          // pendingSelectId slot so the next updateOpenTabs flush selects
+          // it (T-06-04-04 race defense). On touchscreens, ALSO auto-
+          // navigate to the mobile view screen so Ashley lands on the new
+          // session's pane without a second tap.
+          onCreateSession={({ host, sessionName }) => {
+            const newTabId = openTab(host, "terminal", undefined, {
+              targetTmuxSession: sessionName ?? null,
+              label: sessionName ?? undefined,
+              allowCreateTmux: true,
+            });
+            selectConversationDeferred(newTabId);
+            if (isTouchDevice) navigateToView();
+            if (isMobile) setSidebarOpen(false);
+          }}
         />
       </div>
 
