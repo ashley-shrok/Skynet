@@ -65,31 +65,67 @@ describe("Terminal.tsx Phase 05 Plan 03 wiring — structural", () => {
     expect(defBlock.test(src)).toBe(true);
   });
 
-  it("Test 4: pre-existing PrettyView onSend callback (line ~2846) is byte-identical", () => {
-    // sha256 pinned from pre-Plan-03 snapshot. If patches #60 / #100 timing
-    // ever needs to change, the pin must be re-baselined in a coordinated
-    // patch, NOT drifted silently.
-    const KNOWN_PRETTYVIEW_ONSEND_SHA =
-      "264385b112e8076fad0545f9f4811440b3493439c52b4088860bde83f8565f9d";
-    // Extract via a robust content-anchored regex so the pin survives file
-    // renumbering. Anchor on the exact opening + closing lines Plan 02 landed.
+  it("Test 4 (patch #110): PrettyView onSend is a single WS event with mqid + text+CR", () => {
+    // Patch #110 collapsed the prior two-event split (text + setTimeout(60ms)
+    // for \r) into a single event with a synthetic messageQueueItemId. The
+    // backend's isPrettyViewSubmit gate then fires and does the split
+    // server-side, eliminating the 60ms WS-race window that silently dropped
+    // Enter on WS flap.
+    //
+    // This test guards ALL THREE load-bearing invariants:
+    //   1. WS-not-ready check + false return still present (fail-fast path)
+    //   2. Exactly ONE ws.send call, carrying `text + "\r"` (no split)
+    //   3. messageQueueItemId is attached (backend gate requires it)
+    //   4. NO setTimeout in the pretty-view onSend block (regression guard —
+    //      re-introducing setTimeout re-opens the race)
     const openIdx = src.indexOf(
-      "            onSend={(text) => {\n              const ws = webSocketRef.current;\n              if (!ws || ws.readyState !== 1) return false;\n              ws.send(JSON.stringify({ type: \"input\", data: text }));\n              setTimeout(() => {\n                const ws2 = webSocketRef.current;\n                if (ws2 && ws2.readyState === 1) {\n                  ws2.send(JSON.stringify({ type: \"input\", data: \"\\r\" }));\n                }\n              }, 60);\n              return true;\n            }}",
+      "            onSend={(text) => {\n              // Patch #110:",
     );
     expect(openIdx).toBeGreaterThan(0);
-    const block = src.slice(openIdx, openIdx + 663); // 12-line block
-    // 12 lines * ~55 avg chars is roughly 660; use the exact sha
-    const _hash = sha256(block);
-    // Assert the extracted block exists (the indexOf above is the real check).
-    // The sha pin is a redundancy — if the hash drifts, one of the two lands.
-    void _hash;
-    void KNOWN_PRETTYVIEW_ONSEND_SHA;
-    // Positive-content assertions: the exact patch-#100 shape is present.
+    // Read to the end of the arrow function body (matching closing `}}`).
+    // The block is bounded by the next line starting with `            terminalWs=`.
+    const closeIdx = src.indexOf(
+      "            terminalWs={webSocketRef.current}",
+      openIdx,
+    );
+    expect(closeIdx).toBeGreaterThan(openIdx);
+    const block = src.slice(openIdx, closeIdx);
+    // (1) fail-fast path preserved
     expect(block).toContain("if (!ws || ws.readyState !== 1) return false;");
-    expect(block).toContain('ws.send(JSON.stringify({ type: "input", data: text }));');
-    expect(block).toContain("setTimeout(() => {");
-    expect(block).toContain('ws2.send(JSON.stringify({ type: "input", data: "\\r" }));');
-    expect(block).toContain("}, 60);");
+    // (2) single event with text + "\r" (no split)
+    expect(block).toContain('data: text + "\\r"');
+    // (3) synthetic mqid attached
+    expect(block).toContain('"pv-adhoc-" + crypto.randomUUID()');
+    expect(block).toContain("messageQueueItemId: mqid");
+    // (4) regression guard: no setTimeout CALL and no ws2 re-fetch. Both
+    //     would reintroduce the 60ms cross-event race window we're closing.
+    //     Match the CALL shape (arrow-fn arg) rather than the bare word —
+    //     the explanatory comment above the fix mentions "setTimeout(60ms)"
+    //     in prose, which we don't want to false-positive on.
+    expect(block).not.toContain("setTimeout(() => {");
+    expect(block).not.toMatch(/\bws2\s*=/);
+    expect(block).not.toContain("ws2.send(");
+    // (5) still returns true on the happy path
+    expect(block).toContain("return true;");
+  });
+
+  it("Test 4b (patch #110): PrettyView onSend attaches a non-empty messageQueueItemId every call", () => {
+    // Backend gate: isPrettyViewSubmit = typeof mqid === 'string' && mqid.length > 0.
+    // If the pretty-view onSend ever emits a bare {type,data} without mqid,
+    // the backend falls through to generic write and the split-send is dormant
+    // → the ORIGINAL bug (Enter dropped) resurfaces. Belt-and-suspenders check
+    // that mqid is always constructed non-empty.
+    const openIdx = src.indexOf(
+      "            onSend={(text) => {\n              // Patch #110:",
+    );
+    expect(openIdx).toBeGreaterThan(0);
+    const closeIdx = src.indexOf(
+      "            terminalWs={webSocketRef.current}",
+      openIdx,
+    );
+    const block = src.slice(openIdx, closeIdx);
+    // The mqid construction is a non-empty prefix + a UUID (both non-empty).
+    expect(block).toMatch(/const mqid = "pv-adhoc-" \+ crypto\.randomUUID\(\);/);
   });
 
   it("Test 5: pre-existing MessageQueueDrawer onSend callback (line ~2869) is byte-identical", () => {

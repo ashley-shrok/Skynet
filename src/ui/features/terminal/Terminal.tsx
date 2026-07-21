@@ -2884,15 +2884,42 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             className="flex-1 min-h-0"
             isIdle={isIdle}
             onSend={(text) => {
+              // Patch #110: collapse the pretty-view submit into a SINGLE
+              // WS event with text+CR + a synthetic messageQueueItemId.
+              // WHY:
+              //   The prior shape sent two events (text, then a
+              //   setTimeout(60ms) for \r). The 60ms gap silently DROPPED
+              //   Enter when the WebSocket blipped in that window
+              //   (readyState !== 1 at fire time). Text arrived at Claude
+              //   Code's composer; Enter didn't; the message sat unsent.
+              //   Also — mqid was never attached, so backend's
+              //   isPrettyViewSubmit gate (terminal.ts:499) never fired,
+              //   which meant the backend split-send path (patch #100)
+              //   was dormant and the frontend was doing all the work.
+              // HOW THE FIX WORKS:
+              //   Backend gate fires when mqid non-empty AND data ends in
+              //   \r. Sending `text + "\r"` in ONE event with mqid trips
+              //   the gate → backend writes body without \r, waits 50ms,
+              //   writes \r alone. Pty byte stream is byte-identical to
+              //   the previous behavior; only the WS-level event count
+              //   changes (2 → 1), eliminating the race window entirely.
+              // WHY SYNTHETIC MQID:
+              //   Pretty-view composer submits aren't tied to a queue row
+              //   (MessageQueueDrawer's onSend at ~2911 has a real mqid).
+              //   The backend gate is agnostic to what the mqid encodes —
+              //   it only reads it as "yes, this is a pretty-view submit,
+              //   apply split-send" — so any non-empty string works. The
+              //   "pv-adhoc-" prefix keeps it grep-able in backend logs.
               const ws = webSocketRef.current;
               if (!ws || ws.readyState !== 1) return false;
-              ws.send(JSON.stringify({ type: "input", data: text }));
-              setTimeout(() => {
-                const ws2 = webSocketRef.current;
-                if (ws2 && ws2.readyState === 1) {
-                  ws2.send(JSON.stringify({ type: "input", data: "\r" }));
-                }
-              }, 60);
+              const mqid = "pv-adhoc-" + crypto.randomUUID();
+              ws.send(
+                JSON.stringify({
+                  type: "input",
+                  data: text + "\r",
+                  messageQueueItemId: mqid,
+                }),
+              );
               return true;
             }}
             terminalWs={webSocketRef.current}
