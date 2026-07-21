@@ -190,7 +190,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -199,7 +199,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. Session changeover detection | 0/2 | Planning | — |
 | 4. Pretty view visual reskin — Glass depth aesthetic | 0/3 | Planning | — |
 | 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
-| 6. Telegram-like interface | 0/0 | Not planned | — |
+| 6. Telegram-like interface | 0/5 | Planning | — |
 
 ### Phase 6: Telegram-like interface
 
@@ -211,9 +211,26 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 **Depends on:** Phase 5
 
-**Plans:** TBD (starting sketch in shape file's Vehicle notes: 4-plan decomposition — sidebar reshape into list → tab-strip removal + session-persistence contract → mobile flow → settings surface migration; planning may re-shape this).
+**Plans:** 5 plans
 
-Plans:
-- [ ] TBD (run `/gsd-plan-phase 6` to break down)
+**Wave 1**
+
+- [ ] 06-01-PLAN.md — Foundation: conversation-store (pins + single-select + host-tree derivation), ConversationsPanel + ConversationRow with identity avatar + hue tint reused from TabBar idiom (TG-01, TG-02, TG-08)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 06-02-PLAN.md — Tab-strip DELETION + persistence contract (mounted-but-hidden via patch #35 tabNodesRef mechanism) + settings-surface migration (desktop gear icon + SettingsRow for mobile mount) + AppRail default view swap to `conversations` (TG-03, TG-04, TG-05, TG-10, TG-11)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 06-03-PLAN.md — Mobile list-vs-view flow (mobile-flow module with `#mv=1` URL fragment surviving Chrome window-restore per patch #25 lesson) + top-left back button + MobileBottomBar DELETION + SettingsRow mounted at bottom of mobile ConversationsPanel (TG-06, TG-07)
+
+**Wave 4** *(blocked on Wave 2 + Wave 3 completion — sequential due to AppShell.tsx + ConversationsPanel.tsx file overlap)*
+
+- [ ] 06-04-PLAN.md — New-session button + host picker modal + client-side name validation + selectConversationDeferred race defense + auto-navigate on create (mobile: also navigateToView) (TG-09)
+
+**Wave 5** *(blocked on Waves 2-4 completion — deploy checkpoint)*
+
+- [ ] 06-05-PLAN.md — Build verification + UAT checklist walking TG-01..11 + patches-md entry draft + mandatory 15-min deadman deploy under Ashley's separate green-light (all TG-01..11)
 
 **Bounty:** `telegram-like-interface` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/telegram-like-interface/`). Moves to `in_progress` when the first plan enters execution.
