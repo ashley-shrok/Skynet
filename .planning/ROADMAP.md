@@ -199,7 +199,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Session changeover detection | 0/2 | Planning | — |
 | 4. Pretty view visual reskin — Glass depth aesthetic | 0/3 | Planning | — |
 | 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
-| 6. Telegram-like interface | 0/5 | Planning | — |
+| 6. Telegram-like interface | 1/5 | In Progress|  |
 
 ### Phase 6: Telegram-like interface
 
@@ -211,11 +211,11 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 **Depends on:** Phase 5
 
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — Foundation: conversation-store (pins + single-select + host-tree derivation), ConversationsPanel + ConversationRow with identity avatar + hue tint reused from TabBar idiom (TG-01, TG-02, TG-08)
+- [x] 06-01-PLAN.md — Foundation: conversation-store (pins + single-select + host-tree derivation), ConversationsPanel + ConversationRow with identity avatar + hue tint reused from TabBar idiom (TG-01, TG-02, TG-08)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
