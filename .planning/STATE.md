@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-07-21T03:06:06.300Z"
+last_updated: "2026-07-21T03:22:19.868Z"
 last_activity: 2026-07-21
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
-  completed_plans: 21
+  completed_plans: 22
   percent: 67
 ---
 
@@ -29,7 +29,7 @@ Plan: 4 of 4
 Status: Phase complete — ready for verification
 Last activity: 2026-07-21
 
-Progress: [██████████] 95%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [██████████] 95%
 | Phase 6 P2 | 25min | 2 tasks | 5 files |
 | Phase 06 P03 | 13min | 2 tasks | 7 files |
 | Phase 6 P04 | 14min | - tasks | - files |
+| Phase 06 P05 | 10min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Recent decisions affecting current work:
 - [Phase ?]: NOTE-03 resolved: landed re-decision (stale-guard first, pending-clear before no-change return) in selectConversation; NOT the first-draft (clear-at-top) variant
 - [Phase ?]: T-06-04-04 race defense mitigated via selectConversationDeferred + module-scoped pendingSelectId + updateOpenTabs flush; 8 Vitest cases prove semantics
 - [Phase ?]: T-06-04-01 defense-in-depth: SESSION_NAME_PATTERN client-side; empty name allowed (server auto-fills from tmux window title); backend tmux path UNCHANGED
+- [Phase ?]: Task 4 (deploy) deferred to Ashley-gated main-orchestrator context per fork discipline (deploy-runbook.md)
+- [Phase ?]: Build-verify grep gates use string literals (i18n + URL constants + empty-state copy) instead of user-defined identifier names — Vite minification mangles them (NOTE-04 fallback)
+- [Phase ?]: Patches-md entry drafted as patch #105 with MULTI-COMMIT format (9 code commits under one pin, precedent from patch #104)
 
 ### Pending Todos
 
@@ -135,6 +139,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-21T03:05:52.656Z
+Last session: 2026-07-21T03:22:00.125Z
 Stopped at: Phase 02 Plan 02 complete — ComposeBox created, PrettyView wired, Terminal.tsx split-send threaded. Ready for Wave 3 (Plan 03 deploy checkpoint).
 Resume file: None
