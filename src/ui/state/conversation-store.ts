@@ -48,6 +48,16 @@ export type ConversationRow = {
   // ConversationsPanel's row-click handler can branch to
   // `onDetachedRowClick(row)` (Plan 07-01 Task 2) vs `selectConversation`.
   fleetOnly?: boolean;
+  // Plan 07-02 (TG-15): INTERNAL routing marker for RDP-host-row-click
+  // plumbing. `true` on synthetic rows synthesized from a Host with
+  // `enableRdp === true` (fleet fact, NOT tab state — the row exists as long
+  // as the host has RDP enabled, regardless of whether an RDP tab is
+  // currently open). RDP rows live in a sentinel HostGroup with
+  // `hostId === "__rdp__"` at the BOTTOM of the derived ConversationList.
+  // The panel-layer uses this marker to route click → onRdpRowClick(row) →
+  // AppShell → openTab(host, "rdp"). Never present on openTabs-derived rows
+  // or fleet-only rows.
+  rdpHostRow?: boolean;
 };
 
 export type HostGroup = {
@@ -334,6 +344,66 @@ function computeSnapshot(): ConversationList {
       fleetHostNameFallback.get(hostId) ??
       hostId;
     grouped.push({ hostId, hostName, rows });
+  }
+
+  // Plan 07-02 (TG-15): synthesize RDP-host rows from state.hostsFlat filtered
+  // on strict `enableRdp === true` (T-07-02-01 mitigation — undefined on
+  // legacy Host records must NOT emit a row). Placed in a SENTINEL HostGroup
+  // (`hostId: "__rdp__"`, `hostName: ""`) appended at the END of `grouped`
+  // so they always render at the BOTTOM of the ConversationsPanel scroller
+  // per shape-file "one row per RDP-enabled host at the bottom of the list."
+  //
+  // ConversationsPanel special-cases `hostId === "__rdp__"` to suppress the
+  // semibold host-header render (see NOTE-A in 07-PLAN-CHECK.md) — otherwise
+  // an empty header would render above the RDP rows. Rendering the rows with
+  // a monitor icon + host name (no identity hue, no avatar, no host secondary
+  // line) is the panel's responsibility; the store only supplies the shape.
+  //
+  // Ordering: iterate the hostTree walk order first (so RDP rows for hosts
+  // present in the tree follow the same top-to-bottom order as their
+  // identity-tmux groups above), then any RDP-eligible hosts NOT in the
+  // tree (orphan — host record exists in hostsFlat but the tree hasn't seen
+  // it yet, mirroring the fallback path above). This makes the RDP section
+  // deterministic even during initial-load races.
+  //
+  // Row shape: id `rdp-host::${host.id}` (deterministic per host — a fleet
+  // fact, not tied to any tab-lifecycle counter), type "rdp", label
+  // `host.name`, host: resolvedHost, targetTmuxSession: null, rdpHostRow: true.
+  const rdpRows: ConversationRow[] = [];
+  const rdpEmittedHostIds = new Set<number>();
+  // Hosts in hostTree order first
+  for (const { id } of orderedHosts) {
+    const numericId = Number(id);
+    if (!Number.isFinite(numericId)) continue;
+    const host = state.hostsFlat.get(numericId);
+    if (!host) continue;
+    if (host.enableRdp !== true) continue; // strict check per T-07-02-01
+    rdpRows.push({
+      id: `rdp-host::${host.id}`,
+      type: "rdp",
+      label: host.name,
+      host,
+      targetTmuxSession: null,
+      rdpHostRow: true,
+    });
+    rdpEmittedHostIds.add(numericId);
+  }
+  // Orphan RDP hosts (in hostsFlat but not in hostTree) — appended after.
+  // Uses hostsFlat's Map iteration order (insertion order in JS Maps).
+  for (const [numericId, host] of state.hostsFlat) {
+    if (rdpEmittedHostIds.has(numericId)) continue;
+    if (host.enableRdp !== true) continue;
+    rdpRows.push({
+      id: `rdp-host::${host.id}`,
+      type: "rdp",
+      label: host.name,
+      host,
+      targetTmuxSession: null,
+      rdpHostRow: true,
+    });
+  }
+  if (rdpRows.length > 0) {
+    grouped.push({ hostId: "__rdp__", hostName: "", rows: rdpRows });
   }
 
   return { pinned, grouped };
