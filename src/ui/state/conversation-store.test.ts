@@ -4,6 +4,8 @@ import { renderHook, act } from "@testing-library/react";
 import {
   updateHostTree,
   updateOpenTabs,
+  updateFleetSessions,
+  updateHostsFlat,
   selectConversation,
   selectConversationDeferred,
   pinConversation,
@@ -15,6 +17,8 @@ import {
   __subscribeForTest,
   __getSnapshotForTest,
   __getPendingSelectIdForTest,
+  __getFleetOnlyRowsForTest,
+  type FleetSession,
 } from "./conversation-store.js";
 import type { Tab, Host, HostFolder } from "@/types/ui-types";
 
@@ -54,6 +58,13 @@ beforeEach(() => {
   updateOpenTabs([]);
   selectConversation(null);
   updateHostTree(null);
+  // Plan 07-01: reset the new fleet + hostsFlat inputs so each test starts
+  // from a known-empty fleet-derived-rows state. Ordering is not load-bearing
+  // (fleetSessions + hostsFlat are pure inputs — they don't feed selection
+  // coercion the way openTabs does), but reset AFTER openTabs so a
+  // hypothetical listener never sees a mid-clear state.
+  updateFleetSessions([]);
+  updateHostsFlat(new Map());
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -275,8 +286,14 @@ describe("conversation-store: row shape is exactly the documented fields", () =>
     expect(row.label).toBe("my-session");
     expect(row.host).toBe(hostA);
     expect(row.targetTmuxSession).toBeNull();
-    // Negative: exact key set (5 keys) — catches accidental field additions
-    expect(Object.keys(row).sort()).toEqual(
+    // Negative: exact key set — catches accidental field additions.
+    // Plan 07-01: `fleetOnly` is an OPTIONAL Phase 7 marker (INTERNAL routing
+    // signal for detached-row-click plumbing — never user-visible, never
+    // present on openTabs-derived rows in the recommended implementation).
+    // Filter it out before comparing so the locked 5-key core-shape contract
+    // is preserved. See conversation-store.ts §Plan 07-01 for rationale.
+    const keysForShapeCheck = Object.keys(row).filter((k) => k !== "fleetOnly");
+    expect(keysForShapeCheck.sort()).toEqual(
       ["host", "id", "label", "targetTmuxSession", "type"].sort(),
     );
   });
@@ -597,5 +614,269 @@ describe("conversation-store: selectConversationDeferred — last-write-wins", (
     act(() => updateOpenTabs([existingTab, tabP1]));
     expect(__getSnapshotForTest().selectedId).toBe("existing");
     expect(__getPendingSelectIdForTest()).toBe("p2");
+  });
+});
+
+// ─── Plan 07-01: fleet-native data source (TG-12, TG-13, TG-14, TG-17) ──────
+// Below: Tests 23-30 covering the new `fleetSessions` + `hostsFlat` inputs,
+// the `fleet ∪ openTabs` union with openTabs-entry-wins dedup, the internal
+// `fleetOnly` routing marker on synthetic rows, and the no-op emit guards on
+// the new actions. Fleet-only row ids are `fleet::${hostId}::${sessionName}`;
+// dedup normalizes hostId to string (RemoteTmuxSession.hostId is number,
+// Host.id is string — matches SessionsPanel.tsx:47 `parseInt(h.id)` pattern).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 23: fleet-only render — no openTabs, fleet emits a synthetic row
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-01): fleet-only render", () => {
+  it("emits a synthetic fleetOnly row when fleetSessions has a session and openTabs is empty", () => {
+    const hostA = makeHost("1", "hostA");
+    const tree: HostFolder = { name: "root", children: [hostA] };
+
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.pinned).toEqual([]);
+    expect(snap.grouped.length).toBe(1);
+    expect(snap.grouped[0].hostId).toBe("1");
+    expect(snap.grouped[0].rows.length).toBe(1);
+    const row = snap.grouped[0].rows[0];
+    expect(row.id).toBe("fleet::1::work");
+    expect(row.label).toBe("work");
+    expect(row.type).toBe("terminal");
+    expect(row.targetTmuxSession).toBe("work");
+    expect(row.host).toBe(hostA);
+    expect((row as unknown as { fleetOnly?: boolean }).fleetOnly).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 24: openTabs-entry-wins dedup — same session identity collapses to one
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-01): openTabs-entry-wins dedup", () => {
+  it("collapses (hostId, sessionName) match to the openTabs row; fleet entry silently dropped", () => {
+    const hostA = makeHost("1", "hostA");
+    const tree: HostFolder = { name: "root", children: [hostA] };
+    const t1 = makeTab("t1", "terminal", hostA, "work", "work-tab");
+
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateOpenTabs([t1]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.grouped.length).toBe(1);
+    expect(snap.grouped[0].rows.length).toBe(1);
+    const row = snap.grouped[0].rows[0];
+    // openTabs id wins — NOT the synthetic fleet id
+    expect(row.id).toBe("t1");
+    // Label preserved from the openTabs entry
+    expect(row.label).toBe("work-tab");
+    // fleetOnly undefined/false — this is an openTabs-derived row
+    expect(
+      (row as unknown as { fleetOnly?: boolean }).fleetOnly,
+    ).toBeFalsy();
+    // Fleet-only introspection: zero rows (the fleet entry was dropped)
+    expect(__getFleetOnlyRowsForTest().length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 25: union rendering — same host, disjoint sessions, both appear
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-01): union rendering", () => {
+  it("appends fleet-only rows AFTER openTabs rows in the same HostGroup", () => {
+    const hostA = makeHost("1", "hostA");
+    const tree: HostFolder = { name: "root", children: [hostA] };
+    const t1 = makeTab("t1", "terminal", hostA, "work");
+
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateOpenTabs([t1]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+        { hostId: 1, hostName: "hostA", sessionName: "scratch", created: 200 },
+      ]);
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.grouped.length).toBe(1);
+    expect(snap.grouped[0].hostId).toBe("1");
+    const ids = snap.grouped[0].rows.map((r) => r.id);
+    // openTabs row first (t1 collapses with fleet's "work"), fleet-only row
+    // for "scratch" AFTER (append order)
+    expect(ids).toEqual(["t1", "fleet::1::scratch"]);
+    const scratchRow = snap.grouped[0].rows[1];
+    expect(
+      (scratchRow as unknown as { fleetOnly?: boolean }).fleetOnly,
+    ).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 26: null-target openTabs tab does NOT dedup against a named fleet session
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-01): null-target tab does not false-collide", () => {
+  it("an openTabs tab with targetTmuxSession=null does not swallow a same-host fleet session", () => {
+    const hostA = makeHost("1", "hostA");
+    const tree: HostFolder = { name: "root", children: [hostA] };
+    // openTabs entry with no target tmux session — attached to hostA but we
+    // don't know which tmux session. Its identity is (hostA, null) which is
+    // NOT the same as (hostA, "work").
+    const t1 = makeTab("t1", "terminal", hostA, null, "hostA");
+
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateOpenTabs([t1]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.grouped.length).toBe(1);
+    const ids = snap.grouped[0].rows.map((r) => r.id);
+    // Both rows appear — the fleet's "work" is unrelated to t1
+    expect(ids).toEqual(["t1", "fleet::1::work"]);
+    expect(__getFleetOnlyRowsForTest().length).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 27: updateFleetSessions no-op guards — ref-equal input does not bump version
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-01): updateFleetSessions no-op guards", () => {
+  it("same-reference array does not fire subscribers; different-reference content-equal array does fire", () => {
+    const sessions1: FleetSession[] = [
+      { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+    ];
+
+    // Prime the store
+    act(() => updateFleetSessions(sessions1));
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    // Same reference → no emit
+    updateFleetSessions(sessions1);
+    expect(cb).toHaveBeenCalledTimes(0);
+
+    // Different reference but content-equal — we do NOT deep-equal, so a fresh
+    // array from a fresh fetch is treated as a real signal and DOES fire.
+    const sessions2: FleetSession[] = [
+      { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+    ];
+    updateFleetSessions(sessions2);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    unsub();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 28: fleet-only host absent from hostTree + hostsFlat — fallback name used
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-01): host-tree/hostsFlat fallback for fleet-only host", () => {
+  it("uses FleetSession.hostName when the host is unresolvable via hostTree/hostsFlat", () => {
+    // hostTree null + hostsFlat empty — this is the initial-load race where
+    // the fleet fetch resolved before realHostTree loaded. Resilience defense:
+    // fleet-only rows still surface via the hostName carried on the FleetSession.
+
+    act(() => {
+      updateFleetSessions([
+        {
+          hostId: 1,
+          hostName: "hostA-fallback-name",
+          sessionName: "work",
+          created: 100,
+        },
+      ]);
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.grouped.length).toBe(1);
+    expect(snap.grouped[0].hostName).toBe("hostA-fallback-name");
+    expect(snap.grouped[0].rows.length).toBe(1);
+    const row = snap.grouped[0].rows[0];
+    expect(row.id).toBe("fleet::1::work");
+    expect(row.host).toBeUndefined();
+    expect((row as unknown as { fleetOnly?: boolean }).fleetOnly).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 29: updateHostsFlat mutation triggers notify; ref-equal Map does not
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-01): updateHostsFlat no-op guards", () => {
+  it("same-reference Map is a no-op; new Map with same content DOES fire (no deep-equal)", () => {
+    const hostA = makeHost("1", "hostA");
+    const map1 = new Map<number, Host>([[1, hostA]]);
+
+    // Prime
+    act(() => updateHostsFlat(map1));
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    // Same ref → no emit
+    updateHostsFlat(map1);
+    expect(cb).toHaveBeenCalledTimes(0);
+
+    // Different Map ref (even with identical content) DOES fire — we don't
+    // deep-equal Maps. This matches the fleetSessions same-content-different-
+    // ref behavior (Test 27) so the store's polling-thrash-guard story is
+    // consistent across inputs. Callers memoize upstream when they want
+    // reference stability across polls (see AppShell stableHostTreeKey).
+    const map2 = new Map<number, Host>([[1, hostA]]);
+    updateHostsFlat(map2);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    unsub();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 30: fleet-only rows never pinned (defense-in-depth on pinConversation)
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-01): fleet-only rows never pinned", () => {
+  it("pinConversation on a fleet-only row id is a silent no-op (id not in openTabs)", () => {
+    const hostA = makeHost("1", "hostA");
+    const tree: HostFolder = { name: "root", children: [hostA] };
+
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+    });
+
+    // Sanity: the fleet-only row exists
+    const snap1 = __getSnapshotForTest();
+    expect(snap1.grouped[0].rows[0].id).toBe("fleet::1::work");
+    expect(snap1.pinnedIds.size).toBe(0);
+
+    // Attempt to pin a fleet-only row — existing pinConversation guard
+    // (lines 350-358) rejects any id not in openTabs. Fleet ids never appear
+    // in openTabs, so this is a no-op. Regression test for the guard.
+    act(() => pinConversation("fleet::1::work"));
+
+    const snap2 = __getSnapshotForTest();
+    expect(snap2.pinnedIds.size).toBe(0);
+    expect(snap2.pinned).toEqual([]);
+    // Row still visible in grouped
+    expect(snap2.grouped[0].rows[0].id).toBe("fleet::1::work");
   });
 });
