@@ -365,14 +365,23 @@ export function IdentityModal({
         />
         <DialogPrimitive.Content
           data-slot="identity-modal-content"
-          onPointerDownOutside={(e) => {
-            // Patch #111: preserve chat-content-region exposure. Radix's
-            // default onPointerDownOutside auto-dismisses the modal on any
-            // click outside its content — which fires when Ashley clicks the
-            // composer to type. That defeats the whole point of anchoring
-            // the modal to the chat region (composer intentionally uncovered
-            // so she can type while reading the modal). X button and Esc
-            // remain the valid dismissal paths.
+          onInteractOutside={(e) => {
+            // Patch #111f: preserve chat-content-region exposure. Radix's
+            // DismissableLayer fires close-on-outside via TWO paths:
+            // onPointerDownOutside (click outside content) AND onFocusOutside
+            // (focus moves outside content — which happens the instant the
+            // composer textarea receives focus from the click). onInteractOutside
+            // is the umbrella event that fires for BOTH — preventDefault-ing
+            // it here catches both close paths in one shot. Prior attempts:
+            //   patch #111b: onPointerDownOutside only → focus stealer close
+            //   patch #111e: modal={false} → composer clickable, but the
+            //     focus-outside path (previously suppressed by focus-trap
+            //     when modal=true) is now active and closes on composer focus
+            //   patch #111f (this): onInteractOutside covers pointer AND
+            //     focus paths → composer clickable + focus received + modal
+            //     stays open. X + Esc remain valid dismissal paths (Escape
+            //     is handled by DismissableLayer's onEscapeKeyDown which is
+            //     NOT part of onInteractOutside).
             e.preventDefault();
           }}
           className={cn(
