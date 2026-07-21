@@ -255,3 +255,13 @@ Plans:
 - [ ] 07-03-PLAN.md — Deploy checkpoint: build verify + Nyquist UAT checklist for TG-12..18 + patches-md #106 draft + mandatory 15-min deadman deploy under Ashley's separate green-light (all TG-12..18)
 
 **Bounty:** `telegram-like-interface` (SAME tracker as Phase 6 — one bounty spans both ship steps: patch #105 for Phase 6 + this phase's patch #106+). Bounty closes via `/close telegram-like-interface` after this phase ships + Ashley UAT.
+
+### Phase 8: Quality-of-life batch: thumbs-up rename to "works for me", identity modal repositioned to chat-content region (composer stays uncovered), bounty rows show slugs, bounty sort becomes in_progress-fence-then-priority-flat, and submit bug fixed by collapsing pretty-view onSend to a single WS event carrying text+CR with messageQueueItemId attached. Bundled with Phase 7 into a single build/deploy. Master plan at ~/.claude/plans/twinkling-strolling-eclipse.md.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 7
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 8 to break down)
