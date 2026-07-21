@@ -69,12 +69,20 @@ const PRIORITY_WEIGHT: Record<string, number> = {
   unprioritized: 4,
 };
 
-const OPEN_STATUS_ORDER = ["in_progress", "on_deck", "waiting_on_someone_else"];
+// Patch #109: below the in_progress fence we no longer partition by status.
+// Ashley: "I want to know priority-wise more than I want to know whether
+// having another section that's just on deck" — so on_deck +
+// waiting_on_someone_else + anything else that's not in_progress + not
+// done/dropped collapse into a single flat priority-sorted list under the
+// header-less "rest" region. in_progress keeps its own header (fence) at top.
+// done/dropped-in-place bounties (status=done or status=dropped in the open
+// dir, not yet moved to bounties/archive/) still get their own quiet "Other"
+// section so recently-closed work doesn't visually blend into open work.
+const OPEN_STATUS_ORDER = ["in_progress", "rest", "other"];
 
 const GROUP_LABELS: Record<string, string> = {
   in_progress: "In Progress",
-  on_deck: "On Deck",
-  waiting_on_someone_else: "Waiting",
+  rest: "", // patch #109: no header for the flat priority-sorted region
   other: "Other",
 };
 
@@ -286,12 +294,14 @@ export function IdentityModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, identity.identityKey, hostId, refetchKey]);
 
-  // Sort/group open bounties by status group then priority (D-08, D-09).
+  // Patch #109: two-partition split — in_progress fence + flat priority-
+  // sorted rest — replaces the older status-grouped (in_progress / on_deck /
+  // waiting_on_someone_else / other) render. done/dropped-in-place still
+  // buckets into `other` so they don't visually blend with open work.
   const grouped = useMemo(() => {
     const groups: Record<string, Bounty[]> = {
       in_progress: [],
-      on_deck: [],
-      waiting_on_someone_else: [],
+      rest: [],
       other: [],
     };
     for (const b of bounties) {
@@ -301,10 +311,17 @@ export function IdentityModal({
         groups.other.push(b);
         continue;
       }
-      const bucket = OPEN_STATUS_ORDER.includes(b.status) ? b.status : "other";
-      groups[bucket].push(b);
+      if (b.status === "in_progress") {
+        groups.in_progress.push(b);
+      } else {
+        // on_deck, waiting_on_someone_else, or any other open status →
+        // all collapse into the flat priority-sorted rest region.
+        groups.rest.push(b);
+      }
     }
-    // Sort each group by priority asc, updated_at desc.
+    // Sort every partition by priority asc, updated_at desc (same
+    // sortBounties helper — the CHANGE is at the partition layer, not the
+    // in-partition sort).
     for (const key of Object.keys(groups)) {
       groups[key] = sortBounties(groups[key]);
     }
@@ -521,15 +538,23 @@ export function IdentityModal({
               </div>
             ) : (
               <>
-                {/* Open bounties grouped by status */}
-                {[...OPEN_STATUS_ORDER, "other"].map((statusKey) => {
+                {/* Patch #109: in_progress fence + flat priority-sorted rest
+                    + done/dropped stragglers. OPEN_STATUS_ORDER now enumerates
+                    only three partitions; the empty-label GROUP_LABELS entry
+                    for "rest" suppresses the header for that region so it
+                    reads as one continuous priority-ordered list under the
+                    In Progress fence. */}
+                {OPEN_STATUS_ORDER.map((statusKey) => {
                   const group = grouped[statusKey];
                   if (!group || group.length === 0) return null;
+                  const label = GROUP_LABELS[statusKey];
                   return (
                     <div key={statusKey} className="mb-6">
-                      <h3 className="text-xs uppercase tracking-wide text-[var(--color-pv-fg-muted)] mb-2">
-                        {GROUP_LABELS[statusKey]}
-                      </h3>
+                      {label && (
+                        <h3 className="text-xs uppercase tracking-wide text-[var(--color-pv-fg-muted)] mb-2">
+                          {label}
+                        </h3>
+                      )}
                       <div className="flex flex-col gap-3">
                         {group.map((b) => (
                           <BountyCard key={b.id} bounty={b} hue={hue} />

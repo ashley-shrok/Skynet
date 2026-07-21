@@ -170,6 +170,13 @@ async function execWithTimeout(
 
 function normalizeBounty(parsed: Record<string, unknown>, fallbackId: string): unknown {
   return {
+    // Patch #109: slug is the folder basename, always. bounty.json's `id`
+    // field is a UUID — useless for humans. The FOLDER name is what Ashley
+    // refers to bounties by in conversation ("close identity-modal-bounty-
+    // sorting"). Frontend renders slug alongside title in BountyCard for
+    // legibility + copy-paste. Slug never falls back — fallbackId is
+    // always populated by the caller (folder entry name).
+    slug: fallbackId,
     id: typeof parsed.id === "string" ? parsed.id : fallbackId,
     title: typeof parsed.title === "string" ? parsed.title : "",
     premise: typeof parsed.premise === "string" ? parsed.premise : "",

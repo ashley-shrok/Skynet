@@ -124,10 +124,21 @@ export function BountyCard({
         aria-expanded={expanded}
         className="flex items-center gap-2 flex-wrap w-full text-left cursor-pointer"
       >
-        <span
-          className="font-semibold text-[15px] text-[#f0ebe0] flex-1 min-w-0"
-        >
-          {bounty.title}
+        <span className="flex flex-col min-w-0 flex-1 text-left">
+          <span className="font-semibold text-[15px] text-[#f0ebe0] truncate">
+            {bounty.title}
+          </span>
+          {/* Patch #109: slug line — folder basename, monospace + muted.
+              Ashley refers to bounties by slug in conversation, so making
+              it visible + copy-selectable next to the title is the fastest
+              lookup. Second line (below title) keeps the primary title
+              scannable at the same weight as before; slug never wraps —
+              it's a single token by construction. */}
+          {bounty.slug && (
+            <span className="font-mono text-[11px] text-[#a89a80]/80 truncate leading-tight">
+              {bounty.slug}
+            </span>
+          )}
         </span>
         <span
           className={cn(

@@ -170,6 +170,11 @@ export type ConnectToPanePayload = {
 // resolution needed (D-01).
 
 export type Bounty = {
+  /** Patch #109: folder basename. bounty.json's `id` field is a UUID —
+   *  useless for humans. The FOLDER name is what Ashley references bounties
+   *  by in conversation. Backend injects this from the directory listing;
+   *  frontend renders it alongside `title` in BountyCard. Always present. */
+  slug: string;
   id: string;
   title: string;
   premise: string;
