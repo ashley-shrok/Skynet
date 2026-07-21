@@ -27,8 +27,12 @@ import type { Tab, Host, HostFolder } from "@/types/ui-types";
 // fields are `as never` since the store must NOT reach for them; if it does
 // we get a runtime crash and the test surfaces the leak.
 
-function makeHost(id: string, name: string): Host {
-  return { id, name } as unknown as Host;
+function makeHost(
+  id: string,
+  name: string,
+  overrides?: Partial<Host>,
+): Host {
+  return { id, name, ...(overrides ?? {}) } as unknown as Host;
 }
 
 function makeTab(
@@ -290,9 +294,14 @@ describe("conversation-store: row shape is exactly the documented fields", () =>
     // Plan 07-01: `fleetOnly` is an OPTIONAL Phase 7 marker (INTERNAL routing
     // signal for detached-row-click plumbing — never user-visible, never
     // present on openTabs-derived rows in the recommended implementation).
-    // Filter it out before comparing so the locked 5-key core-shape contract
-    // is preserved. See conversation-store.ts §Plan 07-01 for rationale.
-    const keysForShapeCheck = Object.keys(row).filter((k) => k !== "fleetOnly");
+    // Plan 07-02: `rdpHostRow` is a THIRD OPTIONAL Phase 7 marker analog to
+    // fleetOnly, marking a synthetic RDP-host row derived from state.hostsFlat
+    // filtered on `enableRdp === true`. Same INTERNAL routing role — never
+    // present on openTabs-derived rows. Filter BOTH before comparing so the
+    // locked 5-key core-shape contract is preserved.
+    const keysForShapeCheck = Object.keys(row).filter(
+      (k) => k !== "fleetOnly" && k !== "rdpHostRow",
+    );
     expect(keysForShapeCheck.sort()).toEqual(
       ["host", "id", "label", "targetTmuxSession", "type"].sort(),
     );
@@ -878,5 +887,195 @@ describe("conversation-store (Plan 07-01): fleet-only rows never pinned", () => 
     expect(snap2.pinned).toEqual([]);
     // Row still visible in grouped
     expect(snap2.grouped[0].rows[0].id).toBe("fleet::1::work");
+  });
+});
+
+// ─── Plan 07-02: RDP row derivation (TG-15) ──────────────────────────────────
+// Tests 31-34 cover the new synthetic RDP row emission path: one row per host
+// in state.hostsFlat where `host.enableRdp === true`, emitted at the BOTTOM of
+// the derived ConversationList via a sentinel HostGroup with hostId === "__rdp__".
+// RDP rows carry `rdpHostRow: true` so ConversationsPanel can route their
+// click to onRdpRowClick → AppShell → openTab(host, "rdp"). RDP ids follow
+// `rdp-host::${host.id}` — deterministic per host (fleet fact, NOT tab state).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 31: RDP row emission — enableRdp=true host emits one row; enableRdp=false does not
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-02): RDP row emission", () => {
+  it("emits one RDP row per host with enableRdp=true and none for enableRdp=false", () => {
+    const hostA = makeHost("1", "hostA", { enableRdp: true });
+    const hostB = makeHost("2", "hostB", { enableRdp: false });
+    const tree: HostFolder = { name: "root", children: [hostA, hostB] };
+
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(
+        new Map<number, Host>([
+          [1, hostA],
+          [2, hostB],
+        ]),
+      );
+    });
+
+    const snap = __getSnapshotForTest();
+    // The RDP rows live in a sentinel HostGroup with hostId === "__rdp__" at
+    // the BOTTOM of the grouped output. Identity-tmux HostGroups (hostA,
+    // hostB) have no openTabs and no fleetSessions, so they emit nothing.
+    const rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
+    expect(rdpGroups.length).toBe(1);
+    const rdpRows = rdpGroups[0].rows;
+    expect(rdpRows.length).toBe(1);
+    const row = rdpRows[0];
+    expect(row.id).toBe("rdp-host::1");
+    expect(row.label).toBe("hostA");
+    expect(row.type).toBe("rdp");
+    expect(row.host).toBe(hostA);
+    expect(row.targetTmuxSession).toBeNull();
+    expect(
+      (row as unknown as { rdpHostRow?: boolean }).rdpHostRow,
+    ).toBe(true);
+    // hostB (enableRdp=false) MUST NOT appear
+    const ids = rdpRows.map((r) => r.id);
+    expect(ids).not.toContain("rdp-host::2");
+  });
+
+  it("does not emit an RDP row for a host with enableRdp === undefined (strict === true check)", () => {
+    // Legacy Host record without the enableRdp field — must NOT accidentally
+    // emit a row (T-07-02-01 mitigation: strict identity check, not truthy).
+    const hostLegacy = makeHost("3", "hostLegacy"); // no overrides → no enableRdp
+    act(() => {
+      updateHostsFlat(new Map<number, Host>([[3, hostLegacy]]));
+    });
+    const snap = __getSnapshotForTest();
+    const rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
+    // Either the RDP group is absent (no matching hosts) or it exists with 0
+    // rows. Both are acceptable; the load-bearing assertion is zero rendered
+    // RDP rows for a host without the field.
+    const rowCount = rdpGroups.reduce((acc, g) => acc + g.rows.length, 0);
+    expect(rowCount).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 32: RDP rows appear AFTER all openTabs + fleet HostGroups
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-02): RDP row placement at BOTTOM", () => {
+  it("orders openTabs group → fleet-only row → RDP sentinel group at the very bottom", () => {
+    const hostA = makeHost("1", "hostA", { enableRdp: true });
+    const hostB = makeHost("2", "hostB", { enableRdp: true });
+    const tree: HostFolder = { name: "root", children: [hostA, hostB] };
+    // openTabs entry with (hostA, "attached") tmux target
+    const t1 = makeTab("t1", "terminal", hostA, "attached", "attached");
+
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(
+        new Map<number, Host>([
+          [1, hostA],
+          [2, hostB],
+        ]),
+      );
+      updateOpenTabs([t1]);
+      // fleet-only session (hostA, "work")
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+    });
+
+    const snap = __getSnapshotForTest();
+    // Expected group order:
+    //   1. hostA (id="1"): openTabs row t1 (attached) + fleet-only row (work)
+    //   2. __rdp__ sentinel group: RDP row for hostA + RDP row for hostB
+    // hostB has no openTabs and no fleetSessions, so it does NOT get a
+    // regular HostGroup — but IS represented in the RDP sentinel group.
+    const orderedIds = snap.grouped.map((g) => g.hostId);
+    // hostA's identity-tmux group first
+    expect(orderedIds[0]).toBe("1");
+    // RDP sentinel LAST
+    expect(orderedIds[orderedIds.length - 1]).toBe("__rdp__");
+
+    // Concatenate the row ids across all groups to verify the full ordering
+    const concatRowIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
+    // openTabs entry first, fleet-only "work" second (append order per Test 25),
+    // then RDP rows for hostA + hostB in host-tree order.
+    expect(concatRowIds).toEqual([
+      "t1",
+      "fleet::1::work",
+      "rdp-host::1",
+      "rdp-host::2",
+    ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 33: RDP row vanishes when enableRdp toggled off
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-02): RDP row persistence tied to enableRdp flag", () => {
+  it("toggling enableRdp off via updateHostsFlat removes the RDP row; toggling on restores it", () => {
+    const hostAOn = makeHost("1", "hostA", { enableRdp: true });
+    const hostAOff = makeHost("1", "hostA", { enableRdp: false });
+
+    // Prime with enableRdp=true — one RDP row present
+    act(() => {
+      updateHostsFlat(new Map<number, Host>([[1, hostAOn]]));
+    });
+    let snap = __getSnapshotForTest();
+    let rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
+    expect(rdpGroups.length).toBe(1);
+    expect(rdpGroups[0].rows.length).toBe(1);
+    expect(rdpGroups[0].rows[0].id).toBe("rdp-host::1");
+
+    // Simulate Ashley toggling RDP OFF in the host editor → realHostTree
+    // rebuild → new hostsFlat Map with enableRdp=false
+    act(() => {
+      updateHostsFlat(new Map<number, Host>([[1, hostAOff]]));
+    });
+    snap = __getSnapshotForTest();
+    rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
+    // Either the group is absent entirely, or it exists with 0 rows
+    const rowCount = rdpGroups.reduce((acc, g) => acc + g.rows.length, 0);
+    expect(rowCount).toBe(0);
+
+    // Toggle back on — row returns
+    act(() => {
+      updateHostsFlat(new Map<number, Host>([[1, hostAOn]]));
+    });
+    snap = __getSnapshotForTest();
+    rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
+    expect(rdpGroups.length).toBe(1);
+    expect(rdpGroups[0].rows[0].id).toBe("rdp-host::1");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 34: RDP rows cannot be pinned (defense-in-depth on pinConversation)
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Plan 07-02): RDP rows never pinnable", () => {
+  it("pinConversation on an RDP row id is a silent no-op (id not in openTabs)", () => {
+    const hostA = makeHost("1", "hostA", { enableRdp: true });
+    act(() => {
+      updateHostsFlat(new Map<number, Host>([[1, hostA]]));
+    });
+
+    // Sanity: RDP row exists
+    let snap = __getSnapshotForTest();
+    const rdpGroup = snap.grouped.find((g) => g.hostId === "__rdp__");
+    expect(rdpGroup).toBeDefined();
+    expect(rdpGroup!.rows[0].id).toBe("rdp-host::1");
+    expect(snap.pinnedIds.size).toBe(0);
+
+    // Attempt to pin — existing pinConversation guard at conversation-store.ts
+    // rejects any id not in openTabs. RDP ids follow `rdp-host::${hostId}` and
+    // never appear in openTabs (RDP tabs, when opened, use the standard tab id
+    // format `${host.name}-rdp-${Date.now()}-${counter}`). Regression test.
+    act(() => pinConversation("rdp-host::1"));
+
+    snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.size).toBe(0);
+    expect(snap.pinned).toEqual([]);
+    // Row still visible in the RDP sentinel group
+    const rdpGroupAfter = snap.grouped.find((g) => g.hostId === "__rdp__");
+    expect(rdpGroupAfter).toBeDefined();
+    expect(rdpGroupAfter!.rows[0].id).toBe("rdp-host::1");
   });
 });
