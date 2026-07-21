@@ -1,0 +1,395 @@
+# Patch #106 draft — Fleet-native conversation list (Phase 7 follow-up to patch #105)
+
+**This file is a DRAFT for Ashley review — expect edits.** Paste into `~/.claude/identities/tina/termix-patches.md` at the next ordinal position (patch #106) after Phase 7 UAT sign-off. Format matches patch #105's multi-commit precedent verbatim; only the content differs. Placeholders `<date>`, `<time>`, `<deploy-sha>` filled in at PIN time.
+
+Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to `"ONE HUNDRED SIX numbered patches"` when pinning.
+
+---
+
+   106. `feat(navigation): fleet-native conversation list — RDP host rows,
+        pencil re-style, mobile gear-dedup fix — follow-up to patch #105` —
+        Phase 7, shipped <date>. Extends Phase 6's Telegram-like conversation
+        list from "browser-tab's open tabs" to "fleet-discovered tmux sessions
+        unioned with open tabs, deduplicated by session identity." A fresh
+        page-load now shows every running tmux session across every reachable
+        host — the same set the current sidebar host-tree + double-shift menu
+        display. Adds remote-desktop host rows at the bottom (one per RDP-
+        enabled host, monitor icon, no identity chrome). Re-styles the New
+        Session button from Plus to the Telegram-native Pencil. Fixes the
+        mobile gear/settings-row duplication from Phase 6 (gear desktop-only,
+        settings-row mobile-only). **Multi-commit patch (7 code commits +
+        docs landing across 2 code waves + 1 verify wave under this one patch
+        number — follows patch #105's multi-commit precedent verbatim)** —
+        see git log `feat/tab-title-from-tmux dd076a7..<deploy-sha>` for the
+        full sequence.
+
+        * **Motivating gap** (from patch #105 UAT). Phase 6 shipped the
+          conversation-list metaphor but the list's data source was scoped
+          too narrowly — it mirrored only the browser-tab's currently-open
+          Termix tabs. On a fresh mobile page-load with no tabs open, the
+          list showed "no active conversations" even when Ashley had running
+          sessions across her fleet. Shape file at
+          `.planning/shapes/shape-fleet-native-conversation-list.md`
+          (LOCKED 2026-07-21) — every philosophical question locked during
+          `/open fleet-native-conversation-list` on 2026-07-21 with Ashley,
+          same day patch #105 shipped. This patch closes the shape gap.
+
+        * **Store extension — fleet-native data source.** Extends
+          `src/ui/state/conversation-store.ts` from 437 lines to 703 lines
+          (+268 / -1 across Plans 07-01 + 07-02) — additive-only, zero
+          replacement of existing inputs. New public type `FleetSession`
+          (hostId, hostName, sessionName, created — mirrors
+          RemoteTmuxSession verbatim; re-declared here to keep UI-state
+          layer decoupled from the API layer per Phase 6 layering). New
+          state fields: `fleetSessions: FleetSession[]` (initial `[]`) +
+          `hostsFlat: Map<number, Host>` (initial empty Map). New actions:
+          `updateFleetSessions(sessions)` with ref-equal + length + per-
+          element ref no-op guards; `updateHostsFlat(hostsById)` with ref-
+          equal no-op guard. New optional `fleetOnly?: boolean` +
+          `rdpHostRow?: boolean` fields on ConversationRow — INTERNAL
+          routing markers only (do NOT reach the render layer per TG-13
+          shape lock). Extended `computeSnapshot()` with two new emission
+          passes layered on top of Phase 6's openTabs derivation: (1) fleet
+          rows synthesized as `fleet::${hostId}::${sessionName}`, deduped
+          by session identity — openTabs entry wins on collision (fleet
+          entry silently dropped to preserve pin state, per-tab metadata),
+          null-target openTabs tabs do NOT false-collide with named fleet
+          sessions; (2) RDP rows synthesized as `rdp-host::${host.id}`
+          from hostsFlat filtered on strict `host.enableRdp === true` (T-
+          07-02-01 mitigation against legacy Host records with undefined
+          field), appended as a SENTINEL HostGroup (`hostId: "__rdp__"`,
+          `hostName: ""`) at the BOTTOM of grouped. Dedup separator is
+          null-byte (`\0`) internally + visible `::` for row ids — tmux
+          rejects control chars in session names so collision is
+          impossible.
+
+        * **One-shot fetch, NO polling (TG-17 hard lock).** New effect
+          in AppShell (empty dep array): `getSessionList()` fires ONCE on
+          mount, silent try/catch on failure (falls back to Phase 6
+          openTabs-only rendering), cancelled-guard on unmount race.
+          NOT wired into the existing `termix:hosts-changed` event
+          listener. NOT re-fetched on window focus / tab visibility
+          change. NOT re-fetched on interval. Cross-device / cross-
+          session fleet staleness is DELIBERATELY acceptable — Ashley
+          refreshes to update. Grep gates enforce all three defenses:
+          `grep -cE "setInterval|setTimeout" src/ui/state/conversation-
+          store.ts` = 0; `grep -B2 -A15 "getSessionList()" src/ui/
+          AppShell.tsx | grep -cE "setInterval|setTimeout"` = 0;
+          `grep -B2 -A5 "termix:hosts-changed" src/ui/AppShell.tsx |
+          grep -c "getSessionList\|updateFleetSessions"` = 0.
+
+        * **RDP row placement decision: SENTINEL HostGroup.** Chosen
+          over extending ConversationList with a new `rdpHosts` field.
+          Rationale: (1) zero touches to the ConversationList type —
+          Phase 6 shape lock stays as intact as possible; (2)
+          ConversationsPanel already iterates `grouped.map(...)` so the
+          special-case is a small `group.hostId === "__rdp__"` check
+          inside the existing render branch, not a whole new render
+          block below it; (3) per plan-check NOTE-A the sentinel MUST
+          have its semibold host-header render suppressed — landed as
+          the same hostId check that renders RDP rows inline via a NEW
+          small parallel `RdpRow` component (declared at the bottom of
+          `ConversationsPanel.tsx`, single-use, ~40 lines). Test 32
+          asserts the sentinel appears LAST in grouped.
+
+        * **Attached vs detached transparency (TG-13 + TG-14).** No
+          visual delta between rows that have been clicked earlier this
+          page-load and rows fleet-discovered but not yet mounted.
+          `ConversationRow.tsx` UNTOUCHED — `fleetOnly` is an INTERNAL
+          routing marker only, filtered from Test 8's row-shape
+          assertion. Clicking a detached row routes through a NEW
+          `onDetachedRowClick` prop on ConversationsPanel → AppShell
+          handler → `openTab(host, "terminal", ..., { allowCreateTmux:
+          false })` (ATTACH not create; if session died between page-
+          load and click, backend errors instead of resurrecting empty
+          pane — T-07-01-05 lock) → `selectConversationDeferred`
+          (reuses Plan 06-04's race-defense mechanism verbatim) →
+          mobile navigateToView + isMobile setSidebarOpen(false).
+          Single click = attached + selected + shown. Zero re-
+          engineering of the tab lifecycle underneath — T-06-02-01
+          mount-lifecycle contract preserved BYTE-FOR-BYTE (createPortal
+          count in AppShell.tsx still exactly 1; tabNodesRef DOM-move
+          mechanism from patch #35 unchanged; AppShell.persistence.test
+          .tsx MountManager Tests 1-3 still pass).
+
+        * **RDP row rendering: parallel RdpRow component.** RdpRow
+          diverges from ConversationRow on 4+ axes (no identity hue, no
+          avatar image, no host-name secondary line, no pin toggle) so
+          a parallel component reads cleaner than a heavy prop-override.
+          RdpRow chrome: Monitor glyph (lucide) in the icon column,
+          host name as the label, `text-muted-foreground` colors, `data-
+          rdp-host-row="true"` DevTools attribute for inspection.
+          Selected treatment preserved (`bg-accent-brand/10 text-
+          accent-brand`) so an active RDP tab visually highlights its
+          row. Handler routing: NEW `onRdpRowClick` prop on
+          ConversationsPanel (analog of `onDetachedRowClick`) +
+          `handleRowSelect` extended with `rdpHostRow` branch BEFORE
+          `fleetOnly` branch BEFORE default `selectConversation` path.
+          AppShell handler: resolves `row.host` → `openTab(host, "rdp")`
+          → `selectConversationDeferred` → mobile navigateToView. Zero
+          re-engineering of RDP tab disconnect/reconnect / guacamole /
+          Terminal.tsx — CALLS the existing openTab lifecycle entry
+          point HostsPanel + SessionsPanel + connectHost use today.
+
+        * **Pencil re-style (TG-16).** Icon import + JSX line changed
+          from `Plus` to `Pencil` (lucide-react, existing dep — no new
+          deps). Icon size (`size-3`), button className, type, onClick,
+          title, aria-label, i18n `t("nav.newSession")` all preserved
+          BYTE-IDENTICAL. NewSessionDialog UNTOUCHED — the button still
+          opens the same host picker + session-name flow (Plan 06-04
+          machinery preserved verbatim). Telegram-native compose-a-
+          new-message affordance is a single pencil glyph, so `Pencil`
+          picked over `PencilLine`, `PenTool`, `SquarePen`, `Edit`,
+          `Edit2`, `Edit3` — the plainest of the family.
+
+        * **Mobile gear-dedup fix (TG-18).** Phase 6 bug: on mobile,
+          the gear icon in the ConversationsPanel header rendered AND
+          the SettingsRow at the bottom of the scroller both rendered,
+          both routing to the same menu. Cause: `showGear = typeof
+          onRailClick === "function"` gated only on the prop, not on
+          viewport. Fix: `showGear = typeof onRailClick === "function"
+          && !isTouchDevice` where `isTouchDevice` comes from the
+          SAME `useIsTouchDevice()` hook Phase 6 Plan 06-03 uses to
+          gate the mobile flow (CONTEXT.md single-signal lock — do NOT
+          introduce a second detection mechanism). Hook value factored
+          into a shared const at the top of the panel body for
+          idiomatic reuse. Result: desktop sees gear (no settings row),
+          mobile sees settings row (no gear), neither sees both.
+          Both entry points continue to route through the same
+          `handleRailClick` + SETTINGS_MENU_ITEMS registry (Plan 06-02
+          preserved).
+
+        * **Threat model addressed.** Every mitigation in the plan's
+          `<threat_model>` blocks landed:
+          - T-07-01-01 (dedup key collision): null-byte separator +
+            tmux control-char rejection makes collision impossible.
+            Tests 24, 26 assert.
+          - T-07-01-02 (accidental polling regression): empty-dep-
+            array useEffect + grep gates for setInterval/setTimeout
+            near getSessionList + NOT-wired-to-termix:hosts-changed.
+            All three gates return 0.
+          - T-07-01-03 (fleet-session list disclosure): accepted —
+            same list Ashley already sees in SessionsPanel + double-
+            shift menu; no new disclosure surface.
+          - T-07-01-04 (malformed getSessionList response):
+            `Array.isArray(sessions) ? sessions : []` guard + silent
+            try/catch swallowing.
+          - T-07-01-05 (detached-row-click bypass): reuses `openTab(
+            host, "terminal", ...)` verbatim; no lifecycle bypass.
+          - T-07-01-06 (race between hostsFlat update and fleet-row
+            click): `if (!host) return` silent no-op guard.
+          - T-07-02-01 (enableRdp === undefined nullable field):
+            strict `=== true` filter, not truthy coerce. Test 31b
+            covers.
+          - T-07-02-02 (host name disclosure): accepted — same names
+            Ashley already sees in HostsPanel + SessionsPanel +
+            SidebarTree + double-shift menu.
+          - T-07-02-03 (many RDP hosts flooding list): accepted —
+            Ashley's fleet ~20 hosts, no virtualization needed.
+          - T-07-02-04 (onRdpRowClick authz bypass): accepted —
+            `openTab(host, "rdp")` is the same lifecycle entry point
+            HostsPanel + SessionsPanel + connectHost use today.
+            Backend guacd auth is the security boundary.
+          - T-07-02-05 (mobile viewport race with useIsTouchDevice):
+            hook is deterministic within a page-load; Ashley resizing
+            across breakpoints on desktop causes gear to vanish when
+            useIsTouchDevice flips true — acceptable, matches Plan
+            06-03's mobile flow gate on the same signal.
+          - T-07-03-01 (bad build wedges Termix): mitigated by Plan
+            07-03 Task 1 build verification + deadman rollback at T+
+            15min if UAT fails.
+          - T-07-*-SC (supply chain — new npm deps): mitigated —
+            zero new npm deps verified across both plans. Pencil +
+            Monitor icons already in lucide-react.
+
+        * **What we DIDN'T do** (deferred / out per shape lock):
+          - Real-time polling / push / notification chrome on the
+            conversation list (TG-17 lock — Ashley refreshes)
+          - Plain-SSH host rows in the list (Ashley never creates
+            plain-SSH one-shots — OUT entirely, not v2)
+          - Attached-vs-detached visual distinction (TG-13 lock —
+            rows are rows)
+          - Per-conversation activity/unread signals (still v2 —
+            same as Phase 6)
+          - Cross-device / cross-session state sync (a session
+            created on Ashley's phone doesn't automatically show up
+            on her desktop without a refresh — OUT entirely, not v2)
+          - Persisting the currently-selected conversation across
+            browser refreshes (still v2 — in-memory only per Phase 6)
+          - A second creation button for plain-SSH or raw shell —
+            keep the pencil single-purpose
+          - Distinguishing "identity attached" from "identity not-
+            yet-attached" for a newly-created row while Ashley
+            does her identity setup inside the pane
+          - Turning the pencil into a two-action popover — OUT
+
+        * **Verify post-deploy invariants** (for future rebase smoke
+          checks — Vite mangles most user-defined identifiers, so
+          verifications lean on i18n key strings + URL literal
+          strings + SVG icon paths that survive minification):
+          - `docker exec termix grep -oc 'fleet::' /app/dist/assets/AppShell-*.js` → ≥ 1 (fleet row id prefix — was 1 at ship)
+          - `docker exec termix grep -oc 'rdp-host::' /app/dist/assets/AppShell-*.js` → ≥ 1 (RDP row id prefix — was 2 at ship)
+          - `docker exec termix grep -oc '__rdp__' /app/dist/assets/AppShell-*.js` → ≥ 1 (sentinel HostGroup id — was 2 at ship)
+          - `docker exec termix grep -oc 'rdpHostRow' /app/dist/assets/AppShell-*.js` → ≥ 1 (INTERNAL routing marker — was 3 at ship)
+          - `docker exec termix grep -oc 'fleetOnly' /app/dist/assets/AppShell-*.js` → ≥ 1 (INTERNAL routing marker — was 2 at ship)
+          - `docker exec termix grep -oc 'data-rdp-host-row' /app/dist/assets/AppShell-*.js` → ≥ 1 (DevTools attr — was 1 at ship)
+          - `docker exec termix grep -oc '/sessions/list' /app/dist/assets/AppShell-*.js` → ≥ 1 (fleet-fetch URL — was 1 at ship)
+          - `docker exec termix grep -oc 'M21.174' /app/dist/assets/ui-vendor-*.js` → ≥ 1 (lucide Pencil SVG path — was 2 at ship)
+          - `docker exec termix grep -oc 'nav.newSession' /app/dist/assets/AppShell-*.js` → ≥ 8 (i18n key — was 10 at ship; matches patch #105 baseline exactly)
+          - `docker exec termix grep -oc 'nav.conversations' /app/dist/assets/AppShell-*.js` → ≥ 20 (Phase 6 preserved — was 24 at ship; same as patch #105 baseline)
+          - `docker exec termix grep -c 'MobileBottomBar\|TabBar' /app/dist/assets/*.js` → **0** (Phase 6 deletions still gone — was 0 across all chunks at ship)
+          - `docker exec termix grep -oc 'appendChild' /app/dist/assets/AppShell-*.js` → ≥ 5 (patch #35 DOM-move preserved — was 6 at ship; matches patch #105 baseline exactly, byte-for-byte)
+
+        * **Files touched** (6 source files: 0 NEW, 6 modified — the
+          entire Phase 7 landing surface is additive edits to Phase 6
+          files; no new files created because the RDP row rendering
+          uses an inline parallel `RdpRow` component declared at the
+          bottom of `ConversationsPanel.tsx`, single-use, ~40 lines):
+          - `src/ui/state/conversation-store.ts` — 437 → 703 lines
+            (+268 / -1 across Plans 07-01 + 07-02): FleetSession type
+            + fleetSessions/hostsFlat state fields + updateFleetSessions
+            /updateHostsFlat actions + extended computeSnapshot with
+            union+dedup + fleetOnly/rdpHostRow markers + RDP emission
+            pass + `__rdp__` sentinel HostGroup + dedupKey/fleetRowId
+            internal helpers + __getFleetOnlyRowsForTest test helper
+          - `src/ui/state/conversation-store.test.ts` — 601 → 1081
+            lines (+482 / -8 across both plans): Tests 23-30 for
+            fleet-native semantics (Plan 07-01) + Tests 31-34 for
+            RDP row derivation (Plan 07-02) — 22 → 35 it() blocks;
+            Test 8 row-shape assertion updated to filter BOTH
+            optional fleetOnly + rdpHostRow markers; makeHost fixture
+            extended with optional overrides parameter for enableRdp
+            injection
+          - `src/ui/sidebar/ConversationsPanel.tsx` — 268 → 413 lines
+            (+161 / -20 across both plans): onDetachedRowClick +
+            onRdpRowClick props + handleRowSelect helper branching on
+            rdpHostRow → fleetOnly → default paths; useIsTouchDevice +
+            Monitor imports; shared isTouchDevice const; showGear TG-18
+            gate; `__rdp__` sentinel HostGroup special-case render
+            with header suppression; RdpRow parallel component declared
+            inline at file bottom
+          - `src/ui/sidebar/NewSessionButton.tsx` — 33 → 40 lines
+            (+11 / -4): Plus → Pencil import + JSX swap + expanded
+            top-comment block explaining Plan 07-02 TG-16 rationale
+          - `src/ui/AppShell.tsx` — 1823 → 1950 lines (+127 / 0
+            across both plans): extended conversation-store import +
+            getSessionList import + one-shot fetch effect (empty dep
+            array, silent try/catch, cancelled-guard) + hostsById memo
+            keyed on stableHostTreeKey (reuses Phase 6 NOTE-05 thrash-
+            guard) + updateHostsFlat effect + onDetachedRowClick
+            handler (allowCreateTmux: false — ATTACH not create) +
+            onRdpRowClick handler (openTab + selectConversationDeferred)
+          - `src/ui/AppShell.persistence.test.tsx` — 383 → 444 lines
+            (+61 / 0): Test 4 asserting fleet-derived row shape via
+            the store; Tests 1-3 (T-06-02-01 MountManager scaffold)
+            preserved BYTE-FOR-BYTE
+
+          Test suite: **315/315 across 24 files** at ship, up from
+          Phase 6's 301/301 baseline (+8 fleet-store tests + 4 RDP-
+          store tests + Test 31 has 2 sub-cases = 14 new it() blocks
+          total). Grand total after Phase 7: **315/315 tests pass
+          across 24 files** (was 301/301 pre-Phase-7 per patch #105
+          ship baseline; was 255/255 pre-Phase-6 per Plan 06-01's
+          baseline).
+
+        * **Rebase risk**: **LOW on all changed files** — this patch
+          is significantly narrower than patch #105 because Phase 7 is
+          additive-only extensions to Phase-6-created files. `AppShell
+          .tsx` gets +127 lines of new effects + handlers (empty-dep
+          fetch effect, hostsById memo, updateHostsFlat effect,
+          onDetachedRowClick handler, onRdpRowClick handler) — all
+          layered on top of Phase 6's already-restructured territory;
+          upstream doesn't have this territory (patches #35 + #25 +
+          #105 own the DOM-move + URL-sync + conversation-store
+          integration and Phase 7's additions live above those layers).
+          `conversation-store.ts` +268 lines are additive-only (new
+          state fields + new actions + new emission passes in
+          computeSnapshot); Phase 6 owns the whole file so no upstream
+          surface. `ConversationsPanel.tsx` +161 lines: new imports +
+          new props + extended handleRowSelect + new render branch +
+          new RdpRow component. `NewSessionButton.tsx` +11/-4: Plus →
+          Pencil single-line swap. `AppShell.persistence.test.tsx` +61
+          Test 4 addition. **Preservation invariants to hold on
+          rebase** (subset of patch #105's + Phase 7 additions): (1)
+          the byte-for-byte identity of patch #35's tabNodesRef DOM-
+          move mechanism at the AppShell.tsx effect + createPortal
+          loop — Phase 7 does NOT change this territory, `createPortal(`
+          count in AppShell.tsx must still be exactly 1; (2) the fleet-
+          fetch effect must retain empty dep array (TG-17 lock); (3)
+          the fetch effect must NOT be wired to `termix:hosts-changed`
+          (grep gate); (4) the fetch effect must NOT be wrapped in a
+          setInterval/setTimeout retry (grep gate); (5) allowCreateTmux
+          must remain `false` on onDetachedRowClick (T-07-01-05 lock);
+          (6) enableRdp filter must remain strict `=== true` (T-07-02
+          -01 lock); (7) `showGear` gate must retain `!isTouchDevice`
+          (TG-18 fix); (8) `ConversationRow.tsx` must remain UNTOUCHED
+          — RDP rows use parallel RdpRow, NOT prop-override (TG-13
+          lock); (9) `__rdp__` sentinel HostGroup must render LAST in
+          grouped (Test 32); (10) `NewSessionDialog.tsx` must remain
+          UNTOUCHED (TG-16 function-unchanged lock).
+
+        * **Deploy note**: shipped behind the mandatory 15-min deadman
+          per Ashley 2026-07-03 with explicit per-deploy green light
+          per Ashley 2026-07-12 (see `deploy-runbook.md` under Tina's
+          identity — "DEADMAN IS MANDATORY. NO EXCEPTIONS" + "BLANKET
+          PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT"). This is a
+          **substantially additive user-visible change** — a fresh
+          mobile page-load now shows fleet-discovered sessions
+          (closing the patch #105 UAT gap); RDP hosts get their own
+          row category at the bottom; the New Session button is a
+          pencil instead of a plus; the mobile gear/settings-row dup
+          is gone. Zero backend / docker / package.json changes. Zero
+          new nginx location blocks (Phase 7 is frontend-only). Zero
+          new npm dependencies (`git diff --stat package.json package-
+          lock.json` = empty across both plans). Deploy sequence:
+          standard `sudo bash /opt/termix/termix-patches/build-termix
+          .sh` + `sudo docker compose up -d --force-recreate termix`
+          via runbook step 1-9 (arm-BEFORE-deploy sentinel cleanup,
+          nohup deadman arm, force-recreate, wait healthy, Ashley
+          UAT, disarm-on-green-light with narrow pkill, let-fire-on-
+          failure). UAT checklist for the walk-through:
+          `~/termix/.planning/phases/07-fleet-native-conversation-list/
+          07-UAT-CHECKLIST.md` (65 blocking gates covering TG-12..18 +
+          Plan 07-01/07-02 additional items + Phase 6 regression walk
+          TG-01..11 + prior-patch smoke against patches #25/#35/#57/
+          #60/#100/#102/#105 + negative-space scope-fence). Build-
+          verify log for the deploy-side confidence baseline:
+          `~/termix/.planning/phases/07-fleet-native-conversation-list/
+          07-03-BUILD-VERIFY-LOG.md` (AppShell +2,984 bytes / +0.68%
+          vs Phase 6; Terminal/index/backend byte-identical to Phase 6;
+          all Phase 7 markers in dist; all prior-patch bytes intact;
+          315/315 tests pass; 0 TS errors; scope fence clean).
+          **Related bounty**: SAME as Phase 6 —
+          `~/.claude/identities/tina/bounties/telegram-like-interface/`
+          — the Telegram-like-interface bounty spans BOTH patch #105
+          and patch #106 as one ship arc across two deploy cycles per
+          Phase 6 + Phase 7 ROADMAP.md notes. Close via
+          `/close telegram-like-interface` AFTER this patch's UAT
+          sign-off, NOT after patch #105's — the bounty represents the
+          whole conversation-list shape and both patches are required
+          to fulfill it.
+
+---
+
+**Placeholders to fill in at PIN time:**
+
+- `<date>` — deploy date (once Ashley approves and deploy completes)
+- `<deploy-sha>` — the HEAD commit SHA at deploy time (currently `858ad42` before this Plan 07-03's doc commits; will be different after 07-03 commits + any pre-deploy touches)
+
+**Top-of-file update:**
+
+Change the "ONE HUNDRED FIVE numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED SIX numbered patches" when pinning.
+
+**Bounty close command:**
+
+```
+/close telegram-like-interface
+```
+
+Runs against `~/.claude/identities/tina/bounties/telegram-like-interface/` — the same bounty patch #105 already touched.
+
+---
+
+*Draft phase: 07-fleet-native-conversation-list*
+*Draft generated: 2026-07-21T06:33Z by Plan 07-03 Task 3 (Tasks 1-3 scope only; Task 4 deploy Ashley-gated in main orchestrator context)*
+*Format precedent: patch #105 (Phase 6) in `~/.claude/identities/tina/termix-patches.md` lines 7213-7552*
