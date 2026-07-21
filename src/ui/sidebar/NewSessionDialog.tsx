@@ -75,7 +75,18 @@ export function NewSessionDialog({
   const [search, setSearch] = useState("");
 
   const flatHosts = useMemo(
-    () => collectAllHosts(hostTree?.children ?? []),
+    () =>
+      // Patch #111 F4: exclude RDP-enabled hosts from the new-session picker.
+      // Rationale (Ashley UAT 2026-07-21): RDP hosts already surface as
+      // sentinel rows at the bottom of the conversation list (Plan 07-02
+      // TG-15), so listing them here too is redundant clutter. Match the
+      // exact predicate used in conversation-store's RDP row derivation
+      // (state.hostsFlat filter on `enableRdp === true`) so the two
+      // surfaces stay in agreement: any host that renders as an RDP row
+      // is NOT offered in the new-session picker.
+      collectAllHosts(hostTree?.children ?? []).filter(
+        (h) => h.enableRdp !== true,
+      ),
     [hostTree],
   );
 
