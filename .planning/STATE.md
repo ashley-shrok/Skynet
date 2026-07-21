@@ -98,6 +98,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 ### Roadmap Evolution
 
 - 2026-07-21: Phase 6 added — Telegram-like interface. Shape agreed via `/open telegram-like-interface`; full shape file at `.planning/shapes/shape-telegram-like-interface.md`. Bounty tracker: `~/.claude/identities/tina/bounties/telegram-like-interface/`.
+- 2026-07-21: Phase 7 added — Fleet-native conversation list. Follow-up to Phase 6 addressing UAT gaps (fleet-native data source, RDP row rendering, pencil re-style, mobile gear duplicate fix). Shape agreed via `/open fleet-native-conversation-list`; full shape file at `.planning/shapes/shape-fleet-native-conversation-list.md`. Bounty tracker: SAME as Phase 6 (`telegram-like-interface`) — one bounty spans both ship steps.
 
 ### Quick Tasks Completed
 

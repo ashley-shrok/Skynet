@@ -35,6 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 4: Pretty view visual reskin — Glass depth aesthetic** - Reskin pretty view away from Termix's flat-brutalist styling to a warm dark Glass depth aesthetic with real physical dimensionality (multi-layer shadows, backdrop-filter blur, subtle rim highlights, atmospheric background gradient) and per-pane identity-hue carry-through (user bubble + context bar + send button + focus ring). CSS-only, no behavior changes; scope confined to `src/ui/features/pretty-view/` — terminal/RDP/dashboard/sidebar chrome untouched. Design spec: `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html` (Glass tab).
 - [x] **Phase 5: Pretty view file upload support** - Add a cognitively-free "attach a file" affordance to pretty view: drag-and-drop anywhere on the surface (primary), clipboard paste (first-class), mobile-only paperclip button (gated by useIsTouchDevice). Attachments stage as a chip strip; on send, files transfer atomically to the receiving box (landing at `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>`) then an injected user turn carries path-only-with-metadata (never inlined bytes) so context cost is deferred to the moment the agent actually reads. Sender-side rendering as chip-bearing bubble; folder drops refused; one caption per batch; no auto-cleanup. Shape file: `.planning/shapes/shape-pretty-view-file-upload-support.md` (LOCKED, do NOT re-litigate). (completed 2026-07-20)
 - [x] **Phase 6: Telegram-like interface** - Reshape Termix around a Telegram-style conversation-list interface. Sidebar becomes a flat single-select list of currently-active sessions grouped by host (existing tree order preserved); per-session pins float to the top. Only one conversation visible at a time; switching hides/shows without unmount, so sessions stay alive in-memory across switches within a page-load. Tab strip removed entirely. Mobile: list-vs-view flow with top-left back button; bottom navigation bar deleted; admin/settings destinations migrated to unobtrusive gear (desktop) or list row (mobile). Deferred to v2: activity/unread signals of any kind. Out entirely: cross-conversation search, folders, drag-to-reorder, ended-session history. Shape file: `.planning/shapes/shape-telegram-like-interface.md` (LOCKED, do NOT re-litigate). (completed 2026-07-21)
+- [ ] **Phase 7: Fleet-native conversation list** - Follow-up to Phase 6. Reshape the list's data source from "browser-tab's open Termix tabs" to "fleet-discovered tmux sessions unioned with browser-tab's open tabs" so a fresh page-load shows the sessions running across the fleet (like the current sidebar host-tree + double-shift menu already do), not just what's open in this browser tab. Adds RDP host rows at the bottom (one per RDP-enabled host, monitor icon, no identity hue). Re-styles the existing New Session button as the Telegram-native pencil. Fixes the mobile gear/settings-row duplication from Phase 6 (gear desktop-only, settings-row mobile-only). Snapshot-on-page-load discovery, no polling — Ashley refreshes to update. Everything else from Phase 6 preserved verbatim (per-session pins, host grouping, mobile flow, tab-strip absence, session persistence, sidebar collapse). Shape file: `.planning/shapes/shape-fleet-native-conversation-list.md` (LOCKED, do NOT re-litigate).
 
 ## Phase Details
 
@@ -200,6 +201,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 4. Pretty view visual reskin — Glass depth aesthetic | 0/3 | Planning | — |
 | 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
 | 6. Telegram-like interface | 5/5 | Complete   | 2026-07-21 |
+| 7. Fleet-native conversation list | 0/0 | Not planned | — |
 
 ### Phase 6: Telegram-like interface
 
@@ -234,3 +236,20 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 - [x] 06-05-PLAN.md — Build verification + UAT checklist walking TG-01..11 + patches-md entry draft + mandatory 15-min deadman deploy under Ashley's separate green-light (all TG-01..11)
 
 **Bounty:** `telegram-like-interface` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/telegram-like-interface/`). Moves to `in_progress` when the first plan enters execution.
+
+### Phase 7: Fleet-native conversation list
+
+**Goal:** Reshape the conversation list's data source from "browser-tab's open Termix tabs" to "fleet-discovered tmux sessions unioned with browser-tab's open tabs (deduplicated by session identity)" so a fresh page-load shows the sessions Ashley has running across her fleet. Add remote-desktop host rows at the bottom (one per RDP-enabled host, monitor icon, no identity hue). Re-style the existing New Session button as the Telegram-native pencil. Fix the mobile gear/settings-row duplication carried over from Phase 6 (gear desktop-only, settings-row mobile-only). Snapshot-on-page-load discovery, no polling — Ashley refreshes to update. Everything else from Phase 6 preserved verbatim.
+
+**Shape file (LOCKED, do NOT re-litigate):** `.planning/shapes/shape-fleet-native-conversation-list.md`
+
+**Requirements:** TG-12, TG-13, TG-14, TG-15, TG-16, TG-17, TG-18 (7 requirements, defined in `.planning/REQUIREMENTS.md` § Fleet-native Conversation List — Phase 7 — continuation of the TG-XX numbering from Phase 6). Full scope edges enumerated in the shape file's Scope edges section.
+
+**Depends on:** Phase 6
+
+**Plans:** TBD (starting sketch in shape file's Vehicle notes: 2-3 plan decomposition — fleet-native data-source rewiring, RDP-row rendering + pencil re-style + gear-duplicate fix, deploy checkpoint; planning may re-shape this).
+
+Plans:
+- [ ] TBD (run `/gsd-plan-phase 7` to break down)
+
+**Bounty:** `telegram-like-interface` (SAME tracker as Phase 6 — one bounty spans both ship steps: patch #105 for Phase 6 + this phase's patch #106+). Bounty closes via `/close telegram-like-interface` after this phase ships + Ashley UAT.

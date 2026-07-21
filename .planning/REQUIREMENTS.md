@@ -98,6 +98,18 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [ ] **TG-10**: The admin/settings destinations previously reachable through the mobile bottom navigation bar (host manager, credentials editor, and adjacent admin surfaces) remain reachable in the product, but from an unobtrusive settings surface — a small gear icon in the sidebar header on desktop, and a settings row somewhere in the list view on mobile that does not sit at the top competing for attention with the pinned or active rows. Ashley never uses these; the constraint is "don't let them occupy real estate she cares about"
 - [ ] **TG-11**: The product ships as a full replacement of the tab metaphor, NOT as an alternate mode alongside it. The tab strip is removed unconditionally. There is no user-facing toggle to bring tabs back. Currently-open tabs on the day this ships are free-fire (they may or may not carry into the new list; no migration story is required)
 
+### Fleet-native Conversation List (Phase 7)
+
+Continuation of the TG-XX numbering from Phase 6. Follow-up to address the Phase 6 UAT gap where the list's data source mirrored only the browser-tab's open Termix tabs (empty on fresh page-load) instead of the fleet's running tmux sessions.
+
+- [ ] **TG-12**: The list's data source is fleet-native — every tmux session on every reachable host appears as a row, sourced from the same fleet-discovery signal the current sidebar host-tree and double-shift menu already use. The set of rows is the union of "fleet-discovered tmux sessions" and "browser-tab's open Termix tabs," deduplicated by session identity. On a fresh page-load with no browser-tab tabs open, the list shows every running tmux session across every reachable host.
+- [ ] **TG-13**: Attached (clicked earlier this page-load, live connection open, pane warm) and detached (existing on the box but not yet clicked this page-load) rows are visually indistinguishable. No brightness difference, no italic, no dot, no per-row status indicator distinguishing the two states. Rows are rows.
+- [ ] **TG-14**: Clicking a detached row transparently attaches, mounts, and shows the session — a single-click flow with no attach dialog, no confirmation modal, no separate "connect" step. The user experience of clicking a detached row and clicking an attached row is functionally identical; only the underlying latency differs, and that difference is not surfaced.
+- [ ] **TG-15**: Remote-desktop host rows sit at the bottom of the list — one row per RDP-enabled host, rendered with a monitor icon in the avatar slot (no identity hue, no identity name, just the host name + monitor glyph). The row exists as long as the host is RDP-enabled, independent of whether an RDP tab is currently open for that host. Clicking the row opens the remote desktop (attach + mount + show) using the existing RDP tab lifecycle mechanism (unchanged from today).
+- [ ] **TG-16**: The existing New Session button is re-styled as the Telegram-native pencil-analog. Function is unchanged — pick a host, name a session, open. Only the visual affordance changes. Placement is planner's discretion (Telegram-per-viewport default is FAB bottom-right on mobile + small pencil button on desktop, but consistent-both-viewports is also acceptable). This is the ONLY creation button — the plain-SSH scenario from Phase 6 is not addressed here because Ashley never creates plain-SSH sessions (the only reason she ever creates a new session is to start a new identity).
+- [ ] **TG-17**: Fleet discovery is a one-shot snapshot on page-load — no polling, no real-time push, no live-update chrome anywhere on the list. Ashley's own actions in this browser tab (creating a session via the pencil, closing one) update the list live via the browser-tab's tab machinery (which is already reactive). Cross-device staleness — a session created on another device, or a session that dies on a box while Ashley is looking at other rows — requires a manual browser refresh to reflect.
+- [ ] **TG-18**: The mobile gear/settings-row duplication carried over from Phase 6 is fixed. The gear icon in the ConversationsPanel header renders on desktop viewports ONLY (i.e. on viewports where `useIsTouchDevice()` returns false). The settings row inside the ConversationsPanel scroller renders on mobile viewports ONLY. Neither renders in both places. Both continue to route to the same admin/settings menu.
+
 ## v2 Requirements
 
 Deferred to future patches. Each add earns its way in as its own separate design conversation.
@@ -199,12 +211,19 @@ Which phases cover which requirements. Populated during roadmap creation.
 | TG-09 | Phase 6 | Pending |
 | TG-10 | Phase 6 | Pending |
 | TG-11 | Phase 6 | Pending |
+| TG-12 | Phase 7 | Pending |
+| TG-13 | Phase 7 | Pending |
+| TG-14 | Phase 7 | Pending |
+| TG-15 | Phase 7 | Pending |
+| TG-16 | Phase 7 | Pending |
+| TG-17 | Phase 7 | Pending |
+| TG-18 | Phase 7 | Pending |
 
 **Coverage:**
-- v1 requirements: 59 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6)
-- Mapped to phases: 59 ✓
+- v1 requirements: 66 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7)
+- Mapped to phases: 66 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-21 — added TG-01..11 for Phase 6 (Telegram-like interface, spec: shapes/shape-telegram-like-interface.md)*
+*Last updated: 2026-07-21 — added TG-12..18 for Phase 7 (Fleet-native conversation list, spec: shapes/shape-fleet-native-conversation-list.md) as continuation of Phase 6's TG-XX numbering*
