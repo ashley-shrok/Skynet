@@ -61,9 +61,12 @@ import { ConversationsPanel } from "@/sidebar/ConversationsPanel";
 import {
   updateHostTree,
   updateOpenTabs,
+  updateFleetSessions,
+  updateHostsFlat,
   useSelectedConversationId,
   selectConversationDeferred,
 } from "@/state/conversation-store";
+import { getSessionList } from "@/api/sessions-api";
 import { TransferMonitor } from "@/features/file-manager/TransferMonitor.tsx";
 import { getPendingTransferIds } from "@/features/file-manager/transferNotificationStore.ts";
 import {
@@ -458,6 +461,59 @@ export function AppShell({
   useEffect(() => {
     updateOpenTabs(tabs);
   }, [tabs]);
+
+  // ─── Plan 07-01: fleet-native store extension (TG-12, TG-14, TG-17) ──────
+  // Two additional inputs feed the conversation-store: a one-shot fleet-
+  // discovery snapshot (getSessionList()) and a flat hostId → Host lookup
+  // derived from realHostTree.
+  //
+  // TG-17 hard shape lock: fleet fetch is EXACTLY ONCE per page-load. No
+  // polling, no interval, no focus/visibility refetch, NOT wired to
+  // termix:hosts-changed. Cross-device staleness acceptable — Ashley
+  // refreshes to update. The empty-dep-array useEffect enforces the lock.
+  //
+  // Silent try/catch on fetch failure — a network error just leaves
+  // fleetSessions empty; the list falls back to Phase 6 openTabs-only
+  // rendering. No toast, no retry, no user-visible surface.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessions = await getSessionList();
+        if (cancelled) return;
+        updateFleetSessions(Array.isArray(sessions) ? sessions : []);
+      } catch {
+        // Silent — fleetSessions stays empty; openTabs-only rendering
+        // (Phase 6 behavior) takes over. T-07-01-04 mitigation.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // EMPTY DEP ARRAY — TG-17 shape lock: exactly once per mount.
+
+  // Flat hostId → Host lookup for the click-a-detached-row handler.
+  // Reuses the NOTE-05 stableHostTreeKey thrash-guard: rebuilt only when
+  // the host-tree JSON snapshot changes, so idle polls that produce
+  // reference-inequal-but-content-equal trees do NOT churn the store's
+  // hostsFlat input.
+  const hostsById = useMemo(() => {
+    const m = new Map<number, Host>();
+    if (!realHostTree) return m;
+    const walk = (folder: HostFolder): void => {
+      for (const child of folder.children) {
+        if ("children" in child) walk(child);
+        else m.set(parseInt(child.id), child);
+      }
+    };
+    walk(realHostTree);
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stableHostTreeKey]);
+  useEffect(() => {
+    updateHostsFlat(hostsById);
+  }, [hostsById]);
 
   const selectedConversationId = useSelectedConversationId();
 
@@ -1365,6 +1421,42 @@ export function AppShell({
               targetTmuxSession: sessionName ?? null,
               label: sessionName ?? undefined,
               allowCreateTmux: true,
+            });
+            selectConversationDeferred(newTabId);
+            if (isTouchDevice) navigateToView();
+            if (isMobile) setSidebarOpen(false);
+          }}
+          // Plan 07-01 (TG-14): click-a-detached-row transparent-attach
+          // handler. Fires ONLY for rows where store.computeSnapshot set
+          // `fleetOnly: true` (a fleet-discovered session with no matching
+          // openTabs entry). Reuses Plan 06-04's openTab + selectConversation
+          // Deferred mechanism verbatim — no new dialog, no confirmation,
+          // no separate connect step per TG-14 shape lock.
+          //
+          // `allowCreateTmux: false` is the critical distinction from the
+          // new-session flow above (which uses `true` to create a fresh
+          // tmux session on the box). Detached-attach is ATTACH to an
+          // existing tmux session — the whole point of TG-14. If the
+          // session has died on the box between page-load and the click
+          // (extremely narrow — snapshot-on-load contract keeps the
+          // window small), backend correctly errors instead of
+          // resurrecting an empty pane.
+          //
+          // Row → Host resolution goes through row.host which the store
+          // populated via state.hostsFlat (see computeSnapshot). Silent
+          // no-op if hostsFlat has not yet populated (T-07-01-06 race
+          // mitigation — realHostTree normally loads before the panel
+          // renders in production; the guard catches the slow-fetch dev
+          // case).
+          onDetachedRowClick={(row) => {
+            const host = row.host;
+            if (!host) return; // silent no-op — hostsFlat race edge case
+            const sessionName = row.targetTmuxSession;
+            if (!sessionName) return; // defense — fleet rows always have one
+            const newTabId = openTab(host, "terminal", undefined, {
+              targetTmuxSession: sessionName,
+              label: sessionName,
+              allowCreateTmux: false,
             });
             selectConversationDeferred(newTabId);
             if (isTouchDevice) navigateToView();

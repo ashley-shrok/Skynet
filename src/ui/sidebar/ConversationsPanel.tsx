@@ -46,6 +46,7 @@ import {
   usePinnedIds,
   selectConversation,
   togglePinConversation,
+  type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 import { ConversationRow } from "@/sidebar/ConversationRow";
 import { renderSettingsMenuItems } from "@/sidebar/SettingsRow";
@@ -92,6 +93,19 @@ export function ConversationsPanel({
   // NewSessionButton is only mounted when this callback is provided
   // (Plan 06-04: no button in the isolated-test surface, either).
   onCreateSession?: (opts: { host: Host; sessionName?: string }) => void;
+  // Plan 07-01 (TG-14): fired when the user clicks a fleet-only row (a
+  // row present in state.fleetSessions with no corresponding openTabs
+  // entry — see conversation-store §Plan 07-01). AppShell resolves the
+  // row → Host via state.hostsFlat + calls openTab(host, "terminal", ...,
+  // { targetTmuxSession, allowCreateTmux: false }) + selectConversationDeferred.
+  // Optional so isolated tests / desktop-only surfaces can omit — when
+  // undefined, fleet-only rows fall through to the default
+  // selectConversation path (which will silent-no-op at the store level
+  // per T-06-01-01 stale-id guard, since fleet ids are never in openTabs).
+  // Under TG-13 the ConversationRow renders identically for both paths;
+  // the branch happens ONLY at the click-handler level, INTERNAL to the
+  // panel-wiring layer — never visible to Ashley.
+  onDetachedRowClick?: (row: ConversationRowShape) => void;
 }) {
   const { t } = useTranslation();
   const { pinned, grouped } = useConversations();
@@ -102,6 +116,27 @@ export function ConversationsPanel({
   const isEmpty = pinned.length === 0 && grouped.length === 0;
   const showGear = typeof onRailClick === "function";
   const showNewSessionButton = typeof onCreateSession === "function";
+
+  // Plan 07-01 (TG-14): single row-click dispatcher. Fleet-only rows route
+  // through `onDetachedRowClick` (AppShell handler resolves row → Host →
+  // openTab + selectConversationDeferred); openTabs rows use the direct
+  // `selectConversation` path. Both branches fire `onConversationSelected`
+  // so the mobile list→view transition (Plan 06-03) fires identically for
+  // attached AND detached clicks — Ashley cannot tell the two states apart
+  // per TG-13.
+  //
+  // Extracted here (rather than inlined at both call sites) so the pinned
+  // and grouped row lists stay identical — a future planner adding e.g. a
+  // click-analytics hook only edits one place.
+  const handleRowSelect = (row: ConversationRowShape) => {
+    if (row.fleetOnly && onDetachedRowClick) {
+      onDetachedRowClick(row);
+      onConversationSelected?.(row.id);
+      return;
+    }
+    selectConversation(row.id);
+    onConversationSelected?.(row.id);
+  };
 
   return (
     <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -187,10 +222,7 @@ export function ConversationsPanel({
                     row={row}
                     selected={row.id === selectedId}
                     pinned={true}
-                    onSelect={() => {
-                      selectConversation(row.id);
-                      onConversationSelected?.(row.id);
-                    }}
+                    onSelect={() => handleRowSelect(row)}
                     onTogglePin={() => togglePinConversation(row.id)}
                   />
                 ))}
@@ -219,10 +251,7 @@ export function ConversationsPanel({
                     row={row}
                     selected={row.id === selectedId}
                     pinned={pinnedIds.has(row.id)}
-                    onSelect={() => {
-                      selectConversation(row.id);
-                      onConversationSelected?.(row.id);
-                    }}
+                    onSelect={() => handleRowSelect(row)}
                     onTogglePin={() => togglePinConversation(row.id)}
                   />
                 ))}

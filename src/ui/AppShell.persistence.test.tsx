@@ -80,6 +80,8 @@ import {
   selectConversation,
   updateHostTree,
   updateOpenTabs,
+  updateFleetSessions,
+  updateHostsFlat,
 } from "./state/conversation-store.js";
 import type { Tab, Host } from "@/types/ui-types";
 
@@ -107,6 +109,11 @@ beforeEach(() => {
   updateOpenTabs([]);
   selectConversation(null);
   updateHostTree(null);
+  // Plan 07-01: reset the new fleet-native inputs so Test 4's store-contract
+  // assertion starts from an empty fleet + empty hostsFlat. Tests 1-3 do
+  // not consume these inputs, so their behavior is unchanged.
+  updateFleetSessions([]);
+  updateHostsFlat(new Map());
   const snap = __getSnapshotForTest();
   expect(snap.pinned.length).toBe(0);
   expect(snap.grouped.length).toBe(0);
@@ -379,5 +386,59 @@ describe("AppShell persistence contract — patch #35 tabNodesRef DOM-move (T-06
     expect(t2Node.style.visibility).toBe("visible");
     expect(t1Node.style.pointerEvents).toBe("none");
     expect(t2Node.style.pointerEvents).toBe("auto");
+  });
+
+  // ─── Plan 07-01: fleet-derived row-shape contract (Test 4) ─────────────────
+  // Store-level assertion that the Plan 07-01 Task 2 detached-row-click
+  // handler's INPUTS are produced correctly. AppShell's onDetachedRowClick
+  // (see AppShell.tsx §Plan 07-01) reads row.host + row.targetTmuxSession
+  // from a fleet-only row and calls openTab. Test 4 asserts that after
+  // AppShell would have called updateHostsFlat + updateFleetSessions, the
+  // store's snapshot contains a fleet-derived row with the fields the
+  // handler needs — host resolved via hostsFlat, targetTmuxSession set,
+  // deterministic id, and the internal fleetOnly=true routing marker.
+  //
+  // This is NOT an openTab integration test — the openTab call itself is
+  // an AppShell concern and is walked in Plan 07-03 UAT. Test 4 is a
+  // regression guard for the store contract that the handler depends on;
+  // if a future refactor breaks the resolution chain (e.g., host stops
+  // being populated via hostsFlat, or fleetOnly stops being set) this
+  // test fails BEFORE Ashley clicks a detached row and gets a silent
+  // no-op.
+  //
+  // Tests 1-3 above (T-06-02-01 MountManager scaffold) are UNCHANGED —
+  // this test does not render the MountManager, does not touch tabNodesRef,
+  // does not extend the createPortal loop.
+  it("Test 4: fleet-derived row shape — hostsFlat resolves host + fleetOnly:true + id `fleet::N::name`", () => {
+    const mockHostA = makeHost("1", "hostA");
+
+    // Simulate what AppShell's mount effects do in production:
+    //   1. hostsById memo populates from realHostTree → updateHostsFlat
+    //   2. getSessionList() resolves → updateFleetSessions
+    // Order isn't semantically load-bearing (both are pure inputs), but we
+    // match the AppShell effect ordering for realism.
+    act(() => {
+      updateHostsFlat(new Map<number, Host>([[1, mockHostA]]));
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.grouped.length).toBe(1);
+    expect(snap.grouped[0].rows.length).toBe(1);
+    const row = snap.grouped[0].rows[0];
+
+    // Handler's required inputs:
+    //   - row.host (resolved via hostsFlat — passed to openTab)
+    //   - row.targetTmuxSession (passed to openTab options)
+    //   - row.fleetOnly === true (routes ConversationsPanel through
+    //     onDetachedRowClick vs selectConversation)
+    //   - row.id in deterministic `fleet::${hostId}::${sessionName}` shape
+    //     so future assertions / diagnostics can reason about identity
+    expect(row.host).toBe(mockHostA);
+    expect(row.targetTmuxSession).toBe("work");
+    expect((row as unknown as { fleetOnly?: boolean }).fleetOnly).toBe(true);
+    expect(row.id).toBe("fleet::1::work");
   });
 });
