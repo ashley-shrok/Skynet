@@ -151,6 +151,23 @@ export function ConversationsPanel({
   // grouped + RDP row lists stay identical — a future planner adding e.g.
   // a click-analytics hook only edits one place.
   const handleRowSelect = (row: ConversationRowShape) => {
+    // Patch #111e F3-diag: log EVERY row tap so a mobile UAT can distinguish
+    // "tap never fired handler" from "handler fired but silently early-
+    // returned." Ashley's UAT of patch #111c said existing fleet-native rows
+    // still do nothing on mobile — the safety-net effect didn't help, so
+    // either selectConversation isn't running OR the tap isn't reaching
+    // handleRowSelect at all. This tells us which.
+    console.log(
+      "[F3-diag] handleRowSelect ENTRY: id=%s type=%s fleetOnly=%s rdpHostRow=%s host=%s onDetachedRowClick=%s onRdpRowClick=%s onConversationSelected=%s",
+      row.id,
+      row.type,
+      row.fleetOnly,
+      row.rdpHostRow,
+      row.host?.name ?? "MISSING",
+      typeof onDetachedRowClick,
+      typeof onRdpRowClick,
+      typeof onConversationSelected,
+    );
     if (row.rdpHostRow && onRdpRowClick) {
       onRdpRowClick(row);
       onConversationSelected?.(row.id);

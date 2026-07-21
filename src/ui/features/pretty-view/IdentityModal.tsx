@@ -340,7 +340,7 @@ export function IdentityModal({
   const hasArchive = sortedArchive.length > 0;
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={false}>
       {/* Patch #108: Portal into the chat-content region container (passed in
           from PrettyView) instead of document.body. Content is
           absolute-positioned inside that container so it covers only the
