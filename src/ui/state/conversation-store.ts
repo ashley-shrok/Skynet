@@ -38,6 +38,16 @@ export type ConversationRow = {
   label: string;
   host: Host | undefined;
   targetTmuxSession: string | null;
+  // Plan 07-01 (TG-12, TG-13, TG-14): INTERNAL routing marker for detached-
+  // row-click plumbing. `true` on synthetic fleet-derived rows that have no
+  // corresponding entry in `openTabs`; `undefined` on openTabs-derived rows
+  // (deliberately OMITTED, not set to `false`, so the row-shape stays as
+  // close as possible to the Phase 6 5-key contract — see Test 8's filter
+  // in conversation-store.test.ts). ConversationRow.tsx MUST render both
+  // states identically per TG-13 shape lock; this field exists only so
+  // ConversationsPanel's row-click handler can branch to
+  // `onDetachedRowClick(row)` (Plan 07-01 Task 2) vs `selectConversation`.
+  fleetOnly?: boolean;
 };
 
 export type HostGroup = {
@@ -49,6 +59,19 @@ export type HostGroup = {
 export type ConversationList = {
   pinned: ConversationRow[];
   grouped: HostGroup[];
+};
+
+// Plan 07-01 (TG-12): fleet-discovered tmux session shape. Re-declared here
+// (not imported from `@/api/sessions-api`) so the UI-state layer does NOT
+// depend on the API layer — matches the fork's layering discipline from
+// Phase 6 §layering. AppShell fetches getSessionList() then feeds the result
+// into `updateFleetSessions(...)` via a one-shot mount effect (no polling).
+// Shape mirrors `RemoteTmuxSession` in @/api/sessions-api verbatim.
+export type FleetSession = {
+  hostId: number;
+  hostName: string;
+  sessionName: string;
+  created: number;
 };
 
 type SnapshotForTest = ConversationList & {
@@ -84,6 +107,20 @@ type State = {
   openTabs: Tab[];
   pinnedIds: Set<string>;
   selectedId: string | null;
+  // Plan 07-01 (TG-12, TG-17): fleet-discovery snapshot input. Fed ONCE per
+  // page-load by AppShell's mount effect (empty dep array useEffect). No
+  // polling, no interval, no focus refetch. Absence = openTabs-only rendering
+  // (Phase 6 baseline). Combined with openTabs via the union+dedup logic
+  // inside computeSnapshot().
+  fleetSessions: FleetSession[];
+  // Plan 07-01 (TG-14): flat hostId → Host lookup so the click-a-detached-row
+  // handler can resolve a fleet row (identified by numeric hostId +
+  // sessionName) to a Host object openTab requires. Populated by AppShell's
+  // hostsById memo (keyed on stableHostTreeKey — reuses the Phase 6 NOTE-05
+  // thrash-guard). Used both for fleet-row Host enrichment during rendering
+  // (see computeSnapshot) AND — pending Plan 07-02 — for RDP row derivation
+  // filtered on `host.enableRdp === true`.
+  hostsFlat: Map<number, Host>;
 };
 
 let state: State = {
@@ -91,6 +128,8 @@ let state: State = {
   openTabs: [],
   pinnedIds: new Set<string>(),
   selectedId: null,
+  fleetSessions: [],
+  hostsFlat: new Map<number, Host>(),
 };
 
 // Plan 06-04 race defense (T-06-04-04): openTab's setTabs is batched — the
@@ -160,6 +199,26 @@ function collectHostOrder(tree: HostFolder | null): { id: string; name: string }
   return out;
 }
 
+// Plan 07-01 dedup key. Uses `\0` (null byte) as separator: guaranteed absent
+// from user-typed tmux session names (tmux itself rejects control chars in
+// session names) AND from Host.id strings (numeric-string coercion via
+// String(parseInt(...))). Internal helper — NOT exported (test coverage is
+// via the dedup-behavior tests, not a direct dedupKey unit test, so this
+// stays a private implementation detail we can change if needed).
+function dedupKey(hostIdStr: string, sessionName: string): string {
+  return `${hostIdStr}\0${sessionName}`;
+}
+
+// Plan 07-01: canonical fleet-row id prefix. Format: `fleet::${hostId}::${sessionName}`.
+// VISIBLE-ASCII `::` separator so ids are inspectable in DevTools
+// (data-conversation-id attributes) — the null-byte dedup separator is
+// INTERNAL only. Kept as a small helper so the AppShell click handler and
+// the row-shape assertions in tests read from a single source of truth if
+// they need to.
+function fleetRowId(hostId: number, sessionName: string): string {
+  return `fleet::${hostId}::${sessionName}`;
+}
+
 function computeSnapshot(): ConversationList {
   const conversationTabs = state.openTabs.filter(isConversationTab);
 
@@ -167,6 +226,10 @@ function computeSnapshot(): ConversationList {
   // pinnedIds is authoritative on "is this pinned?"; openTabs order gives
   // deterministic within-pinned ordering (see plan Task 1 Step 7 — no
   // drag-to-reorder, pin order = pin-creation-relative = openTabs order).
+  // Plan 07-01: pins are ONLY from openTabs (fleet-only rows CANNOT be
+  // pinned — the existing pinConversation guard at lines below rejects any
+  // id not in openTabs, and fleet ids never appear in openTabs; Test 30
+  // asserts this defense-in-depth).
   const pinned: ConversationRow[] = [];
   for (const tab of conversationTabs) {
     if (state.pinnedIds.has(tab.id)) pinned.push(rowFromTab(tab));
@@ -176,12 +239,65 @@ function computeSnapshot(): ConversationList {
   // host-tree order. Hosts with zero non-pinned rows are skipped so the
   // panel doesn't render empty group headers.
   const byHostId = new Map<string, ConversationRow[]>();
+  // Plan 07-01: build the openTabs session-identity set for dedup. For each
+  // conversation tab that has (host, targetTmuxSession) both defined, add
+  // `dedupKey(String(parseInt(host.id)), targetTmuxSession)` — normalizing
+  // the string Host.id to numeric string aligns with FleetSession.hostId
+  // (a raw JS number) after `String(hostId)`. Matches SessionsPanel.tsx:47's
+  // `parseInt(h.id)` precedent verbatim. A null/empty targetTmuxSession tab
+  // does NOT enter the dedup set (Test 26): its identity is "attached to
+  // hostA without a known session", which is not the same as any named
+  // fleet session on hostA.
+  const openTabsSessionKeys = new Set<string>();
   for (const tab of conversationTabs) {
     if (state.pinnedIds.has(tab.id)) continue; // already in pinned
     if (!tab.host) continue; // defense-in-depth; isConversationTab already filtered
     const bucket = byHostId.get(tab.host.id);
     if (bucket) bucket.push(rowFromTab(tab));
     else byHostId.set(tab.host.id, [rowFromTab(tab)]);
+
+    const tmux = tab.targetTmuxSession;
+    if (tmux !== null && tmux !== "") {
+      openTabsSessionKeys.add(dedupKey(String(parseInt(tab.host.id)), tmux));
+    }
+  }
+
+  // Plan 07-01: emit fleet-derived synthetic rows for every FleetSession
+  // whose (hostId, sessionName) identity is NOT already represented in
+  // openTabs (openTabs-entry-wins per hard_constraint #7). Bucketed by
+  // hostId (as a string, matching the byHostId map's key type) so fleet
+  // rows for a host that ALSO has openTabs rows land in the SAME HostGroup
+  // (append order — openTabs first, fleet-only after).
+  //
+  // Host resolution for synthetic rows: prefer state.hostsFlat.get(hostId)
+  // (a real Host object with all fields — enableRdp, terminalConfig, etc.)
+  // so the detached-row-click handler at AppShell can invoke openTab(host)
+  // with everything it needs. Fall back to `undefined` (no Host object)
+  // when hostsFlat has not yet populated — Test 28 covers this race.
+  //
+  // Also collect a per-fleet-hostId hostName fallback so the HostGroup
+  // header can render even when the host is absent from state.hostTree
+  // AND state.hostsFlat (initial-load race — Test 28).
+  const fleetHostNameFallback = new Map<string, string>();
+  for (const session of state.fleetSessions) {
+    const hostIdStr = String(session.hostId);
+    const key = dedupKey(hostIdStr, session.sessionName);
+    if (openTabsSessionKeys.has(key)) continue; // openTabs-entry-wins
+    const resolvedHost = state.hostsFlat.get(session.hostId);
+    const syntheticRow: ConversationRow = {
+      id: fleetRowId(session.hostId, session.sessionName),
+      type: "terminal",
+      label: session.sessionName,
+      host: resolvedHost,
+      targetTmuxSession: session.sessionName,
+      fleetOnly: true,
+    };
+    const bucket = byHostId.get(hostIdStr);
+    if (bucket) bucket.push(syntheticRow);
+    else byHostId.set(hostIdStr, [syntheticRow]);
+    if (!fleetHostNameFallback.has(hostIdStr)) {
+      fleetHostNameFallback.set(hostIdStr, session.hostName);
+    }
   }
 
   const grouped: HostGroup[] = [];
@@ -202,11 +318,21 @@ function computeSnapshot(): ConversationList {
   // Ashley's box has ~20 sessions on ~10 hosts; a missing host in the tree
   // must not cause silent row loss (T-06-01-01 stale-selection defense's
   // sibling: don't silently drop derived rows either).
+  //
+  // Plan 07-01: same resilience extended to fleet-only hosts. When a
+  // FleetSession's host is absent from hostTree, prefer state.hostsFlat's
+  // Host.name (matches an id-tree walk that succeeded), then the fleet's
+  // own hostName (matches an initial-load race where hostsFlat is empty),
+  // then finally the raw hostId as a last-resort label so nothing renders
+  // as "undefined" chrome.
   for (const [hostId, rows] of byHostId) {
     if (seenHostIds.has(hostId)) continue;
     if (rows.length === 0) continue;
     const firstRow = rows[0];
-    const hostName = firstRow.host?.name ?? hostId;
+    const hostName =
+      firstRow.host?.name ??
+      fleetHostNameFallback.get(hostId) ??
+      hostId;
     grouped.push({ hostId, hostName, rows });
   }
 
@@ -298,6 +424,61 @@ export function updateOpenTabs(tabs: Tab[]): void {
     pinnedIds: nextPinnedIds,
     selectedId: nextSelectedId,
   };
+  notify();
+}
+
+// Plan 07-01 (TG-12, TG-17): fleet-discovery snapshot input. AppShell calls
+// this ONCE per page-load after getSessionList() resolves. No polling — the
+// hard shape lock (see 07-CONTEXT.md §Scope Fence item #2) forbids any
+// interval/focus/visibility refetch that would produce visible list
+// mutations after page-load. Cross-device staleness is deliberately
+// acceptable; Ashley refreshes to update.
+//
+// Same reference-equality + per-element ref no-op story as updateHostTree /
+// updateOpenTabs — a fresh array from a fresh fetch that happens to be
+// content-equal to the last one still fires (we do NOT deep-equal; the
+// polling-thrash-guard lives upstream at the AppShell memoization layer).
+// Test 27 asserts both the ref-equal no-op and the different-ref-same-
+// content DOES-fire semantics.
+export function updateFleetSessions(sessions: FleetSession[]): void {
+  if (sessions === state.fleetSessions) return; // reference-equal no-op
+  // Length + shallow per-element ref check — catches the case where the
+  // caller re-emits the same array elements in a new array literal (very
+  // rare in practice — AppShell hands us a fresh array from an axios
+  // response — but the guard mirrors updateOpenTabs for consistency).
+  if (sessions.length === state.fleetSessions.length) {
+    let allSame = true;
+    for (let i = 0; i < sessions.length; i++) {
+      if (sessions[i] !== state.fleetSessions[i]) {
+        allSame = false;
+        break;
+      }
+    }
+    if (allSame) return; // shallow no-op — do not bump snapshotVersion
+  }
+  state = { ...state, fleetSessions: sessions };
+  notify();
+}
+
+// Plan 07-01 (TG-14): hostId → Host flat lookup. AppShell maintains a memo
+// keyed on stableHostTreeKey (the NOTE-05 thrash-guard from Phase 6) and
+// pushes the Map here whenever the memo re-derives.
+//
+// hostsFlat feeds two rendering paths:
+//   1. This plan: synthetic fleet-row Host enrichment inside computeSnapshot
+//      so the detached-row-click handler at AppShell has a real Host object
+//      to hand to openTab(host, "terminal", ...).
+//   2. Plan 07-02 (RDP rows at bottom): iterate hostsFlat, filter on strict
+//      `host.enableRdp === true`, emit one row per matching host at the end
+//      of `grouped`.
+//
+// Because both paths consume hostsFlat via computeSnapshot(), any change
+// MUST bump snapshotVersion. Same ref-equality no-op story as the other
+// inputs; Test 29 asserts same-ref no-op and different-Map-same-content
+// DOES fire.
+export function updateHostsFlat(hostsById: Map<number, Host>): void {
+  if (hostsById === state.hostsFlat) return; // reference-equal no-op
+  state = { ...state, hostsFlat: hostsById };
   notify();
 }
 
@@ -433,4 +614,20 @@ export function __getSnapshotForTest(): SnapshotForTest {
 // arrival / cleared on direct selectConversation / last-write-wins).
 export function __getPendingSelectIdForTest(): string | null {
   return pendingSelectId;
+}
+
+// Plan 07-01 Task 1: expose all fleet-derived rows (across pinned + grouped)
+// for test assertions. `fleetOnly === true` rows are synthetic — they came
+// from state.fleetSessions and did NOT dedup with any openTabs entry.
+// Fleet-only rows CANNOT appear in `pinned` (see the pin-defense in
+// computeSnapshot + Test 30 regression) but we filter both slices for
+// completeness.
+export function __getFleetOnlyRowsForTest(): ConversationRow[] {
+  const list = getSnapshot();
+  const out: ConversationRow[] = [];
+  for (const r of list.pinned) if (r.fleetOnly) out.push(r);
+  for (const g of list.grouped) {
+    for (const r of g.rows) if (r.fleetOnly) out.push(r);
+  }
+  return out;
 }
