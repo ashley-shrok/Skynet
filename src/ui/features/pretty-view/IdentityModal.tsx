@@ -351,10 +351,13 @@ export function IdentityModal({
           during that window. */}
       <DialogPrimitive.Portal container={container ?? undefined}>
         {/* Overlay is absolute-inset-0 relative to the container (chat region),
-            not fixed-inset-0 relative to viewport. Click-outside dismisses. */}
+            not fixed-inset-0 relative to viewport.
+            Patch #111: bumped z-40 → z-[110] so the overlay covers IdentityBadge
+            (z-[101]). Without this the badge sat on top of the modal and its X
+            button was unclickable while the modal was open. */}
         <DialogPrimitive.Overlay
           className={cn(
-            "absolute inset-0 z-40 bg-black/15",
+            "absolute inset-0 z-[110] bg-black/15",
             "supports-backdrop-filter:backdrop-blur-xs duration-100",
             "data-open:animate-in data-open:fade-in-0",
             "data-closed:animate-out data-closed:fade-out-0",
@@ -362,11 +365,21 @@ export function IdentityModal({
         />
         <DialogPrimitive.Content
           data-slot="identity-modal-content"
+          onPointerDownOutside={(e) => {
+            // Patch #111: preserve chat-content-region exposure. Radix's
+            // default onPointerDownOutside auto-dismisses the modal on any
+            // click outside its content — which fires when Ashley clicks the
+            // composer to type. That defeats the whole point of anchoring
+            // the modal to the chat region (composer intentionally uncovered
+            // so she can type while reading the modal). X button and Esc
+            // remain the valid dismissal paths.
+            e.preventDefault();
+          }}
           className={cn(
             // Absolute-positioned INSIDE the chat-region container. inset-4
             // = 16px padding on all sides so the modal doesn't butt against
-            // the region's edges. z-50 sits above the z-40 overlay.
-            "absolute inset-4 z-50 outline-none",
+            // the region's edges. z-[120] sits above the z-[110] overlay.
+            "absolute inset-4 z-[120] outline-none",
             "flex flex-col overflow-hidden rounded-[24px]",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
             "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
