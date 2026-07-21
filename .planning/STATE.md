@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-07-21T02:44:41.445Z"
+status: verifying
+last_updated: "2026-07-21T03:06:06.300Z"
 last_activity: 2026-07-21
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 21
   percent: 67
 ---
 
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 05 (pretty-view-file-upload-support) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-21
 
-Progress: [█████████░] 91%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [█████████░] 91%
 | Phase 6 P01 | 15min | 2 tasks | 5 files |
 | Phase 6 P2 | 25min | 2 tasks | 5 files |
 | Phase 06 P03 | 13min | 2 tasks | 7 files |
+| Phase 6 P04 | 14min | - tasks | - files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Plan 06-03: #mv=1 URL fragment key (short, no-collision) layered onto patch #25 fragment scheme via WorkspaceSpec.mobileView optional field. Same URLSearchParams encoding, same Chrome window-restore behavior.
 - [Phase ?]: Plan 06-03: Test 6 popstate simulation via direct hashchange+popstate dispatch (jsdom back-stack leaks across cases within a file; no reset API). Real browser back fires same events on same listeners; contract equivalence preserved.
 - [Phase ?]: Plan 06-03: SettingsRow mounted at BOTTOM of mobile ConversationsPanel scroller via settingsRowSlot: ReactNode prop (TG-10 compliance; leaves top slot for Plan 06-04 NewSessionButton).
+- [Phase ?]: NOTE-03 resolved: landed re-decision (stale-guard first, pending-clear before no-change return) in selectConversation; NOT the first-draft (clear-at-top) variant
+- [Phase ?]: T-06-04-04 race defense mitigated via selectConversationDeferred + module-scoped pendingSelectId + updateOpenTabs flush; 8 Vitest cases prove semantics
+- [Phase ?]: T-06-04-01 defense-in-depth: SESSION_NAME_PATTERN client-side; empty name allowed (server auto-fills from tmux window title); backend tmux path UNCHANGED
 
 ### Pending Todos
 
@@ -131,6 +135,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-21T02:43:44.379Z
+Last session: 2026-07-21T03:05:52.656Z
 Stopped at: Phase 02 Plan 02 complete — ComposeBox created, PrettyView wired, Terminal.tsx split-send threaded. Ready for Wave 3 (Plan 03 deploy checkpoint).
 Resume file: None
