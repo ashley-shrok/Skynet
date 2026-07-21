@@ -121,7 +121,8 @@
     "copyFailed": "Failed to copy to clipboard",
     "maximize": "Maximize",
     "restore": "Restore",
-    "of": "of"
+    "of": "of",
+    "open": "Open"
   },
   "nav": {
     "home": "Home",
@@ -176,7 +177,16 @@
       "settingsMenuUserProfile": "User Profile",
       "settingsMenuAdminSettings": "Admin Settings",
       "backToList": "Back to conversations"
-    }
+    },
+    "newSession": "New session",
+    "newSessionTitle": "Start a new conversation",
+    "newSessionDescription": "Pick a host and (optionally) name the session.",
+    "newSessionSearchHosts": "Search hosts",
+    "newSessionNameLabel": "Session name (optional)",
+    "newSessionNamePlaceholder": "auto",
+    "newSessionNameError": "Use letters, numbers, underscores, or dashes (max 64 characters).",
+    "newSessionNoHosts": "No hosts available",
+    "newSessionHostList": "Hosts"
   },
   "hosts": {
     "hosts": "Hosts",
