@@ -226,7 +226,7 @@ export function ConversationsPanel({
         <div className="shrink-0" />
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
         {/* Plan 06-04: NewSessionButton mounts at the TOP of the scroller
             (above the pinned section), visible on both mobile and desktop.
             Primary CTA for TG-09. Distinct from the header gear icon

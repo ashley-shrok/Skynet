@@ -1738,7 +1738,6 @@ export function AppShell({
         style={{
           height: "100dvh",
           paddingTop: "max(env(safe-area-inset-top), 0px)",
-          paddingBottom: "max(env(safe-area-inset-bottom), 0px)",
         }}
       >
         {/* Skinny icon rail — non-touch devices only. Gate is pointer/hover,
