@@ -369,7 +369,7 @@ export function HostEditorRdpTab({
                 {t("hosts.guac.driveName")}
               </label>
               <Input
-                placeholder="Termix Drive"
+                placeholder="Skynet Drive"
                 value={form.guacamoleConfig["drive-name"] ?? ""}
                 onChange={(e) => setGuacField("drive-name", e.target.value)}
               />
@@ -434,7 +434,7 @@ export function HostEditorRdpTab({
               {t("hosts.guac.clientName")}
             </label>
             <Input
-              placeholder="Termix"
+              placeholder="Skynet"
               value={form.guacamoleConfig["client-name"] ?? ""}
               onChange={(e) => setGuacField("client-name", e.target.value)}
             />

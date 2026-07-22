@@ -371,7 +371,7 @@ export function AdminIdentitiesSection({
                 Title
               </label>
               <Input
-                placeholder="optional, e.g. Termix maintainer"
+                placeholder="optional, e.g. Skynet maintainer"
                 value={form.title}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, title: e.target.value }))

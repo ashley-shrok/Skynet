@@ -36,6 +36,10 @@
   font-display: swap;
 }
 
+body {
+  overscroll-behavior: none;
+}
+
 @custom-variant dark (&:is(.dark *));
 @custom-variant dracula (&:is(.dracula *));
 @custom-variant catppuccin (&:is(.catppuccin *));
@@ -542,6 +546,12 @@ html.fs-xl {
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@supports (padding-top: env(safe-area-inset-top)) {
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
   }
 }
 

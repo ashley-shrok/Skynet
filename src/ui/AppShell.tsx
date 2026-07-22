@@ -433,7 +433,7 @@ export function AppShell({
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);
     const tmux = tmuxSessionNames[activeTabId];
-    document.title = tmux || activeTab?.label || "Termix";
+    document.title = tmux || activeTab?.label || "Skynet";
   }, [activeTabId, tabs, tmuxSessionNames]);
 
   // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
@@ -1733,7 +1733,14 @@ export function AppShell({
 
   return (
     <>
-      <div className="flex w-screen bg-background" style={{ height: "100dvh" }}>
+      <div
+        className="flex w-screen bg-background"
+        style={{
+          height: "100dvh",
+          paddingTop: "max(env(safe-area-inset-top), 0px)",
+          paddingBottom: "max(env(safe-area-inset-bottom), 0px)",
+        }}
+      >
         {/* Skinny icon rail — non-touch devices only. Gate is pointer/hover,
             not window width, so narrow desktop windows still get the rail.
             Also hidden when the sidebar panel is collapsed: rail + panel
