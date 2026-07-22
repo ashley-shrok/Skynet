@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-22T10:15:00.000Z"
+last_updated: "2026-07-22T10:45:00.000Z"
 last_activity: 2026-07-22
 progress:
   total_phases: 9
@@ -143,6 +143,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260722-ddg | Drafts belt-and-suspenders localStorage mirror (patch #119) — client-side mirror for compose-box + message-queue drafts survives container-restart draft loss regardless of any server-side failure mode. Every keystroke + every successful debounced server save writes to `localStorage`; on mount if the server returns empty and ls has content, restore and schedule an autosave. Extracts `scheduleItemAutosave` from `handleBodyChange` so the hydrate loop can reuse the same 400ms PATCH machinery. Four diagnostic `console.warn` lines (2 per surface) log serverLen vs lsLen for the follow-up root-cause bounty. Deploy deferred to a batch after bounties #3-5. | 2026-07-22 | 58d3c83 | [260722-ddg-patch-119-drafts-belt-and-suspenders-loc](./quick/260722-ddg-patch-119-drafts-belt-and-suspenders-loc/) |
 | 260722-dwe | Compose-box stop button (patch #120) — Ctrl-C safety valve for when Claude Code goes rogue mid-run from the pretty view. Square-icon `<Button>` in ComposeBox aux group (left of ThumbsUp, warm-neutral Glass; not `canSend`-gated). New WS `{ type: "interrupt" }` triggers backend `case "interrupt":` which fires `tmux send-keys -t <session> C-c` on the same multiplexed sshConn as patch #118, with raw `\x03`-byte PTY fallback for non-tmux panes / exec errors. No `setTimeout` wrapper (Ctrl-C interrupts Ink regardless of paste-detection framing). Two `sshLogger.info` events for diagnostic pinning. Deploy deferred: batched with #118-#122. | 2026-07-22 | 1bd0fd8 | [260722-dwe-patch-120-compose-box-stop-button-ctrl-c](./quick/260722-dwe-patch-120-compose-box-stop-button-ctrl-c/) |
 | 260722-eea | Remove vestigial send button (patch #121) — pure trim of `<Button><Send/></Button>` block, `Send` lucide import, and dead `sendDisabled` derived state from ComposeBox. Bounty `send-button-bigger` re-scoped mid-session after Ashley confirmed Enter (patch #118) is her sole submit path; cleaner aux row: Paperclip / Square (stop) / ThumbsUp / Hourglass. Single file, +4/-28. tsc clean. Deploy deferred: batched with #118-#122. | 2026-07-22 | f452c2e | [260722-eea-patch-121-remove-vestigial-send-button-f](./quick/260722-eea-patch-121-remove-vestigial-send-button-f/) |
+| 260722-eqv | Meter reset triggers session-holding overlay instant + zero-lock + red-bubble failure (patch #122). Three coordinated fork-side mechanics on the existing Phase-3 session-recycling state machine, backend untouched: (1) `onResetClicked?` callback threaded PrettyView→ComposeBox, fired synchronously at top of `handleResetSend` so patch #74's 350ms overlay delay-arm starts NOW instead of waiting for the backend `session_holding` WS frame; (2) `isHolding?` prop on ComposeBox adds `&& !isHolding` to the meter `isLit` conjunction so all 12 segments render unlit for the whole recycle window (well/border/glow/reset-cell unchanged, drain-sweep #83 unchanged); (3) `holdingTimeoutError` state → `error?` prop on SessionHoldingOverlay drives a warm-red variant (RefreshCcw `hsl(0,72%,60%)` matching meter red-band palette, subtle warm-red inset card glow, "Session recycle failed — refresh to check", aria-label swap, NO `animate-spin` — motion guardrail #72 preserved), triggered by either the backend `inactive { reason: 'holding_timeout' }` frame OR a client-side 120s belt-and-suspenders `useEffect` timer (survives WS drop). `case "inactive"` split by reason so holding_timeout doesn't unmount the compose box. tsc clean, +159/-8 across three files, no tests touched. Closes the fifth of five 2026-07-22 bounties. Deploy deferred: batched with #118-#121. | 2026-07-22 | 4bfa2e5 | [260722-eqv-patch-122-meter-reset-triggers-session-h](./quick/260722-eqv-patch-122-meter-reset-triggers-session-h/) |
 
 ## Deferred Items
 
@@ -154,6 +155,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-22T10:25:00.000Z
-Stopped at: Quick task 260722-eea complete (patch #121 remove vestigial send button — pure trim after bounty #4 re-scope, awaiting deploy — batched with #118-#122). Phase 9 Plan 03 complete — ready to execute 09-04-PLAN.md
+Last session: 2026-07-22T10:45:00.000Z
+Stopped at: Quick task 260722-eqv complete (patch #122 meter reset session-holding overlay instant + zero-lock + red-bubble failure). Stack is code-complete on all 5 bounties (#118 tmux send-keys hybrid, #119 localStorage mirror, #120 stop button, #121 send-button removal, #122 meter reset polish) — ready for batch deploy behind the 15-min deadman rollback. Phase 9 Plan 03 complete — ready to execute 09-04-PLAN.md
 Resume file: None
