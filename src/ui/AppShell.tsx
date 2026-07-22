@@ -57,7 +57,7 @@ import {
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
 import { ConnectionsPanel } from "@/sidebar/ConnectionsPanel";
-import { ConversationsPanel } from "@/sidebar/ConversationsPanel";
+import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
 import {
   updateHostTree,
   updateOpenTabs,
@@ -1400,7 +1400,16 @@ export function AppShell({
       <div
         className={`flex flex-col flex-1 min-h-0 ${railView === "conversations" ? "" : "hidden"}`}
       >
-        <ConversationsPanel
+        <PrettyConversationsPanel
+          // Phase 10 Wave 3: cutover from ConversationsPanel to
+          // PrettyConversationsPanel. Prop shape is preserved verbatim per
+          // Wave 2's handoff contract; `variant` is the ONE new wiring.
+          // Wave 2 handoff §"What Wave 3 DOES need to build" bullet 2:
+          // variant tracks `useIsMobile()` (narrow-viewport predicate) NOT
+          // `useIsTouchDevice()` — the row's mobile-variant swipe wants to
+          // fire on narrow desktop windows too where the touch device may
+          // still be a laptop.
+          variant={isMobile ? "mobile" : "desktop"}
           onRailClick={(view) => {
             handleRailClick(view);
             if (isMobile) setSidebarOpen(false);
@@ -1470,21 +1479,12 @@ export function AppShell({
           // renders in production; the guard catches the slow-fetch dev
           // case).
           onDetachedRowClick={(row) => {
-            // Patch #111 F3: warn (rather than silently no-op) when row.host
-            // is missing so a future UAT gives us signal. Ashley reported
-            // taps on "existing" fleet-native rows do nothing on mobile —
-            // if this warn fires in her DevTools when she re-taps, we know
-            // hostsFlat is failing to attach on her mobile viewport OR the
-            // fleet session's hostId isn't in her SSH hosts fetch (cross-
-            // scope / stale-host mismatch). Same guard shape, just louder.
+            // Phase 10 Wave 3: patch #111e F3-diag console.warn retired
+            // alongside the old ConversationsPanel. The defensive
+            // early-return stays — hostsFlat may still be unpopulated on
+            // slow-fetch dev cases (T-07-01-06 mitigation).
             const host = row.host;
-            if (!host) {
-              console.warn(
-                "[F3-diag] onDetachedRowClick: row.host missing; row=",
-                row,
-              );
-              return;
-            }
+            if (!host) return;
             const sessionName = row.targetTmuxSession;
             if (!sessionName) return; // defense — fleet rows always have one
             const newTabId = openTab(host, "terminal", undefined, {
