@@ -44,9 +44,9 @@ This is the core geometric contract for Phase 9. All other sections refine it.
 ```
 
 - **Reset cell**: leftmost cell of the meter well — same integrated-instrument semantic as patch #83. Native `<button>`, NOT shadcn Button. Same RotateCcw (size-3.5) icon. Rests as unlit-green; hover brightens to lit-green; drains right→left during drain-sweep.
-- **Horizontal meter well**: fills the remaining width of top row between reset cell and aux buttons. Segments fill LEFT→RIGHT (lowest index = leftmost = lowest context %). Same color banding: green (low), amber (mid), red (high). `role="meter"` with `aria-valuenow`, `aria-valuemin=0`, `aria-valuemax=100`.
-- **Aux buttons**: Paperclip (mobile-only, gated by `showPaperclip`), ThumbsUp (go-ahead quick-send), Hourglass (queue). Right-aligned. Same glass treatment as current (warm-neutral gradient, not amber — amber is reserved for Send only). Laid out as `flex-row gap-1`.
-- **Row height**: 32px (2 × 16px = icon-sm button height). The whole top row must be visually compact — no taller than a single icon-sm button row.
+- **Horizontal meter well**: **FIXED width `160px`** (default; Ashley-tunable in prototype). Height `28px`, matching the current vertical meter's width (`w-7`). Meter does NOT stretch across the row — Ashley 2026-07-22: "over time we're probably going to add more buttons on the top row anyway so there's no need for it to really be stretching across the whole way when it's just going to end up shrinking over time anyway." A flex `<div>` spacer between the meter and the aux button group reserves that future room. Segments fill LEFT→RIGHT (lowest index = leftmost = lowest context %). Same color banding: green (low), amber (mid), red (high). `role="meter"` with `aria-valuenow`, `aria-valuemin=0`, `aria-valuemax=100`.
+- **Aux buttons**: Paperclip (mobile-only, gated by `showPaperclip`), ThumbsUp (go-ahead quick-send), Hourglass (queue). Right-aligned. Same glass treatment as current (warm-neutral gradient, not amber — amber is reserved for Send only). Laid out as `flex-row gap-1`. **Uniform size with Send button: `icon-sm` (32×32)** — Ashley 2026-07-22: "uniform buttons between the send and the thumbs up, et cetera, even though the send probably is going to be a different color." Only the color contract (glass warm-neutral vs VISUAL-08 amber) distinguishes send from aux.
+- **Row height**: 32px (icon-sm button anchor). Top row MUST equal bottom row's rest height — Ashley 2026-07-22: "keep it simple and have the bottom and the top row be the same height as each other."
 - **Touch target**: On touch devices, the top row minimum touch-target height is 44px. Achieved via `min-h-[44px] flex items-center` on the top-row wrapper when `showPaperclip === true` (proxy for touch context).
 
 ### Row 2 — Bottom Row (Compose Bar)
@@ -182,11 +182,13 @@ Implementation:
 - Wait: Vertical drain was TOP→BOTTOM (topmost = highest dims first). Translating: RIGHTMOST→LEFTMOST (highest dims first). So rightmost gets `0ms` delay, leftmost gets `(SEG_COUNT-1)*35ms`. Formula: `delay = (SEG_COUNT-1-i)*35ms` where `i=0` is LEFTMOST and `i=SEG_COUNT-1` is RIGHTMOST. This means: leftmost dims LAST (longest delay), rightmost dims FIRST. That's a LEFT→RIGHT sweep of dimming — rightmost dims first, leftmost last — which reads as "emptying from the full end back toward the reset cell." Correct semantic.
 - Pulse timing unchanged: 420ms on, 770ms off, 800ms total.
 
-### Segment Count — Prototype-First Decision
+### Segment Count — LOCKED via prototype (2026-07-22)
 
-**Starting recommendation: SEG_COUNT = 16 for prototype, Ashley tunes live.**
+**SEG_COUNT = 12** (matches current vertical meter's count).
 
-Rationale: Horizontal space is much wider than the 28px-tall vertical well. At a 300px meter width, 16 segments = ~18.5px wide each with 2px gaps = visually readable. At wider windows, more segments would be fine. The prototype serves this as a CSS variable `--seg-count` so Ashley can bump it with DevTools without reloading. Lock the count after prototype review.
+**Meter width = 160px** fixed (default). React implementation exposes `--seg-count` and `--meter-width` as CSS custom properties on the meter well for future tuning without a rebuild.
+
+Rationale: Ashley reviewed the v2 prototype at 160px / 12 segments and endorsed the direction. Matching the current segment count preserves the muscle memory of what fill levels mean. 160px is "similar rotated 90°, maybe a bit longer" per her spec — leaves the meter compact so future top-row buttons don't force it to shrink over time.
 
 ### Queue-Armed State
 
@@ -323,13 +325,20 @@ These sub-questions from the bounty are surfaced to Ashley during prototype revi
 
 | # | Question | Recommendation | Resolution |
 |---|----------|----------------|------------|
-| Q1 | Drain-sweep: right→left or drop? | KEEP, reorient right→left (highest fills dim first). Prototype-testable. | TBD via prototype |
+| Q1 | Drain-sweep: right→left or drop? | KEEP, reorient right→left (highest fills dim first). Prototype-testable. | **LOCKED via prototype 2026-07-22**: KEEP, right→left. |
 | Q2 | Reset cell: integrated leftmost cell of horizontal well, or standalone button? | INTEGRATED (patch #83 one-instrument rationale preserved). | Integrated (specified above) |
 | Q3 | Mobile touch targets: acceptable if top-row height is 44px on touch devices? | YES — use `min-h-[44px]` on top-row wrapper gated by `showPaperclip` (touch proxy). | Specified above |
 | Q4 | Retry-upload button / error message: in-flow above/below (unchanged) or fold in? | UNCHANGED — both are transient and belong in-flow per Ashley's explicit statement in bounty. | Unchanged (specified above) |
-| Q5 | Segment count: 16 for prototype, Ashley tunes live? | Yes — 16 start, `--seg-count` CSS var for live tuning. | TBD via prototype |
+| Q5 | Segment count: 16 for prototype, Ashley tunes live? | Yes — 16 start, `--seg-count` CSS var for live tuning. | **LOCKED via prototype 2026-07-22**: 12 segments, 160px fixed-width meter. `--seg-count` and `--meter-width` exposed as CSS vars for future tuning. |
 
-Q1 and Q5 require prototype-round decision from Ashley before finalizing React implementation. Q2/Q3/Q4 are resolved in this spec as recommendations.
+**All 5 open questions LOCKED via prototype review 2026-07-22.** Ashley: "that's basically what we're gonna do for now. I wouldn't really have any broad notes on it." Direction endorsed. Ready for /gsd-plan-phase 9.
+
+### Additional prototype-locked decisions (2026-07-22)
+
+1. **Faithful rearrangement, not visual redesign.** Ashley: "we don't necessarily need to be changing the style that the current one is in you know so i noticed that this one looks very different so i just want to call that out before we go down that road." All class values must be preserved verbatim from `src/ui/features/pretty-view/ComposeBox.tsx`. Layout moves; styling does not.
+2. **Fixed-width meter with future-buttons spacer.** Meter is 160px fixed (not `flex-1`). A `<div class="flex-1">` spacer sits between the meter and the aux button group — that's where future top-row buttons accumulate without forcing the meter to shrink.
+3. **Uniform button sizes.** All top-row aux buttons + send button are `icon-sm` (32×32). Only the color contract (glass warm-neutral vs VISUAL-08 amber) differs. No custom sizing per button.
+4. **Same-height top and bottom rows.** 32px minimum on both.
 
 ---
 
