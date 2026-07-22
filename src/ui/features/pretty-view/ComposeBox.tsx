@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hourglass, Paperclip, RefreshCw, RotateCcw, Send, Square, ThumbsUp } from "lucide-react";
+import { Hourglass, Paperclip, RefreshCw, RotateCcw, Square, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -786,16 +786,11 @@ export function ComposeBox({
     // textarea is focused.
   }
 
-  // Phase 05 (UPLOAD-13): Send is ENABLED with attachments even when
-  // caption text is empty. Text-only sends still require non-empty text.
-  const sendDisabled =
-    (text.trim() === "" && !hasAttachments) || canSend === false;
-
   // Patch #84: derived state for the Queue (Hourglass) button. Armed
   // when queuedText !== null. Disabled when either the transport is
-  // down (mirrors sendDisabled's canSend gate) OR when text is empty
-  // AND we're not already armed — an armed button must always be
-  // clickable so the user can cancel.
+  // down (mirrors the canSend gate the removed Send button used) OR
+  // when text is empty AND we're not already armed — an armed button
+  // must always be clickable so the user can cancel.
   const queueArmed = queuedText !== null;
   const queueDisabled =
     canSend === false || (queuedText === null && text.trim() === "");
@@ -1301,25 +1296,6 @@ export function ComposeBox({
           </div>
         )}
         </div>
-        <Button
-          size="icon-sm"
-          onClick={handleSend}
-          disabled={sendDisabled}
-          aria-label="Send message"
-          title="Send (Enter)"
-          className={cn(
-            "rounded-md cursor-pointer",
-            "border-[rgba(255,220,170,0.5)]",
-            "bg-[linear-gradient(180deg,hsla(38,90%,66%,0.92),hsla(38,90%,44%,0.94))]",
-            "text-[#1a0f04]",
-            "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,235,190,0.5),_0_0_24px_hsla(38,90%,55%,0.42)]",
-            "hover:bg-[linear-gradient(180deg,hsla(38,95%,72%,0.96),hsla(38,95%,50%,0.98))]",
-            "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,235,190,0.6),_0_0_32px_hsla(38,90%,55%,0.5)]",
-            "disabled:opacity-40 disabled:cursor-not-allowed",
-          )}
-        >
-          <Send className="size-4" />
-        </Button>
       </div>
       {errorMessage && (
         <div className="text-xs text-destructive">{errorMessage}</div>
