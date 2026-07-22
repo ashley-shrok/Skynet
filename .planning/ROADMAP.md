@@ -202,7 +202,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
 | 6. Telegram-like interface | 5/5 | Complete   | 2026-07-21 |
 | 7. Fleet-native conversation list | 2/3 | In Progress|  |
-| 9. ComposeBox redesign — 2-tall shell | 2/4 | In Progress|  |
+| 9. ComposeBox redesign — 2-tall shell | 3/4 | In Progress|  |
 
 ### Phase 6: Telegram-like interface
 
@@ -273,7 +273,7 @@ Plans:
 **Requirements**: COMPOSE-01, COMPOSE-02, COMPOSE-03, COMPOSE-04, COMPOSE-05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09, UPLOAD-04 (all pre-existing; no new REQ-IDs introduced; Phase 9 rearranges the geometry without altering the requirement contracts)
 **Depends on:** Phase 2 (COMPOSE base), Phase 4 (Glass reskin), Phase 5 (upload chip strip), patch #83 (vertical ctx meter — reoriented here), patch #84 (queue button — preserved)
 **UI-SPEC (LOCKED via prototype review 2026-07-22):** `.planning/phases/09-compose-box-redesign-2-tall-shell/09-UI-SPEC.md`
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 **Wave 1**
 
@@ -285,7 +285,7 @@ Plans:
 
 **Wave 3** *(blocked on 09-01 + 09-02 — same-file overlap for tests, then human UAT)*
 
-- [ ] 09-03-PLAN.md — Add Phase 9 structural tests to ComposeBox.test.tsx (2-row shell DOM position, horizontal meter flex-row, mobile touch target min-h[44px], 1-row textarea floor); do not modify or delete any of the 10 pre-existing Phase 05 tests (COMPOSE-01..05, VISUAL-09)
+- [x] 09-03-PLAN.md — Add Phase 9 structural tests to ComposeBox.test.tsx (2-row shell DOM position, horizontal meter flex-row, mobile touch target min-h[44px], 1-row textarea floor); do not modify or delete any of the 10 pre-existing Phase 05 tests (COMPOSE-01..05, VISUAL-09)
 - [ ] 09-04-PLAN.md — Human UAT checkpoint (Ashley walks the 10-item checklist in a live Termix instance); approval routes to Ashley's separate build+deploy step, revision notes route back to 09-01 or 09-02 (COMPOSE-01..05, VISUAL-08, VISUAL-09, UPLOAD-04)
 
 **Bounty:** `compose-box-redesign` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/compose-box-redesign/`). Prototype-locked at 2026-07-22.
