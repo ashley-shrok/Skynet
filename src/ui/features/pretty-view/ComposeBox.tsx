@@ -50,21 +50,27 @@ import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChip
 
 const DEBOUNCE_MS = 400;
 
-// Patch #83: number of vertical segments in the compose meter well.
-// The well always mounts (even when contextPct is null) so the compose
-// row's geometry doesn't jitter on first attach. Segments light bottom-to-
-// top per contextPct at `litCount = round(contextPct / 100 * SEG_COUNT)`.
+// Patch #83: segmented meter well with integrated reset cell (one instrument).
+// Phase 9 (09-02): rotated 90° from vertical (28px wide × stretched-tall)
+// to horizontal (160px wide × 28px tall). Segments now fill LEFT→RIGHT;
+// index 0 = leftmost = lowest context %; index SEG_COUNT-1 = rightmost =
+// highest %. The reset cell is now the LEFTMOST cell (was BOTTOMMOST).
+// Drain sweep empties RIGHT→LEFT (rightmost dims first, leftmost last).
+// See UI-SPEC.md § Interaction Contract → Drain-Sweep Animation.
 //
-// Patch #89 (third try): 12 → 11. The two prior #89 attempts (grid 1fr,
-// then explicit calc heights) both left visible sub-pixel unevenness on
-// Ashley's Retina display because the meter well is only ~58px tall and
-// 12 segments minus 22px of gap leaves ~2.5px per segment — variance of
-// 0.016px CSS rounds to different physical pixels at that size. Ashley
-// tuned live via a DevTools panel and 11 segments "instantly looks
-// good"; odd count breaks the symmetric off-by-1 pattern the eye reads
-// as unevenness in even counts. Loses ~1% of resolution per segment,
-// negligible for context-window read-out.
-const SEG_COUNT = 11;
+// SEG_COUNT = 12 (back to the pre-patch-#89 count, per prototype 2026-07-22).
+// Patch #89 bumped 12 → 11 to fix sub-pixel rounding artifacts at ~2.5px/
+// segment in the vertical well. The horizontal orientation at 160px removes
+// that concern: 160px / 12 segments ≈ 13px/segment — no rounding hazard.
+// Ashley endorsed 12 segments in prototype review (UI-SPEC.md § Segment Count).
+//
+// `litCount = round(contextPct / 100 * SEG_COUNT)` — segments 0..litCount-1 are
+// lit, litCount..SEG_COUNT-1 are dim. Color bands by position:
+// green (< 45%), amber (45-77%), red (≥ 78%).
+//
+// CSS custom properties `--seg-count` and `--meter-width` are set on the
+// meter well's inline style for live DevTools tuning without a rebuild.
+const SEG_COUNT = 12;
 
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
@@ -782,21 +788,21 @@ export function ComposeBox({
           touch target; min-h-8 on desktop (matches Row 2 rest height). */}
       <div className={cn("flex items-center gap-2", showPaperclip ? "min-h-[44px]" : "min-h-8")}>
         {/* Patch #83: cohesive segmented-well meter with integrated reset
-            cell. The well ALWAYS mounts (segments show dim when
-            contextPct is null so the row geometry never jitters on
-            first attach). Segments light bottom-to-top per
-            litCount = round(contextPct / 100 * SEG_COUNT), colored by
-            position band: bottom green (< 45%) → middle amber (45-77%)
-            → top red (≥ 78%). The bottom slot of the well is a native
-            <button> reset cell — clicking it dispatches /id reset AND
-            fires a top-to-bottom drain sweep animation (~600ms) with
-            the reset cell pulsing lit-green at the drain peak. The
-            meter and reset read as one instrument, not two widgets.
-            Plan 09-02 will rotate this well from vertical→horizontal;
-            class values on the well div and reset button are UNCHANGED
-            in plan 09-01. */}
+            cell (one instrument). The well ALWAYS mounts (segments show
+            dim when contextPct is null so the row geometry never jitters
+            on first attach).
+            Phase 9 (09-02): rotated 90° to horizontal. Segments fill
+            LEFT→RIGHT (index 0 = leftmost = lowest %; index SEG_COUNT-1 =
+            rightmost = highest %). Reset cell is now the LEFTMOST cell.
+            Drain sweep empties RIGHT→LEFT (rightmost dims first, leftmost
+            dims last — "flushing the well toward the reset cell").
+            SEG_COUNT bumped 11→12 per prototype 2026-07-22 (horizontal
+            orientation moots patch #89's sub-pixel concern at ~13px/seg).
+            CSS vars `--seg-count` and `--meter-width` expose tuning via
+            DevTools without a rebuild. */}
         <div
-          className="w-7 self-stretch rounded-md flex flex-col p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
+          className="h-7 w-[var(--meter-width)] rounded-md flex flex-row p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
+          style={{"--seg-count": SEG_COUNT, "--meter-width": "160px"} as React.CSSProperties}
           role="meter"
           aria-label="Context window"
           aria-valuemin={0}
@@ -806,29 +812,17 @@ export function ComposeBox({
             contextPct != null ? `Context ${contextPct}%` : "Context (unknown)"
           }
         >
-          {/* Segments: flex-col-reverse so index 0 renders at the
-              bottom of the well and index SEG_COUNT-1 at the top.
-              transition-delay = (SEG_COUNT - 1 - i) * 35ms so the
-              topmost segment transitions first — during a drain
-              (isDraining=true, all segments render dim) this reads
-              as a top→bottom sweep; when contextPct rises during
-              normal use it reads as a bottom→top fill. */}
-          {/* Patch #89 (second try): explicit calc-height per segment
-              defeats browser sub-pixel rounding artifacts. First try used
-              CSS Grid with `1fr` rows — Ashley re-eyeballed and reported
-              segments STILL visibly uneven. Both `flex: 1` and grid `1fr`
-              distribute remaining space and let the browser round each
-              row's rendered pixel independently, which produces 1-pixel
-              variance at short segment heights (compose row is only
-              ~60-80px tall; 12 rows minus 22px of gap = ~40-60px / 12 =
-              3-5px per row; a 1px round difference is very visible). The
-              deterministic fix: give every segment the SAME
-              `calc((100% - <total_gap>px) / <SEG_COUNT>)` height. All 12
-              segments share the identical calc expression, so any
-              sub-pixel round the browser applies is applied uniformly to
-              all of them. `flex: 0 0 auto` disables the flex expansion
-              that would otherwise override the explicit height. */}
-          <div className="flex-1 flex flex-col-reverse gap-[2px] min-h-[30px]">
+          {/* Segments: flex-row so index 0 renders at the LEFT of the
+              well and index SEG_COUNT-1 at the RIGHT. Phase 9 (09-02)
+              rotation from flex-col-reverse (vertical) to flex-row
+              (horizontal). transitionDelay = (SEG_COUNT - 1 - i) * 35ms
+              so the rightmost segment (i=SEG_COUNT-1) gets 0ms (dims
+              first) and leftmost (i=0) gets the longest delay (dims last)
+              — reads as a right→left drain sweep toward the reset cell.
+              Segment width uses the same explicit-calc-per-segment idiom
+              as patch #89's height fix, but now on the horizontal axis
+              (13px/seg at 160px/12 — no sub-pixel concern). */}
+          <div className="flex flex-row gap-[2px] min-w-[100px] flex-1 h-full">
             {Array.from({ length: SEG_COUNT }, (_, i) => {
               const posPct = (i / (SEG_COUNT - 1)) * 100;
               const band =
@@ -881,15 +875,16 @@ export function ComposeBox({
                   key={i}
                   className="rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
                   style={{
-                    // Patch #89 (second try): explicit calc height per
-                    // segment, same expression for all 12, so any sub-pixel
-                    // rounding the browser applies is applied uniformly.
-                    // `flex: "0 0 auto"` disables flex-grow/shrink so the
-                    // parent's flexbox does NOT override this height.
-                    // Total: 12 * calc((100% - 22px) / 12) + 22px gap
-                    // = 100% (fills the well exactly, minus at most one
-                    // rounding pixel that appears as a whole at the top).
-                    height: `calc((100% - ${(SEG_COUNT - 1) * 2}px) / ${SEG_COUNT})`,
+                    // Phase 9 (09-02): explicit calc width per segment,
+                    // same expression for all 12, mirroring patch #89's
+                    // height-calc fix but on the horizontal axis.
+                    // At 160px / 12 segs ≈ 13px/seg the sub-pixel round
+                    // concern that motivated #89's 11-seg odd-count is no
+                    // longer relevant. `flex: "0 0 auto"` disables
+                    // flex-grow/shrink so the explicit width is authoritative.
+                    // height: '100%' fills the well's 28px vertical dimension.
+                    width: `calc((100% - ${(SEG_COUNT - 1) * 2}px) / ${SEG_COUNT})`,
+                    height: '100%',
                     flex: "0 0 auto",
                     transitionDelay: `${(SEG_COUNT - 1 - i) * 35}ms`,
                     background,
@@ -899,18 +894,21 @@ export function ComposeBox({
               );
             })}
           </div>
-          {/* Divider between segment stack and reset cell — a hair-
-              line inset that reads as a shelf seam inside the well. */}
-          <div className="h-px my-[3px] bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
+          {/* Divider between segment stack and reset cell — a vertical
+              hairline inset that reads as a shelf seam inside the well.
+              Phase 9 (09-02): rotated from horizontal hairline to vertical
+              (w-px mx-[3px] h-full) for the horizontal well orientation. */}
+          <div className="w-px mx-[3px] h-full bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
           {/* Reset cell: native <button> (NOT shadcn Button — the
               outline variant's `dark:bg-input/30` would force `!`
-              gymnastics per patch #81-fix, and the icon-sm size-7
-              rounded-none default doesn't fit the w-full h-6
-              rounded-[2px] cell shape we need inside the w-7 well).
-              Rests as unlit-green; hover brightens to lit-green;
-              during a drain the cell holds lit-green while
-              isPulsing (~420-770ms after click) so it reads as the
-              flush-point of the emptying meter. */}
+              gymnastics per patch #81-fix). Phase 9 (09-02): rotated
+              from `w-full h-6` (vertical, bottommost cell) to `h-full
+              w-6` (horizontal, leftmost cell). Same 24-unit long axis,
+              now on the horizontal dimension; height stretches to fill
+              the well's 28px height. Rests as unlit-green; hover
+              brightens to lit-green; during a drain the cell holds
+              lit-green while isPulsing (~420-770ms after click) so it
+              reads as the flush-point of the emptying meter. */}
           <button
             type="button"
             onClick={handleResetSend}
@@ -918,7 +916,7 @@ export function ComposeBox({
             aria-label="Send with /id reset prefix"
             title="Send with /id reset prefix"
             className={cn(
-              "w-full h-6 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
+              "h-full w-6 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
               "transition-[background,box-shadow,color] duration-[180ms]",
               "disabled:opacity-40 disabled:cursor-not-allowed",
               isPulsing
