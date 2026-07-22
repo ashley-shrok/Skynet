@@ -25,6 +25,15 @@ interface MessageQueueDrawerProps {
 // mid-typing). Sub-second worst-case save latency.
 const DEBOUNCE_MS = 400;
 
+// Patch #119 — draft-loss belt-and-suspenders: per-item localStorage
+// mirror for queued-message bodies. Keyed by itemId (server-generated
+// UUID) so keys are stable across container restarts and never collide
+// across hosts / tmux sessions. Survives any server-side failure mode
+// (bad load key, DB not ready, container recreate mid-typing).
+function messageQueueDraftLsKey(itemId: string): string {
+  return `termix:message-queue-draft:${itemId}`;
+}
+
 export function MessageQueueDrawer({
   hostId,
   tmuxSession,
@@ -77,7 +86,62 @@ export function MessageQueueDrawer({
     listMessageQueueItems({ hostId, tmuxSession })
       .then(async (rows) => {
         if (cancelled) return;
-        setItems(rows);
+
+        // Patch #119 — draft-loss belt-and-suspenders hydrate. Per
+        // item, cross-check the server body against localStorage:
+        //   - server non-empty → server wins; mirror server body →
+        //     ls so ls stays fresh.
+        //   - server empty + ls non-empty → restore from ls, mark
+        //     dirty, and schedule an autosave so the server catches
+        //     up on the next debounce tick.
+        //   - both empty → nothing to do.
+        // Diagnostic console.warn per item reveals serverLen vs
+        // lsLen for the next post-restart repro.
+        const hydrated: MessageQueueItem[] = rows.map((item) => {
+          let lsBody: string | null = null;
+          try {
+            lsBody = localStorage.getItem(messageQueueDraftLsKey(item.id));
+          } catch {
+            lsBody = null;
+          }
+
+          console.warn(
+            "[message-queue-draft] load itemId=%s serverLen=%d lsLen=%d",
+            item.id,
+            item.body.length,
+            lsBody?.length ?? 0,
+          );
+
+          if (item.body === "" && lsBody && lsBody.length > 0) {
+            // Belt-and-suspenders restore. Mark dirty so
+            // scheduleItemAutosave picks up `lsBody` from the ref
+            // when its 400ms timer fires below.
+            dirtyBodiesRef.current.set(item.id, lsBody);
+            return { ...item, body: lsBody };
+          }
+
+          if (item.body !== "") {
+            try {
+              localStorage.setItem(messageQueueDraftLsKey(item.id), item.body);
+            } catch {}
+          }
+          return item;
+        });
+
+        setItems(hydrated);
+
+        // For any items where we restored from ls, kick the shared
+        // debounce timer so the server catches up. Iterating the
+        // dirty ref (populated in the .map above) is authoritative —
+        // any items we did NOT restore have no dirty entry and are
+        // skipped.
+        for (const item of hydrated) {
+          const dirty = dirtyBodiesRef.current.get(item.id);
+          if (dirty !== undefined && dirty === item.body && item.body !== "") {
+            scheduleItemAutosave(item.id, item.body);
+          }
+        }
+
         if (rows.length === 0) {
           try {
             const created = await createMessageQueueItem({ hostId, tmuxSession });
@@ -98,7 +162,7 @@ export function MessageQueueDrawer({
     return () => {
       cancelled = true;
     };
-  }, [hostId, tmuxSession]);
+  }, [hostId, tmuxSession, scheduleItemAutosave]);
 
   // Best-effort flush on tab close / refresh / navigation. pagehide fires
   // for all unload paths incl. bfcache; visibilitychange→hidden catches
@@ -187,6 +251,13 @@ export function MessageQueueDrawer({
             // Best-effort. Any leftover empty item is caught by the
             // auto-open filter in Terminal.tsx as belt-and-braces.
           });
+          // Patch #119 — draft-loss belt-and-suspenders: also drop
+          // any ls mirror for the item so we don't leave stale
+          // per-id keys after a cleanup delete. removeItem on absent
+          // keys is a no-op, safe to fire unconditionally.
+          try {
+            localStorage.removeItem(messageQueueDraftLsKey(item.id));
+          } catch {}
         }
       }
     };
@@ -202,11 +273,15 @@ export function MessageQueueDrawer({
     }
   }, [hostId, tmuxSession]);
 
-  const handleBodyChange = useCallback((id: string, body: string) => {
-    setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, body } : it)),
-    );
-    dirtyBodiesRef.current.set(id, body);
+  // Patch #119 — extracted from the previous inline debounce block in
+  // handleBodyChange so the hydrate path (below, in the mount useEffect)
+  // can reuse the SAME debounce+PATCH machinery when it restores a body
+  // from localStorage. Behavior is byte-identical to the pre-patch
+  // inline block (same 400ms timer, same latest-body snapshot, same
+  // re-queue-on-error behavior) with one addition: on successful PATCH
+  // we mirror the body to localStorage so ls stays in sync with the
+  // server after every confirmed save.
+  const scheduleItemAutosave = useCallback((id: string, body: string) => {
     const existing = debounceTimersRef.current.get(id);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
@@ -214,14 +289,48 @@ export function MessageQueueDrawer({
       const latest = dirtyBodiesRef.current.get(id);
       if (latest === undefined) return;
       dirtyBodiesRef.current.delete(id);
-      updateMessageQueueItem(id, { body: latest }).catch((e) => {
-        setError(String((e as Error)?.message ?? e));
-        // Re-queue for the next flush chance.
-        dirtyBodiesRef.current.set(id, latest);
-      });
+      // Patch #119 — draft-loss belt-and-suspenders diagnostic. One
+      // console.warn per attempted server save so the next post-restart
+      // repro reveals whether the server-side save fired at all.
+      console.warn(
+        "[message-queue-draft] save itemId=%s bodyLen=%d",
+        id,
+        latest.length,
+      );
+      updateMessageQueueItem(id, { body: latest })
+        .then(() => {
+          // Patch #119 — mirror the confirmed-saved body to
+          // localStorage so ls stays in sync with the server after
+          // every successful autosave.
+          try {
+            localStorage.setItem(messageQueueDraftLsKey(id), latest);
+          } catch {
+            // quota / private browsing — non-fatal.
+          }
+        })
+        .catch((e) => {
+          setError(String((e as Error)?.message ?? e));
+          // Re-queue for the next flush chance.
+          dirtyBodiesRef.current.set(id, latest);
+        });
     }, DEBOUNCE_MS);
     debounceTimersRef.current.set(id, timer);
   }, []);
+
+  const handleBodyChange = useCallback((id: string, body: string) => {
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, body } : it)),
+    );
+    dirtyBodiesRef.current.set(id, body);
+    // Patch #119 — draft-loss belt-and-suspenders: mirror every
+    // keystroke to localStorage so the draft survives any server-side
+    // failure mode. try/catch keeps storage-quota / private-browsing
+    // throws non-fatal.
+    try {
+      localStorage.setItem(messageQueueDraftLsKey(id), body);
+    } catch {}
+    scheduleItemAutosave(id, body);
+  }, [scheduleItemAutosave]);
 
   const handleBlurSave = useCallback(
     (id: string) => {
@@ -244,6 +353,15 @@ export function MessageQueueDrawer({
     });
     try {
       await deleteMessageQueueItem(id);
+      // Patch #119 — draft-loss belt-and-suspenders: drop the ls mirror
+      // on successful server delete so subsequent hydrates don't
+      // resurrect the deleted body under a fresh createMessageQueueItem
+      // that happens to reuse the id (extremely unlikely — UUIDs — but
+      // removeItem on absent keys is a no-op so belt-and-suspenders
+      // removal is safe).
+      try {
+        localStorage.removeItem(messageQueueDraftLsKey(id));
+      } catch {}
     } catch (e) {
       setError(String((e as Error)?.message ?? e));
       setItems(prev);
@@ -254,6 +372,11 @@ export function MessageQueueDrawer({
     setSendingId(id);
     try {
       await deleteMessageQueueItem(id);
+      // Patch #119 — draft-loss belt-and-suspenders: drop the ls mirror
+      // on successful server delete (same rationale as handleDelete).
+      try {
+        localStorage.removeItem(messageQueueDraftLsKey(id));
+      } catch {}
       setItems((p) => p.filter((it) => it.id !== id));
       setSentPendingIds((p) => {
         const next = new Set(p);

@@ -50,6 +50,20 @@ import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChip
 
 const DEBOUNCE_MS = 400;
 
+// Patch #119 — draft-loss belt-and-suspenders: localStorage mirror for the
+// compose draft body. Single-user-per-browser tool, so no userId in the key.
+// Survives any server-side failure mode (bad load key, DB not ready, auth,
+// container recreate mid-typing). Hydrate path: if server returns empty AND
+// localStorage has content, restore from ls and schedule an autosave so the
+// server catches up. Diagnostic console.warns on save/load help narrow the
+// still-unknown root cause of post-restart draft loss.
+function composeDraftLsKey(
+  hostId: number,
+  tmuxSessionKey: string | null | undefined,
+): string {
+  return `termix:compose-draft:${hostId}:${tmuxSessionKey ?? ""}`;
+}
+
 // Patch #83: segmented meter well with integrated reset cell (one instrument).
 // Phase 9 (09-02): rotated 90° from vertical (28px wide × stretched-tall)
 // to horizontal (160px wide × 28px tall). Segments now fill LEFT→RIGHT;
@@ -280,8 +294,24 @@ export function ComposeBox({
     if (dirtyBodyRef.current === null) return;
     const body = dirtyBodyRef.current;
     dirtyBodyRef.current = null;
+    // Patch #119 — draft-loss belt-and-suspenders diagnostic. One
+    // console.warn per attempted server save so the next post-restart
+    // repro reveals whether the server-side save fired at all.
+    console.warn(
+      "[compose-draft] save hostId=%s tmuxSession=%s bodyLen=%d",
+      hostId,
+      tmuxSessionKey ?? "(null)",
+      body.length,
+    );
     try {
       await putComposeDraft(hostId, tmuxSessionKey, body);
+      // Patch #119 — mirror the confirmed-saved body to localStorage so
+      // ls stays in sync with the server after every successful autosave.
+      try {
+        localStorage.setItem(composeDraftLsKey(hostId, tmuxSessionKey), body);
+      } catch {
+        // localStorage can throw on quota / private browsing — non-fatal.
+      }
     } catch {
       // Re-queue latest — prefer newer edits over the snapshot we just
       // tried to send. No error UI (COMPOSE-04 HARD LOCK).
@@ -293,13 +323,24 @@ export function ComposeBox({
   const scheduleAutosave = useCallback(
     (nextBody: string) => {
       dirtyBodyRef.current = nextBody;
+      // Patch #119 — draft-loss belt-and-suspenders: mirror every
+      // keystroke (well, every scheduled autosave, which is every
+      // keystroke via handleTextChange) to localStorage so the draft
+      // survives any server-side failure mode. try/catch keeps
+      // storage-quota / private-browsing throws non-fatal.
+      try {
+        localStorage.setItem(
+          composeDraftLsKey(hostId, tmuxSessionKey),
+          nextBody,
+        );
+      } catch {}
       clearDebounce();
       debounceTimerRef.current = setTimeout(() => {
         debounceTimerRef.current = null;
         void flushDirty();
       }, DEBOUNCE_MS);
     },
-    [clearDebounce, flushDirty],
+    [clearDebounce, flushDirty, hostId, tmuxSessionKey],
   );
 
   // Load-on-mount: seed text state from the persisted draft for this
@@ -321,8 +362,55 @@ export function ComposeBox({
       .then((data) => {
         if (cancelled) return;
         const seed = data.body ?? "";
-        setText(seed);
-        latestBodyRef.current = seed;
+
+        // Patch #119 — draft-loss belt-and-suspenders hydrate. Cross-
+        // check localStorage against the server seed:
+        //   - server non-empty → server wins; mirror seed → ls so ls
+        //     stays fresh.
+        //   - server empty + ls non-empty → restore from ls and
+        //     schedule an autosave so the server catches up on the
+        //     next debounce tick.
+        //   - both empty → nothing to do.
+        // Diagnostic console.warn reveals serverLen vs lsLen for the
+        // next post-restart repro.
+        let lsBody: string | null = null;
+        try {
+          lsBody = localStorage.getItem(
+            composeDraftLsKey(hostId, tmuxSessionKey),
+          );
+        } catch {
+          lsBody = null;
+        }
+
+        let hydratedBody = seed;
+        if (seed !== "") {
+          try {
+            localStorage.setItem(
+              composeDraftLsKey(hostId, tmuxSessionKey),
+              seed,
+            );
+          } catch {}
+        } else if (lsBody && lsBody.length > 0) {
+          hydratedBody = lsBody;
+        }
+
+        console.warn(
+          "[compose-draft] load hostId=%s tmuxSession=%s serverLen=%d lsLen=%d",
+          hostId,
+          tmuxSessionKey ?? "(null)",
+          seed.length,
+          lsBody?.length ?? 0,
+        );
+
+        setText(hydratedBody);
+        latestBodyRef.current = hydratedBody;
+
+        // If we restored from ls, kick off an autosave so the server
+        // catches up on the next 400ms tick. scheduleAutosave also
+        // re-mirrors to ls (idempotent — same body) which is fine.
+        if (seed === "" && lsBody && lsBody.length > 0) {
+          scheduleAutosave(hydratedBody);
+        }
       })
       .catch(() => {
         // Silent — the empty seed is a safe default; the 10s retry
@@ -347,7 +435,7 @@ export function ComposeBox({
       }
       clearDebounce();
     };
-  }, [hostId, tmuxSessionKey, clearDebounce]);
+  }, [hostId, tmuxSessionKey, clearDebounce, scheduleAutosave]);
 
   // pagehide + visibilitychange keepalive flush. Fires only when there's
   // a dirty body pending — idle panes cost zero unload-time bandwidth.
@@ -410,6 +498,12 @@ export function ComposeBox({
     clearDebounce();
     dirtyBodyRef.current = null;
     latestBodyRef.current = "";
+    // Patch #119 — draft-loss belt-and-suspenders: clear the ls mirror
+    // on submit so a successful send doesn't leave stale content that
+    // would resurrect on a subsequent post-restart hydrate.
+    try {
+      localStorage.removeItem(composeDraftLsKey(hostId, tmuxSessionKey));
+    } catch {}
     putComposeDraft(hostId, tmuxSessionKey, "").catch(() => {
       // Best-effort; on failure the next flushDirty tick will re-try
       // once the user types again OR the next 10s tick fires (though
