@@ -296,3 +296,88 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     expect(onRetryBatch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ComposeBox — Phase 9 layout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Helper: walk el.parentElement upward until a parent's className matches
+  // pattern, or return null if we reach the document root without a match.
+  function closestFlexRowAncestor(el: Element, pattern: RegExp): Element | null {
+    let current: Element | null = el.parentElement;
+    while (current) {
+      if (pattern.test(current.className)) return current;
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  it("Phase 9 Layout: aux button group renders in a row that precedes the Send button's row", () => {
+    render(<ComposeBox {...baseProps()} />);
+    const thumbsUp = screen.getByLabelText(/send 'yes'/i);
+    const sendBtn = screen.getByLabelText(/send message/i);
+
+    const pattern = /flex items-(?:center|end) gap-2/;
+    const thumbsUpRow = closestFlexRowAncestor(thumbsUp, pattern);
+    const sendRow = closestFlexRowAncestor(sendBtn, pattern);
+
+    expect(thumbsUpRow).not.toBeNull();
+    expect(sendRow).not.toBeNull();
+    // The two rows must be distinct DOM nodes.
+    expect(thumbsUpRow).not.toBe(sendRow);
+    // Row 1 (thumbsUp) must precede Row 2 (send) in document order.
+    // Node.DOCUMENT_POSITION_FOLLOWING (0x04): sendRow comes after thumbsUpRow.
+    // eslint-disable-next-line no-bitwise
+    expect(thumbsUpRow!.compareDocumentPosition(sendRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("Phase 9 Layout: meter is horizontal — role='meter' present with flex-row", () => {
+    render(<ComposeBox {...baseProps({ contextPct: 50 })} />);
+    const meter = screen.getByRole("meter");
+    expect(meter.className).toContain("flex-row");
+    expect(meter.className).not.toContain("flex-col");
+  });
+
+  it("Phase 9 Layout: mobile touch target — top row carries min-h-[44px] when showPaperclip=true", () => {
+    render(
+      <ComposeBox
+        {...baseProps({
+          showPaperclip: true,
+          onAttachFiles: vi.fn(),
+          stagedAttachments: [],
+          onRemoveAttachment: vi.fn(),
+        })}
+      />,
+    );
+    const paperclip = screen.getByLabelText(/attach file/i);
+    const row1 = closestFlexRowAncestor(paperclip, /flex items-center gap-2/);
+    expect(row1).not.toBeNull();
+    expect(row1!.className).toContain("min-h-[44px]");
+    expect(row1!.className).not.toContain("min-h-8");
+  });
+
+  it("Phase 9 Layout: desktop top row carries min-h-8 when showPaperclip=false", () => {
+    render(
+      <ComposeBox
+        {...baseProps({
+          showPaperclip: false,
+          onAttachFiles: vi.fn(),
+          stagedAttachments: [],
+          onRemoveAttachment: vi.fn(),
+        })}
+      />,
+    );
+    const thumbsUp = screen.getByLabelText(/send 'yes'/i);
+    const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
+    expect(row1).not.toBeNull();
+    expect(row1!.className).toContain("min-h-8");
+    expect(row1!.className).not.toContain("min-h-[44px]");
+  });
+
+  it("Phase 9 Layout: textarea rows starts at 1 with empty text", () => {
+    render(<ComposeBox {...baseProps()} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    expect(textarea.rows).toBe(1);
+  });
+});
