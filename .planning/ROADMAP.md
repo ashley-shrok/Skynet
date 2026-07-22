@@ -202,7 +202,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
 | 6. Telegram-like interface | 5/5 | Complete   | 2026-07-21 |
 | 7. Fleet-native conversation list | 2/3 | In Progress|  |
-| 9. ComposeBox redesign — 2-tall shell | 0/4 | Planning   | — |
+| 9. ComposeBox redesign — 2-tall shell | 1/4 | Executing  | — |
 
 ### Phase 6: Telegram-like interface
 
@@ -277,7 +277,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 09-01-PLAN.md — Restructure ComposeBox JSX into 2-row shell (Row-3 chip strip, Row-1 instrument bar with meter+spacer+aux, Row-2 compose bar with textarea+send); preserve every existing class value verbatim; textarea rows floor 2→1; touch target min-h[44px] gated by showPaperclip (COMPOSE-01..05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09, UPLOAD-04)
+- [x] 09-01-PLAN.md — Restructure ComposeBox JSX into 2-row shell (Row-3 chip strip, Row-1 instrument bar with meter+spacer+aux, Row-2 compose bar with textarea+send); preserve every existing class value verbatim; textarea rows floor 2→1; touch target min-h[44px] gated by showPaperclip (COMPOSE-01..05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09, UPLOAD-04)
 
 **Wave 2** *(blocked on 09-01 — same-file overlap)*
 
