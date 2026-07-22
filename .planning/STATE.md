@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-22T09:24:00.000Z"
+last_updated: "2026-07-22T10:15:00.000Z"
 last_activity: 2026-07-22
 progress:
   total_phases: 9
@@ -140,6 +140,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260720-8nj | Gesture-based mode flip in useAutoScroll (patch #98) — replaces rAF-counter scroll-event heuristic with wheel/touchmove/keydown listeners; delayed programmatic scrolls no longer misfire as user gestures. Diagnosed via live console diagnostic. | 2026-07-20 | 7edd1d8 | [260720-8nj-replace-scroll-event-mode-flip-with-real](./quick/260720-8nj-replace-scroll-event-mode-flip-with-real/) |
 | 260720-ama | 3D orb WIP indicator — canvas-rendered Fibonacci-lattice sphere (150 dots, dual-axis tumble, depth-modulated size/alpha) replaces Loader2 spinner in WipBubble. Ashley-approved winning variant after 4 rounds of tailnet-served prototyping. Awaiting deploy + pin. | 2026-07-20 | 54e06cd | [260720-ama-3d-orb-wip-indicator-canvas-based-fibona](./quick/260720-ama-3d-orb-wip-indicator-canvas-based-fibona/) |
 | 260722-ctq | Hybrid compose-submit path (patch #118) — replaces CR-in-PTY submit tail with `tmux send-keys Enter` via exec on same sshConn (body still PTY-written; falls back to CR-in-PTY when tmuxSessionName is null). Supersedes patches #100/#111a which tried paste-detection delay tuning. Empirically validated in session prototype (10/10 steady, multi-line preserved). Awaiting deploy. | 2026-07-22 | 7d6506f | [260722-ctq-fix-messages-land-in-box-not-submitting-](./quick/260722-ctq-fix-messages-land-in-box-not-submitting-/) |
+| 260722-ddg | Drafts belt-and-suspenders localStorage mirror (patch #119) — client-side mirror for compose-box + message-queue drafts survives container-restart draft loss regardless of any server-side failure mode. Every keystroke + every successful debounced server save writes to `localStorage`; on mount if the server returns empty and ls has content, restore and schedule an autosave. Extracts `scheduleItemAutosave` from `handleBodyChange` so the hydrate loop can reuse the same 400ms PATCH machinery. Four diagnostic `console.warn` lines (2 per surface) log serverLen vs lsLen for the follow-up root-cause bounty. Deploy deferred to a batch after bounties #3-5. | 2026-07-22 | 58d3c83 | [260722-ddg-patch-119-drafts-belt-and-suspenders-loc](./quick/260722-ddg-patch-119-drafts-belt-and-suspenders-loc/) |
 
 ## Deferred Items
 
@@ -151,6 +152,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-22T05:14:04.157Z
-Stopped at: Phase 9 Plan 03 complete — ready to execute 09-04-PLAN.md
+Last session: 2026-07-22T10:15:00.000Z
+Stopped at: Quick task 260722-ddg complete (patch #119 drafts belt-and-suspenders localStorage mirror, awaiting deploy). Phase 9 Plan 03 complete — ready to execute 09-04-PLAN.md
 Resume file: None
