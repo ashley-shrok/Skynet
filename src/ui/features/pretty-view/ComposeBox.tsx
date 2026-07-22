@@ -385,9 +385,9 @@ export function ComposeBox({
     textareaRef.current?.focus();
   }, []);
 
-  // Auto-grow rows: 2 minimum, 6 maximum, based on line count.
+  // Auto-grow rows: 1 minimum, 6 maximum, based on line count.
   // Matches MessageQueueDrawer's simple approach (no ResizeObserver).
-  const rows = Math.min(6, Math.max(2, text.split("\n").length));
+  const rows = Math.min(6, Math.max(1, text.split("\n").length));
 
   // Patch #83: how many meter-well segments should be lit right now.
   // Null contextPct → 0 (well mounts all-dim so the row geometry is
@@ -692,10 +692,20 @@ export function ComposeBox({
   const queueDisabled =
     canSend === false || (queuedText === null && text.trim() === "");
 
-  // Layout: textarea and send button share a single horizontal row so the
-  // compose area stays as short as possible and yields more vertical space
-  // to the conversation above (Ashley feedback 2026-07-17). Error text, when
-  // present, sits below the row.
+  // Layout: 2-row shell per UI-SPEC.md § Layout Contract (Phase 9 / 09-01).
+  //
+  //   Row 3 — chip strip (ephemeral): AttachmentChipStrip mounts above Row 1
+  //            when stagedAttachments.length > 0; component returns null when
+  //            empty so no conditional wrapper needed here (UPLOAD-04).
+  //   Retry button — conditional, transient: surfaces above chip strip when
+  //            at least one chip is in error state.
+  //   Row 1 — instrument bar (~32px): meter well (reset cell + segments),
+  //            flex-1 spacer (reserves room for future top-row buttons),
+  //            aux button group (paperclip conditional, ThumbsUp, Queue).
+  //   Row 2 — compose bar: textarea (flex-1, auto-grows 1→6 rows) + Send.
+  //            items-end so Send pins to the textarea's bottom edge as the
+  //            textarea grows.
+  //   Error text — conditional, below Row 2.
   return (
     <div
       className={cn(
@@ -725,10 +735,10 @@ export function ComposeBox({
         className,
       )}
     >
-      {/* Phase 05: chip strip mounts above the compose row when at
+      {/* Phase 05: chip strip mounts above the compose rows when at
           least one attachment is staged (UPLOAD-04 mounting rule).
           AttachmentChipStrip returns null when the list is empty,
-          so no wrapper conditional needed here. */}
+          so no wrapper conditional needed here (Row 3 ephemeral). */}
       <AttachmentChipStrip
         attachments={stagedAttachments ?? []}
         onRemove={onRemoveAttachment ?? (() => {})}
@@ -755,7 +765,7 @@ export function ComposeBox({
         </div>
       )}
       {/* Phase 05: hidden file input driven by the paperclip. Kept
-          outside the icon column so it doesn't leak flex sizing;
+          outside the row wrappers so it doesn't leak flex sizing;
           `hidden` keeps it out of tab order and layout entirely. */}
       <input
         ref={fileInputRef}
@@ -767,9 +777,12 @@ export function ComposeBox({
         aria-hidden="true"
         tabIndex={-1}
       />
-      <div className="flex items-end gap-2">
+      {/* Row 1 — instrument bar: meter well + spacer + aux buttons.
+          min-h-[44px] on touch (showPaperclip proxy) for WCAG 2.5.5
+          touch target; min-h-8 on desktop (matches Row 2 rest height). */}
+      <div className={cn("flex items-center gap-2", showPaperclip ? "min-h-[44px]" : "min-h-8")}>
         {/* Patch #83: cohesive segmented-well meter with integrated reset
-            cell. The well ALWAYS mounts (12 dim segments show when
+            cell. The well ALWAYS mounts (segments show dim when
             contextPct is null so the row geometry never jitters on
             first attach). Segments light bottom-to-top per
             litCount = round(contextPct / 100 * SEG_COUNT), colored by
@@ -778,7 +791,10 @@ export function ComposeBox({
             <button> reset cell — clicking it dispatches /id reset AND
             fires a top-to-bottom drain sweep animation (~600ms) with
             the reset cell pulsing lit-green at the drain peak. The
-            meter and reset read as one instrument, not two widgets. */}
+            meter and reset read as one instrument, not two widgets.
+            Plan 09-02 will rotate this well from vertical→horizontal;
+            class values on the well div and reset button are UNCHANGED
+            in plan 09-01. */}
         <div
           className="w-7 self-stretch rounded-md flex flex-col p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
           role="meter"
@@ -929,115 +945,26 @@ export function ComposeBox({
             <RotateCcw className="size-3.5" />
           </button>
         </div>
-        {/* Patch #84: textarea wrapper. The wrapper owns flex sizing
-            (`flex-1 self-stretch`) so the pending overlay can position
-            absolute-inset over the Textarea while the Textarea itself
-            fills the wrapper. `relative` is the positioning context for
-            the overlay. */}
-        <div className="relative flex-1 self-stretch">
-        <Textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => handleTextChange(e.target.value)}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          disabled={queueArmed}
-          placeholder={`Message ${identityName || "Claude"}…`}
-          rows={rows}
-          // Phase 4 Glass: recessed textarea well (patch #81) +
-          // identity-hue focus ring (VISUAL-03/VISUAL-07). Fill is a
-          // warm-black rgba(15,10,5,0.42) — sits DEEPER than #79's
-          // warm-glass surround, so the textarea reads as a well
-          // pressed INTO the shelf, not a raised patch ON it. Ashley
-          // 2026-07-19: at rest the textarea should not draw
-          // attention; focus IS the moment attention is wanted, so
-          // brightening on focus reads correctly against the darker
-          // resting state. The 1px warm-cream 7% border is now the
-          // SECONDARY affordance — the darker fill's contrast
-          // against the surround does the primary work of finding
-          // the textarea. Focus reveals a brightened warm-cream
-          // border + identity-hue outer glow — subtle grow-into-
-          // view, not a sudden pop. `focus-visible:ring-0` and
-          // `focus-visible:outline-none` disable the shadcn Textarea's
-          // default focus ring (`focus-visible:border-ring
-          // focus-visible:ring-ring/50 focus-visible:ring-[3px]`) so
-          // our own hue ring wins cleanly.
-          className={cn(
-            "resize-none w-full h-full",
-            // `!` (Tailwind v4 important suffix) is required on the bg
-            // arbitrary class: the shadcn `Textarea` wrapper's base
-            // className carries `dark:bg-input/30` (see
-            // src/ui/components/textarea.tsx), which compiles to the
-            // selector `.dark .dark\:bg-input\/30` — specificity 0-2-0.
-            // A plain arbitrary `.bg-\[rgba\(...\)\]` is only 0-1-0 and
-            // silently LOSES the cascade even though it appears later in
-            // the classList (tailwind-merge preserves both because the
-            // variant differs). `!` promotes ours to !important so it
-            // beats the dark: variant. Verified via a DOM diag snippet
-            // 2026-07-19: without `!`, computed bg was
-            // `oklab(1 0 0 / 0.045)` (dark:bg-input/30 winning); with
-            // `!` it resolves to rgba(15,10,5,0.42) as intended.
-            // Border does NOT need `!` — shadcn's base is plain
-            // `border-input` (no dark: variant → same specificity as
-            // ours → tailwind-merge dedupes → later class wins cleanly).
-            // Patch #82 palette shift: warm-black well → cool-black
-            // well (rgba(15,10,5) → rgba(10,12,20)), alpha bumped
-            // 0.42→0.5 to preserve visibility on the cool-tinted
-            // surround. Warm-cream border/focus glow shifted to
-            // cool-cream (220,225,245). `!` load-bearing on bg per
-            // #81-fix (see comment above).
-            "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
-            "border border-[rgba(220,225,245,0.07)]",
-            "rounded-[10px] px-4 py-3",
-            "placeholder:text-[var(--color-pv-fg-dim)]",
-            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
-            "transition-[box-shadow,border-color] duration-200",
-            "focus:border-[rgba(220,225,245,0.28)]",
-            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(220,225,245,0.07),_0_0_0_1px_rgba(220,225,245,0.2),_0_0_22px_rgba(220,225,245,0.12)]",
-            "focus-visible:ring-0 focus-visible:outline-none",
-          )}
-          // Note: NOT disabled when canSend===false — user can compose
-          // during a transient disconnect and send when WS reconnects.
-          // The send button is disabled; the error will surface on attempt.
-          // (Patch #84 DOES disable via `disabled={queueArmed}` above —
-          // that gate is orthogonal: it applies only while the queue is
-          // armed, restoring editability the instant the queue clears
-          // or is cancelled.)
-        />
-        {/* Patch #84: pending overlay. Mounts only while queue is armed.
-            `pointer-events-none` so the Textarea underneath still owns
-            all interaction (it's already disabled, but this keeps the
-            overlay from stealing pointer focus). `rounded-[10px]`
-            matches the Textarea's own rounded-[10px] so corners align.
-            Dark warm-cool scrim + tight blur reads as "held, waiting"
-            without hiding whatever the user composed. */}
-        {queueArmed && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pointer-events-none rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]">
-            <Hourglass className="size-5 text-[hsla(38,70%,72%,0.9)]" />
-            <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
-              Queued — waiting for idle
-            </span>
-          </div>
-        )}
-        </div>
-        {/* Icon-button column: thumbs-up "go ahead" quick-reply on top,
-            paper-airplane Send on the bottom. Ordered least-used at top,
-            most-used at bottom (closest to the mouse arriving from the
-            textarea). Bottom-aligned to the textarea via the parent's
-            items-end. If the textarea grows past the stack's height,
-            empty space appears above ThumbsUp rather than pushing Send
-            up. Patch #83: RotateCcw moved OUT of this column into the
-            meter well's bottom slot — the reset lives with the meter
-            it drains, not with the send/quick-reply buttons. */}
-        <div className="flex flex-col gap-1">
+        {/* Spacer: reserves horizontal room for future top-row buttons
+            between the meter well and the aux group (UI-SPEC §
+            "fixed-width meter with future-buttons spacer"). Patch #83
+            placed RotateCcw in the meter's reset cell; patch #84 added
+            the Queue button in the aux group — this spacer is where the
+            NEXT batch of top-row controls will accumulate without
+            forcing the meter to shrink. aria-hidden so AT skips it. */}
+        <div className="flex-1" aria-hidden="true" />
+        {/* Aux-button group — least-used (paperclip) on the left,
+            most-used (Queue) on the right, mirroring distance-from-
+            meter logic. Converted from flex-col to flex-row for the
+            horizontal Row 1 layout.
+            Patch #83 marker: RotateCcw lives in the meter's reset cell.
+            Patch #84 marker: Queue button arms the idle-watchdog. */}
+        <div className="flex flex-row gap-1">
           {/* Phase 05: mobile-only paperclip (UPLOAD-03). Gated by
               showPaperclip which the caller threads from
               useIsTouchDevice() (patch #102). Desktop NEVER sees this
               regardless of window width — it's for touch devices only,
               where drag-drop and file-shape paste aren't available.
-              Placed at the TOP of the icon column so the more-frequent
-              Send stays closest to the mouse (bottom of column).
               Matches ThumbsUp's warm-neutral Glass treatment. */}
           {showPaperclip && (
             <Button
@@ -1138,26 +1065,124 @@ export function ComposeBox({
           >
             <Hourglass className="size-4" />
           </Button>
-          <Button
-            size="icon-sm"
-            onClick={handleSend}
-            disabled={sendDisabled}
-            aria-label="Send message"
-            title="Send (Enter)"
-            className={cn(
-              "rounded-md cursor-pointer",
-              "border-[rgba(255,220,170,0.5)]",
-              "bg-[linear-gradient(180deg,hsla(38,90%,66%,0.92),hsla(38,90%,44%,0.94))]",
-              "text-[#1a0f04]",
-              "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,235,190,0.5),_0_0_24px_hsla(38,90%,55%,0.42)]",
-              "hover:bg-[linear-gradient(180deg,hsla(38,95%,72%,0.96),hsla(38,95%,50%,0.98))]",
-              "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,235,190,0.6),_0_0_32px_hsla(38,90%,55%,0.5)]",
-              "disabled:opacity-40 disabled:cursor-not-allowed",
-            )}
-          >
-            <Send className="size-4" />
-          </Button>
         </div>
+      </div>
+      {/* Row 2 — compose bar: textarea (flex-1, auto-grows 1→6 rows) +
+          Send button. items-end so Send pins to the textarea bottom edge
+          as the textarea grows. VISUAL-08 HARD LOCK on Send's amber
+          gradient — never change. */}
+      <div className="flex items-end gap-2">
+        {/* Patch #84: textarea wrapper. The wrapper owns flex sizing
+            (`flex-1 self-stretch`) so the pending overlay can position
+            absolute-inset over the Textarea while the Textarea itself
+            fills the wrapper. `relative` is the positioning context for
+            the overlay. */}
+        <div className="relative flex-1 self-stretch">
+        <Textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => handleTextChange(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          disabled={queueArmed}
+          placeholder={`Message ${identityName || "Claude"}…`}
+          rows={rows}
+          // Phase 4 Glass: recessed textarea well (patch #81) +
+          // identity-hue focus ring (VISUAL-03/VISUAL-07). Fill is a
+          // warm-black rgba(15,10,5,0.42) — sits DEEPER than #79's
+          // warm-glass surround, so the textarea reads as a well
+          // pressed INTO the shelf, not a raised patch ON it. Ashley
+          // 2026-07-19: at rest the textarea should not draw
+          // attention; focus IS the moment attention is wanted, so
+          // brightening on focus reads correctly against the darker
+          // resting state. The 1px warm-cream 7% border is now the
+          // SECONDARY affordance — the darker fill's contrast
+          // against the surround does the primary work of finding
+          // the textarea. Focus reveals a brightened warm-cream
+          // border + identity-hue outer glow — subtle grow-into-
+          // view, not a sudden pop. `focus-visible:ring-0` and
+          // `focus-visible:outline-none` disable the shadcn Textarea's
+          // default focus ring (`focus-visible:border-ring
+          // focus-visible:ring-ring/50 focus-visible:ring-[3px]`) so
+          // our own hue ring wins cleanly.
+          className={cn(
+            "resize-none w-full h-full",
+            // `!` (Tailwind v4 important suffix) is required on the bg
+            // arbitrary class: the shadcn `Textarea` wrapper's base
+            // className carries `dark:bg-input/30` (see
+            // src/ui/components/textarea.tsx), which compiles to the
+            // selector `.dark .dark\:bg-input\/30` — specificity 0-2-0.
+            // A plain arbitrary `.bg-\[rgba\(...\)\]` is only 0-1-0 and
+            // silently LOSES the cascade even though it appears later in
+            // the classList (tailwind-merge preserves both because the
+            // variant differs). `!` promotes ours to !important so it
+            // beats the dark: variant. Verified via a DOM diag snippet
+            // 2026-07-19: without `!`, computed bg was
+            // `oklab(1 0 0 / 0.045)` (dark:bg-input/30 winning); with
+            // `!` it resolves to rgba(15,10,5,0.42) as intended.
+            // Border does NOT need `!` — shadcn's base is plain
+            // `border-input` (no dark: variant → same specificity as
+            // ours → tailwind-merge dedupes → later class wins cleanly).
+            // Patch #82 palette shift: warm-black well → cool-black
+            // well (rgba(15,10,5) → rgba(10,12,20)), alpha bumped
+            // 0.42→0.5 to preserve visibility on the cool-tinted
+            // surround. Warm-cream border/focus glow shifted to
+            // cool-cream (220,225,245). `!` load-bearing on bg per
+            // #81-fix (see comment above).
+            "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
+            "border border-[rgba(220,225,245,0.07)]",
+            "rounded-[10px] px-4 py-3",
+            "placeholder:text-[var(--color-pv-fg-dim)]",
+            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
+            "transition-[box-shadow,border-color] duration-200",
+            "focus:border-[rgba(220,225,245,0.28)]",
+            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(220,225,245,0.07),_0_0_0_1px_rgba(220,225,245,0.2),_0_0_22px_rgba(220,225,245,0.12)]",
+            "focus-visible:ring-0 focus-visible:outline-none",
+          )}
+          // Note: NOT disabled when canSend===false — user can compose
+          // during a transient disconnect and send when WS reconnects.
+          // The send button is disabled; the error will surface on attempt.
+          // (Patch #84 DOES disable via `disabled={queueArmed}` above —
+          // that gate is orthogonal: it applies only while the queue is
+          // armed, restoring editability the instant the queue clears
+          // or is cancelled.)
+        />
+        {/* Patch #84: pending overlay. Mounts only while queue is armed.
+            `pointer-events-none` so the Textarea underneath still owns
+            all interaction (it's already disabled, but this keeps the
+            overlay from stealing pointer focus). `rounded-[10px]`
+            matches the Textarea's own rounded-[10px] so corners align.
+            Dark warm-cool scrim + tight blur reads as "held, waiting"
+            without hiding whatever the user composed. */}
+        {queueArmed && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pointer-events-none rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]">
+            <Hourglass className="size-5 text-[hsla(38,70%,72%,0.9)]" />
+            <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
+              Queued — waiting for idle
+            </span>
+          </div>
+        )}
+        </div>
+        <Button
+          size="icon-sm"
+          onClick={handleSend}
+          disabled={sendDisabled}
+          aria-label="Send message"
+          title="Send (Enter)"
+          className={cn(
+            "rounded-md cursor-pointer",
+            "border-[rgba(255,220,170,0.5)]",
+            "bg-[linear-gradient(180deg,hsla(38,90%,66%,0.92),hsla(38,90%,44%,0.94))]",
+            "text-[#1a0f04]",
+            "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,235,190,0.5),_0_0_24px_hsla(38,90%,55%,0.42)]",
+            "hover:bg-[linear-gradient(180deg,hsla(38,95%,72%,0.96),hsla(38,95%,50%,0.98))]",
+            "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,235,190,0.6),_0_0_32px_hsla(38,90%,55%,0.5)]",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+          )}
+        >
+          <Send className="size-4" />
+        </Button>
       </div>
       {errorMessage && (
         <div className="text-xs text-destructive">{errorMessage}</div>
