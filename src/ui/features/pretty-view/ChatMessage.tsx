@@ -60,16 +60,15 @@ export function ChatMessage({
   // renders as a ThumbsUp glyph inside the normal user bubble. Mirrors the
   // ComposeBox quick-send button that produces this message, so what she
   // sent visually matches what she clicked. Client-render-only — session
-  // file stays faithful. Patches #93 + #107: recognize BOTH the current
-  // payload ("works for me", from patch #107) AND legacy payloads ("good to
-  // go", "go ahead") so past session files still render as the ThumbsUp
-  // glyph after the button text swap.
+  // file stays faithful. Recognizes the current payload ("yes") AND legacy
+  // payloads ("works for me", "good to go", "go ahead") so past session
+  // files still render as the ThumbsUp glyph after each button-text swap.
   const isQuickReply =
     isUser &&
     !injected &&
     (() => {
       const t = content.trim().toLowerCase();
-      return t === "works for me" || t === "good to go" || t === "go ahead";
+      return t === "yes" || t === "works for me" || t === "good to go" || t === "go ahead";
     })();
   // Prettify slash-command triplets before markdown parsing. Runs of
   // <command-message>/<command-name>/<command-args> tags become ⟨cmd:...⟩
