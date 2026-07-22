@@ -1,10 +1,11 @@
 ---
 phase: 9
 slug: compose-box-redesign-2-tall-shell
-status: draft
+status: approved
 shadcn_initialized: true
 preset: radix-lyra / neutral / cssVariables
 created: 2026-07-22
+reviewed_at: 2026-07-22
 ---
 
 # Phase 9 — UI Design Contract
@@ -101,7 +102,7 @@ Declared values (multiples of 4):
 
 Exceptions:
 - Meter segment gap: 2px (sub-4 exception, matches patch #83's `gap-[2px]` — visual grain at this scale needs sub-4 precision).
-- Meter cell inner padding: 3px (the `p-[3px]` on the meter well — same as current).
+- Meter cell inner padding: 3px (sub-4 exception, preserves patch #83's `p-[3px]` — empirically tuned so the segment stack + reset cell seat cleanly inside the ~28px-wide well; at 4px the well reads as too padded at this scale).
 - Touch target minimum: 44px on the top row for touch devices (exception to icon-sm's natural 32px).
 
 Source: existing ComposeBox.tsx (preserved values), touch target WCAG 2.5.5 Level AAA.
@@ -125,6 +126,10 @@ Source: current ComposeBox.tsx class lists, Inter Variable already imported in `
 ---
 
 ## Color
+
+**Ratio (60/30/10):** ~60% compose surround (dominant/background gradient) + ~30% meter well + textarea well (secondary/recessed depth) + ~10% accent elements (the 7-item enumerated list below). Enforce by restricting accent to the enumerated list — no incidental accent bleed elsewhere in the compose surface.
+
+**Primary focal point:** Send button. VISUAL-08 hard-lock designates it as the ONE compose attention grab-point — the only saturated warm-amber element in the compose surface at rest. All other elements MUST read as calmer (glass surround) or quieter (aux buttons in warm-neutral quiet treatment). Meter accent bands (green/amber/red) fill only when context warrants and pulse only during reset — they don't compete with Send at rest.
 
 ### Surface Colors
 
