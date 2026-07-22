@@ -78,10 +78,10 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [ ] **VISUAL-03**: The identity's stored `colorHue` (patch #17 identities registry) is dynamically carried through the user-bubble accent + border glow, the context-bar fill, the send-button glow, and the textarea focus ring — one coherent per-pane color chain that identifies which agent this pane is talking to; falls back to a neutral accent when the identity has no `colorHue`
 - [ ] **VISUAL-04**: Identity badge in the top-right corner of pretty view uses a large avatar (~56px, up from patch #17/#38's smaller size), name + title stacked to the right of the avatar, with a subtle slow breathing brightness animation (~5s cycle) as an ambient grounding anchor
 - [ ] **VISUAL-05**: The ambient panels shelf (HarnessTasksPanel + BackgroundedAgentsPanel + BackgroundedShellsPanel) reads as a single quiet floating card treatment — distinct enough from the message area above to know where it ends, but visually calm and not competing for attention
-- [ ] **VISUAL-06**: The compose surface itself is intentionally low-prominence — no card treatment, no bright top rim, blends into the atmospheric depth. You go to it when you're ready to type; it does not demand attention
-- [ ] **VISUAL-07**: The textarea within the compose has a lightest-touch 1px warm-white outline (~0.09 opacity) that makes it findable as a receptacle for typing, without becoming visually loud; focused textarea gets an identity-hue focus ring
+- [x] **VISUAL-06**: The compose surface itself is intentionally low-prominence — no card treatment, no bright top rim, blends into the atmospheric depth. You go to it when you're ready to type; it does not demand attention
+- [x] **VISUAL-07**: The textarea within the compose has a lightest-touch 1px warm-white outline (~0.09 opacity) that makes it findable as a receptacle for typing, without becoming visually loud; focused textarea gets an identity-hue focus ring
 - [ ] **VISUAL-08**: The send button retains a saturated identity-hue glow — the ONE intentional attention-grab-point in the compose area for "I am ready to fire this message"
-- [ ] **VISUAL-09**: All existing pretty-view functionality (chat rendering, ComposeBox split-send + reset + go-ahead paths, HarnessTasksPanel, BackgroundedAgentsPanel, BackgroundedShellsPanel, WipBubble, PlanPendingBubble, session-changeover holding/changed banners, empty state, error states, keyboard chords) is preserved end-to-end — the reskin is CSS-only, no behavior changes to any component's props, state, effects, or WebSocket handling
+- [x] **VISUAL-09**: All existing pretty-view functionality (chat rendering, ComposeBox split-send + reset + go-ahead paths, HarnessTasksPanel, BackgroundedAgentsPanel, BackgroundedShellsPanel, WipBubble, PlanPendingBubble, session-changeover holding/changed banners, empty state, error states, keyboard chords) is preserved end-to-end — the reskin is CSS-only, no behavior changes to any component's props, state, effects, or WebSocket handling
 - [ ] **VISUAL-10**: The reskin does NOT visually touch terminal / RDP / VNC / file manager / dashboard / sidebar / tab bar / AppRail chrome — pretty view remains a themed island in the current Termix visual system. Identity badge specifically preserves its existing patch #38 hover-fade behavior wherever it's used (including terminal panes, not just pretty view)
 
 ### Telegram-like Interface (Phase 6)
@@ -181,10 +181,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 | VISUAL-03 | Phase 4 | Pending |
 | VISUAL-04 | Phase 4 | Pending |
 | VISUAL-05 | Phase 4 | Pending |
-| VISUAL-06 | Phase 4 | Pending |
-| VISUAL-07 | Phase 4 | Pending |
+| VISUAL-06 | Phase 4 | Complete |
+| VISUAL-07 | Phase 4 | Complete |
 | VISUAL-08 | Phase 4 | Pending |
-| VISUAL-09 | Phase 4 | Pending |
+| VISUAL-09 | Phase 4 | Complete |
 | VISUAL-10 | Phase 4 | Pending |
 | UPLOAD-01 | Phase 5 | Pending |
 | UPLOAD-02 | Phase 5 | Pending |
