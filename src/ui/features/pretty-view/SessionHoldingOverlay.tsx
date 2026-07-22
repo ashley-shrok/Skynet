@@ -100,8 +100,16 @@ export function SessionHoldingOverlay({
           "rounded-[var(--radius-pv-bubble)] px-4 py-3",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
-          "text-[#dfe3ee]",
+          // Patch #127: error variant flips card body to warm-red-tinted
+          // gradient + text color so the failure state reads red at a
+          // glance rather than only the glyph + subtle inset shadow
+          // reading red against a neutral navy card. Warm-red stops sit
+          // in the same hue family as ComposeBox.tsx line ~981
+          // `hsla(0,72%,55%,1)` — one warm-red across the app.
+          error
+            ? "bg-[linear-gradient(160deg,rgba(85,30,35,0.55),rgba(55,20,25,0.6))]"
+            : "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
+          error ? "text-[#f5d0d4]" : "text-[#dfe3ee]",
           "border border-white/[0.08]",
           // Patch #122: warm-red inset glow on error matches the fork's
           // existing meter-well red-band palette (ComposeBox.tsx line
