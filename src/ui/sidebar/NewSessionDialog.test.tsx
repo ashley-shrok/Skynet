@@ -1,7 +1,11 @@
 // ─── NewSessionDialog + NewSessionButton — Vitest coverage ───────────────────
 // Tests 1-9 cover the modal + button pair from Plan 06-04 Task 2. Test 10
-// (button appears before conversation rows in DOM order) lives in this file
-// once Task 3 wires ConversationsPanel with the NewSessionButton mount.
+// (a "start-a-new-session" affordance appears before conversation rows in
+// DOM order) originally targeted ConversationsPanel + NewSessionButton;
+// Phase 10 Wave 3 retargets it to PrettyConversationsPanel's compact pencil-
+// icon header button. The Test-10 constraint (button precedes rows in
+// document order) is preserved verbatim; only the target component + query
+// change.
 //
 // Fixtures: small in-test hostTree object (no getSSHHosts mock — the dialog
 // receives hostTree as a prop). react-i18next is mocked to a passthrough
@@ -19,10 +23,10 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-// Test 10 renders ConversationsPanel → ConversationRow which pulls
-// session-hue + identities + useIsTouchDevice. Stub them to inert defaults
-// so the render is deterministic and doesn't drag in identity registry
-// wiring or media-query state.
+// Test 10 renders PrettyConversationsPanel → PrettyConversationRow which
+// pulls session-hue + identities + useIsTouchDevice. Stub them to inert
+// defaults so the render is deterministic and doesn't drag in identity
+// registry wiring or media-query state.
 vi.mock("@/features/terminal/session-hue", () => ({
   sessionMatchKey: () => null,
   useSessionIdentity: () => ({ identity: null, identityHue: null }),
@@ -36,7 +40,10 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 
 import { NewSessionButton } from "./NewSessionButton";
 import { NewSessionDialog } from "./NewSessionDialog";
-import { ConversationsPanel } from "./ConversationsPanel";
+// Phase 10 Wave 3: Test 10 retargeted from the retiring ConversationsPanel
+// to the new PrettyConversationsPanel. Tests 1-9 in this file cover
+// NewSessionButton + NewSessionDialog in isolation and are unaffected.
+import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
 import {
   updateHostTree,
   updateOpenTabs,
@@ -318,13 +325,18 @@ describe("NewSessionDialog: single-host auto-select", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 10: NewSessionButton appears BEFORE conversation rows in DOM order
+// Test 10: header pencil appears BEFORE conversation rows in DOM order
 // ─────────────────────────────────────────────────────────────────────────────
-// The button lives at the top of the scroller ABOVE pins (Plan 06-04 hard
-// constraint per CONTEXT.md §Decisions §New-session button). Verified by
-// rendering ConversationsPanel with 2 populated conversations and asserting
-// the button's DOM position precedes the first ConversationRow.
-describe("ConversationsPanel: NewSessionButton DOM order", () => {
+// Phase 10 Wave 3: retargeted from the retiring ConversationsPanel + full-
+// width NewSessionButton pair to the new PrettyConversationsPanel's compact
+// pencil-icon button in the header. Same underlying constraint: the "start a
+// new session" affordance renders before conversation rows in DOM order (top-
+// of-scroller mount, Plan 06-04 hard constraint per CONTEXT.md §Decisions
+// §New-session button). Cheap smoke coverage against future panel-header
+// refactors. Verified by rendering PrettyConversationsPanel with 2 populated
+// conversations and asserting the pencil-button's DOM position precedes the
+// first row's `[data-conversation-id]` element.
+describe("PrettyConversationsPanel: header pencil renders before rows", () => {
   beforeEach(() => {
     // Reset the module-scoped conversation-store between renders so Test 10
     // is independent of Tests 1-9. (Tests 1-9 don't touch the store, but
@@ -334,7 +346,7 @@ describe("ConversationsPanel: NewSessionButton DOM order", () => {
     updateHostTree(null);
   });
 
-  it("Test 10: button appears BEFORE conversation rows in DOM order (top-of-scroller mount)", () => {
+  it("Test 10: header pencil appears BEFORE conversation rows in DOM order (top-of-scroller mount)", () => {
     const hostA = makeHost("hA", "alpha", { username: "root", ip: "10.0.0.1" });
     const hostTree: HostFolder = { name: "root", children: [hostA] };
     const tab1: Tab = {
@@ -360,7 +372,8 @@ describe("ConversationsPanel: NewSessionButton DOM order", () => {
     updateOpenTabs([tab1, tab2]);
 
     const { container } = render(
-      <ConversationsPanel
+      <PrettyConversationsPanel
+        variant="desktop"
         hostTree={hostTree}
         onCreateSession={vi.fn()}
       />,
