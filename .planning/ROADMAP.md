@@ -36,6 +36,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Pretty view file upload support** - Add a cognitively-free "attach a file" affordance to pretty view: drag-and-drop anywhere on the surface (primary), clipboard paste (first-class), mobile-only paperclip button (gated by useIsTouchDevice). Attachments stage as a chip strip; on send, files transfer atomically to the receiving box (landing at `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>`) then an injected user turn carries path-only-with-metadata (never inlined bytes) so context cost is deferred to the moment the agent actually reads. Sender-side rendering as chip-bearing bubble; folder drops refused; one caption per batch; no auto-cleanup. Shape file: `.planning/shapes/shape-pretty-view-file-upload-support.md` (LOCKED, do NOT re-litigate). (completed 2026-07-20)
 - [x] **Phase 6: Telegram-like interface** - Reshape Termix around a Telegram-style conversation-list interface. Sidebar becomes a flat single-select list of currently-active sessions grouped by host (existing tree order preserved); per-session pins float to the top. Only one conversation visible at a time; switching hides/shows without unmount, so sessions stay alive in-memory across switches within a page-load. Tab strip removed entirely. Mobile: list-vs-view flow with top-left back button; bottom navigation bar deleted; admin/settings destinations migrated to unobtrusive gear (desktop) or list row (mobile). Deferred to v2: activity/unread signals of any kind. Out entirely: cross-conversation search, folders, drag-to-reorder, ended-session history. Shape file: `.planning/shapes/shape-telegram-like-interface.md` (LOCKED, do NOT re-litigate). (completed 2026-07-21)
 - [ ] **Phase 7: Fleet-native conversation list** - Follow-up to Phase 6. Reshape the list's data source from "browser-tab's open Termix tabs" to "fleet-discovered tmux sessions unioned with browser-tab's open tabs" so a fresh page-load shows the sessions running across the fleet (like the current sidebar host-tree + double-shift menu already do), not just what's open in this browser tab. Adds RDP host rows at the bottom (one per RDP-enabled host, monitor icon, no identity hue). Re-styles the existing New Session button as the Telegram-native pencil. Fixes the mobile gear/settings-row duplication from Phase 6 (gear desktop-only, settings-row mobile-only). Snapshot-on-page-load discovery, no polling — Ashley refreshes to update. Everything else from Phase 6 preserved verbatim (per-session pins, host grouping, mobile flow, tab-strip absence, session persistence, sidebar collapse). Shape file: `.planning/shapes/shape-fleet-native-conversation-list.md` (LOCKED, do NOT re-litigate).
+- [x] **Phase 8: Quality-of-life batch** - Multiple small UX improvements shipped as one batch (completed 2026-07-21, retroactive roadmap entry).
+- [x] **Phase 9: ComposeBox redesign — 2-tall shell with horizontal ctx meter** - Restructure ComposeBox into a 2-tall shell with the horizontal ctx-meter running below the textarea, plus polish patches (completed 2026-07-22, shipped as patches #116-#122, retroactive roadmap entry).
+- [ ] **Phase 10: Pretty-Conversations visual-language rework** - Replace the current shadcn-derived `ConversationsPanel` + `ConversationRow` with a clean-slate `src/ui/features/pretty-conversations/` component tree (mirrors the pretty-view precedent from Phase 4). Chunky Telegram-style row layout (~72px mobile / ~62px desktop, 48/40px identity-hue avatar disc with hue-ring, primary label + host-name secondary line), pretty-view visual language (glass gradients, identity-hue selected-row lift, Inter font, warm palette). Session-name IS identity-name convention baked in — no IdentityBadge chip on rows. Flat list, no section headers — pin glyph on row IS the pin marker. Mobile pin = swipe-left action; desktop pin = hover-reveal button. New session = compact pencil icon in the header (Telegram-native). Fix small-window desktop sidebar-affordance regression by adding a persistent top-left toggle in AppShell that survives at all window widths. Same component drives both viewports; AppShell swaps in place with no dual-mode ship (per shape-file rule). Delete old `ConversationsPanel` + `ConversationRow` after cutover. Design source-of-truth: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/{prototype.html,desktop.html}` (Ashley signed off 2026-07-22 v0.3 mobile + v0.1 desktop). Shape reference: `.planning/shapes/shape-telegram-like-interface.md` (LOCKED, model unchanged — this is presentation-only follow-up).
 
 ## Phase Details
 
@@ -289,3 +292,51 @@ Plans:
 - [x] 09-04-PLAN.md — Human UAT checkpoint (Ashley walks the 10-item checklist in a live Termix instance); approval routes to Ashley's separate build+deploy step, revision notes route back to 09-01 or 09-02 (COMPOSE-01..05, VISUAL-08, VISUAL-09, UPLOAD-04)
 
 **Bounty:** `compose-box-redesign` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/compose-box-redesign/`). Prototype-locked at 2026-07-22.
+
+### Phase 10: Pretty-Conversations visual-language rework
+
+**Goal:** Replace the shadcn-derived `ConversationsPanel` + `ConversationRow` with a clean-slate `src/ui/features/pretty-conversations/` component tree (mirrors Phase 4 pretty-view precedent) — chunky Telegram-style rows with 48/40px identity-hue avatar disc + hue-ring, primary label (= session name = identity name) + host secondary line, ChatMessage.tsx-verbatim selected-row hue treatment, flat list (no section headers), swipe-left pin on mobile / hover-reveal pin on desktop, compact pencil-icon new-session button in the header, persistent top-left sidebar-toggle that survives at all window widths (fixing the small-window sidebar-affordance regression), retirement of the old panel + row + labeled-CTA files after cutover. Presentation-only follow-up to Phase 6/7 — the LIST-NOT-TABS model + session-persistence contract + conversation-store data source all stay verbatim.
+
+**Requirements:** No new REQ-IDs introduced. Presentation-only rework; existing PRETTY-VIEW-VISUAL-* / TG-* IDs owned by Phases 4/6/7 continue to hold.
+
+**Depends on:** Phase 6, Phase 7, Phase 4 (Glass depth tokens + hue-vocabulary — reused verbatim for selected-row treatment)
+
+**Design source-of-truth (LOCKED, Ashley signed off 2026-07-22):**
+- Mobile: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/prototype.html` (v0.3)
+- Desktop: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/desktop.html` (v0.1)
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+- Both viewports ship in the same phase (no dual-mode ship — shape file lock)
+- No IdentityBadge chip on rows (Ashley: session name = identity name)
+- Flat list — no "Pinned" or per-host section headers
+- Compact pencil icon = new session (not a full-width labeled CTA)
+- Persistent top-left sidebar-toggle at all widths (small-window fix)
+- Delete `ConversationsPanel.tsx` + `ConversationRow.tsx` + `NewSessionButton.tsx` after cutover
+- Selected-row treatment MIRRORS ChatMessage.tsx assistant-bubble class strings verbatim
+- Patch #111e F3-diag console.log spew fully retired with the old panel
+
+**Plans:** 5 plans
+
+**Wave 1**
+
+- [ ] 10-01-PLAN.md — Foundation: tokens.ts + PinAction.tsx + PrettyConversationRow.tsx with variant-based pin mechanism (mobile swipe-left / desktop hover-reveal) + PrettyConversationRow.test.tsx (11 cases: swipe state machine, RDP-no-swipe, selected-state hue interpolation, avatar fallback, e.stopPropagation on pin, no IdentityBadge in DOM)
+
+**Wave 2** *(blocked on Wave 1 — imports PrettyConversationRow)*
+
+- [ ] 10-02-PLAN.md — PrettyConversationsPanel.tsx (flat list, pinned-first, RDP-sentinel-at-bottom, empty-state glass card, variant-based header with pencil + optional gear, swipe coordination) + PrettyConversationsPanel.test.tsx (15 cases: empty state, ordering, no section headers, RDP-sentinel, variant header, gear desktop-only, settingsRowSlot mobile bottom, dispatcher routing, onConversationSelected coverage)
+
+**Wave 3** *(blocked on Wave 2 — mounts PrettyConversationsPanel; contains human-verify checkpoint)*
+
+- [ ] 10-03-PLAN.md — AppShell cutover (ConversationsPanel → PrettyConversationsPanel on both viewports, single commit — no dual-mode ship) + persistent top-left 32x32 chevron sidebar-toggle + resolution of narrow-window thin-strip at AppShell:1844-1852 (recommended: remove; single canonical toggle) + F3-diag console.warn at AppShell:1483 removed + NewSessionDialog.test.tsx Test 10 retargeted to PrettyConversationsPanel + Ashley 9-step human-verify checkpoint
+
+**Wave 4** *(blocked on Wave 3 human-verify approval — safety net for rollback)*
+
+- [ ] 10-04-PLAN.md — Delete src/ui/sidebar/ConversationsPanel.tsx + ConversationRow.tsx + NewSessionButton.tsx + prune NewSessionDialog.test.tsx Test 1 (NewSessionButton-in-isolation) + repo-wide grep verification (zero imports of deleted paths + zero F3-diag survivors) + tsc-clean + test suite green
+
+**Wave 5** *(blocked on Wave 4 — final docs pass)*
+
+- [ ] 10-05-PLAN.md — Build verification (npx tsc + npx vitest + npm run build all clean, output captured to 10-BUILD-VERIFY-LOG.md) + 10-UAT-CHECKLIST.md authoring (19 non-negotiable items + 3 polish, adapted for Ashley's post-deploy walkthrough) + 10-PATCHES-MD-ENTRY.md draft for patch #128 (batched onto pending #123-#127 stack behind Ashley's morning greenlight — 15-min deadman rollback). NO deploy in this phase.
+
+**Bounty:** `pretty-conversations-panel-redesign` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/`). Prototype-locked at 2026-07-22 (v0.3 mobile + v0.1 desktop). Closes on Ashley UAT sign-off post-deploy.
+
+**Deploy discipline:** Patch #128 stacks on the existing #123-#127 pending batch on `feat/tab-title-from-tmux`. No deploy inside this phase; deploy is Ashley's morning greenlight per fork DEPLOY DISCIPLINE (15-min deadman rollback mandatory).
