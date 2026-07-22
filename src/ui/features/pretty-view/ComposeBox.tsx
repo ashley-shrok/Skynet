@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hourglass, Paperclip, RefreshCw, RotateCcw, Send, ThumbsUp } from "lucide-react";
+import { Hourglass, Paperclip, RefreshCw, RotateCcw, Send, Square, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -100,6 +100,13 @@ export interface ComposeBoxProps {
   // so the reply comes in stuck to the tail without waiting for the JSONL echo.
   // Optional: omitted when PrettyView is read-only (no onSend prop supplied).
   onGoodToGo?: () => void;
+  // Patch #120: optional interrupt callback. When provided, renders a
+  // Square-icon "stop" button to the left of the ThumbsUp button that
+  // sends Ctrl-C into the attached tmux session via a new WS
+  // `interrupt` message (backend fires `tmux send-keys ... C-c`, with a
+  // raw `\x03`-byte PTY fallback for non-tmux panes). When omitted the
+  // button does not render — read-only PrettyView callers stay clean.
+  onInterrupt?: () => void;
   // When false, Enter is still accepted for typing (textarea not disabled)
   // but Send button is visually disabled. The send attempt will fail and
   // show the inline error — the component does not need to pre-emptively
@@ -172,6 +179,7 @@ export function ComposeBox({
   identityName,
   isIdle,
   onGoodToGo,
+  onInterrupt,
   stagedAttachments,
   onRemoveAttachment,
   showPaperclip,
@@ -1076,6 +1084,35 @@ export function ComposeBox({
               )}
             >
               <Paperclip className="size-4" />
+            </Button>
+          )}
+          {/* Patch #120: Stop button — safety valve for Ctrl-C into the
+              attached tmux session. Shares ThumbsUp's warm-neutral Glass
+              treatment (VISUAL-08 HARD LOCK — Send remains the sole
+              saturated-amber attention grab-point; Stop is a rarely-used
+              safety valve, quiet treatment is correct). NOT gated on
+              canSend — the stop button must be reachable even when the
+              WS is in a half-state; the parent's onInterrupt silently
+              no-ops on WS-not-ready. */}
+          {onInterrupt && (
+            <Button
+              size="icon-sm"
+              variant="outline"
+              onClick={() => onInterrupt?.()}
+              aria-label="Interrupt (send Ctrl-C)"
+              title="Interrupt (Ctrl-C)"
+              className={cn(
+                "rounded-md cursor-pointer",
+                "border-white/10",
+                "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
+                "text-[#e8e4d8]",
+                "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
+                "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
+                "hover:border-[rgba(255,240,215,0.22)]",
+                "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+              )}
+            >
+              <Square className="size-4" />
             </Button>
           )}
           {/* Phase 4 Glass: ThumbsUp adopts the mock's `.pv-icon-btn`

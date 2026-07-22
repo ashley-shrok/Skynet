@@ -68,6 +68,11 @@ export interface PrettyViewProps {
   // 1 backward-compat). When provided, the compose box mounts at
   // the bottom and pipes typed messages through this callback.
   onSend?: (text: string) => boolean;
+  // Patch #120: safety-valve Ctrl-C. Threaded straight through to
+  // ComposeBox's onInterrupt — see ComposeBox for the full contract.
+  // Omit when PrettyView is read-only; the Stop button then never
+  // renders.
+  onInterrupt?: () => void;
   // PTY-side "Claude is currently working" signal from the terminal
   // WebSocket (patch #13 mechanism). `false` = Claude quiet ≥4s AND
   // foreground = claude → hide the WIP bubble. `true` = actively
@@ -115,6 +120,7 @@ export function PrettyView({
   className,
   style,
   onSend,
+  onInterrupt,
   isIdle,
   terminalWs,
   onInjectedTurnReady,
@@ -744,6 +750,7 @@ export function PrettyView({
           tmuxSession={tmuxSession}
           identityName={pvIdentity?.displayName}
           onGoodToGo={scrollToBottomAndFollow}
+          onInterrupt={onInterrupt}
           // Phase 05 upload wiring — all sourced from the local
           // usePrettyViewUploads hook. showPaperclip is the
           // useIsTouchDevice() output (patch #102) — SOLE gate.

@@ -2922,6 +2922,18 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               );
               return true;
             }}
+            onInterrupt={() => {
+              // Patch #120 — safety-valve Ctrl-C. Uses the same per-pane
+              // SSH WS the compose-box submit rides. Backend
+              // `case "interrupt"` fires `tmux send-keys ... C-c` and
+              // falls back to a raw \x03 byte on non-tmux panes / exec
+              // errors. Silent no-op on WS-not-ready: if the WS is dead
+              // there is nothing to interrupt anyway (matches onSend's
+              // posture above).
+              const ws = webSocketRef.current;
+              if (!ws || ws.readyState !== 1) return;
+              ws.send(JSON.stringify({ type: "interrupt" }));
+            }}
             terminalWs={webSocketRef.current}
             onInjectedTurnReady={handleInjectedTurnReady}
           />

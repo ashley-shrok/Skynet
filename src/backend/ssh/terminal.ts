@@ -501,6 +501,123 @@ wss.on("connection", async (ws: WebSocket, req) => {
         break;
       }
 
+      // Patch #120 (2026-07-22): compose-box "stop" button safety valve.
+      // Sends Ctrl-C into the attached tmux session so Ashley can pull the
+      // emergency brake when Claude Code goes rogue mid-run without
+      // switching to raw-terminal mode and typing ^C herself.
+      //
+      // Plumbing reuses patch #118 byte-for-byte: `tmux send-keys ...
+      // C-c` over the same multiplexed sshConn used by pretty-view
+      // submit; if the pane isn't tmux-attached (no `tmuxSessionName`
+      // cached) OR the exec errors, falls back to writing a raw `\x03`
+      // byte to the PTY. Non-tmux SSH panes get the raw-byte path
+      // unconditionally. No setTimeout (unlike #118) — Ctrl-C interrupts
+      // Ink's input pipeline regardless of paste-detection framing state,
+      // so it fires synchronously on message receipt.
+      //
+      // Two sshLogger.info events emit for diagnostic pinning:
+      //   ssh_input_tmux_send_keys_interrupt         (send-keys success)
+      //   ssh_input_interrupt_raw_byte_fallback      (raw-byte fallback)
+      case "interrupt": {
+        const session = currentSessionId
+          ? sessionManager.getSession(currentSessionId)
+          : null;
+        const tmuxTarget = session?.tmuxSessionName ?? null;
+        const submitConn = session?.sshConn ?? sshConn;
+        const interruptStream = session?.sshStream ?? sshStream;
+        const fallbackToRawByte = (reason: string, err?: Error) => {
+          sshLogger.info(
+            "Interrupt: falling back to raw Ctrl-C byte (patch #120)",
+            {
+              operation: "ssh_input_interrupt_raw_byte_fallback",
+              userId,
+              tmuxTarget,
+              reason,
+              error: err?.message,
+            },
+          );
+          try {
+            interruptStream?.write("\x03");
+          } catch (writeErr) {
+            sshLogger.error(
+              "Interrupt raw-byte write failed",
+              writeErr instanceof Error
+                ? writeErr
+                : new Error(String(writeErr)),
+              {
+                operation: "ssh_input_interrupt_raw_byte",
+                userId,
+              },
+            );
+          }
+        };
+        if (!interruptStream) {
+          sshLogger.warn(
+            "Interrupt: no active SSH stream — dropping (patch #120)",
+            {
+              operation: "ssh_input_interrupt_no_stream",
+              userId,
+              tmuxTarget,
+            },
+          );
+          break;
+        }
+        if (!submitConn || !tmuxTarget) {
+          // Non-tmux-attached path: no target for send-keys, so use the
+          // raw-byte path directly. Not a warning — this is the expected
+          // path for raw SSH panes.
+          fallbackToRawByte("no_tmux_target");
+          break;
+        }
+        try {
+          submitConn.exec(
+            `tmux send-keys -t ${shellQuote(tmuxTarget)} C-c`,
+            (err: Error | undefined, channel: ClientChannel) => {
+              if (err || !channel) {
+                fallbackToRawByte("exec_open_failed", err);
+                return;
+              }
+              // tmux send-keys writes nothing on success. Consume + drop
+              // any stdout/stderr to avoid backpressure; log INFO once
+              // per successful dispatch on channel close.
+              channel.on("data", () => {});
+              channel.stderr?.on("data", () => {});
+              channel.on("close", () => {
+                sshLogger.info(
+                  "Interrupt: tmux send-keys C-c dispatched (patch #120)",
+                  {
+                    operation: "ssh_input_tmux_send_keys_interrupt",
+                    userId,
+                    tmuxTarget,
+                  },
+                );
+                try {
+                  channel.end();
+                } catch {
+                  /* channel may already be closed — ignore */
+                }
+              });
+              channel.on("error", (execErr: Error) => {
+                // Async exec error — fall back to raw-byte. See patch
+                // #118 rationale (line 662) — send-keys is atomic per
+                // command so partial delivery isn't a realistic mode.
+                fallbackToRawByte("exec_stream_error", execErr);
+              });
+            },
+          );
+        } catch (execErr) {
+          // Synchronous throw (e.g. sshConn ended mid-dispatch): fall
+          // back to raw-byte.
+          fallbackToRawByte(
+            "exec_sync_throw",
+            execErr instanceof Error
+              ? execErr
+              : new Error(String(execErr)),
+          );
+        }
+        break;
+      }
+
       case "input": {
         const inputData = data as string;
         const inputStream =
