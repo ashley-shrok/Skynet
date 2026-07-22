@@ -95,6 +95,13 @@ export interface ComposeBoxProps {
   // The component uses the return to decide whether to clear the textarea
   // (true) or preserve the text and show an inline error (false).
   onSend: (text: string) => boolean;
+  // Patch #122: fired synchronously when the meter well's Reset button is
+  // clicked, BEFORE the `/id reset` payload is dispatched via `onSend`.
+  // Lets PrettyView flip `isHolding` true immediately instead of waiting
+  // for the backend `session_holding` WS frame (~seconds delayed).
+  // Optional — omitted when the caller isn't wiring the session-holding
+  // overlay.
+  onResetClicked?: () => void;
   // Patch #96: invoked by the ThumbsUp "good to go" button BEFORE dispatching
   // the message text. Jumps scrollTop to bottom and enters Slack-follow mode
   // so the reply comes in stuck to the tail without waiting for the JSONL echo.
@@ -112,6 +119,12 @@ export interface ComposeBoxProps {
   // show the inline error — the component does not need to pre-emptively
   // block the attempt since onSend returns false when WS is not ready.
   canSend?: boolean;
+  // Patch #122: when true, force all meter well segments to their unlit
+  // state (well glow, border, and background stay intact). Ashley UX rule:
+  // during session recycle the meter should read as `powered but empty`,
+  // not `powered and filled` — segments only re-populate when the backend
+  // emits `context_pct` on the fresh session.
+  isHolding?: boolean;
   // Live Claude Code context-window percentage (0-100), scraped by the
   // backend from the tmux status line. null = unknown yet on this attach.
   // Rendered as a vertical fill bar to the left of the textarea:
@@ -172,7 +185,9 @@ export interface ComposeBoxProps {
 
 export function ComposeBox({
   onSend,
+  onResetClicked,
   canSend,
+  isHolding,
   contextPct,
   hostId,
   tmuxSession,
@@ -683,6 +698,13 @@ export function ComposeBox({
   // through to the fresh session, and (b) it fires even when the body is
   // blank — in which case it sends just "/id reset".
   function handleResetSend() {
+    // Patch #122: fire the PrettyView `isHolding` signal synchronously so
+    // `SessionHoldingOverlay`'s 350ms delay-arm timer starts NOW, not when
+    // the backend's `session_holding` WS frame arrives (~seconds later).
+    // The `/id reset` payload still routes through the normal `onSend`
+    // path below — this is purely a UI-latency shortcut.
+    onResetClicked?.();
+
     // Patch #84: immediate action wins — cancel any armed queue silently.
     if (queuedText !== null) {
       if (dispatchTimerRef.current) {
@@ -990,10 +1012,18 @@ export function ComposeBox({
               // red). Matches prototype where the well reads as ONE color
               // per moment, not three-tones-at-once.
               const dimNeutralBg = "hsla(0,0%,100%,0.06)";
+              // Patch #122: during session recycle (`isHolding` from
+              // PrettyView, flipped synchronously by the meter well's own
+              // Reset click or by the backend `session_holding` WS frame),
+              // lock every segment to unlit so the well reads as `powered
+              // but empty`. The well container, border, glow, and reset-
+              // cell styling stay intact — only the per-segment lit branch
+              // flips off.
               const isLit =
                 typeof contextPct === "number" &&
                 i < litCount &&
-                !isDraining;
+                !isDraining &&
+                !isHolding;
               let background: string;
               let boxShadow: string;
               if (isLit) {

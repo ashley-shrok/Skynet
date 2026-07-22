@@ -41,15 +41,42 @@
 //   `showOverlay` state that is delay-armed (~350ms) after `isHolding`
 //   goes true, so genuinely-instant recycles never flash the overlay.
 //   This component itself has no visibility props.
+//
+// Patch #122 — error variant:
+//   Accepts an optional `error` prop. When true, the card renders the
+//   same geometry with a warm-red glyph and copy: "Session recycle
+//   failed — refresh to check." Trigger is a 120s timeout without
+//   `session_changed` OR a backend `inactive { reason: 'holding_timeout' }`
+//   frame. The motion-channel guardrail above (STATIC RefreshCcw — NO
+//   animate-spin) still applies — error state ≠ work state. Warm-red
+//   hue matches the fork's existing meter-well red-band palette
+//   (ComposeBox.tsx line 981 `hsla(0,72%,55%,1)`) to keep one warm-red
+//   across the app.
 
 import { RefreshCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function SessionHoldingOverlay() {
+interface SessionHoldingOverlayProps {
+  // Patch #122: when true, render the warm-red "recycle failed — refresh
+  // to check" variant instead of the neutral "Session recycling…"
+  // variant. PrettyView flips this after 120s without session_changed
+  // OR on `inactive { reason: 'holding_timeout' }` from the backend.
+  // Motion channel guardrail (see file header) is unchanged: static
+  // glyph in both variants — NO spinner even on error.
+  error?: boolean;
+}
+
+export function SessionHoldingOverlay({
+  error = false,
+}: SessionHoldingOverlayProps) {
   return (
     <div
       role="status"
-      aria-label="Session recycling — pretty view temporarily unavailable"
+      aria-label={
+        error
+          ? "Session recycle failed — refresh the browser to check"
+          : "Session recycling — pretty view temporarily unavailable"
+      }
       className={cn(
         // Full-surface scrim: absolute inside PrettyView's relative
         // `data-pv-root`. z-[110] sits above IdentityBadge (z-[101]) but
@@ -76,12 +103,32 @@ export function SessionHoldingOverlay() {
           "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
           "text-[#dfe3ee]",
           "border border-white/[0.08]",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
+          // Patch #122: warm-red inset glow on error matches the fork's
+          // existing meter-well red-band palette (ComposeBox.tsx line
+          // 981 `hsla(0,72%,55%,1)`). Subtle red warmth on the card
+          // edge, not a warning-banner blare.
+          error
+            ? "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,200,200,0.14)_inset,_0_0_18px_hsla(0,72%,55%,0.18)]"
+            : "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
           "flex items-center gap-3 text-sm",
         )}
       >
-        <RefreshCcw className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span>Session recycling…</span>
+        <RefreshCcw
+          className={cn(
+            "h-4 w-4 shrink-0",
+            // Patch #122: warm-red on error, matches the fork's existing
+            // meter-well red-band hue (ComposeBox.tsx line 981) so the
+            // whole app reads with one warm-red palette rather than a
+            // clash of destructive-reds.
+            error && "text-[hsl(0,72%,60%)]",
+          )}
+          aria-hidden="true"
+        />
+        <span>
+          {error
+            ? "Session recycle failed — refresh to check"
+            : "Session recycling…"}
+        </span>
       </div>
     </div>
   );

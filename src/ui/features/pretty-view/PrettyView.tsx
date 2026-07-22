@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/button";
@@ -188,6 +188,26 @@ export function PrettyView({
   // the 350ms timer fires, `showOverlay` stays false and no overlay ever
   // renders.
   const [showOverlay, setShowOverlay] = useState(false);
+  // Patch #122: when true, `SessionHoldingOverlay` renders in its warm-red
+  // 'recycle failed — refresh to check' variant. Set by either the client-
+  // side 120s watchdog (see effect below) OR by the backend
+  // `inactive { reason: 'holding_timeout' }` WS frame (see `case 'inactive'`
+  // handler). Persists until `isHolding` flips back to false (via
+  // `session_changed`, another reset click, or user-initiated refresh).
+  const [holdingTimeoutError, setHoldingTimeoutError] = useState(false);
+  // Patch #122: synchronous session-holding trigger fired by the meter
+  // well's Reset button BEFORE `/id reset` reaches the WS. Flipping
+  // isHolding here starts the SessionHoldingOverlay's 350ms delay-arm
+  // timer immediately instead of waiting for the backend `session_holding`
+  // frame. If the backend confirms with its own `session_holding` frame
+  // later, setIsHolding(true) is idempotent — no double-fire. If Ashley
+  // clicks reset a second time while the overlay is up (e.g. after a
+  // red-bubble failure), the error state is intentionally reset to give
+  // the fresh attempt a clean 120s window.
+  const onResetClicked = useCallback(() => {
+    setIsHolding(true);
+    setHoldingTimeoutError(false);
+  }, []);
   // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
   // (patch #51 rework — was previously state fed by a JSONL classifier
   // over the claude-session WS, which turned out to be unreliable
@@ -315,6 +335,26 @@ export function PrettyView({
           break;
         }
         case "inactive": {
+          // Patch #122: backend fires
+          // `inactive { reason: 'holding_timeout' }` from
+          // claude-session-server.ts transitionToDead() (line 1645) when
+          // the holding timeout expires without a fresh session. Flip the
+          // overlay to its red-bubble variant instead of taking the
+          // normal inactive path — the surface should stay covered so
+          // Ashley sees the failure explicitly, not drop back to the
+          // "no active Claude session" fallback where the compose box
+          // silently disappears. Deliberately do NOT setIsHolding(false)
+          // here — the overlay must stay mounted showing the red bubble
+          // until session_changed (recycle actually completed after all)
+          // OR another reset click clears it. Deliberately do NOT
+          // setStatus("inactive") either for the same reason — flipping
+          // to inactive would unmount the compose box and the overlay's
+          // parent surface flex layout.
+          if (parsed.reason === "holding_timeout") {
+            setHoldingTimeoutError(true);
+            setInactiveReason(parsed.reason);
+            break;
+          }
           setStatus("inactive");
           setInactiveReason(parsed.reason);
           setIsHolding(false);
@@ -377,6 +417,9 @@ export function PrettyView({
           setBackgroundedShells([]);
           setPlanPending(null);
           setIsHolding(false);
+          // Patch #122: safe reset — if user clicks reset again after
+          // this success, error state must not persist.
+          setHoldingTimeoutError(false);
           setStatus("streaming");
           // Diagnostic: parsed.newSessionFile is available if a future console
           // log is wanted; do not add ambient debug logging in this patch.
@@ -444,6 +487,35 @@ export function PrettyView({
     return () => {
       clearTimeout(t);
     };
+  }, [isHolding]);
+
+  // Patch #122: client-side belt-and-suspenders holding_timeout watchdog.
+  // When isHolding flips true, start a 120000ms timer; when it fires, flip
+  // the overlay to its red-bubble variant. Redundant with the backend's
+  // own `inactive { reason: 'holding_timeout' }` frame
+  // (claude-session-server.ts line 1645), but survives the case where the
+  // WS connection drops during the hold — the backend can't deliver the
+  // frame if the socket is gone. Cleanup clears the timer on unmount OR
+  // when isHolding flips back false (session_changed, another reset click).
+  useEffect(() => {
+    if (!isHolding) return;
+    const t = setTimeout(() => {
+      setHoldingTimeoutError(true);
+    }, 120000);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [isHolding]);
+
+  // Patch #122: reset error state when isHolding clears via any path
+  // (session_changed, `inactive` non-holding_timeout reason, component
+  // unmount). Kept as a dedicated effect rather than inlined into each
+  // clear-site so future code that flips isHolding false can't forget the
+  // paired cleanup. Guard on !isHolding so this NEVER runs while
+  // isHolding is still true — the entire window in which the error can
+  // be displayed is exactly the isHolding=true window.
+  useEffect(() => {
+    if (!isHolding) setHoldingTimeoutError(false);
   }, [isHolding]);
 
   return (
@@ -569,7 +641,7 @@ export function PrettyView({
           (retired in patch #74) per Ashley's live 2026-07-19 design
           read — the old bar was too subtle for how significant the
           state actually is. */}
-      {showOverlay && <SessionHoldingOverlay />}
+      {showOverlay && <SessionHoldingOverlay error={holdingTimeoutError} />}
       {/* Patch #87: identity bounties modal. Portals to document.body via
           shadcn Dialog so it escapes this root's relative/overflow context.
           Mount guarded by pvIdentity non-null (Modal needs displayName,
@@ -743,7 +815,9 @@ export function PrettyView({
       {onSend && status === "streaming" && (
         <ComposeBox
           onSend={onSend}
+          onResetClicked={onResetClicked}
           canSend={status === "streaming"}
+          isHolding={isHolding}
           contextPct={contextPct}
           isIdle={isIdle}
           hostId={hostId}
