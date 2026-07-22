@@ -75,8 +75,8 @@ This is the core geometric contract for Phase 9. All other sections refine it.
 ### Row ordering in flex-col
 
 ```
-[Retry button — conditional, transient]
 [Row 3: Chip strip — conditional, ephemeral]
+[Retry button — conditional, transient]
 [Row 1: Instrument bar]
 [Row 2: Compose bar]
 [Error message — conditional]

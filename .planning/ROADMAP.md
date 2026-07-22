@@ -202,6 +202,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
 | 6. Telegram-like interface | 5/5 | Complete   | 2026-07-21 |
 | 7. Fleet-native conversation list | 2/3 | In Progress|  |
+| 9. ComposeBox redesign — 2-tall shell | 0/4 | Planning   | — |
 
 ### Phase 6: Telegram-like interface
 
@@ -269,9 +270,22 @@ Plans:
 ### Phase 9: ComposeBox redesign — 2-tall shell with horizontal ctx meter
 
 **Goal:** The ComposeBox at rest is ~2 button-heights tall (down from ~3), giving Ashley more vertical space to read the conversation and a natural real-estate seam for adding future top-row buttons without stretching height. Top row holds the context meter (turned horizontal, filling left→right) with the reset button as its leftmost cell, plus the non-send aux buttons (paperclip / thumbs-up / hourglass). Bottom row holds the textarea (mostly full width, min = 1 row, auto-grows on multi-line input) and the send button on the right. Attachment chips pop as an ephemeral third row when at least one chip is present. All pre-existing patch treatment survives: warm-glass compose surround (#79/#82), textarea recessed-well `!`-important treatment (#81), VISUAL-08 vibrant amber send, patch #84 queue armed-pulse, patch #57 draft persistence, Phase 05 upload flow, reset-send affordance integrated as meter's leftmost cell, and the COMPOSE-04 hard-lock (no local optimistic bubble on send).
-**Requirements**: TBD (assigned during /gsd-discuss-phase or /gsd-plan-phase)
+**Requirements**: COMPOSE-01, COMPOSE-02, COMPOSE-03, COMPOSE-04, COMPOSE-05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09, UPLOAD-04 (all pre-existing; no new REQ-IDs introduced; Phase 9 rearranges the geometry without altering the requirement contracts)
 **Depends on:** Phase 2 (COMPOSE base), Phase 4 (Glass reskin), Phase 5 (upload chip strip), patch #83 (vertical ctx meter — reoriented here), patch #84 (queue button — preserved)
-**Plans:** 0 plans
+**UI-SPEC (LOCKED via prototype review 2026-07-22):** `.planning/phases/09-compose-box-redesign-2-tall-shell/09-UI-SPEC.md`
+**Plans:** 4 plans
 
-Plans:
-- [ ] TBD (run /gsd-plan-phase 9 to break down)
+**Wave 1**
+
+- [ ] 09-01-PLAN.md — Restructure ComposeBox JSX into 2-row shell (Row-3 chip strip, Row-1 instrument bar with meter+spacer+aux, Row-2 compose bar with textarea+send); preserve every existing class value verbatim; textarea rows floor 2→1; touch target min-h[44px] gated by showPaperclip (COMPOSE-01..05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09, UPLOAD-04)
+
+**Wave 2** *(blocked on 09-01 — same-file overlap)*
+
+- [ ] 09-02-PLAN.md — Rotate meter 90° from vertical to horizontal (28px×w-7 → 28px×160px); flex-col→flex-row; segment iteration LTR; drain sweep reoriented right→left; SEG_COUNT 11→12 per prototype lock; expose `--seg-count` + `--meter-width` as CSS custom properties (COMPOSE-01, VISUAL-06, VISUAL-07, VISUAL-09)
+
+**Wave 3** *(blocked on 09-01 + 09-02 — same-file overlap for tests, then human UAT)*
+
+- [ ] 09-03-PLAN.md — Add Phase 9 structural tests to ComposeBox.test.tsx (2-row shell DOM position, horizontal meter flex-row, mobile touch target min-h[44px], 1-row textarea floor); do not modify or delete any of the 10 pre-existing Phase 05 tests (COMPOSE-01..05, VISUAL-09)
+- [ ] 09-04-PLAN.md — Human UAT checkpoint (Ashley walks the 10-item checklist in a live Termix instance); approval routes to Ashley's separate build+deploy step, revision notes route back to 09-01 or 09-02 (COMPOSE-01..05, VISUAL-08, VISUAL-09, UPLOAD-04)
+
+**Bounty:** `compose-box-redesign` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/compose-box-redesign/`). Prototype-locked at 2026-07-22.
