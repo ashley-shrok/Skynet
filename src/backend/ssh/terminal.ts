@@ -112,6 +112,17 @@ interface WebSocketMessage {
 const authManager = AuthManager.getInstance();
 const userCrypto = UserCrypto.getInstance();
 
+// Patch #118 (2026-07-22): defense-in-depth shell-quoting helper used by the
+// hybrid pretty-view submit path when it dispatches `tmux send-keys -t <session>
+// Enter` over an sshConn.exec channel. tmux session names are already
+// constrained client-side by SESSION_NAME_PATTERN (Plan 06-04 T-06-04-01) and
+// tmux itself rejects most metacharacters, but wrapping the target in single
+// quotes and escaping any embedded single quotes via `'\''` is cheap and
+// eliminates any command-injection surface if the client pattern regresses.
+// Kept local to this file — no new deps, no new modules.
+const shellQuote = (s: string): string =>
+  `'${s.replace(/'/g, `'\\''`)}'`;
+
 const userConnections = new Map<string, Set<WebSocket>>();
 
 const wss = new WebSocketServer({
@@ -528,6 +539,42 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // (no bracketed-paste-markers risk on non-Claude-Code targets).
             // If a future UAT surfaces this again at 250ms, the next escalation
             // is bracketed-paste wrapping under a target-detects-BPM gate.
+            //
+            // Patch #118 (2026-07-22): the 250ms delay from #111a still
+            // wasn't sufficient — Ashley UAT'd during Phase 9 (2026-07-22
+            // 07:40Z) and hit the same "message lands in Claude Code's
+            // compose box but doesn't submit" symptom on a message that
+            // wasn't even flagged as [pasted]. Root cause pinned in this
+            // session: any CR arriving through the SAME PTY channel that
+            // just delivered body bytes is subject to Ink's paste-detection
+            // framing regardless of delay — Ink absorbs the CR as literal
+            // newline content instead of firing submit. The empirically
+            // validated fix (10/10 single-line + multi-line preservation
+            // in local prototype 2026-07-22 09:XXZ) is to dispatch the
+            // Enter as a real keyboard event via `tmux send-keys` over a
+            // separate exec channel on the SAME multiplexed sshConn.
+            // tmux delivers Enter to the target process as a real key
+            // input outside any paste framing, so Ink treats it as a
+            // submit keypress rather than paste content.
+            //
+            // Fallback: if the session isn't tmux-attached (no
+            // tmuxSessionName cached) OR the send-keys exec errors (tmux
+            // binary missing on target, SSH channel closed, etc.), we
+            // fall back to writing CR to the PTY exactly like the
+            // pre-patch #100/#111a path. Non-tmux SSH panes retain the
+            // old (flaky) behavior but never regress. The fallback path
+            // logs at INFO level via sshLogger so operators can diagnose
+            // without a silent behavior change.
+            //
+            // Multi-line preservation: only the trailing CR is stripped
+            // (existing `slice(0, -1)`); internal CRs/LFs stay in the body
+            // PTY-write, so a 3-line pretty-view message arrives as one
+            // submit with newlines intact. Empirically validated.
+            const session = currentSessionId
+              ? sessionManager.getSession(currentSessionId)
+              : null;
+            const tmuxTarget = session?.tmuxSessionName ?? null;
+            const submitConn = session?.sshConn ?? sshConn;
             const body = inputData.slice(0, -1);
             if (body.length > 0) {
               try {
@@ -542,16 +589,94 @@ wss.on("connection", async (ws: WebSocket, req) => {
               }
             }
             setTimeout(() => {
-              try {
-                inputStream.write("\r");
-              } catch (error) {
-                sshLogger.error(
-                  "Delayed Enter write failed",
-                  error instanceof Error ? error : new Error(String(error)),
+              const fallbackToPtyCr = (
+                reason: string,
+                err?: Error,
+              ) => {
+                sshLogger.info(
+                  "Falling back to CR-in-PTY submit tail (patch #118)",
                   {
-                    operation: "ssh_input_delayed_enter",
+                    operation: "ssh_input_tmux_send_keys_fallback",
                     userId,
+                    tmuxTarget,
+                    reason,
+                    error: err?.message,
                   },
+                );
+                try {
+                  inputStream.write("\r");
+                } catch (writeErr) {
+                  sshLogger.error(
+                    "Fallback CR-in-PTY write failed",
+                    writeErr instanceof Error
+                      ? writeErr
+                      : new Error(String(writeErr)),
+                    {
+                      operation: "ssh_input_delayed_enter",
+                      userId,
+                    },
+                  );
+                }
+              };
+              if (!submitConn || !tmuxTarget) {
+                // Non-tmux-attached path: no target for send-keys, so
+                // preserve pre-patch behavior. Not a warning — this is
+                // an expected code path for raw SSH panes.
+                try {
+                  inputStream.write("\r");
+                } catch (writeErr) {
+                  sshLogger.error(
+                    "Delayed Enter write failed",
+                    writeErr instanceof Error
+                      ? writeErr
+                      : new Error(String(writeErr)),
+                    {
+                      operation: "ssh_input_delayed_enter",
+                      userId,
+                    },
+                  );
+                }
+                return;
+              }
+              try {
+                submitConn.exec(
+                  `tmux send-keys -t ${shellQuote(tmuxTarget)} Enter`,
+                  (err: Error | undefined, channel: ClientChannel) => {
+                    if (err || !channel) {
+                      fallbackToPtyCr("exec_open_failed", err);
+                      return;
+                    }
+                    // tmux send-keys writes nothing on success. Consume
+                    // and discard any stdout/stderr to avoid backpressure
+                    // on the exec channel; close cleanly on channel close.
+                    channel.on("data", () => {});
+                    channel.stderr?.on("data", () => {});
+                    channel.on("close", () => {
+                      try {
+                        channel.end();
+                      } catch {
+                        /* channel may already be closed — ignore */
+                      }
+                    });
+                    channel.on("error", (execErr: Error) => {
+                      // Async exec error — fall back to CR-in-PTY. Note:
+                      // this races with an already-submitted body if the
+                      // remote actually received the send-keys before
+                      // erroring, but tmux send-keys is atomic per
+                      // command so partial delivery isn't a realistic
+                      // failure mode. The fallback CR is a safety net.
+                      fallbackToPtyCr("exec_stream_error", execErr);
+                    });
+                  },
+                );
+              } catch (execErr) {
+                // Synchronous throw (e.g. sshConn was ended between
+                // schedule and fire): fall back to CR-in-PTY.
+                fallbackToPtyCr(
+                  "exec_sync_throw",
+                  execErr instanceof Error
+                    ? execErr
+                    : new Error(String(execErr)),
                 );
               }
             }, 250);
