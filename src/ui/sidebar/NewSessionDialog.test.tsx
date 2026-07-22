@@ -1,11 +1,13 @@
-// ─── NewSessionDialog + NewSessionButton — Vitest coverage ───────────────────
-// Tests 1-9 cover the modal + button pair from Plan 06-04 Task 2. Test 10
-// (a "start-a-new-session" affordance appears before conversation rows in
-// DOM order) originally targeted ConversationsPanel + NewSessionButton;
-// Phase 10 Wave 3 retargets it to PrettyConversationsPanel's compact pencil-
-// icon header button. The Test-10 constraint (button precedes rows in
-// document order) is preserved verbatim; only the target component + query
-// change.
+// ─── NewSessionDialog — Vitest coverage ──────────────────────────────────────
+// Tests 2-9 cover the modal from Plan 06-04 Task 2. Test 10 (a "start-a-new-
+// session" affordance appears before conversation rows in DOM order)
+// originally targeted ConversationsPanel + NewSessionButton; Phase 10 Wave 3
+// retargets it to PrettyConversationsPanel's compact pencil-icon header
+// button. The Test-10 constraint (button precedes rows in document order)
+// is preserved verbatim; only the target component + query change. Phase 10
+// Wave 4 deleted the old NewSessionButton file + pruned Test 1 (its
+// isolation test); the pencil-icon in PrettyConversationsPanel is trivial
+// glue already covered by PrettyConversationsPanel.test.tsx Test 5.
 //
 // Fixtures: small in-test hostTree object (no getSSHHosts mock — the dialog
 // receives hostTree as a prop). react-i18next is mocked to a passthrough
@@ -38,11 +40,11 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
 }));
 
-import { NewSessionButton } from "./NewSessionButton";
 import { NewSessionDialog } from "./NewSessionDialog";
 // Phase 10 Wave 3: Test 10 retargeted from the retiring ConversationsPanel
-// to the new PrettyConversationsPanel. Tests 1-9 in this file cover
-// NewSessionButton + NewSessionDialog in isolation and are unaffected.
+// to the new PrettyConversationsPanel. Tests 2-9 in this file cover
+// NewSessionDialog in isolation and are unaffected. Wave 4 pruned Test 1
+// (NewSessionButton isolation) along with the deleted NewSessionButton file.
 import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
 import {
   updateHostTree,
@@ -107,19 +109,6 @@ const oneHostTree: HostFolder = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 1: NewSessionButton click fires onOpen
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionButton", () => {
-  it("Test 1: click fires onOpen exactly once", () => {
-    const onOpen = vi.fn();
-    const { getByRole } = render(<NewSessionButton onOpen={onOpen} />);
-    const btn = getByRole("button", { name: /new session/i });
-    fireEvent.click(btn);
-    expect(onOpen).toHaveBeenCalledTimes(1);
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
