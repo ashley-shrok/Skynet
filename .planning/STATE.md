@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-22T05:14:04.187Z"
+last_updated: "2026-07-22T09:24:00.000Z"
 last_activity: 2026-07-22
 progress:
   total_phases: 9
@@ -139,6 +139,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 | 260720-7m1 | Broaden pretty-view harness-wrapper filter (patch #97) — fixes #96 anchor-doesn't-hold bug caused by combined `<system-reminder>` + `<task-notification>` wakes slipping through strict startsWith/endsWith filter | 2026-07-20 | 0381b57 | [260720-7m1-broaden-pretty-view-harness-wrapper-filt](./quick/260720-7m1-broaden-pretty-view-harness-wrapper-filt/) |
 | 260720-8nj | Gesture-based mode flip in useAutoScroll (patch #98) — replaces rAF-counter scroll-event heuristic with wheel/touchmove/keydown listeners; delayed programmatic scrolls no longer misfire as user gestures. Diagnosed via live console diagnostic. | 2026-07-20 | 7edd1d8 | [260720-8nj-replace-scroll-event-mode-flip-with-real](./quick/260720-8nj-replace-scroll-event-mode-flip-with-real/) |
 | 260720-ama | 3D orb WIP indicator — canvas-rendered Fibonacci-lattice sphere (150 dots, dual-axis tumble, depth-modulated size/alpha) replaces Loader2 spinner in WipBubble. Ashley-approved winning variant after 4 rounds of tailnet-served prototyping. Awaiting deploy + pin. | 2026-07-20 | 54e06cd | [260720-ama-3d-orb-wip-indicator-canvas-based-fibona](./quick/260720-ama-3d-orb-wip-indicator-canvas-based-fibona/) |
+| 260722-ctq | Hybrid compose-submit path (patch #118) — replaces CR-in-PTY submit tail with `tmux send-keys Enter` via exec on same sshConn (body still PTY-written; falls back to CR-in-PTY when tmuxSessionName is null). Supersedes patches #100/#111a which tried paste-detection delay tuning. Empirically validated in session prototype (10/10 steady, multi-line preserved). Awaiting deploy. | 2026-07-22 | 7d6506f | [260722-ctq-fix-messages-land-in-box-not-submitting-](./quick/260722-ctq-fix-messages-land-in-box-not-submitting-/) |
 
 ## Deferred Items
 
