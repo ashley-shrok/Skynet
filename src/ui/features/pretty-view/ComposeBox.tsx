@@ -812,6 +812,43 @@ export function ComposeBox({
             contextPct != null ? `Context ${contextPct}%` : "Context (unknown)"
           }
         >
+          {/* Phase 9 UAT fix (Ashley 2026-07-22): Reset cell moved BEFORE
+              segments so it renders as the LEFTMOST cell of the flex-row
+              well (was rendering rightmost because 09-02 kept the original
+              flex-col child order after flipping to flex-row — segments-
+              then-reset which used to be top-then-bottom now became left-
+              then-right). Divider stays between them. */}
+          <button
+            type="button"
+            onClick={handleResetSend}
+            disabled={canSend === false}
+            aria-label="Send with /id reset prefix"
+            title="Send with /id reset prefix"
+            className={cn(
+              "h-full w-6 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
+              "transition-[background,box-shadow,color] duration-[180ms]",
+              "disabled:opacity-40 disabled:cursor-not-allowed",
+              isPulsing
+                ? [
+                    "bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
+                    "shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
+                    "text-[#f0f8f4]",
+                  ]
+                : [
+                    "bg-[hsla(155,35%,20%,0.5)]",
+                    "shadow-[inset_0_0_3px_rgba(0,0,0,0.4)]",
+                    "text-[rgba(220,255,235,0.55)]",
+                    !isDraining &&
+                      "hover:bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
+                    !isDraining &&
+                      "hover:shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
+                    !isDraining && "hover:text-[#f0f8f4]",
+                  ],
+            )}
+          >
+            <RotateCcw className="size-3.5" />
+          </button>
+          <div className="w-px mx-[3px] h-full bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
           {/* Segments: flex-row so index 0 renders at the LEFT of the
               well and index SEG_COUNT-1 at the RIGHT. Phase 9 (09-02)
               rotation from flex-col-reverse (vertical) to flex-row
@@ -821,12 +858,24 @@ export function ComposeBox({
               — reads as a right→left drain sweep toward the reset cell.
               Segment width uses the same explicit-calc-per-segment idiom
               as patch #89's height fix, but now on the horizontal axis
-              (13px/seg at 160px/12 — no sub-pixel concern). */}
+              (13px/seg at 160px/12 — no sub-pixel concern).
+
+              Phase 9 UAT fix (Ashley 2026-07-22): color mode is now
+              UNIFORM by current-band, not per-position. All lit segments
+              wear the color of contextPct's band (green <45, amber 45-77,
+              red ≥78). Unlit segments wear a neutral warm-dim. Matches
+              the prototype behavior Ashley endorsed. */}
           <div className="flex flex-row gap-[2px] min-w-[100px] flex-1 h-full">
             {Array.from({ length: SEG_COUNT }, (_, i) => {
-              const posPct = (i / (SEG_COUNT - 1)) * 100;
+              // Band from contextPct (was: from per-segment posPct).
               const band =
-                posPct >= 78 ? "red" : posPct >= 45 ? "amber" : "green";
+                contextPct == null
+                  ? "green"
+                  : contextPct >= 78
+                    ? "red"
+                    : contextPct >= 45
+                      ? "amber"
+                      : "green";
               const litGreenBg =
                 "linear-gradient(90deg, hsla(155,45%,52%,1), hsla(155,45%,42%,1))";
               const litAmberBg =
@@ -839,9 +888,11 @@ export function ComposeBox({
                 "0 0 5px hsla(38,75%,55%,0.55), inset 0 0 2px rgba(255,240,200,0.5)";
               const litRedShadow =
                 "0 0 6px hsla(0,72%,55%,0.7), inset 0 0 2px rgba(255,220,200,0.5)";
-              const dimGreenBg = "hsla(155,35%,20%,0.4)";
-              const dimAmberBg = "hsla(38,45%,22%,0.4)";
-              const dimRedBg = "hsla(0,50%,22%,0.4)";
+              // Phase 9 UAT fix (Ashley 2026-07-22): single neutral dim
+              // for all unlit segments (was per-position dim-green/amber/
+              // red). Matches prototype where the well reads as ONE color
+              // per moment, not three-tones-at-once.
+              const dimNeutralBg = "hsla(0,0%,100%,0.06)";
               const isLit =
                 typeof contextPct === "number" &&
                 i < litCount &&
@@ -862,12 +913,7 @@ export function ComposeBox({
                       ? litAmberShadow
                       : litGreenShadow;
               } else {
-                background =
-                  band === "red"
-                    ? dimRedBg
-                    : band === "amber"
-                      ? dimAmberBg
-                      : dimGreenBg;
+                background = dimNeutralBg;
                 boxShadow = "none";
               }
               return (
@@ -894,54 +940,6 @@ export function ComposeBox({
               );
             })}
           </div>
-          {/* Divider between segment stack and reset cell — a vertical
-              hairline inset that reads as a shelf seam inside the well.
-              Phase 9 (09-02): rotated from horizontal hairline to vertical
-              (w-px mx-[3px] h-full) for the horizontal well orientation. */}
-          <div className="w-px mx-[3px] h-full bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
-          {/* Reset cell: native <button> (NOT shadcn Button — the
-              outline variant's `dark:bg-input/30` would force `!`
-              gymnastics per patch #81-fix). Phase 9 (09-02): rotated
-              from `w-full h-6` (vertical, bottommost cell) to `h-full
-              w-6` (horizontal, leftmost cell). Same 24-unit long axis,
-              now on the horizontal dimension; height stretches to fill
-              the well's 28px height. Rests as unlit-green; hover
-              brightens to lit-green; during a drain the cell holds
-              lit-green while isPulsing (~420-770ms after click) so it
-              reads as the flush-point of the emptying meter. */}
-          <button
-            type="button"
-            onClick={handleResetSend}
-            disabled={canSend === false}
-            aria-label="Send with /id reset prefix"
-            title="Send with /id reset prefix"
-            className={cn(
-              "h-full w-6 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
-              "transition-[background,box-shadow,color] duration-[180ms]",
-              "disabled:opacity-40 disabled:cursor-not-allowed",
-              isPulsing
-                ? [
-                    "bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
-                    "shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
-                    "text-[#f0f8f4]",
-                  ]
-                : [
-                    "bg-[hsla(155,35%,20%,0.5)]",
-                    "shadow-[inset_0_0_3px_rgba(0,0,0,0.4)]",
-                    "text-[rgba(220,255,235,0.55)]",
-                    // Only offer hover styling when NOT draining, so
-                    // the pulse-peak lit-green isn't being fought by
-                    // a hover selector at the same time.
-                    !isDraining &&
-                      "hover:bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
-                    !isDraining &&
-                      "hover:shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
-                    !isDraining && "hover:text-[#f0f8f4]",
-                  ],
-            )}
-          >
-            <RotateCcw className="size-3.5" />
-          </button>
         </div>
         {/* Spacer: reserves horizontal room for future top-row buttons
             between the meter well and the aux group (UI-SPEC §
@@ -1106,6 +1104,16 @@ export function ComposeBox({
           // our own hue ring wins cleanly.
           className={cn(
             "resize-none w-full h-full",
+            // Phase 9 UAT fix (Ashley 2026-07-22): shadcn Textarea base
+            // className carries `min-h-[80px]` (see textarea.tsx L12) —
+            // that's ~2.5 button-heights and floods any `rows={1}` prop
+            // regardless of value. `min-h-8!` (32px = one icon-sm button
+            // height) beats it via Tailwind v4 `!` important suffix, same
+            // #81-fix mechanism as the `bg-[...]!` below (shadcn base
+            // wraps a `dark:*` variant → specificity 0-2-0 → plain
+            // `min-h-8` at 0-1-0 loses without `!`). One-line rest;
+            // auto-grow to 6 rows still works via the `rows={rows}` prop.
+            "min-h-8!",
             // `!` (Tailwind v4 important suffix) is required on the bg
             // arbitrary class: the shadcn `Textarea` wrapper's base
             // className carries `dark:bg-input/30` (see
