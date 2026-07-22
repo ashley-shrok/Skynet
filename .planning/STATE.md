@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-22T18:14:00.000Z"
+last_updated: "2026-07-22T18:25:00.000Z"
 last_activity: 2026-07-22
 progress:
   total_phases: 10
-  completed_phases: 5
-  total_plans: 37
-  completed_plans: 31
-  percent: 50
+  completed_phases: 6
+  total_plans: 42
+  completed_plans: 36
+  percent: 60
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 9 — compose-box-redesign-2-tall-shell
+**Current focus:** Phase 10 — pretty-conversations-visual-language-rework (COMPLETE-PENDING-DEPLOY)
 
 ## Current Position
 
-Phase: 9 (compose-box-redesign-2-tall-shell) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
+Phase: 10 (pretty-conversations-visual-language-rework) — CODE-COMPLETE-PENDING-DEPLOY
+Plan: 5 of 5 shipped
+Status: Batched with #123-#127 pending Ashley's morning greenlight on visual behavior; deploy sequence documented in `.planning/phases/10-pretty-conversations-visual-language-rework/10-UAT-CHECKLIST.md` under "Post-UAT deploy runbook"
 Last activity: 2026-07-22
 
-Progress: [██████████] 97%
+Progress: [██████████] 100% (Phase 10 code-complete on feat/tab-title-from-tmux; deploy deferred to Ashley greenlight)
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [██████████] 97%
 | Phase 09 P03 | 180 | 1 tasks | 1 files |
 | Phase 10 P02 | 419 | 2 tasks | 2 files |
 | Phase 10 P04 | 15min | 3 tasks | 4 files (3 deleted, 1 modified) |
+| Phase 10 P05 | 5min | 3 tasks | 4 files (3 docs created + 1 SUMMARY + STATE.md updated) |
 
 ## Accumulated Context
 
@@ -160,6 +161,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-22T14:00:00.000Z
-Stopped at: Quick task 260722-mp6 complete (patch #126 PWA safe-area polish — 3-file +2/-2 commit 0f87d02 resolving Ashley's UAT feedback on the #125 iOS install: body bg blended to var(--background) so top/bottom safe-area regions render Skynet-gray instead of black; AppShell outer div drops paddingBottom so shell bg extends to viewport bottom; ConversationsPanel scroll container gets pb-[env(safe-area-inset-bottom)] so last item sits above the home indicator; desktop rendering unchanged via env()=0). Stack is now code-complete on all 9 batched patches (#118 tmux send-keys hybrid, #119 localStorage mirror, #120 stop button, #121 send-button removal, #122 meter reset polish, #123 paperclip decouple, #124 ThumbsUp "yes"→"let's go", #125 Skynet rebrand + PWA, #126 safe-area polish) — ready for Tina's single batched deploy behind the 15-min deadman rollback pending Ashley greenlight on the visual behavior. Follow-up bookkeeping: 4 pre-existing ComposeBox test failures (patch #121 stale Send-button refs at Tests 7-8, patch #124 stale "send 'yes'" ThumbsUp aria-label refs at two Phase 9 Layout tests) still need a companion quick task before the next full test-suite green. Phase 9 Plan 03 complete — ready to execute 09-04-PLAN.md.
-Resume file: None
+Last session: 2026-07-22T18:25:00.000Z
+Stopped at: Phase 10 Wave 5 complete — Phase 10 (pretty-conversations visual-language rework) is now code-complete-pending-deploy on `feat/tab-title-from-tmux`, batched with #123-#127 stack pending Ashley's morning greenlight. Wave 5 shipped 3 docs deliverables + 1 SUMMARY + STATE.md update in one atomic commit: (1) `10-BUILD-VERIFY-LOG.md` — tsc-clean, vitest 499/503 (4 pre-existing ComposeBox failures unchanged from Wave 4, documented in deferred-items.md), `npm run build` succeeds in 13.60s, AppShell bundle delta vs Phase 7 baseline +5,288 bytes for the new pretty-conversations component tree; (2) `10-UAT-CHECKLIST.md` — 19 non-negotiable items across Desktop (7) + Mobile iPhone (8) + Cross-viewport regression (4) + 3 polish items + failure route-back table + post-UAT deploy runbook (updated for the post-2026-07-21 no-deadman regime per user directive); (3) `10-PATCHES-MD-ENTRY.md` — paste-ready patch #128 draft in Tina's multi-commit-under-one-pin format (patches #104/#105 precedent) covering all 16 Wave 1-4 commits + Wave 5 SHA fill-in placeholder. Phase 10 landed 15 waves-worth of code across 5 waves: Wave 1 (foundation — PrettyConversationRow + PinAction + tokens, 12/12 tests), Wave 2 (PrettyConversationsPanel, 15/15 tests), Wave 3 (AppShell cutover + persistent top-left chevron toggle + narrow-window thin-strip retired — fixes Ashley's small-window sidebar-affordance regression), Wave 4 (3 retired sidebar files deleted, F3-diag fully retired, Test 1 pruned), Wave 5 (this docs commit). Ready state: Ashley walks the UAT checklist post-deploy on desktop + iPhone; if PASS, paste the patches-md draft into ~/.claude/identities/tina/termix-patches.md at ordinal #128 (bump count from ONE HUNDRED TWENTY-SEVEN → ONE HUNDRED TWENTY-EIGHT), commit the pin, `/close pretty-conversations-panel-redesign`. Follow-up bookkeeping unchanged: 4 pre-existing ComposeBox test failures (patch #121 stale Send-button refs + patch #124 stale ThumbsUp aria-label refs) still awaiting a Phase 11 test-hygiene sweep OR companion quick task.
+Resume file: .planning/phases/10-pretty-conversations-visual-language-rework/10-UAT-CHECKLIST.md (Ashley's post-deploy walkthrough)
