@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Separator } from "@/components/separator";
 import { Button } from "@/components/button";
 import { Sheet, SheetContent } from "@/components/sheet";
-import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
+import { ChevronLeft, Maximize2 } from "lucide-react";
 import { useState, useRef, useCallback, useEffect, useMemo, createRef } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -1686,7 +1686,12 @@ export function AppShell({
   // Sidebar header — shared
   const sidebarHeader = (
     <div className="flex flex-row items-center border-b border-border h-12.5 shrink-0">
-      <span className="flex-1 text-base font-bold tracking-tight text-foreground px-3">
+      {/* Phase 10 Wave 3: `pl-12` reserves 48px on the left of the title span
+          so the persistent top-left sidebar-toggle chevron (fixed at
+          top:8px, left:8px, 32x32) can sit over this header when the sidebar
+          is open without covering the title text. Mirrors desktop.html
+          .sidebar-header `padding-left: 52px` treatment. */}
+      <span className="flex-1 text-base font-bold tracking-tight text-foreground px-3 pl-12">
         {sidebarTitle[railView]}
       </span>
       {!isMobile && (
@@ -1740,6 +1745,52 @@ export function AppShell({
           paddingTop: "max(env(safe-area-inset-top), 0px)",
         }}
       >
+        {/* Phase 10 Wave 3: persistent top-left sidebar-toggle chevron.
+            The fix for Ashley's small-window sidebar-affordance regression.
+            Renders unconditionally at all widths (desktop wide, narrow-window
+            desktop, mobile touchscreen); replaces the narrow-window thin-
+            strip at the old lines 1844-1852 that used to disappear below
+            some breakpoint.
+
+            position:fixed anchors to the viewport regardless of any
+            scrolling ancestor — the small-window use case has scrollable
+            regions that would otherwise absorb an absolutely-positioned
+            button. z-index: 30 sits above the sidebar's resize-handle at
+            z-30 without needing a bump. Glass treatment mirrors
+            desktop.html .persistent-toggle exactly: rgba(20,22,28,0.85) +
+            blur(10) + saturate(1.6) + subtle white/8% border + soft shadow.
+
+            Direction: matches desktop.html's semantic — sidebarOpen ===
+            true → chevron rotates 180° (from ← to →, "click to close").
+            Collapsed state = ChevronLeft default orientation (← "click to
+            open"). */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          aria-label={t("nav.sidebar.toggle", {
+            defaultValue: "Toggle sidebar",
+          })}
+          title={t("nav.sidebar.toggle", {
+            defaultValue: "Toggle sidebar",
+          })}
+          className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(20,22,28,0.85)] backdrop-blur-[10px] backdrop-saturate-150 border border-white/[0.08] shadow-[0_2px_8px_rgba(0,0,0,0.35)] text-muted-foreground hover:text-foreground transition-colors"
+          style={{
+            top: "max(env(safe-area-inset-top), 8px)",
+            left: "max(env(safe-area-inset-left), 8px)",
+            zIndex: 30,
+          }}
+        >
+          <span
+            style={{
+              display: "inline-flex",
+              transform: sidebarOpen ? "rotate(180deg)" : undefined,
+              transition: "transform 220ms",
+            }}
+          >
+            <ChevronLeft className="size-4" />
+          </span>
+        </button>
+
         {/* Skinny icon rail — non-touch devices only. Gate is pointer/hover,
             not window width, so narrow desktop windows still get the rail.
             Also hidden when the sidebar panel is collapsed: rail + panel
@@ -1833,7 +1884,7 @@ export function AppShell({
             takes the full width and prepends a top-left back button
             header. Desktop path is unchanged. */}
         <div
-          className={`relative flex flex-col flex-1 min-w-0 overflow-hidden transition-all duration-200 ${!isMobile && !sidebarOpen && !isTouchDevice ? "pl-6" : ""}`}
+          className={`relative flex flex-col flex-1 min-w-0 overflow-hidden transition-all duration-200`}
           style={
             isMobileListScreen
               ? { width: 0, flex: "0 0 0px", overflow: "hidden" }
@@ -1841,15 +1892,14 @@ export function AppShell({
           }
           aria-hidden={isMobileListScreen ? true : undefined}
         >
-          {!isMobile && !sidebarOpen && !isTouchDevice && (
-            <button
-              onClick={() => setSidebarOpen(true)}
-              title="Open Sidebar"
-              className="absolute left-0 top-0 bottom-0 z-20 flex items-center justify-center w-6 bg-sidebar border-r border-border text-muted-foreground hover:text-accent-brand hover:bg-accent-brand/5 transition-colors"
-            >
-              <ChevronRight className="size-3.5" />
-            </button>
-          )}
+          {/* Phase 10 Wave 3: the narrow-window thin-strip reveal button
+              that used to live here (patch #28) is REMOVED. Its role is
+              taken over by the persistent top-left sidebar-toggle chevron
+              at the top of the AppShell root — one canonical toggle,
+              renders at all widths, no breakpoint-dependent disappearance
+              that Ashley's small-window use case tripped over. The
+              companion `pl-6` main-content padding that reserved space
+              for the old strip is also removed. */}
           {/* Plan 06-03: mobile-view header with a top-left back button.
               Renders ONLY when the user is on the mobile view screen
               (`isMobileViewScreen`). Back button calls navigateToList()
