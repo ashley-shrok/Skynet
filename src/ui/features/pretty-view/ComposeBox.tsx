@@ -161,10 +161,19 @@ export interface ComposeBoxProps {
   // (usePrettyViewUploads) removes the entry and emits upload_abort
   // if the file was in flight.
   onRemoveAttachment?: (tempId: string) => void;
-  // Gate for the mobile paperclip button. Threaded from PrettyView's
-  // useIsTouchDevice() call (patch #102) — desktop NEVER sees the
-  // paperclip regardless of window width.
+  // Gates whether the paperclip attach button renders in the aux row.
+  // Independent of `isTouchDevice`; either or both may be true.
+  // Threaded from PrettyView. Patch #123 decoupled paperclip visibility
+  // from the touch-target row-height gate so desktop can also show the
+  // paperclip in a compact row (post-#121 aux row has room).
   showPaperclip?: boolean;
+  // Gates the Row 1 top-row min-h between `min-h-[44px]` (touch, WCAG
+  // 2.5.5 touch-target compliance) and `min-h-8` (desktop compact).
+  // Sourced from PrettyView's useIsTouchDevice() call (patch #102 — the
+  // SOLE mobile-vs-desktop discriminator, pointer:coarse + hover:none).
+  // Independent of `showPaperclip` — see patch #123 for the decoupling
+  // rationale.
+  isTouchDevice?: boolean;
   // One callback for BOTH entry points (paperclip picker + textarea
   // paste). The parent hook's stageAttachments handler consumes this.
   onAttachFiles?: (files: File[]) => void;
@@ -198,6 +207,7 @@ export function ComposeBox({
   stagedAttachments,
   onRemoveAttachment,
   showPaperclip,
+  isTouchDevice,
   onAttachFiles,
   onSendWithAttachments,
   onRetryBatch,
@@ -903,9 +913,15 @@ export function ComposeBox({
         tabIndex={-1}
       />
       {/* Row 1 — instrument bar: meter well + spacer + aux buttons.
-          min-h-[44px] on touch (showPaperclip proxy) for WCAG 2.5.5
-          touch target; min-h-8 on desktop (matches Row 2 rest height). */}
-      <div className={cn("flex items-center gap-2", showPaperclip ? "min-h-[44px]" : "min-h-8")}>
+          Touch-target height is gated on `isTouchDevice` (patch #102's
+          touch discriminator: pointer:coarse + hover:none) — min-h-[44px]
+          satisfies WCAG 2.5.5, min-h-8 matches Row 2's rest height on
+          desktop. Paperclip visibility is a SEPARATE concern gated on
+          `showPaperclip`. Patch #123 decoupled the two: `showPaperclip`
+          used to double as the height proxy, which prevented desktop
+          from opting into the paperclip without also inheriting the
+          chunky 44px row. */}
+      <div className={cn("flex items-center gap-2", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>
         {/* Patch #83: cohesive segmented-well meter with integrated reset
             cell (one instrument). The well ALWAYS mounts (segments show
             dim when contextPct is null so the row geometry never jitters
@@ -1083,12 +1099,14 @@ export function ComposeBox({
             Patch #83 marker: RotateCcw lives in the meter's reset cell.
             Patch #84 marker: Queue button arms the idle-watchdog. */}
         <div className="flex flex-row gap-1">
-          {/* Phase 05: mobile-only paperclip (UPLOAD-03). Gated by
-              showPaperclip which the caller threads from
-              useIsTouchDevice() (patch #102). Desktop NEVER sees this
-              regardless of window width — it's for touch devices only,
-              where drag-drop and file-shape paste aren't available.
-              Matches ThumbsUp's warm-neutral Glass treatment. */}
+          {/* Paperclip attach button (Phase 05 UPLOAD-03). Gated by
+              `showPaperclip` only. Patch #123 decoupled visibility from
+              the touch-device row-height gate so desktop can also opt
+              in — original patch #102 / patch #104 context still applies
+              for the mobile use case (touch devices lack drag-drop and
+              file-shape paste, so the paperclip is their primary attach
+              entry point). Matches ThumbsUp's warm-neutral Glass
+              treatment. */}
           {showPaperclip && (
             <Button
               size="icon-sm"

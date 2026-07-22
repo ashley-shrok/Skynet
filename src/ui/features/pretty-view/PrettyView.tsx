@@ -826,11 +826,19 @@ export function PrettyView({
           onGoodToGo={scrollToBottomAndFollow}
           onInterrupt={onInterrupt}
           // Phase 05 upload wiring — all sourced from the local
-          // usePrettyViewUploads hook. showPaperclip is the
-          // useIsTouchDevice() output (patch #102) — SOLE gate.
+          // usePrettyViewUploads hook. Patch #123 split the old single
+          // paperclip-visibility-equals-touch-device line into two
+          // independent props: paperclip is now shown universally
+          // (desktop-visible too, after patch #121 freed aux-row space)
+          // and the Row 1 min-h-[44px] WCAG touch target is gated
+          // separately on the touch-device peer prop. The
+          // useIsTouchDevice() hook (patch #102) is still the sole
+          // mobile-vs-desktop discriminator, just no longer conflated
+          // with paperclip visibility.
           stagedAttachments={uploads.stagedAttachments}
           onRemoveAttachment={uploads.removeAttachment}
-          showPaperclip={isTouchDevice}
+          showPaperclip={true}
+          isTouchDevice={isTouchDevice}
           onAttachFiles={uploads.stageAttachments}
           onSendWithAttachments={(caption) => {
             // Fire-and-forget: the promise resolves when upload_start has

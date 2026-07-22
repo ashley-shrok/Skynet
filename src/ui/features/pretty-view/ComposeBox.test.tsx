@@ -339,10 +339,11 @@ describe("ComposeBox — Phase 9 layout", () => {
     expect(meter.className).not.toContain("flex-col");
   });
 
-  it("Phase 9 Layout: mobile touch target — top row carries min-h-[44px] when showPaperclip=true", () => {
+  it("Phase 9 Layout: mobile touch target — top row carries min-h-[44px] when isTouchDevice=true", () => {
     render(
       <ComposeBox
         {...baseProps({
+          isTouchDevice: true,
           showPaperclip: true,
           onAttachFiles: vi.fn(),
           stagedAttachments: [],
@@ -357,10 +358,11 @@ describe("ComposeBox — Phase 9 layout", () => {
     expect(row1!.className).not.toContain("min-h-8");
   });
 
-  it("Phase 9 Layout: desktop top row carries min-h-8 when showPaperclip=false", () => {
+  it("Phase 9 Layout: desktop top row carries min-h-8 when isTouchDevice=false", () => {
     render(
       <ComposeBox
         {...baseProps({
+          isTouchDevice: false,
           showPaperclip: false,
           onAttachFiles: vi.fn(),
           stagedAttachments: [],
