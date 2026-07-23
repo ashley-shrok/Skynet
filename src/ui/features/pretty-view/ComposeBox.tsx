@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hourglass, Paperclip, RefreshCw, RotateCcw, SendHorizontal, Square, ThumbsUp } from "lucide-react";
+import { Hourglass, Paperclip, RefreshCw, RotateCcw, Square, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -1368,19 +1368,32 @@ export function ComposeBox({
             </span>
           </div>
         )}
-        {/* Patch #129: subtle inside-textarea Send button. Bare
-            <button type="button"> (NOT shadcn Button — sidesteps the
-            wrapper-specificity trap that bit patches #81 and #117 with
-            the queue button's `!` load-bearing bg classes). Position
-            locked with Ashley 2026-07-23 (DevTools console iteration):
-            absolute right-3 bottom-2.5 (12px / 10px inset), 24×24
-            SendHorizontal with fill="currentColor" for the paper-plane
-            silhouette, 40×40 hit target via p-2, rest color
-            rgba(240,235,224,0.3), hover 0.9, disabled 0.15, 120ms
-            color+transform transition, active:scale-95 tactile press.
-            NOT the retired amber-Send from patch #121 — Ashley wants
-            ChatGPT/iMessage-quiet here. LEAVE the VISUAL-08 comment
-            block above (line ~1240) ALONE — stale-cleanup deferred.
+        {/* Patch #129 + #130-fix: subtle inside-textarea Send button.
+            Bare <button type="button"> (NOT shadcn Button — sidesteps
+            the wrapper-specificity trap that bit patches #81 and #117
+            with the queue button's `!` load-bearing bg classes).
+            Position locked with Ashley 2026-07-23 (DevTools console
+            iteration): the ICON sits at right:12px bottom:10px from the
+            wrapper. Because the button has p-2 (=8px) for a 40×40 hit
+            target around the 24×24 icon, the button itself is offset
+            right:4px bottom:2px (= right-1 bottom-0.5) so the icon
+            centers at 4+8=12, 2+8=10 — Ashley's locked values.
+            Patch #130 fix: #129 originally used lucide's SendHorizontal
+            component, which is a DIFFERENT SVG path (horizontal-
+            pointing plane, plus a M6 12h16 fold line, and lucide's
+            default stroke="currentColor" left the plane double-outlined
+            with a stroked crease). Ashley's console-locked snippet was
+            an inline raw SVG with a SINGLE path — the paper plane
+            pointing up-and-right — with pure fill and no stroke. Also
+            in #129 the button was at right-3 bottom-2.5 without
+            accounting for p-2 offset, so the icon rendered at 20/18
+            instead of 12/10. Both regressions caught on 2026-07-23
+            deploy UAT; #130 replaces the lucide component with the
+            raw inline SVG (verbatim from Ashley's snippet) and moves
+            the button to right-1 bottom-0.5 so the icon lands at 12/10
+            with hit target preserved. NOT the retired amber-Send from
+            patch #121 — Ashley wants ChatGPT/iMessage-quiet here.
+            LEAVE the VISUAL-08 comment block above (~line 1240) ALONE.
             onClick routes ALL send behavior through the existing
             handleSend() at line ~652 (attachment branching, D-50
             newline collapse, COMPOSE-04 clear-on-success — nothing
@@ -1392,7 +1405,7 @@ export function ComposeBox({
           aria-label="Send"
           title="Send"
           className={cn(
-            "absolute right-3 bottom-2.5",
+            "absolute right-1 bottom-0.5",
             "p-2",
             "text-[rgba(240,235,224,0.3)]",
             "hover:text-[rgba(240,235,224,0.9)]",
@@ -1403,7 +1416,20 @@ export function ComposeBox({
             "cursor-pointer",
           )}
         >
-          <SendHorizontal className="size-6" fill="currentColor" />
+          {/* Raw inline SVG — verbatim from Ashley's DevTools console
+              snippet 2026-07-23. Single path (paper-plane silhouette
+              pointing up-and-right), pure fill, NO stroke, NO fold
+              line. Do NOT swap for lucide's SendHorizontal — that's a
+              different icon (patch #130 write-up). */}
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+          </svg>
         </button>
         </div>
       </div>
