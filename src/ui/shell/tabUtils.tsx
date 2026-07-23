@@ -25,7 +25,6 @@ import { ServerStats } from "@/features/server-stats/ServerStats";
 import GuacamoleApp from "@/features/guacamole/GuacamoleApp";
 import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
 import { TunnelTab } from "@/features/tunnel/TunnelTab";
-import { NetworkGraphCard } from "@/dashboard/cards/NetworkGraphCard";
 import type { Tab, TabType, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 import { useTabsSafe } from "@/shell/TabContext";
@@ -276,7 +275,12 @@ export function renderTabContent(
       );
 
     case "network_graph":
-      return <NetworkGraphCard embedded={false} />;
+      // Phase 12 Plan 02 (pre-flight for dashboard/ deletion in Plan 04): renders
+      // the pretty-view empty-landing card. The network_graph TabType is preserved
+      // in the union but no UI path reaches it in Skynet; the retired
+      // graph card from src/ui/dashboard/cards/ becomes dead code and is
+      // deleted with the dashboard subtree in Plan 04.
+      return <PrettyLandingCard />;
 
     case "host-manager":
     case "user-profile":
