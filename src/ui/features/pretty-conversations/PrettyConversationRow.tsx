@@ -1,15 +1,22 @@
 // ─── PrettyConversationRow ───────────────────────────────────────────────────
 // The chunky Telegram-style row that IS the visual language of Phase 10.
 // Every visual decision Ashley signed off on 2026-07-22 lives inside this
-// component:
+// component. Patch #136 (2026-07-23) rebased the visual layer onto Ashley's
+// locked "Full + Normal" prototype v2 (Ashley approval 2026-07-23) — the
+// prettyview bubble+badge language now applies to EVERY row (not only
+// selected), and the avatar disc is derived from IdentityBadge.tsx's lg
+// linear-gradient badge (previously radial-gradient):
 //
-//   1. 48px (mobile) / 40px (desktop) identity-hue avatar disc with hue-ring
+//   1. 48px (mobile) / 40px (desktop) identity-hue avatar disc — linear-
+//      gradient + hue border + IdentityBadge-derived multi-stop shadow
+//      (adapted from IdentityBadge.tsx:58-62 & :76). Radial-gradient removed.
 //   2. primary label + host-name secondary line (Server-icon glyph + name),
 //      NO identity chip — session name IS identity name (Ashley: "the
 //      label carries the identity presence")
-//   3. Selected-row treatment VERBATIM from ChatMessage.tsx assistant branch
-//      (linear-gradient bg + hue border + inset+outer hue glow), adapted for
-//      row geometry
+//   3. Full pretty-view bubble treatment on EVERY non-RDP row with hue != null
+//      (0.55/0.60 gradient, 0.32 hue border, full multi-stop shadow). Hover
+//      lifts the row + strengthens the hue glow; selected uses the strongest
+//      treatment (0.55 hue border, 1px hue ring, 56px glow).
 //   4. Same component drives both viewports via a `variant` prop:
 //        - variant="mobile"  → 72px chunky row, swipe-left past 40px reveals a
 //                             48x48 PinAction in an 88px right-anchored strip;
@@ -17,9 +24,16 @@
 //        - variant="desktop" → 62px row, hover-reveal 24x24 PinAction in the
 //                             right meta column; always visible for pinned rows
 //   5. RDP rows (row.rdpHostRow === true) skip swipe wiring AND skip PinAction
-//      in both variants (T-Test-34 preserved)
-//   6. Rows with no identity fall back to a neutral tab-icon avatar (no hue)
+//      in both variants (T-Test-34 preserved) — body + avatar use the neutral
+//      (60,65,80 / 30,33,44) glass treatment instead of the hue treatment
+//   6. Rows with no identity fall back to the cool-slate neutral bubble
+//      (45,55,80 / 28,35,55 at full alpha) — still gets a tabIcon avatar
 //      via the existing sessionMatchKey + useIdentities carry-through
+//   7. `isWip` prop (patch #136 render slot; patch #137 wires the store):
+//      when true, renders a bare-glyph pulse dot as the LAST child in the
+//      right-meta column with aria-label="working". Animates via CSS
+//      keyframe `pv-conv-wip-pulse` (index.css). Respects
+//      prefers-reduced-motion.
 //
 // Identity carry-through mirrors ConversationRow.tsx lines 41-47 verbatim so
 // identity-tinted rows keep the same "which session is this" reading after
@@ -75,6 +89,7 @@ export function PrettyConversationRow({
   onTogglePin,
   onSwipeOpenChange,
   forceClosed,
+  isWip = false,
 }: {
   row: ConversationRowShape;
   selected: boolean;
@@ -84,6 +99,12 @@ export function PrettyConversationRow({
   onTogglePin: () => void;
   onSwipeOpenChange?: (open: boolean) => void;
   forceClosed?: boolean;
+  // Patch #136 render slot — when true, renders a bare-glyph
+  // pulse dot as the LAST child in the right-meta column with
+  // aria-label="working" (animated via pv-conv-wip-pulse
+  // keyframes in index.css). Patch #137 will wire this to a
+  // store subscription; #136 always passes false from the panel.
+  isWip?: boolean;
 }) {
   // ─── Identity resolution ───────────────────────────────────────────────────
   // Same shape as ConversationRow.tsx lines 41-47 (production baseline).
@@ -108,44 +129,148 @@ export function PrettyConversationRow({
   const line1Gap = isMobile ? "gap-2" : "gap-1.5";
   const line2Gap = isMobile ? "gap-2" : "gap-1.5";
 
-  // ─── Avatar style (radial hue-gradient + hue-ring) ─────────────────────────
-  // Verbatim from prototype.html lines 246-274 (mobile) and desktop.html
-  // lines 279-306 (desktop), inlined as CSS-in-JS so runtime hue interpolates.
-  const avatarRing = isMobile ? "2px" : "1.5px";
-  const avatarStyle: CSSProperties =
-    hue == null
-      ? {
-          background:
-            "linear-gradient(160deg, rgba(45,55,80,0.9), rgba(28,35,55,0.9))",
-          boxShadow: `0 0 0 ${avatarRing} rgba(120,140,180,0.35), 0 2px 6px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.10)`,
-        }
-      : {
-          background: `radial-gradient(circle at 30% 25%, hsla(${hue}, 80%, 62%, 1) 0%, hsla(${hue}, 65%, 40%, 1) 60%, hsla(${hue}, 55%, 28%, 1) 100%)`,
-          boxShadow: `0 0 0 ${avatarRing} hsla(${hue}, 70%, 55%, 0.45), 0 2px 6px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18)`,
-          textShadow: "0 1px 1px rgba(0,0,0,0.4)",
-        };
-
-  // ─── Selected-row treatment ────────────────────────────────────────────────
-  // ChatMessage.tsx assistant-bubble (lines 118-129) VERBATIM, adapted for row
-  // geometry — reduced alpha per prototype.html lines 231-239. Runtime hue
-  // interpolated inline; no new CSS custom property.
-  const selectedStyle: CSSProperties = (() => {
-    if (!selected) return {};
-    if (hue == null) {
+  // ─── Avatar style (patch #136 — IdentityBadge lg-derived) ──────────────────
+  // Adapted from IdentityBadge.tsx:58-62 (hue linear-gradient + border) and
+  // :76 (multi-stop shadow). Radial-gradient retired 2026-07-23 per Ashley's
+  // prototype v2 lock. RDP rows get the neutral (60,65,80 / 30,33,44) glass
+  // treatment; hue-null non-RDP rows keep the cool-slate (45,55,80 /
+  // 28,35,55) neutral treatment.
+  const avatarStyle: CSSProperties = (() => {
+    if (isRdp || hue == null) {
+      const [c1, c2, borderRgba] = isRdp
+        ? ["rgba(60,65,80,0.72)", "rgba(30,33,44,0.82)", "rgba(220,225,245,0.22)"]
+        : ["rgba(45,55,80,0.72)", "rgba(28,35,55,0.82)", "rgba(120,140,180,0.35)"];
       return {
-        background:
-          "linear-gradient(160deg, rgba(45,55,80,0.55), rgba(28,35,55,0.6))",
-        borderColor: "rgba(120,140,180,0.32)",
+        background: `linear-gradient(160deg, ${c1}, ${c2})`,
+        border: `1px solid ${borderRgba}`,
         boxShadow:
-          "inset 0 1px 0 rgba(255,220,170,0.10), inset 0 0 0 0.5px rgba(120,140,180,0.16), 0 0 24px rgba(120,140,180,0.08)",
+          "0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(220,225,245,0.20), 0 0 24px rgba(220,225,245,0.12)",
+        color: "var(--color-pv-fg-muted)",
       };
     }
     return {
-      background: `linear-gradient(160deg, hsla(${hue}, 50%, 38%, 0.30), hsla(${hue}, 45%, 24%, 0.35))`,
-      borderColor: `hsla(${hue}, 65%, 55%, 0.32)`,
-      boxShadow: `inset 0 1px 0 rgba(255,220,170,0.10), inset 0 0 0 0.5px hsla(${hue}, 70%, 55%, 0.16), 0 0 24px hsla(${hue}, 70%, 52%, 0.08)`,
+      background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
+      border: `1px solid hsla(${hue}, 65%, 55%, 0.40)`,
+      boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.40)`,
+      color: "#fbf5e8",
+      textShadow: "0 1px 1px rgba(0,0,0,0.4)",
     };
   })();
+
+  // ─── Body-bubble treatment (patch #136 — every row, not selected-only) ─────
+  // Full pretty-view assistant-bubble intensity (0.55/0.60 gradient, 0.32
+  // hue border, multi-stop shadow) applies to EVERY non-RDP row with
+  // hue != null. Hover overlays translateY(-1px) + stronger hue glow;
+  // selected overlays the strongest treatment (0.55 hue border, 1px hue
+  // ring, 56px glow). RDP rows and hue-null non-RDP rows get their own
+  // neutral bubble treatments.
+  const [hovered, setHovered] = useState(false);
+
+  // Compute per-branch color tuple: [gradC1, gradC2, borderRgba,
+  // hairlineRgba, glowRgba]. Selected/hover overlays layer on top.
+  const [gradC1, gradC2, borderRgba, hairlineRgba, glowRgba]: [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ] =
+    isRdp
+      ? [
+          "rgba(60,65,80,0.42)",
+          "rgba(30,33,44,0.58)",
+          "rgba(220,225,245,0.14)",
+          "rgba(220,225,245,0.06)",
+          "rgba(220,225,245,0.05)",
+        ]
+      : hue == null
+        ? [
+            "rgba(45,55,80,0.55)",
+            "rgba(28,35,55,0.60)",
+            "rgba(120,140,180,0.32)",
+            "rgba(120,140,180,0.16)",
+            "rgba(120,140,180,0.08)",
+          ]
+        : [
+            `hsla(${hue}, 50%, 38%, 0.55)`,
+            `hsla(${hue}, 45%, 24%, 0.60)`,
+            `hsla(${hue}, 65%, 55%, 0.32)`,
+            `hsla(${hue}, 70%, 55%, 0.20)`,
+            `hsla(${hue}, 70%, 52%, 0.18)`,
+          ];
+  const insetHighlight =
+    isRdp || hue == null
+      ? "rgba(220,225,245,0.10)"
+      : "rgba(255,220,170,0.18)";
+
+  const baseBodyStyle: CSSProperties = {
+    background: `linear-gradient(160deg, ${gradC1}, ${gradC2})`,
+    border: `1px solid ${borderRgba}`,
+    boxShadow: `0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 ${insetHighlight}, 0 0 0 0.5px ${hairlineRgba}, 0 0 32px ${glowRgba}`,
+    borderRadius: 14,
+    color: "#fbf5e8",
+    backdropFilter: "blur(20px) saturate(1.5)",
+    WebkitBackdropFilter: "blur(20px) saturate(1.6)",
+  };
+
+  // Selected overlay: strongest treatment. 1px hue ring (not 0.5px),
+  // 56px glow, 0 14px 32px outer shadow, translateY(-1px), 0.55 border
+  // alpha (hue) or per-branch neutral analog.
+  const selectedBorderColor =
+    isRdp
+      ? "rgba(220,225,245,0.24)"
+      : hue == null
+        ? "rgba(120,140,180,0.55)"
+        : `hsla(${hue}, 70%, 60%, 0.55)`;
+  const selectedHairline =
+    isRdp
+      ? "rgba(220,225,245,0.20)"
+      : hue == null
+        ? "rgba(120,140,180,0.42)"
+        : `hsla(${hue}, 70%, 55%, 0.42)`;
+  const selectedGlow =
+    isRdp
+      ? "rgba(220,225,245,0.12)"
+      : hue == null
+        ? "rgba(120,140,180,0.34)"
+        : `hsla(${hue}, 70%, 52%, 0.34)`;
+  const selectedOverlay: CSSProperties = selected
+    ? {
+        transform: "translateY(-1px)",
+        borderColor: selectedBorderColor,
+        boxShadow: `0 14px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.28), 0 0 0 1px ${selectedHairline}, 0 0 56px ${selectedGlow}`,
+      }
+    : {};
+
+  // Hover overlay: only on desktop (not mobile — no hover concept) and
+  // only on unselected rows (selected already dominates). 0.42 border,
+  // 0.28 hairline, 0.26 glow, 0 12px 28px outer, 40px glow.
+  const hoverBorderColor =
+    isRdp
+      ? "rgba(220,225,245,0.20)"
+      : hue == null
+        ? "rgba(120,140,180,0.42)"
+        : `hsla(${hue}, 70%, 55%, 0.42)`;
+  const hoverHairline =
+    isRdp
+      ? "rgba(220,225,245,0.14)"
+      : hue == null
+        ? "rgba(120,140,180,0.28)"
+        : `hsla(${hue}, 70%, 55%, 0.28)`;
+  const hoverGlow =
+    isRdp
+      ? "rgba(220,225,245,0.10)"
+      : hue == null
+        ? "rgba(120,140,180,0.26)"
+        : `hsla(${hue}, 70%, 52%, 0.26)`;
+  const shouldHover = !isMobile && !selected && hovered;
+  const hoverOverlay: CSSProperties = shouldHover
+    ? {
+        transform: "translateY(-1px)",
+        borderColor: hoverBorderColor,
+        boxShadow: `0 12px 28px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,220,170,0.22), 0 0 0 0.5px ${hoverHairline}, 0 0 40px ${hoverGlow}`,
+      }
+    : {};
 
   // ─── Mobile swipe state machine ────────────────────────────────────────────
   // Wire only on mobile variant AND non-RDP rows. Desktop variant + RDP rows
@@ -287,18 +412,29 @@ export function PrettyConversationRow({
       }
     : {};
 
-  // Merge selected style with any transform style for the body.
+  // Merge base bubble + hover/selected overlay + transform for the body.
+  // Order matters: base first, then hover, then selected (selected wins);
+  // then transform (mobile swipe) on top so it applies unconditionally.
+  // Desktop-only transition for hover/selected lift + shadow easing;
+  // mobile relies on bodyTransformStyle's own swipe transition (which
+  // spreads AFTER this key and correctly overrides on mobile).
+  const desktopBodyTransition: CSSProperties = isMobile
+    ? {}
+    : {
+        transition:
+          "transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease",
+      };
   const bodyStyle: CSSProperties = {
-    ...selectedStyle,
+    ...baseBodyStyle,
+    ...hoverOverlay,
+    ...selectedOverlay,
+    ...desktopBodyTransition,
     ...bodyTransformStyle,
   };
 
   const bodyBaseClass =
     `${rowMinH} ${rowPadding} flex items-center ${rowGap} ` +
-    "border border-transparent " +
-    (selected ? "" : isMobile ? "active:bg-white/[0.03]" : "hover:bg-white/[0.03] ") +
-    "cursor-pointer select-none " +
-    "relative z-10";
+    "cursor-pointer select-none relative z-10";
 
   // Desktop pin-column visibility (hover-reveal for unpinned, always for
   // pinned). RDP rows skip this column entirely.
@@ -345,6 +481,12 @@ export function PrettyConversationRow({
         onTouchMove={isMobile && !isRdp ? onTouchMove : undefined}
         onTouchEnd={isMobile && !isRdp ? onTouchEnd : undefined}
         onTouchCancel={isMobile && !isRdp ? onTouchEnd : undefined}
+        onMouseEnter={
+          !isMobile && !selected ? () => setHovered(true) : undefined
+        }
+        onMouseLeave={
+          !isMobile && !selected ? () => setHovered(false) : undefined
+        }
         style={bodyStyle}
         className={bodyBaseClass}
       >
@@ -382,13 +524,11 @@ export function PrettyConversationRow({
         <div className="flex-1 min-w-0 flex flex-col gap-0.5">
           <div className={`flex items-center ${line1Gap} min-w-0`}>
             <span
-              className={`${labelTextSize} font-medium truncate leading-tight ` +
-                (selected
-                  ? "text-[#fbf5e8]"
-                  : hue == null
-                    ? "text-foreground"
-                    : "text-foreground")}
-              style={{ letterSpacing: "-0.005em" }}
+              className={`${labelTextSize} font-semibold text-[#fbf5e8] truncate leading-tight`}
+              style={{
+                letterSpacing: "-0.005em",
+                textShadow: "0 1px 2px rgba(0,0,0,0.4)",
+              }}
             >
               {row.label}
             </span>
@@ -396,10 +536,12 @@ export function PrettyConversationRow({
           {row.host && (
             <div className={`flex items-center ${line2Gap} min-w-0`}>
               <Server
-                className={`${hostIconSize} text-muted-foreground/60 shrink-0`}
+                className={`${hostIconSize} shrink-0`}
+                style={{ color: "rgba(255,235,190,0.65)" }}
               />
               <span
-                className={`${hostTextSize} text-muted-foreground/60 truncate leading-tight`}
+                className={`${hostTextSize} truncate leading-tight`}
+                style={{ color: "rgba(255,235,190,0.65)" }}
               >
                 {row.host.name}
               </span>
@@ -433,6 +575,32 @@ export function PrettyConversationRow({
                 onClick={onPinClick}
               />
             </div>
+          )}
+
+          {/* Patch #136 WIP render slot — bare-glyph pulse dot as the LAST
+              child in the right-meta column (after PinAction and pin glyph).
+              Neutral rgba background when hue is null; hue-based hsla
+              otherwise. Animated by pv-conv-wip-pulse keyframes in
+              index.css; prefers-reduced-motion freezes it as a static
+              bright dot via [data-pv-conv-wip-dot="true"] selector. */}
+          {isWip && (
+            <span
+              aria-label="working"
+              data-pv-conv-wip-dot="true"
+              className="inline-block w-2 h-2 rounded-full"
+              style={{
+                background:
+                  hue == null
+                    ? "rgba(220,225,245,0.95)"
+                    : `hsla(${hue}, 85%, 65%, 0.95)`,
+                boxShadow:
+                  hue == null
+                    ? "0 0 10px 1px rgba(220,225,245,0.85), 0 0 20px 2px rgba(220,225,245,0.35)"
+                    : `0 0 10px 1px hsla(${hue}, 85%, 55%, 0.85), 0 0 20px 2px hsla(${hue}, 85%, 55%, 0.35)`,
+                animation:
+                  "pv-conv-wip-pulse 1.35s ease-in-out infinite",
+              }}
+            />
           )}
         </div>
       </div>

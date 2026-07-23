@@ -1,5 +1,5 @@
 // ─── PrettyConversationRow — Vitest coverage ─────────────────────────────────
-// 11 tests covering the row component from Phase 10 Plan 01 Task 3:
+// 14 tests covering the row component from Phase 10 Plan 01 Task 3 + patch #136:
 //   1) Desktop selected-row hue treatment (inline hsla interpolation)
 //   2) Mobile swipe past 40px threshold opens the reveal strip
 //   3) Mobile swipe under threshold snaps closed
@@ -11,6 +11,15 @@
 //   9) Avatar fallback for no-identity row renders a tabIcon svg
 //  10) Pinned row on desktop always shows pin button (not hover-gated)
 //  11) No identity-chip in DOM (session name IS identity name)
+//  12) [patch #136] Unselected non-RDP row with hue renders full hue-bubble
+//      body treatment (linear-gradient(160deg, hsla(...)) at 0.55/0.60 alphas
+//      — proves the bubble treatment now applies to unselected rows, not
+//      only to the selected row)
+//  13) [patch #136] isWip={true} renders pulse dot with aria-label="working"
+//      and data-pv-conv-wip-dot="true" attribute (a11y + reduced-motion hook)
+//  14) [patch #136] isWip={true} on a hue-null RDP row uses the neutral
+//      rgba(220,225,245,…) dot background instead of an hsla(hue,…) value
+//      (defensive: proves the neutral-branch fallback is wired end-to-end)
 //
 // Fixture pattern lifted from src/ui/sidebar/NewSessionDialog.test.tsx lines
 // 14-35 verbatim: mock react-i18next passthrough, mock session-hue helpers
@@ -525,5 +534,105 @@ describe("PrettyConversationRow: no identity chip", () => {
     );
     expect(cDesktop.innerHTML).not.toContain("IdentityBadge");
     expect(cDesktop.querySelector("[data-testid='identity-badge']")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 12 — [patch #136] Unselected non-RDP row with hue renders full
+//           hue-bubble body treatment (not the previous selected-only reduced
+//           alpha treatment)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: patch #136 full-bubble-every-row", () => {
+  it("Test 12: unselected non-RDP row with hue renders full hue-bubble body style", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    // Body div is the role="button" element (scoped inside the wrapper).
+    // jsdom's CSSOM normalizes hsla → rgba INSIDE `linear-gradient(...)`
+    // functions but preserves hsla in other contexts (box-shadow, plain
+    // color). So we probe two invariants:
+    //   1. background contains `linear-gradient(160deg, ` with 0.55/0.6
+    //      alpha values — proves the full-bubble treatment is applied.
+    //   2. box-shadow contains an `hsla(210, ...)` substring — proves the
+    //      row.hue was interpolated (not defaulted to the neutral branch).
+    // Together these lock the "every-row-gets-the-bubble" behavior against
+    // the pre-patch-#136 "selected-only reduced-alpha" treatment.
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    const rawStyle = body.getAttribute("style") ?? "";
+    expect(rawStyle).toContain("linear-gradient(160deg, ");
+    // 0.55 outer + 0.6 inner alpha stops verbatim from patch #136 spec.
+    // jsdom normalizes 0.60 → 0.6 and 0.55 → 0.55.
+    expect(rawStyle).toMatch(/linear-gradient\(160deg,[^;]*0\.55[^;]*0\.6\)/);
+    // Hue-driven interpolation is provable via the box-shadow's hue-hairline
+    // + hue-glow (jsdom preserves hsla in box-shadow context).
+    expect(rawStyle).toContain("hsla(210,");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 13 — [patch #136] isWip={true} renders pulse dot with correct a11y +
+//           data-attribute wiring
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: patch #136 isWip render slot", () => {
+  it("Test 13: isWip={true} renders pulse dot with aria-label='working'", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    const { getByLabelText } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        isWip={true}
+      />,
+    );
+    const dot = getByLabelText("working") as HTMLElement;
+    expect(dot.getAttribute("data-pv-conv-wip-dot")).toBe("true");
+    // jsdom preserves the raw animation string as authored on
+    // HTMLElement.style.animation.
+    expect(dot.style.animation).toContain("pv-conv-wip-pulse");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 14 — [patch #136] isWip on a hue-null RDP row uses neutral rgba dot
+//           (defensive — proves neutral fallback is wired end-to-end)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: patch #136 isWip neutral fallback", () => {
+  it("Test 14: isWip on RDP row uses neutral rgba dot (not hsla)", () => {
+    // currentIdentity stays null (beforeEach reset) — RDP row + no identity
+    // → hue is null → dot renders the neutral rgba(220,225,245,…) background.
+    const { getByLabelText } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        isWip={true}
+      />,
+    );
+    const dot = getByLabelText("working") as HTMLElement;
+    const rawStyle = dot.getAttribute("style") ?? "";
+    expect(rawStyle).toContain("rgba(220,225,245");
+    // Defensive: no hsla substring anywhere in the dot's style — the hue
+    // branch should NOT have fired.
+    expect(rawStyle).not.toContain("hsla(");
   });
 });

@@ -265,6 +265,10 @@ export function PrettyConversationsPanel({
             {/* Pinned rows — flat, no "Pinned" section header. The pin
                 glyph on each row is the only marker. */}
             {pinned.map((row) => (
+              // isWip={false} pass-through — patch #136 render slot; patch #137
+              // will wire this to the WIP-vs-idle store subscription (one-line
+              // change here). Same pass-through repeats at the two grouped
+              // render sites below.
               <PrettyConversationRow
                 key={row.id}
                 row={row}
@@ -279,6 +283,7 @@ export function PrettyConversationsPanel({
                     : undefined
                 }
                 forceClosed={forceClosedFor(row.id)}
+                isWip={false}
               />
             ))}
             {/* Grouped rows — FLAT per Ashley/prototype lock: no per-host
@@ -322,6 +327,7 @@ export function PrettyConversationsPanel({
                         variant={variant}
                         onSelect={() => handleRowSelect(row)}
                         onTogglePin={rdpNoopTogglePin}
+                        isWip={false}
                       />
                     ))}
                   </div>
@@ -346,6 +352,7 @@ export function PrettyConversationsPanel({
                           : undefined
                       }
                       forceClosed={forceClosedFor(row.id)}
+                      isWip={false}
                     />
                   ))}
                 </div>
