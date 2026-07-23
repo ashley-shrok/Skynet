@@ -4,7 +4,7 @@ import { CommandHistoryProvider } from "@/features/terminal/command-history/Comm
 import { SidebarProvider } from "@/components/sidebar.tsx";
 import { getSSHHosts, getUserInfo } from "@/main-axios.ts";
 import type { SSHHost } from "@/types";
-import { Dashboard } from "@/dashboard/Dashboard.tsx";
+import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard.tsx";
 import { Toaster } from "@/components/sonner.tsx";
 import { dbHealthMonitor } from "@/lib/db-health-monitor.ts";
 import { useTranslation } from "react-i18next";
@@ -79,11 +79,6 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
     }
   }, [hostId, isAuthenticated, authLoading]);
 
-  const handleAuthSuccess = () => {
-    setIsAuthenticated(true);
-    window.location.reload();
-  };
-
   if (authLoading) {
     return (
       <div
@@ -110,13 +105,7 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
               className="w-full h-screen overflow-hidden flex items-center justify-center"
               style={{ backgroundColor: "var(--bg-base)" }}
             >
-              <Dashboard
-                isAuthenticated={false}
-                authLoading={authLoading}
-                onAuthSuccess={handleAuthSuccess}
-                isTopbarOpen={false}
-                onSelectView={() => {}}
-              />
+              <PrettyLandingCard />
               <Toaster
                 position="bottom-right"
                 richColors={false}
