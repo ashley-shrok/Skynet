@@ -39,6 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: Quality-of-life batch** - Multiple small UX improvements shipped as one batch (completed 2026-07-21, retroactive roadmap entry).
 - [x] **Phase 9: ComposeBox redesign — 2-tall shell with horizontal ctx meter** - Restructure ComposeBox into a 2-tall shell with the horizontal ctx-meter running below the textarea, plus polish patches (completed 2026-07-22, shipped as patches #116-#122, retroactive roadmap entry).
 - [ ] **Phase 10: Pretty-Conversations visual-language rework** - Replace the current shadcn-derived `ConversationsPanel` + `ConversationRow` with a clean-slate `src/ui/features/pretty-conversations/` component tree (mirrors the pretty-view precedent from Phase 4). Chunky Telegram-style row layout (~72px mobile / ~62px desktop, 48/40px identity-hue avatar disc with hue-ring, primary label + host-name secondary line), pretty-view visual language (glass gradients, identity-hue selected-row lift, Inter font, warm palette). Session-name IS identity-name convention baked in — no IdentityBadge chip on rows. Flat list, no section headers — pin glyph on row IS the pin marker. Mobile pin = swipe-left action; desktop pin = hover-reveal button. New session = compact pencil icon in the header (Telegram-native). Fix small-window desktop sidebar-affordance regression by adding a persistent top-left toggle in AppShell that survives at all window widths. Same component drives both viewports; AppShell swaps in place with no dual-mode ship (per shape-file rule). Delete old `ConversationsPanel` + `ConversationRow` after cutover. Design source-of-truth: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/{prototype.html,desktop.html}` (Ashley signed off 2026-07-22 v0.3 mobile + v0.1 desktop). Shape reference: `.planning/shapes/shape-telegram-like-interface.md` (LOCKED, model unchanged — this is presentation-only follow-up).
+- [ ] **Phase 11: Skynet transformation — purge dead Termix surfaces (first slice)** - Ship-of-Theseus purge of Termix UI surfaces that Ashley does not see in Skynet. This-phase scope: (a) desktop landing surface becomes the pretty-conversations panel + PrettyView chat surface (NOT the Termix dashboard); (b) the left AppRail (icon buttons for dashboard, host manager, snippets, admin, settings) is deleted from `AppShell` and its file removed. Long-term goal (subsequent Phase 12+): rip host manager UI pages, snippets manager, admin console, ALL settings surfaces, Termix tab bar chrome, keyboard shortcut editor UI, and any backend routes that only served those deleted surfaces. Invisible-shell technical capability stays intact: tab plumbing (mount/unmount, WebSocket lifecycle, focus routing), terminal renderer (xterm.js), RDP/VNC/Guacamole panes, host CRUD BACKEND (data layer — the encrypted-SQLite host record store must NOT be touched; only its UI entry points via AppRail are removed). Palette authority for any surface color change stays `--color-pv-*` (theme-color, `--background` rebase all draw from the pretty-view token set, NOT Termix's dark-mode `--background`). Rebase risk HIGH — accept upstream divergence for deleted surfaces (Ashley 2026-07-23 verbatim: "we are not having settings at all" — this is total, not partial). Bounty tracker: `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/`.
 
 ## Phase Details
 
@@ -340,3 +341,38 @@ Plans:
 **Bounty:** `pretty-conversations-panel-redesign` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/`). Prototype-locked at 2026-07-22 (v0.3 mobile + v0.1 desktop). Closes on Ashley UAT sign-off post-deploy.
 
 **Deploy discipline:** Patch #128 stacks on the existing #123-#127 pending batch on `feat/tab-title-from-tmux`. No deploy inside this phase; deploy is Ashley's morning greenlight per fork DEPLOY DISCIPLINE (15-min deadman rollback mandatory).
+
+### Phase 11: Skynet transformation — purge dead Termix surfaces (first slice)
+
+**Goal:** Desktop's landing surface renders the pretty-conversations panel + PrettyView chat surface on session load (NOT the Termix dashboard), and the left AppRail — its file plus every reference — is deleted from `AppShell` so the Termix dashboard, host manager UI, snippets manager, admin console, and any settings surfaces reachable via the AppRail become unreachable from the UI. The invisible-shell technical capability (tab plumbing, terminal renderer, RDP/VNC panes, host CRUD BACKEND API + encrypted-SQLite data layer) is untouched. This is a delete-code Ship-of-Theseus pass, not a feature flag.
+
+**Requirements:** PURGE-01, PURGE-02, PURGE-03, PURGE-04, PURGE-05
+
+**Depends on:** Phase 10 (pretty-conversations panel + PrettyView are the destination landing surface; must be shipped and stable before AppShell cuts over to them as landing)
+
+**Success Criteria** (what must be TRUE):
+
+  1. On desktop, after fresh page-load without a hash-fragment, the visible top-level surface is the pretty-conversations panel (sidebar) + PrettyView chat surface (default main pane) — NOT the Termix dashboard, host manager, or any other historical Termix landing UI
+  2. The left AppRail component file no longer exists in `src/ui/sidebar/` (or wherever it lived); zero imports of the deleted AppRail file remain anywhere in `src/`; `tsc` clean; test suite green
+  3. No UI navigation path exists from a fresh Termix landing to the Termix dashboard, host manager pages, snippets manager, admin console, or any settings surface — the surfaces are unreachable through the visible UI, even if some backing route files linger for follow-up phase deletion
+  4. Backend `/host/db/*` and `/identities/*` endpoints continue to serve their existing frontends (pretty-conversations panel reads the host list via the same API path it uses today); no backend route deletion in this phase
+  5. RDP/VNC/Guacamole sessions launch and render exactly as they did before the purge (Phase 7's RDP-host-sentinel row in the conversation list still opens Guacamole panes)
+  6. On mobile, page-load lands on the pretty-conversations panel (list view) with mobile back-button flow to PrettyView chat, unchanged from Phase 10's shipped behavior
+
+**Design source-of-truth (LOCKED, Ashley 2026-07-23):**
+- `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/` (bounty premise + Ashley UAT quote)
+- `~/.claude/identities/tina/tina.md` § Skynet direction — Ship of Theseus (dead-surfaces canonical list; palette authority `--color-pv-*`)
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+- Delete files rather than gate/hide them — this is a Ship-of-Theseus purge, not a feature-flag switch
+- Keep the invisible-shell technical capability: tab plumbing, terminal renderer, RDP/VNC panes, host CRUD BACKEND (data layer). Untouched.
+- No settings UI anywhere in this phase or any follow-up (Ashley 2026-07-23: "we are not having settings at all" — total, not partial)
+- If a surface isn't the conversation list or the pretty view, don't defend it in scope decisions
+- Palette authority for any surface color change stays `--color-pv-*` (theme-color, `--background` rebase, safe-area color — all draw from pretty-view tokens, NOT Termix's dark-mode `--background`)
+- Same landing behavior ships to both viewports in this phase (no dual-mode ship — mirrors Phase 10 rule)
+
+**Plans:** TBD — planner decomposes.
+
+**Bounty:** `skynet-transformation-purge-dead-surfaces` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/`). Reclassified low → HIGH on 2026-07-23 after Ashley's UAT quote ("I really feel like we need to get away from this termix front end stuff before any of this is worth quibbling over"). Closes only after subsequent phases finish the full purge; this phase closes on landing-surface-swap + AppRail retirement UAT sign-off.
+
+**Deploy discipline:** Batched with subsequent purge phases per fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23). No deploy inside this phase unless Ashley explicitly greenlights an early deploy of just the landing swap + AppRail removal. Rebase risk HIGH — accept upstream divergence for deleted surfaces.

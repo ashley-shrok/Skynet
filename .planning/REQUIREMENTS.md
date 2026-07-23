@@ -71,6 +71,14 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [ ] **UPLOAD-13**: Multiple attachments in one send share a single caption input (one caption per batch); there is no per-chip caption; empty caption is allowed (send with attachments only)
 - [ ] **UPLOAD-14**: The feature works on any pretty-view pane whose receiving-box shell can write to the user's home — including plain-shell panes as well as Claude Code panes; the injected metadata block is human-readable so a shell user can `cat`/`less` the file at the given path just as readily as an agent can `@`-reference it
 
+### Dead-Surfaces Purge — First Slice (Phase 11)
+
+- [ ] **PURGE-01**: On desktop, fresh page-load without a hash-fragment lands on the pretty-conversations panel (sidebar) + PrettyView chat surface (default main pane) — NOT the Termix dashboard, host manager, or any prior Termix landing UI
+- [ ] **PURGE-02**: The left AppRail component file no longer exists in the source tree; zero imports of the deleted AppRail path remain anywhere under `src/`; `tsc` clean; test suite green after removal
+- [ ] **PURGE-03**: No visible UI navigation path exists from a fresh Termix landing to the Termix dashboard, host manager pages, snippets manager, admin console, or any settings surface (surfaces may still have route files pending follow-up phase deletion, but they must be unreachable from AppShell)
+- [ ] **PURGE-04**: Backend `/host/db/*` and `/identities/*` endpoints and the encrypted-SQLite data layer are untouched — no backend route or schema deletion in this phase; the pretty-conversations panel continues to read the host list via the same API path it uses today
+- [ ] **PURGE-05**: RDP/VNC/Guacamole sessions launch and render exactly as they did before the purge; Phase 7's RDP-host-sentinel row in the conversation list continues to open Guacamole panes for RDP-enabled hosts
+
 ### Visual Reskin — Glass Depth Aesthetic (Phase 4)
 
 - [ ] **VISUAL-01**: Pretty view's base surface reads as a warm-neutral dark atmosphere (not cool navy-black or pure black) with subtle radial-gradient depth cues implying an ambient light source — a physical space, not a flat fill
@@ -218,12 +226,17 @@ Which phases cover which requirements. Populated during roadmap creation.
 | TG-16 | Phase 7 | Pending |
 | TG-17 | Phase 7 | Pending |
 | TG-18 | Phase 7 | Pending |
+| PURGE-01 | Phase 11 | Pending |
+| PURGE-02 | Phase 11 | Pending |
+| PURGE-03 | Phase 11 | Pending |
+| PURGE-04 | Phase 11 | Pending |
+| PURGE-05 | Phase 11 | Pending |
 
 **Coverage:**
-- v1 requirements: 66 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7)
-- Mapped to phases: 66 ✓
+- v1 requirements: 71 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11)
+- Mapped to phases: 71 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-21 — added TG-12..18 for Phase 7 (Fleet-native conversation list, spec: shapes/shape-fleet-native-conversation-list.md) as continuation of Phase 6's TG-XX numbering*
+*Last updated: 2026-07-23 — added PURGE-01..05 for Phase 11 (Skynet transformation — purge dead Termix surfaces, first slice: landing-surface swap + AppRail retirement)*
