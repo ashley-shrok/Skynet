@@ -79,6 +79,14 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [ ] **PURGE-04**: Backend `/host/db/*` and `/identities/*` endpoints and the encrypted-SQLite data layer are untouched — no backend route or schema deletion in this phase; the pretty-conversations panel continues to read the host list via the same API path it uses today
 - [ ] **PURGE-05**: RDP/VNC/Guacamole sessions launch and render exactly as they did before the purge; Phase 7's RDP-host-sentinel row in the conversation list continues to open Guacamole panes for RDP-enabled hosts
 
+### Dead-Surfaces Purge — Second Slice (Phase 12)
+
+- [ ] **PURGE-06**: All Phase-11-orphaned sidebar panel files are deleted from `src/ui/sidebar/` — HostsPanel, SessionsPanel, CredentialsPanel, QuickConnectPanel, SshToolsPanel, SnippetsPanel, HistoryPanel, SplitScreenPanel, ConnectionsPanel, UserProfilePanel, AdminSettingsPanel + AdminApiKeys/Identities/Management/Settings/Shared/UserDialogs sections, HostManager + HostManagerData/HostManagerTabs/HostShareModal, HostEditor + HostEditorData/HostEditorFeatureTabs/HostEditorGeneralTab/HostEditorGuacamoleTabs/HostEditorStatsTab, HostCredentialList, CredentialEditorView, SidebarTree — grep for each identifier returns 0 code hits across `src/`; `sidebar/NewSessionDialog.tsx` (used by pretty-conversations pencil) STAYS
+- [ ] **PURGE-07**: `src/ui/dashboard/` subtree is deleted (DashboardTab.tsx, Dashboard.tsx, SessionDashboard.tsx, NewSessionHostChips.tsx, RemoteHostChips.tsx, sshHostToHost.ts, plus cards/components/hooks/panels/ subdirs whose only consumers are dashboard files); the "dashboard" TabType STAYS as a load-bearing fallback identifier in `src/types/ui-types.ts`
+- [ ] **PURGE-08**: Termix tab bar chrome (top-level visible tab strip UI Ashley never sees in Skynet) is deleted from the source tree; invisible tab plumbing (mount/unmount, WebSocket lifecycle, focus routing) stays intact
+- [ ] **PURGE-09**: Keyboard shortcut editor UI (`src/ui/features/keyboard/` visible editor surfaces) is deleted; underlying keyboard shortcut handling for retained UI (Ctrl+Shift+O pretty-view toggle, ChordDropdown, other retained shortcuts) stays intact
+- [ ] **PURGE-10**: Dead locale strings (`pinAppRail`, `nav.dashboard`, `nav.hosts`, `nav.snippets`, `nav.admin`, `nav.credentials`, `nav.history`, and every transitively-dead key referencing deleted surfaces) are removed from all `src/ui/locales/*.json` files; `tsc --noEmit` exits 0 across typed-i18n consumers
+
 ### Visual Reskin — Glass Depth Aesthetic (Phase 4)
 
 - [ ] **VISUAL-01**: Pretty view's base surface reads as a warm-neutral dark atmosphere (not cool navy-black or pure black) with subtle radial-gradient depth cues implying an ambient light source — a physical space, not a flat fill
@@ -231,12 +239,17 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PURGE-03 | Phase 11 | Pending |
 | PURGE-04 | Phase 11 | Pending |
 | PURGE-05 | Phase 11 | Pending |
+| PURGE-06 | Phase 12 | Pending |
+| PURGE-07 | Phase 12 | Pending |
+| PURGE-08 | Phase 12 | Pending |
+| PURGE-09 | Phase 12 | Pending |
+| PURGE-10 | Phase 12 | Pending |
 
 **Coverage:**
-- v1 requirements: 71 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11)
-- Mapped to phases: 71 ✓
+- v1 requirements: 76 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12)
+- Mapped to phases: 76 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-23 — added PURGE-01..05 for Phase 11 (Skynet transformation — purge dead Termix surfaces, first slice: landing-surface swap + AppRail retirement)*
+*Last updated: 2026-07-23 — added PURGE-06..10 for Phase 12 (Skynet transformation — purge dead frontend surfaces, second slice: sidebar panel files + dashboard subtree + tab bar chrome + shortcut editor UI + dead locale strings)*
