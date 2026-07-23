@@ -182,7 +182,7 @@ export function AppShell({
       id: "dashboard",
       instanceId: "dashboard",
       type: "dashboard",
-      label: t("nav.dashboard"),
+      label: t("nav.conversations.title", { defaultValue: "Conversations" }),
       openedAt: Date.now(),
     },
   ]);
@@ -1184,7 +1184,7 @@ export function AppShell({
             id: "dashboard",
             instanceId: "dashboard",
             type: "dashboard",
-            label: t("nav.dashboard"),
+            label: t("nav.conversations.title", { defaultValue: "Conversations" }),
             openedAt: Date.now(),
           },
         ];
