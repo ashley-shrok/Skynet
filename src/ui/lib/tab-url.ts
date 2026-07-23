@@ -222,10 +222,49 @@ export function consumePendingWorkspace(): WorkspaceSpec | null {
 // We use the fragment specifically because Chrome's window-restore code path
 // (Ctrl+Shift+T after closing a whole window) doesn't preserve replaceState'd
 // query params, but does preserve the fragment.
+//
+// Patch #132 Fix B: `mv=` semantics on write. mobile-flow.ts's
+// navigateToView / navigateToList are the AUTHORITATIVE writers of the
+// `mv=` flag. This writer's rule:
+//   - ws === null                 → strip mv= (clearing the whole workspace)
+//   - ws.mobileView === true      → set mv=1 (spec wins; supports URL restore)
+//   - ws.mobileView === false     → strip mv= (explicit clear)
+//   - ws.mobileView === undefined → PRESERVE whatever mv= is currently in
+//                                    the URL
+// The undefined-preserves-URL branch is what breaks the bounce race:
+// AppShell's URL sync effect passes `mobileView` as `mobileScreen === "view"
+// ? true : undefined`, and a transient `mobileScreen === "list"` no longer
+// strips a live mv=1 — it just doesn't touch it. mobile-flow retains
+// exclusive ownership of when mv= disappears.
+// Also PRESERVES current history.state instead of wiping it with `{}` — the
+// wipe used to clobber navigateToView's sentinel and force navigateToList
+// into its URL-rewrite fallback path (see mobile-flow.ts:119-149).
 export function writeWorkspaceToUrl(ws: WorkspaceSpec | null): void {
   if (typeof window === "undefined") return;
   const payload = ws && ws.tabs.length > 0 ? encodeWorkspaceSpec(ws) : "";
-  const nextHash = payload ? `#${payload}` : "";
+  // Resolve final mv= per the rule table above.
+  let finalMv: "1" | null;
+  if (ws === null) {
+    finalMv = null;
+  } else if (ws.mobileView === true) {
+    finalMv = "1";
+  } else if (ws.mobileView === false) {
+    finalMv = null;
+  } else {
+    const currentHashParams = new URLSearchParams(
+      window.location.hash.slice(1),
+    );
+    finalMv = currentHashParams.get("mv") === "1" ? "1" : null;
+  }
+  // `encodeWorkspaceSpec` only emits mv=1 when ws.mobileView===true; reset
+  // via a fresh URLSearchParams pass so `finalMv` is authoritative.
+  let nextHash = "";
+  if (payload) {
+    const p = new URLSearchParams(payload);
+    p.delete("mv");
+    if (finalMv === "1") p.set("mv", "1");
+    nextHash = `#${p.toString()}`;
+  }
   const currentHash = window.location.hash;
   // Also strip any legacy ?tab= that might be lurking from a bookmarked pre-hash URL.
   const params = new URLSearchParams(window.location.search);
@@ -237,5 +276,6 @@ export function writeWorkspaceToUrl(ws: WorkspaceSpec | null): void {
   const nextSearch = qs ? `?${qs}` : "";
   const nextUrl = window.location.pathname + nextSearch + nextHash;
   if (currentHash === nextHash && window.location.search === nextSearch) return;
-  window.history.replaceState({}, "", nextUrl);
+  // Preserve existing history.state so navigateToView's sentinel survives.
+  window.history.replaceState(window.history.state, "", nextUrl);
 }
