@@ -10,7 +10,7 @@
 //   8)  Mobile header omits title text
 //   9)  Desktop gear renders when onRailClick provided
 //  10)  Mobile gear NEVER renders (even when onRailClick provided)
-//  11)  settingsRowSlot renders at BOTTOM of scroll region on mobile
+//  11)  RETIRED — settingsRowSlot prop dropped in Phase 11 (Ashley's "no settings" lock)
 //  12)  Row click routes RDP → onRdpRowClick (not onDetachedRowClick, not selectConversation)
 //  13)  Row click routes fleetOnly → onDetachedRowClick (not onRdpRowClick)
 //  14)  Row click on plain row calls selectConversation
@@ -518,35 +518,8 @@ describe("PrettyConversationsPanel: mobile gear removed (patch #133)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 11 — settingsRowSlot renders at BOTTOM of scroll region on mobile
+// Test 11 — RETIRED — settingsRowSlot prop dropped in Phase 11
 // ─────────────────────────────────────────────────────────────────────────────
-
-describe("PrettyConversationsPanel: mobile settings slot position", () => {
-  it("Test 11: settingsRowSlot renders AFTER row entries in DOM order on mobile", () => {
-    const hostA = makeHost("h1", "hostA");
-    setSnapshot({
-      pinned: [makeConversationRow({ id: "a", label: "alpha", host: hostA })],
-      grouped: [],
-      pinnedIds: new Set(["a"]),
-    });
-
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel
-        variant="mobile"
-        settingsRowSlot={<div data-testid="settings-slot">SETTINGS</div>}
-      />,
-    );
-
-    const slot = getByTestId("settings-slot") as HTMLElement;
-    const rowA = container.querySelector(
-      '[data-conversation-id="a"]',
-    ) as HTMLElement;
-    expect(slot).toBeTruthy();
-    expect(rowA).toBeTruthy();
-    // Slot must FOLLOW row `a` in DOM order.
-    expect(rowA.compareDocumentPosition(slot) & 4).toBe(4);
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 12 — Row click routes RDP → onRdpRowClick
