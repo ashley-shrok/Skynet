@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Tampilkan tag di daftar host",
         "hostTrayOnClick": "Klik untuk Memperluas Tindakan Host",
         "hostTrayOnClickDesc": "Selalu tampilkan tombol koneksi; klik untuk memperluas opsi manajemen, bukan dengan mengarahkan kursor.",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Pertahankan agar bilah sisi kiri aplikasi selalu terbuka, alih-alih terbuka saat diarahkan kursor.",
         "settingsSnippets": "Cuplikan",
         "foldersCollapsed": "Folder Dilipat",
         "foldersCollapsedDesc": "Secara default, folder akan diciutkan.",

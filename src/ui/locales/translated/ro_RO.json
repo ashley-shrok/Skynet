@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Afișează etichetele în lista de host-uri",
         "hostTrayOnClick": "Faceți clic pentru a extinde acțiunile gazdei",
         "hostTrayOnClickDesc": "Afișați întotdeauna butoanele de conectare; faceți clic pentru a extinde opțiunile de gestionare în loc să treceți cu mouse-ul peste",
-        "pinAppRail": "Fixează aplicația Pin Rail",
-        "pinAppRailDesc": "Mențineți șina aplicației din bara laterală stângă mereu extinsă, în loc să se extindă la trecerea cu mouse-ul peste mouse",
         "settingsSnippets": "Snippet-uri",
         "foldersCollapsed": "Dosare Restrânse",
         "foldersCollapsedDesc": "Restrânge implicit dosarele",

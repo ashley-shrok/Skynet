@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Vis emneord i vertslisten",
         "hostTrayOnClick": "Klikk for å utvide vertshandlinger",
         "hostTrayOnClickDesc": "Vis alltid tilkoblingsknapper; klikk for å utvide administrasjonsalternativer i stedet for å holde musepekeren over",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Hold appskinnen i venstre sidefelt alltid utvidet i stedet for å utvides når du holder musepekeren over den",
         "settingsSnippets": "Snippets",
         "foldersCollapsed": "Mapper samlet",
         "foldersCollapsedDesc": "Skjul mapper som standard",

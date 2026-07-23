@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "호스트 목록에 태그를 표시합니다.",
         "hostTrayOnClick": "호스트 작업 확장하려면 클릭하세요",
         "hostTrayOnClickDesc": "연결 버튼을 항상 표시하고, 마우스 오버 대신 클릭하여 관리 옵션을 확장합니다.",
-        "pinAppRail": "핀 앱 레일",
-        "pinAppRailDesc": "왼쪽 사이드바 앱 레일을 마우스 오버 시 확장되는 대신 항상 확장된 상태로 유지합니다.",
         "settingsSnippets": "짧은 발췌",
         "foldersCollapsed": "폴더 접힘",
         "foldersCollapsedDesc": "기본적으로 폴더를 접습니다.",

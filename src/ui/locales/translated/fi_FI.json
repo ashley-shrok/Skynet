@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Näytä tagit isäntäluettelossa",
         "hostTrayOnClick": "Napsauta laajentaaksesi isäntätoiminnot",
         "hostTrayOnClickDesc": "Näytä aina yhteyspainikkeet; napsauta laajentaaksesi hallinta-asetuksia hiiren osoittimen sijaan",
-        "pinAppRail": "Kiinnitä sovellusraide",
-        "pinAppRailDesc": "Pidä vasemman sivupalkin sovelluspalkki aina laajennettuna sen sijaan, että se laajenisi hiiren osoittimen vaikutuksesta",
         "settingsSnippets": "Projekti",
         "foldersCollapsed": "Kansiot Tiivistetty",
         "foldersCollapsedDesc": "Pienennä kansiot oletuksena",

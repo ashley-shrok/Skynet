@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Tags in der Hostliste anzeigen",
         "hostTrayOnClick": "Klicken Sie hier, um die Host-Aktionen zu erweitern.",
         "hostTrayOnClickDesc": "Verbindungsschaltflächen immer anzeigen; zum Erweitern der Verwaltungsoptionen klicken statt mit der Maus darüberfahren",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Die linke Seitenleiste der App-Bereiche sollte immer ausgeklappt sein, anstatt sich erst beim Überfahren mit der Maus zu erweitern.",
         "settingsSnippets": "Schnipsel",
         "foldersCollapsed": "Ordner zusammenklappt",
         "foldersCollapsedDesc": "Ordner standardmäßig einklappen",

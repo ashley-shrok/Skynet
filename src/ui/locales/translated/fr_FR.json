@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Afficher les tags dans la liste des hôtes",
         "hostTrayOnClick": "Cliquez pour afficher les actions de l'hôte",
         "hostTrayOnClickDesc": "Afficher systématiquement les boutons de connexion ; cliquer pour afficher les options de gestion au lieu de survoler.",
-        "pinAppRail": "Rail d'application Pin",
-        "pinAppRailDesc": "Conserver le panneau latéral gauche toujours déployé au lieu de le déployer au survol.",
         "settingsSnippets": "Extraits",
         "foldersCollapsed": "Dossiers réduits",
         "foldersCollapsedDesc": "Réduire les dossiers par défaut",

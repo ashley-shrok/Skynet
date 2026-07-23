@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "ホストリストにタグを表示する",
         "hostTrayOnClick": "ホストアクションを展開するにはクリックしてください",
         "hostTrayOnClickDesc": "接続ボタンを常に表示する。管理オプションを展開するには、マウスオーバーではなくクリックする。",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "左サイドバーのアプリレールを、マウスオーバー時ではなく常に展開した状態にする。",
         "settingsSnippets": "Snippets",
         "foldersCollapsed": "折りたたまれたフォルダ",
         "foldersCollapsedDesc": "デフォルトでフォルダを閉じる",

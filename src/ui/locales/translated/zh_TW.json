@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "在主機清單中顯示標籤",
         "hostTrayOnClick": "點選展開主機操作",
         "hostTrayOnClickDesc": "始終顯示連線按鈕；點擊展開管理選項，而不是懸停。",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "保持左側邊欄應用導軌始終展開，而不是滑鼠懸停時才展開。",
         "settingsSnippets": "片段",
         "foldersCollapsed": "資料夾已折疊",
         "foldersCollapsedDesc": "預設折疊資料夾",

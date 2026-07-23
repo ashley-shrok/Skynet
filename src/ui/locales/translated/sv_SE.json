@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Visa taggar i värdlistan",
         "hostTrayOnClick": "Klicka för att expandera värdåtgärder",
         "hostTrayOnClickDesc": "Visa alltid anslutningsknappar; klicka för att expandera hanteringsalternativ istället för att hålla muspekaren över",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Håll applist i vänster sidofält alltid expanderad istället för att expandera när du håller muspekaren över den",
         "settingsSnippets": "Textmoduler",
         "foldersCollapsed": "Mappar kollapsade",
         "foldersCollapsedDesc": "Kollapsa mappar som standard",

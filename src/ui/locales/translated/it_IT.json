@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Mostra i tag nella lista host",
         "hostTrayOnClick": "Fai clic per espandere le azioni dell'host",
         "hostTrayOnClickDesc": "Mostra sempre i pulsanti di connessione; fai clic per espandere le opzioni di gestione anziché passare il mouse sopra",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Mantieni la barra laterale sinistra sempre espansa, anziché espanderla al passaggio del mouse.",
         "settingsSnippets": "Snippet",
         "foldersCollapsed": "Cartelle Compensate",
         "foldersCollapsedDesc": "Comprimi le cartelle come predefinite",

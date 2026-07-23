@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Zobrazit tagy v seznamu hostitelů",
         "hostTrayOnClick": "Kliknutím rozbalíte Akce hostitele",
         "hostTrayOnClickDesc": "Vždy zobrazovat tlačítka pro připojení; kliknutím rozbalíte možnosti správy, místo abyste na něj nasadili myš.",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Udržovat levý postranní panel aplikace vždy rozbalený, místo aby se rozbaloval při najetí myší",
         "settingsSnippets": "Výstřižky bloků",
         "foldersCollapsed": "Sbalené složky",
         "foldersCollapsedDesc": "Sbalit složky ve výchozím nastavení",

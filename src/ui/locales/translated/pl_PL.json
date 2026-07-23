@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Wyświetl tagi na liście hostów",
         "hostTrayOnClick": "Kliknij, aby rozwinąć działania hosta",
         "hostTrayOnClickDesc": "Zawsze pokazuj przyciski połączeń; kliknij, aby rozwinąć opcje zarządzania, zamiast najeżdżać kursorem",
-        "pinAppRail": "Aplikacja Pin Rail",
-        "pinAppRailDesc": "Utrzymuj zawsze rozwinięty lewy pasek boczny aplikacji zamiast rozwijać go po najechaniu kursorem",
         "settingsSnippets": "Fragmenty",
         "foldersCollapsed": "Foldery upadły",
         "foldersCollapsedDesc": "Domyślnie zwiń foldery",

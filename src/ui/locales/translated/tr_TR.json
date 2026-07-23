@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Ana bilgisayar listesinde etiketleri görüntüle",
         "hostTrayOnClick": "Sunucu İşlemlerini Genişletmek için Tıklayın",
         "hostTrayOnClickDesc": "Bağlantı düğmelerini her zaman göster; yönetim seçeneklerini genişletmek için fareyi üzerine getirmek yerine tıklayın.",
-        "pinAppRail": "Pin Uygulama Rayını",
-        "pinAppRailDesc": "Sol kenar çubuğundaki uygulama çubuğunu fareyle üzerine gelindiğinde genişletmek yerine her zaman açık tutun.",
         "settingsSnippets": "Kısa bölümler",
         "foldersCollapsed": "Klasörler Daraltıldı",
         "foldersCollapsedDesc": "Klasörleri varsayılan olarak daralt",

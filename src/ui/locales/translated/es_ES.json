@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Mostrar etiquetas en la lista de hosts",
         "hostTrayOnClick": "Haz clic para expandir las acciones del anfitrión.",
         "hostTrayOnClickDesc": "Mostrar siempre los botones de conexión; hacer clic para expandir las opciones de administración en lugar de pasar el cursor por encima.",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Mantener siempre expandida la barra lateral izquierda en lugar de expandirla al pasar el cursor sobre ella.",
         "settingsSnippets": "Fragmentos",
         "foldersCollapsed": "Carpetas colapsadas",
         "foldersCollapsedDesc": "Colapsar carpetas por defecto",

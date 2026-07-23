@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "在主机列表中显示标签",
         "hostTrayOnClick": "点击展开主机操作",
         "hostTrayOnClickDesc": "始终显示连接按钮；点击展开管理选项，而不是悬停。",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "保持左侧边栏应用导轨始终展开，而不是鼠标悬停时才展开。",
         "settingsSnippets": "片段",
         "foldersCollapsed": "折叠文件夹",
         "foldersCollapsedDesc": "默认折叠文件夹",

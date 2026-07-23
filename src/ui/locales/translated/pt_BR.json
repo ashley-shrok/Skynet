@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Exibir tags na lista de endereços",
         "hostTrayOnClick": "Clique para expandir as ações do anfitrião",
         "hostTrayOnClickDesc": "Sempre mostrar os botões de conexão; clicar para expandir as opções de gerenciamento em vez de passar o cursor sobre elas.",
-        "pinAppRail": "Aplicativo Pin Rail",
-        "pinAppRailDesc": "Mantenha a barra lateral esquerda do aplicativo sempre expandida, em vez de expandir ao passar o cursor sobre ela.",
         "settingsSnippets": "Trechos",
         "foldersCollapsed": "Pastas colapsadas",
         "foldersCollapsedDesc": "Recolher pastas por padrão",

@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Mostra les etiquetes a la llista d'amfitrions",
         "hostTrayOnClick": "Feu clic per expandir les accions de l'amfitrió",
         "hostTrayOnClickDesc": "Mostra sempre els botons de connexió; fes clic per ampliar les opcions de gestió en comptes de passar el cursor per sobre",
-        "pinAppRail": "Pin App Rail",
-        "pinAppRailDesc": "Mantingueu el rail de l'aplicació de la barra lateral esquerra sempre expandit en comptes d'expandir-se en passar el cursor per sobre",
         "settingsSnippets": "Fragments",
         "foldersCollapsed": "Carpetes replegades",
         "foldersCollapsedDesc": "Replega les carpetes per defecte",

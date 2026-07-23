@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Vis tags i værtslisten",
         "hostTrayOnClick": "Klik for at udvide værtshandlinger",
         "hostTrayOnClickDesc": "Vis altid forbindelsesknapper; klik for at udvide administrationsmuligheder i stedet for at holde musen over",
-        "pinAppRail": "Fastgør app-skinne",
-        "pinAppRailDesc": "Hold appskinnen i venstre sidebar altid udvidet i stedet for at udvide den, når du holder musen over den",
         "settingsSnippets": "Stumper",
         "foldersCollapsed": "Mapper Sammenbrudt",
         "foldersCollapsedDesc": "Fold som standard mapper sammen",

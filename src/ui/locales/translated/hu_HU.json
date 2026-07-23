@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Címkék megjelenítése a gazdagépek listájában",
         "hostTrayOnClick": "Kattintson a Gazdagép-műveletek kibontásához",
         "hostTrayOnClickDesc": "Mindig jelenjenek meg a kapcsolat gombok; kattints a kezelési lehetőségek kibontásához az egérrel való mozgatás helyett",
-        "pinAppRail": "Alkalmazássín rögzítése",
-        "pinAppRailDesc": "A bal oldalsáv alkalmazássávjának mindig legyen kibontva, ne pedig az egérmutatóra történő kibontás esetén",
         "settingsSnippets": "Kódrészletek",
         "foldersCollapsed": "Mappák összecsukva",
         "foldersCollapsedDesc": "Mappák összecsukása alapértelmezés szerint",

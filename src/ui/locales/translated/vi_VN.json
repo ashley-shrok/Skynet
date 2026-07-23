@@ -2090,8 +2090,6 @@
         "showHostTagsDesc": "Hiển thị thẻ trong danh sách máy chủ",
         "hostTrayOnClick": "Nhấp chuột để mở rộng các hành động của máy chủ",
         "hostTrayOnClickDesc": "Luôn hiển thị các nút kết nối; nhấp chuột để mở rộng các tùy chọn quản lý thay vì di chuột.",
-        "pinAppRail": "Ghim ứng dụng Rail",
-        "pinAppRailDesc": "Giữ cho thanh bên trái của ứng dụng luôn mở rộng thay vì chỉ mở rộng khi di chuột.",
         "settingsSnippets": "Những đoạn trích",
         "foldersCollapsed": "Các thư mục đã được thu gọn",
         "foldersCollapsedDesc": "Thu gọn thư mục theo mặc định",
