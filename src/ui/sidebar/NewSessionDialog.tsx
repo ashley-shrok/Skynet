@@ -35,13 +35,17 @@ import {
 } from "@/components/dialog";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
-import { isFolder } from "@/sidebar/SidebarTree";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // Client-side session-name pattern — defense-in-depth (T-06-04-01). Word
 // characters and dashes, 0-64 chars. Empty string matches (Open enabled +
 // server-side auto-fill kicks in).
 export const SESSION_NAME_PATTERN = /^[\w-]{0,64}$/;
+
+// Local type-guard inlined from src/ui/sidebar/SidebarTree.tsx (Phase 12 Plan 02 — enables SidebarTree deletion in Plan 03).
+function isFolder(item: Host | HostFolder): item is HostFolder {
+  return "children" in item;
+}
 
 // Local copy of SidebarTree.collectAllHosts — small enough to inline, keeps
 // this file self-contained (no cross-module coupling with SidebarTree's
