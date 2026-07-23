@@ -640,23 +640,6 @@ export interface CredentialSelectorProps {
   onValueChange: (value: number | null) => void;
 }
 
-export interface HostManagerProps {
-  onSelectView?: (view: string) => void;
-  isTopbarOpen?: boolean;
-  initialTab?: string;
-  hostConfig?: SSHHost;
-  _updateTimestamp?: number;
-  rightSidebarOpen?: boolean;
-  rightSidebarWidth?: number;
-  currentTabId?: number;
-  updateTab?: (tabId: number, updates: Partial<Omit<Tab, "id">>) => void;
-}
-
-export interface SSHManagerHostEditorProps {
-  editingHost?: SSHHost | null;
-  onFormSubmit?: () => void;
-}
-
 export interface SSHManagerHostViewerProps {
   onEditHost?: (host: SSHHost) => void;
   onAddHost?: () => void;

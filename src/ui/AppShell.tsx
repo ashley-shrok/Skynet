@@ -717,7 +717,7 @@ export function AppShell({
     );
   }, [allHosts]);
 
-  // Let HostManager trigger tab opens via custom event
+  // Custom event bridge: any surface can request a tab open via termix:open-tab
   useEffect(() => {
     const handle = (e: Event) => {
       const { hostId, type } = (
