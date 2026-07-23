@@ -462,3 +462,40 @@ describe("ComposeBox — Phase 9 layout", () => {
     expect(textarea.rows).toBe(1);
   });
 });
+
+describe("ComposeBox — patch #135 auto-grow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Patch #129 test-hygiene fix (see Phase 05 describe for rationale).
+    localStorage.clear();
+  });
+
+  it("auto-grow: on mount with empty text, textarea height is at or below the min-h-8 floor", () => {
+    // JSDOM has no layout so scrollHeight=0 → useLayoutEffect sets height='0px';
+    // real browser sets it to the ~24-28px single-row height; both satisfy ≤32
+    // (min-h-8 floor). Key assertion: height is NOT set to some large value.
+    render(<ComposeBox {...baseProps()} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    const h = parseFloat(textarea.style.height || "0");
+    expect(h).toBeLessThanOrEqual(32);
+  });
+
+  it("auto-grow: on text change, style.height is driven off scrollHeight (JSDOM scrollHeight mock)", () => {
+    // scrollHeight mocked to 100; MAX_PX falls back to 144 in JSDOM because
+    // getComputedStyle(el).lineHeight returns 'normal' → NaN. 100 < 144 so
+    // overflowY stays 'hidden' (only flips to 'auto' at the cap).
+    render(<ComposeBox {...baseProps()} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    Object.defineProperty(textarea, "scrollHeight", {
+      value: 100,
+      configurable: true,
+    });
+    fireEvent.change(textarea, {
+      target: {
+        value: "a much longer line of text that would wrap in the real DOM",
+      },
+    });
+    expect(parseFloat(textarea.style.height)).toBe(100);
+    expect(textarea.style.overflowY).toBe("hidden");
+  });
+});

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Hourglass, Paperclip, RefreshCw, RotateCcw, Square, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
@@ -253,6 +253,11 @@ export function ComposeBox({
   const [text, setText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Patch #135: cache of the 6-row height cap (px), computed once on mount
+  // from getComputedStyle(el).lineHeight × 6. Null until first useLayoutEffect
+  // pass consults the DOM. 144px fallback (24 × 6) covers the JSDOM `normal`
+  // keyword branch where parseFloat resolves to NaN.
+  const maxHeightPxRef = useRef<number | null>(null);
 
   // Patch #84: single-slot "queue send for when session goes idle" state.
   // queuedText === null → nothing queued (button rests). queuedText === string →
@@ -512,10 +517,6 @@ export function ComposeBox({
     textareaRef.current?.focus();
   }, []);
 
-  // Auto-grow rows: 1 minimum, 6 maximum, based on line count.
-  // Matches MessageQueueDrawer's simple approach (no ResizeObserver).
-  const rows = Math.min(6, Math.max(1, text.split("\n").length));
-
   // Patch #83: how many meter-well segments should be lit right now.
   // Null contextPct → 0 (well mounts all-dim so the row geometry is
   // stable, and role="meter"'s aria-valuenow stays undefined so
@@ -618,6 +619,26 @@ export function ComposeBox({
       }
     };
   }, []);
+
+  // Patch #135: auto-grow the textarea with its CONTENTS (not just newlines).
+  // The prior newline-count `rows` heuristic left long single-line messages
+  // clipped because wrapped visual lines never added a \n. We set height
+  // imperatively from scrollHeight, capped at 6 line-heights, with overflow-y
+  // switching to 'auto' only at the cap so a scrollbar appears there.
+  // Setting height='auto' first is REQUIRED — without it, scrollHeight only
+  // grows (never shrinks) as text is deleted.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    if (maxHeightPxRef.current === null) {
+      const lh = parseFloat(getComputedStyle(el).lineHeight);
+      maxHeightPxRef.current = Number.isFinite(lh) && lh > 0 ? lh * 6 : 144;
+    }
+    el.style.height = "auto";
+    const clamped = Math.min(el.scrollHeight, maxHeightPxRef.current);
+    el.style.height = clamped + "px";
+    el.style.overflowY = clamped >= maxHeightPxRef.current ? "auto" : "hidden";
+  }, [text]);
 
   function handleTextChange(next: string) {
     setText(next);
@@ -1275,7 +1296,7 @@ export function ComposeBox({
           onPaste={handlePaste}
           disabled={queueArmed}
           placeholder={`Message ${identityName || "Claude"}…`}
-          rows={rows}
+          rows={1}
           // Phase 4 Glass: recessed textarea well (patch #81) +
           // identity-hue focus ring (VISUAL-03/VISUAL-07). Fill is a
           // warm-black rgba(15,10,5,0.42) — sits DEEPER than #79's
@@ -1304,7 +1325,7 @@ export function ComposeBox({
             // #81-fix mechanism as the `bg-[...]!` below (shadcn base
             // wraps a `dark:*` variant → specificity 0-2-0 → plain
             // `min-h-8` at 0-1-0 loses without `!`). One-line rest;
-            // auto-grow to 6 rows still works via the `rows={rows}` prop.
+            // auto-grow to 6 rows still works via the useLayoutEffect above (patch #135).
             "min-h-8!",
             // `!` (Tailwind v4 important suffix) is required on the bg
             // arbitrary class: the shadcn `Textarea` wrapper's base
