@@ -15,13 +15,12 @@
 //     scroll region ("No conversations yet")
 //   - Header carries a `variant` prop-driven layout:
 //       * variant="mobile"  → pencil icon ONLY (right-aligned); no title
-//                             (mobile settings live in settingsRowSlot
-//                             at the bottom of the scroller)
 //       * variant="desktop" → title "Conversations" (left) + pencil (right)
 //   - Pencil opens the existing NewSessionDialog VERBATIM (no dialog redesign)
 //   - Gear (shadcn dropdown) removed in patch #133 — panel is now
-//     shadcn-free; settings surfaces via settingsRowSlot on mobile and the
-//     AppRail on desktop.
+//     shadcn-free.
+//   - settingsRowSlot prop retired in Phase 11 (Ashley's "no settings" lock —
+//     SettingsRow deleted alongside AppRail).
 //   - Swipe coordination (mobile): only one row swiped-open at a time;
 //     opening a new one auto-closes the previous via the row's Wave 1
 //     `forceClosed` prop; selecting any row also resets the coordinator
@@ -40,7 +39,7 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { MessagesSquare, Monitor, Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -102,7 +101,6 @@ function PrettyConversationRowLive(props: {
 export function PrettyConversationsPanel({
   variant,
   onConversationSelected,
-  settingsRowSlot,
   hostTree,
   onCreateSession,
   onDetachedRowClick,
@@ -116,9 +114,8 @@ export function PrettyConversationsPanel({
   // callbacks) run on a row tap. AppShell's mobile branch passes a handler
   // that transitions list→view.
   onConversationSelected?: (id: string) => void;
-  // Mobile-only settings-row slot rendered at the bottom of the scroll
-  // region. Desktop reaches settings via the gear icon in the header.
-  settingsRowSlot?: ReactNode;
+  // Phase 11 Plan 03: settingsRowSlot prop RETIRED (SettingsRow deleted
+  // alongside AppRail per Ashley's "no settings" lock).
   // Host tree fed into the NewSessionDialog's host picker. Optional so
   // tests can render the panel without wiring the picker.
   hostTree?: HostFolder | null;
@@ -410,12 +407,6 @@ export function PrettyConversationsPanel({
             })}
           </>
         )}
-        {/* Mobile settings-row slot at the BOTTOM of the scroll region.
-            Desktop mounts do NOT pass this — desktop reaches settings via
-            the header gear icon. Same position rule as ConversationsPanel:
-            below the last group so it doesn't compete with pinned/active
-            rows for prime attention (TG-10). */}
-        {settingsRowSlot}
       </div>
 
       {/* NewSessionDialog VERBATIM from ConversationsPanel.tsx lines
