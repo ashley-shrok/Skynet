@@ -3,7 +3,7 @@
 **Date:** 2026-07-23
 **Branch:** feat/tab-title-from-tmux
 **Bounty:** phase10-shadcn-strip-and-prototype-fidelity (666704b0-8f39-4f5d-a990-cae701a74717)
-**Commit:** f321302
+**Commit:** 3d28512
 **Deploy status:** DEFERRED — Ashley bundles with prior UAT commits (558749a, 68e4f62, b749bf1, 536d224) in a single grouped deploy.
 
 ## What changed (7 files, atomic)
@@ -55,7 +55,7 @@ NOT deployed. NOT pushed. Ashley owns the deploy timing and bundles this with:
 - 68e4f62
 - b749bf1
 - 536d224
-- f321302 (this commit)
+- 3d28512 (this commit)
 
 ### iOS PWA reinstall note (LOAD-BEARING for UAT verification)
 
