@@ -427,7 +427,29 @@ Plans:
 - Palette authority stays `--color-pv-*` for anything the deletion knock-on affects
 - Rebase risk HIGH — accept upstream divergence
 
-**Plans:** TBD — planner decomposes; expected ~4-6 plans (enumeration; sidebar panel deletion; dashboard subtree deletion; tab-bar chrome + shortcut editor deletion; locale strings; build verify + UAT).
+**Plans:** 7 plans
+
+**Wave 1**
+
+- [ ] 12-01-PLAN.md — Enumerate deletion targets + pre-flight refactor set + retained-UI protection list (STRIP-LIST doc) (PURGE-06, PURGE-07, PURGE-08, PURGE-09, PURGE-10)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 12-02-PLAN.md — Pre-flight refactors: inline isFolder into sidebar/NewSessionDialog, relocate 4 dashboard-shared files to features/session-launcher/ for CommandPalette, swap tabUtils network_graph render to PrettyLandingCard (PURGE-06, PURGE-07)
+
+**Wave 3** *(blocked on Wave 2 — parallel-safe: disjoint files_modified)*
+
+- [ ] 12-03-PLAN.md — Delete sidebar simple leaves + Admin subtree + HostManager subtree + SidebarTree (29 files) (PURGE-06, PURGE-09)
+- [ ] 12-04-PLAN.md — Delete src/ui/dashboard/ subtree entirely + resolve FullScreenAppWrapper cross-cut (17+ files) (PURGE-07)
+- [ ] 12-05-PLAN.md — Delete src/ui/shell/Tab.tsx (Termix tab bar chrome) (PURGE-08)
+
+**Wave 4** *(blocked on Waves 3 — locale keys become 0-consumer after deletion plans land)*
+
+- [ ] 12-06-PLAN.md — Strip pinAppRail + dead nav.* keys from all 34 locale JSON files (PURGE-10)
+
+**Wave 5** *(blocked on all prior waves — phase-boundary docs pass)*
+
+- [ ] 12-07-PLAN.md — Build verification + UAT checklist + patch #139 draft (PURGE-06, PURGE-07, PURGE-08, PURGE-09, PURGE-10)
 
 **Bounty:** `skynet-transformation-purge-dead-surfaces` (Tina's identity). Same bounty as Phase 11; Phase 12 is the next slice of the same movement. Closes only after Phase 13 (backend routes) if that's the full purge; may be re-scoped if follow-up is more granular.
 
