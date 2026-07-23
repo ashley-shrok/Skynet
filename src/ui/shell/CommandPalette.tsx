@@ -6,17 +6,17 @@ import { RefreshCw, Search } from "lucide-react";
 import { getSessionList, type RemoteTmuxSession } from "@/api/sessions-api";
 import { getSSHHosts } from "@/main-axios";
 import type { Host, TabType } from "@/types/ui-types";
-import { NewSessionDialog } from "@/dashboard/NewSessionDialog";
-import { sshHostToHost } from "@/dashboard/sshHostToHost";
+import { NewSessionDialog } from "@/features/session-launcher/NewSessionDialog";
+import { sshHostToHost } from "@/features/session-launcher/sshHostToHost";
 import {
   RemoteHostChips,
   isProtocolHost,
-} from "@/dashboard/RemoteHostChips";
+} from "@/features/session-launcher/RemoteHostChips";
 import {
   NewSessionHostChips,
   isAutoTmuxHost,
   isSshLaunchableHost,
-} from "@/dashboard/NewSessionHostChips";
+} from "@/features/session-launcher/NewSessionHostChips";
 import { SessionRow } from "@/features/sessions/SessionRow";
 
 interface CommandPaletteProps {
