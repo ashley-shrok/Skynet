@@ -1,36 +1,52 @@
 // ─── PrettyConversationRow — Vitest coverage ─────────────────────────────────
-// 18 tests covering the row component from Phase 10 Plan 01 Task 3 + patch
-// #136 + patch #137:
-//   1) Desktop selected-row hue treatment (inline hsla interpolation) —
-//      updated for patch #137 to pass explicit inActiveSet={true}
+// 18 (+18b) tests covering the row component after Phase 13 Plan 01
+// lift-from-mock v4:
+//   1) Desktop selected-row renders with `selected` class + `--pv-hue`
+//      inline custom property (was: inline hsla interpolation)
 //   2) Mobile swipe past 40px threshold opens the reveal strip
 //   3) Mobile swipe under threshold snaps closed
 //   4) Vertical gesture > 12px yields to browser scroll (no open, no select)
 //   5) Tap on swiped-open row closes it (does NOT fire onSelect)
 //   6) Tap on closed row fires onSelect
-//   7) RDP row (rdpHostRow=true) has no swipe strip and no pin button
+//   7) RDP row (rdpHostRow=true) has `rdp` class + no swipe strip + no
+//      PinAction
 //   8) Desktop pin button e.stopPropagation() — click fires togglePin only
 //   9) Avatar fallback for no-identity row renders a tabIcon svg
-//  10) Pinned row on desktop always shows pin button (not hover-gated)
+//  10) Pinned desktop row carries `pinned` class + PinAction present in DOM
+//      (CSS hover-reveal / hide-when-not-pinned is untested in jsdom because
+//      CSS pseudo-selectors don't run; the class presence is the reliable
+//      jsdom signal)
 //  11) No identity-chip in DOM (session name IS identity name)
-//  12) [patch #136] Unselected non-RDP row with hue renders full hue-bubble
-//      body treatment — updated for patch #137 to pass inActiveSet={true}
-//      so the row stays in the full-bubble branch (ambient-vs-full branch
-//      exercised by Test 18)
-//  13) [patch #137] inActiveSet+isWorking===false renders ready-dot with
-//      aria-label="ready" and matching data attribute (renamed + inverted
-//      from the retired patch #136 working-dot render slot)
-//  14) [patch #137] RDP row + inActiveSet+isWorking===false uses neutral
-//      rgba(240,235,224,…) ready-dot fill (proves the neutral-branch
-//      fallback is wired end-to-end)
-//  15) [patch #137] inActiveSet+isWorking===true renders NO ready-dot
-//  16) [patch #137] inActiveSet+isWorking===null renders NO ready-dot
-//  17) [patch #137] !inActiveSet+isWorking===false renders NO ready-dot
-//      (ambient never shows it)
-//  18) [patch #137] !inActiveSet && !isRdp row applies ambient body style
-//      (flat hsla background, no drop shadow, no backdrop-blur)
-//  18b) [patch #137] RDP row is EXEMPT from ambient — inActiveSet=false
-//      still uses the neutral full-bubble treatment
+//  12) [Phase 13] Unselected non-RDP active-set row with hue renders
+//      neither `selected` nor `ambient` class + inline style contains
+//      `--pv-hue: 210` — proves the full-bubble class-toggle branch is
+//      taken. CSS handles the actual visual response; the class + hue
+//      custom property together lock the JS-emission contract.
+//  13) [Phase 13] inActiveSet+isWorking===false renders ready-dot with
+//      aria-label="ready" and matching data attribute
+//  14) [Phase 13] RDP row + inActiveSet+isWorking===false renders the dot
+//      span (CSS handles the fill via `--pv-hue: 216` fallback → hsla-based
+//      background, since RDP rows in the panel actually never satisfy the
+//      isWorking===false condition — the panel passes isWorking={null} for
+//      RDP rows — this test asserts the component-level render invariant)
+//  15) [Phase 13] inActiveSet+isWorking===true renders NO ready-dot (JS
+//      gate)
+//  16) [Phase 13] inActiveSet+isWorking===null renders NO ready-dot (JS
+//      gate)
+//  17) [Phase 13] !inActiveSet+isWorking===false renders NO ready-dot (JS
+//      gate)
+//  18) [Phase 13] !inActiveSet && !isRdp row carries `ambient` class
+//  18b) [Phase 13] RDP row is EXEMPT from ambient — carries `rdp` class,
+//      does NOT carry `ambient` class
+//
+// Migration note: pre-Phase-13 tests asserted flat-hsla background inline
+// style probes because the row emitted computed CSSProperties for base +
+// variant treatments. Post-Phase-13, state variants are CSS class toggles;
+// the tests assert on className presence instead. CSS pseudo-selectors do
+// not run in jsdom, so we do NOT assert visibility-by-computed-style —
+// we assert the CLASS presence, which is what drives the visibility in a
+// real browser. Real-browser UAT (Wave 3 plan 13-04) covers CSS-driven
+// visibility.
 //
 // Fixture pattern lifted from src/ui/sidebar/NewSessionDialog.test.tsx lines
 // 14-35 verbatim: mock react-i18next passthrough, mock session-hue helpers
@@ -77,9 +93,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 
 // tabIcon is a real dep — no need to mock. tabUtils.tsx does pull in a wide
 // dependency graph via renderTabContent, but for tabIcon-only usage the graph
-// is tree-shaken irrelevant during test runs; the terminal/guacamole modules
-// are only touched from renderTabContent (not tabIcon). If jsdom complains
-// about a transitive import during Test 9's render, revisit.
+// is tree-shaken irrelevant during test runs.
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
 
@@ -152,17 +166,12 @@ beforeEach(() => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1 — Desktop variant renders selected-row hue treatment
+// Test 1 — Desktop selected row applies `selected` class + `--pv-hue` inline
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: selected-row hue treatment", () => {
-  it("Test 1: desktop selected row applies the inline hsla(hue,...) gradient", () => {
+describe("PrettyConversationRow: selected-row hue treatment (class + custom property)", () => {
+  it("Test 1: desktop selected row carries `selected` class AND inline `--pv-hue`", () => {
     currentIdentity = makeIdentity(30, "nelly");
-    // Patch #137: inActiveSet={true} keeps the row in the full-bubble
-    // treatment; without it the row would render the ambient recession
-    // and Test 1's linear-gradient assertion below would fail. The panel
-    // always passes inActiveSet={true} for a selected row because
-    // selectConversation adds to the active-set as a side-effect.
     const { container } = render(
       <PrettyConversationRow
         row={makeRow()}
@@ -180,22 +189,18 @@ describe("PrettyConversationRow: selected-row hue treatment", () => {
     expect(wrapper).toBeTruthy();
     expect(wrapper!.getAttribute("data-selected")).toBe("true");
 
-    // The row body carries the selected-style inline. Find it by role=button
-    // scoped to the wrapper (there's exactly one — the row body itself; the
-    // PinAction desktop button is opacity-0 but still queryable — so scope
-    // by parent).
-    //
-    // NOTE: jsdom's CSSOM parser normalizes `hsla(30, 50%, 38%, 0.30)` to
-    // `rgba(145, 97, 48, 0.3)` when read through `HTMLElement.style.*`. To
-    // verify the ROW's source-of-truth is the interpolated hsla string we
-    // read the raw `style` attribute directly (bypasses CSSOM
-    // normalization). This is what actually ships to the DOM and what
-    // Ashley's visual review pattern-matches on.
+    // The row body is the role="button" element; state variants are CSS class
+    // toggles composed into its className.
     const body = wrapper!.querySelector('[role="button"]') as HTMLElement;
     expect(body).toBeTruthy();
+    expect(body.className).toContain("pv-row");
+    expect(body.className).toContain("pv-row--desktop");
+    expect(body.className).toContain("selected");
+    expect(body.className).toContain("active-set");
+    // The row emits `--pv-hue: 30` inline for hue-bearing rows. jsdom's
+    // CSSOM preserves CSS custom properties in the raw style attribute.
     const rawStyle = body.getAttribute("style") ?? "";
-    expect(rawStyle).toContain("hsla(30,");
-    expect(rawStyle).toContain("linear-gradient(160deg");
+    expect(rawStyle).toContain("--pv-hue: 30");
   });
 });
 
@@ -374,11 +379,11 @@ describe("PrettyConversationRow: tap-to-select on closed row", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 7 — RDP row (rdpHostRow=true) has no swipe strip and no pin button
+// Test 7 — RDP row (rdpHostRow=true) has `rdp` class + no swipe + no pin
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
-  it("Test 7: mobile RDP row skips swipe wiring and renders no PinAction", () => {
+  it("Test 7: mobile RDP row carries `rdp` class + skips swipe + no PinAction", () => {
     const onSelect = vi.fn();
     const { container } = render(
       <PrettyConversationRow
@@ -397,8 +402,11 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     // No PinAction rendered.
     expect(wrapper.querySelector('[data-testid="pin-action"]')).toBeNull();
 
-    // Touch sequence that would otherwise open — no data-swiped-open.
+    // Row body carries the `rdp` class.
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("rdp");
+
+    // Touch sequence that would otherwise open — no data-swiped-open.
     fireEvent.touchStart(body, {
       touches: [{ clientX: 200, clientY: 100 } as Touch],
     });
@@ -412,7 +420,7 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     expect(wrapper.getAttribute("data-rdp-host-row")).toBe("true");
   });
 
-  it("Test 7b: desktop RDP row renders no PinAction", () => {
+  it("Test 7b: desktop RDP row carries `rdp` class + no PinAction", () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
@@ -427,6 +435,8 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     expect(wrapper.querySelector('[data-testid="pin-action"]')).toBeNull();
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("rdp");
   });
 });
 
@@ -491,11 +501,11 @@ describe("PrettyConversationRow: no-identity avatar fallback", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 10 — Pinned row on desktop always shows pin button (not hover-gated)
+// Test 10 — Pinned desktop row carries `pinned` class + PinAction in DOM
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: pinned desktop pin visibility", () => {
-  it("Test 10: pinned=true → desktop pin column has opacity-100 (not hover-gated)", () => {
+  it("Test 10: pinned=true → row carries `pinned` class AND [data-testid=pin-action] in DOM", () => {
     currentIdentity = makeIdentity(80, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -507,15 +517,19 @@ describe("PrettyConversationRow: pinned desktop pin visibility", () => {
         onTogglePin={vi.fn()}
       />,
     );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("pinned");
+    // Regression: the CSS `.pv-row:not(.pinned) .pv-meta [data-testid=pin-action]
+    // { opacity: 0 }` rule handles hide-when-not-pinned; when pinned, the
+    // pin-action element IS in the DOM (jsdom doesn't run CSS pseudo-selectors
+    // but the presence-in-DOM invariant is what matters for the JS contract).
     const pin = container.querySelector(
       '[data-testid="pin-action"]',
     ) as HTMLElement | null;
     expect(pin).toBeTruthy();
-    // The visibility wrapper is the parent div of the pin button.
-    const visibilityWrapper = pin!.parentElement as HTMLElement;
-    expect(visibilityWrapper.className).toContain("opacity-100");
-    // The hover-gate class should NOT be present when pinned.
-    expect(visibilityWrapper.className).not.toContain("opacity-0");
   });
 });
 
@@ -555,16 +569,13 @@ describe("PrettyConversationRow: no identity chip", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 12 — [patch #136] Unselected non-RDP row with hue renders full
-//           hue-bubble body treatment (not the previous selected-only reduced
-//           alpha treatment)
+// Test 12 — [Phase 13] Unselected non-RDP active-set row: full-bubble branch
+//           (neither `selected` nor `ambient` class, `--pv-hue` inline)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #136 full-bubble-every-row", () => {
-  it("Test 12: unselected non-RDP row with hue renders full hue-bubble body style", () => {
+describe("PrettyConversationRow: Phase 13 full-bubble class-toggle branch", () => {
+  it("Test 12: unselected non-RDP active-set row has neither `selected` nor `ambient` class + `--pv-hue: 210` inline", () => {
     currentIdentity = makeIdentity(210, "nelly");
-    // Patch #137: inActiveSet={true} keeps the row in the full-bubble
-    // treatment; the ambient-vs-full body branch is exercised by Test 18.
     const { container } = render(
       <PrettyConversationRow
         row={makeRow()}
@@ -576,39 +587,31 @@ describe("PrettyConversationRow: patch #136 full-bubble-every-row", () => {
         inActiveSet={true}
       />,
     );
-    // Body div is the role="button" element (scoped inside the wrapper).
-    // jsdom's CSSOM normalizes hsla → rgba INSIDE `linear-gradient(...)`
-    // functions but preserves hsla in other contexts (box-shadow, plain
-    // color). So we probe two invariants:
-    //   1. background contains `linear-gradient(160deg, ` with 0.55/0.6
-    //      alpha values — proves the full-bubble treatment is applied.
-    //   2. box-shadow contains an `hsla(210, ...)` substring — proves the
-    //      row.hue was interpolated (not defaulted to the neutral branch).
-    // Together these lock the "every-row-gets-the-bubble" behavior against
-    // the pre-patch-#136 "selected-only reduced-alpha" treatment.
     const wrapper = container.querySelector(
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("pv-row");
+    expect(body.className).toContain("active-set");
+    // Full-bubble branch: NOT selected, NOT ambient, NOT rdp.
+    expect(body.className).not.toContain("selected");
+    // We must use a word-boundary check because "pv-row--mobile"/"pv-row--desktop"
+    // don't contain "ambient", and no other class contains "ambient" so
+    // a plain substring check suffices.
+    expect(body.className).not.toContain("ambient");
+    expect(body.className).not.toContain("rdp");
+    // `--pv-hue: 210` inline drives the CSS hsla() expressions.
     const rawStyle = body.getAttribute("style") ?? "";
-    expect(rawStyle).toContain("linear-gradient(160deg, ");
-    // 0.55 outer + 0.6 inner alpha stops verbatim from patch #136 spec.
-    // jsdom normalizes 0.60 → 0.6 and 0.55 → 0.55.
-    expect(rawStyle).toMatch(/linear-gradient\(160deg,[^;]*0\.55[^;]*0\.6\)/);
-    // Hue-driven interpolation is provable via the box-shadow's hue-hairline
-    // + hue-glow (jsdom preserves hsla in box-shadow context).
-    expect(rawStyle).toContain("hsla(210,");
+    expect(rawStyle).toContain("--pv-hue: 210");
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 13 — [patch #137] inActiveSet + isWorking===false renders ready-dot
-//           with correct a11y + data-attribute wiring (renamed + inverted
-//           from the retired patch #136 working-dot render slot)
+// Test 13 — [Phase 13] inActiveSet + isWorking===false renders ready-dot
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #137 ready-dot render", () => {
-  it("Test 13: inActiveSet+isWorking===false renders ready-dot with aria-label='ready'", () => {
+describe("PrettyConversationRow: Phase 13 ready-dot render", () => {
+  it("Test 13: inActiveSet+isWorking===false renders ready-dot with aria-label='ready' + data attribute", () => {
     currentIdentity = makeIdentity(210, "nelly");
     const { getByLabelText, queryByLabelText } = render(
       <PrettyConversationRow
@@ -624,6 +627,7 @@ describe("PrettyConversationRow: patch #137 ready-dot render", () => {
     );
     const dot = getByLabelText("ready") as HTMLElement;
     expect(dot.getAttribute("data-pv-conv-ready-dot")).toBe("true");
+    expect(dot.className).toContain("pv-ready-dot");
     // Steady — no animation string in the inline style.
     expect(dot.style.animation).toBe("");
     // Regression: the old patch-#136 aria-label must be absent.
@@ -632,15 +636,17 @@ describe("PrettyConversationRow: patch #137 ready-dot render", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 14 — [patch #137] RDP row + inActiveSet+isWorking===false uses neutral
-//           rgba(240,235,224,…) ready-dot fill (proves neutral-branch
-//           fallback is wired end-to-end)
+// Test 14 — [Phase 13] RDP row + inActiveSet+isWorking===false: dot in DOM
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #137 ready-dot neutral fallback", () => {
-  it("Test 14: RDP row with inActiveSet+isWorking===false uses neutral rgba dot", () => {
-    // currentIdentity stays null (beforeEach reset) — RDP row + no identity
-    // → hue is null → dot renders the neutral rgba(240,235,224,…) background.
+describe("PrettyConversationRow: Phase 13 ready-dot component-level render for RDP", () => {
+  it("Test 14: RDP row with inActiveSet+isWorking===false renders the dot span (component-level invariant)", () => {
+    // Note: in the real app, PrettyConversationsPanel passes isWorking=null
+    // for RDP rows because their sessionWorkingKey resolves against a null
+    // tmuxSession → useSessionWorking returns null. This test exercises the
+    // component-level contract only (JS gate: inActiveSet && isWorking===false
+    // → render the dot). CSS handles the fill; the neutral `--pv-hue: 216`
+    // fallback applies for hue-null rows.
     const { getByLabelText } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
@@ -654,22 +660,20 @@ describe("PrettyConversationRow: patch #137 ready-dot neutral fallback", () => {
       />,
     );
     const dot = getByLabelText("ready") as HTMLElement;
-    const rawStyle = dot.getAttribute("style") ?? "";
-    expect(rawStyle).toContain("rgba(240,235,224");
-    // Defensive: no hsla substring anywhere in the dot's style — the hue
-    // branch should NOT have fired.
-    expect(rawStyle).not.toContain("hsla(");
+    expect(dot).toBeTruthy();
+    expect(dot.className).toContain("pv-ready-dot");
+    expect(dot.getAttribute("data-pv-conv-ready-dot")).toBe("true");
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 15 — [patch #137] inActiveSet + isWorking===true renders NO ready-dot
+// Test 15 — [Phase 13] inActiveSet + isWorking===true renders NO ready-dot
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #137 ready-dot suppression — working", () => {
-  it("Test 15: inActiveSet+isWorking===true renders NO ready-dot", () => {
+describe("PrettyConversationRow: Phase 13 ready-dot suppression — working", () => {
+  it("Test 15: inActiveSet+isWorking===true renders NO ready-dot AND row carries `working` class", () => {
     currentIdentity = makeIdentity(210);
-    const { queryByLabelText } = render(
+    const { container, queryByLabelText } = render(
       <PrettyConversationRow
         row={makeRow()}
         selected={false}
@@ -682,17 +686,22 @@ describe("PrettyConversationRow: patch #137 ready-dot suppression — working", 
       />,
     );
     expect(queryByLabelText("ready")).toBeNull();
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("working");
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 16 — [patch #137] inActiveSet + isWorking===null renders NO ready-dot
+// Test 16 — [Phase 13] inActiveSet + isWorking===null renders NO ready-dot
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #137 ready-dot suppression — unknown", () => {
-  it("Test 16: inActiveSet+isWorking===null renders NO ready-dot", () => {
+describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", () => {
+  it("Test 16: inActiveSet+isWorking===null renders NO ready-dot AND row does NOT carry `working` class", () => {
     currentIdentity = makeIdentity(210);
-    const { queryByLabelText } = render(
+    const { container, queryByLabelText } = render(
       <PrettyConversationRow
         row={makeRow()}
         selected={false}
@@ -705,15 +714,19 @@ describe("PrettyConversationRow: patch #137 ready-dot suppression — unknown", 
       />,
     );
     expect(queryByLabelText("ready")).toBeNull();
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).not.toContain("working");
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 17 — [patch #137] !inActiveSet + isWorking===false renders NO ready-dot
-//           (ambient rows never show it)
+// Test 17 — [Phase 13] !inActiveSet + isWorking===false renders NO ready-dot
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #137 ready-dot suppression — ambient", () => {
+describe("PrettyConversationRow: Phase 13 ready-dot suppression — ambient", () => {
   it("Test 17: !inActiveSet+isWorking===false renders NO ready-dot", () => {
     currentIdentity = makeIdentity(210);
     const { queryByLabelText } = render(
@@ -733,11 +746,11 @@ describe("PrettyConversationRow: patch #137 ready-dot suppression — ambient", 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 18 — [patch #137] Ambient recession + RDP exemption
+// Test 18 — [Phase 13] Ambient recession + RDP exemption (class-based)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #137 ambient recession", () => {
-  it("Test 18: !inActiveSet && !isRdp row applies ambient body style (flat hsla background, no drop shadow, no backdrop-blur)", () => {
+describe("PrettyConversationRow: Phase 13 ambient recession (class toggle)", () => {
+  it("Test 18: !inActiveSet && !isRdp row carries `ambient` class + does NOT carry `selected`/`rdp`", () => {
     currentIdentity = makeIdentity(210, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -755,28 +768,18 @@ describe("PrettyConversationRow: patch #137 ambient recession", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("pv-row");
+    expect(body.className).toContain("ambient");
+    expect(body.className).not.toContain("selected");
+    expect(body.className).not.toContain("rdp");
+    expect(body.className).not.toContain("active-set");
+    // Hue custom property still emitted so CSS ambient block can resolve
+    // `hsla(var(--pv-hue), 40%, 20%, 0.16)` etc.
     const rawStyle = body.getAttribute("style") ?? "";
-    // Ambient flat background (NOT linear-gradient). jsdom's CSSOM
-    // normalizes hsla → rgba when applied to `background`, so we probe
-    // via: (a) no linear-gradient substring, (b) a hue-derived hairline
-    // hsla still present in box-shadow (jsdom preserves hsla inside
-    // box-shadow), and (c) 0.16 alpha in the raw background value.
-    expect(rawStyle).not.toContain("linear-gradient");
-    // Hue-hairline hsla in box-shadow proves the ambient branch is hue-
-    // derived rather than the hue-null fallback.
-    expect(rawStyle).toContain("hsla(210, 60%, 55%, 0.08)");
-    // Ambient background carries the 0.16 alpha stop.
-    expect(rawStyle).toMatch(/background:[^;]*0\.16/);
-    // NO backdrop-filter (or explicitly "none"). jsdom normalizes the
-    // property name to `backdrop-filter` in the raw style string.
-    expect(rawStyle.replace(/\s/g, "")).toMatch(
-      /backdrop-filter:none|backdropfilter:none/i,
-    );
-    // NO 8px+ drop shadow (patch #136 signature was "0 8px 24px …").
-    expect(rawStyle).not.toContain("0 8px 24px");
+    expect(rawStyle).toContain("--pv-hue: 210");
   });
 
-  it("Test 18b: RDP row is EXEMPT from ambient — inActiveSet=false still uses neutral bubble treatment (not ambient)", () => {
+  it("Test 18b: RDP row is EXEMPT from ambient — carries `rdp` class, does NOT carry `ambient`", () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
@@ -793,12 +796,12 @@ describe("PrettyConversationRow: patch #137 ambient recession", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("rdp");
+    expect(body.className).not.toContain("ambient");
+    // RDP rows have no hue → no `--pv-hue` inline (CSS fallback of 216 on
+    // `.pv-row` applies but the .rdp block uses non-hue backgrounds so no
+    // visual leak).
     const rawStyle = body.getAttribute("style") ?? "";
-    // Neutral RDP full-bubble treatment retained — the 60,65,80 stop
-    // is the patch #136 baseline for RDP rows. jsdom's CSSOM adds a
-    // space between rgba components ("rgba(60, 65, 80, …)").
-    expect(rawStyle).toMatch(/rgba\(60,\s*65,\s*80/);
-    // Full-bubble drop shadow signature — proves RDP did NOT go ambient.
-    expect(rawStyle).toContain("0 8px 24px");
+    expect(rawStyle).not.toContain("--pv-hue");
   });
 });
