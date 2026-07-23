@@ -12,13 +12,22 @@
 //
 // Visuals come verbatim from the Ashley-signed-off prototypes:
 //   - mobile: prototype.html lines 210-228 (48x48 hue-tinted circle with
-//     inner-highlight box shadow)
-//   - desktop: desktop.html lines 366-386 (24x24 rounded-md with transparent
-//     background, hue-colored icon when pinned, muted when unpinned)
+//     inner-highlight box shadow) — preserved verbatim (mock v4 doesn't
+//     cover mobile swipe-reveal; fork-only affordance).
+//   - desktop: prototype.html lines 333-337 — bare-icon-with-hue-drop-shadow
+//     treatment (`.meta .pin { color: hsla(var(--hue), 80%, 70%, 0.95);
+//     filter: drop-shadow(0 0 4px hsla(var(--hue), 80%, 60%, 0.55)); }`).
+//     Phase 13 Plan 03 (SHAPE-03) retires the Termix button chrome
+//     (`w-6 h-6 rounded-md bg-transparent border-0 hover:bg-white/[0.06]`
+//     + `text-muted-foreground/60`) and delegates styling to the
+//     `.pv-pin-action-desktop` selector in pretty-conversations.css. The
+//     `--pv-hue` custom property is inherited from the parent `.pv-row`.
 //
-// Opacity / visibility is the ROW's responsibility (hover-reveal on desktop,
-// always-present-when-strip-revealed on mobile). This component never
-// hides itself.
+// Opacity / visibility is CSS-driven:
+//   - Desktop: `.pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within)
+//     .pv-pin-action-desktop { display: none }` — hidden on unpinned rows
+//     unless hovered or keyboard-focused.
+//   - Mobile: strip owns visibility; component never hides itself.
 //
 // No `animate-spin` or any other motion (per Phase 10 non-negotiables — the
 // pin action is a static glyph).
@@ -48,7 +57,8 @@ export function PinAction({
   if (size === "mobile") {
     // Mobile: 48x48 hue-tinted disc inside the swipe-reveal strip. Hue null
     // falls back to the neutral blue-gray no-identity treatment per prototype
-    // lines 226-228.
+    // lines 226-228. UNCHANGED by Phase 13 Plan 03 — the mock is a desktop
+    // layout and mobile swipe-reveal is a fork-only affordance Ashley kept.
     const bg =
       hue == null
         ? "rgba(90,105,140,0.9)"
@@ -82,42 +92,22 @@ export function PinAction({
     );
   }
 
-  // Desktop: 24x24 rounded-md, transparent background. Hue-colored icon when
-  // pinned; muted when unpinned. No opacity/visibility class here — the row
-  // wraps this button in a container whose classes drive hover-reveal.
-  const iconColorStyle =
-    hue == null
-      ? undefined
-      : pinned
-        ? { color: `hsla(${hue}, 70%, 60%, 0.85)` }
-        : undefined;
-  const iconClassBase =
-    hue == null
-      ? pinned
-        ? "text-muted-foreground/60"
-        : "text-muted-foreground/60 hover:text-foreground"
-      : pinned
-        ? ""
-        : "text-muted-foreground/60 hover:text-foreground";
-
+  // Desktop: bare icon with hue-drop-shadow. All button-chrome retired — no
+  // background, no border, no rounded-md wrapper, no hover:bg. CSS class
+  // `.pv-pin-action-desktop` (declared in pretty-conversations.css) applies
+  // the color + filter via `hsla(var(--pv-hue), ...)` where `--pv-hue` is
+  // inherited from the parent `.pv-row`. Icon size and hide-on-unpinned-
+  // non-hovered rules are also CSS-driven.
   return (
     <button
       type="button"
+      className="pv-pin-action-desktop"
       onClick={onClick}
       title={label}
       aria-label={label}
       data-testid={dataTestId ?? "pin-action"}
-      style={iconColorStyle}
-      className={
-        "inline-flex items-center justify-center " +
-        "w-6 h-6 rounded-md bg-transparent border-0 " +
-        "hover:bg-white/[0.06] " +
-        "transition-colors duration-100 " +
-        "cursor-pointer " +
-        iconClassBase
-      }
     >
-      {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+      {pinned ? <PinOff /> : <Pin />}
     </button>
   );
 }
