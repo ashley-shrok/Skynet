@@ -279,11 +279,6 @@ export function AppShell({
   }, []);
 
   const lastShiftTime = useRef(0);
-  const [commandPaletteShortcutEnabled, setCommandPaletteShortcutEnabled] =
-    useState<boolean>(() => {
-      const v = localStorage.getItem("commandPaletteShortcutEnabled");
-      return v !== null ? v === "true" : true;
-    });
   const terminalRefs = useRef<Map<string, ReturnType<typeof createRef>>>(
     new Map(),
   );
@@ -340,26 +335,13 @@ export function AppShell({
         !e.metaKey
       ) {
         const now = Date.now();
-        if (now - lastShiftTime.current < 300 && commandPaletteShortcutEnabled)
+        if (now - lastShiftTime.current < 300)
           setCommandPaletteOpen((prev) => !prev);
         lastShiftTime.current = now;
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [commandPaletteShortcutEnabled]);
-
-  useEffect(() => {
-    const handler = () => {
-      const v = localStorage.getItem("commandPaletteShortcutEnabled");
-      setCommandPaletteShortcutEnabled(v !== null ? v === "true" : true);
-    };
-    window.addEventListener("commandPaletteShortcutEnabledChanged", handler);
-    return () =>
-      window.removeEventListener(
-        "commandPaletteShortcutEnabledChanged",
-        handler,
-      );
   }, []);
 
   useEffect(() => {
@@ -1627,11 +1609,9 @@ export function AppShell({
                 is now the single source of truth for "which conversation is
                 visible"; the sidebar's ConversationsPanel row selection IS
                 the affordance the tab strip used to provide.
-                splitTabQuick / addTabToSplit / removeTabFromSplit are still
-                used by SplitScreenPanel (rail entry). refreshTab is
-                intentionally removed alongside its sole caller (this TabBar
-                mount) — Plan 06-04 or later may re-introduce a per-row
-                refresh affordance if Ashley's workflow needs one. */}
+                refreshTab is intentionally removed alongside its sole caller
+                (this TabBar mount) — Plan 06-04 or later may re-introduce a
+                per-row refresh affordance if Ashley's workflow needs one. */}
             <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
               {/* Split view — always mounted when not mobile, hidden via CSS when inactive */}
               {!isMobile && (
