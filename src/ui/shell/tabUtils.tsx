@@ -23,7 +23,7 @@ import { FileManager } from "@/features/file-manager/FileManager";
 import { DockerManager } from "@/features/docker/DockerManager";
 import { ServerStats } from "@/features/server-stats/ServerStats";
 import GuacamoleApp from "@/features/guacamole/GuacamoleApp";
-import { DashboardTab } from "@/dashboard/DashboardTab";
+import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
 import { TunnelTab } from "@/features/tunnel/TunnelTab";
 import { NetworkGraphCard } from "@/dashboard/cards/NetworkGraphCard";
 import type { Tab, TabType, Host } from "@/types/ui-types";
@@ -185,12 +185,13 @@ export function renderTabContent(
 
   switch (tab.type) {
     case "dashboard":
-      return (
-        <DashboardTab
-          onOpenSingletonTab={onOpenSingletonTab!}
-          onOpenTab={onOpenTab!}
-        />
-      );
+      // Phase 11 landing-surface swap (PURGE-01): renders the pretty-view
+      // empty-landing card in place of the old Termix landing render tree.
+      // The "dashboard" TabType is preserved as a load-bearing fallback
+      // identifier in effectiveSelectedTabId + doCloseTab; the retired
+      // component tree under src/ui/dashboard/ becomes unreachable from
+      // any UI path and is slated for Phase 12+ deletion.
+      return <PrettyLandingCard />;
 
     case "terminal":
       if (!host)
