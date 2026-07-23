@@ -17,18 +17,12 @@ import { useKeyboardMessageQueue } from "@/hooks/use-keyboard-message-queue";
 import { useKeyboardTogglePrettyMode } from "@/hooks/use-keyboard-toggle-pretty-mode";
 import type { TerminalHandle } from "@/features/terminal/terminal-types";
 import { CommandPalette } from "@/shell/CommandPalette";
-import { AppRail } from "@/sidebar/AppRail";
-import type { RailView } from "@/sidebar/AppRail";
-import { HostsPanel } from "@/sidebar/HostsPanel";
-import { SessionsPanel } from "@/sidebar/SessionsPanel";
-import { QuickConnectPanel } from "@/sidebar/QuickConnectPanel";
-import { SshToolsPanel } from "@/sidebar/SshToolsPanel";
-import { SnippetsPanel } from "@/sidebar/SnippetsPanel";
-import { HistoryPanel } from "@/sidebar/HistoryPanel";
-import { SplitScreenPanel } from "@/sidebar/SplitScreenPanel";
-import { UserProfilePanel } from "@/sidebar/UserProfilePanel";
-import { AdminSettingsPanel } from "@/sidebar/AdminSettingsPanel";
-import { CredentialsPanel } from "@/sidebar/CredentialsPanel";
+// Phase 11 Plan 03 (PURGE-02, PURGE-03): AppRail + RailView + 10 sidebar-panel
+// imports (HostsPanel, SessionsPanel, QuickConnectPanel, SshToolsPanel,
+// SnippetsPanel, HistoryPanel, SplitScreenPanel, UserProfilePanel,
+// AdminSettingsPanel, CredentialsPanel) RETIRED here — the pretty-conversations
+// sidebar is now the only visible sidebar-panel content. Panel FILES stay on
+// disk (Phase 12+ scope-fence).
 import { SplitView } from "@/shell/SplitView";
 import { renderTabContent } from "@/shell/tabUtils";
 import type {
@@ -56,7 +50,7 @@ import {
 } from "@/main-axios";
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
-import { ConnectionsPanel } from "@/sidebar/ConnectionsPanel";
+// Phase 11 Plan 03 (PURGE-03): ConnectionsPanel import RETIRED alongside AppRail.
 import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
 import {
   updateHostTree,
@@ -80,7 +74,8 @@ import {
   navigateToView,
   navigateToList,
 } from "@/lib/mobile-flow";
-import { SettingsRow } from "@/sidebar/SettingsRow";
+// Phase 11 Plan 03 (Ashley "no settings" lock): SettingsRow import RETIRED
+// alongside AppRail — the entire settings-surface tree dies here.
 
 function sshHostToHost(h: SSHHostWithStatus): Host {
   return {
@@ -230,8 +225,9 @@ export function AppShell({
   >([]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [railView, setRailView] = useState<RailView>("conversations");
-  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  // Phase 11 Plan 03: railView state RETIRED (rail is gone; pretty-conversations
+  // is the only sidebar-panel content). profileDropdownOpen also retired —
+  // it was an AppRail-only state per Plan 01 Section E item 2.
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("termix_sidebarWidth");
     return saved ? parseInt(saved, 10) : 266;
@@ -330,20 +326,8 @@ export function AppShell({
     [],
   );
 
-  const sidebarTitle: Record<RailView, string> = {
-    conversations: t("nav.conversations.title", { defaultValue: "Conversations" }),
-    hosts: "Hosts",
-    sessions: "Sessions",
-    credentials: "Credentials",
-    "quick-connect": "Quick Connect",
-    "ssh-tools": "SSH Tools",
-    snippets: "Snippets",
-    history: "History",
-    "split-screen": "Split Screen",
-    connections: t("nav.connections"),
-    "user-profile": "User Profile",
-    "admin-settings": "Admin Settings",
-  };
+  // Phase 11 Plan 03: sidebarTitle Record<RailView, string> RETIRED — the
+  // sidebar header now hardcodes "Conversations" since that's the only surface.
 
   // Double-shift opens command palette
   useEffect(() => {
@@ -1092,70 +1076,14 @@ export function AppShell({
     openTab(host, type);
   }
 
-  const openSingletonTab = useCallback(
-    function openSingletonTab(type: TabType, pendingEvent?: string) {
-      if (type === "host-manager") {
-        if (pendingEvent === "host-manager:add-credential") {
-          setSidebarOpen(true);
-          setRailView("credentials");
-          setTimeout(
-            () =>
-              window.dispatchEvent(
-                new CustomEvent("host-manager:add-credential"),
-              ),
-            0,
-          );
-        } else {
-          setSidebarOpen(true);
-          setRailView("hosts");
-          if (pendingEvent) {
-            setTimeout(
-              () => window.dispatchEvent(new CustomEvent(pendingEvent)),
-              0,
-            );
-          }
-        }
-        return;
-      }
-      if (type === "user-profile" || type === "admin-settings") {
-        setSidebarEditing(false);
-        setRailView(type as RailView);
-        setSidebarOpen(true);
-        return;
-      }
-      const id = type;
-      const singletonLabels: Partial<Record<TabType, string>> = {
-        "host-manager": t("nav.hostManager"),
-        docker: t("nav.docker"),
-        tunnel: t("nav.tunnels"),
-        network_graph: t("nav.networkGraph"),
-      };
-      setTabs((prev) => {
-        if (prev.find((t) => t.id === id)) return prev;
-        return [
-          ...prev,
-          {
-            id,
-            instanceId: id,
-            type,
-            label: singletonLabels[type] ?? type,
-            openedAt: Date.now(),
-          },
-        ];
-      });
-      setActiveTabId(id);
-      if (PERSISTENT_TAB_TYPES.includes(type)) {
-        addOpenTab({
-          id,
-          tabType: type,
-          hostId: null,
-          label: singletonLabels[type] ?? type,
-          tabOrder: 0,
-        }).catch(() => {});
-      }
-    },
-    [t],
-  );
+  // Phase 11 Plan 03: openSingletonTab function RETIRED per Plan 01 Section E
+  // item 6 disposition protocol. Post-strip grep confirmed zero surviving
+  // consumers: the AppRail onOpenTab prop (line 1844) died with the AppRail
+  // mount removal, the ConnectionsPanel onReopenTab callback (line 1658) died
+  // with the {railView==="connections"} panel-branch strip, and the
+  // renderTabContent pass-through (line 2037) had no live consumer in
+  // tabUtils.tsx after Plan 02's <PrettyLandingCard/> swap replaced the
+  // <DashboardTab onOpenSingletonTab={...}/> that was its only case-body user.
 
   const SESSION_TAB_TYPES: TabType[] = ["terminal", "rdp", "vnc", "telnet"];
 
@@ -1259,27 +1187,9 @@ export function AppShell({
     });
   }
 
-  // ─── Rail / sidebar ──────────────────────────────────────────────────────
-
-  function handleRailClick(view: RailView) {
-    if (railView === view && sidebarOpen) {
-      setSidebarOpen(false);
-    } else {
-      if (view !== railView) setSidebarEditing(false);
-      setRailView(view);
-      setSidebarOpen(true);
-    }
-  }
-
-  function editHostInManager(host: Host) {
-    setSidebarOpen(true);
-    setRailView("hosts");
-    setTimeout(() => {
-      window.dispatchEvent(
-        new CustomEvent("host-manager:edit-host", { detail: host.id }),
-      );
-    }, 0);
-  }
+  // ─── Sidebar ─────────────────────────────────────────────────────────────
+  // Phase 11 Plan 03: handleRailClick + editHostInManager RETIRED — the rail
+  // is gone, HostsPanel is gone, no consumers remain.
 
   const onSidebarMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -1396,60 +1306,23 @@ export function AppShell({
     [tabs],
   );
 
-  // Sidebar panel content — shared between desktop inline sidebar and mobile sheet
+  // Sidebar panel content — pretty-conversations is the only visible surface.
+  // Phase 11 Plan 03 (PURGE-03): 11 sibling {railView === "X"} branches
+  // (hosts, credentials, quick-connect, ssh-tools, snippets, history,
+  // sessions, split-screen, connections, user-profile, admin-settings)
+  // RETIRED. The conversations branch is the sole survivor; its outer
+  // `${railView==="conversations" ? "" : "hidden"}` toggle also retired
+  // since it's the only possible content now. Panel FILES themselves stay
+  // on disk (Phase 12+ scope-fence). See 11-01-STRIP-LIST.md §E.8.
   const sidebarPanelContent = (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-      {/* Plan 06-02: conversations panel is the default RailView and lives
-          at the top of the sidebar-panel-content stack. Mounted-always with
-          the `hidden` class toggle (same idiom as hosts / credentials below)
-          so its store subscriptions stay live across rail-view swaps — that
-          matters for Plan 06-04's deferred-select race defense which relies
-          on the store's listener registry being registered even when the
-          panel is not currently visible. */}
-      <div
-        className={`flex flex-col flex-1 min-h-0 ${railView === "conversations" ? "" : "hidden"}`}
-      >
+      <div className="flex flex-col flex-1 min-h-0">
         <PrettyConversationsPanel
-          // Phase 10 Wave 3: cutover from ConversationsPanel to
-          // PrettyConversationsPanel. Prop shape is preserved verbatim per
-          // Wave 2's handoff contract; `variant` is the ONE new wiring.
-          // Wave 2 handoff §"What Wave 3 DOES need to build" bullet 2:
-          // variant tracks `useIsMobile()` (narrow-viewport predicate) NOT
-          // `useIsTouchDevice()` — the row's mobile-variant swipe wants to
-          // fire on narrow desktop windows too where the touch device may
-          // still be a laptop.
           variant={isMobile ? "mobile" : "desktop"}
-          // Plan 06-03: on touchscreen viewports, a row tap ALSO transitions
-          // to the mobile view screen (Telegram-style list-vs-view). Desktop
-          // ignores this handler — the row-select is already handled by the
-          // store's selectConversation which drives the effectiveSelectedTabId
-          // portal path (Plan 06-02).
           onConversationSelected={
             isTouchDevice ? () => navigateToView() : undefined
           }
-          // Plan 06-03: mobile-only settings row. Absent on desktop — desktop
-          // reaches settings via the gear icon in the ConversationsPanel
-          // header (Plan 06-02). SettingsRow lives at the BOTTOM of the
-          // scroller so it doesn't compete with pinned or active rows for
-          // prime attention (TG-10). Uses the same handleRailClick + isAdmin
-          // pair so mobile row and desktop gear route to the same
-          // destinations from one canonical menu-item registry.
-          settingsRowSlot={
-            isTouchDevice ? (
-              <SettingsRow onRailClick={handleRailClick} isAdmin={isAdmin} />
-            ) : undefined
-          }
-          // Plan 06-04: host tree for the NewSessionDialog's host picker.
-          // Reuses the same memoized realHostTree HostsPanel consumes below,
-          // so idle host-polls don't thrash either panel.
           hostTree={realHostTree}
-          // Plan 06-04: new-session flow success handler. openTab creates
-          // the tab (batched setTabs — id NOT yet in tabs on the same tick);
-          // selectConversationDeferred parks the id in the store's
-          // pendingSelectId slot so the next updateOpenTabs flush selects
-          // it (T-06-04-04 race defense). On touchscreens, ALSO auto-
-          // navigate to the mobile view screen so Ashley lands on the new
-          // session's pane without a second tap.
           onCreateSession={({ host, sessionName }) => {
             const newTabId = openTab(host, "terminal", undefined, {
               targetTmuxSession: sessionName ?? null,
@@ -1460,37 +1333,11 @@ export function AppShell({
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
           }}
-          // Plan 07-01 (TG-14): click-a-detached-row transparent-attach
-          // handler. Fires ONLY for rows where store.computeSnapshot set
-          // `fleetOnly: true` (a fleet-discovered session with no matching
-          // openTabs entry). Reuses Plan 06-04's openTab + selectConversation
-          // Deferred mechanism verbatim — no new dialog, no confirmation,
-          // no separate connect step per TG-14 shape lock.
-          //
-          // `allowCreateTmux: false` is the critical distinction from the
-          // new-session flow above (which uses `true` to create a fresh
-          // tmux session on the box). Detached-attach is ATTACH to an
-          // existing tmux session — the whole point of TG-14. If the
-          // session has died on the box between page-load and the click
-          // (extremely narrow — snapshot-on-load contract keeps the
-          // window small), backend correctly errors instead of
-          // resurrecting an empty pane.
-          //
-          // Row → Host resolution goes through row.host which the store
-          // populated via state.hostsFlat (see computeSnapshot). Silent
-          // no-op if hostsFlat has not yet populated (T-07-01-06 race
-          // mitigation — realHostTree normally loads before the panel
-          // renders in production; the guard catches the slow-fetch dev
-          // case).
           onDetachedRowClick={(row) => {
-            // Phase 10 Wave 3: patch #111e F3-diag console.warn retired
-            // alongside the old ConversationsPanel. The defensive
-            // early-return stays — hostsFlat may still be unpopulated on
-            // slow-fetch dev cases (T-07-01-06 mitigation).
             const host = row.host;
             if (!host) return;
             const sessionName = row.targetTmuxSession;
-            if (!sessionName) return; // defense — fleet rows always have one
+            if (!sessionName) return;
             const newTabId = openTab(host, "terminal", undefined, {
               targetTmuxSession: sessionName,
               label: sessionName,
@@ -1500,33 +1347,6 @@ export function AppShell({
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
           }}
-          // Plan 07-02 (TG-15): click-an-RDP-row handler. Fires ONLY for
-          // rows where store.computeSnapshot set `rdpHostRow: true` (rows
-          // synthesized from a Host with `enableRdp === true`, living in
-          // the sentinel HostGroup `hostId === "__rdp__"` at the BOTTOM of
-          // grouped). Reuses `openTab(host, "rdp")` — the same lifecycle
-          // entry point HostsPanel + SessionsPanel + connectHost use today.
-          // Zero re-engineering of RDP tab disconnect/reconnect / guacamole /
-          // Terminal.tsx — this is a NEW row-render path that CALLS the
-          // existing RDP open flow.
-          //
-          // `openTab(host, "rdp")` omits the `options` arg — RDP tabs don't
-          // use targetTmuxSession or allowCreateTmux (openTab defaults both
-          // to null/false when omitted, verified at AppShell.tsx:974/979).
-          //
-          // `selectConversationDeferred(newTabId)` mirrors the detached-row-
-          // click path above + Plan 06-04's new-session flow: openTab's
-          // setTabs is batched, so the new tab id is NOT visible in
-          // state.openTabs synchronously; the deferred-select parks the id
-          // in pendingSelectId and updateOpenTabs flushes it when the id
-          // arrives. Consistent behavior across every "opens-a-new-tab"
-          // surface.
-          //
-          // Row → Host resolution goes through `row.host` which the store
-          // populated directly from state.hostsFlat (RDP rows are ONLY
-          // emitted for hosts present in hostsFlat — no race, but the
-          // defensive `!host` guard keeps parity with the detached-row-click
-          // handler above).
           onRdpRowClick={(row) => {
             const host = row.host;
             if (!host) return;
@@ -1537,153 +1357,6 @@ export function AppShell({
           }}
         />
       </div>
-
-      <div
-        className={`flex flex-col flex-1 min-h-0 ${railView === "hosts" ? "" : "hidden"}`}
-      >
-        <HostsPanel
-          onOpenTab={(host, type) => {
-            connectHost(host, type);
-            if (isMobile) setSidebarOpen(false);
-          }}
-          onEditHost={editHostInManager}
-          hostTree={realHostTree ?? undefined}
-          loading={hostsLoading}
-          onEditingChange={setSidebarEditing}
-          active={railView === "hosts"}
-        />
-      </div>
-
-      <div
-        className={`flex flex-col flex-1 min-h-0 ${railView === "credentials" ? "" : "hidden"}`}
-      >
-        <CredentialsPanel
-          onEditingChange={setSidebarEditing}
-          active={railView === "credentials"}
-        />
-      </div>
-
-      {railView === "quick-connect" && (
-        <QuickConnectPanel
-          onConnect={(host, type) => {
-            openTab(host, type);
-            if (isMobile) setSidebarOpen(false);
-          }}
-        />
-      )}
-
-      {railView === "ssh-tools" && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <SshToolsPanel
-            terminalTabs={terminalTabs}
-            activeTabId={activeTabId}
-          />
-        </div>
-      )}
-
-      {railView === "snippets" && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <SnippetsPanel
-            terminalTabs={terminalTabs}
-            activeTabId={activeTabId}
-          />
-        </div>
-      )}
-
-      {railView === "history" && (
-        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
-          <HistoryPanel terminalTabs={terminalTabs} activeTabId={activeTabId} />
-        </div>
-      )}
-
-      {railView === "sessions" && (
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <SessionsPanel
-            onOpenTab={(host, type, restore, options) => {
-              openTab(host, type, restore, options);
-              if (isMobile) setSidebarOpen(false);
-            }}
-          />
-        </div>
-      )}
-
-      {railView === "split-screen" && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <SplitScreenPanel
-            tabs={tabs}
-            splitMode={splitMode}
-            setSplitMode={setSplitMode}
-            paneTabIds={paneTabIds}
-            setPaneTabIds={setPaneTabIds}
-            onAssignPane={assignPane}
-          />
-        </div>
-      )}
-
-      {railView === "connections" && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <ConnectionsPanel
-            tabs={tabs}
-            activeTabId={activeTabId}
-            allHosts={allHosts}
-            backgroundTabRecords={backgroundTabRecords}
-            onSwitchToTab={(tabId) => {
-              setActiveTabId(tabId);
-              if (isMobile) setSidebarOpen(false);
-            }}
-            onCloseTab={closeTab}
-            onReopenTab={(record, restoredSessionId) => {
-              const host = record.hostId
-                ? allHosts.find((h) => h.id === String(record.hostId))
-                : undefined;
-              const hostlessTypes: TabType[] = ["tunnel"];
-              if (!host && !hostlessTypes.includes(record.tabType as TabType))
-                return;
-              setBackgroundTabRecords((prev) =>
-                prev.filter((r) => r.id !== record.id),
-              );
-              if (host) {
-                const effectiveSessionId =
-                  restoredSessionId ?? record.backendSessionId ?? null;
-                openTab(
-                  host,
-                  record.tabType as TabType,
-                  {
-                    instanceId: record.id,
-                    restoredSessionId: effectiveSessionId,
-                  },
-                  { targetTmuxSession: record.targetTmuxSession ?? null },
-                );
-              } else {
-                openSingletonTab(record.tabType as TabType);
-              }
-              if (isMobile) setSidebarOpen(false);
-            }}
-            onForgetBackground={(recordId) => {
-              setBackgroundTabRecords((prev) =>
-                prev.filter((r) => r.id !== recordId),
-              );
-            }}
-          />
-        </div>
-      )}
-
-      {railView === "user-profile" && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <UserProfilePanel
-            username={username}
-            onLogout={onLogout}
-            userPrefs={userPrefs}
-            onPrefsChange={setUserPrefs}
-          />
-        </div>
-      )}
-
-      {railView === "admin-settings" && isAdmin && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <AdminSettingsPanel />
-        </div>
-      )}
     </div>
   );
 
@@ -1696,7 +1369,7 @@ export function AppShell({
           is open without covering the title text. Mirrors desktop.html
           .sidebar-header `padding-left: 52px` treatment. */}
       <span className="flex-1 text-base font-bold tracking-tight text-foreground px-3 pl-12">
-        {sidebarTitle[railView]}
+        {t("nav.conversations.title", { defaultValue: "Conversations" })}
       </span>
       {!isMobile && (
         <>
@@ -1823,28 +1496,12 @@ export function AppShell({
           </button>
         )}
 
-        {/* Skinny icon rail — non-touch devices only. Gate is pointer/hover,
-            not window width, so narrow desktop windows still get the rail.
-            Also hidden when the sidebar panel is collapsed: rail + panel
-            behave as one unit. The chevron-right reveal button at the left
-            of the main content brings BOTH back on click. See fork patch #28.
-            Plan 06-03: touchscreen viewports never get the rail — the
-            mobile flow's SettingsRow (inside ConversationsPanel) is where
-            touchscreens reach the destinations the rail routes to. */}
-        {sidebarOpen && !isTouchDevice && (
-          <AppRail
-            railView={railView}
-            sidebarOpen={sidebarOpen}
-            splitMode={splitMode}
-            username={username}
-            isAdmin={isAdmin}
-            profileDropdownOpen={profileDropdownOpen}
-            onProfileDropdownChange={setProfileDropdownOpen}
-            onRailClick={handleRailClick}
-            onOpenTab={openSingletonTab}
-            onLogout={onLogout}
-          />
-        )}
+        {/* Phase 11 Plan 03 (PURGE-02): AppRail mount RETIRED here — the
+            skinny icon rail was the primary UI entry point to every dead
+            Termix surface (host manager, snippets, admin, user profile,
+            etc.). With the rail gone, the pretty-conversations sidebar is
+            the only visible sidebar chrome; touchscreens already had no
+            rail per Plan 06-03. */}
 
         {/* Desktop (non-touch): inline resizable sidebar. Plan 06-03: also
             gated on `!isTouchDevice` so touchscreens don't get the inline
@@ -2034,7 +1691,10 @@ export function AppShell({
                   return createPortal(
                     renderTabContent(
                       tab,
-                      openSingletonTab,
+                      // Phase 11 Plan 03: openSingletonTab arg dropped
+                      // (retired; renderTabContent's onOpenSingletonTab
+                      // param stays as an optional undefined-safe slot).
+                      undefined,
                       openTab,
                       closeTab,
                       inPane || activeInline,
