@@ -1773,7 +1773,7 @@ export function AppShell({
           title={t("nav.sidebar.toggle", {
             defaultValue: "Toggle sidebar",
           })}
-          className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(20,22,28,0.85)] backdrop-blur-[10px] backdrop-saturate-150 border border-white/[0.08] shadow-[0_2px_8px_rgba(0,0,0,0.35)] text-muted-foreground hover:text-foreground transition-colors"
+          className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(20,22,28,0.85)] backdrop-blur-[10px] backdrop-saturate-150 border border-white/[0.08] shadow-[0_2px_8px_rgba(0,0,0,0.35)] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           style={{
             top: "max(env(safe-area-inset-top), 8px)",
             left: "max(env(safe-area-inset-left), 8px)",
