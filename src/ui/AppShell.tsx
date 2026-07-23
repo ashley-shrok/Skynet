@@ -558,14 +558,23 @@ export function AppShell({
   // — because it ended, was closed elsewhere, or the store's stale-selection
   // defense (T-06-01-01) coerced selectedId to null — navigate back to the
   // list so the user isn't stranded on an empty view.
+  //
+  // Patch #132 Fix A: DEBOUNCE the trigger. Tab-open reconciliation briefly
+  // nulls selectedConversationId then repopulates within a frame or two;
+  // that transient dip used to trip this defense mid-tap and cascade into
+  // the URL-sync race that stripped mv=1 (diag-tap-bounce.js confirmed).
+  // Real "conversation ended" survives 200ms of no-selection easily; a
+  // reconcile null-then-refill does not.
   useEffect(() => {
     if (
-      isTouchDevice &&
-      mobileScreen === "view" &&
-      !selectedConversationId
+      !isTouchDevice ||
+      mobileScreen !== "view" ||
+      selectedConversationId
     ) {
-      navigateToList();
+      return;
     }
+    const t = setTimeout(() => navigateToList(), 200);
+    return () => clearTimeout(t);
   }, [isTouchDevice, mobileScreen, selectedConversationId]);
 
   // Patch #111 F3: mobile-tap safety-net. Any change to selectedConversationId
