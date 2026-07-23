@@ -44,6 +44,14 @@ const mkAtt = (
 describe("ComposeBox — Phase 05 upload wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Patch #129 test-hygiene fix: localStorage persists across tests in a
+    // shared JSDOM instance, and patch #119's compose-draft-ls mirror writes
+    // to it on every keystroke. Without a clear, tests that mount ComposeBox
+    // hydrate from the previous test's leftover draft and the initial
+    // `text=""` state gets overridden by an async setText from the hydrate
+    // effect — which flips `sendDisabled` unexpectedly and silently makes
+    // subsequent Send-button clicks no-op.
+    localStorage.clear();
   });
 
   it("Test 1: no chip strip when stagedAttachments is empty", () => {
@@ -183,7 +191,11 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     );
     const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "hey" } });
-    fireEvent.click(screen.getByLabelText(/send message/i));
+    // Patch #129: selector updated from getByLabelText(/send message/i) to
+    // getByRole('button', { name: 'Send' }) — the retired amber-Send from
+    // patch #121 wore aria-label="Send message"; the new inside-textarea
+    // Send button wears aria-label="Send" (exact match, no regex).
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(onSendWithAttachments).toHaveBeenCalledWith("hey");
     expect(onSend).not.toHaveBeenCalled();
 
@@ -203,7 +215,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
       />,
     );
     fireEvent.change(textarea, { target: { value: "plain" } });
-    fireEvent.click(screen.getByLabelText(/send message/i));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(onSend).toHaveBeenCalledWith("plain");
     expect(onSendWithAttachments).not.toHaveBeenCalled();
   });
@@ -221,7 +233,8 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
         })}
       />,
     );
-    const sendBtnA = screen.getByLabelText(/send message/i) as HTMLButtonElement;
+    // Patch #129: selector updated per Test 7 rationale.
+    const sendBtnA = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
     expect(sendBtnA.disabled).toBe(false);
 
     // Case B: no attachments, empty text → Send disabled.
@@ -235,7 +248,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
         })}
       />,
     );
-    const sendBtnB = screen.getByLabelText(/send message/i) as HTMLButtonElement;
+    const sendBtnB = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
     expect(sendBtnB.disabled).toBe(true);
   });
 
@@ -295,11 +308,73 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     fireEvent.click(retryBtn);
     expect(onRetryBatch).toHaveBeenCalledTimes(1);
   });
+
+  // ============================================================
+  // Patch #129 — inside-textarea send button (Ashley-locked visual)
+  // ============================================================
+
+  it("inside-textarea send button: renders as a bare <button> inside the textarea wrapper", () => {
+    render(<ComposeBox {...baseProps()} />);
+    const sendBtn = screen.getByRole("button", { name: "Send" });
+    expect(sendBtn).toBeTruthy();
+    // Bare <button>, not a shadcn <Button> composition. shadcn Button
+    // resolves to a <button> too, but the plan requires a bare element
+    // — assert tagName so any accidental Button-wrapping regresses loudly.
+    expect(sendBtn.tagName).toBe("BUTTON");
+
+    // Walk up until we hit the textarea's flex-1 self-stretch wrapper.
+    // Must contain BOTH the textarea and the button.
+    let wrapper: Element | null = sendBtn.parentElement;
+    while (wrapper) {
+      const cls = wrapper.className || "";
+      if (typeof cls === "string" && /relative/.test(cls) && /flex-1/.test(cls)) {
+        break;
+      }
+      wrapper = wrapper.parentElement;
+    }
+    expect(wrapper).not.toBeNull();
+    const textarea = screen.getByPlaceholderText(/message/i);
+    expect(wrapper!.contains(textarea)).toBe(true);
+    expect(wrapper!.contains(sendBtn)).toBe(true);
+  });
+
+  it("inside-textarea send button: click with text present calls onSend with trimmed payload and clears the textarea (COMPOSE-04)", () => {
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hi there  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    // handleSend trims trailing whitespace before dispatch.
+    expect(onSend).toHaveBeenCalledWith("hi there");
+    // COMPOSE-04 clear-on-success: textarea is empty after a truthy dispatch.
+    expect(textarea.value).toBe("");
+  });
+
+  it("inside-textarea send button: disabled state — button reports disabled and click is a no-op", () => {
+    // Case A: empty text, no attachments, canSend not set → disabled.
+    const onSendA = vi.fn(() => true);
+    const { unmount } = render(<ComposeBox {...baseProps({ onSend: onSendA })} />);
+    const btnA = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    expect(btnA.disabled).toBe(true);
+    fireEvent.click(btnA);
+    expect(onSendA).not.toHaveBeenCalled();
+    unmount();
+
+    // Case B: canSend=false, no attachments, empty text → disabled.
+    const onSendB = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend: onSendB, canSend: false })} />);
+    const btnB = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    expect(btnB.disabled).toBe(true);
+    fireEvent.click(btnB);
+    expect(onSendB).not.toHaveBeenCalled();
+  });
 });
 
 describe("ComposeBox — Phase 9 layout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Patch #129 test-hygiene fix (see Phase 05 describe for rationale).
+    localStorage.clear();
   });
 
   // Helper: walk el.parentElement upward until a parent's className matches
@@ -316,7 +391,11 @@ describe("ComposeBox — Phase 9 layout", () => {
   it("Phase 9 Layout: aux button group renders in a row that precedes the Send button's row", () => {
     render(<ComposeBox {...baseProps()} />);
     const thumbsUp = screen.getByLabelText(/send 'yes'/i);
-    const sendBtn = screen.getByLabelText(/send message/i);
+    // Patch #129: selector updated per Test 7 rationale. The new inside-
+    // textarea Send button lives in Row 2's textarea wrapper (line ~1250);
+    // Row 1's aux-group (ThumbsUp) still precedes it in DOM order — the
+    // assertion holds; only the selector needed refreshing.
+    const sendBtn = screen.getByRole("button", { name: "Send" });
 
     const pattern = /flex items-(?:center|end) gap-2/;
     const thumbsUpRow = closestFlexRowAncestor(thumbsUp, pattern);

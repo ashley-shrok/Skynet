@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hourglass, Paperclip, RefreshCw, RotateCcw, Square, ThumbsUp } from "lucide-react";
+import { Hourglass, Paperclip, RefreshCw, RotateCcw, SendHorizontal, Square, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -827,6 +827,24 @@ export function ComposeBox({
   const queueDisabled =
     canSend === false || (queuedText === null && text.trim() === "");
 
+  // Patch #129: inside-textarea Send button disabled predicate. Locked with
+  // Ashley 2026-07-23 (console-iterated visual). Truth table:
+  //   - queueArmed → disabled (button lives under the queueArmed overlay
+  //     but native disabled is belt-and-suspenders vs the overlay's
+  //     pointer-events-none).
+  //   - canSend === false && !hasAttachments → disabled (text-only send
+  //     would fail with no transport; attachment path routes independently
+  //     via onSendWithAttachments so it survives a canSend===false WS state).
+  //     STRICT === false (not `!canSend`): canSend is optional and defaults
+  //     to undefined at the read-only PrettyView call sites; treating undefined
+  //     as "not sendable" would over-disable. Matches every other button in
+  //     this file (see `disabled={canSend === false}` on the aux-row buttons).
+  //   - text.trim() === "" && !hasAttachments → disabled (nothing to send).
+  const sendDisabled =
+    queueArmed ||
+    (canSend === false && !hasAttachments) ||
+    (text.trim() === "" && !hasAttachments);
+
   // Layout: 2-row shell per UI-SPEC.md § Layout Contract (Phase 9 / 09-01).
   //
   //   Row 3 — chip strip (ephemeral): AttachmentChipStrip mounts above Row 1
@@ -1313,6 +1331,13 @@ export function ComposeBox({
             "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
             "border border-[rgba(220,225,245,0.07)]",
             "rounded-[10px] px-4 py-3",
+            // Patch #129: 40px right padding reserves space for the
+            // inside-textarea Send button (24×24 icon in a 40×40 hit
+            // target at absolute right-3 bottom-2.5). Placed AFTER
+            // `px-4` so tailwind-merge's later-wins dedupe keeps the
+            // 40px right padding while the 16px left padding survives.
+            // No `!` needed — no dark: variant conflict on padding.
+            "pr-10",
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
             "transition-[box-shadow,border-color] duration-200",
@@ -1343,6 +1368,43 @@ export function ComposeBox({
             </span>
           </div>
         )}
+        {/* Patch #129: subtle inside-textarea Send button. Bare
+            <button type="button"> (NOT shadcn Button — sidesteps the
+            wrapper-specificity trap that bit patches #81 and #117 with
+            the queue button's `!` load-bearing bg classes). Position
+            locked with Ashley 2026-07-23 (DevTools console iteration):
+            absolute right-3 bottom-2.5 (12px / 10px inset), 24×24
+            SendHorizontal with fill="currentColor" for the paper-plane
+            silhouette, 40×40 hit target via p-2, rest color
+            rgba(240,235,224,0.3), hover 0.9, disabled 0.15, 120ms
+            color+transform transition, active:scale-95 tactile press.
+            NOT the retired amber-Send from patch #121 — Ashley wants
+            ChatGPT/iMessage-quiet here. LEAVE the VISUAL-08 comment
+            block above (line ~1240) ALONE — stale-cleanup deferred.
+            onClick routes ALL send behavior through the existing
+            handleSend() at line ~652 (attachment branching, D-50
+            newline collapse, COMPOSE-04 clear-on-success — nothing
+            duplicated). */}
+        <button
+          type="button"
+          onClick={() => { if (!sendDisabled) handleSend(); }}
+          disabled={sendDisabled}
+          aria-label="Send"
+          title="Send"
+          className={cn(
+            "absolute right-3 bottom-2.5",
+            "p-2",
+            "text-[rgba(240,235,224,0.3)]",
+            "hover:text-[rgba(240,235,224,0.9)]",
+            "disabled:text-[rgba(240,235,224,0.15)]",
+            "disabled:cursor-not-allowed",
+            "transition-[color,transform] duration-120",
+            "active:scale-95",
+            "cursor-pointer",
+          )}
+        >
+          <SendHorizontal className="size-6" fill="currentColor" />
+        </button>
         </div>
       </div>
       {errorMessage && (
