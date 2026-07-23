@@ -11,13 +11,16 @@ import {
   pinConversation,
   unpinConversation,
   togglePinConversation,
+  addToActiveSet,
   useConversations,
   useSelectedConversationId,
   usePinnedIds,
+  useActiveSet,
   __subscribeForTest,
   __getSnapshotForTest,
   __getPendingSelectIdForTest,
   __getFleetOnlyRowsForTest,
+  __resetActiveSetForTest,
   type FleetSession,
 } from "./conversation-store.js";
 import type { Tab, Host, HostFolder } from "@/types/ui-types";
@@ -59,6 +62,15 @@ function makeTab(
 // pendingSelectId from a prior test (per Plan 06-04 Task 1: selectConversation
 // clears pending), then drop the host tree.
 beforeEach(() => {
+  // Patch #137: clear sessionStorage FIRST so the module-level activeSet
+  // (already hydrated at module-init time) can be reset from an empty
+  // persistence layer. JSDOM provides sessionStorage; no mocking needed.
+  // Then explicitly reset the module-scoped activeSet via
+  // __resetActiveSetForTest so a prior test's addToActiveSet writes don't
+  // leak forward (the store has no removeFromActiveSet API by design —
+  // Patch #137 §3: the set only grows within a session).
+  sessionStorage.clear();
+  __resetActiveSetForTest();
   updateOpenTabs([]);
   selectConversation(null);
   updateHostTree(null);
@@ -397,16 +409,23 @@ describe("conversation-store: reactive emit semantics", () => {
     selectConversation("t1");
     pinConversation("t1");
 
-    // 4 real mutations
-    expect(cb).toHaveBeenCalledTimes(4);
+    // 5 real mutations — patch #137 makes `selectConversation("t1")` on a
+    // first-time-selected id fire TWICE (once for addToActiveSet's notify,
+    // once for the selectedId change). updateHostTree + updateOpenTabs +
+    // pinConversation each fire once → 3. Total: 3 + 2 = 5.
+    expect(cb).toHaveBeenCalledTimes(5);
 
     // No-op mutations — same reference / same value / stale-id / already-in-set
     cb.mockClear();
     updateHostTree(tree); // same reference → no emit
     updateOpenTabs([tab1]); // same Tab reference in same order → no emit
-    selectConversation("t1"); // already selected → no emit
+    // Patch #137: id "t1" is now in activeSet AND already selected → both
+    // guards short-circuit → no emit.
+    selectConversation("t1");
     pinConversation("t1"); // already pinned → no emit
-    selectConversation("stale-id-not-in-tabs"); // stale-id guard → no emit
+    // Stale-id guard runs BEFORE the addToActiveSet call → no activeSet
+    // write → no emit.
+    selectConversation("stale-id-not-in-tabs");
     unpinConversation("not-actually-pinned"); // no-op → no emit
     expect(cb).toHaveBeenCalledTimes(0);
 
@@ -1079,3 +1098,84 @@ describe("conversation-store (Plan 07-02): RDP rows never pinnable", () => {
     expect(rdpGroupAfter!.rows[0].id).toBe("rdp-host::1");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Patch #137 — activeSet side-effect on selectConversation + sessionStorage
+// persistence + module-init hydration
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store (patch #137): selectConversation → activeSet + sessionStorage", () => {
+  it("selectConversation(id) adds id to activeSet AND writes to sessionStorage", () => {
+    const hostA = makeHost("hA", "nasty");
+    act(() => {
+      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
+    });
+
+    act(() => {
+      selectConversation("t-A");
+    });
+
+    // Hook returns a ReadonlySet that includes the id.
+    const { result } = renderHook(() => useActiveSet());
+    expect(result.current.has("t-A")).toBe(true);
+
+    // Persistence: sessionStorage carries the same id under the canonical key.
+    const raw = sessionStorage.getItem("pv-conv-active-set");
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toContain("t-A");
+  });
+});
+
+describe("conversation-store (patch #137): activeSet is idempotent on repeat select", () => {
+  it("selectConversation(id) called twice does NOT trigger a second sessionStorage.setItem write", () => {
+    const hostA = makeHost("hA", "nasty");
+    act(() => {
+      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
+    });
+
+    // First select — this DOES write to sessionStorage.
+    act(() => {
+      selectConversation("t-A");
+    });
+
+    // Spy AFTER the first write so we count only the second call's writes.
+    const spy = vi.spyOn(Storage.prototype, "setItem");
+
+    // Second select — same id → addToActiveSet short-circuits (already
+    // present) → NO sessionStorage.setItem call for pv-conv-active-set.
+    act(() => {
+      selectConversation("t-A");
+    });
+
+    const activeSetWrites = spy.mock.calls.filter(
+      ([k]) => k === "pv-conv-active-set",
+    );
+    expect(activeSetWrites.length).toBe(0);
+
+    spy.mockRestore();
+  });
+});
+
+describe("conversation-store (patch #137): module-init hydrates activeSet from sessionStorage", () => {
+  it("pre-seeded sessionStorage entries populate activeSet on module reload", async () => {
+    // Pre-seed the storage layer with a JSON array of ids.
+    sessionStorage.setItem(
+      "pv-conv-active-set",
+      JSON.stringify(["seed-1", "seed-2"]),
+    );
+
+    // Re-execute the module to force the module-scope hydrateActiveSetFromStorage
+    // call to run against the seeded storage. vi.resetModules() drops the
+    // module-cache entry; the dynamic import re-runs the module body.
+    vi.resetModules();
+    const reImported = await import("./conversation-store.js");
+
+    const { result } = renderHook(() => reImported.useActiveSet());
+    expect(result.current.has("seed-1")).toBe(true);
+    expect(result.current.has("seed-2")).toBe(true);
+    expect(result.current.size).toBe(2);
+  });
+});
+

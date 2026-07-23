@@ -104,6 +104,31 @@ const CONVERSATION_TAB_TYPES = new Set<TabType>([
   "stats",
 ]);
 
+// Patch #137: sessionStorage key for the activeSet persistence layer. Value is
+// a JSON array of conversation ids; sessionStorage semantics = per-tab, dies
+// on tab close. See hydrateActiveSetFromStorage() + addToActiveSet() below.
+const ACTIVE_SET_STORAGE_KEY = "pv-conv-active-set";
+
+// Patch #137: rehydrate the activeSet from sessionStorage on module load.
+// Wrapped in try/catch so malformed JSON, missing key, empty string, quota
+// errors, or an absent sessionStorage (SSR/JSDOM edge) ALL silently fall
+// back to an empty Set — a corrupt persistence layer must never crash the
+// UI thread.
+function hydrateActiveSetFromStorage(): Set<string> {
+  try {
+    if (typeof sessionStorage === "undefined") return new Set<string>();
+    const raw = sessionStorage.getItem(ACTIVE_SET_STORAGE_KEY);
+    if (!raw) return new Set<string>();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set<string>();
+    const out = new Set<string>();
+    for (const v of parsed) if (typeof v === "string") out.add(v);
+    return out;
+  } catch {
+    return new Set<string>();
+  }
+}
+
 function isConversationTab(tab: Tab): boolean {
   if (!CONVERSATION_TAB_TYPES.has(tab.type)) return false;
   if (!tab.host) return false;
@@ -131,6 +156,14 @@ type State = {
   // (see computeSnapshot) AND — pending Plan 07-02 — for RDP row derivation
   // filtered on `host.enableRdp === true`.
   hostsFlat: Map<number, Host>;
+  // Patch #137: sessionStorage-backed set of conversation ids Ashley has
+  // selected in this browser-tab session. Persisted under key
+  // "pv-conv-active-set" as a JSON array. Rehydrated on module load; grows
+  // only (no remove API); dies on tab close (sessionStorage semantics).
+  // Feeds PrettyConversationRow's ambient-recession branch (rows NOT in
+  // the set visually recede) and the ready-for-attention dot render
+  // condition (dot renders iff inActiveSet && isWorking===false).
+  activeSet: Set<string>;
 };
 
 let state: State = {
@@ -140,6 +173,7 @@ let state: State = {
   selectedId: null,
   fleetSessions: [],
   hostsFlat: new Map<number, Host>(),
+  activeSet: hydrateActiveSetFromStorage(),
 };
 
 // Plan 06-04 race defense (T-06-04-04): openTab's setTabs is batched — the
@@ -572,6 +606,13 @@ export function selectConversation(id: string | null): void {
   // even when the id being selected is the id we're already on. Otherwise a
   // same-id call would leak a stale pending id past its owner's intent.
   pendingSelectId = null;
+  // Patch #137: every non-null selection is an active-set engagement signal —
+  // record it BEFORE the same-selectedId short-circuit so a re-select of the
+  // currently-selected id still counts as engagement. addToActiveSet is
+  // idempotent so this is a cheap no-op when the id is already present.
+  // Deselect (id === null) does NOT touch activeSet — deselecting is not
+  // positive engagement.
+  if (id !== null) addToActiveSet(id);
   if (id === state.selectedId) return; // no-op — already selected
   state = { ...state, selectedId: id };
   notify();
@@ -594,6 +635,30 @@ export function selectConversationDeferred(id: string): void {
   pendingSelectId = id;
   // Deliberately NO notify() here — nothing user-visible has changed. The
   // flush emit happens inside updateOpenTabs when the id arrives.
+}
+
+// Patch #137: activeSet mutator. Idempotent no-op when the id is already
+// present (avoids gratuitous sessionStorage writes on repeat selects).
+// Silent try/catch on sessionStorage so SSR/JSDOM/quota-exceeded errors
+// never crash the UI thread — an in-memory update still fires and notify()
+// still runs so the UI stays functional for the current session even if
+// persistence fails.
+export function addToActiveSet(id: string): void {
+  if (state.activeSet.has(id)) return;
+  const nextActiveSet = new Set(state.activeSet);
+  nextActiveSet.add(id);
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(
+        ACTIVE_SET_STORAGE_KEY,
+        JSON.stringify([...nextActiveSet]),
+      );
+    }
+  } catch {
+    // Silent — do not block state update on storage failure.
+  }
+  state = { ...state, activeSet: nextActiveSet };
+  notify();
 }
 
 export function pinConversation(id: string): void {
@@ -659,6 +724,22 @@ export function usePinnedIds(): ReadonlySet<string> {
   );
 }
 
+// Patch #137: activeSet subscription. Mirrors usePinnedIds semantics — a new
+// Set reference on every real mutation (see addToActiveSet), same reference
+// across no-ops (idempotent second addToActiveSet(id) returns early without
+// bumping snapshotVersion). Consumers get a stable ReadonlySet identity
+// across renders that didn't touch activeSet.
+function getActiveSetSnapshot(): ReadonlySet<string> {
+  return state.activeSet;
+}
+export function useActiveSet(): ReadonlySet<string> {
+  return useSyncExternalStore(
+    subscribe,
+    getActiveSetSnapshot,
+    getActiveSetSnapshot,
+  );
+}
+
 // ─── Test-only helpers ───────────────────────────────────────────────────────
 // Underscore-prefixed exports for Vitest. NOT part of the public API — do not
 // consume from production code. Kept exported (rather than gated on
@@ -684,6 +765,18 @@ export function __getSnapshotForTest(): SnapshotForTest {
 // arrival / cleared on direct selectConversation / last-write-wins).
 export function __getPendingSelectIdForTest(): string | null {
   return pendingSelectId;
+}
+
+// Patch #137: reset the module-scoped activeSet to whatever
+// hydrateActiveSetFromStorage returns for the current sessionStorage
+// contents. Used by conversation-store.test.ts's beforeEach so a prior test's
+// selectConversation-driven addToActiveSet write doesn't leak into later
+// tests. Called AFTER sessionStorage.clear() so the resulting activeSet is
+// empty; when a test wants to exercise the hydration path it can setItem +
+// __resetActiveSetForTest to re-hydrate from the seeded storage.
+export function __resetActiveSetForTest(): void {
+  state = { ...state, activeSet: hydrateActiveSetFromStorage() };
+  notify();
 }
 
 // Plan 07-01 Task 1: expose all fleet-derived rows (across pinned + grouped)

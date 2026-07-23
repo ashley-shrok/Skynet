@@ -151,35 +151,6 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* ── Patch #136: pretty-conversations WIP pulse-dot ────────────
-   Co-located with the pretty-view palette tokens above. Consumed
-   by PrettyConversationRow.tsx's isWip render slot via inline
-   `animation: pv-conv-wip-pulse 1.35s ease-in-out infinite` on a
-   `<span data-pv-conv-wip-dot="true" aria-label="working">`. The
-   attribute selector lets the reduced-motion fallback target the
-   dot without coupling to a global class name. Patch #136 threads
-   `isWip={false}` at every render site — the animation only fires
-   once patch #137 wires the store subscription. */
-@keyframes pv-conv-wip-pulse {
-  0%,
-  100% {
-    opacity: 0.4;
-    transform: scale(0.85);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.15);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-pv-conv-wip-dot="true"] {
-    animation: none !important;
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
 :root {
   --accent-brand: #f59145;
   --background: oklch(1 0 0);

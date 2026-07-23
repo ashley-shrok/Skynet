@@ -1,6 +1,8 @@
 // ─── PrettyConversationRow — Vitest coverage ─────────────────────────────────
-// 14 tests covering the row component from Phase 10 Plan 01 Task 3 + patch #136:
-//   1) Desktop selected-row hue treatment (inline hsla interpolation)
+// 18 tests covering the row component from Phase 10 Plan 01 Task 3 + patch
+// #136 + patch #137:
+//   1) Desktop selected-row hue treatment (inline hsla interpolation) —
+//      updated for patch #137 to pass explicit inActiveSet={true}
 //   2) Mobile swipe past 40px threshold opens the reveal strip
 //   3) Mobile swipe under threshold snaps closed
 //   4) Vertical gesture > 12px yields to browser scroll (no open, no select)
@@ -12,14 +14,23 @@
 //  10) Pinned row on desktop always shows pin button (not hover-gated)
 //  11) No identity-chip in DOM (session name IS identity name)
 //  12) [patch #136] Unselected non-RDP row with hue renders full hue-bubble
-//      body treatment (linear-gradient(160deg, hsla(...)) at 0.55/0.60 alphas
-//      — proves the bubble treatment now applies to unselected rows, not
-//      only to the selected row)
-//  13) [patch #136] isWip={true} renders pulse dot with aria-label="working"
-//      and data-pv-conv-wip-dot="true" attribute (a11y + reduced-motion hook)
-//  14) [patch #136] isWip={true} on a hue-null RDP row uses the neutral
-//      rgba(220,225,245,…) dot background instead of an hsla(hue,…) value
-//      (defensive: proves the neutral-branch fallback is wired end-to-end)
+//      body treatment — updated for patch #137 to pass inActiveSet={true}
+//      so the row stays in the full-bubble branch (ambient-vs-full branch
+//      exercised by Test 18)
+//  13) [patch #137] inActiveSet+isWorking===false renders ready-dot with
+//      aria-label="ready" and matching data attribute (renamed + inverted
+//      from the retired patch #136 working-dot render slot)
+//  14) [patch #137] RDP row + inActiveSet+isWorking===false uses neutral
+//      rgba(240,235,224,…) ready-dot fill (proves the neutral-branch
+//      fallback is wired end-to-end)
+//  15) [patch #137] inActiveSet+isWorking===true renders NO ready-dot
+//  16) [patch #137] inActiveSet+isWorking===null renders NO ready-dot
+//  17) [patch #137] !inActiveSet+isWorking===false renders NO ready-dot
+//      (ambient never shows it)
+//  18) [patch #137] !inActiveSet && !isRdp row applies ambient body style
+//      (flat hsla background, no drop shadow, no backdrop-blur)
+//  18b) [patch #137] RDP row is EXEMPT from ambient — inActiveSet=false
+//      still uses the neutral full-bubble treatment
 //
 // Fixture pattern lifted from src/ui/sidebar/NewSessionDialog.test.tsx lines
 // 14-35 verbatim: mock react-i18next passthrough, mock session-hue helpers
@@ -147,6 +158,11 @@ beforeEach(() => {
 describe("PrettyConversationRow: selected-row hue treatment", () => {
   it("Test 1: desktop selected row applies the inline hsla(hue,...) gradient", () => {
     currentIdentity = makeIdentity(30, "nelly");
+    // Patch #137: inActiveSet={true} keeps the row in the full-bubble
+    // treatment; without it the row would render the ambient recession
+    // and Test 1's linear-gradient assertion below would fail. The panel
+    // always passes inActiveSet={true} for a selected row because
+    // selectConversation adds to the active-set as a side-effect.
     const { container } = render(
       <PrettyConversationRow
         row={makeRow()}
@@ -155,6 +171,7 @@ describe("PrettyConversationRow: selected-row hue treatment", () => {
         variant="desktop"
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}
+        inActiveSet={true}
       />,
     );
     const wrapper = container.querySelector(
@@ -546,6 +563,8 @@ describe("PrettyConversationRow: no identity chip", () => {
 describe("PrettyConversationRow: patch #136 full-bubble-every-row", () => {
   it("Test 12: unselected non-RDP row with hue renders full hue-bubble body style", () => {
     currentIdentity = makeIdentity(210, "nelly");
+    // Patch #137: inActiveSet={true} keeps the row in the full-bubble
+    // treatment; the ambient-vs-full body branch is exercised by Test 18.
     const { container } = render(
       <PrettyConversationRow
         row={makeRow()}
@@ -554,6 +573,7 @@ describe("PrettyConversationRow: patch #136 full-bubble-every-row", () => {
         variant="desktop"
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}
+        inActiveSet={true}
       />,
     );
     // Body div is the role="button" element (scoped inside the wrapper).
@@ -582,14 +602,15 @@ describe("PrettyConversationRow: patch #136 full-bubble-every-row", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 13 — [patch #136] isWip={true} renders pulse dot with correct a11y +
-//           data-attribute wiring
+// Test 13 — [patch #137] inActiveSet + isWorking===false renders ready-dot
+//           with correct a11y + data-attribute wiring (renamed + inverted
+//           from the retired patch #136 working-dot render slot)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #136 isWip render slot", () => {
-  it("Test 13: isWip={true} renders pulse dot with aria-label='working'", () => {
+describe("PrettyConversationRow: patch #137 ready-dot render", () => {
+  it("Test 13: inActiveSet+isWorking===false renders ready-dot with aria-label='ready'", () => {
     currentIdentity = makeIdentity(210, "nelly");
-    const { getByLabelText } = render(
+    const { getByLabelText, queryByLabelText } = render(
       <PrettyConversationRow
         row={makeRow()}
         selected={false}
@@ -597,26 +618,29 @@ describe("PrettyConversationRow: patch #136 isWip render slot", () => {
         variant="desktop"
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}
-        isWip={true}
+        inActiveSet={true}
+        isWorking={false}
       />,
     );
-    const dot = getByLabelText("working") as HTMLElement;
-    expect(dot.getAttribute("data-pv-conv-wip-dot")).toBe("true");
-    // jsdom preserves the raw animation string as authored on
-    // HTMLElement.style.animation.
-    expect(dot.style.animation).toContain("pv-conv-wip-pulse");
+    const dot = getByLabelText("ready") as HTMLElement;
+    expect(dot.getAttribute("data-pv-conv-ready-dot")).toBe("true");
+    // Steady — no animation string in the inline style.
+    expect(dot.style.animation).toBe("");
+    // Regression: the old patch-#136 aria-label must be absent.
+    expect(queryByLabelText("working")).toBeNull();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 14 — [patch #136] isWip on a hue-null RDP row uses neutral rgba dot
-//           (defensive — proves neutral fallback is wired end-to-end)
+// Test 14 — [patch #137] RDP row + inActiveSet+isWorking===false uses neutral
+//           rgba(240,235,224,…) ready-dot fill (proves neutral-branch
+//           fallback is wired end-to-end)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: patch #136 isWip neutral fallback", () => {
-  it("Test 14: isWip on RDP row uses neutral rgba dot (not hsla)", () => {
+describe("PrettyConversationRow: patch #137 ready-dot neutral fallback", () => {
+  it("Test 14: RDP row with inActiveSet+isWorking===false uses neutral rgba dot", () => {
     // currentIdentity stays null (beforeEach reset) — RDP row + no identity
-    // → hue is null → dot renders the neutral rgba(220,225,245,…) background.
+    // → hue is null → dot renders the neutral rgba(240,235,224,…) background.
     const { getByLabelText } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
@@ -625,14 +649,156 @@ describe("PrettyConversationRow: patch #136 isWip neutral fallback", () => {
         variant="desktop"
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}
-        isWip={true}
+        inActiveSet={true}
+        isWorking={false}
       />,
     );
-    const dot = getByLabelText("working") as HTMLElement;
+    const dot = getByLabelText("ready") as HTMLElement;
     const rawStyle = dot.getAttribute("style") ?? "";
-    expect(rawStyle).toContain("rgba(220,225,245");
+    expect(rawStyle).toContain("rgba(240,235,224");
     // Defensive: no hsla substring anywhere in the dot's style — the hue
     // branch should NOT have fired.
     expect(rawStyle).not.toContain("hsla(");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 15 — [patch #137] inActiveSet + isWorking===true renders NO ready-dot
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: patch #137 ready-dot suppression — working", () => {
+  it("Test 15: inActiveSet+isWorking===true renders NO ready-dot", () => {
+    currentIdentity = makeIdentity(210);
+    const { queryByLabelText } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={true}
+      />,
+    );
+    expect(queryByLabelText("ready")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 16 — [patch #137] inActiveSet + isWorking===null renders NO ready-dot
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: patch #137 ready-dot suppression — unknown", () => {
+  it("Test 16: inActiveSet+isWorking===null renders NO ready-dot", () => {
+    currentIdentity = makeIdentity(210);
+    const { queryByLabelText } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={null}
+      />,
+    );
+    expect(queryByLabelText("ready")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 17 — [patch #137] !inActiveSet + isWorking===false renders NO ready-dot
+//           (ambient rows never show it)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: patch #137 ready-dot suppression — ambient", () => {
+  it("Test 17: !inActiveSet+isWorking===false renders NO ready-dot", () => {
+    currentIdentity = makeIdentity(210);
+    const { queryByLabelText } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={false}
+        isWorking={false}
+      />,
+    );
+    expect(queryByLabelText("ready")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 18 — [patch #137] Ambient recession + RDP exemption
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: patch #137 ambient recession", () => {
+  it("Test 18: !inActiveSet && !isRdp row applies ambient body style (flat hsla background, no drop shadow, no backdrop-blur)", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={false}
+        /* isWorking omitted — defaults to null */
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    const rawStyle = body.getAttribute("style") ?? "";
+    // Ambient flat background (NOT linear-gradient). jsdom's CSSOM
+    // normalizes hsla → rgba when applied to `background`, so we probe
+    // via: (a) no linear-gradient substring, (b) a hue-derived hairline
+    // hsla still present in box-shadow (jsdom preserves hsla inside
+    // box-shadow), and (c) 0.16 alpha in the raw background value.
+    expect(rawStyle).not.toContain("linear-gradient");
+    // Hue-hairline hsla in box-shadow proves the ambient branch is hue-
+    // derived rather than the hue-null fallback.
+    expect(rawStyle).toContain("hsla(210, 60%, 55%, 0.08)");
+    // Ambient background carries the 0.16 alpha stop.
+    expect(rawStyle).toMatch(/background:[^;]*0\.16/);
+    // NO backdrop-filter (or explicitly "none"). jsdom normalizes the
+    // property name to `backdrop-filter` in the raw style string.
+    expect(rawStyle.replace(/\s/g, "")).toMatch(
+      /backdrop-filter:none|backdropfilter:none/i,
+    );
+    // NO 8px+ drop shadow (patch #136 signature was "0 8px 24px …").
+    expect(rawStyle).not.toContain("0 8px 24px");
+  });
+
+  it("Test 18b: RDP row is EXEMPT from ambient — inActiveSet=false still uses neutral bubble treatment (not ambient)", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={false}
+        isWorking={null}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    const rawStyle = body.getAttribute("style") ?? "";
+    // Neutral RDP full-bubble treatment retained — the 60,65,80 stop
+    // is the patch #136 baseline for RDP rows. jsdom's CSSOM adds a
+    // space between rgba components ("rgba(60, 65, 80, …)").
+    expect(rawStyle).toMatch(/rgba\(60,\s*65,\s*80/);
+    // Full-bubble drop shadow signature — proves RDP did NOT go ambient.
+    expect(rawStyle).toContain("0 8px 24px");
   });
 });

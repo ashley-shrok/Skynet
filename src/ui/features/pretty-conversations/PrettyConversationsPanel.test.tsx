@@ -110,8 +110,24 @@ vi.mock("@/state/conversation-store", () => ({
   }),
   useSelectedConversationId: () => snapshot.selectedId,
   usePinnedIds: () => snapshot.pinnedIds,
+  // Patch #137: PrettyConversationsPanel now subscribes to useActiveSet
+  // to drive per-row ambient recession + ready-dot visibility. Mock
+  // returns an empty ReadonlySet (no rows in the active-set) so this
+  // test file continues to exercise the ambient rendering path — none
+  // of the tests below assert dot presence or bubble intensity, so
+  // this is behaviorally invisible to them.
+  useActiveSet: () => new Set<string>(),
   selectConversation: (id: string | null) => selectConversationSpy(id),
   togglePinConversation: (id: string) => togglePinConversationSpy(id),
+}));
+
+// Patch #137: PrettyConversationsPanel calls useSessionWorking(sessionKey)
+// inside its per-row PrettyConversationRowLive micro-component. Mock
+// returns null for every key so the ready-dot render condition is never
+// satisfied — matches this test file's pre-patch-#137 behavior of never
+// rendering a dot at any render site.
+vi.mock("@/state/session-working-store", () => ({
+  useSessionWorking: () => null,
 }));
 
 // ─── Component under test (import AFTER mocks) ──────────────────────────────

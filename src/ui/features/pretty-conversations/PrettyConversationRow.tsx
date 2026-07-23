@@ -29,11 +29,17 @@
 //   6. Rows with no identity fall back to the cool-slate neutral bubble
 //      (45,55,80 / 28,35,55 at full alpha) — still gets a tabIcon avatar
 //      via the existing sessionMatchKey + useIdentities carry-through
-//   7. `isWip` prop (patch #136 render slot; patch #137 wires the store):
-//      when true, renders a bare-glyph pulse dot as the LAST child in the
-//      right-meta column with aria-label="working". Animates via CSS
-//      keyframe `pv-conv-wip-pulse` (index.css). Respects
-//      prefers-reduced-motion.
+//   7. `isWorking` + `inActiveSet` props (patch #137 wires the store):
+//      Ready-dot renders as the LAST child in the right-meta column iff
+//      `inActiveSet === true && isWorking === false`. aria-label="ready",
+//      matching data attribute (see dot render block below), steady
+//      (no animation) — the dot IS the affordance; a pulse would read
+//      as WIP-motion. Ambient rows
+//      (`!inActiveSet && !isRdp`) recede visually — flat hue rgba
+//      background, no drop shadow, no backdrop-blur, muted foreground.
+//      RDP rows are exempt from ambient recession and never render the dot
+//      (the panel passes `isWorking={null}` for RDP rows because their
+//      sessionWorkingKey resolves against a null tmux session).
 //
 // Identity carry-through mirrors ConversationRow.tsx lines 41-47 verbatim so
 // identity-tinted rows keep the same "which session is this" reading after
@@ -89,7 +95,8 @@ export function PrettyConversationRow({
   onTogglePin,
   onSwipeOpenChange,
   forceClosed,
-  isWip = false,
+  isWorking = null,
+  inActiveSet = false,
 }: {
   row: ConversationRowShape;
   selected: boolean;
@@ -99,12 +106,19 @@ export function PrettyConversationRow({
   onTogglePin: () => void;
   onSwipeOpenChange?: (open: boolean) => void;
   forceClosed?: boolean;
-  // Patch #136 render slot — when true, renders a bare-glyph
-  // pulse dot as the LAST child in the right-meta column with
-  // aria-label="working" (animated via pv-conv-wip-pulse
-  // keyframes in index.css). Patch #137 will wire this to a
-  // store subscription; #136 always passes false from the panel.
-  isWip?: boolean;
+  // Patch #137: WS-published working state for the row's (host, tmux)
+  // pair. `true` = agent busy, `false` = idle, `null` = unknown
+  // (backend hasn't published yet). Only `false` allows the ready-dot
+  // to render; `null` and `true` both suppress. Panel resolves via
+  // useSessionWorking(sessionWorkingKey(row)).
+  isWorking?: boolean | null;
+  // Patch #137: whether this row is in Ashley's active-set (any
+  // session she has selectConversation-ed in this browser-tab
+  // session). Rows in the set keep the patch #136 full-bubble
+  // treatment; rows out of the set recede to the ambient values
+  // (per prototype v4). RDP rows are exempt from ambient recession
+  // regardless of this flag.
+  inActiveSet?: boolean;
 }) {
   // ─── Identity resolution ───────────────────────────────────────────────────
   // Same shape as ConversationRow.tsx lines 41-47 (production baseline).
@@ -113,6 +127,13 @@ export function PrettyConversationRow({
   const identity = key ? (identitiesByKey.get(key) ?? null) : null;
   const hue: number | null = identity?.colorHue ?? null;
   const isRdp = row.rdpHostRow === true;
+
+  // Patch #137: ambient recession applies to non-RDP rows NOT in Ashley's
+  // active-set. Layered as an early override in the body-bubble derivation
+  // below; also drives the ambient avatar + ambient label + ambient host-
+  // line branches. RDP rows are exempt regardless of inActiveSet — they
+  // always render the neutral (60,65,80 / 30,33,44) full-bubble treatment.
+  const isAmbient = !isRdp && !inActiveSet;
 
   // ─── Variant-derived dimensions ────────────────────────────────────────────
   const isMobile = variant === "mobile";
@@ -136,6 +157,26 @@ export function PrettyConversationRow({
   // treatment; hue-null non-RDP rows keep the cool-slate (45,55,80 /
   // 28,35,55) neutral treatment.
   const avatarStyle: CSSProperties = (() => {
+    // Patch #137: ambient avatar — softer, less saturated fill; retains
+    // hue but drops shadow intensity and inset warmth. RDP rows never
+    // reach this branch (isAmbient short-circuits on isRdp).
+    if (isAmbient) {
+      if (hue == null) {
+        return {
+          background: "linear-gradient(160deg, rgba(45,55,80,0.55), rgba(28,35,55,0.65))",
+          border: "1px solid rgba(120,140,180,0.24)",
+          boxShadow:
+            "0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(220,225,245,0.14), 0 0 10px rgba(120,140,180,0.14)",
+          color: "var(--color-pv-fg-muted)",
+        };
+      }
+      return {
+        background: `linear-gradient(160deg, hsla(${hue}, 35%, 22%, 0.55), hsla(${hue}, 30%, 14%, 0.65))`,
+        border: `1px solid hsla(${hue}, 55%, 50%, 0.24)`,
+        boxShadow: `0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,235,190,0.14), 0 0 10px hsla(${hue}, 55%, 50%, 0.14)`,
+        color: "#fbf5e8",
+      };
+    }
     if (isRdp || hue == null) {
       const [c1, c2, borderRgba] = isRdp
         ? ["rgba(60,65,80,0.72)", "rgba(30,33,44,0.82)", "rgba(220,225,245,0.22)"]
@@ -203,7 +244,36 @@ export function PrettyConversationRow({
       ? "rgba(220,225,245,0.10)"
       : "rgba(255,220,170,0.18)";
 
-  const baseBodyStyle: CSSProperties = {
+  // Patch #137: ambient recession body style. Flat hue rgba background
+  // (NOT a gradient), muted 0.14-alpha border, minimal inset + hairline
+  // shadow, NO backdrop-filter, muted foreground. Selected still dominates
+  // via selectedOverlay below because the panel always passes
+  // inActiveSet={true} for a selected row (selectConversation adds to the
+  // active-set as a side-effect); this branch is therefore only reachable
+  // for non-RDP, non-selected, non-engaged rows.
+  const ambientBase: CSSProperties =
+    hue == null
+      ? {
+          background: "rgba(45,55,80,0.12)",
+          border: "1px solid rgba(120,140,180,0.12)",
+          boxShadow:
+            "inset 0 1px 0 rgba(220,225,245,0.05), 0 0 0 0.5px rgba(120,140,180,0.06)",
+          borderRadius: 14,
+          color: "rgba(251,245,232,0.72)",
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+        }
+      : {
+          background: `hsla(${hue}, 40%, 20%, 0.16)`,
+          border: `1px solid hsla(${hue}, 40%, 45%, 0.14)`,
+          boxShadow: `inset 0 1px 0 rgba(255,220,170,0.06), 0 0 0 0.5px hsla(${hue}, 60%, 55%, 0.08)`,
+          borderRadius: 14,
+          color: "rgba(251,245,232,0.72)",
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+        };
+
+  const fullBubbleBase: CSSProperties = {
     background: `linear-gradient(160deg, ${gradC1}, ${gradC2})`,
     border: `1px solid ${borderRgba}`,
     boxShadow: `0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 ${insetHighlight}, 0 0 0 0.5px ${hairlineRgba}, 0 0 32px ${glowRgba}`,
@@ -212,6 +282,8 @@ export function PrettyConversationRow({
     backdropFilter: "blur(20px) saturate(1.5)",
     WebkitBackdropFilter: "blur(20px) saturate(1.6)",
   };
+
+  const baseBodyStyle: CSSProperties = isAmbient ? ambientBase : fullBubbleBase;
 
   // Selected overlay: strongest treatment. 1px hue ring (not 0.5px),
   // 56px glow, 0 14px 32px outer shadow, translateY(-1px), 0.55 border
@@ -264,12 +336,28 @@ export function PrettyConversationRow({
         ? "rgba(120,140,180,0.26)"
         : `hsla(${hue}, 70%, 52%, 0.26)`;
   const shouldHover = !isMobile && !selected && hovered;
+  // Patch #137: ambient-hover overlay — only shifts background + border
+  // color; NO transform lift, NO shadow boost. Layered in via ternary
+  // below so full-bubble hover still wins for active-set rows.
+  const ambientHoverOverlay: CSSProperties =
+    hue == null
+      ? {
+          background: "rgba(45,55,80,0.20)",
+          borderColor: "rgba(120,140,180,0.22)",
+        }
+      : {
+          background: `hsla(${hue}, 45%, 25%, 0.26)`,
+          borderColor: `hsla(${hue}, 55%, 55%, 0.22)`,
+        };
+  const fullBubbleHoverOverlay: CSSProperties = {
+    transform: "translateY(-1px)",
+    borderColor: hoverBorderColor,
+    boxShadow: `0 12px 28px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,220,170,0.22), 0 0 0 0.5px ${hoverHairline}, 0 0 40px ${hoverGlow}`,
+  };
   const hoverOverlay: CSSProperties = shouldHover
-    ? {
-        transform: "translateY(-1px)",
-        borderColor: hoverBorderColor,
-        boxShadow: `0 12px 28px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,220,170,0.22), 0 0 0 0.5px ${hoverHairline}, 0 0 40px ${hoverGlow}`,
-      }
+    ? isAmbient
+      ? ambientHoverOverlay
+      : fullBubbleHoverOverlay
     : {};
 
   // ─── Mobile swipe state machine ────────────────────────────────────────────
@@ -524,10 +612,12 @@ export function PrettyConversationRow({
         <div className="flex-1 min-w-0 flex flex-col gap-0.5">
           <div className={`flex items-center ${line1Gap} min-w-0`}>
             <span
-              className={`${labelTextSize} font-semibold text-[#fbf5e8] truncate leading-tight`}
+              className={`${labelTextSize} ${isAmbient ? "font-medium" : "font-semibold"} text-[#fbf5e8] truncate leading-tight`}
               style={{
                 letterSpacing: "-0.005em",
-                textShadow: "0 1px 2px rgba(0,0,0,0.4)",
+                ...(isAmbient
+                  ? { textShadow: "none", fontWeight: 500 }
+                  : { textShadow: "0 1px 2px rgba(0,0,0,0.4)" }),
               }}
             >
               {row.label}
@@ -537,11 +627,19 @@ export function PrettyConversationRow({
             <div className={`flex items-center ${line2Gap} min-w-0`}>
               <Server
                 className={`${hostIconSize} shrink-0`}
-                style={{ color: "rgba(255,235,190,0.65)" }}
+                style={{
+                  color: isAmbient
+                    ? "rgba(255,235,190,0.45)"
+                    : "rgba(255,235,190,0.65)",
+                }}
               />
               <span
                 className={`${hostTextSize} truncate leading-tight`}
-                style={{ color: "rgba(255,235,190,0.65)" }}
+                style={{
+                  color: isAmbient
+                    ? "rgba(255,235,190,0.45)"
+                    : "rgba(255,235,190,0.65)",
+                }}
               >
                 {row.host.name}
               </span>
@@ -577,28 +675,30 @@ export function PrettyConversationRow({
             </div>
           )}
 
-          {/* Patch #136 WIP render slot — bare-glyph pulse dot as the LAST
-              child in the right-meta column (after PinAction and pin glyph).
-              Neutral rgba background when hue is null; hue-based hsla
-              otherwise. Animated by pv-conv-wip-pulse keyframes in
-              index.css; prefers-reduced-motion freezes it as a static
-              bright dot via [data-pv-conv-wip-dot="true"] selector. */}
-          {isWip && (
+          {/* Patch #137 ready-dot — signals "engaged AND agent idle, ready
+              for Ashley's next input." Renders as the LAST child in the
+              right-meta column (after PinAction + pin glyph) iff
+              inActiveSet && isWorking === false. Steady (no animation) —
+              the dot IS the affordance; a pulse would read as WIP-motion.
+              aria-label="ready"; carries the ready-dot data attribute
+              below. Hue-cream fill with hue outer glow + warm inset per
+              prototype v4; neutral rgba fallback when hue is null. */}
+          {inActiveSet && isWorking === false && (
             <span
-              aria-label="working"
-              data-pv-conv-wip-dot="true"
-              className="inline-block w-2 h-2 rounded-full"
+              aria-label="ready"
+              data-pv-conv-ready-dot="true"
+              className="inline-block rounded-full"
               style={{
+                width: 8,
+                height: 8,
                 background:
                   hue == null
-                    ? "rgba(220,225,245,0.95)"
-                    : `hsla(${hue}, 85%, 65%, 0.95)`,
+                    ? "rgba(240,235,224,1)"
+                    : `hsla(${hue}, 60%, 80%, 1)`,
                 boxShadow:
                   hue == null
-                    ? "0 0 10px 1px rgba(220,225,245,0.85), 0 0 20px 2px rgba(220,225,245,0.35)"
-                    : `0 0 10px 1px hsla(${hue}, 85%, 55%, 0.85), 0 0 20px 2px hsla(${hue}, 85%, 55%, 0.35)`,
-                animation:
-                  "pv-conv-wip-pulse 1.35s ease-in-out infinite",
+                    ? "0 0 10px 0px rgba(240,235,224,0.7), 0 0 18px 2px rgba(240,235,224,0.28), inset 0 1px 0 rgba(255,235,190,0.55)"
+                    : `0 0 10px 0px hsla(${hue}, 70%, 60%, 0.7), 0 0 18px 2px hsla(${hue}, 70%, 55%, 0.28), inset 0 1px 0 rgba(255,235,190,0.55)`,
               }}
             />
           )}

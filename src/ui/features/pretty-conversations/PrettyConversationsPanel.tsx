@@ -48,14 +48,56 @@ import {
   useConversations,
   useSelectedConversationId,
   usePinnedIds,
+  useActiveSet,
   selectConversation,
   togglePinConversation,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
+import { useSessionWorking } from "@/state/session-working-store";
 import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
+
+// Patch #137: derive the (hostId:tmuxSessionName) key used by the session-
+// working-store to look up the row's live isWorking state. Rows without a
+// host (fleet-only pre-resolution races) resolve to null → the store hook
+// short-circuits to null → dot suppressed at the row level. RDP rows carry
+// targetTmuxSession=null and resolve to `${hostId}:` — a well-formed key
+// whose store entry stays null (Terminal.tsx never publishes to it).
+function sessionWorkingKey(row: ConversationRowShape): string | null {
+  if (!row.host) return null;
+  return `${row.host.id}:${row.targetTmuxSession ?? ""}`;
+}
+
+// Patch #137: micro-wrapper that reads the row's live isWorking state from
+// the session-working-store. Extracted so the store subscription sits at a
+// stable hook-call site (top of an instance component) rather than inside
+// a .map() callback — Rules-of-Hooks compliance. Each row is keyed on row.id
+// at the render sites below, so React's reconciler pairs the same hook
+// order to the same row instance across renders.
+function PrettyConversationRowLive(props: {
+  row: ConversationRowShape;
+  selected: boolean;
+  pinned: boolean;
+  variant: "mobile" | "desktop";
+  onSelect: () => void;
+  onTogglePin: () => void;
+  onSwipeOpenChange?: (open: boolean) => void;
+  forceClosed?: boolean;
+  inActiveSet: boolean;
+  sessionKey: string | null;
+}) {
+  const { sessionKey, inActiveSet, ...rowProps } = props;
+  const isWorking = useSessionWorking(sessionKey);
+  return (
+    <PrettyConversationRow
+      {...rowProps}
+      isWorking={isWorking}
+      inActiveSet={inActiveSet}
+    />
+  );
+}
 
 export function PrettyConversationsPanel({
   variant,
@@ -99,6 +141,10 @@ export function PrettyConversationsPanel({
   const { pinned, grouped } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
+  // Patch #137: hoisted once so all row-level activeSet.has(row.id) reads
+  // hit a stable ReadonlySet reference (Set identity flips only on real
+  // additions; consumers get a memoized reference across no-ops).
+  const activeSet = useActiveSet();
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
@@ -263,13 +309,14 @@ export function PrettyConversationsPanel({
         ) : (
           <>
             {/* Pinned rows — flat, no "Pinned" section header. The pin
-                glyph on each row is the only marker. */}
+                glyph on each row is the only marker. Patch #137: live
+                isWorking + inActiveSet wiring per row. The panel-level
+                activeSet subscription is hoisted once (above); each row's
+                isWorking is read inside PrettyConversationRowLive so the
+                store subscription happens at a stable hook-call site.
+                Same wiring repeats at the two grouped render sites below. */}
             {pinned.map((row) => (
-              // isWip={false} pass-through — patch #136 render slot; patch #137
-              // will wire this to the WIP-vs-idle store subscription (one-line
-              // change here). Same pass-through repeats at the two grouped
-              // render sites below.
-              <PrettyConversationRow
+              <PrettyConversationRowLive
                 key={row.id}
                 row={row}
                 selected={row.id === selectedId}
@@ -283,7 +330,8 @@ export function PrettyConversationsPanel({
                     : undefined
                 }
                 forceClosed={forceClosedFor(row.id)}
-                isWip={false}
+                inActiveSet={activeSet.has(row.id)}
+                sessionKey={sessionWorkingKey(row)}
               />
             ))}
             {/* Grouped rows — FLAT per Ashley/prototype lock: no per-host
@@ -319,7 +367,7 @@ export function PrettyConversationsPanel({
                       />
                     </div>
                     {group.rows.map((row) => (
-                      <PrettyConversationRow
+                      <PrettyConversationRowLive
                         key={row.id}
                         row={row}
                         selected={row.id === selectedId}
@@ -327,7 +375,8 @@ export function PrettyConversationsPanel({
                         variant={variant}
                         onSelect={() => handleRowSelect(row)}
                         onTogglePin={rdpNoopTogglePin}
-                        isWip={false}
+                        inActiveSet={activeSet.has(row.id)}
+                        sessionKey={sessionWorkingKey(row)}
                       />
                     ))}
                   </div>
@@ -338,7 +387,7 @@ export function PrettyConversationsPanel({
               return (
                 <div key={group.hostId} className="flex flex-col">
                   {group.rows.map((row) => (
-                    <PrettyConversationRow
+                    <PrettyConversationRowLive
                       key={row.id}
                       row={row}
                       selected={row.id === selectedId}
@@ -352,7 +401,8 @@ export function PrettyConversationsPanel({
                           : undefined
                       }
                       forceClosed={forceClosedFor(row.id)}
-                      isWip={false}
+                      inActiveSet={activeSet.has(row.id)}
+                      sessionKey={sessionWorkingKey(row)}
                     />
                   ))}
                 </div>
