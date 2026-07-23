@@ -3,6 +3,7 @@ import { prepareClientCacheVersion } from "@/lib/client-cache-version";
 import { StrictMode, Suspense, lazy, useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "./ui/index.css";
+import "./ui/features/pretty-conversations/pretty-conversations.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./ui/i18n/i18n";
 import { isElectron } from "@/lib/electron";

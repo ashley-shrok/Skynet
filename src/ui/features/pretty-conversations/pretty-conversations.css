@@ -1,0 +1,471 @@
+/* ─── pretty-conversations.css ────────────────────────────────────────────────
+ * Phase 13 Plan 01 — lift-from-mock v4 (LOCKED, Ashley 2026-07-23).
+ *
+ * Source of truth: ~/.claude/identities/tina/bounties/skynet-transformation/
+ *   prototype.html (mock v4). Every selector, value, gradient, shadow, hsla,
+ *   and spacing pixel below is lifted verbatim from that mock's <style> block
+ *   (lines 219-449). Transformations from the mock:
+ *
+ *   1. Class prefix rename: `.row` → `.pv-row`, `.avatar` → `.pv-avatar`,
+ *      `.body` → `.pv-body`, `.body .label` → `.pv-body .pv-label`,
+ *      `.body .host` → `.pv-body .pv-host`, `.meta` → `.pv-meta`,
+ *      `.meta .pin` → `.pv-meta .pv-pin`, `.ready-dot` → `.pv-ready-dot`,
+ *      `.rdp-divider` → `.pv-rdp-divider`, `.panel*` → `.pv-panel*`.
+ *   2. Hue custom-property rename: `--hue` → `--pv-hue`. `.pv-row` uses
+ *      `--pv-hue: 216` as fallback so hue-null rows still get a defined
+ *      neutral value.
+ *   3. Ambient recession scope simplification: the mock scopes ambient
+ *      recession under `body[data-active-set-enabled="on"]` because a UI
+ *      toggle exists in the mock. In the real app there is no toggle —
+ *      ambient IS the default for non-active-set rows. The PrettyConversationRow
+ *      component applies the `.ambient` class when `!isRdp && !inActiveSet`.
+ *      Selectors were rewritten from `body[data-active-set-enabled="on"] .row:not(.active-set):not(.rdp)`
+ *      to `.pv-row.ambient`.
+ *   4. Reduced/selection-only intensity + tight/cozy density variants are
+ *      NOT ported — mock v4 locks Full-intensity + Normal density.
+ *   5. Density variants (`.pv-row--mobile`, `.pv-row--desktop`) are added
+ *      as the ONE density branch — sized from PrettyConversationRow's
+ *      variant-derived dimensions to preserve both mobile and desktop
+ *      density post-migration.
+ *   6. Palette tokens (`--color-pv-*`, `--radius-pv-*`) are referenced via
+ *      var(), never re-declared — they live in src/ui/index.css:117-146.
+ *
+ * The React component (PrettyConversationRow.tsx) composes className via
+ * `cn('pv-row', variantClass, selected && 'selected', inActiveSet && 'active-set',
+ * isWorking && 'working', pinned && 'pinned', isAmbient && 'ambient', isRdp && 'rdp')`
+ * and emits `style={{'--pv-hue': hue}}` inline for hue-bearing rows. All other
+ * visual state lives in this file.
+ *
+ * DO NOT edit values below without checking prototype.html for the current
+ * mock lock. If the mock and this file disagree, the mock wins. See STRIDE
+ * threat T-13-01-01 in 13-01-PLAN.md.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PANEL — the conversation list container. Wave 2 (13-02) consumes these
+   selectors from PrettyConversationsPanel.tsx; declared here in Wave 1 so
+   Wave 2 doesn't need to touch this CSS file.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 720px;
+  background:
+    linear-gradient(180deg, var(--color-pv-surface-quiet) 0%, var(--color-pv-surface-quiet-alt) 100%);
+  border: 1px solid var(--color-pv-border-quiet);
+  border-radius: var(--radius-pv-card);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(220, 225, 245, 0.05);
+  overflow: hidden;
+  backdrop-filter: blur(28px) saturate(1.3);
+  -webkit-backdrop-filter: blur(28px) saturate(1.3);
+}
+
+.pv-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-pv-border-quiet);
+}
+
+.pv-panel-header .pv-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-pv-fg);
+}
+
+.pv-panel-header .pv-pencil {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-pv-fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pv-panel-header .pv-pencil:hover {
+  background: rgba(220, 225, 245, 0.06);
+  border-color: var(--color-pv-border-quiet);
+  color: var(--color-pv-fg);
+}
+
+.pv-panel-header .pv-pencil svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
+.pv-panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE ROW — real pretty-view bubble treatment translated from ChatMessage.tsx
+   L82-129 + IdentityBadge lg lines 50-62. Per-hue custom prop drives EVERYTHING.
+
+   Full-intensity, Normal-density is what ships (mock v4 lock).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-row {
+  --pv-hue: 216;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: #fbf5e8;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-pv-bubble);
+  background: linear-gradient(160deg,
+    hsla(var(--pv-hue), 50%, 38%, 0.55),
+    hsla(var(--pv-hue), 45%, 24%, 0.60));
+  border: 1px solid hsla(var(--pv-hue), 65%, 55%, 0.32);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 220, 170, 0.18),
+    0 0 0 0.5px hsla(var(--pv-hue), 70%, 55%, 0.20),
+    0 0 32px hsla(var(--pv-hue), 70%, 52%, 0.18);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+.pv-row:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 220, 170, 0.22),
+    0 0 0 0.5px hsla(var(--pv-hue), 70%, 55%, 0.28),
+    0 0 40px hsla(var(--pv-hue), 70%, 52%, 0.26);
+  border-color: hsla(var(--pv-hue), 65%, 55%, 0.42);
+}
+
+.pv-row.selected {
+  transform: translateY(-1px);
+  border-color: hsla(var(--pv-hue), 70%, 60%, 0.55);
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 220, 170, 0.28),
+    0 0 0 1px hsla(var(--pv-hue), 70%, 60%, 0.42),
+    0 0 56px hsla(var(--pv-hue), 70%, 55%, 0.34);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AVATAR DISC — identity-badge translation (IdentityBadge lg lines 50-62,
+   adapted from pill → circle). Deeper gradient than the row itself so the
+   badge reads as a solid identity anchor.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg,
+    hsla(var(--pv-hue), 45%, 25%, 0.72),
+    hsla(var(--pv-hue), 40%, 15%, 0.82));
+  border: 1px solid hsla(var(--pv-hue), 65%, 55%, 0.40);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.6),
+    inset 0 2px 0 rgba(255, 235, 190, 0.35),
+    0 0 24px hsla(var(--pv-hue), 65%, 55%, 0.40);
+  color: #fbf5e8;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.pv-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pv-body .pv-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fbf5e8;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.pv-body .pv-host {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: rgba(255, 235, 190, 0.65);
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pv-body .pv-host svg {
+  flex-shrink: 0;
+  opacity: 0.65;
+}
+
+.pv-meta {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pv-meta .pv-pin {
+  color: hsla(var(--pv-hue), 80%, 70%, 0.95);
+  filter: drop-shadow(0 0 4px hsla(var(--pv-hue), 80%, 60%, 0.55));
+}
+
+/* .pv-row.pinned: no visual override at the row level; the pinned state
+   is signalled by the pin glyph inside .pv-meta (its display is gated on
+   the `.pinned` class via the `:not(.pinned)` rule below). The empty
+   selector reserves the hook for Wave 3 plans to extend without needing
+   to touch the mock recipe. */
+.pv-row.pinned {
+  /* Reserved for downstream extension — mock v4 has no dedicated pinned
+     row-level treatment. */
+}
+
+.pv-row:not(.pinned) .pv-meta .pv-pin {
+  display: none;
+}
+
+/* Ready-for-attention dot (Ashley 2026-07-23 lock).
+   ONE meaning: this row is in the active set AND its agent is idle,
+   so it's ready for the next instruction. Absent = working, or
+   ambient (not-in-set), or both. */
+.pv-ready-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: hsla(var(--pv-hue), 60%, 80%, 1);
+  box-shadow:
+    0 0 10px 0px hsla(var(--pv-hue), 70%, 60%, 0.7),
+    0 0 18px 2px hsla(var(--pv-hue), 70%, 55%, 0.28),
+    inset 0 1px 0 rgba(255, 235, 190, 0.55);
+  display: none;
+}
+
+/* Shown only when row is in the active set AND NOT currently working */
+.pv-row.active-set:not(.working) .pv-ready-dot {
+  display: block;
+}
+
+/* .pv-row.working: no visual override at the row level; the working state
+   is signalled by the ABSENCE of the ready-dot (the `:not(.working)`
+   selector above suppresses it when working). Empty selector reserves the
+   hook for downstream extension. */
+.pv-row.working {
+  /* Reserved for downstream extension — mock v4 has no dedicated working
+     row-level treatment; presence of `.working` gates dot visibility above. */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AMBIENT RECESSION — rows NOT in the active set (and NOT RDP) recede.
+   Quieter gradient, dimmer border, no drop shadow / hue glow, no backdrop-blur.
+   Still readable but visually back so the active set pops.
+
+   The mock scopes this under body[data-active-set-enabled="on"] (a UI toggle
+   for exploration); in the real app ambient IS the default for non-active-set
+   rows. The .ambient class is applied by PrettyConversationRow when
+   `!isRdp && !inActiveSet`.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-row.ambient {
+  background: hsla(var(--pv-hue), 40%, 20%, 0.16);
+  border-color: hsla(var(--pv-hue), 40%, 45%, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 170, 0.06),
+    0 0 0 0.5px hsla(var(--pv-hue), 60%, 55%, 0.08);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: rgba(251, 245, 232, 0.72);
+}
+
+.pv-row.ambient .pv-avatar {
+  background: linear-gradient(160deg,
+    hsla(var(--pv-hue), 35%, 22%, 0.55),
+    hsla(var(--pv-hue), 30%, 14%, 0.65));
+  border-color: hsla(var(--pv-hue), 55%, 50%, 0.24);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 235, 190, 0.14),
+    0 0 10px hsla(var(--pv-hue), 55%, 50%, 0.14);
+}
+
+.pv-row.ambient:hover {
+  background: hsla(var(--pv-hue), 45%, 25%, 0.26);
+  border-color: hsla(var(--pv-hue), 55%, 55%, 0.22);
+  transform: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 170, 0.10),
+    0 0 0 0.5px hsla(var(--pv-hue), 65%, 55%, 0.16);
+}
+
+.pv-row.ambient .pv-body .pv-label {
+  text-shadow: none;
+  font-weight: 500;
+}
+
+.pv-row.ambient .pv-body .pv-host {
+  color: rgba(255, 235, 190, 0.45);
+}
+
+/* No dot on ambient rows regardless of their working state — the dot
+   ONLY means "in active set + ready." Background agents don't shout
+   for attention. (Enforced by the `.pv-row.active-set:not(.working)`
+   selector above — ambient rows never carry `.active-set`, so the
+   `.pv-ready-dot { display: none }` default holds.) */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RDP ROWS — neutral, no hue, but same GLASS treatment so they read as part
+   of the same family, just desaturated. Exempt from ambient recession.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-rdp-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 6px 4px;
+  color: var(--color-pv-fg-dim);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.pv-rdp-divider::before,
+.pv-rdp-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-pv-border-quiet);
+}
+
+.pv-row.rdp {
+  background: linear-gradient(160deg,
+    rgba(60, 65, 80, 0.42),
+    rgba(30, 33, 44, 0.58));
+  border-color: rgba(220, 225, 245, 0.14);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(220, 225, 245, 0.10),
+    0 0 0 0.5px rgba(220, 225, 245, 0.06);
+}
+
+.pv-row.rdp:hover {
+  border-color: rgba(220, 225, 245, 0.22);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(220, 225, 245, 0.14),
+    0 0 0 0.5px rgba(220, 225, 245, 0.10);
+}
+
+.pv-row.rdp .pv-avatar {
+  background: linear-gradient(160deg, rgba(60, 65, 80, 0.72), rgba(30, 33, 44, 0.82));
+  border-color: rgba(220, 225, 245, 0.22);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.6),
+    inset 0 2px 0 rgba(220, 225, 245, 0.16),
+    0 0 24px rgba(220, 225, 245, 0.08);
+  color: var(--color-pv-fg-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DENSITY VARIANTS — mobile (chunky, 72px min-height) vs desktop (standard,
+   62px min-height). Values pulled from PrettyConversationRow.tsx variant-
+   derived dimensions (lines 139-151 of the pre-Phase-13 implementation) to
+   preserve density on both viewports post-migration.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-row--mobile {
+  min-height: 72px;
+  padding: 12px 16px;
+  gap: 12px;
+}
+
+.pv-row--mobile .pv-avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 18px;
+}
+
+.pv-row--mobile .pv-body .pv-label {
+  font-size: 15.5px;
+}
+
+.pv-row--mobile .pv-body .pv-host {
+  font-size: 12.5px;
+}
+
+.pv-row--desktop {
+  min-height: 62px;
+  padding: 10px 12px;
+  gap: 12px;
+}
+
+.pv-row--desktop .pv-avatar {
+  width: 40px;
+  height: 40px;
+  font-size: 15px;
+}
+
+.pv-row--desktop .pv-body .pv-label {
+  font-size: 13.5px;
+}
+
+.pv-row--desktop .pv-body .pv-host {
+  font-size: 11.5px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESKTOP PIN HOVER-REVEAL — for UNpinned desktop rows, the pin-action button
+   is hidden by default and revealed on row hover. Pinned rows always show it
+   (via `.pv-row:not(.pinned)` selector). Mobile rows use the swipe-strip
+   mechanism (owned by the React component) instead.
+
+   The pin-action button is queryable in tests via [data-testid="pin-action"].
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-row.pv-row--desktop:not(.pinned):not(:hover) .pv-meta [data-testid="pin-action"] {
+  opacity: 0;
+}
+
+.pv-row.pv-row--desktop .pv-meta [data-testid="pin-action"] {
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
