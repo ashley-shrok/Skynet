@@ -1415,9 +1415,20 @@ export function AppShell({
             scrolling ancestor — the small-window use case has scrollable
             regions that would otherwise absorb an absolutely-positioned
             button. z-index: 30 sits above the sidebar's resize-handle at
-            z-30 without needing a bump. Glass treatment mirrors
-            desktop.html .persistent-toggle exactly: rgba(20,22,28,0.85) +
-            blur(10) + saturate(1.6) + subtle white/8% border + soft shadow.
+            z-30 without needing a bump.
+
+            Phase 13 Wave 2 SHAPE-04 (Ashley 2026-07-23): visual treatment
+            rebased to the mock v4 `.pv-pencil` aesthetic — transparent
+            background + transparent border + border-radius 8px (rounded-lg)
+            + `--color-pv-fg-muted` icon color + `rgba(220,225,245,0.06)`
+            hover bg + `--color-pv-border-quiet` hover border +
+            `--color-pv-fg` hover text. Retires the Termix-theme filled-
+            glass pill (opaque rgba fill + backdrop-blur + white-alpha
+            border + drop shadow + Termix muted-foreground text) that
+            Ashley called out as "the bar at the top that still looks
+            Termix." No shadow, no backdrop-blur — the mock's pencil is a
+            bare transparent button that lets the pretty-view surface
+            beneath show through.
 
             Direction: matches desktop.html's semantic — sidebarOpen ===
             true → chevron rotates 180° (from ← to →, "click to close").
@@ -1456,7 +1467,7 @@ export function AppShell({
                   : "Toggle sidebar",
               },
             )}
-            className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(20,22,28,0.85)] backdrop-blur-[10px] backdrop-saturate-150 border border-white/[0.08] shadow-[0_2px_8px_rgba(0,0,0,0.35)] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-transparent border border-transparent text-[color:var(--color-pv-fg-muted)] hover:bg-[rgba(220,225,245,0.06)] hover:border-[color:var(--color-pv-border-quiet)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer"
             style={{
               top: "max(env(safe-area-inset-top), 8px)",
               left: "max(env(safe-area-inset-left), 8px)",
