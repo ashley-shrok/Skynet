@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-23T11:31:07.192Z"
-last_activity: 2026-07-23 -- Phase 12 planning complete
+last_updated: "2026-07-23T11:32:21.891Z"
+last_activity: 2026-07-23 -- Phase 12 execution started
 progress:
   total_phases: 13
   completed_phases: 7
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 11 — skynet-transformation-purge-dead-termix-surfaces-first-slice
+**Current focus:** Phase 12 — skynet-transformation-purge-dead-frontend-surfaces-second-slice
 
 ## Current Position
 
-Phase: 11 (skynet-transformation-purge-dead-termix-surfaces-first-slice) — EXECUTING
-Plan: 1 of 4
-Status: Ready to execute
-Last activity: 2026-07-23 -- Phase 12 planning complete
+Phase: 12 (skynet-transformation-purge-dead-frontend-surfaces-second-slice) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 12
+Last activity: 2026-07-23 -- Phase 12 execution started
 
 Progress: [██████████] 100% (Phase 10 code-complete on feat/tab-title-from-tmux; deploy deferred to Ashley greenlight)
 
