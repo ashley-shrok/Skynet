@@ -419,7 +419,7 @@ describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: header pencil opens dialog", () => {
-  it("Test 5: clicking the pencil opens the NewSessionDialog", () => {
+  it("Test 5: clicking the pencil opens the NewSessionDialog + carries pv-pencil class (Phase 13 lift-from-mock)", () => {
     const { getByRole } = render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -429,6 +429,11 @@ describe("PrettyConversationsPanel: header pencil opens dialog", () => {
     );
 
     const pencilBtn = getByRole("button", { name: /new session/i });
+    // Phase 13 Wave 2 SHAPE-02: pencil button carries the mock's `.pv-pencil`
+    // class-toggle treatment (32x32 transparent + border-radius 8px +
+    // --color-pv-fg-muted icon). Retired: `w-[34px] h-[34px] rounded-full
+    // bg-white/[0.04]` filled-glass pill.
+    expect(pencilBtn.className).toContain("pv-pencil");
     fireEvent.click(pencilBtn);
 
     // NewSessionDialog uses shadcn Dialog which renders inside a portal.
@@ -459,13 +464,31 @@ describe("PrettyConversationsPanel: pencil gate", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: desktop header title", () => {
-  it('Test 7: desktop variant renders "Conversations" title text', () => {
-    const { queryByText } = render(
+  it('Test 7: desktop variant renders "Conversations" title text with pv-panel-header + pv-title class treatment (Phase 13 lift-from-mock)', () => {
+    const { container, queryByText } = render(
       <PrettyConversationsPanel variant="desktop" />,
     );
     // Exact-word match with case insensitivity to avoid picking up longer
     // strings that happen to contain "conversations".
-    expect(queryByText(/^conversations$/i)).toBeTruthy();
+    const titleEl = queryByText(/^conversations$/i) as HTMLElement | null;
+    expect(titleEl).toBeTruthy();
+
+    // Phase 13 Wave 2 SHAPE-02: title carries the mock's `.pv-title` class-
+    // toggle treatment (12px + 700 + 0.1em letter-spacing + UPPERCASE +
+    // --color-pv-fg). Retired: `text-[13px] font-semibold tracking-tight`
+    // Termix-theme utility classes.
+    expect(titleEl!.className).toContain("pv-title");
+
+    // Header row container carries `.pv-panel-header` — CSS handles layout
+    // (14px 16px padding, hairline border-bottom via --color-pv-border-quiet,
+    // display:flex, justify-content:space-between). Retired inline utilities:
+    // `flex items-center justify-between px-4 py-3 border-b border-white/[0.06]`.
+    const headerRow = container.querySelector(
+      "[data-testid='pretty-conversations-panel'] .pv-panel-header",
+    ) as HTMLElement | null;
+    expect(headerRow).toBeTruthy();
+    // Title is a descendant of the header row.
+    expect(headerRow!.contains(titleEl!)).toBe(true);
   });
 });
 
@@ -474,8 +497,8 @@ describe("PrettyConversationsPanel: desktop header title", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: mobile header no title", () => {
-  it("Test 8: mobile variant omits the Conversations title but keeps pencil when wired", () => {
-    const { queryByText, queryByRole } = render(
+  it("Test 8: mobile variant omits the Conversations title but keeps pencil when wired; no .pv-title element in DOM (Phase 13 lift-from-mock)", () => {
+    const { container, queryByText, queryByRole } = render(
       <PrettyConversationsPanel
         variant="mobile"
         hostTree={ONE_HOST_TREE}
@@ -484,8 +507,20 @@ describe("PrettyConversationsPanel: mobile header no title", () => {
     );
     // No standalone "Conversations" title on mobile.
     expect(queryByText(/^conversations$/i)).toBeNull();
-    // Pencil still present when onCreateSession is provided.
-    expect(queryByRole("button", { name: /new session/i })).toBeTruthy();
+
+    // Phase 13 Wave 2 SHAPE-02: mobile variant emits an empty aria-hidden
+    // span for the left slot — NO `.pv-title` element in the DOM. This is
+    // how justify-content: space-between still right-anchors the pencil.
+    expect(container.querySelector(".pv-title")).toBeNull();
+
+    // Header row container still carries `.pv-panel-header` even on mobile.
+    expect(container.querySelector(".pv-panel-header")).toBeTruthy();
+
+    // Pencil still present when onCreateSession is provided; carries the
+    // mock's `.pv-pencil` class-toggle treatment.
+    const pencil = queryByRole("button", { name: /new session/i });
+    expect(pencil).toBeTruthy();
+    expect(pencil!.className).toContain("pv-pencil");
   });
 });
 
