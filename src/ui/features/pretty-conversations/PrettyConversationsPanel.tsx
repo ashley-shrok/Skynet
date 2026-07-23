@@ -234,42 +234,39 @@ export function PrettyConversationsPanel({
       data-testid="pretty-conversations-panel"
       data-variant={variant}
     >
-      {/* Header: variant-agnostic hairline treatment matching prototype's
-          `.top-strip` / desktop's `.sidebar-header`. Layout branches on
-          `variant`:
-            desktop → title (left) + pencil + gear (right)
+      {/* Header: mock v4 `.pv-panel-header` treatment (14px 16px padding +
+          hairline border-bottom via --color-pv-border-quiet, 12px UPPERCASE
+          700-weight 0.1em-tracked title in --color-pv-fg, 32x32 transparent
+          pencil with 8px radius + --color-pv-fg-muted icon). Layout + all
+          typography + all button chrome come from the CSS class declared in
+          pretty-conversations.css. Retain `shrink-0` on the container to
+          defend against parent-flex shrinking; everything else (display:
+          flex, align-items: center, justify-content: space-between, padding,
+          border-bottom) comes from `.pv-panel-header`.
+
+          Layout branches on `variant`:
+            desktop → title (left) + pencil (right)
             mobile  → empty left, pencil only (right)  */}
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+      <div className="pv-panel-header shrink-0">
         {showDesktopTitle ? (
-          <span className="text-[13px] font-semibold text-[rgba(240,234,224,0.9)] tracking-tight truncate">
-            {headerLabel}
-          </span>
+          <span className="pv-title">{headerLabel}</span>
         ) : (
-          // Empty left side keeps `justify-between` right-anchoring the
-          // pencil on mobile (prototype's empty top-strip label slot).
+          // Empty left side keeps `justify-content: space-between` right-
+          // anchoring the pencil on mobile (prototype's empty top-strip
+          // label slot).
           <span aria-hidden="true" />
         )}
-        <div className="flex items-center gap-1">
-          {showPencilButton && (
-            <button
-              type="button"
-              onClick={() => setNewSessionDialogOpen(true)}
-              aria-label={newSessionLabel}
-              title={newSessionLabel}
-              className={
-                "inline-flex items-center justify-center " +
-                "w-[34px] h-[34px] rounded-full " +
-                "bg-white/[0.04] border border-white/[0.09] " +
-                "text-[#f0eae0] hover:bg-white/[0.08] " +
-                "transition-colors " +
-                "[-webkit-tap-highlight-color:transparent] " +
-                "cursor-pointer select-none"
-              }
-            >
-              <Pencil className="size-4" />
-            </button>
-          )}
-        </div>
+        {showPencilButton && (
+          <button
+            type="button"
+            onClick={() => setNewSessionDialogOpen(true)}
+            aria-label={newSessionLabel}
+            title={newSessionLabel}
+            className="pv-pencil"
+          >
+            <Pencil />
+          </button>
+        )}
       </div>
 
       {/* Scroll region: safe-area padding lives on outer container (patch #131)
