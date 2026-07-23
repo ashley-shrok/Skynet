@@ -474,36 +474,28 @@ describe("PrettyConversationsPanel: mobile header no title", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 9 — Desktop gear renders when onRailClick provided
+// Test 9 — Desktop gear removed (patch #133)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: desktop gear", () => {
-  it("Test 9: desktop variant with onRailClick renders the gear (Settings) button", () => {
+describe("PrettyConversationsPanel: desktop gear removed (patch #133)", () => {
+  it("Test 9: desktop variant does NOT render the gear button (patch #133 removed shadcn DropdownMenu gear entirely)", () => {
     const { queryByRole } = render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        onRailClick={vi.fn()}
-        isAdmin={false}
-      />,
+      <PrettyConversationsPanel variant="desktop" />,
     );
-    // The DropdownMenuTrigger button carries aria-label "Settings & Admin"
-    // (from renderSettingsMenuItems' host + the panel's tooltip label).
-    expect(queryByRole("button", { name: /settings/i })).toBeTruthy();
+    // Post-patch-#133: gear DropdownMenu removed entirely; no button with a
+    // settings-matching aria-label should exist in either variant.
+    expect(queryByRole("button", { name: /settings/i })).toBeNull();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 10 — Mobile gear NEVER renders (even when onRailClick provided)
+// Test 10 — Mobile gear removed (patch #133)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: mobile gear suppression", () => {
-  it("Test 10: mobile variant does NOT render the gear button even with onRailClick provided", () => {
+describe("PrettyConversationsPanel: mobile gear removed (patch #133)", () => {
+  it("Test 10: mobile variant does NOT render the gear button (patch #133 removed shadcn DropdownMenu gear entirely)", () => {
     const { queryByRole } = render(
-      <PrettyConversationsPanel
-        variant="mobile"
-        onRailClick={vi.fn()}
-        isAdmin={true}
-      />,
+      <PrettyConversationsPanel variant="mobile" />,
     );
     expect(queryByRole("button", { name: /settings/i })).toBeNull();
   });

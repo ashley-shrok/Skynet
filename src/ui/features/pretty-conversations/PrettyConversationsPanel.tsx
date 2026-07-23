@@ -14,14 +14,14 @@
 //   - Empty state = PlanPendingBubble-style idle glass card centered in the
 //     scroll region ("No conversations yet")
 //   - Header carries a `variant` prop-driven layout:
-//       * variant="mobile"  → pencil icon ONLY (right-aligned); no title,
-//                             no gear (mobile gear lives in settingsRowSlot
+//       * variant="mobile"  → pencil icon ONLY (right-aligned); no title
+//                             (mobile settings live in settingsRowSlot
 //                             at the bottom of the scroller)
-//       * variant="desktop" → title "Conversations" (left) + pencil + gear
-//                             action group (right)
+//       * variant="desktop" → title "Conversations" (left) + pencil (right)
 //   - Pencil opens the existing NewSessionDialog VERBATIM (no dialog redesign)
-//   - Gear (desktop only) opens `renderSettingsMenuItems` from SettingsRow.tsx
-//     VERBATIM inside a DropdownMenu
+//   - Gear (shadcn dropdown) removed in patch #133 — panel is now
+//     shadcn-free; settings surfaces via settingsRowSlot on mobile and the
+//     AppRail on desktop.
 //   - Swipe coordination (mobile): only one row swiped-open at a time;
 //     opening a new one auto-closes the previous via the row's Wave 1
 //     `forceClosed` prop; selecting any row also resets the coordinator
@@ -41,20 +41,9 @@
 // retired in Wave 4 and NOT ported forward here.
 
 import { useState, type ReactNode } from "react";
-import { MessagesSquare, Monitor, Pencil, Settings } from "lucide-react";
+import { MessagesSquare, Monitor, Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/tooltip";
 import {
   useConversations,
   useSelectedConversationId,
@@ -63,17 +52,13 @@ import {
   togglePinConversation,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
-import { renderSettingsMenuItems } from "@/sidebar/SettingsRow";
 import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
-import type { RailView } from "@/sidebar/AppRail";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
 
 export function PrettyConversationsPanel({
   variant,
-  onRailClick,
-  isAdmin,
   onConversationSelected,
   settingsRowSlot,
   hostTree,
@@ -85,12 +70,6 @@ export function PrettyConversationsPanel({
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
   // (Wave 3) will resolve this from `useIsMobile()` at the mount site.
   variant: "mobile" | "desktop";
-  // Same as ConversationsPanel — route to admin destinations via
-  // AppShell's handleRailClick. Optional so the panel can render in
-  // isolation (a Vitest smoke that doesn't want to mock the full sidebar
-  // routing). Desktop gear is only shown when this is provided.
-  onRailClick?: (view: RailView) => void;
-  isAdmin?: boolean;
   // Fired AFTER the store's selectConversation (or the detached/RDP-branch
   // callbacks) run on a row tap. AppShell's mobile branch passes a handler
   // that transitions list→view.
@@ -135,10 +114,6 @@ export function PrettyConversationsPanel({
 
   const isEmpty = pinned.length === 0 && grouped.length === 0;
 
-  // Desktop gear is gated on `variant === "desktop"` (the variant prop
-  // replaces the useIsTouchDevice gate the old ConversationsPanel used —
-  // mobile settings live in the settingsRowSlot at the bottom).
-  const showGear = variant === "desktop" && typeof onRailClick === "function";
   const showPencilButton = typeof onCreateSession === "function";
   const showDesktopTitle = variant === "desktop";
   const isMobileVariant = variant === "mobile";
@@ -203,9 +178,6 @@ export function PrettyConversationsPanel({
   const newSessionLabel = t("nav.newSession", {
     defaultValue: "New session",
   });
-  const settingsLabel = t("nav.conversations.settings", {
-    defaultValue: "Settings & Admin",
-  });
   const rdpSectionLabel = t("nav.conversations.rdpSection", {
     defaultValue: "Remote desktop",
   });
@@ -224,9 +196,9 @@ export function PrettyConversationsPanel({
           `variant`:
             desktop → title (left) + pencil + gear (right)
             mobile  → empty left, pencil only (right)  */}
-      <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
+      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
         {showDesktopTitle ? (
-          <span className="text-[13px] font-semibold text-foreground/90 tracking-tight truncate">
+          <span className="text-[13px] font-semibold text-[rgba(240,234,224,0.9)] tracking-tight truncate">
             {headerLabel}
           </span>
         ) : (
@@ -245,7 +217,7 @@ export function PrettyConversationsPanel({
                 "inline-flex items-center justify-center " +
                 "w-[34px] h-[34px] rounded-full " +
                 "bg-white/[0.04] border border-white/[0.09] " +
-                "text-foreground hover:bg-white/[0.08] " +
+                "text-[#f0eae0] hover:bg-white/[0.08] " +
                 "transition-colors " +
                 "[-webkit-tap-highlight-color:transparent] " +
                 "cursor-pointer select-none"
@@ -253,41 +225,6 @@ export function PrettyConversationsPanel({
             >
               <Pencil className="size-4" />
             </button>
-          )}
-          {showGear && (
-            <TooltipProvider delayDuration={500}>
-              <Tooltip>
-                <DropdownMenu>
-                  <TooltipTrigger asChild>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={settingsLabel}
-                        className={
-                          "inline-flex items-center justify-center " +
-                          "w-[34px] h-[34px] rounded-full " +
-                          "bg-transparent border border-transparent " +
-                          "text-muted-foreground hover:text-foreground " +
-                          "hover:bg-white/[0.06] " +
-                          "transition-colors " +
-                          "cursor-pointer select-none"
-                        }
-                      >
-                        <Settings className="size-4" />
-                      </button>
-                    </DropdownMenuTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">{settingsLabel}</TooltipContent>
-                  <DropdownMenuContent align="end" className="w-56">
-                    {renderSettingsMenuItems({
-                      onRailClick: onRailClick!,
-                      isAdmin: Boolean(isAdmin),
-                      t,
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </Tooltip>
-            </TooltipProvider>
           )}
         </div>
       </div>
@@ -365,10 +302,10 @@ export function PrettyConversationsPanel({
                       data-testid="rdp-divider"
                     >
                       <Monitor
-                        className="size-3 text-muted-foreground/50 shrink-0"
+                        className="size-3 text-[#5c6070]/50 shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50 shrink-0">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/50 shrink-0">
                         {rdpSectionLabel}
                       </span>
                       <span

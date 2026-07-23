@@ -1419,11 +1419,6 @@ export function AppShell({
           // fire on narrow desktop windows too where the touch device may
           // still be a laptop.
           variant={isMobile ? "mobile" : "desktop"}
-          onRailClick={(view) => {
-            handleRailClick(view);
-            if (isMobile) setSidebarOpen(false);
-          }}
-          isAdmin={isAdmin}
           // Plan 06-03: on touchscreen viewports, a row tap ALSO transitions
           // to the mobile view screen (Telegram-style list-vs-view). Desktop
           // ignores this handler — the row-select is already handled by the
