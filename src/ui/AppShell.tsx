@@ -1768,32 +1768,60 @@ export function AppShell({
             true → chevron rotates 180° (from ← to →, "click to close").
             Collapsed state = ChevronLeft default orientation (← "click to
             open"). */}
-        <button
-          type="button"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          aria-label={t("nav.sidebar.toggle", {
-            defaultValue: "Toggle sidebar",
-          })}
-          title={t("nav.sidebar.toggle", {
-            defaultValue: "Toggle sidebar",
-          })}
-          className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(20,22,28,0.85)] backdrop-blur-[10px] backdrop-saturate-150 border border-white/[0.08] shadow-[0_2px_8px_rgba(0,0,0,0.35)] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          style={{
-            top: "max(env(safe-area-inset-top), 8px)",
-            left: "max(env(safe-area-inset-left), 8px)",
-            zIndex: 30,
-          }}
-        >
-          <span
+        {/* Patch #134: on touch mobile the persistent-toggle is dual-purpose.
+            On desktop it toggles sidebarOpen (unchanged). On touch mobile it
+            calls navigateToList() so the same top-left chevron affordance
+            "goes back to the conversation list" the user is looking for —
+            functionally symmetric with desktop (where opening the sidebar
+            surfaces the conversation list). Hidden on mobile-list-screen
+            (nothing to navigate to; would be a phantom no-op tap). */}
+        {!isMobileListScreen && (
+          <button
+            type="button"
+            onClick={() =>
+              isTouchDevice ? navigateToList() : setSidebarOpen(!sidebarOpen)
+            }
+            aria-label={t(
+              isTouchDevice
+                ? "nav.conversations.backToList"
+                : "nav.sidebar.toggle",
+              {
+                defaultValue: isTouchDevice
+                  ? "Back to conversations"
+                  : "Toggle sidebar",
+              },
+            )}
+            title={t(
+              isTouchDevice
+                ? "nav.conversations.backToList"
+                : "nav.sidebar.toggle",
+              {
+                defaultValue: isTouchDevice
+                  ? "Back to conversations"
+                  : "Toggle sidebar",
+              },
+            )}
+            className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(20,22,28,0.85)] backdrop-blur-[10px] backdrop-saturate-150 border border-white/[0.08] shadow-[0_2px_8px_rgba(0,0,0,0.35)] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             style={{
-              display: "inline-flex",
-              transform: sidebarOpen ? "rotate(180deg)" : undefined,
-              transition: "transform 220ms",
+              top: "max(env(safe-area-inset-top), 8px)",
+              left: "max(env(safe-area-inset-left), 8px)",
+              zIndex: 30,
             }}
           >
-            <ChevronLeft className="size-4" />
-          </span>
-        </button>
+            <span
+              style={{
+                display: "inline-flex",
+                transform:
+                  !isTouchDevice && sidebarOpen
+                    ? "rotate(180deg)"
+                    : undefined,
+                transition: "transform 220ms",
+              }}
+            >
+              <ChevronLeft className="size-4" />
+            </span>
+          </button>
+        )}
 
         {/* Skinny icon rail — non-touch devices only. Gate is pointer/hover,
             not window width, so narrow desktop windows still get the rail.
