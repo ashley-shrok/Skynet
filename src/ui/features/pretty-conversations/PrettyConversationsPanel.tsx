@@ -215,7 +215,7 @@ export function PrettyConversationsPanel({
 
   return (
     <div
-      className="relative flex flex-col flex-1 min-h-0 overflow-hidden"
+      className="relative flex flex-col flex-1 min-h-0 overflow-hidden pb-[env(safe-area-inset-bottom)]"
       data-testid="pretty-conversations-panel"
       data-variant={variant}
     >
@@ -292,8 +292,10 @@ export function PrettyConversationsPanel({
         </div>
       </div>
 
-      {/* Scroll region: safe-area padding preserved from patch #126. */}
-      <div className="flex-1 min-h-0 overflow-y-auto pb-[env(safe-area-inset-bottom)] flex flex-col">
+      {/* Scroll region: safe-area padding lives on outer container (patch #131)
+          so the panel bottom sits ABOVE the safe-area — settings row is not
+          covered when scroll is at rest. */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
         {isEmpty ? (
           // Empty-state = PlanPendingBubble-style idle glass card centered
           // in the scroll region. Uses the neutral no-identity treatment
