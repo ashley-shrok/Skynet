@@ -276,6 +276,17 @@ body {
   }
 }
 
+/* Patch #144 Fix (c): iOS PWA safe-area-inset-bottom is painted with the
+ * <html> background, not <body>. Setting html to pv-base-end makes the
+ * ~1cm bottom safe area match the pv-gradient's bottom stop instead of
+ * showing transparent-black bleed through. Cascade: `.dark { --background:
+ * #0a0b12 }` sets --color-pv-base-end via @theme inline mapping; we
+ * reference the token directly rather than --background so this rule holds
+ * even if a future theme rebase moves --background away from #0a0b12. */
+html {
+  background-color: var(--color-pv-base-end);
+}
+
 /* Font size scale applied to html element */
 html.fs-xs {
   font-size: 11px;

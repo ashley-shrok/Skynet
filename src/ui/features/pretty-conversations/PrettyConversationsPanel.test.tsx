@@ -102,6 +102,10 @@ function setSnapshot(next: Partial<MockSnapshot>): void {
 
 const selectConversationSpy = vi.fn();
 const togglePinConversationSpy = vi.fn();
+// Patch #144 Fix (d): converted the previously no-op addToActiveSet mock
+// into a spy so Tests 16/17 below can verify the panel's useEffect on
+// [selectedId] enrolls the id in the active set.
+const addToActiveSetSpy = vi.fn();
 
 vi.mock("@/state/conversation-store", () => ({
   useConversations: () => ({
@@ -119,7 +123,7 @@ vi.mock("@/state/conversation-store", () => ({
   useActiveSet: () => new Set<string>(),
   selectConversation: (id: string | null) => selectConversationSpy(id),
   togglePinConversation: (id: string) => togglePinConversationSpy(id),
-  addToActiveSet: () => {},
+  addToActiveSet: (id: string) => addToActiveSetSpy(id),
 }));
 
 // Patch #137: PrettyConversationsPanel calls useSessionWorking(sessionKey)
@@ -494,11 +498,11 @@ describe("PrettyConversationsPanel: desktop header title", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 8 — Mobile header omits title text
+// Test 8 — Mobile header title (patch #144 spec change from omit → render)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: mobile header no title", () => {
-  it("Test 8: mobile variant omits the Conversations title but keeps pencil when wired; no .pv-title element in DOM (Phase 13 lift-from-mock)", () => {
+describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
+  it("Test 8 (spec change patch #144 f): mobile variant renders the Conversations title (prior 'deliberately left off per Phase 10 design' handoff note was wrong per Ashley 2026-07-24)", () => {
     const { container, queryByText, queryByRole } = render(
       <PrettyConversationsPanel
         variant="mobile"
@@ -506,13 +510,13 @@ describe("PrettyConversationsPanel: mobile header no title", () => {
         onCreateSession={vi.fn()}
       />,
     );
-    // No standalone "Conversations" title on mobile.
-    expect(queryByText(/^conversations$/i)).toBeNull();
+    // Title text renders on mobile now (same as desktop).
+    expect(queryByText(/^conversations$/i)).toBeTruthy();
 
-    // Phase 13 Wave 2 SHAPE-02: mobile variant emits an empty aria-hidden
-    // span for the left slot — NO `.pv-title` element in the DOM. This is
-    // how justify-content: space-between still right-anchors the pencil.
-    expect(container.querySelector(".pv-title")).toBeNull();
+    // The `.pv-title` element is now present on mobile (Fix f removed the
+    // showDesktopTitle gate that used to emit an empty aria-hidden span
+    // in its place).
+    expect(container.querySelector(".pv-title")).toBeTruthy();
 
     // Header row container still carries `.pv-panel-header` even on mobile.
     expect(container.querySelector(".pv-panel-header")).toBeTruthy();
@@ -762,5 +766,37 @@ describe("PrettyConversationsPanel: onConversationSelected after every branch", 
     expect(onConversationSelected.mock.calls[0][0]).toBe("t1");
     expect(onConversationSelected.mock.calls[1][0]).toBe("fleet::1::nelly");
     expect(onConversationSelected.mock.calls[2][0]).toBe("r1");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Patch #144 Fix (d) — activeSet enrollment on selectedId change
+// ─────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: patch #144 activeSet on selectedId", () => {
+  it("Test 16 (patch #144 d): programmatic selectedId change calls addToActiveSet(id) via useEffect", () => {
+    const hostA = makeHost("h1", "hostA");
+    // Initial render with a non-null selectedId (simulates URL-fragment
+    // restore having already set the selection before mount).
+    setSnapshot({
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [makeConversationRow({ id: "row-restored", host: hostA })],
+        },
+      ],
+      selectedId: "row-restored",
+    });
+    render(<PrettyConversationsPanel variant="desktop" />);
+    // The useEffect fires on mount because selectedId is non-null.
+    expect(addToActiveSetSpy).toHaveBeenCalledWith("row-restored");
+  });
+
+  it("Test 17 (patch #144 d): null selectedId does NOT call addToActiveSet", () => {
+    setSnapshot({ pinned: [], grouped: [], selectedId: null });
+    render(<PrettyConversationsPanel variant="desktop" />);
+    expect(addToActiveSetSpy).not.toHaveBeenCalled();
   });
 });

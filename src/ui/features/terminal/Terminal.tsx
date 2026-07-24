@@ -327,15 +327,20 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       return () => {};
     }, [hostConfig.id]);
 
-    // Patch #143: iOS PWA backgrounding fix — cancel scheduled reconnects
+    // Patch #143 v2: iOS PWA backgrounding fix — cancel scheduled reconnects
     // when the tab is hidden (throttled iOS tab burns the 8-attempt budget)
-    // and auto-recover on foreground when the WS is closed and the target
-    // did NOT drop us. Deliberately does NOT clear the xterm buffer (tmux
-    // repaint on reattach handles restoration; clearing was the visible-
-    // flicker cause in the manual overlay path). Target-terminated cases
-    // (wasDisconnectedBySSH === true) still require manual Reconnect via
-    // the overlay at lines 3014-3049 — that affordance is intentional and
-    // unchanged.
+    // and UNCONDITIONALLY reset + reconnect on foreground. The v1
+    // `readyState === OPEN` guard has been removed: iOS resumes JS with the
+    // old WS ref still reading OPEN even when the queued close event hasn't
+    // delivered yet, which caused the ~50s "1/8..8/8" auto-reconnect flash
+    // followed by the manual overlay. Opening a fresh WS is idempotent —
+    // if the old one was genuinely alive it closes cleanly, tmux reattach
+    // handles restoration, no user-visible harm. Deliberately does NOT clear
+    // the xterm buffer (tmux repaint on reattach handles restoration;
+    // clearing was the visible-flicker cause in the manual overlay path).
+    // Target-terminated cases (wasDisconnectedBySSH === true) still require
+    // manual Reconnect via the overlay at lines ~3014-3049 — that affordance
+    // is intentional and unchanged.
     useEffect(() => {
       const handleVisibilityChange = () => {
         if (document.hidden) {
@@ -350,8 +355,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         // visible branch
         if (isUnmountingRef.current) return;
         if (wasDisconnectedBySSH.current) return;
-        const ws = webSocketRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) return;
         shouldNotReconnectRef.current = false;
         isReconnectingRef.current = false;
         isConnectingRef.current = false;

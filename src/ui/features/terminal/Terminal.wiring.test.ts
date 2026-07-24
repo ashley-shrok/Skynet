@@ -254,8 +254,6 @@ describe("Terminal.tsx patch #143 — visibilitychange auto-reconnect (iOS PWA b
     // visible branch
     if (isUnmountingRef.current) return;
     if (wasDisconnectedBySSH.current) return;
-    const ws = webSocketRef.current;
-    if (ws && ws.readyState === WS_OPEN) return;
     shouldNotReconnectRef.current = false;
     isReconnectingRef.current = false;
     isConnectingRef.current = false;
@@ -368,16 +366,29 @@ describe("Terminal.tsx patch #143 — visibilitychange auto-reconnect (iOS PWA b
     expect(terminalClearSpy).not.toHaveBeenCalled();
   });
 
-  it("Test 10: visible branch no-ops when currently connected (WS.OPEN → don't fight healthy connection)", () => {
+  // spec change #143 v2: the readyState guard was deleted in patch #144
+  // because iOS PWA foreground resumes JS with the old WS ref still reading
+  // OPEN even when a queued close event hasn't been delivered yet. Opening
+  // a fresh WS is idempotent (old one closes cleanly, tmux reattach handles
+  // restoration).
+  it("Test 10 (spec change #143 v2): visible branch UNCONDITIONALLY reconnects even when webSocketRef reports OPEN — iOS PWA resume sees a stale OPEN ref before the queued close delivers, so the guard was the bug", () => {
     webSocketRef.current = { readyState: WS_OPEN };
     wasDisconnectedBySSH.current = false;
 
     hidden = false;
     handleVisibilityChange();
 
-    expect(connectToHostSpy).not.toHaveBeenCalled();
-    expect(setShowDisconnectedOverlaySpy).not.toHaveBeenCalled();
-    expect(updateConnectionErrorSpy).not.toHaveBeenCalled();
+    // Reconnect fires exactly once with the mocked terminal dims — the OPEN
+    // ref is deliberately ignored because iOS resumes with a stale OPEN
+    // before the queued close event has delivered.
+    expect(connectToHostSpy).toHaveBeenCalledTimes(1);
+    expect(connectToHostSpy).toHaveBeenCalledWith(80, 24);
+    // Overlay + error setters both called as part of the full reset path.
+    expect(setShowDisconnectedOverlaySpy).toHaveBeenCalledWith(false);
+    expect(updateConnectionErrorSpy).toHaveBeenCalledWith(null);
+    // CRITICAL divergence from the manual overlay path: NO terminal.clear()
+    // in the visibility path per the plan (tmux repaint on reattach handles
+    // restoration; clearing was the visible-flicker cause).
     expect(terminalClearSpy).not.toHaveBeenCalled();
   });
 });

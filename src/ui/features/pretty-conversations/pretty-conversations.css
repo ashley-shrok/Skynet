@@ -125,6 +125,16 @@
   gap: 8px;
 }
 
+/* Patch #144 Fix (e): intra-group row gap matches the between-groups gap
+ * (8px on .pv-panel-scroll) so vertical rhythm is consistent whether or
+ * not rows span multiple groups. The three group wrappers in
+ * PrettyConversationsPanel.tsx carry this class. */
+.pv-panel-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    THE ROW — real pretty-view bubble treatment translated from ChatMessage.tsx
    L82-129 + IdentityBadge lg lines 50-62. Per-hue custom prop drives EVERYTHING.

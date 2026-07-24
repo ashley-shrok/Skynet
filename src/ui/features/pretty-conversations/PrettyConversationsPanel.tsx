@@ -39,7 +39,7 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MessagesSquare, Monitor, Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -150,6 +150,19 @@ export function PrettyConversationsPanel({
   // additions; consumers get a memoized reference across no-ops).
   const activeSet = useActiveSet();
 
+  // Patch #144 Fix (d): every selectedId change enrolls the id in the
+  // active set — not just click-driven selection via handleRowSelect.
+  // URL-fragment restore, keyboard nav, and any other programmatic path
+  // that mutates selectedId now lights the row up with the full pretty-
+  // view bubble treatment instead of the ambient flat treatment. Ashley's
+  // 2026-07-24 diag showed 32/32 rendered rows as ambient because
+  // fragment-restore never touched the click path. addToActiveSet is
+  // idempotent (early-return when id present), so double-fires from
+  // click-that-also-changes-selectedId are harmless no-ops.
+  useEffect(() => {
+    if (selectedId) addToActiveSet(selectedId);
+  }, [selectedId]);
+
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
 
@@ -165,7 +178,6 @@ export function PrettyConversationsPanel({
   const isEmpty = pinned.length === 0 && grouped.length === 0;
 
   const showPencilButton = typeof onCreateSession === "function";
-  const showDesktopTitle = variant === "desktop";
   const isMobileVariant = variant === "mobile";
 
   // Row-click dispatcher — VERBATIM behavior from ConversationsPanel.tsx
@@ -256,14 +268,10 @@ export function PrettyConversationsPanel({
             desktop → title (left) + pencil (right)
             mobile  → empty left, pencil only (right)  */}
       <div className="pv-panel-header shrink-0" data-sidebar-toggle-overlaps={sidebarToggleOverlaps ? "true" : "false"}>
-        {showDesktopTitle ? (
-          <span className="pv-title">{headerLabel}</span>
-        ) : (
-          // Empty left side keeps `justify-content: space-between` right-
-          // anchoring the pencil on mobile (prototype's empty top-strip
-          // label slot).
-          <span aria-hidden="true" />
-        )}
+        {/* Patch #144 Fix (f): title renders on BOTH mobile and desktop.
+            Prior handoff note "deliberately left off per Phase 10 design"
+            was wrong per Ashley 2026-07-24. */}
+        <span className="pv-title">{headerLabel}</span>
         {showPencilButton && (
           <button
             type="button"
@@ -316,26 +324,31 @@ export function PrettyConversationsPanel({
                 activeSet subscription is hoisted once (above); each row's
                 isWorking is read inside PrettyConversationRowLive so the
                 store subscription happens at a stable hook-call site.
-                Same wiring repeats at the two grouped render sites below. */}
-            {pinned.map((row) => (
-              <PrettyConversationRowLive
-                key={row.id}
-                row={row}
-                selected={row.id === selectedId}
-                pinned={true}
-                variant={variant}
-                onSelect={() => handleRowSelect(row)}
-                onTogglePin={() => togglePinConversation(row.id)}
-                onSwipeOpenChange={
-                  isMobileVariant
-                    ? (open) => handleSwipeOpenChange(row.id, open)
-                    : undefined
-                }
-                forceClosed={forceClosedFor(row.id)}
-                inActiveSet={activeSet.has(row.id)}
-                sessionKey={sessionWorkingKey(row)}
-              />
-            ))}
+                Same wiring repeats at the two grouped render sites below.
+                Patch #144 Fix (e): pinned rows now share the same
+                `pv-panel-group` wrapper as the grouped sections so intra-
+                group row gap (8px) is uniform with between-group gap. */}
+            <div className="pv-panel-group" data-pinned-group="true">
+              {pinned.map((row) => (
+                <PrettyConversationRowLive
+                  key={row.id}
+                  row={row}
+                  selected={row.id === selectedId}
+                  pinned={true}
+                  variant={variant}
+                  onSelect={() => handleRowSelect(row)}
+                  onTogglePin={() => togglePinConversation(row.id)}
+                  onSwipeOpenChange={
+                    isMobileVariant
+                      ? (open) => handleSwipeOpenChange(row.id, open)
+                      : undefined
+                  }
+                  forceClosed={forceClosedFor(row.id)}
+                  inActiveSet={activeSet.has(row.id)}
+                  sessionKey={sessionWorkingKey(row)}
+                />
+              ))}
+            </div>
             {/* Grouped rows — FLAT per Ashley/prototype lock: no per-host
                 semibold header. The `__rdp__` sentinel group renders a
                 subtle "Remote desktop" divider chip above its rows.  */}
@@ -344,7 +357,7 @@ export function PrettyConversationsPanel({
                 return (
                   <div
                     key={group.hostId}
-                    className="flex flex-col"
+                    className="pv-panel-group"
                     data-rdp-group="true"
                   >
                     {/* Subtle RDP divider chip — mirrors prototype.html
@@ -387,7 +400,7 @@ export function PrettyConversationsPanel({
               // Regular host group — FLAT, no per-host semibold header
               // (Ashley/prototype lock). Just emit the rows.
               return (
-                <div key={group.hostId} className="flex flex-col">
+                <div key={group.hostId} className="pv-panel-group">
                   {group.rows.map((row) => (
                     <PrettyConversationRowLive
                       key={row.id}

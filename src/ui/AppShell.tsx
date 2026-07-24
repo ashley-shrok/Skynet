@@ -2,8 +2,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Separator } from "@/components/separator";
-import { Button } from "@/components/button";
 import { Sheet, SheetContent } from "@/components/sheet";
 import { ChevronLeft } from "lucide-react";
 import { useState, useRef, useCallback, useEffect, useMemo, createRef } from "react";
@@ -1341,15 +1339,11 @@ export function AppShell({
   // by the `#mv=1` URL fragment key via useMobileScreen (mobile-flow.ts).
   // Desktop (`!isTouchDevice`) is UNCHANGED from Plan 06-02.
   const isMobileListScreen = isTouchDevice && mobileScreen === "list";
-  const isMobileViewScreen = isTouchDevice && mobileScreen === "view";
-
-  // The active conversation's label — used as the title in the mobile-view
-  // header. Falls back to a generic string when nothing is selected (which
-  // shouldn't happen thanks to T-06-03-06 stranded-user defense, but a
-  // safe fallback is cheap).
-  const activeConversationLabel =
-    tabs.find((t) => t.id === effectiveSelectedTabId)?.label ??
-    t("nav.conversations.title", { defaultValue: "Conversations" });
+  // Patch #144 Fix (b): `isMobileViewScreen` derivation removed together
+  // with the legacy mobile-view header block below. mobileScreen === "view"
+  // is now expressed implicitly via `!isMobileListScreen` on the fixed
+  // top-left chevron (line ~1400) since that's the only remaining
+  // mobile-view-only affordance.
 
   return (
     <>
@@ -1536,38 +1530,16 @@ export function AppShell({
               that Ashley's small-window use case tripped over. The
               companion `pl-6` main-content padding that reserved space
               for the old strip is also removed. */}
-          {/* Plan 06-03: mobile-view header with a top-left back button.
-              Renders ONLY when the user is on the mobile view screen
-              (`isMobileViewScreen`). Back button calls navigateToList()
-              which pops the pushState entry via history.back() (or
-              replaceState-strips the `mv=1` fragment key when the entry
-              is a fresh deep-link — see mobile-flow.ts). Title shows the
-              active conversation's label so the user has visual context
-              for what they're viewing. Reuses the sidebarHeader chrome
-              idiom for consistency (h-12.5 row, ChevronLeft icon, muted-
-              foreground default with hover:text-foreground). */}
-          {isMobileViewScreen && (
-            <div className="flex flex-row items-center border-b border-[color:var(--color-pv-border-quiet)] h-12.5 shrink-0 bg-[color:var(--color-pv-base)]">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-full w-12.5 rounded-none shrink-0"
-                onClick={() => navigateToList()}
-                aria-label={t("nav.conversations.backToList", {
-                  defaultValue: "Back to conversations",
-                })}
-                title={t("nav.conversations.backToList", {
-                  defaultValue: "Back to conversations",
-                })}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Separator orientation="vertical" />
-              <span className="flex-1 text-base font-bold tracking-tight text-[color:var(--color-pv-fg)] px-3 truncate">
-                {activeConversationLabel}
-              </span>
-            </div>
-          )}
+          {/* Patch #144 Fix (b): the legacy mobile-view header — a shadcn
+              Button back-chevron + Separator + label span that used to
+              render at h-12.5 across the top of the mobile view screen —
+              is removed. Patch #142's fixed-position chevron at (8,8) z-30
+              (declared above at ~line 1400) is the sole back affordance
+              now, and the top-right identity badge surfaces the active
+              conversation's identity, so the redundant title span had
+              become dead weight. Ashley's UAT (2026-07-24) confirmed two
+              chevrons were rendering simultaneously on mobile-in-conv;
+              deleting this block resolves the duplicate. */}
           <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
             {/* Plan 06-02: tab strip DELETED unconditionally (TG-11 — full
                 replacement, no toggle). The conversation-store's selectedId
