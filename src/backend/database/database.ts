@@ -19,6 +19,7 @@ import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
+import debugRoutes from "./routes/debug.js";
 import { createCorsMiddleware } from "../utils/cors-config.js";
 import fs from "fs";
 import path from "path";
@@ -1790,6 +1791,7 @@ app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/sessions", sessionsRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
+app.use("/debug", debugRoutes);
 
 const frontendDistPaths = [
   path.join(__dirname, "../../../dist"),

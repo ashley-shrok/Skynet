@@ -15,6 +15,12 @@ import type { FontSizeId } from "@/types/ui-types";
 import { useServiceWorker } from "@/hooks/use-service-worker";
 import { useTranslation } from "react-i18next";
 import { snapshotPendingTab } from "@/lib/tab-url";
+import { initConsoleForwarder } from "@/lib/console-forwarder";
+
+// Patch #146: install console-forwarder before anything else so all
+// subsequent console.log/warn/error calls are intercepted and batched
+// to /debug/console-log for server-side grep via docker exec.
+initConsoleForwarder();
 
 // Preserve ?tab=<spec> across the auth flow. Auth.tsx / LoginPage.tsx call
 // replaceState in several branches that would otherwise strip the query
