@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-24T05:15:00.000Z"
-last_activity: 2026-07-24 -- Completed quick task 260724-723: Conversation-list mock v4 parity (patch #142)
+last_updated: "2026-07-24T07:40:00.000Z"
+last_activity: 2026-07-24 -- Completed quick task 260724-aiu: Patch #145 — active-glow URL-restore fix
 progress:
   total_phases: 13
   completed_phases: 7
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 12 (skynet-transformation-purge-dead-frontend-surfaces-second-slice) — EXECUTING
 Plan: 1 of 7
 Status: Executing Phase 12
-Last activity: 2026-07-24 -- Completed quick task 260724-8sr: Patch #144 post-#143 UAT fixes bundle (auto-reconnect v2, mobile chevron dedupe, PWA safe-area color, activeSet on selectedId, row gap, mobile panel title)
+Last activity: 2026-07-24 -- Completed quick task 260724-aiu: Patch #145 — active-glow URL-restore fix (2-line symmetric selectConversationDeferred calls at AppShell.tsx URL-restore and persisted-tab-restore paths, unblocking patch #144's addToActiveSet useEffect on mount-time restored tabs)
 
 Progress: [██████████] 100% (Phase 10 code-complete on feat/tab-title-from-tmux; deploy deferred to Ashley greenlight)
 
@@ -117,6 +117,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260724-aiu | Patch #145 — active-glow URL-restore fix. Two surgical 1-line insertions in `AppShell.tsx` symmetric with the existing sidebar click handlers at lines 1295/1309/1317: `selectConversationDeferred(restoredTabs[0].id)` immediately after the `setActiveTabId(restoredTabs[0].id)` call in the persisted-tab-restore path (~L833), and `selectConversationDeferred(openedIds[idx])` immediately after `setActiveTabId(openedIds[idx])` in the URL-driven initial open path (~L902). Root cause of Ashley's 2026-07-24 UAT report ("URL-restore tab pointing at a session doesn't glow in sidebar; only clicks light it up") was that the two mount-time restore paths set only local AppShell state (`activeTabId`) but never called `selectConversationDeferred` on the conversation store, so `state.selectedId` stayed null on mount and my patch #144 useEffect at `PrettyConversationsPanel.tsx:162-164` (`if (selectedId) addToActiveSet(selectedId)`) skipped, leaving `sessionStorage["pv-conv-active-set"]` empty and no row with `.active-set` class. Confirmed by Ashley's V2 DevTools diag (32 rendered rows, 0 with `.active-set`, sessionStorage present:false, URL clearly targeting a session). Fix ensures `state.selectedId` is non-null at mount so the useEffect fires on first render, populates activeSet, and lights up the row. Import already existed at AppShell.tsx:59 — no new imports. No new tests: bug lived outside test coverage (URL routing + persisted-tab restore paths, neither mocked in AppShell test harness); adding scaffolding would double the change size and blur the surgical intent, and the fix is symmetric with the existing tested click-handler pattern. Verification all green: `npm run type-check` clean, `npm test -- pretty-conversations --run` 36/36 across 2 files (no regressions), `npm run build` 5.56s. Grep gates: both insertion patterns found verbatim at their target lines. `git diff --stat src/ui/AppShell.tsx` shows exactly +2/-0 in one file. Single atomic commit on `feat/tab-title-from-tmux`, NO Co-Authored-By trailer (fork convention). No push, no deploy — batched with patch #146 (log-forwarder prototype) which lands next per Ashley 2026-07-23 batch-writeups-until-deploy rule. `~/.claude/identities/tina/skynet-patches.md` write-up deferred to the deploy batch. | 2026-07-24 | efc8e87 | [260724-aiu-patch-145-fix-active-glow-on-url-restore](./quick/260724-aiu-patch-145-fix-active-glow-on-url-restore/) |
 | 260717-vbw | Pretty-view WIP indicator (patch #51) — JSONL state-machine spinner bubble | 2026-07-17 | caafaa5 | [260717-vbw-work-in-progress-indicator-for-pretty-vi](./quick/260717-vbw-work-in-progress-indicator-for-pretty-vi/) |
 | 260718-2dt | Message queue drawer auto-closes when send empties the queue | 2026-07-18 | 5f209ff | [260718-2dt-message-queue-drawer-auto-closes-when-se](./quick/260718-2dt-message-queue-drawer-auto-closes-when-se/) |
 | 260718-340 | Fix message queue sync bugs (patch #55) — keepalive delete + full dirty flush on unload + 10s interval retry | 2026-07-18 | f4b845e | [260718-340-fix-message-queue-sync-bugs-patch-55-kee](./quick/260718-340-fix-message-queue-sync-bugs-patch-55-kee/) |
