@@ -326,6 +326,50 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       return () => {};
     }, [hostConfig.id]);
+
+    // Patch #143: iOS PWA backgrounding fix — cancel scheduled reconnects
+    // when the tab is hidden (throttled iOS tab burns the 8-attempt budget)
+    // and auto-recover on foreground when the WS is closed and the target
+    // did NOT drop us. Deliberately does NOT clear the xterm buffer (tmux
+    // repaint on reattach handles restoration; clearing was the visible-
+    // flicker cause in the manual overlay path). Target-terminated cases
+    // (wasDisconnectedBySSH === true) still require manual Reconnect via
+    // the overlay at lines 3014-3049 — that affordance is intentional and
+    // unchanged.
+    useEffect(() => {
+      const handleVisibilityChange = () => {
+        if (document.hidden) {
+          if (reconnectTimeoutRef.current !== null) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+          }
+          reconnectAttempts.current = 0;
+          isReconnectingRef.current = false;
+          return;
+        }
+        // visible branch
+        if (isUnmountingRef.current) return;
+        if (wasDisconnectedBySSH.current) return;
+        const ws = webSocketRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+        shouldNotReconnectRef.current = false;
+        isReconnectingRef.current = false;
+        isConnectingRef.current = false;
+        reconnectAttempts.current = 0;
+        wasConnectedRef.current = false;
+        wasDisconnectedBySSH.current = false;
+        updateConnectionError(null);
+        setShowDisconnectedOverlay(false);
+        if (terminal) {
+          connectToHost(terminal.cols, terminal.rows);
+        }
+      };
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      return () => {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      };
+    }, [terminal, updateConnectionError]);
+
     const connectionAttemptIdRef = useRef(0);
     const totpTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);

@@ -144,6 +144,242 @@ describe("Terminal.tsx Phase 05 Plan 03 wiring — structural", () => {
     expect(block).toContain("payload.messageQueueItemId = messageQueueItemId;");
     expect(block).toContain("}, 60);");
   });
+
+  it("Test 6 (patch #143 structural): visibilitychange listener added/removed as a pair, respects wasDisconnectedBySSH guard, adds no new terminal.clear()", () => {
+    // Patch #143: new sibling useEffect wires a document.visibilitychange
+    // listener that (a) cancels the scheduled reconnect + resets attempt
+    // counter when the PWA tab is backgrounded, and (b) on foreground
+    // auto-reconnects when the WS is closed AND the target did NOT drop
+    // the SSH connection (wasDisconnectedBySSH === false). Critically:
+    // the auto-reconnect path must NOT call terminal.clear() — that's
+    // the manual-overlay Reconnect handler's flicker cause and the
+    // deliberate divergence documented in the plan.
+    //
+    // Baselines pinned pre-patch (from the executor's grep gates):
+    //   - terminal.clear()          count: 8   (must stay 8)
+    //   - visibilitychange          count: 2   (add + remove pair)
+    //
+    // The wasDisconnectedBySSH.current guard is asserted by locating the
+    // add/remove pair as bookends and checking the substring between them
+    // contains the guard token — proves the visible branch respects the
+    // target-terminated boundary and doesn't fire connectToHost after a
+    // real SSH drop.
+
+    // (1) add + remove pair
+    const addMatches = src.match(/addEventListener\(["']visibilitychange["']/g);
+    expect(addMatches).not.toBeNull();
+    expect(addMatches!.length).toBe(1);
+
+    const removeMatches = src.match(
+      /removeEventListener\(["']visibilitychange["']/g,
+    );
+    expect(removeMatches).not.toBeNull();
+    expect(removeMatches!.length).toBe(1);
+
+    // (2) guard token exists between the add site and the remove site
+    // (i.e. inside the effect body / handler closure).
+    const addIdx = src.indexOf('addEventListener("visibilitychange"');
+    const removeIdx = src.indexOf('removeEventListener("visibilitychange"');
+    // Search a window that starts BEFORE the addEventListener call so we
+    // include the handler body (declared above the listener wire-up).
+    const effectStart = src.lastIndexOf("useEffect", addIdx);
+    expect(effectStart).toBeGreaterThan(0);
+    expect(removeIdx).toBeGreaterThan(addIdx);
+    const effectBlock = src.slice(effectStart, removeIdx + 200);
+    expect(effectBlock).toContain("wasDisconnectedBySSH.current");
+    // (3) the visible branch must also cancel the scheduled reconnect
+    // (hidden branch's clearTimeout is the load-bearing behavior).
+    expect(effectBlock).toContain("clearTimeout(reconnectTimeoutRef");
+    // (4) connectToHost is invoked with terminal.cols in the visible branch
+    // (equivalent to the manual overlay Reconnect handler).
+    expect(effectBlock).toMatch(/connectToHost\(terminal\.cols/);
+
+    // (5) baseline pin: no NEW terminal.clear() introduced by the visibility
+    // effect. Pre-patch baseline was 8; patch #143 adds zero.
+    const clearMatches = src.match(/terminal\.clear\(\)/g);
+    expect(clearMatches).not.toBeNull();
+    expect(clearMatches!.length).toBe(8);
+  });
+});
+
+// Behavioral reproduction of the patch #143 visibilitychange handler.
+// This test literally re-implements the effect body from Task 1 Step B
+// against fake refs + spies and verifies the three branches of the state
+// machine: (a) hidden cancels the scheduled reconnect and resets the attempt
+// counter; (b) visible auto-reconnects when disconnected and NOT target-
+// terminated (without terminal.clear()); (c) visible respects the
+// wasDisconnectedBySSH boundary and no-ops when the target dropped us;
+// (d) visible no-ops when the WS is already open.
+//
+// The helper is BY DESIGN a byte-for-byte copy of the effect body so that
+// if the source pattern ever changes, this suite must be updated deliberately
+// (mirrors the handleInjectedTurnReady behavioral reproduction pattern above).
+describe("Terminal.tsx patch #143 — visibilitychange auto-reconnect (iOS PWA backgrounding fix)", () => {
+  type MockRef<T> = { current: T };
+  type MockWs = { readyState: number } | null;
+
+  let reconnectTimeoutRef: MockRef<ReturnType<typeof setTimeout> | null>;
+  let reconnectAttempts: MockRef<number>;
+  let isUnmountingRef: MockRef<boolean>;
+  let isReconnectingRef: MockRef<boolean>;
+  let isConnectingRef: MockRef<boolean>;
+  let shouldNotReconnectRef: MockRef<boolean>;
+  let wasConnectedRef: MockRef<boolean>;
+  let wasDisconnectedBySSH: MockRef<boolean>;
+  let webSocketRef: MockRef<MockWs>;
+
+  let connectToHostSpy: ReturnType<typeof vi.fn>;
+  let setShowDisconnectedOverlaySpy: ReturnType<typeof vi.fn>;
+  let updateConnectionErrorSpy: ReturnType<typeof vi.fn>;
+  let terminalClearSpy: ReturnType<typeof vi.fn>;
+
+  let terminal: { cols: number; rows: number; clear: ReturnType<typeof vi.fn> } | null;
+  let hidden: boolean;
+
+  // WebSocket readyState constants (align with browser values).
+  const WS_OPEN = 1;
+  const WS_CLOSED = 3;
+
+  // Byte-for-byte reproduction of the effect body in Terminal.tsx patch #143.
+  function handleVisibilityChange() {
+    if (hidden) {
+      if (reconnectTimeoutRef.current !== null) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      reconnectAttempts.current = 0;
+      isReconnectingRef.current = false;
+      return;
+    }
+    // visible branch
+    if (isUnmountingRef.current) return;
+    if (wasDisconnectedBySSH.current) return;
+    const ws = webSocketRef.current;
+    if (ws && ws.readyState === WS_OPEN) return;
+    shouldNotReconnectRef.current = false;
+    isReconnectingRef.current = false;
+    isConnectingRef.current = false;
+    reconnectAttempts.current = 0;
+    wasConnectedRef.current = false;
+    wasDisconnectedBySSH.current = false;
+    updateConnectionErrorSpy(null);
+    setShowDisconnectedOverlaySpy(false);
+    if (terminal) {
+      connectToHostSpy(terminal.cols, terminal.rows);
+    }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    reconnectTimeoutRef = { current: null };
+    reconnectAttempts = { current: 0 };
+    isUnmountingRef = { current: false };
+    isReconnectingRef = { current: false };
+    isConnectingRef = { current: false };
+    shouldNotReconnectRef = { current: false };
+    wasConnectedRef = { current: false };
+    wasDisconnectedBySSH = { current: false };
+    webSocketRef = { current: null };
+    connectToHostSpy = vi.fn();
+    setShowDisconnectedOverlaySpy = vi.fn();
+    updateConnectionErrorSpy = vi.fn();
+    terminalClearSpy = vi.fn();
+    terminal = { cols: 80, rows: 24, clear: terminalClearSpy };
+    hidden = false;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Test 7: hidden branch cancels scheduled reconnect + resets attempt counter", () => {
+    const scheduledCallback = vi.fn();
+    reconnectTimeoutRef.current = setTimeout(scheduledCallback, 5000);
+    reconnectAttempts.current = 3;
+    isReconnectingRef.current = true;
+
+    hidden = true;
+    handleVisibilityChange();
+
+    expect(reconnectTimeoutRef.current).toBeNull();
+    expect(reconnectAttempts.current).toBe(0);
+    expect(isReconnectingRef.current).toBe(false);
+
+    // Advance past the original 5s deadline — the scheduled callback
+    // MUST NOT fire (proves clearTimeout worked).
+    vi.advanceTimersByTime(10_000);
+    expect(scheduledCallback).not.toHaveBeenCalled();
+  });
+
+  it("Test 8: visible branch auto-reconnects when disconnected AND not target-terminated (no terminal.clear())", () => {
+    webSocketRef.current = { readyState: WS_CLOSED };
+    wasDisconnectedBySSH.current = false;
+    isUnmountingRef.current = false;
+    // Simulate mid-flight reconnect state so we can assert the reset.
+    shouldNotReconnectRef.current = true;
+    isReconnectingRef.current = true;
+    isConnectingRef.current = true;
+    reconnectAttempts.current = 5;
+    wasConnectedRef.current = true;
+
+    hidden = false;
+    handleVisibilityChange();
+
+    // Reconnect fired exactly once with the mocked terminal dims.
+    expect(connectToHostSpy).toHaveBeenCalledTimes(1);
+    expect(connectToHostSpy).toHaveBeenCalledWith(80, 24);
+    // Overlay + error setters both called.
+    expect(setShowDisconnectedOverlaySpy).toHaveBeenCalledWith(false);
+    expect(updateConnectionErrorSpy).toHaveBeenCalledWith(null);
+    // State flags fully reset (matches the manual overlay Reconnect handler).
+    expect(shouldNotReconnectRef.current).toBe(false);
+    expect(isReconnectingRef.current).toBe(false);
+    expect(isConnectingRef.current).toBe(false);
+    expect(reconnectAttempts.current).toBe(0);
+    expect(wasConnectedRef.current).toBe(false);
+    expect(wasDisconnectedBySSH.current).toBe(false);
+    // CRITICAL divergence from the manual overlay path: NO terminal.clear().
+    // tmux repaint on reattach handles restoration; clearing was the
+    // visible-flicker cause in the manual-overlay path.
+    expect(terminalClearSpy).not.toHaveBeenCalled();
+  });
+
+  it("Test 9: visible branch respects target-terminated boundary (wasDisconnectedBySSH=true → no-op)", () => {
+    webSocketRef.current = { readyState: WS_CLOSED };
+    wasDisconnectedBySSH.current = true;
+    // Pin the state flags so we can assert nothing changed.
+    shouldNotReconnectRef.current = true;
+    isReconnectingRef.current = true;
+    reconnectAttempts.current = 4;
+
+    hidden = false;
+    handleVisibilityChange();
+
+    // No reconnect, no overlay/error setter calls.
+    expect(connectToHostSpy).not.toHaveBeenCalled();
+    expect(setShowDisconnectedOverlaySpy).not.toHaveBeenCalled();
+    expect(updateConnectionErrorSpy).not.toHaveBeenCalled();
+    // State flags unchanged — manual Reconnect stays the correct affordance
+    // for the target-terminated case.
+    expect(shouldNotReconnectRef.current).toBe(true);
+    expect(isReconnectingRef.current).toBe(true);
+    expect(reconnectAttempts.current).toBe(4);
+    expect(wasDisconnectedBySSH.current).toBe(true);
+    expect(terminalClearSpy).not.toHaveBeenCalled();
+  });
+
+  it("Test 10: visible branch no-ops when currently connected (WS.OPEN → don't fight healthy connection)", () => {
+    webSocketRef.current = { readyState: WS_OPEN };
+    wasDisconnectedBySSH.current = false;
+
+    hidden = false;
+    handleVisibilityChange();
+
+    expect(connectToHostSpy).not.toHaveBeenCalled();
+    expect(setShowDisconnectedOverlaySpy).not.toHaveBeenCalled();
+    expect(updateConnectionErrorSpy).not.toHaveBeenCalled();
+    expect(terminalClearSpy).not.toHaveBeenCalled();
+  });
 });
 
 // Behavioral reproduction of the handleInjectedTurnReady pattern.
