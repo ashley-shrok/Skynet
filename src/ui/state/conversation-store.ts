@@ -662,15 +662,14 @@ export function addToActiveSet(id: string): void {
 
 export function pinConversation(id: string): void {
   if (state.pinnedIds.has(id)) return; // already pinned — no-op
-  // Reject pinning an id that isn't in openTabs (defense-in-depth)
-  let found = false;
-  for (const t of state.openTabs) {
-    if (t.id === id) {
-      found = true;
-      break;
-    }
-  }
-  if (!found) return;
+  // Patch #149 (A): the pre-#149 defense-in-depth guard rejected any id
+  // not present in state.openTabs, which silently no-op'd pin clicks on
+  // every fleet-derived row (~26 of 32 in Ashley's normal panel). Mock v4
+  // treats all non-RDP rows uniformly — the row-level render only excludes
+  // RDP rows from the pin affordance, so any id that reaches this function
+  // is legitimately pinnable. An orphaned pin id (session gone) is inert:
+  // computeSnapshot's pinned-section iteration skips ids without a matching
+  // row source, so no render damage.
   const nextPinnedIds = new Set(state.pinnedIds);
   nextPinnedIds.add(id);
   state = { ...state, pinnedIds: nextPinnedIds };

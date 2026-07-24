@@ -836,10 +836,14 @@ describe("conversation-store (Plan 07-01): updateHostsFlat no-op guards", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 30: fleet-only rows never pinned (defense-in-depth on pinConversation)
+// Test 30 (Patch #149 A): fleet-only rows CAN be pinned — pinConversation
+// accepts any id. The pre-#149 openTabs-only guard was retired: the mock
+// treats all non-RDP rows uniformly, so the pin affordance and the store must
+// agree. Slice A only removes the guard (pinnedIds gains the fleet id); the
+// pinned-section reorder-to-top is Patch #149 B's scope.
 // ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store (Plan 07-01): fleet-only rows never pinned", () => {
-  it("pinConversation on a fleet-only row id is a silent no-op (id not in openTabs)", () => {
+describe("conversation-store (Patch #149 A): fleet-only rows are pinnable", () => {
+  it("pinConversation on a fleet-only row id adds the id to pinnedIds", () => {
     const hostA = makeHost("1", "hostA");
     const tree: HostFolder = { name: "root", children: [hostA] };
 
@@ -851,20 +855,19 @@ describe("conversation-store (Plan 07-01): fleet-only rows never pinned", () => 
       ]);
     });
 
-    // Sanity: the fleet-only row exists
+    // Sanity: the fleet-only row exists, nothing pinned
     const snap1 = __getSnapshotForTest();
     expect(snap1.grouped[0].rows[0].id).toBe("fleet::1::work");
     expect(snap1.pinnedIds.size).toBe(0);
 
-    // Attempt to pin a fleet-only row — existing pinConversation guard
-    // (lines 350-358) rejects any id not in openTabs. Fleet ids never appear
-    // in openTabs, so this is a no-op. Regression test for the guard.
+    // Patch #149 A: pinning a fleet-only row now succeeds
     act(() => pinConversation("fleet::1::work"));
 
     const snap2 = __getSnapshotForTest();
-    expect(snap2.pinnedIds.size).toBe(0);
-    expect(snap2.pinned).toEqual([]);
-    // Row still visible in grouped
+    expect(snap2.pinnedIds.has("fleet::1::work")).toBe(true);
+    // Slice A does not move the row to the pinned section — that's Slice B.
+    // The row remains in grouped and gains the .pinned class at render time
+    // via the panel's `pinned={pinnedIds.has(row.id)}` prop.
     expect(snap2.grouped[0].rows[0].id).toBe("fleet::1::work");
   });
 });
@@ -1027,10 +1030,18 @@ describe("conversation-store (Plan 07-02): RDP row persistence tied to enableRdp
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 34: RDP rows cannot be pinned (defense-in-depth on pinConversation)
+// Test 34 (Patch #149 A): RDP-row un-pinnability is now enforced at the UI
+// layer (PrettyConversationsPanel wires `onTogglePin={rdpNoopTogglePin}` for
+// RDP rows and hard-codes `pinned={false}` in the RDP branch), NOT at the
+// store layer. Patch #149 A removed the store-level openTabs guard so fleet
+// rows could be pinned; the RDP invariant survives via the panel wiring and
+// the RDP row's render never producing a real pin click. If somebody DOES
+// call pinConversation("rdp-host::…") directly the store now accepts it, but
+// no path in the app does so, and the render still shows the RDP row as
+// unpinned (hard-coded prop).
 // ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store (Plan 07-02): RDP rows never pinnable", () => {
-  it("pinConversation on an RDP row id is a silent no-op (id not in openTabs)", () => {
+describe("conversation-store (Patch #149 A): RDP-row un-pinnability moved to UI layer", () => {
+  it("pinConversation on an RDP row id accepts it at the store level (UI wiring is the guard)", () => {
     const hostA = makeHost("1", "hostA", { enableRdp: true });
     act(() => {
       updateHostsFlat(new Map<number, Host>([[1, hostA]]));
@@ -1043,15 +1054,14 @@ describe("conversation-store (Plan 07-02): RDP rows never pinnable", () => {
     expect(rdpGroup!.rows[0].id).toBe("rdp-host::1");
     expect(snap.pinnedIds.size).toBe(0);
 
-    // Attempt to pin — existing pinConversation guard at conversation-store.ts
-    // rejects any id not in openTabs. RDP ids follow `rdp-host::${hostId}` and
-    // never appear in openTabs (RDP tabs, when opened, use the standard tab id
-    // format `${host.name}-rdp-${Date.now()}-${counter}`). Regression test.
+    // Patch #149 A: the store no longer rejects any id. Direct call succeeds.
+    // The panel wires `onTogglePin={rdpNoopTogglePin}` for RDP rows so no user
+    // click can trigger this path — the RDP-un-pinnable invariant is enforced
+    // at the panel wiring, not here.
     act(() => pinConversation("rdp-host::1"));
 
     snap = __getSnapshotForTest();
-    expect(snap.pinnedIds.size).toBe(0);
-    expect(snap.pinned).toEqual([]);
+    expect(snap.pinnedIds.has("rdp-host::1")).toBe(true);
     // Row still visible in the RDP sentinel group
     const rdpGroupAfter = snap.grouped.find((g) => g.hostId === "__rdp__");
     expect(rdpGroupAfter).toBeDefined();
