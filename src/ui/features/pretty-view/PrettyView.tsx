@@ -33,6 +33,19 @@ import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 
+// Patch #148: mirror Terminal.tsx's proven WebSocket auto-reconnect pattern.
+// When the claude-session bridge WS closes unexpectedly (deploy container
+// recreate, iOS PWA backgrounding, transient network blip), PrettyView now
+// retries up to MAX_RECONNECT_ATTEMPTS times with a linear-with-cap backoff
+// schedule (2s, 4s, 6s, 8s, 8s ≈ 28s total window). On each retryKey bump,
+// the WS-setup useEffect re-runs and opens a fresh WS. The "inactive" server
+// state short-circuits ALL retry paths — it is the authoritative terminal
+// frame and must not be overstepped by client-side reconnect logic.
+// A separate visibilitychange handler (the direct Ashley iOS PWA fix) resets
+// the attempt counter to 0 and triggers an immediate reconnect when the user
+// foregrounds the PWA tab — so her next tap always gets a live connection.
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 // Minimal read-only pretty view for a live Claude Code session.
 //
 // Opens a WebSocket to the claude-session bridge (Plan 01-02), sends
@@ -216,6 +229,21 @@ export function PrettyView({
   const wipActive = isIdle === false;
 
   const wsRef = useRef<WebSocket | null>(null);
+  // Patch #148 reconnect state — mirrors Terminal.tsx's pattern.
+  // reconnectAttemptsRef: persists across retryKey re-runs; resets on hostId/tmuxSession change
+  //   and on visibilitychange:visible. NOT reset on ws.onopen (defeats the cap on rapid cycles).
+  // reconnectTimeoutRef: pending retry timer; cleared on cleanup/unmount/visibility-hide.
+  // paneKeyRef: "${hostId}::${tmuxSession}" mirror — used inside the WS effect to distinguish
+  //   a fresh pane mount (full reset needed) from a retryKey-triggered re-run (preserve state).
+  // retryKey: bumped by the retry scheduler and by the visibilitychange handler to trigger
+  //   the WS-setup useEffect re-run without losing messages/status on a new-pane navigation.
+  // statusRef: mirrors `status` via a dedicated useEffect so onclose can read current status
+  //   without calling setStatus's functional-update form from inside a WS callback.
+  const reconnectAttemptsRef = useRef<number>(0);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paneKeyRef = useRef<string>('');
+  const [retryKey, setRetryKey] = useState<number>(0);
+  const statusRef = useRef<Status>('connecting');
 
   // Phase 05: touch-device gate for the mobile paperclip (UPLOAD-03).
   // The paperclip appears on touch devices only — desktop NEVER sees it
@@ -278,18 +306,29 @@ export function PrettyView({
   const pvHue = pvIdentityHue ?? 35;
 
   useEffect(() => {
-    // Reset all state for this (hostId, tmuxSession) mount.
-    setMessages([]);
-    setStatus("connecting");
-    setInactiveReason(null);
-    setErrorMessage(null);
-    setContextPct(null);
-    setHarnessTasks([]);
-    setBackgroundedAgents([]);
-    setBackgroundedShells([]);
-    setPlanPending(null);
-    setIsHolding(false);
-    setShowOverlay(false);
+    // Patch #148: distinguish a fresh pane mount from a retryKey-triggered re-run.
+    // On a fresh pane (hostId/tmuxSession changed), reset ALL state and the attempt
+    // counter. On a retry re-run (same pane, retryKey bumped), preserve messages/
+    // status so the UI does not flash blank while reconnecting.
+    const paneKey = `${hostId}::${tmuxSession}`;
+    if (paneKey !== paneKeyRef.current) {
+      // Fresh pane mount — full reset.
+      setMessages([]);
+      setStatus("connecting");
+      setInactiveReason(null);
+      setErrorMessage(null);
+      setContextPct(null);
+      setHarnessTasks([]);
+      setBackgroundedAgents([]);
+      setBackgroundedShells([]);
+      setPlanPending(null);
+      setIsHolding(false);
+      setShowOverlay(false);
+      reconnectAttemptsRef.current = 0;
+      paneKeyRef.current = paneKey;
+    }
+    // retryKey-triggered re-runs skip the reset above — preserving messages/status
+    // so the UI stays visible while the fresh WS is being opened.
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -307,6 +346,10 @@ export function PrettyView({
       } catch {
         /* ws may be mid-close */
       }
+      // Patch #148: clear any stale "Connection closed" banner from a prior
+      // attempt now that the fresh WS is confirmed open. Do NOT reset
+      // reconnectAttemptsRef here — a rapid open/close cycle would defeat the cap.
+      setErrorMessage(null);
     };
 
     ws.onmessage = (event: MessageEvent<string>) => {
@@ -446,18 +489,50 @@ export function PrettyView({
 
     ws.onclose = () => {
       if (cancelled) return;
-      // Do NOT auto-reopen. If we're already inactive, that stays the
-      // final terminal state — any resumption logic would risk
-      // stepping past a legitimate inactive frame.
-      setStatus((prev) => {
-        if (prev === "inactive") return prev;
-        return "error";
-      });
+      // Patch #148: auto-reconnect on close, mirroring Terminal.tsx's pattern.
+      //
+      // INACTIVE short-circuit (FALLBACK-01 preservation): when the server has
+      // sent an "inactive" frame (status === "inactive"), that is the authoritative
+      // terminal-state signal. Client-side retry must NOT step past it. Preserve
+      // both status and errorMessage exactly as the pre-patch code did — any more-
+      // specific message from a prior "tail_error" frame survives the nullish-coalesce.
+      //
+      // NON-INACTIVE path — retry with linear-with-cap backoff:
+      //   Attempt 1 → 2s, 2 → 4s, 3 → 6s, 4 → 8s, 5 → 8s (≈28s total window).
+      //   After MAX_RECONNECT_ATTEMPTS consecutive closes, no further timer is
+      //   scheduled and "Connection closed" persists. The visibilitychange handler
+      //   (Ashley iOS PWA fix) resets the counter to 0 on foreground, giving a
+      //   fresh 5-attempt budget per app reopen.
+      if (statusRef.current === 'inactive') {
+        // FALLBACK-01: preserve server-authoritative terminal state.
+        // Do not schedule retry; do not overwrite a more-specific errorMessage.
+        setStatus((prev) => (prev === "inactive" ? prev : "error"));
+        setErrorMessage((prev) => prev ?? "Connection closed");
+        return;
+      }
+      setStatus("error");
       setErrorMessage((prev) => prev ?? "Connection closed");
+      if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(2000 * (reconnectAttemptsRef.current + 1), 8000);
+        reconnectAttemptsRef.current += 1;
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectTimeoutRef.current = null;
+          if (cancelled) return;
+          setRetryKey((k) => k + 1);
+        }, delay);
+      }
+      // At cap: status stays "error", errorMessage stays "Connection closed".
+      // No further timer scheduled. visibilitychange:visible gives a fresh budget.
     };
 
     return () => {
       cancelled = true;
+      // Patch #148: clear any pending reconnect timer before closing the WS
+      // so unmount never fires a retry against a stale wsRef.
+      if (reconnectTimeoutRef.current !== null) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       try {
         ws.close();
       } catch {
@@ -465,7 +540,49 @@ export function PrettyView({
       }
       wsRef.current = null;
     };
-  }, [hostId, tmuxSession]);
+  }, [hostId, tmuxSession, retryKey]);
+
+  // Patch #148: visibilitychange handler — the direct Ashley iOS PWA fix.
+  // When the user foregrounds the PWA tab after backgrounding:
+  //   - If status is "inactive", no-op (server-authoritative terminal state).
+  //   - If WS is already OPEN (readyState 1), no-op (still connected).
+  //   - Otherwise: reset reconnectAttemptsRef to 0 (fresh budget for this foreground
+  //     event) and bump retryKey so the WS-setup useEffect opens a fresh connection.
+  // When the tab hides: clear any pending reconnect timer (avoid a background
+  //   wake after ~2-8s) but do NOT reset the attempt counter — a hide during a
+  //   retry sequence should NOT drop the accumulated attempt count. The
+  //   foreground path always gets a fresh counter anyway.
+  // deps: [] — mount-once; reads only refs, no reactive state dependencies.
+  // Do NOT add retryKey to deps — that would re-register listeners on every retry.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab hidden: cancel any pending reconnect timer.
+        if (reconnectTimeoutRef.current !== null) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        return;
+      }
+      // Tab visible: reconnect if needed.
+      if (statusRef.current === 'inactive') return;
+      if (wsRef.current?.readyState === 1) return; // still OPEN
+      // Fresh budget for this foreground event (Ashley iOS PWA fix).
+      reconnectAttemptsRef.current = 0;
+      setRetryKey((k) => k + 1);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Patch #148: statusRef mirror — keeps statusRef.current in sync with the
+  // `status` state so WS callbacks (onclose, visibilitychange handler) can
+  // read the current status WITHOUT triggering functional-update double-renders.
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   // Patch #74: delay-armed gate for the SessionHoldingOverlay. When
   // `isHolding` becomes true, arm a ~350ms timer; only after it fires
