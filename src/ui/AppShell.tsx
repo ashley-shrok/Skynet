@@ -301,7 +301,10 @@ export function AppShell({
       el.style.position = "absolute";
       el.style.inset = "0";
       el.style.overflow = "hidden";
-      if (!isTerminal) el.classList.add("bg-background");
+      // Phase 14B Slice 9: rebased from bg-background (Termix theme) to the
+      // pv base gradient token. Non-terminal tabs get a solid pv-base backdrop
+      // so the createPortal loop's mount surface still reads as opaque.
+      if (!isTerminal) el.style.background = "var(--color-pv-base)";
       tabNodesRef.current.set(tabId, el);
     }
     return tabNodesRef.current.get(tabId)!;
@@ -1350,7 +1353,7 @@ export function AppShell({
   return (
     <>
       <div
-        className="flex w-screen bg-background"
+        className="flex w-screen bg-[color:var(--color-pv-base)]"
         style={{
           height: "100dvh",
           paddingTop: "max(env(safe-area-inset-top), 0px)",
@@ -1453,7 +1456,7 @@ export function AppShell({
             column even when the viewport is wide (an iPad in landscape). */}
         {!isMobile && !isTouchDevice && (
           <div
-            className={`relative flex flex-col bg-sidebar shrink-0 overflow-hidden ${sidebarOpen ? `border-r transition-colors ${sidebarDragging ? "border-accent-brand/60" : "border-border"}` : ""}`}
+            className={`relative flex flex-col bg-[color:var(--color-pv-base)] shrink-0 overflow-hidden ${sidebarOpen ? `border-r transition-colors ${sidebarDragging ? "border-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "border-[color:var(--color-pv-border-quiet)]"}` : ""}`}
             style={{
               width: sidebarOpen ? (sidebarEditing ? 560 : sidebarWidth) : 0,
               transition: sidebarDragging ? "none" : "width 0.2s",
@@ -1464,7 +1467,7 @@ export function AppShell({
             {sidebarOpen && !sidebarEditing && (
               <div
                 onMouseDown={onSidebarMouseDown}
-                className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-30 transition-colors ${sidebarDragging ? "bg-accent-brand/60" : "hover:bg-accent-brand/40"}`}
+                className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-30 transition-colors ${sidebarDragging ? "bg-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "hover:bg-[hsla(var(--pv-hue,35),55%,50%,0.4)]"}`}
               />
             )}
           </div>
@@ -1479,7 +1482,7 @@ export function AppShell({
             <SheetContent
               side="left"
               showCloseButton={false}
-              className="p-0 flex flex-col w-[min(85vw,360px)] max-w-full bg-sidebar border-r border-border gap-0"
+              className="p-0 flex flex-col w-[min(85vw,360px)] max-w-full gap-0"
               style={{ height: "100dvh" }}
             >
               {sidebarPanelContent}
@@ -1543,11 +1546,11 @@ export function AppShell({
               idiom for consistency (h-12.5 row, ChevronLeft icon, muted-
               foreground default with hover:text-foreground). */}
           {isMobileViewScreen && (
-            <div className="flex flex-row items-center border-b border-border h-12.5 shrink-0 bg-sidebar">
+            <div className="flex flex-row items-center border-b border-[color:var(--color-pv-border-quiet)] h-12.5 shrink-0 bg-[color:var(--color-pv-base)]">
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-full w-12.5 rounded-none text-muted-foreground hover:text-foreground shrink-0"
+                className="h-full w-12.5 rounded-none shrink-0"
                 onClick={() => navigateToList()}
                 aria-label={t("nav.conversations.backToList", {
                   defaultValue: "Back to conversations",
@@ -1559,7 +1562,7 @@ export function AppShell({
                 <ChevronLeft className="size-4" />
               </Button>
               <Separator orientation="vertical" />
-              <span className="flex-1 text-base font-bold tracking-tight text-foreground px-3 truncate">
+              <span className="flex-1 text-base font-bold tracking-tight text-[color:var(--color-pv-fg)] px-3 truncate">
                 {activeConversationLabel}
               </span>
             </div>
