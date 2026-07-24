@@ -12,11 +12,13 @@
 //   - Persistence is in-memory only (module-scoped Map/Set +
 //     React `useSyncExternalStore`). Nothing written to any browser storage
 //     layer per TG-05 — a full page refresh resets the store.
-//   - Tabs excluded from the conversation list: "dashboard", "host-manager",
-//     "user-profile", "admin-settings", "tunnel", "network_graph". These are
-//     singletons or non-conversation surfaces; the conversation list is
-//     "sessions I'm talking to" (terminal / rdp / vnc / telnet / stats /
-//     files / docker on a host).
+//   - Tabs excluded from the conversation list: "dashboard". This is a
+//     singleton non-conversation surface; the conversation list is
+//     "sessions I'm talking to" (terminal / rdp / vnc / telnet on a host).
+//   - Phase 14A retired the "files", "docker", "stats", "tunnel",
+//     "host-manager", "user-profile", "admin-settings", "network_graph"
+//     tab types entirely — they're absent from the TabType union so the
+//     set below only lists what actually exists.
 //
 // Pattern is deliberately the same as src/ui/state/identities-store.ts —
 // module-scoped `state` + `Set<() => void>` listener registry + a snapshot
@@ -99,9 +101,6 @@ const CONVERSATION_TAB_TYPES = new Set<TabType>([
   "rdp",
   "vnc",
   "telnet",
-  "files",
-  "docker",
-  "stats",
 ]);
 
 // Patch #137: sessionStorage key for the activeSet persistence layer. Value is

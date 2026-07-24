@@ -345,52 +345,12 @@ describe("conversation-store: dashboard tab excluded", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 10: singleton settings tabs excluded
-// ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store: settings singletons excluded", () => {
-  it("host-manager / user-profile / admin-settings tabs do NOT appear in the list", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([
-        makeTab("hm", "host-manager"),
-        makeTab("up", "user-profile"),
-        makeTab("as", "admin-settings"),
-        makeTab("t1", "terminal", hostA),
-      ]);
-    });
-    const snap = __getSnapshotForTest();
-    const allIds = [
-      ...snap.pinned.map((r) => r.id),
-      ...snap.grouped.flatMap((g) => g.rows.map((r) => r.id)),
-    ];
-    expect(allIds).toEqual(["t1"]);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 11: tunnel tabs excluded (host-less; not a "conversation")
-// ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store: tunnel tabs excluded", () => {
-  it("tunnel tab type is not surfaced anywhere in the conversation list", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([
-        makeTab("tun1", "tunnel"),
-        makeTab("t1", "terminal", hostA),
-      ]);
-    });
-    const snap = __getSnapshotForTest();
-    const allIds = [
-      ...snap.pinned.map((r) => r.id),
-      ...snap.grouped.flatMap((g) => g.rows.map((r) => r.id)),
-    ];
-    expect(allIds).not.toContain("tun1");
-    expect(allIds).toEqual(["t1"]);
-  });
-});
+// Phase 14A retirement: Tests 10 + 11 removed. They asserted that the retired
+// tab types "host-manager", "user-profile", "admin-settings", and "tunnel"
+// were excluded from the conversation list. Those tab types no longer exist
+// in the TabType union, so the exclusion is enforced by the type system
+// rather than the store. The remaining CONVERSATION_TAB_TYPES set is
+// covered by Tests 1-9 + 12+ (below).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 12: reactive updates — subscriber fires on real mutations, not on no-ops

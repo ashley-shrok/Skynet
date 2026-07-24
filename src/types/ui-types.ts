@@ -151,15 +151,7 @@ export type TabType =
   | "terminal"
   | "rdp"
   | "vnc"
-  | "telnet"
-  | "stats"
-  | "files"
-  | "host-manager"
-  | "user-profile"
-  | "admin-settings"
-  | "docker"
-  | "tunnel"
-  | "network_graph";
+  | "telnet";
 
 export type TunnelStatusValue =
   | "CONNECTED"
@@ -205,24 +197,6 @@ export type Tab = {
     fit?: () => void;
     notifyResize?: () => void;
   } | null>;
-};
-
-export type DockerContainerStatus =
-  | "running"
-  | "exited"
-  | "paused"
-  | "created"
-  | "restarting";
-
-export type DockerContainer = {
-  id: string;
-  name: string;
-  image: string;
-  status: DockerContainerStatus;
-  cpu: number;
-  memory: string;
-  ports: string[];
-  created: string;
 };
 
 export type DashboardCardId =

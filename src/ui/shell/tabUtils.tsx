@@ -2,11 +2,7 @@
 import {
   LayoutDashboard,
   Monitor,
-  Network,
-  Server,
-  Settings,
   Terminal,
-  User,
   TerminalSquare,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -88,14 +84,6 @@ export function tabIcon(type: TabType) {
       return <Monitor className="size-3.5" />;
     case "telnet":
       return <Terminal className="size-3.5" />;
-    case "host-manager":
-      return <Server className="size-3.5" />;
-    case "user-profile":
-      return <User className="size-3.5" />;
-    case "admin-settings":
-      return <Settings className="size-3.5" />;
-    case "network_graph":
-      return <Network className="size-3.5" />;
   }
 }
 
@@ -217,18 +205,5 @@ export function renderTabContent(
           onClose={() => onCloseTab?.(tab.id)}
         />
       );
-
-    case "network_graph":
-      // Phase 12 Plan 02 (pre-flight for dashboard/ deletion in Plan 04): renders
-      // the pretty-view empty-landing card. The network_graph TabType is preserved
-      // in the union but no UI path reaches it in Skynet; the retired
-      // graph card from src/ui/dashboard/cards/ becomes dead code and is
-      // deleted with the dashboard subtree in Plan 04.
-      return <PrettyLandingCard />;
-
-    case "host-manager":
-    case "user-profile":
-    case "admin-settings":
-      return null;
   }
 }
