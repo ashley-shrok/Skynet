@@ -161,25 +161,25 @@ export function NewSessionDialog({
 
         <div className="flex flex-col gap-3">
           {/* Search input — same visual idiom as HostsPanel.tsx lines 331-347 */}
-          <div className="flex items-center gap-2 px-2.5 h-7 bg-muted/60 border border-border/60 rounded-sm">
-            <Search className="size-3 text-muted-foreground/60 shrink-0" />
+          <div className="flex items-center gap-2 px-2.5 h-7 bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm">
+            <Search className="size-3 text-[color:var(--color-pv-fg-dim)] shrink-0" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={searchPlaceholder}
               aria-label={searchPlaceholder}
-              className="flex-1 text-xs bg-transparent outline-none placeholder:text-muted-foreground/50 text-foreground min-w-0"
+              className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0"
             />
           </div>
 
           {/* Scrollable host list */}
           <div
-            className="flex flex-col max-h-72 overflow-y-auto border border-border/40 rounded-sm"
+            className="flex flex-col max-h-72 overflow-y-auto border border-[color:var(--color-pv-border-quiet)] rounded-sm"
             role="listbox"
             aria-label={t("nav.newSessionHostList", { defaultValue: "Hosts" })}
           >
             {filteredHosts.length === 0 ? (
-              <div className="px-3 py-4 text-xs text-muted-foreground/60 text-center">
+              <div className="px-3 py-4 text-xs text-[color:var(--color-pv-fg-dim)] text-center">
                 {emptyHostsLabel}
               </div>
             ) : (
@@ -192,22 +192,22 @@ export function NewSessionDialog({
                     role="option"
                     aria-selected={selected}
                     onClick={() => setSelectedHost(h)}
-                    className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-border/30 last:border-b-0 ${
+                    className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 ${
                       selected
-                        ? "bg-accent-brand/10 text-accent-brand"
-                        : "hover:bg-muted/50 text-foreground"
+                        ? "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] text-[color:var(--color-pv-fg)]"
+                        : "hover:bg-[hsla(var(--pv-hue,35),40%,25%,0.18)] text-[color:var(--color-pv-fg)]"
                     }`}
                   >
                     <span
                       className={`size-1.5 rounded-full shrink-0 ${
-                        h.online ? "bg-green-500" : "bg-muted-foreground/40"
+                        h.online ? "bg-green-500" : "bg-[color:var(--color-pv-fg-dim)]"
                       }`}
                       aria-hidden
                     />
                     <span className="font-semibold truncate flex-1">
                       {h.name}
                     </span>
-                    <span className="text-[10px] text-muted-foreground/70 truncate">
+                    <span className="text-[10px] text-[color:var(--color-pv-fg-muted)] truncate">
                       {h.username ? `${h.username}@${h.ip}` : h.ip}
                     </span>
                   </button>
@@ -222,7 +222,7 @@ export function NewSessionDialog({
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="new-session-name"
-              className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground"
+              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
             >
               {nameLabel}
             </label>
@@ -237,7 +237,7 @@ export function NewSessionDialog({
             {!nameValid && sessionName.length > 0 && (
               <span
                 id="new-session-name-error"
-                className="text-xs text-destructive"
+                className="text-xs text-[color:var(--color-pv-code-fg)]"
               >
                 {nameErrorText}
               </span>
@@ -252,7 +252,7 @@ export function NewSessionDialog({
           <Button
             variant="outline"
             disabled={!canOpen}
-            className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand disabled:opacity-50"
+            className="text-[color:var(--color-pv-code-fg)] hover:opacity-90 disabled:opacity-50"
             onClick={() => {
               if (!canOpen || !selectedHost) return;
               onCreate({

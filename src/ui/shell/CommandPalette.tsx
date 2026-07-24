@@ -160,24 +160,24 @@ export function CommandPalette({
     <>
     <div
       className={cn(
-        "fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] bg-background/40 backdrop-blur-sm transition-all duration-200 animate-in fade-in",
+        "fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] bg-black/55 backdrop-blur-sm transition-all duration-200 animate-in fade-in",
       )}
       onClick={() => setIsOpen(false)}
     >
       <div
         className={cn(
-          "w-full max-w-2xl mx-4 overflow-hidden rounded-none border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[70vh]",
+          "w-full max-w-2xl mx-4 overflow-hidden rounded-none border border-[color:var(--color-pv-border-quiet-strong)] bg-[linear-gradient(180deg,rgba(28,30,40,0.92),rgba(18,20,28,0.95))] rounded-[var(--radius-pv-card)] shadow-[0_30px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(220,225,245,0.08)] backdrop-blur-xl [backdrop-filter:blur(28px)_saturate(1.35)] animate-in zoom-in-95 duration-200 flex flex-col max-h-[70vh]",
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center border-b border-border px-4 py-1 shrink-0">
-          <Search className="size-4 text-muted-foreground mr-3" />
+        <div className="flex items-center border-b border-[color:var(--color-pv-border-quiet)] px-4 py-1 shrink-0">
+          <Search className="size-4 text-[color:var(--color-pv-fg-muted)] mr-3" />
           <input
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter sessions or remote desktops…"
-            className="flex-1 h-12 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="flex-1 h-12 bg-transparent text-sm outline-none placeholder:text-[color:var(--color-pv-fg-muted)]"
           />
           <div className="flex items-center gap-1.5 ml-2">
             <Button
@@ -195,14 +195,14 @@ export function CommandPalette({
                 )}
               />
             </Button>
-            <Kbd className="bg-muted/50 border-none h-6 px-2 text-[11px] rounded-none">
+            <Kbd className="bg-[color:var(--color-pv-surface-quiet)] border-none h-6 px-2 text-[11px] rounded-none">
               ESC
             </Kbd>
           </div>
         </div>
 
         {filteredLaunchableHosts.length > 0 && (
-          <div className="border-b border-border shrink-0">
+          <div className="border-b border-[color:var(--color-pv-border-quiet)] shrink-0">
             <NewSessionHostChips
               hosts={filteredLaunchableHosts}
               onSelect={(host) => {
@@ -218,7 +218,7 @@ export function CommandPalette({
         )}
 
         {filteredProtocolHosts.length > 0 && (
-          <div className="border-b border-border shrink-0">
+          <div className="border-b border-[color:var(--color-pv-border-quiet)] shrink-0">
             <RemoteHostChips
               hosts={filteredProtocolHosts}
               onSelect={(host, type) => {
@@ -231,19 +231,19 @@ export function CommandPalette({
 
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {state === "loading" && sessions.length === 0 && (
-            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground/60 py-12">
+            <div className="flex-1 flex items-center justify-center text-xs text-[color:var(--color-pv-fg-dim)] py-12">
               Loading sessions…
             </div>
           )}
           {state === "error" && (
-            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground py-12">
+            <div className="flex-1 flex items-center justify-center text-xs text-[color:var(--color-pv-fg-muted)] py-12">
               Couldn't reach any hosts. Try Refresh.
             </div>
           )}
           {state !== "loading" &&
             state !== "error" &&
             sessions.length === 0 && (
-              <div className="flex-1 flex items-center justify-center gap-2 text-xs text-muted-foreground/60 py-12">
+              <div className="flex-1 flex items-center justify-center gap-2 text-xs text-[color:var(--color-pv-fg-dim)] py-12">
                 <span>
                   {filteredLaunchableHosts.length > 0
                     ? "No active sessions. Pick a host above to open one."
@@ -252,7 +252,7 @@ export function CommandPalette({
               </div>
             )}
           {sessions.length > 0 && filteredSessions.length === 0 && (
-            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground/60 py-12">
+            <div className="flex-1 flex items-center justify-center text-xs text-[color:var(--color-pv-fg-dim)] py-12">
               No sessions match “{search}”.
             </div>
           )}
@@ -276,18 +276,18 @@ export function CommandPalette({
           )}
         </div>
 
-        <div className="border-t border-border px-4 py-3 bg-muted/30 flex items-center justify-between text-[11px] text-muted-foreground shrink-0">
+        <div className="border-t border-[color:var(--color-pv-border-quiet)] px-4 py-3 bg-[color:var(--color-pv-surface-quiet)] flex items-center justify-between text-[11px] text-[color:var(--color-pv-fg-muted)] shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
-              <Kbd className="h-5 px-1 bg-background rounded-none">ENTER</Kbd>
+              <Kbd className="h-5 px-1 bg-[color:var(--color-pv-base)] rounded-none">ENTER</Kbd>
               <span>open session</span>
             </div>
           </div>
           <div className="flex items-center gap-1">
             <span>toggle with</span>
-            <Kbd className="h-5 px-1.5 bg-background rounded-none">Shift</Kbd>
+            <Kbd className="h-5 px-1.5 bg-[color:var(--color-pv-base)] rounded-none">Shift</Kbd>
             <span>+</span>
-            <Kbd className="h-5 px-1.5 bg-background rounded-none">Shift</Kbd>
+            <Kbd className="h-5 px-1.5 bg-[color:var(--color-pv-base)] rounded-none">Shift</Kbd>
           </div>
         </div>
       </div>
