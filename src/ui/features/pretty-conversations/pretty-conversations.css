@@ -471,10 +471,17 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DESKTOP PIN ACTION — Phase 13 Plan 03 (SHAPE-03). The mock treats the pin
-   as a bare icon with a hue-cream fill + hue-drop-shadow, no button chrome
-   (prototype.html lines 333-337: `.meta .pin { color: hsla(var(--hue), 80%,
-   70%, 0.95); filter: drop-shadow(0 0 4px hsla(var(--hue), 80%, 60%, 0.55)); }`).
+   PIN ACTION — Phase 13 Plan 03 (SHAPE-03) + Phase 14B Slice 2 (Bug B). The
+   mock treats the pin as a bare icon with a hue-cream fill + hue-drop-shadow,
+   no button chrome (prototype.html lines 333-337: `.meta .pin { color:
+   hsla(var(--hue), 80%, 70%, 0.95); filter: drop-shadow(0 0 4px
+   hsla(var(--hue), 80%, 60%, 0.55)); }`).
+
+   Phase 14B Slice 2 unified this treatment across BOTH viewports — the
+   prior 48x48 hue-tinted circle chrome on mobile was retired in favor of the
+   same bare-icon-with-hue-drop-shadow language. Mobile carries a larger
+   hit-target via `data-size="mobile"` (~32px) so the touch affordance stays
+   compliant, but visually it's still just the hue-glow pip on pinned rows.
    The React port renders PinAction as a real `<button>` (for accessibility +
    click handling) but the button element itself is styled to be visually
    indistinguishable from a bare icon — no background, no border, no rounded
@@ -486,7 +493,7 @@
    only.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.pv-pin-action-desktop {
+.pv-pin-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -502,24 +509,38 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.pv-pin-action-desktop svg {
+.pv-pin-action svg {
   width: 14px;
   height: 14px;
   stroke-width: 2;
 }
 
-.pv-pin-action-desktop:hover {
+.pv-pin-action:hover {
   filter: drop-shadow(0 0 6px hsla(var(--pv-hue, 216), 80%, 60%, 0.75));
 }
 
-.pv-pin-action-desktop:focus-visible {
+.pv-pin-action:focus-visible {
   outline: 2px solid hsla(var(--pv-hue, 216), 70%, 60%, 0.6);
   outline-offset: 2px;
 }
 
+/* Mobile hit-target: bigger tap area (~32px) with a slightly larger glyph
+   so the affordance stays comfortable inside the swipe-reveal strip without
+   introducing button chrome (no background, no border, no rounded rect —
+   still a bare icon-with-hue-drop-shadow, just scaled up). */
+.pv-pin-action[data-size="mobile"] {
+  width: 32px;
+  height: 32px;
+}
+
+.pv-pin-action[data-size="mobile"] svg {
+  width: 20px;
+  height: 20px;
+}
+
 /* RDP rows: neutral treatment defensively declared even though RDP rows
    never render PinAction per the Row's contract. */
-.pv-row.rdp .pv-pin-action-desktop {
+.pv-row.rdp .pv-pin-action {
   color: var(--color-pv-fg-muted);
   filter: none;
 }
@@ -527,7 +548,9 @@
 /* Hide-on-unpinned rule (SHAPE-03 mock invariant). On UNpinned desktop rows,
    the pin-action button is hidden entirely unless the row is hovered OR any
    descendant is keyboard-focused (allows pin-via-keyboard-nav). Pinned rows
-   always show the pin — that's how the mock signals pinned state. */
-.pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within) .pv-pin-action-desktop {
+   always show the pin — that's how the mock signals pinned state. Mobile
+   rows use the swipe-strip mechanism for reveal so this rule is scoped to
+   desktop only. */
+.pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within) .pv-pin-action {
   display: none;
 }

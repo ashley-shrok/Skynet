@@ -10,23 +10,26 @@
 //     row's own click handler doesn't fire when the pin is pressed. This
 //     component just forwards the raw event to onClick.
 //
-// Visuals come verbatim from the Ashley-signed-off prototypes:
-//   - mobile: prototype.html lines 210-228 (48x48 hue-tinted circle with
-//     inner-highlight box shadow) — preserved verbatim (mock v4 doesn't
-//     cover mobile swipe-reveal; fork-only affordance).
-//   - desktop: prototype.html lines 333-337 — bare-icon-with-hue-drop-shadow
-//     treatment (`.meta .pin { color: hsla(var(--hue), 80%, 70%, 0.95);
+// Phase 14B Slice 2 (Bug B): the mobile 48x48 hue-tinted circle chrome
+// (rounded-full disc + inner-highlight box-shadow) was retired. Both
+// viewports now render the mock's bare-icon-with-hue-drop-shadow treatment
+// via the shared `.pv-pin-action` CSS class in pretty-conversations.css.
+// Mobile keeps a bigger touch target (~32px hit area, via the CSS
+// `.pv-pin-action[data-size="mobile"]` size variant) but visually still just
+// the hue-glow pip on pinned rows. The `.pv-row:not(.pinned) .pv-meta .pv-pin`
+// rule in the CSS continues to hide unpinned rows' pins unaffected.
+//
+// Visuals lifted verbatim from the Ashley-signed-off prototype:
+//   - prototype.html lines 333-337 — bare-icon-with-hue-drop-shadow treatment
+//     (`.meta .pin { color: hsla(var(--hue), 80%, 70%, 0.95);
 //     filter: drop-shadow(0 0 4px hsla(var(--hue), 80%, 60%, 0.55)); }`).
-//     Phase 13 Plan 03 (SHAPE-03) retires the Skynet button chrome
-//     (`w-6 h-6 rounded-md bg-transparent border-0 hover:bg-white/[0.06]`
-//     + `text-muted-foreground/60`) and delegates styling to the
-//     `.pv-pin-action-desktop` selector in pretty-conversations.css. The
-//     `--pv-hue` custom property is inherited from the parent `.pv-row`.
+//     Phase 13 Plan 03 (SHAPE-03) established the treatment for desktop;
+//     Phase 14B extends it to mobile per Ashley 2026-07-24.
 //
 // Opacity / visibility is CSS-driven:
 //   - Desktop: `.pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within)
-//     .pv-pin-action-desktop { display: none }` — hidden on unpinned rows
-//     unless hovered or keyboard-focused.
+//     .pv-pin-action { display: none }` — hidden on unpinned rows unless
+//     hovered or keyboard-focused.
 //   - Mobile: strip owns visibility; component never hides itself.
 //
 // No `animate-spin` or any other motion (per Phase 10 non-negotiables — the
@@ -37,12 +40,15 @@ import { Pin, PinOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 export function PinAction({
-  hue,
+  hue: _hue,
   pinned,
   size,
   onClick,
   "data-testid": dataTestId,
 }: {
+  // hue is now unused at render time — the CSS class inherits `--pv-hue` from
+  // the parent `.pv-row`. Kept in the props type for API stability across
+  // both viewports (mobile and desktop) and future extension.
   hue: number | null;
   pinned: boolean;
   size: "mobile" | "desktop";
@@ -54,54 +60,16 @@ export function PinAction({
     ? t("nav.conversations.unpin", { defaultValue: "Unpin" })
     : t("nav.conversations.pin", { defaultValue: "Pin" });
 
-  if (size === "mobile") {
-    // Mobile: 48x48 hue-tinted disc inside the swipe-reveal strip. Hue null
-    // falls back to the neutral blue-gray no-identity treatment per prototype
-    // lines 226-228. UNCHANGED by Phase 13 Plan 03 — the mock is a desktop
-    // layout and mobile swipe-reveal is a fork-only affordance Ashley kept.
-    const bg =
-      hue == null
-        ? "rgba(90,105,140,0.9)"
-        : `hsla(${hue}, 60%, 42%, 0.95)`;
-    const borderColor =
-      hue == null
-        ? "rgba(120,140,180,0.55)"
-        : `hsla(${hue}, 70%, 55%, 0.6)`;
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        title={label}
-        aria-label={label}
-        data-testid={dataTestId ?? "pin-action"}
-        style={{
-          background: bg,
-          borderColor,
-        }}
-        className={
-          "inline-flex items-center justify-center " +
-          "w-12 h-12 rounded-full " +
-          "border text-white/95 " +
-          "shadow-[0_3px_10px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.15)] " +
-          "[-webkit-tap-highlight-color:transparent] " +
-          "cursor-pointer select-none"
-        }
-      >
-        {pinned ? <PinOff className="w-5 h-5" /> : <Pin className="w-5 h-5" />}
-      </button>
-    );
-  }
-
-  // Desktop: bare icon with hue-drop-shadow. All button-chrome retired — no
-  // background, no border, no rounded-md wrapper, no hover:bg. CSS class
-  // `.pv-pin-action-desktop` (declared in pretty-conversations.css) applies
+  // Unified bare-icon-with-hue-drop-shadow treatment. The CSS class applies
   // the color + filter via `hsla(var(--pv-hue), ...)` where `--pv-hue` is
-  // inherited from the parent `.pv-row`. Icon size and hide-on-unpinned-
-  // non-hovered rules are also CSS-driven.
+  // inherited from the parent `.pv-row`. Icon size and hide-on-unpinned-non-
+  // hovered rules are CSS-driven. `data-size` lets the CSS bump the mobile
+  // hit-area up to ~32px without introducing button chrome.
   return (
     <button
       type="button"
-      className="pv-pin-action-desktop"
+      className="pv-pin-action"
+      data-size={size}
       onClick={onClick}
       title={label}
       aria-label={label}
