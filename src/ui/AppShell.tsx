@@ -830,6 +830,7 @@ export function AppShell({
                   return newTabs.length > 0 ? [...prev, ...newTabs] : prev;
                 });
                 setActiveTabId(restoredTabs[0].id);
+                selectConversationDeferred(restoredTabs[0].id);
               }
               // Restored tabs are in the tab bar, not in background records
             }
@@ -898,6 +899,7 @@ export function AppShell({
                 ? pending.activeIndex
                 : 0;
             setActiveTabId(openedIds[idx]);
+            selectConversationDeferred(openedIds[idx]);
           }
         }
       } catch {
