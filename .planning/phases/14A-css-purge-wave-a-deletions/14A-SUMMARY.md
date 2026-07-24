@@ -4,13 +4,13 @@ plan: 01
 subsystem: skynet-css-purge
 tags: [deletion, cleanup, dead-code, ui-purge, phase-14a, css-purge-wave-a]
 requires:
-  - Phase 8ad1f4e (Termix→Skynet rename complete)
+  - Phase 8ad1f4e (the standalone rename complete)
 provides:
   - clean tabUtils.tsx surface (5 TabTypes only)
   - AppShell TransferMonitor / needsTransferMonitor retired
   - locale files stripped of retired-feature sections
 tech-stack:
-  removed: [Termix built-in file manager, Docker container UI, SSH tunnel UI, server-stats widgets, C2S tunnel presets]
+  removed: [prior fork's built-in file manager, Docker container UI, SSH tunnel UI, server-stats widgets, C2S tunnel presets]
   patterns: [atomic per-subtree deletion + immediate consumer retirement, Phase 12 precedent]
 key-files:
   deleted:

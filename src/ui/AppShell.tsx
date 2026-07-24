@@ -301,7 +301,7 @@ export function AppShell({
       el.style.position = "absolute";
       el.style.inset = "0";
       el.style.overflow = "hidden";
-      // Phase 14B Slice 9: rebased from bg-background (Termix theme) to the
+      // Phase 14B Slice 9: rebased from bg-background (prior fork theme) to the
       // pv base gradient token. Non-terminal tabs get a solid pv-base backdrop
       // so the createPortal loop's mount surface still reads as opaque.
       if (!isTerminal) el.style.background = "var(--color-pv-base)";
@@ -1324,7 +1324,7 @@ export function AppShell({
     </div>
   );
 
-  // Phase 14B Slice 1 (Bug A): outer `sidebarHeader` retired. The Termix-flavored
+  // Phase 14B Slice 1 (Bug A): outer `sidebarHeader` retired. The prior fork's
   // bar with mixed-case "Conversations" title + reset-width Maximize2 button +
   // ChevronLeft close-sidebar button lived above the pretty-conversations panel
   // and jarred against the pv aesthetic Ashley signed off on. The sidebar-toggle

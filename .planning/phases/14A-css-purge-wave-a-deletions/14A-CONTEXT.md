@@ -1,7 +1,7 @@
 # Phase 14A — CSS Purge Wave A: Deletions
 
 **Date authored:** 2026-07-24
-**Branch:** feat/tab-title-from-tmux (14 commits ahead of Phase 13 tip; last commit is Termix→Skynet rename `8ad1f4e`).
+**Branch:** feat/tab-title-from-tmux (14 commits ahead of Phase 13 tip; last commit is the standalone rename `8ad1f4e`).
 **Baseline:** `tsc --noEmit` = clean. `npx vitest run` = 524/526 (two pre-existing `ComposeBox.test.tsx` failures documented Phase 13).
 
 ## Objective

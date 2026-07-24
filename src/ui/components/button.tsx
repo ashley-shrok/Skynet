@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 // (send button, reset cell) + IdentityBadge lg (hue-glow surface).
 // Palette source: --color-pv-* tokens declared in src/ui/index.css:117-146.
 //
-// Variant mapping (from Termix defaults to pv aesthetic):
+// Variant mapping (from prior fork defaults to pv aesthetic):
 //   - default: hue-glow primary — warm-cream text on a subtle warm gradient
 //     with a warm-cream inset rim + hue outer glow. Matches the ComposeBox
 //     send button treatment. `--pv-hue` inherited from ancestor context

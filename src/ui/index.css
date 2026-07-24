@@ -146,17 +146,17 @@ body {
 }
 
 /* Phase 14B Slice 8: `:root { light-mode }` block retired. Skynet never
- * activates the Termix light theme — the app boots into the `.dark` class
+ * activates the prior fork's light theme — the app boots into the `.dark` class
  * by default via ThemeProvider, and every Ashley-visible surface is a
  * dark-mode surface. Keeping the light-mode variables around was pure
  * dead weight (35 lines, ~100 tokens). The pv aesthetic drives every
  * pretty surface directly; the `.dark` block below survives only to
  * keep IdentityBadge md (terminal-pane badge, size='md' default at
  * IdentityBadge.tsx:133-161 — a protected reference surface per the
- * Phase 14B plan) rendering correctly, plus a handful of tiny Termix-
- * class references elsewhere the plan's "best effort" scope didn't
- * catch. Future phases can retire `.dark` after IdentityBadge md is
- * migrated to inline styles or its own CSS. */
+ * Phase 14B plan) rendering correctly, plus a handful of tiny legacy
+ * theme-class references elsewhere the plan's "best effort" scope
+ * didn't catch. Future phases can retire `.dark` after IdentityBadge md
+ * is migrated to inline styles or its own CSS. */
 
 .dark {
   --background: #0a0b12;
@@ -234,7 +234,7 @@ body {
 
 /* Phase 14B Slice 8: 6 non-Dracula xterm color themes retired
  * (Catppuccin Mocha, Nord, Solarized Dark, Tokyo Night, One Dark,
- * Gruvbox Dark — Termix upstream carry-overs). Dracula stays because
+ * Gruvbox Dark — upstream fork carry-overs). Dracula stays because
  * it's the theme Ashley locked in for her fleet. See
  * .planning/phases/14A-css-purge-wave-a-deletions/14A-SUMMARY.md for
  * the CSS purge wave methodology. */
