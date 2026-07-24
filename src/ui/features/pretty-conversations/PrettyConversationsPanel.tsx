@@ -142,7 +142,7 @@ export function PrettyConversationsPanel({
   sidebarToggleOverlaps?: boolean;
 }) {
   const { t } = useTranslation();
-  const { pinned, grouped } = useConversations();
+  const { activeSet: activeSetRows, pinned, grouped } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
   // Patch #137: hoisted once so all row-level activeSet.has(row.id) reads
@@ -175,7 +175,7 @@ export function PrettyConversationsPanel({
     null,
   );
 
-  const isEmpty = pinned.length === 0 && grouped.length === 0;
+  const isEmpty = activeSetRows.length === 0 && pinned.length === 0 && grouped.length === 0;
 
   const showPencilButton = typeof onCreateSession === "function";
   const isMobileVariant = variant === "mobile";
@@ -318,6 +318,30 @@ export function PrettyConversationsPanel({
           </div>
         ) : (
           <>
+            {/* Patch #149 B+C: active-set rows overtake pinned per Ashley 2026-07-24.
+                Rows here get pinned={pinnedIds.has(row.id)} so a row that IS pinned
+                AND active still shows the pin glyph. */}
+            <div className="pv-panel-group" data-active-set-group="true">
+              {activeSetRows.map((row) => (
+                <PrettyConversationRowLive
+                  key={row.id}
+                  row={row}
+                  selected={row.id === selectedId}
+                  pinned={pinnedIds.has(row.id)}
+                  variant={variant}
+                  onSelect={() => handleRowSelect(row)}
+                  onTogglePin={() => togglePinConversation(row.id)}
+                  onSwipeOpenChange={
+                    isMobileVariant
+                      ? (open) => handleSwipeOpenChange(row.id, open)
+                      : undefined
+                  }
+                  forceClosed={forceClosedFor(row.id)}
+                  inActiveSet={activeSet.has(row.id)}
+                  sessionKey={sessionWorkingKey(row)}
+                />
+              ))}
+            </div>
             {/* Pinned rows — flat, no "Pinned" section header. The pin
                 glyph on each row is the only marker. Patch #137: live
                 isWorking + inActiveSet wiring per row. The panel-level

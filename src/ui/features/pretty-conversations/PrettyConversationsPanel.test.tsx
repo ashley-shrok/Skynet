@@ -78,6 +78,7 @@ type MockGroup = {
 };
 
 type MockSnapshot = {
+  activeSet: MockRow[];
   pinned: MockRow[];
   grouped: MockGroup[];
   selectedId: string | null;
@@ -85,6 +86,7 @@ type MockSnapshot = {
 };
 
 let snapshot: MockSnapshot = {
+  activeSet: [],
   pinned: [],
   grouped: [],
   selectedId: null,
@@ -93,6 +95,7 @@ let snapshot: MockSnapshot = {
 
 function setSnapshot(next: Partial<MockSnapshot>): void {
   snapshot = {
+    activeSet: next.activeSet ?? [],
     pinned: next.pinned ?? [],
     grouped: next.grouped ?? [],
     selectedId: next.selectedId ?? null,
@@ -109,6 +112,7 @@ const addToActiveSetSpy = vi.fn();
 
 vi.mock("@/state/conversation-store", () => ({
   useConversations: () => ({
+    activeSet: snapshot.activeSet,
     pinned: snapshot.pinned,
     grouped: snapshot.grouped,
   }),
@@ -191,6 +195,7 @@ const ONE_HOST_TREE: HostFolder = {
 beforeEach(() => {
   vi.clearAllMocks();
   setSnapshot({
+    activeSet: [],
     pinned: [],
     grouped: [],
     selectedId: null,
@@ -230,6 +235,70 @@ describe("PrettyConversationsPanel: empty state", () => {
     // Also assert PrettyConversationRow avatar test-id is absent (belt-
     // and-suspenders — if a row DID render we would find its avatar).
     expect(queryAllByTestId("pcrow-avatar").length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 18 — active-set group renders ABOVE pinned group (Patch #149 B+C)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: active-set group above pinned (Patch #149 B+C)", () => {
+  it("Test 18: data-active-set-group=true renders above data-pinned-group=true in DOM order", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
+      ],
+      pinned: [
+        makeConversationRow({ id: "pinned-1", label: "pinned-session", host: hostA }),
+      ],
+      grouped: [],
+    });
+
+    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+
+    const activeGroup = container.querySelector(
+      '[data-active-set-group="true"]',
+    ) as HTMLElement | null;
+    const pinnedGroup = container.querySelector(
+      '[data-pinned-group="true"]',
+    ) as HTMLElement | null;
+
+    expect(activeGroup).toBeTruthy();
+    expect(pinnedGroup).toBeTruthy();
+
+    // active-set group must precede pinned group in DOM order
+    // Node.DOCUMENT_POSITION_FOLLOWING = 4
+    expect(activeGroup!.compareDocumentPosition(pinnedGroup!) & 4).toBe(4);
+
+    // active-1 renders inside the active-set group
+    const activeRow = container.querySelector(
+      '[data-conversation-id="active-1"]',
+    ) as HTMLElement | null;
+    expect(activeRow).toBeTruthy();
+    expect(activeGroup!.contains(activeRow!)).toBe(true);
+
+    // pinned-1 renders inside the pinned group
+    const pinnedRow = container.querySelector(
+      '[data-conversation-id="pinned-1"]',
+    ) as HTMLElement | null;
+    expect(pinnedRow).toBeTruthy();
+    expect(pinnedGroup!.contains(pinnedRow!)).toBe(true);
+  });
+
+  it("Test 18b: isEmpty is false when activeSet has rows but pinned+grouped are empty", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
+      ],
+      pinned: [],
+      grouped: [],
+    });
+
+    const { queryByTestId } = render(<PrettyConversationsPanel variant="desktop" />);
+    // Empty-state card should NOT render when activeSet has rows
+    expect(queryByTestId("pretty-conversations-empty")).toBeNull();
   });
 });
 
