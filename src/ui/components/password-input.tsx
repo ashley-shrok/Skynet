@@ -5,6 +5,9 @@ import { Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/input";
 import { cn } from "@/lib/utils";
 
+// Phase 14B Slice 3: PasswordInput reuses the pv-tokened Input primitive; the
+// eye toggle button picks up the pv-fg-muted → pv-fg hover color transition.
+
 type PasswordInputProps = React.InputHTMLAttributes<HTMLInputElement>;
 
 export const PasswordInput = React.forwardRef<
@@ -24,7 +27,7 @@ export const PasswordInput = React.forwardRef<
       <button
         type="button"
         onClick={() => setShowPassword((prev) => !prev)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition"
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition"
         aria-label={showPassword ? "Hide password" : "Show password"}
       >
         {showPassword ? (

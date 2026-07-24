@@ -5,6 +5,14 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/button";
 import { XIcon } from "lucide-react";
 
+// Phase 14B Slice 3: Dialog rebased onto pv tokens.
+//
+// The dialog surface is a glass card in the pv language: warm-dark gradient
+// base (echoes the compose surround), 1px cool-cream inset rim, low-alpha
+// hue-quiet border, backdrop-blur + saturate. Overlay is a slightly darker
+// black wash than the shadcn default (0.10 → 0.55) so the modal reads as
+// clearly foregrounded against the pv-base gradient underneath.
+
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -37,7 +45,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-50 bg-black/55 duration-100 supports-backdrop-filter:backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className,
       )}
       {...props}
@@ -59,7 +67,14 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-none bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[var(--radius-pv-card)] p-4 text-xs/relaxed",
+          "bg-[linear-gradient(180deg,rgba(28,30,40,0.90),rgba(18,20,28,0.94))]",
+          "text-[color:var(--color-pv-fg)]",
+          "border border-[color:var(--color-pv-border-quiet-strong)]",
+          "shadow-[0_30px_80px_rgba(0,0,0,0.70),inset_0_1px_0_rgba(220,225,245,0.08)]",
+          "backdrop-blur-xl supports-backdrop-filter:[backdrop-filter:blur(28px)_saturate(1.35)]",
+          "duration-100 outline-none sm:max-w-md",
+          "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className,
         )}
         {...props}
@@ -126,7 +141,10 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("font-heading text-sm font-medium", className)}
+      className={cn(
+        "font-heading text-sm font-semibold text-[color:var(--color-pv-fg)]",
+        className,
+      )}
       {...props}
     />
   );
@@ -140,7 +158,7 @@ function DialogDescription({
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "text-xs/relaxed text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        "text-xs/relaxed text-[color:var(--color-pv-fg-muted)] *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-[color:var(--color-pv-fg)]",
         className,
       )}
       {...props}

@@ -2,6 +2,10 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+// Phase 14B Slice 3: Card rebased onto pv tokens. Quiet glass surface with
+// cool-cream inset rim (echoes .pv-panel from pretty-conversations.css).
+// Compact 10px card radius from --radius-pv-card. Warm off-white text.
+
 function Card({
   className,
   size = "default",
@@ -12,7 +16,11 @@ function Card({
       data-slot="card"
       data-size={size}
       className={cn(
-        "group/card flex flex-col gap-4 overflow-hidden rounded-none bg-card py-4 text-xs/relaxed text-card-foreground border border-foreground/10 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-2 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-none *:[img:last-child]:rounded-none",
+        "group/card flex flex-col gap-4 overflow-hidden rounded-[var(--radius-pv-card)] py-4 text-xs/relaxed",
+        "bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)]",
+        "border border-[color:var(--color-pv-border-quiet)]",
+        "shadow-[inset_0_1px_0_rgba(220,225,245,0.05)]",
+        "has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-2 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0",
         className,
       )}
       {...props}
@@ -38,7 +46,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-title"
       className={cn(
-        "font-heading text-sm font-medium group-data-[size=sm]/card:text-sm",
+        "font-heading text-sm font-semibold text-[color:var(--color-pv-fg)] group-data-[size=sm]/card:text-sm",
         className,
       )}
       {...props}
@@ -50,7 +58,10 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-description"
-      className={cn("text-xs/relaxed text-muted-foreground", className)}
+      className={cn(
+        "text-xs/relaxed text-[color:var(--color-pv-fg-muted)]",
+        className,
+      )}
       {...props}
     />
   );
@@ -84,7 +95,7 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-footer"
       className={cn(
-        "flex items-center rounded-none border-t p-4 group-data-[size=sm]/card:p-3",
+        "flex items-center rounded-none border-t border-[color:var(--color-pv-border-quiet)] p-4 group-data-[size=sm]/card:p-3",
         className,
       )}
       {...props}
