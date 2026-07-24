@@ -34,19 +34,19 @@ export function OPKSSHDialog({
   return (
     <div className="absolute inset-0 flex items-center justify-center z-500 animate-in fade-in duration-200">
       <div
-        className="absolute inset-0 bg-canvas rounded-md"
+        className="absolute inset-0 bg-[color:var(--color-pv-base)] rounded-md"
         style={{ backgroundColor: backgroundColor || undefined }}
       />
-      <div className="bg-card border border-border w-full max-w-md mx-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
-        <div className="p-4 border-b border-border">
+      <div className="bg-[linear-gradient(180deg,rgba(28,30,40,0.92),rgba(18,20,28,0.95))] border border-[color:var(--color-pv-border-quiet-strong)] rounded-[var(--radius-pv-card)] shadow-[0_30px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(220,225,245,0.08)] backdrop-blur-xl [backdrop-filter:blur(28px)_saturate(1.35)] w-full max-w-md mx-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
+        <div className="p-4 border-b border-[color:var(--color-pv-border-quiet)]">
           <div className="flex items-center gap-2">
-            <Shield className="size-4 text-accent-brand" />
+            <Shield className="size-4 text-[color:var(--color-pv-code-fg)]" />
             <h3 className="text-xs font-bold uppercase tracking-widest">
               {t("terminal.opksshAuthRequired")}
             </h3>
           </div>
           {stage === "chooser" && (
-            <p className="text-[10px] font-bold uppercase tracking-tight text-muted-foreground mt-1">
+            <p className="text-[10px] font-bold uppercase tracking-tight text-[color:var(--color-pv-fg-muted)] mt-1">
               {t("terminal.opksshAuthDescription")}
             </p>
           )}
@@ -62,7 +62,7 @@ export function OPKSSHDialog({
                       type="button"
                       variant="outline"
                       onClick={() => onSelectProvider(provider.alias)}
-                      className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 rounded-none text-[10px] font-bold uppercase tracking-widest w-full flex items-center gap-2"
+                      className=" text-[10px] font-bold uppercase tracking-widest w-full flex items-center gap-2"
                     >
                       <ExternalLink className="size-3.5" />
                       {t("terminal.opksshSignInWith", {
@@ -78,7 +78,7 @@ export function OPKSSHDialog({
                   type="button"
                   variant="outline"
                   onClick={onOpenUrl}
-                  className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 rounded-none text-[10px] font-bold uppercase tracking-widest w-full flex items-center gap-2"
+                  className=" text-[10px] font-bold uppercase tracking-widest w-full flex items-center gap-2"
                 >
                   <ExternalLink className="size-3.5" />
                   {t("terminal.opksshOpenBrowser")}
@@ -89,7 +89,7 @@ export function OPKSSHDialog({
                   type="button"
                   variant="ghost"
                   onClick={onCancel}
-                  className="rounded-none text-[10px] font-bold uppercase tracking-widest"
+                  className=" text-[10px] font-bold uppercase tracking-widest"
                 >
                   {t("common.cancel")}
                 </Button>
@@ -100,8 +100,8 @@ export function OPKSSHDialog({
           {(stage === "waiting" || stage === "authenticating") && (
             <>
               <div className="flex items-center gap-3 py-2">
-                <Loader2 className="size-4 animate-spin text-accent-brand shrink-0" />
-                <p className="text-xs text-muted-foreground">
+                <Loader2 className="size-4 animate-spin text-[color:var(--color-pv-code-fg)] shrink-0" />
+                <p className="text-xs text-[color:var(--color-pv-fg-muted)]">
                   {stage === "waiting"
                     ? t("terminal.opksshWaitingForAuth")
                     : t("terminal.opksshAuthenticating")}
@@ -112,7 +112,7 @@ export function OPKSSHDialog({
                   type="button"
                   variant="ghost"
                   onClick={onCancel}
-                  className="rounded-none text-[10px] font-bold uppercase tracking-widest"
+                  className=" text-[10px] font-bold uppercase tracking-widest"
                 >
                   {t("common.cancel")}
                 </Button>
@@ -123,12 +123,12 @@ export function OPKSSHDialog({
           {stage === "error" && error && (
             <>
               <div className="flex items-start gap-3 p-3 border border-destructive/20 bg-destructive/10">
-                <AlertCircle className="size-4 text-destructive shrink-0 mt-0.5" />
+                <AlertCircle className="size-4 text-[color:var(--color-pv-code-fg)] shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-code-fg)]">
                     {t("common.error")}
                   </p>
-                  <p className="text-xs text-destructive/90 mt-1 whitespace-pre-wrap break-words">
+                  <p className="text-xs text-[color:var(--color-pv-code-fg)]/90 mt-1 whitespace-pre-wrap break-words">
                     {error}
                   </p>
                 </div>
@@ -138,7 +138,7 @@ export function OPKSSHDialog({
                   type="button"
                   variant="ghost"
                   onClick={onCancel}
-                  className="rounded-none text-[10px] font-bold uppercase tracking-widest"
+                  className=" text-[10px] font-bold uppercase tracking-widest"
                 >
                   {t("common.close")}
                 </Button>

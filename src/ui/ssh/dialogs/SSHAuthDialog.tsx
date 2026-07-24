@@ -121,18 +121,18 @@ export function SSHAuthDialog({
   return (
     <div className="absolute inset-0 flex items-center justify-center z-500 animate-in fade-in duration-200">
       <div
-        className="absolute inset-0 bg-canvas rounded-md"
+        className="absolute inset-0 bg-[color:var(--color-pv-base)] rounded-md"
         style={{ backgroundColor: backgroundColor || undefined }}
       />
-      <div className="bg-card border border-border w-full max-w-xl mx-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
-        <div className="p-4 border-b border-border">
+      <div className="bg-[linear-gradient(180deg,rgba(28,30,40,0.92),rgba(18,20,28,0.95))] border border-[color:var(--color-pv-border-quiet-strong)] rounded-[var(--radius-pv-card)] shadow-[0_30px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(220,225,245,0.08)] backdrop-blur-xl [backdrop-filter:blur(28px)_saturate(1.35)] w-full max-w-xl mx-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
+        <div className="p-4 border-b border-[color:var(--color-pv-border-quiet)]">
           <div className="flex items-center gap-2">
-            <Shield className="size-4 text-accent-brand" />
+            <Shield className="size-4 text-[color:var(--color-pv-code-fg)]" />
             <h3 className="text-xs font-bold uppercase tracking-widest">
               {t("auth.sshAuthenticationRequired")}
             </h3>
           </div>
-          <p className="text-[10px] font-mono font-bold tracking-tight text-muted-foreground mt-1">
+          <p className="text-[10px] font-mono font-bold tracking-tight text-[color:var(--color-pv-fg-muted)] mt-1">
             {hostDisplay}
           </p>
         </div>
@@ -143,20 +143,20 @@ export function SSHAuthDialog({
               className={`flex items-start gap-3 p-3 border ${
                 reason === "auth_failed"
                   ? "border-destructive/20 bg-destructive/10"
-                  : "border-border bg-muted/10"
+                  : "border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)]"
               }`}
             >
               <AlertCircle
-                className={`size-4 shrink-0 mt-0.5 ${reason === "auth_failed" ? "text-destructive" : "text-accent-brand"}`}
+                className={`size-4 shrink-0 mt-0.5 ${reason === "auth_failed" ? "text-[color:var(--color-pv-code-fg)]" : "text-[color:var(--color-pv-code-fg)]"}`}
               />
               <div>
                 <p
-                  className={`text-[10px] font-bold uppercase tracking-widest ${reason === "auth_failed" ? "text-destructive" : ""}`}
+                  className={`text-[10px] font-bold uppercase tracking-widest ${reason === "auth_failed" ? "text-[color:var(--color-pv-code-fg)]" : ""}`}
                 >
                   {getReasonMessage()}
                 </p>
                 <p
-                  className={`text-xs mt-1 ${reason === "auth_failed" ? "text-destructive/80" : "text-muted-foreground"}`}
+                  className={`text-xs mt-1 ${reason === "auth_failed" ? "text-[color:var(--color-pv-code-fg)]" : "text-[color:var(--color-pv-fg-muted)]"}`}
                 >
                   {getReasonDescription()}
                 </p>
@@ -167,16 +167,16 @@ export function SSHAuthDialog({
               value={authTab}
               onValueChange={(v) => setAuthTab(v as "password" | "key")}
             >
-              <TabsList className="w-full rounded-none">
+              <TabsList className="w-full ">
                 <TabsTrigger
                   value="password"
-                  className="flex-1 rounded-none text-[10px] font-bold uppercase tracking-widest"
+                  className="flex-1  text-[10px] font-bold uppercase tracking-widest"
                 >
                   {t("credentials.password")}
                 </TabsTrigger>
                 <TabsTrigger
                   value="key"
-                  className="flex-1 rounded-none text-[10px] font-bold uppercase tracking-widest"
+                  className="flex-1  text-[10px] font-bold uppercase tracking-widest"
                 >
                   {t("credentials.sshKey")}
                 </TabsTrigger>
@@ -186,7 +186,7 @@ export function SSHAuthDialog({
                 value="password"
                 className="mt-3 flex flex-col gap-2"
               >
-                <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
                   {t("credentials.password")}
                 </Label>
                 <PasswordInput
@@ -194,16 +194,16 @@ export function SSHAuthDialog({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoFocus
-                  className="rounded-none bg-muted/50 border-border text-xs"
+                  className=" border-[color:var(--color-pv-border-quiet-strong)] text-xs"
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[10px] text-[color:var(--color-pv-fg-muted)]">
                   {t("auth.sshPasswordDescription")}
                 </p>
               </TabsContent>
 
               <TabsContent value="key" className="mt-3 flex flex-col gap-3">
                 <div className="flex flex-col gap-2">
-                  <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  <Label className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
                     {t("credentials.sshPrivateKey")}
                   </Label>
                   <div className="relative">
@@ -217,7 +217,7 @@ export function SSHAuthDialog({
                     <Button
                       type="button"
                       variant="outline"
-                      className="w-full justify-start rounded-none text-[10px] font-bold uppercase tracking-widest border-border"
+                      className="w-full justify-start  text-[10px] font-bold uppercase tracking-widest border-[color:var(--color-pv-border-quiet)]"
                     >
                       <Upload className="size-3.5 mr-2" />
                       <span className="truncate">
@@ -230,7 +230,7 @@ export function SSHAuthDialog({
                     onChange={(value) => setSshKey(value)}
                     placeholder={t("placeholders.pastePrivateKey")}
                     theme={oneDark}
-                    className="border border-border text-xs"
+                    className="border border-[color:var(--color-pv-border-quiet)] text-xs"
                     minHeight="160px"
                     maxHeight="260px"
                     basicSetup={{
@@ -256,16 +256,16 @@ export function SSHAuthDialog({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  <Label className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
                     {t("credentials.keyPassword")} ({t("common.optional")})
                   </Label>
                   <PasswordInput
                     placeholder={t("placeholders.keyPassword")}
                     value={keyPassword}
                     onChange={(e) => setKeyPassword(e.target.value)}
-                    className="rounded-none bg-muted/50 border-border text-xs"
+                    className=" border-[color:var(--color-pv-border-quiet-strong)] text-xs"
                   />
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-[10px] text-[color:var(--color-pv-fg-muted)]">
                     {t("auth.sshKeyPasswordDescription")}
                   </p>
                 </div>
@@ -273,13 +273,13 @@ export function SSHAuthDialog({
             </Tabs>
           </div>
 
-          <div className="p-4 border-t border-border flex justify-end gap-2">
+          <div className="p-4 border-t border-[color:var(--color-pv-border-quiet)] flex justify-end gap-2">
             <Button
               type="button"
               variant="ghost"
               onClick={onCancel}
               disabled={loading}
-              className="rounded-none text-[10px] font-bold uppercase tracking-widest"
+              className=" text-[10px] font-bold uppercase tracking-widest"
             >
               {t("common.cancel")}
             </Button>
@@ -287,7 +287,7 @@ export function SSHAuthDialog({
               type="submit"
               variant="outline"
               disabled={!canSubmit() || loading}
-              className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 rounded-none text-[10px] font-bold uppercase tracking-widest"
+              className=" text-[10px] font-bold uppercase tracking-widest"
             >
               {loading ? t("common.connecting") : t("common.connect")}
             </Button>

@@ -99,25 +99,25 @@ export function ConnectionLog({
       case "error":
         return "text-red-400";
       default:
-        return "text-muted-foreground";
+        return "text-[color:var(--color-pv-fg-muted)]";
     }
   };
 
   const borderClass =
     position === "bottom" && !isExpanded
-      ? "border-t-1 border-border"
-      : "border-b-1 border-border";
+      ? "border-t-1 border-[color:var(--color-pv-border-quiet)]"
+      : "border-b-1 border-[color:var(--color-pv-border-quiet)]";
 
   return (
     <div
       className={`absolute inset-0 z-[110] flex flex-col ${isExpanded || hasConnectionError ? "pointer-events-auto" : "pointer-events-none"} ${position === "top" ? "justify-start" : "justify-end"}`}
     >
       {(isExpanded || hasConnectionError) && (
-        <div className="absolute inset-0 bg-bg-base pointer-events-auto" />
+        <div className="absolute inset-0 bg-[color:var(--color-pv-base)] pointer-events-auto" />
       )}
 
       <div
-        className={`relative z-10 bg-bg-base pointer-events-auto ${isExpanded ? "flex flex-col h-full" : ""} ${!isExpanded ? borderClass : ""}`}
+        className={`relative z-10 bg-[color:var(--color-pv-base)] pointer-events-auto ${isExpanded ? "flex flex-col h-full" : ""} ${!isExpanded ? borderClass : ""}`}
       >
         <div className="flex items-center justify-between px-3 py-2 shrink-0">
           <Button
@@ -153,11 +153,11 @@ export function ConnectionLog({
         {isExpanded && (
           <div
             ref={logContainerRef}
-            className="flex-1 h-0 overflow-y-auto overflow-x-hidden thin-scrollbar border-t-1 border-border bg-bg-base"
+            className="flex-1 h-0 overflow-y-auto overflow-x-hidden thin-scrollbar border-t-1 border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-base)]"
           >
             <div className="px-3 py-2">
               {logs.length === 0 ? (
-                <div className="py-4 text-center text-sm text-muted-foreground">
+                <div className="py-4 text-center text-sm text-[color:var(--color-pv-fg-muted)]">
                   {isConnecting
                     ? t("terminal.connectionLogWaiting")
                     : t("terminal.connectionLogEmpty")}
@@ -170,7 +170,7 @@ export function ConnectionLog({
                       ref={index === logs.length - 1 ? lastLogRef : null}
                       className="flex items-start gap-2"
                     >
-                      <span className="shrink-0 text-muted-foreground">
+                      <span className="shrink-0 text-[color:var(--color-pv-fg-muted)]">
                         {log.timestamp.toLocaleTimeString()}
                       </span>
                       <div className="shrink-0">{getIcon(log.type)}</div>

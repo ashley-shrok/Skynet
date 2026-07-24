@@ -43,13 +43,13 @@ export function WarpgateDialog({
   return (
     <div className="absolute inset-0 flex items-center justify-center z-500 animate-in fade-in duration-200 overflow-y-auto">
       <div
-        className="absolute inset-0 bg-canvas rounded-md"
+        className="absolute inset-0 bg-[color:var(--color-pv-base)] rounded-md"
         style={{ backgroundColor: backgroundColor || undefined }}
       />
-      <div className="bg-card border border-border w-full max-w-md mx-4 my-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
-        <div className="p-4 border-b border-border">
+      <div className="bg-[linear-gradient(180deg,rgba(28,30,40,0.92),rgba(18,20,28,0.95))] border border-[color:var(--color-pv-border-quiet-strong)] rounded-[var(--radius-pv-card)] shadow-[0_30px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(220,225,245,0.08)] backdrop-blur-xl [backdrop-filter:blur(28px)_saturate(1.35)] w-full max-w-md mx-4 my-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
+        <div className="p-4 border-b border-[color:var(--color-pv-border-quiet)]">
           <div className="flex items-center gap-2">
-            <Shield className="size-4 text-accent-brand" />
+            <Shield className="size-4 text-[color:var(--color-pv-code-fg)]" />
             <h3 className="text-xs font-bold uppercase tracking-widest">
               {t("terminal.warpgateAuthRequired")}
             </h3>
@@ -57,18 +57,18 @@ export function WarpgateDialog({
         </div>
         <div className="p-4 flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
               {t("terminal.warpgateSecurityKey")}
             </p>
-            <div className="border border-border bg-muted/10 p-4 text-center">
-              <div className="text-2xl font-mono font-bold tracking-wider text-accent-brand">
+            <div className="border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] p-4 text-center">
+              <div className="text-2xl font-mono font-bold tracking-wider text-[color:var(--color-pv-code-fg)]">
                 {securityKey}
               </div>
             </div>
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
               {t("terminal.warpgateAuthUrl")}
             </p>
             <div className="flex gap-2">
@@ -76,18 +76,18 @@ export function WarpgateDialog({
                 type="text"
                 value={url}
                 readOnly
-                className="rounded-none bg-muted/50 border-border text-xs font-mono flex-1"
+                className=" border-[color:var(--color-pv-border-quiet-strong)] text-xs font-mono flex-1"
               />
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 onClick={handleCopyUrl}
-                className="rounded-none border-border shrink-0"
+                className=" border-[color:var(--color-pv-border-quiet)] shrink-0"
                 title={t("common.copy")}
               >
                 {copied ? (
-                  <Check className="size-4 text-accent-brand" />
+                  <Check className="size-4 text-[color:var(--color-pv-code-fg)]" />
                 ) : (
                   <Copy className="size-4" />
                 )}
@@ -100,7 +100,7 @@ export function WarpgateDialog({
               type="button"
               variant="ghost"
               onClick={onCancel}
-              className="rounded-none text-[10px] font-bold uppercase tracking-widest sm:mr-auto"
+              className=" text-[10px] font-bold uppercase tracking-widest sm:mr-auto"
             >
               {t("common.cancel")}
             </Button>
@@ -108,7 +108,7 @@ export function WarpgateDialog({
               type="button"
               variant="outline"
               onClick={onContinue}
-              className="rounded-none text-[10px] font-bold uppercase tracking-widest"
+              className=" text-[10px] font-bold uppercase tracking-widest"
             >
               {t("terminal.warpgateContinue")}
             </Button>
@@ -116,7 +116,7 @@ export function WarpgateDialog({
               type="button"
               variant="outline"
               onClick={onOpenUrl}
-              className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 rounded-none text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5"
+              className=" text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5"
             >
               <ExternalLink className="size-3.5" />
               {t("terminal.warpgateOpenBrowser")}
