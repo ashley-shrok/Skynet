@@ -102,9 +102,9 @@ _Docs commit (SUMMARY.md, STATE.md, ROADMAP.md) is deferred to the orchestrator 
 
 **1. [Rule 3 — Blocking] Cwd drift from worktree to main repo during Task 1**
 - **Found during:** Task 1 (parser + tests)
-- **Issue:** Initial Edit/Write calls used absolute paths targeting `/home/ubuntu/termix/src/...` (the main repo), not `/home/ubuntu/termix/.claude/worktrees/agent-ace06add28322dba7/src/...` (the worktree). This is exactly the #3099 scenario the absolute-path safety guard was designed to catch — the Bash cwd was correct but the Edit/Write tool paths were computed from the orchestrator-visible main-repo path, not the worktree root.
+- **Issue:** Initial Edit/Write calls used absolute paths targeting `/home/ubuntu/skynet/src/...` (the main repo), not `/home/ubuntu/skynet/.claude/worktrees/agent-ace06add28322dba7/src/...` (the worktree). This is exactly the #3099 scenario the absolute-path safety guard was designed to catch — the Bash cwd was correct but the Edit/Write tool paths were computed from the orchestrator-visible main-repo path, not the worktree root.
 - **Fix:** Reverted the accidental edits in the main repo with `git checkout --` + `rm`, then re-applied the same content into the worktree via `cp` from a `/tmp/` scratch. All subsequent Edit/Write calls (Task 2 and Task 3) used worktree-absolute paths (verified against `git rev-parse --show-toplevel`).
-- **Files modified:** none in the main repo after fix (`git status` clean on `/home/ubuntu/termix`); all task changes landed on the worktree.
+- **Files modified:** none in the main repo after fix (`git status` clean on `/home/ubuntu/skynet`); all task changes landed on the worktree.
 - **Verification:** `git status` clean in the main repo; worktree HEAD advanced by 3 task commits with all 267 tests green and `npm run build` clean.
 - **Committed in:** N/A (recovery only; the actual code landed in `5a8b166`).
 
@@ -132,7 +132,7 @@ None — no external service configuration required.
 ## Next Phase Readiness
 
 - Live-run hand-verify is deferred to Ashley's next deploy (per constraints: no build/docker/deploy for this patch; Ashley is still stacking patches on `feat/tab-title-from-tmux`).
-- termix-patches.md write-up (patch #86 row) is intentionally deferred to pin/deploy time per fleet directive — do NOT write it now.
+- skynet-patches.md write-up (patch #86 row) is intentionally deferred to pin/deploy time per fleet directive — do NOT write it now.
 - Aesthetic acceptance criterion is structural: ImageBubble's gradient/border/shadow tokens are byte-identical to ChatMessage's assistant branch. Ashley's per-pane identity hue will color-shift the bubble automatically via `hsla(var(--pv-id-hue),...)`.
 
 ## Self-Check: PASSED

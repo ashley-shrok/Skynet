@@ -6,7 +6,7 @@ tags: [purge, delete-only, shell, tab-chrome, phase-12, PURGE-08]
 requires:
   - "12-01 (STRIP-LIST § Section F Tab.tsx orphan enumeration)"
 provides:
-  - "Termix visible tab-strip chrome fully deleted from disk"
+  - "Skynet visible tab-strip chrome fully deleted from disk"
 affects:
   - "src/ui/shell/ directory (one file removed; four files preserved)"
 tech_stack:
@@ -17,7 +17,7 @@ key_files:
     - ".planning/phases/12-skynet-transformation-purge-dead-frontend-surfaces-second-slice/12-05-SUMMARY.md"
   modified: []
   deleted:
-    - "src/ui/shell/Tab.tsx (442 lines — Termix visible tab-strip renderer with per-tab-type icons, X-close button, split icon, click routing)"
+    - "src/ui/shell/Tab.tsx (442 lines — Skynet visible tab-strip renderer with per-tab-type icons, X-close button, split icon, click routing)"
 decisions:
   - "Confirmed via fresh grep gate that Tab.tsx has zero non-comment import consumers across src/ (matches 12-01-STRIP-LIST § Section F evidence). No blocker required — proceeded as delete-only single-task plan."
   - "Retained TabContext.tsx, tabUtils.tsx, CommandPalette.tsx, SplitView.tsx untouched — these provide the invisible tab plumbing (state provider, dispatcher, keyboard command palette, split-view chrome) that AppShell still consumes."
@@ -28,15 +28,15 @@ metrics:
   completed_date: 2026-07-23
 ---
 
-# Phase 12 Plan 05: Delete Tab.tsx (Termix Tab Bar Chrome) Summary
+# Phase 12 Plan 05: Delete Tab.tsx (Skynet Tab Bar Chrome) Summary
 
-Deleted the 442-line `src/ui/shell/Tab.tsx` — the Termix visible tab-strip renderer — from disk. Zero-import orphan confirmed by fresh grep gate; tsc + targeted vitest both green.
+Deleted the 442-line `src/ui/shell/Tab.tsx` — the Skynet visible tab-strip renderer — from disk. Zero-import orphan confirmed by fresh grep gate; tsc + targeted vitest both green.
 
 ## What Was Built (Deletion Edition)
 
 Single atomic deletion of the file Phase 11's landing swap implicitly retired:
 
-- **Removed:** `src/ui/shell/Tab.tsx` (442 lines) — contained `interface TabProps` at line 26 and `export function Tab({...})` at line 47. This was the top-of-window Termix tab bar chrome: per-tab-type icon rendering (SSH/RDP/VNC/etc.), click-to-focus routing, X-close button, split icon. Ashley does not see any of it in Skynet post-Phase-11.
+- **Removed:** `src/ui/shell/Tab.tsx` (442 lines) — contained `interface TabProps` at line 26 and `export function Tab({...})` at line 47. This was the top-of-window Skynet tab bar chrome: per-tab-type icon rendering (SSH/RDP/VNC/etc.), click-to-focus routing, X-close button, split icon. Ashley does not see any of it in Skynet post-Phase-11.
 
 - **Preserved (verified by post-deletion `test -f` gates):**
   - `src/ui/shell/TabContext.tsx` — retained tab state provider (`TabProvider`, `useTabs`, `TabType`, `TabSpec`). Note: named similarly to the deleted file but a wholly different concern (state machinery, not chrome).
@@ -94,7 +94,7 @@ None — this is a delete-only plan. No placeholder data, hardcoded empties, or 
 
 ## Requirements Delivered
 
-- **PURGE-08:** Termix tab bar chrome (`src/ui/shell/Tab.tsx`) deleted from disk. Ashley's Skynet AppShell no longer carries the retired Termix top-strip file.
+- **PURGE-08:** Skynet tab bar chrome (`src/ui/shell/Tab.tsx`) deleted from disk. Ashley's Skynet AppShell no longer carries the retired Skynet top-strip file.
 
 ## Self-Check: PASSED
 

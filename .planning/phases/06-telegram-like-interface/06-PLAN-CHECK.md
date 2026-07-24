@@ -3,7 +3,7 @@
 **Checked:** 2026-07-21
 **Checker:** gsd-plan-checker (goal-backward verification)
 **Plans reviewed:** 06-01, 06-02, 06-03, 06-04, 06-05
-**Repo state:** `/home/ubuntu/termix` @ `feat/tab-title-from-tmux`
+**Repo state:** `/home/ubuntu/skynet` @ `feat/tab-title-from-tmux`
 **Authoritative sources:** shape-telegram-like-interface.md + 06-CONTEXT.md (both LOCKED)
 
 ## Overall verdict: **PASS_WITH_NOTES**
@@ -51,7 +51,7 @@ The 10 numbered items in CONTEXT.md's success-criteria block:
 | SC3 | Click away + back = instant, no reconnect, all state preserved | Plan 06-02 Task 2 persistence smoke test (Tests 1-3 assert DOM node identity + mount-count invariant + visibility toggle) | 06-05 UAT TG-05 (scroll-position + terminal-buffer manual walk) |
 | SC4 | Refresh resets everything from scratch | Plan 06-01 (in-memory Set/Map, no persistence primitives, grep gate on `(local\|session)Storage`) + Plan 06-05 UAT | 06-05 UAT "refresh resets everything" |
 | SC5 | Mobile — tap row → full-screen view + back button | Plan 06-03 (mobile-flow list-vs-view branch + MobileViewHeader + navigateToList) | 06-05 UAT Mobile flow section |
-| SC6 | Mobile browser-back returns list → list-back leaves Termix | Plan 06-03 (popstate handler + navigateToList → history.back() with sentinel state) | 06-05 UAT "browser back gesture" |
+| SC6 | Mobile browser-back returns list → list-back leaves Skynet | Plan 06-03 (popstate handler + navigateToList → history.back() with sentinel state) | 06-05 UAT "browser back gesture" |
 | SC7 | Visible new-session button + host picker + auto-navigate | Plan 06-04 Tasks 1-3 (deferred-select + Dialog + AppShell.onCreateSession wiring + mobile navigateToView) | 06-05 UAT TG-09 |
 | SC8 | Admin destinations via gear (desktop) + row (mobile) not competing for attention | Plan 06-02 (gear icon) + Plan 06-03 (SettingsRow mounted at bottom of mobile list via `settingsRowSlot`) | 06-05 UAT TG-10 |
 | SC9 | Pin per-session floats to top; unpin drops back; session-end clears | Plan 06-01 store (Tests 3, 4, 5) + ConversationRow pin toggle | 06-05 UAT TG-02 |
@@ -77,7 +77,7 @@ CONTEXT.md `<decisions>` block was audited task-by-task against every plan. All 
 - ✅ **No parallel-mode ship / no partial state** — Plan 06-01 is foundation-only (produces zero user-visible change). Plan 06-02 lands the atomic swap (TabBar deletion + ConversationsPanel wiring + selectedId as source of truth) all in ONE plan. Plan 06-05 gates the deploy on both being present in dist (grep for `ConversationsPanel` ≥ 1 AND `MobileBottomBar` == 0). No plan attempts to deploy 06-01 alone.
 - ✅ **No history / scrollback for ended sessions** — Plan 06-01 explicitly documents "session-end vanishes; NO tombstones, no grey-out, no recently-closed, no re-open gesture" and lists the anti-features not to implement.
 - ✅ **No activity/unread signal placeholder chrome** — No plan mentions dots, badges, counts, motion, sound, or a "if flag enabled" branch. ConversationRow's `<action>` block enumerates only: label, session-type badge, identity avatar+tint, pin toggle affordance. Nothing else.
-- ✅ **Deploy behind mandatory 15-min deadman** — Plan 06-05 Task 4 how-to-verify block references `~/.claude/identities/tina/deploy-runbook.md` explicitly and walks steps 1-9 mirroring the runbook including: sentinel-cleanup-before-arm, `nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/termix-keep-patched] && bash /opt/termix/.tmp-revert.sh'`, and the narrow-pkill disarm pattern `sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'`.
+- ✅ **Deploy behind mandatory 15-min deadman** — Plan 06-05 Task 4 how-to-verify block references `~/.claude/identities/tina/deploy-runbook.md` explicitly and walks steps 1-9 mirroring the runbook including: sentinel-cleanup-before-arm, `nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/skynet-keep-patched] && bash /opt/skynet/.tmp-revert.sh'`, and the narrow-pkill disarm pattern `sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'`.
 
 No HARD LOCK / LOCKED decision violations detected.
 
@@ -94,7 +94,7 @@ CONTEXT.md `<scope_fence>` (10 enumerated items) was audited against every plan'
 7. ✅ **No changes to desktop sidebar collapse behavior** — See "Desktop sidebar collapse preserved verbatim" above.
 8. ✅ **No history / scrollback / ended-session persistence** — Plan 06-01 explicitly enumerates the anti-features. UAT negative-space-checks "NO history / scrollback for ended sessions."
 9. ✅ **No reordering of sidebar** — Plan 06-01 Test 2 asserts existing host-tree order preserved; unpin restores to original position, NOT appended (Test 3).
-10. ✅ **Every deploy step references `deploy-runbook.md` and enforces the deadman** — Plan 06-05 Task 4 has 11 references to `deploy-runbook` and walks the runbook step-by-step including the `termix-keep-patched` sentinel and narrow `pkill`.
+10. ✅ **Every deploy step references `deploy-runbook.md` and enforces the deadman** — Plan 06-05 Task 4 has 11 references to `deploy-runbook` and walks the runbook step-by-step including the `skynet-keep-patched` sentinel and narrow `pkill`.
 
 No scope-fence violations detected.
 
@@ -108,7 +108,7 @@ The critical concern: 06-01 and 06-02 must ship together in the same container s
 - ✅ **06-05 gates deploy on both being present in dist.** 06-05 Task 1 acceptance criteria include: `dist/assets/*.js` contains `ConversationsPanel` (≥1) AND does NOT contain `MobileBottomBar` (0). If 06-01's ConversationsPanel exists but 06-02's TabBar deletion didn't land, the build would still contain `TabBar` — and 06-05 Task 1 Step C's grep gate would catch it.
 - ✅ **No intermediate deploy possible.** 06-05 Task 4 is the ONLY plan with a deploy step. Plans 06-01, 06-02, 06-03, 06-04 all have `autonomous: true` and produce zero deploys. The deploy is gated on 06-05 which depends on 06-02, 06-03, 06-04. And 06-02 depends on 06-01.
 
-Verdict: **The coupling story is verifiable and safe.** The one gotcha to flag for the executor: if the executor is doing `/gsd-execute-phase` with commit-after-each-plan, and if they commit 06-01 to a branch that gets pushed to production before 06-02 lands, they would ship dead code (ConversationsPanel unmounted) — but no user-visible change. Only 06-05 is authorized to run the actual `docker compose up -d --force-recreate termix`. See NOTE-01 below.
+Verdict: **The coupling story is verifiable and safe.** The one gotcha to flag for the executor: if the executor is doing `/gsd-execute-phase` with commit-after-each-plan, and if they commit 06-01 to a branch that gets pushed to production before 06-02 lands, they would ship dead code (ConversationsPanel unmounted) — but no user-visible change. Only 06-05 is authorized to run the actual `docker compose up -d --force-recreate skynet`. See NOTE-01 below.
 
 ## Persistence contract (focus area 4)
 
@@ -136,7 +136,7 @@ Verdict: **The race defense is well-scoped and testable.** The internal contradi
 
 **Analysis:**
 - ✅ **Fragment scheme survives Chrome window-restore by construction.** Because `mv=1` lives in `window.location.hash` (the URL fragment), and fragments survive whole-window restore in Chrome (patch #25's ground-truth learning), the survival property is a definitional consequence, not something the plan needs to test-verify. Plan 06-03 acknowledges this in truth #2 ("the mobile flow's key MUST also live in the fragment, NOT the query string, for the same reason") and Test 11 asserts a URL with `#tab=terminal:hostA&active=0&mv=1` parses correctly (round-trip idempotent).
-- ✅ **Wired to both browser back gesture and top-left back button.** Plan 06-03 Task 1 Step B implements `navigateToView` via `history.pushState` (which registers a new history entry), and `navigateToList` via `history.back()` when the state's `__termixMobileView` sentinel is present. Browser back gesture fires popstate → the listener recomputes screen from location. Top-left back button (implemented in Task 2 Step D via `MobileViewHeader`) calls `navigateToList()` directly.
+- ✅ **Wired to both browser back gesture and top-left back button.** Plan 06-03 Task 1 Step B implements `navigateToView` via `history.pushState` (which registers a new history entry), and `navigateToList` via `history.back()` when the state's `__skynetMobileView` sentinel is present. Browser back gesture fires popstate → the listener recomputes screen from location. Top-left back button (implemented in Task 2 Step D via `MobileViewHeader`) calls `navigateToList()` directly.
 - ✅ **Deletes MobileBottomBar unconditionally (no feature flag, no per-user opt-in).** Plan 06-03 Step A: `git rm src/ui/shell/MobileBottomBar.tsx`. AppShell import deleted at line 19; mount site at lines 1534-1541 deleted. No conditional preserving the mount.
 
 Verdict: **The mobile fragment scheme is correctly designed for cross-device link portability and Chrome window-restore.** T-06-03-05 (desktop-loaded URL with `mv=1` is IGNORED) is documented as intentional.

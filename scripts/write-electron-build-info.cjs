@@ -3,7 +3,7 @@ const path = require("path");
 
 const outputPath = path.join(__dirname, "..", "electron", "build-info.cjs");
 const rawBuildTimestamp =
-  process.env.TERMIX_BUILD_TIMESTAMP || process.env.BUILD_TIMESTAMP;
+  process.env.SKYNET_BUILD_TIMESTAMP || process.env.BUILD_TIMESTAMP;
 const parsedBuildTimestamp = rawBuildTimestamp
   ? Number(rawBuildTimestamp)
   : NaN;

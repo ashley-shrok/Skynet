@@ -8,7 +8,7 @@
 
 ## Phase Boundary
 
-This phase reskins **pretty view only** — the top-pane mode introduced by patch #43 (Ctrl+Shift+O toggle) — from Termix's current flat-brutalist styling to a warm dark **Glass depth aesthetic** with real physical dimensionality and per-pane identity-hue carry-through.
+This phase reskins **pretty view only** — the top-pane mode introduced by patch #43 (Ctrl+Shift+O toggle) — from Skynet's current flat-brutalist styling to a warm dark **Glass depth aesthetic** with real physical dimensionality and per-pane identity-hue carry-through.
 
 **CSS-only.** Zero behavior changes. Every existing pretty-view feature must work byte-identically after this phase:
 - Chat rendering (react-markdown + remark-gfm, patches #47/#48)
@@ -85,7 +85,7 @@ This phase reskins **pretty view only** — the top-pane mode introduced by patc
 
 ### 1. Tailwind v4 `@theme inline {}` tokens vs per-component scoped classes
 
-Termix uses Tailwind v4 with `@import "tailwindcss"` + `@theme inline {}` in `src/ui/index.css`. Patches #47/#48 already added `@plugin "@tailwindcss/typography"` and `@import "@fontsource-variable/inter"` in the same neighborhood.
+Skynet uses Tailwind v4 with `@import "tailwindcss"` + `@theme inline {}` in `src/ui/index.css`. Patches #47/#48 already added `@plugin "@tailwindcss/typography"` and `@import "@fontsource-variable/inter"` in the same neighborhood.
 
 **Split**: shared visual vocabulary (base colors, common shadow stacks, dynamic identity hue) becomes `@theme inline {}` custom properties; per-component one-offs stay as Tailwind arbitrary-value classes on the specific element. Planner enumerates specific tokens to add — expected set is roughly:
 
@@ -135,7 +135,7 @@ Then components consume via arbitrary values like:
 
 ### 4. Rebase-risk hotspot: Terminal.tsx
 
-Terminal.tsx is Termix's most-touched file (per AGENTS.md drift caveat, patches #1/#3/#6/#13/#17/#24/#26/#28/#33/#39/#40/#41/#44/#50/#51/#52/#60 all touch it). **Minimize any change here.** If IdentityBadge needs a prop change (§3), the Terminal.tsx call site changes MINIMALLY (add one prop). If identity-hue plumbing needs a shared hook change (§2), do it in `session-hue.ts` not Terminal.tsx.
+Terminal.tsx is Skynet's most-touched file (per AGENTS.md drift caveat, patches #1/#3/#6/#13/#17/#24/#26/#28/#33/#39/#40/#41/#44/#50/#51/#52/#60 all touch it). **Minimize any change here.** If IdentityBadge needs a prop change (§3), the Terminal.tsx call site changes MINIMALLY (add one prop). If identity-hue plumbing needs a shared hook change (§2), do it in `session-hue.ts` not Terminal.tsx.
 
 Planner should identify all Terminal.tsx touches upfront and call them out in PLAN.md so the rebase-cost is explicit at review time.
 
@@ -170,7 +170,7 @@ Ashley UAT-tests visually, not via metrics. UAT probes:
 ## Constraints
 
 - **Tailwind v4** — use `@theme inline {}` for tokens, arbitrary-value classes for one-offs. Do NOT introduce a traditional `tailwind.config.js`.
-- **Cross-browser**: `backdrop-filter` needs `-webkit-backdrop-filter` fallback (already Termix-standard, mock uses both).
+- **Cross-browser**: `backdrop-filter` needs `-webkit-backdrop-filter` fallback (already Skynet-standard, mock uses both).
 - **Reduced motion**: `@media (prefers-reduced-motion: reduce)` skips the identity-badge breathing animation.
 - **No new fonts** — Inter for prose + JetBrains Mono for code already loaded via patches #47/#48.
 - **No behavior changes** — CSS-only. Every event handler, WebSocket dispatch, prop signature, state hook, ref, effect stays byte-identical.

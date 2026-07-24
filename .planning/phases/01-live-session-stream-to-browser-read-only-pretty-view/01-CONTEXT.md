@@ -11,7 +11,7 @@ This phase delivers the **read-only** end of patch #43 pretty session view: the
 backend session-file discovery + tail + WS bridge, and a minimal pretty view
 that renders the live conversation from the current session file. No mode
 toggle, no compose box, no ergonomic web-selection layer yet — Phase 2 layers
-those on top. What Phase 1 must prove end-to-end: a Termix terminal tab whose
+those on top. What Phase 1 must prove end-to-end: a Skynet terminal tab whose
 tmux session is running Claude Code can display its live conversation as chat
 messages read from the remote session file, and a tab without an active
 Claude session says so cleanly.
@@ -109,13 +109,13 @@ Phase 2 and must not be blocked by Phase 1 architectural choices.
   and "what would make it wrong" language originates here.
 
 ### The project scope
-- `.planning/PROJECT.md` — Termix fork context, Core Value, Validated /
+- `.planning/PROJECT.md` — Skynet fork context, Core Value, Validated /
   Active / Out-of-Scope requirements, Constraints.
 - `.planning/REQUIREMENTS.md` — the 19 v1 REQ-IDs; Phase 1 covers
   BACKEND-01..04, RENDER-01..03, FALLBACK-01..02.
 - `.planning/ROADMAP.md` — this phase's Goal and Success Criteria.
 
-### Prior-art code (Termix fork) to reuse / avoid duplicating
+### Prior-art code (Skynet fork) to reuse / avoid duplicating
 - `src/backend/ssh/tmux-helper.ts` — `queryPaneCurrentCommand` was added
   in patch #13 for the idle-pulse ("Claude is waiting") detection. It runs
   `tmux display-message -p -t <session> '#{pane_current_command}'` over
@@ -158,13 +158,13 @@ Phase 2 and must not be blocked by Phase 1 architectural choices.
 ## Specific Ideas
 
 - Every deploy runs behind the fork's mandatory 15-min deadman rollback
-  timer (`/opt/termix/.tmp-revert.sh`). This is a STANDING CONSTRAINT, not
+  timer (`/opt/skynet/.tmp-revert.sh`). This is a STANDING CONSTRAINT, not
   a phase task — the planner does not need to plan the deadman, but it
   should assume all execution is bounded by it. Ashley's rule: NO
   EXCEPTIONS on any deploy, even when she's at the keyboard.
-- Fork build vehicle: `sudo bash /opt/termix/termix-patches/build-termix.sh`
-  produces `termix-patched:local`; deploy is
-  `cd /opt/termix && sudo docker compose up -d --force-recreate termix`.
+- Fork build vehicle: `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`
+  produces `skynet-patched:local`; deploy is
+  `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
 - Nginx location-block trap (see decisions) is a documented failure mode
   that has cost time on every prior backend-route patch. The planner
   should surface it as a task, not leave it as an assumed detail.

@@ -352,7 +352,7 @@ export function registerHostOpksshRoutes(router: Router): void {
                 message:
                   "OPKSSH did not return an external OAuth provider URL. " +
                   "This typically indicates a configuration mismatch between the provider's redirect_uris " +
-                  "and the Termix callback path. Check the server log for the OPKSSH response body.",
+                  "and the Skynet callback path. Check the server log for the OPKSSH response body.",
                 details: detailLines.join("\n"),
                 requestId,
               }),
@@ -369,7 +369,7 @@ export function registerHostOpksshRoutes(router: Router): void {
                 title: "OPKSSH error",
                 heading: "Failed to reach OPKSSH service",
                 message:
-                  "Termix could not connect to the local OPKSSH authentication service. " +
+                  "Skynet could not connect to the local OPKSSH authentication service. " +
                   "The OPKSSH process may have exited or is not listening yet.",
                 details: `Upstream: ${startUrl}\nError: ${errMsg}`,
                 requestId,
@@ -477,7 +477,7 @@ export function registerHostOpksshRoutes(router: Router): void {
             }
           } else if (key.toLowerCase() === "set-cookie") {
             // Rewrite cookies from OPKSSH's internal listener so they are scoped
-            // to the Termix proxy path instead of OPKSSH's internal path.
+            // to the Skynet proxy path instead of OPKSSH's internal path.
             // The state cookie set by /login must survive to /login-callback.
             const cookies = Array.isArray(value) ? value : [value as string];
             const rewritten = cookies.map((cookie) => {

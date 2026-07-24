@@ -10,7 +10,7 @@ files_touched:
   - src/ui/features/pretty-view/ComposeBox.tsx
   - src/ui/features/terminal/MessageQueueDrawer.tsx
 out_of_repo_files_touched:
-  - ~/.claude/identities/tina/termix-patches.md
+  - ~/.claude/identities/tina/skynet-patches.md
 deploy_status: not deployed — local commit only, batch after bounties #3-5
 ---
 
@@ -49,7 +49,7 @@ deploy_status: not deployed — local commit only, batch after bounties #3-5
   - Two diagnostic `console.warn` lines (`[message-queue-draft] load` +
     `[message-queue-draft] save`).
 
-- `~/.claude/identities/tina/termix-patches.md` (outside repo):
+- `~/.claude/identities/tina/skynet-patches.md` (outside repo):
   - Header patch count `ONE HUNDRED EIGHTEEN` → `ONE HUNDRED NINETEEN`.
   - Full per-patch entry for #119 (motivation, fix summary, key shape,
     hydrate policy, extraction sub-step, files touched, diagnostic

@@ -476,7 +476,7 @@ describe("PrettyConversationsPanel: desktop header title", () => {
     // Phase 13 Wave 2 SHAPE-02: title carries the mock's `.pv-title` class-
     // toggle treatment (12px + 700 + 0.1em letter-spacing + UPPERCASE +
     // --color-pv-fg). Retired: `text-[13px] font-semibold tracking-tight`
-    // Termix-theme utility classes.
+    // Skynet-theme utility classes.
     expect(titleEl!.className).toContain("pv-title");
 
     // Header row container carries `.pv-panel-header` — CSS handles layout

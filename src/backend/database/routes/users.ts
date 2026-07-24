@@ -40,7 +40,7 @@ function isNonEmptyString(val: unknown): val is string {
 
 function isNativeAppRequest(req: Request): boolean {
   return (
-    (req.get("User-Agent") || "").startsWith("Termix-Mobile/") ||
+    (req.get("User-Agent") || "").startsWith("Skynet-Mobile/") ||
     req.get("X-Electron-App") === "true"
   );
 }
@@ -601,7 +601,7 @@ router.get("/oidc/authorize", async (req, res) => {
       } catch {
         return res.status(400).json({ error: "Invalid app callback URL" });
       }
-      if (callbackUrl.protocol !== "termix-mobile:") {
+      if (callbackUrl.protocol !== "skynet-mobile:") {
         return res.status(400).json({ error: "Unsupported app callback URL" });
       }
       frontendOrigin = callbackUrl.toString();
@@ -1159,7 +1159,7 @@ router.get("/oidc/callback", async (req, res) => {
 
     const isTokenCallback =
       frontendOrigin.startsWith("http://127.0.0.1:") ||
-      frontendOrigin.startsWith("termix-mobile:");
+      frontendOrigin.startsWith("skynet-mobile:");
 
     const maxAge =
       deviceInfo.type === "desktop" || deviceInfo.type === "mobile"

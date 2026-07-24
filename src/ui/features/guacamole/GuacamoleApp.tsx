@@ -33,7 +33,7 @@ interface GuacamoleAppProps {
 // the presence of this prefix to switch the disconnect overlay from the
 // single-Reconnect "connection failed" copy to the friendlier
 // Reconnect + Close Tab pair with "taken over by another window" text.
-const TAKEOVER_MARKER = "TERMIX_SUPERSEDED:";
+const TAKEOVER_MARKER = "SKYNET_SUPERSEDED:";
 
 const GuacamoleApp: React.FC<GuacamoleAppProps> = ({
   hostId,
@@ -134,7 +134,7 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
   const [retryCount, setRetryCount] = useState(0);
   const displayRef = useRef<GuacamoleDisplayHandle>(null);
   // Takeover-vs-auto-reconnect race guard. The Guacamole client fires
-  // `onerror` (with the TERMIX_SUPERSEDED message) and state-5 `ondisconnect`
+  // `onerror` (with the SKYNET_SUPERSEDED message) and state-5 `ondisconnect`
   // in the same tick. `connectionError` state doesn't commit until the next
   // React render, so `onDisconnect` reading the state would still see null
   // and trigger patch #10's auto-reconnect — which fights the takeover and
@@ -184,9 +184,9 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
       const { tabId: eventTabId } = (e as CustomEvent).detail;
       if (eventTabId === tabId) handleReconnect();
     };
-    window.addEventListener("termix:refresh-guacamole", handler);
+    window.addEventListener("skynet:refresh-guacamole", handler);
     return () =>
-      window.removeEventListener("termix:refresh-guacamole", handler);
+      window.removeEventListener("skynet:refresh-guacamole", handler);
   }, [tabId, handleReconnect]);
 
   if (error) {

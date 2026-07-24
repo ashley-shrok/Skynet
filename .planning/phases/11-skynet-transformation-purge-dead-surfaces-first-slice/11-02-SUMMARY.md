@@ -1,5 +1,5 @@
 ---
-phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice
+phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice
 plan: 02
 subsystem: ui/app-shell
 tags: [ui, app-shell, landing-surface, skynet-purge, palette-pv, pretty-view]
@@ -31,7 +31,7 @@ key-files:
   created:
     - src/ui/features/pretty-view/PrettyLandingCard.tsx
     - src/ui/features/pretty-view/PrettyLandingCard.test.tsx
-    - .planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-02-SUMMARY.md
+    - .planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-02-SUMMARY.md
   modified:
     - src/ui/shell/tabUtils.tsx
     - src/ui/AppShell.tsx
@@ -56,9 +56,9 @@ files_modified: 2
 commits_landed: 3
 ---
 
-# Phase 11 Plan 02: Landing-surface swap (Termix dashboard → PrettyLandingCard) Summary
+# Phase 11 Plan 02: Landing-surface swap (Skynet dashboard → PrettyLandingCard) Summary
 
-**Swapped the desktop landing render from Termix's `<DashboardTab>` to a new warm-glass `<PrettyLandingCard/>` inside `renderTabContent`'s `case "dashboard"` block, while preserving the `dashboard` TabType identifier as a load-bearing fallback in AppShell's state machine — delivers PURGE-01 (desktop landing = pretty-view empty card) and preserves PURGE-05 (RDP/VNC/Guacamole render paths untouched).**
+**Swapped the desktop landing render from Skynet's `<DashboardTab>` to a new warm-glass `<PrettyLandingCard/>` inside `renderTabContent`'s `case "dashboard"` block, while preserving the `dashboard` TabType identifier as a load-bearing fallback in AppShell's state machine — delivers PURGE-01 (desktop landing = pretty-view empty card) and preserves PURGE-05 (RDP/VNC/Guacamole render paths untouched).**
 
 ## Performance
 
@@ -99,7 +99,7 @@ Three atomic commits — tsc clean between each; test suite baseline held betwee
 **Created:**
 - `src/ui/features/pretty-view/PrettyLandingCard.tsx` (77 lines) — new prop-less component
 - `src/ui/features/pretty-view/PrettyLandingCard.test.tsx` (58 lines) — 4 behavior tests
-- `.planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-02-SUMMARY.md` (this file)
+- `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-02-SUMMARY.md` (this file)
 
 **Modified:**
 - `src/ui/shell/tabUtils.tsx` — 1 import line removed, 1 import line added, 6-line case body swapped for a prop-less render call + 6-line comment
@@ -119,7 +119,7 @@ See frontmatter `key-decisions`. Summary:
 
 **1. [Rule 1 - Plan self-contradiction] Comment wording in tabUtils.tsx case body.**
 - **Found during:** Task 2 verification
-- **Issue:** The plan's `<action>` block prescribed a comment containing the string "DashboardTab" twice ("in place of the old Termix DashboardTab. The" and "in effectiveSelectedTabId + doCloseTab; the DashboardTab component"), but the plan's OWN `<acceptance_criteria>` required `grep -c "DashboardTab" src/ui/shell/tabUtils.tsx` to return exactly `0`. Applying the plan verbatim would have failed acceptance.
+- **Issue:** The plan's `<action>` block prescribed a comment containing the string "DashboardTab" twice ("in place of the old Skynet DashboardTab. The" and "in effectiveSelectedTabId + doCloseTab; the DashboardTab component"), but the plan's OWN `<acceptance_criteria>` required `grep -c "DashboardTab" src/ui/shell/tabUtils.tsx` to return exactly `0`. Applying the plan verbatim would have failed acceptance.
 - **Fix:** Rephrased the multi-line comment to reference "the retired component tree under src/ui/dashboard/" instead of the class name. Intent preserved (explains the Phase 11 swap and the Phase 12+ deletion plan for the dashboard/ tree).
 - **Files modified:** src/ui/shell/tabUtils.tsx
 - **Commit:** 22b5cfb (Task 2 commit body notes this deviation)
@@ -160,7 +160,7 @@ See frontmatter `key-decisions`. Summary:
 
 ## Success Criteria (from PLAN.md)
 
-- ✓ On desktop, a fresh page-load with no URL hash-fragment lands on the pretty-conversations sidebar (unchanged from Phase 10) with the new warm-glass empty-landing card in the main pane instead of the Termix dashboard (PURGE-01 delivered)
+- ✓ On desktop, a fresh page-load with no URL hash-fragment lands on the pretty-conversations sidebar (unchanged from Phase 10) with the new warm-glass empty-landing card in the main pane instead of the Skynet dashboard (PURGE-01 delivered)
 - ✓ Mobile page-load renders the pretty-conversations list view (unchanged from Phase 10 — no code path in this plan touches the mobile flow)
 - ✓ `<DashboardTab>` is no longer imported anywhere in `src/ui/shell/tabUtils.tsx` (nor anywhere else in `src/` outside `src/ui/dashboard/`)
 - ✓ The main-pane empty-landing card uses `--color-pv-*`-adjacent warm-neutral palette tokens (`rgba(240,235,224,0.9)` warm-cream + `rgba(255,220,170,0.10)` warm-glow + backdrop-blur) per 11-CONTEXT.md palette authority
@@ -227,5 +227,5 @@ Plan 03 executor: consume 11-01-STRIP-LIST.md Sections B, C, D, E as your input 
 ## Self-Check: PASSED
 
 ---
-*Phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice*
+*Phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice*
 *Completed: 2026-07-23*

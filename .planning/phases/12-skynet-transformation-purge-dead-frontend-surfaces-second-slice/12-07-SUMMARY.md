@@ -13,7 +13,7 @@ requires:
 provides:
   - "phase-boundary build verification log with all 70 grep hygiene gates + full toolchain gates + bundle-size delta"
   - "Ashley's post-deploy UAT checklist (23 non-negotiable items + hash-fragment probes + failure route-back table + deploy runbook)"
-  - "paste-ready patch #139 draft for Tina's termix-patches.md with multi-commit-under-one-pin format"
+  - "paste-ready patch #139 draft for Tina's skynet-patches.md with multi-commit-under-one-pin format"
   - "Phase 12 code-complete-pending-Ashley-UAT-and-deploy-greenlight verdict"
 affects:
   - .planning/phases/12-.../12-BUILD-VERIFY-LOG.md (created)
@@ -50,7 +50,7 @@ metrics:
 
 # Phase 12 Plan 07: Phase-Boundary Docs — Build Verification + UAT Checklist + Patch #139 Draft Summary
 
-Closed Phase 12 with pure documentation: build-verify log capturing tsc + vitest + npm run build at the Phase 12 tip (all green, 70 grep hygiene gates PASS), UAT checklist for Ashley's post-deploy walkthrough (23 non-negotiable items covering all 5 PURGE-06..10 requirements + 5 hash-fragment probes with dual-outcome-acceptable framing + authoritative deploy-runbook citation), and paste-ready patch #139 draft for Tina's termix-patches.md (multi-commit-under-one-pin format matching patches #104, #105, #128, #138 precedents). Zero source-tree modifications.
+Closed Phase 12 with pure documentation: build-verify log capturing tsc + vitest + npm run build at the Phase 12 tip (all green, 70 grep hygiene gates PASS), UAT checklist for Ashley's post-deploy walkthrough (23 non-negotiable items covering all 5 PURGE-06..10 requirements + 5 hash-fragment probes with dual-outcome-acceptable framing + authoritative deploy-runbook citation), and paste-ready patch #139 draft for Tina's skynet-patches.md (multi-commit-under-one-pin format matching patches #104, #105, #128, #138 precedents). Zero source-tree modifications.
 
 ## One-liner
 
@@ -72,7 +72,7 @@ Phase 12 code-complete-pending-Ashley-UAT-and-deploy-greenlight: 3 docs artifact
 
 308-line UAT checklist mirroring Phase 11 Plan 04's format:
 
-- **Desktop UAT (items 1-10):** Fresh page-load PrettyLandingCard preservation (item 1); no sidebar panels visible (item 2); no Termix tab bar chrome at top (item 3 — PURGE-08 runtime gate); conversation row click opens PrettyView (item 4); NewSessionDialog pencil opens picker (item 5 — Plan 02 Task 1 refactor validation); RDP row opens Guacamole (item 6 — PURGE-05 preservation); double-shift opens CommandPalette UNCONDITIONALLY (item 7 — PURGE-09 runtime gate); no gear icon anywhere (item 8); **hash-fragment probes for `#hosts`, `#admin`, `#snippets`, `#dashboard`, `#network_graph`** with dual-outcome-acceptable framing (item 9 — the critical PURGE-06/07 runtime gate); keyboard shortcuts unchanged (item 10).
+- **Desktop UAT (items 1-10):** Fresh page-load PrettyLandingCard preservation (item 1); no sidebar panels visible (item 2); no Skynet tab bar chrome at top (item 3 — PURGE-08 runtime gate); conversation row click opens PrettyView (item 4); NewSessionDialog pencil opens picker (item 5 — Plan 02 Task 1 refactor validation); RDP row opens Guacamole (item 6 — PURGE-05 preservation); double-shift opens CommandPalette UNCONDITIONALLY (item 7 — PURGE-09 runtime gate); no gear icon anywhere (item 8); **hash-fragment probes for `#hosts`, `#admin`, `#snippets`, `#dashboard`, `#network_graph`** with dual-outcome-acceptable framing (item 9 — the critical PURGE-06/07 runtime gate); keyboard shortcuts unchanged (item 10).
 - **Mobile UAT (items 11-17):** Fresh landing on pretty-conversations list; tap row → view screen; back button; no bottom nav bar; no SettingsRow at bottom; RDP row tap opens Guacamole; iOS PWA reinstall safe-area check.
 - **Cross-viewport regression (items 18-23):** Message-queue drawer (Ctrl+M); pretty-view compose + WipBubble + session-holding overlay; RDP session usable (deep PURGE-05 check + `features/keyboard/` PROTECTED verification); session persistence A→B→A no reconnect (T-06-02-01 preservation); fleet-native rows on fresh load (Phase 7 lock); **NEW item 23: i18n retained keys still resolve to translated labels (PURGE-10 runtime gate)**.
 - **Failure route-back table:** 17 symptom → Plan/Task mappings for immediate route-back signal (dashboard cards render → Phase 11 Plan 02 Task 2; sidebar panel visible → Phase 12 Plan 03 tasks; tab bar visible → Plan 05; RDP click broken → Phase 11 Plan 03 Task 2 or Phase 12 Plan 03 Task 1; modifier bar missing → `features/keyboard/` scope-fence breach; double-shift broken → Plan 03 Task 1; CommandPalette chips broken → Plan 02 Task 2 import rewire; NewSessionDialog broken → Plan 02 Task 1 inline refactor; hash-fragment probes → per-fragment route-backs; i18n bare keys → Plan 06 batch-2 over-strip; FullScreenAppWrapper Dashboard render → Plan 04 Task 1 swap).
@@ -80,7 +80,7 @@ Phase 12 code-complete-pending-Ashley-UAT-and-deploy-greenlight: 3 docs artifact
 
 ### Task 3 — 12-PATCHES-MD-ENTRY.md (commit `2946294`, bundled with Task 2)
 
-621-line paste-ready patch #139 entry for Tina's termix-patches.md, matching Phase 11 patch #138 format (itself patterned on patches #104, #105, #128):
+621-line paste-ready patch #139 entry for Tina's skynet-patches.md, matching Phase 11 patch #138 format (itself patterned on patches #104, #105, #128):
 
 - **Header:** patch #139 label, batch context (with patch #138 and subsequent Phase 13+ backend-route patches), explicit contract line "patch #139 batches with subsequent Phase 13+ backend-route purge patches" for the fork-catalog integrity gate, no Co-Authored-By trailer per fork convention.
 - **Motivating gap:** Ashley's Phase 10 UAT 2026-07-23 quote (same quote motivating patch #138); references patch #138 as predecessor; positions Phase 12 as "second slice" of Ship-of-Theseus purge.
@@ -200,7 +200,7 @@ Zero src/ modifications made in Plan 07 — the entire retained-UI graph is byte
 ## Downstream Enablement
 
 - **Ashley UAT**: Ashley now has a 23-item concrete UAT checklist for the post-deploy walkthrough, ordered top-to-bottom by viewport with 🚨 blocking markers on non-negotiable items, plus a failure route-back table for immediate remediation signal on any regression.
-- **Tina paste**: Tina now has a paste-ready patch #139 entry for termix-patches.md with all SHAs already known except the last 2 Plan-07 docs commits (which resolve at paste-time via `git rev-parse --short HEAD`).
+- **Tina paste**: Tina now has a paste-ready patch #139 entry for skynet-patches.md with all SHAs already known except the last 2 Plan-07 docs commits (which resolve at paste-time via `git rev-parse --short HEAD`).
 - **Phase 13 planning**: This SUMMARY + patch #139 draft + UAT checklist together document the exact frontend deletion scope Phase 12 shipped, so Phase 13 planning can enumerate backend routes formerly serving these UIs (`/host/db/*` for HostManager consumers — verify pretty-conversations panel doesn't still consume them; `/snippets/*` fully dead; `/admin/*` fully dead; `/user/*` UserProfilePanel consumers — verify identity-store doesn't still consume) with confidence about which UI callers survive.
 - **Deploy runbook**: The UAT checklist's Post-UAT deploy runbook is self-contained enough that even without opening the identity's deploy-runbook.md, Ashley + Tina can walk through the batched Phase 11 + Phase 12 deploy safely.
 

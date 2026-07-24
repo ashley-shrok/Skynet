@@ -2,12 +2,12 @@
 
 **Gathered:** 2026-07-21
 **Status:** Ready for planning
-**Source:** Synthesized from shape file `.planning/shapes/shape-telegram-like-interface.md` — that file is authoritative and every philosophical / scope-edge question was locked during a `/open` discussion with Ashley on 2026-07-21 (see the shape's "What would make it wrong" and "Scope edges" sections for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete Termix-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
+**Source:** Synthesized from shape file `.planning/shapes/shape-telegram-like-interface.md` — that file is authoritative and every philosophical / scope-edge question was locked during a `/open` discussion with Ashley on 2026-07-21 (see the shape's "What would make it wrong" and "Scope edges" sections for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete Skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
 
 <domain>
 ## Phase Boundary
 
-This phase reshapes Termix's top-level navigation model — sidebar, tab strip, mobile chrome — around a Telegram-style single-select conversation list, without disturbing the internals of any conversation type. Scope:
+This phase reshapes Skynet's top-level navigation model — sidebar, tab strip, mobile chrome — around a Telegram-style single-select conversation list, without disturbing the internals of any conversation type. Scope:
 
 1. **Sidebar as conversation list (both mobile and desktop).** The existing expanding sidebar becomes a flat single-select list of currently-active sessions grouped by host with visual separators. The current host-tree order is preserved (no new sort rule); per-session pins float above the host-grouped rows. Rows show whichever session-shape indicator makes sense (host name + session label + type badge — planner's call, matching existing sidebar chrome).
 2. **Tab strip removed from the main view area.** The current per-tab chrome (tab strip along the top of the main content region) is deleted unconditionally. There is no user-facing toggle to bring tabs back. Only one conversation view is mounted-and-visible at a time; the sidebar row's selected state IS the "which conversation" indicator.
@@ -52,7 +52,7 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 
 - **List and view are two distinct screens.** Never both visible on mobile. Tap row → navigate to view; back button → navigate to list. The "in view" state visually replaces the list, and vice versa. NOT a peek/panel/overlay — a full screen swap.
 - **Top-left back button on the view screen.** Native mobile pattern. Also wired to the browser back gesture (fragment or history entry — see below).
-- **Browser back also works.** URL fragment or history entry stack such that pressing hardware/browser back from a view lands on the list; from the list, browser back leaves Termix. Consistent with the existing `#tab=xxx` fragment pattern from patch #25 (which was learned-the-hard-way to survive Chrome window-restore) — the equivalent under this phase is probably `#conv=<session-id>` or `#list`. Planner picks the exact scheme; must survive whole-window restore per the patch #25 learning.
+- **Browser back also works.** URL fragment or history entry stack such that pressing hardware/browser back from a view lands on the list; from the list, browser back leaves Skynet. Consistent with the existing `#tab=xxx` fragment pattern from patch #25 (which was learned-the-hard-way to survive Chrome window-restore) — the equivalent under this phase is probably `#conv=<session-id>` or `#list`. Planner picks the exact scheme; must survive whole-window restore per the patch #25 learning.
 - **Bottom navigation bar DELETED entirely.** Whatever mobile-only gate the current bottom nav sits behind (`useIsTouchDevice()` per the recent gating patch) — the entire bottom-nav surface is removed from the tree. Not conditionally rendered based on a state; simply gone.
 - **`useIsTouchDevice()` is the mobile-vs-desktop signal.** Not viewport width. This is the same gate that patch #103 (or whichever recent one shipped the mobile-only bottom-nav gate) uses. Reuse verbatim; do not introduce a second detection mechanism.
 
@@ -112,12 +112,12 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 - Patch #17 / #38 (identities registry + identity badge — used INSIDE conversation views, not touched by Phase 6 chrome changes).
 
 ### Fork operating baseline
-- `~/.claude/identities/tina/box-map.md` — Termix operational context (docker stack, managed hosts, ops commands).
-- `~/.claude/identities/tina/termix-patches.md` — full catalog of the 104 shipped patches on top of upstream v2.3.x. Downstream agents should scan this for any patch touching sidebar / tab-manager / mobile-chrome to understand what's already there.
+- `~/.claude/identities/tina/box-map.md` — Skynet operational context (docker stack, managed hosts, ops commands).
+- `~/.claude/identities/tina/skynet-patches.md` — full catalog of the 104 shipped patches on top of upstream v2.3.x. Downstream agents should scan this for any patch touching sidebar / tab-manager / mobile-chrome to understand what's already there.
 - `~/.claude/identities/tina/deploy-runbook.md` — mandatory deadman + deploy flow for the fork. Any plan whose acceptance criteria includes "deploy" must reference this runbook.
 
 ### Existing GSD phase artifacts (for reuse of pattern + integration hooks)
-- `.planning/phases/05-pretty-view-file-upload-support/05-CONTEXT.md` — pattern reference for how a Termix fork phase's CONTEXT.md is structured.
+- `.planning/phases/05-pretty-view-file-upload-support/05-CONTEXT.md` — pattern reference for how a Skynet fork phase's CONTEXT.md is structured.
 - `.planning/phases/02-toggle-compose-native-web-ergonomics/02-*.md` — reference for how tab-and-mode navigation has been reshaped in prior phases.
 
 </canonical_refs>
@@ -205,7 +205,7 @@ The phase is DONE when all of the following are true from Ashley's perspective o
 3. **Clicking away and back to a conversation is instant with no reconnect or state loss.** Terminal buffers, pretty-view scroll positions, ambient-panel state, WebSocket connections all preserved across switches within a page-load.
 4. **Refreshing the browser resets everything from scratch.** No session auto-restore, no persisted selection.
 5. **On mobile, tapping a list row navigates to a full-screen conversation view with a top-left back button.** The list is not visible while viewing. Bottom nav bar is gone.
-6. **Mobile browser-back from view returns to list; from list, leaves Termix.**
+6. **Mobile browser-back from view returns to list; from list, leaves Skynet.**
 7. **A visible new-session button on the list view opens a host picker and creates + navigates to a new session.**
 8. **Admin destinations (host manager, credentials editor, etc.) reachable through a small gear icon on desktop and a settings row on mobile that doesn't compete for prime attention.**
 9. **A session can be pinned; it floats to the top of the list above host groups. Unpinning drops it back into its host group. Session-end clears pin + row together.**

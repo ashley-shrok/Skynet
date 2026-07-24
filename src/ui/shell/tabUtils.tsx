@@ -185,7 +185,7 @@ export function renderTabContent(
   switch (tab.type) {
     case "dashboard":
       // Phase 11 landing-surface swap (PURGE-01): renders the pretty-view
-      // empty-landing card in place of the old Termix landing render tree.
+      // empty-landing card in place of the old Skynet landing render tree.
       // The "dashboard" TabType is preserved as a load-bearing fallback
       // identifier in effectiveSelectedTabId + doCloseTab; the retired
       // component tree under src/ui/dashboard/ becomes unreachable from

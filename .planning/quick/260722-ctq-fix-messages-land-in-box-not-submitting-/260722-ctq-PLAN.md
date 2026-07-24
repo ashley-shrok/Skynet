@@ -19,12 +19,12 @@ must_haves:
     - "Targets without tmux (or where the send-keys exec fails) fall back to the pre-patch CR-in-PTY behavior so non-tmux SSH panes never regress"
     - "A fallback path warning is logged when tmux send-keys fails so operators can diagnose without silent behavior change"
     - "Patch #118 is committed to feat/tab-title-from-tmux following the fork's numbered-patch commit-message convention"
-    - "termix-patches.md is updated with the #118 entry, the header patch-count bumped from 117 to 118, and the 'Patch drift caveat' file list updated to include src/backend/ssh/terminal.ts's new tmux-send-keys submit-tail block"
+    - "skynet-patches.md is updated with the #118 entry, the header patch-count bumped from 117 to 118, and the 'Patch drift caveat' file list updated to include src/backend/ssh/terminal.ts's new tmux-send-keys submit-tail block"
   artifacts:
     - path: "src/backend/ssh/terminal.ts"
       provides: "Hybrid submit path: PTY-write text WITHOUT trailing CR, then invoke `tmux send-keys -t <session> Enter` via a fresh exec on the SAME sshConn"
       contains: "isPrettyViewSubmit"
-    - path: "/home/ubuntu/.claude/identities/tina/termix-patches.md"
+    - path: "/home/ubuntu/.claude/identities/tina/skynet-patches.md"
       provides: "Patch #118 catalog entry + updated drift caveat"
       contains: "118."
   key_links:
@@ -36,7 +36,7 @@ must_haves:
       to: "session.tmuxSessionName"
       via: "cached at tmux_attach time (line ~690)"
       pattern: "session\\.tmuxSessionName"
-    - from: "termix-patches.md header"
+    - from: "skynet-patches.md header"
       to: "patch count"
       via: "ONE HUNDRED EIGHTEEN (was ONE HUNDRED SEVENTEEN)"
       pattern: "ONE HUNDRED EIGHTEEN"
@@ -64,7 +64,7 @@ tmux delivers to the process as a real key input outside any paste framing.
 
 Output: A single fork-patch-style commit (patch #118) on
 `feat/tab-title-from-tmux` that modifies `src/backend/ssh/terminal.ts`
-only, plus an updated `termix-patches.md` catalog entry (identity dir,
+only, plus an updated `skynet-patches.md` catalog entry (identity dir,
 not committed to the repo).
 </objective>
 
@@ -136,7 +136,7 @@ Concrete steps:
 9. No new modules, no new files, no new deps. Backend-only change.
   </action>
   <verify>
-    <automated>cd /home/ubuntu/termix &amp;&amp; npx tsc --noEmit --project tsconfig.json 2>&amp;1 | grep -E "terminal\.ts|error TS" | head -20</automated>
+    <automated>cd /home/ubuntu/skynet &amp;&amp; npx tsc --noEmit --project tsconfig.json 2>&amp;1 | grep -E "terminal\.ts|error TS" | head -20</automated>
   </verify>
   <done>
 - src/backend/ssh/terminal.ts compiles under strict TS with no new errors introduced.
@@ -149,35 +149,35 @@ Concrete steps:
 </task>
 
 <task type="auto">
-  <name>Task 2: Commit patch #118 to feat/tab-title-from-tmux + update termix-patches.md</name>
+  <name>Task 2: Commit patch #118 to feat/tab-title-from-tmux + update skynet-patches.md</name>
   <files>
-    /home/ubuntu/.claude/identities/tina/termix-patches.md,
-    (git commit on feat/tab-title-from-tmux in /home/ubuntu/termix)
+    /home/ubuntu/.claude/identities/tina/skynet-patches.md,
+    (git commit on feat/tab-title-from-tmux in /home/ubuntu/skynet)
   </files>
   <action>
 Two parallel updates, both required before this task is done:
 
 **A. Commit the code change to the fork branch.**
 
-1. Confirm branch: `git -C /home/ubuntu/termix branch --show-current` — should be `feat/tab-title-from-tmux`. If not, stop and surface to Ashley; do NOT switch branches automatically (fork discipline: rebase-safety is Ashley's call).
+1. Confirm branch: `git -C /home/ubuntu/skynet branch --show-current` — should be `feat/tab-title-from-tmux`. If not, stop and surface to Ashley; do NOT switch branches automatically (fork discipline: rebase-safety is Ashley's call).
 
-2. Stage ONLY the modified file: `git -C /home/ubuntu/termix add src/backend/ssh/terminal.ts`.
+2. Stage ONLY the modified file: `git -C /home/ubuntu/skynet add src/backend/ssh/terminal.ts`.
 
-3. Confirm nothing else got staged: `git -C /home/ubuntu/termix diff --cached --name-only` should print exactly `src/backend/ssh/terminal.ts` and nothing else.
+3. Confirm nothing else got staged: `git -C /home/ubuntu/skynet diff --cached --name-only` should print exactly `src/backend/ssh/terminal.ts` and nothing else.
 
-4. Commit with a fork-patch-style message. Study the recent commit style via `git -C /home/ubuntu/termix log --oneline -10` — recent fork-patch commits look like `fix(compose): Phase 9 UAT round 1 — reset on LEFT, textarea min-h-8!, uniform-band meter (patch #117)` or `feat(09-02): rotate meter well 90° to horizontal, SEG_COUNT 11→12`. Match that shape:
+4. Commit with a fork-patch-style message. Study the recent commit style via `git -C /home/ubuntu/skynet log --oneline -10` — recent fork-patch commits look like `fix(compose): Phase 9 UAT round 1 — reset on LEFT, textarea min-h-8!, uniform-band meter (patch #117)` or `feat(09-02): rotate meter well 90° to horizontal, SEG_COUNT 11→12`. Match that shape:
    - Type: `fix(compose-submit)` or `fix(pty)` — pick the one closest to prior fork usage; if unsure, `fix(compose-submit)`.
    - Subject: `hybrid tmux send-keys Enter for pretty-view submit (patch #118)`.
    - Body (heredoc): explain the root cause pinned in this session (CR-in-PTY absorbed by Ink paste-detection framing regardless of delay), the mechanism swap (send-keys over exec on same sshConn), the fallback (write CR to PTY when non-tmux or exec fails), the empirical validation (10/10 prototype), and reference the bounty ID `messages-land-in-box-not-submitting` for cross-linking.
    - Do NOT include `Co-Authored-By: Claude` in fork-patch commits — the fork's numbered-patch style is single-author. Match prior fork commits.
 
-5. Verify commit landed: `git -C /home/ubuntu/termix log --oneline -1` should show the new patch #118 commit at HEAD.
+5. Verify commit landed: `git -C /home/ubuntu/skynet log --oneline -1` should show the new patch #118 commit at HEAD.
 
-6. Do NOT push. Do NOT run build-termix.sh. Do NOT run `docker compose up`. Deploy is Ashley-gated and lives outside this quick task per fork DEPLOY DISCIPLINE.
+6. Do NOT push. Do NOT run build-skynet.sh. Do NOT run `docker compose up`. Deploy is Ashley-gated and lives outside this quick task per fork DEPLOY DISCIPLINE.
 
-**B. Update termix-patches.md (identity dir — outside the repo, no commit).**
+**B. Update skynet-patches.md (identity dir — outside the repo, no commit).**
 
-1. Read /home/ubuntu/.claude/identities/tina/termix-patches.md.
+1. Read /home/ubuntu/.claude/identities/tina/skynet-patches.md.
 
 2. Header patch-count bump: find the line reading `The branch carries ONE HUNDRED SEVENTEEN numbered patches on top of upstream main,` (near the top of the file) and change to `ONE HUNDRED EIGHTEEN`.
 
@@ -199,14 +199,14 @@ Two parallel updates, both required before this task is done:
 5. This file lives OUTSIDE the git repo — no commit needed. Just Write to it. Confirm the update landed by grepping for `118` and for `ONE HUNDRED EIGHTEEN`.
   </action>
   <verify>
-    <automated>git -C /home/ubuntu/termix log --oneline -1 | grep -c "patch #118" &amp;&amp; grep -c "^   118\." /home/ubuntu/.claude/identities/tina/termix-patches.md &amp;&amp; grep -c "ONE HUNDRED EIGHTEEN" /home/ubuntu/.claude/identities/tina/termix-patches.md</automated>
+    <automated>git -C /home/ubuntu/skynet log --oneline -1 | grep -c "patch #118" &amp;&amp; grep -c "^   118\." /home/ubuntu/.claude/identities/tina/skynet-patches.md &amp;&amp; grep -c "ONE HUNDRED EIGHTEEN" /home/ubuntu/.claude/identities/tina/skynet-patches.md</automated>
   </verify>
   <done>
 - Exactly one new commit exists at HEAD of feat/tab-title-from-tmux with subject matching `fix(compose-submit): hybrid tmux send-keys Enter for pretty-view submit (patch #118)` (or the closest fork-patch-style variant).
 - `git diff HEAD~1 HEAD --name-only` shows exactly `src/backend/ssh/terminal.ts` and nothing else.
-- termix-patches.md header patch-count is `ONE HUNDRED EIGHTEEN`.
-- termix-patches.md has a numbered list entry `118.` with full per-patch write-up (motivation / root cause / fix / files touched / rebase risk / test coverage).
-- termix-patches.md "Patch drift caveat" file list mentions `src/backend/ssh/terminal.ts` with the send-keys exec callout.
+- skynet-patches.md header patch-count is `ONE HUNDRED EIGHTEEN`.
+- skynet-patches.md has a numbered list entry `118.` with full per-patch write-up (motivation / root cause / fix / files touched / rebase risk / test coverage).
+- skynet-patches.md "Patch drift caveat" file list mentions `src/backend/ssh/terminal.ts` with the send-keys exec callout.
 - No push. No deploy. No build. Ashley-gated steps remain Ashley-gated.
   </done>
 </task>
@@ -218,13 +218,13 @@ End-to-end verification of this quick task (patch #118) is:
 
 1. **Compile check** (Task 1 automated): `npx tsc --noEmit` produces no new errors in terminal.ts.
 2. **Commit shape check** (Task 2 automated): HEAD commit on feat/tab-title-from-tmux has subject matching patch #118 convention; diff touches exactly src/backend/ssh/terminal.ts.
-3. **Catalog update check** (Task 2 automated): termix-patches.md has ONE HUNDRED EIGHTEEN in the header and a numbered `118.` entry in the patch list.
+3. **Catalog update check** (Task 2 automated): skynet-patches.md has ONE HUNDRED EIGHTEEN in the header and a numbered `118.` entry in the patch list.
 4. **Post-deploy manual verification (OUT OF SCOPE for this task — Ashley-gated):**
-   - Build fork: `sudo bash /opt/termix/termix-patches/build-termix.sh`
+   - Build fork: `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`
    - Deploy behind deadman: standard fork deploy runbook.
    - Manual UAT: open pretty view against a Claude Code target, send 10 normal messages, verify all submit reliably (target: 10/10, matching prototype).
    - Multi-line UAT: paste a 3-line message, verify it submits as ONE message with newlines preserved.
-   - Fallback UAT: point a Termix host at a target where tmux isn't attached (or kill the tmux session), send a message, verify the INFO-level warning fires AND the message still delivers via the CR-in-PTY fallback (retaining pre-patch flakiness but no regression).
+   - Fallback UAT: point a Skynet host at a target where tmux isn't attached (or kill the tmux session), send a message, verify the INFO-level warning fires AND the message still delivers via the CR-in-PTY fallback (retaining pre-patch flakiness but no regression).
 
 This task ends at step 3. Steps 4a-4d are Ashley-gated deploy work.
 </verification>
@@ -232,7 +232,7 @@ This task ends at step 3. Steps 4a-4d are Ashley-gated deploy work.
 <success_criteria>
 - src/backend/ssh/terminal.ts hybrid path implemented + compiles clean.
 - Patch #118 commit landed at HEAD of feat/tab-title-from-tmux.
-- termix-patches.md updated (header count + numbered entry + drift caveat file list).
+- skynet-patches.md updated (header count + numbered entry + drift caveat file list).
 - No push, no build, no deploy — all Ashley-gated.
 - Bounty `messages-land-in-box-not-submitting` remains in_progress until Ashley UATs the deployed patch; do NOT flip its status in this task.
 </success_criteria>
@@ -241,6 +241,6 @@ This task ends at step 3. Steps 4a-4d are Ashley-gated deploy work.
 Create `.planning/quick/260722-ctq-fix-messages-land-in-box-not-submitting-/260722-ctq-SUMMARY.md` when done, including:
 - The exact commit SHA of patch #118.
 - A confirming grep of `send-keys` in `src/backend/ssh/terminal.ts` showing the new match count.
-- Confirmation that termix-patches.md was updated (header + entry + drift caveat).
+- Confirmation that skynet-patches.md was updated (header + entry + drift caveat).
 - Explicit note that deploy was NOT run (Ashley-gated).
 </output>

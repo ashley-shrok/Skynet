@@ -125,7 +125,7 @@ Branch: `worktree-agent-a3d07f3c50e0625f4` (will land on `feat/tab-title-from-tm
 
 ## NOT DEPLOYED
 
-Explicit reminder: this is code-landing only. `docker compose up -d --force-recreate termix` requires a separate per-deploy green-light from Ashley (blanket pre-authorization ≠ per-deploy green-light per tina.md and CLAUDE.md's DEPLOY DISCIPLINE constraint). The 15-min deadman rollback (`/opt/termix/.tmp-revert.sh`) is not started; production is unchanged.
+Explicit reminder: this is code-landing only. `docker compose up -d --force-recreate skynet` requires a separate per-deploy green-light from Ashley (blanket pre-authorization ≠ per-deploy green-light per tina.md and CLAUDE.md's DEPLOY DISCIPLINE constraint). The 15-min deadman rollback (`/opt/skynet/.tmp-revert.sh`) is not started; production is unchanged.
 
 ## Self-Check
 

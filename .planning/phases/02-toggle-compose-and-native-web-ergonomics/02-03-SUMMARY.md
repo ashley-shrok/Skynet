@@ -98,4 +98,4 @@ None. These are pure wiring additions with no placeholder values.
 
 ## Task 3 Status
 
-Task 3 (deploy checkpoint) deliberately not executed by this agent. Scope = code only per orchestrator instruction: "GSD is CODE-ONLY." The deploy sequence (build-termix.sh, docker compose up, deadman rollback arm, UAT-1 through UAT-9) is operational work for Tina/Ashley to run directly.
+Task 3 (deploy checkpoint) deliberately not executed by this agent. Scope = code only per orchestrator instruction: "GSD is CODE-ONLY." The deploy sequence (build-skynet.sh, docker compose up, deadman rollback arm, UAT-1 through UAT-9) is operational work for Tina/Ashley to run directly.

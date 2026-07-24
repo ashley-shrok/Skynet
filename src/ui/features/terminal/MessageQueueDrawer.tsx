@@ -31,7 +31,7 @@ const DEBOUNCE_MS = 400;
 // across hosts / tmux sessions. Survives any server-side failure mode
 // (bad load key, DB not ready, container recreate mid-typing).
 function messageQueueDraftLsKey(itemId: string): string {
-  return `termix:message-queue-draft:${itemId}`;
+  return `skynet:message-queue-draft:${itemId}`;
 }
 
 export function MessageQueueDrawer({

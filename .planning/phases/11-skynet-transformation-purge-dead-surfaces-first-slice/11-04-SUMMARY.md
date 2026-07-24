@@ -1,5 +1,5 @@
 ---
-phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice
+phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice
 plan: 04
 subsystem: docs/verification
 tags: [docs, build-verify, uat, patches-md, phase-boundary, skynet-purge, deploy-runbook]
@@ -15,7 +15,7 @@ requires:
 provides:
   - Phase-boundary build-verify log at 11-BUILD-VERIFY-LOG.md — tsc + vitest + npm run build evidence with all 17 grep hygiene gates PASS, 5-way PURGE-* requirement traceability, and the −373 kB / −83% AppShell bundle delta headline
   - UAT checklist at 11-UAT-CHECKLIST.md — 22 non-negotiable observations across Desktop / Mobile / Cross-viewport with explicit hash-fragment probes for #hosts/#admin/#snippets/#dashboard (checker W-4 fix) and authoritative deploy runbook citation (checker B-2 fix)
-  - Patch #138 draft at 11-PATCHES-MD-ENTRY.md — paste-ready for Tina's termix-patches.md, multi-commit-under-one-pin convention, 10 commits enumerated, batching-rule note, bundle-size delta headline
+  - Patch #138 draft at 11-PATCHES-MD-ENTRY.md — paste-ready for Tina's skynet-patches.md, multi-commit-under-one-pin convention, 10 commits enumerated, batching-rule note, bundle-size delta headline
 affects:
   - The Phase 11 deploy handoff to Ashley — build-verify PASS is the input to Ashley starting UAT walkthrough; UAT PASS is the input to Tina pasting patch #138; patch #138 pin is the input to bounty close (if Phase 11 first-slice is the milestone, otherwise deferred to Phase 12+ close)
 
@@ -30,10 +30,10 @@ tech-stack:
 
 key-files:
   created:
-    - .planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-BUILD-VERIFY-LOG.md
-    - .planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-UAT-CHECKLIST.md
-    - .planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-PATCHES-MD-ENTRY.md
-    - .planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-04-SUMMARY.md
+    - .planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-BUILD-VERIFY-LOG.md
+    - .planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-UAT-CHECKLIST.md
+    - .planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-PATCHES-MD-ENTRY.md
+    - .planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-04-SUMMARY.md
   modified: []
 
 key-decisions:
@@ -62,7 +62,7 @@ commits_landed: 3
 
 # Phase 11 Plan 04: Phase-boundary build verification + UAT checklist + patch #138 draft — Summary
 
-**Closed Phase 11 with pure documentation: a build-verify log capturing `tsc` + `vitest` + the phase-boundary `npm run build` at Plan 03's tip (`cbff367`) with all 17 grep hygiene gates PASS and a −373 kB / −83% AppShell bundle-size delta headline, a UAT checklist enumerating 22 non-negotiable observations Ashley walks post-deploy including explicit hash-fragment probes for `#hosts`/`#admin`/`#snippets`/`#dashboard`, and a paste-ready patch #138 draft for Tina's termix-patches.md — with the authoritative deploy source (`~/.claude/identities/tina/deploy-runbook.md`) cited in place of the fork CLAUDE.md's stale 15-min deadman reference. Zero source-tree modifications; PURGE-01..PURGE-05 all traced to specific commits + verification evidence.**
+**Closed Phase 11 with pure documentation: a build-verify log capturing `tsc` + `vitest` + the phase-boundary `npm run build` at Plan 03's tip (`cbff367`) with all 17 grep hygiene gates PASS and a −373 kB / −83% AppShell bundle-size delta headline, a UAT checklist enumerating 22 non-negotiable observations Ashley walks post-deploy including explicit hash-fragment probes for `#hosts`/`#admin`/`#snippets`/`#dashboard`, and a paste-ready patch #138 draft for Tina's skynet-patches.md — with the authoritative deploy source (`~/.claude/identities/tina/deploy-runbook.md`) cited in place of the fork CLAUDE.md's stale 15-min deadman reference. Zero source-tree modifications; PURGE-01..PURGE-05 all traced to specific commits + verification evidence.**
 
 ## Performance
 
@@ -91,7 +91,7 @@ Then wrote the log with 5 sections:
 **Committed as `08bcce5`** (`docs(11-04): phase 11 build verification log`).
 
 **Task 2 — UAT checklist at `11-UAT-CHECKLIST.md`.** Wrote the checklist mirroring Phase 10's format:
-- **Desktop UAT (10 items):** fresh page-load lands on PrettyLandingCard (not Termix dashboard), AppRail gone, sidebar is pretty-conversations panel, persistent top-left chevron works, active-row click opens PrettyView, RDP row click opens Guacamole (PURGE-05 runtime gate), pencil opens NewSessionDialog, no gear icon anywhere (Ashley's "no settings" lock), **item 9: direct hash-fragment probes for `#hosts`/`#admin`/`#snippets`/`#dashboard` with both-outcomes-acceptable framing per checker W-4 fix**, keyboard shortcuts unchanged.
+- **Desktop UAT (10 items):** fresh page-load lands on PrettyLandingCard (not Skynet dashboard), AppRail gone, sidebar is pretty-conversations panel, persistent top-left chevron works, active-row click opens PrettyView, RDP row click opens Guacamole (PURGE-05 runtime gate), pencil opens NewSessionDialog, no gear icon anywhere (Ashley's "no settings" lock), **item 9: direct hash-fragment probes for `#hosts`/`#admin`/`#snippets`/`#dashboard` with both-outcomes-acceptable framing per checker W-4 fix**, keyboard shortcuts unchanged.
 - **Mobile UAT (7 items):** fresh landing on pretty-conversations list, tap-row → view screen, back button, no bottom nav bar, **no SettingsRow at bottom of list (mobile "no settings" enforcement)**, RDP row tap opens Guacamole, iOS PWA reinstall safe-area check.
 - **Cross-viewport regression (5 items):** message-queue drawer, pretty-view compose behavior, RDP session usable, session persistence (A → B → A no reconnect — T-06-02-01 preservation), fleet-native rows on fresh load (Phase 7 lock).
 - **Failure route-back table:** 14 symptoms mapped to specific Plan / Task locations for immediate route-back signal. Includes hash-fragment probe symptoms (each panel type separately) and profileDropdownOpen state-survivor symptom.
@@ -223,7 +223,7 @@ Both deviations are executor-level Rule 1 fixes to reconcile the plan's `<action
 - ✓ **Phase 11 is code-complete-pending-Ashley-UAT-and-deploy-greenlight state.** Build-verify PASS; UAT checklist ready; patch #138 draft ready.
 - ✓ **Ashley has a concrete UAT checklist to walk post-deploy** — including direct hash-fragment probes (`#hosts`, `#admin`, `#snippets`, `#dashboard`) with both-outcomes-acceptable framing proving no dead-surface panel renders even via direct URL navigation.
 - ✓ **Ashley has an authoritative deploy runbook citation** (`~/.claude/identities/tina/deploy-runbook.md`) that will not misdirect her to the retired 15-min deadman procedure; the stale fork CLAUDE.md line is explicitly named as retired.
-- ✓ **Tina has a paste-ready patch #138 entry for termix-patches.md** — 10 commits enumerated, multi-commit-under-one-pin convention, batching-rule contract line, bundle-size headline, requirement traceability, no Co-Authored-By.
+- ✓ **Tina has a paste-ready patch #138 entry for skynet-patches.md** — 10 commits enumerated, multi-commit-under-one-pin convention, batching-rule contract line, bundle-size headline, requirement traceability, no Co-Authored-By.
 - ✓ **If Ashley's UAT reports any failure, the failure-route-back table gives an immediate signal** — 14 symptoms mapped to specific Plan / Task locations.
 
 ## Issues Encountered
@@ -308,5 +308,5 @@ Automated verification of claims made above:
 ## Self-Check: PASSED
 
 ---
-*Phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice*
+*Phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice*
 *Completed: 2026-07-23*

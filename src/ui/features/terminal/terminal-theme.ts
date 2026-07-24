@@ -1,7 +1,7 @@
 import { TERMINAL_THEMES } from "@/lib/terminal-themes.ts";
 
-// Background/foreground per UI theme for "Termix Default" - must match index.css
-const TERMIX_DEFAULT_COLORS: Record<
+// Background/foreground per UI theme for "Skynet Default" - must match index.css
+const SKYNET_DEFAULT_COLORS: Record<
   string,
   { background: string; foreground: string }
 > = {
@@ -16,13 +16,13 @@ const TERMIX_DEFAULT_COLORS: Record<
   gruvbox: { background: "#282828", foreground: "#ebdbb2" },
 };
 
-export function resolveTermixThemeColors(
+export function resolveSkynetThemeColors(
   activeTheme: string,
   appTheme: string,
 ) {
-  if (activeTheme !== "termix") {
+  if (activeTheme !== "skynet") {
     return (
-      TERMINAL_THEMES[activeTheme]?.colors || TERMINAL_THEMES.termixDark.colors
+      TERMINAL_THEMES[activeTheme]?.colors || TERMINAL_THEMES.skynetDark.colors
     );
   }
   let resolvedUiTheme = appTheme;
@@ -32,8 +32,8 @@ export function resolveTermixThemeColors(
       : "light";
   }
   const uiColors =
-    TERMIX_DEFAULT_COLORS[resolvedUiTheme] ?? TERMIX_DEFAULT_COLORS.dark;
-  const base = TERMINAL_THEMES.termixDark.colors;
+    SKYNET_DEFAULT_COLORS[resolvedUiTheme] ?? SKYNET_DEFAULT_COLORS.dark;
+  const base = TERMINAL_THEMES.skynetDark.colors;
   return {
     ...base,
     background: uiColors.background,

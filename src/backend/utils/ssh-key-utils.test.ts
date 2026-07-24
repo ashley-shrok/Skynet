@@ -18,7 +18,7 @@ AAAEDLo85Twyg0v6V1zsJaeRaxq9KPQXkqGY0HiJtVMzCXEFH+Ektft4yKdLjAkx8baBZK
 -----END OPENSSH PRIVATE KEY-----`;
 
 const ED25519_PUBLIC =
-  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFH+Ektft4yKdLjAkx8baBZK21SK5Iu+oPBVhPnfHSp7 test@termix.test";
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFH+Ektft4yKdLjAkx8baBZK21SK5Iu+oPBVhPnfHSp7 test@skynet.test";
 
 describe("parsePublicKey", () => {
   it("detects ssh-ed25519 public keys", () => {

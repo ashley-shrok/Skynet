@@ -1,7 +1,7 @@
 # Phase 05 Plan 04 Task 1 — build verification log
 
 **Run at:** 2026-07-20T12:03:32Z
-**Working copy:** /home/ubuntu/termix on `feat/tab-title-from-tmux` at `ce38add`
+**Working copy:** /home/ubuntu/skynet on `feat/tab-title-from-tmux` at `ce38add`
 **Purpose:** Paper trail proving Plans 05-01/02/03 shipped clean into `dist/` before Task 4's deploy checkpoint.
 
 ---

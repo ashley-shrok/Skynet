@@ -138,7 +138,7 @@ export function getWorkingDir(paths: string[]): string {
   return first;
 }
 
-/** Convert an SFTP path to a local filesystem path when Termix runs on the dest host. */
+/** Convert an SFTP path to a local filesystem path when Skynet runs on the dest host. */
 export function sftpPathToLocalPath(sftpPath: string): string {
   const normalized = sftpPath.replace(/\\/g, "/");
   if (/^\/[A-Za-z]:\//.test(normalized)) {

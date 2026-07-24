@@ -4,7 +4,7 @@
 
 **Contract:** Plans 02-06 consume this list as their deletion-target contract. Anything absent here is out of scope; anything here is grep-verified with the exact command + observed hit list. Section I is the pre-flight refactor input contract for Plan 02; Section J is the retained-UI protection list that binds every downstream plan; Section K is Plan 07's phase-boundary verification-gate list.
 
-**Requirements addressed:** PURGE-06 (sidebar simple-leaf + Admin + HostManager subtree + SidebarTree), PURGE-07 (`src/ui/dashboard/` subtree deletion — the FILES, not the TabType), PURGE-08 (Termix tab bar chrome = `shell/Tab.tsx`), PURGE-09 (keyboard shortcut editor UI resolution → the `commandPaletteShortcutEnabled` writer+reader pair, not the on-screen modifier bar), PURGE-10 (dead locale strings across 35 locale JSON files).
+**Requirements addressed:** PURGE-06 (sidebar simple-leaf + Admin + HostManager subtree + SidebarTree), PURGE-07 (`src/ui/dashboard/` subtree deletion — the FILES, not the TabType), PURGE-08 (Skynet tab bar chrome = `shell/Tab.tsx`), PURGE-09 (keyboard shortcut editor UI resolution → the `commandPaletteShortcutEnabled` writer+reader pair, not the on-screen modifier bar), PURGE-10 (dead locale strings across 35 locale JSON files).
 
 **Baseline grep evidence at authoring:**
 
@@ -312,7 +312,7 @@ Sub-directory dependency graph:
 
 ---
 
-## Section F: Termix tab bar chrome — `src/ui/shell/Tab.tsx` (PURGE-08 · Plan 05 input)
+## Section F: Skynet tab bar chrome — `src/ui/shell/Tab.tsx` (PURGE-08 · Plan 05 input)
 
 **File:** `src/ui/shell/Tab.tsx` — 442 lines.
 
@@ -323,7 +323,7 @@ $ grep -rn "from.*\"@/shell/Tab\"\|from.*\"@/shell/Tab\.tsx\"\|from.*'./Tab'\|fr
 (zero hits)
 ```
 
-Phase 11's landing swap (11-02) implicitly retired the Termix top-of-app tab strip's mount point. `shell/Tab.tsx` is the visible chrome file: it consumes `nav.admin`, `nav.userProfile`, `nav.splitScreen`, `nav.cannotSplitTab`, `nav.openFileManager`, `nav.copyPassword`, `nav.copySudoPassword`, `nav.passwordCopied`, `nav.noPasswordAvailable`, `nav.failedToCopyPassword`, `nav.sshManager`, `nav.terminal`, `nav.serverStats`, `nav.fileManager`, `nav.docker`, `nav.tunnels` — the tab-strip renderer that shows tab titles + close buttons + right-click menu items.
+Phase 11's landing swap (11-02) implicitly retired the Skynet top-of-app tab strip's mount point. `shell/Tab.tsx` is the visible chrome file: it consumes `nav.admin`, `nav.userProfile`, `nav.splitScreen`, `nav.cannotSplitTab`, `nav.openFileManager`, `nav.copyPassword`, `nav.copySudoPassword`, `nav.passwordCopied`, `nav.noPasswordAvailable`, `nav.failedToCopyPassword`, `nav.sshManager`, `nav.terminal`, `nav.serverStats`, `nav.fileManager`, `nav.docker`, `nav.tunnels` — the tab-strip renderer that shows tab titles + close buttons + right-click menu items.
 
 **No sibling test file:**
 
@@ -801,7 +801,7 @@ test ! -f src/ui/sidebar/SidebarTree.tsx && echo "PASS: SidebarTree deleted" || 
 # Dashboard subtree (Section E)
 find src/ui/dashboard -type f | wc -l    # expected 0 (or documented Phase-13-deferred count)
 
-# Termix tab bar chrome (Section F)
+# Skynet tab bar chrome (Section F)
 test ! -f src/ui/shell/Tab.tsx && echo "PASS: shell/Tab.tsx deleted" || echo "FAIL"
 
 # PROTECTED files (Section J)

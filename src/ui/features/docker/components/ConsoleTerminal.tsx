@@ -60,13 +60,13 @@ export function ConsoleTerminal({
 
   const themeColors = React.useMemo(() => {
     const activeTheme = terminalConfig.theme;
-    if (activeTheme === "termix") {
+    if (activeTheme === "skynet") {
       return isDarkMode
-        ? TERMINAL_THEMES.termixDark.colors
-        : TERMINAL_THEMES.termixLight.colors;
+        ? TERMINAL_THEMES.skynetDark.colors
+        : TERMINAL_THEMES.skynetLight.colors;
     }
     return (
-      TERMINAL_THEMES[activeTheme]?.colors ?? TERMINAL_THEMES.termixDark.colors
+      TERMINAL_THEMES[activeTheme]?.colors ?? TERMINAL_THEMES.skynetDark.colors
     );
   }, [terminalConfig.theme, isDarkMode]);
 

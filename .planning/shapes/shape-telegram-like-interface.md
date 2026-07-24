@@ -5,11 +5,11 @@
 
 ## What this is
 
-Termix reshaped around a conversation-list interface — the same interaction shape Telegram uses for chats. On mobile, a list of active conversations; tap one to view it, back button in the top-left to return to the list. On desktop, the list lives in a collapsible sidebar always visible on the left, and whichever conversation you click on fills the rest of the view. A conversation IS what Termix already puts inside a tab today (pretty view for identity sessions, terminal view for plain SSH sessions, remote desktop for RDP hosts) — only the tab-strip metaphor around it is removed. The point is to admit that Ashley uses Termix like a client for talking with agents, not like a tab manager, and to let the interface reflect that.
+Skynet reshaped around a conversation-list interface — the same interaction shape Telegram uses for chats. On mobile, a list of active conversations; tap one to view it, back button in the top-left to return to the list. On desktop, the list lives in a collapsible sidebar always visible on the left, and whichever conversation you click on fills the rest of the view. A conversation IS what Skynet already puts inside a tab today (pretty view for identity sessions, terminal view for plain SSH sessions, remote desktop for RDP hosts) — only the tab-strip metaphor around it is removed. The point is to admit that Ashley uses Skynet like a client for talking with agents, not like a tab manager, and to let the interface reflect that.
 
 ## Shape
 
-- **The list.** A single flat scrollable list of every currently-active session. Rows are grouped visually by host with separators, mirroring how the current sidebar already presents them. Pinned conversations float to the top, above the grouped hosts. Below the pins, order follows Termix's existing host-tree order — no new sort rule, no recency-shuffle. Sessions that end vanish from the list; the list only ever shows what's live right now.
+- **The list.** A single flat scrollable list of every currently-active session. Rows are grouped visually by host with separators, mirroring how the current sidebar already presents them. Pinned conversations float to the top, above the grouped hosts. Below the pins, order follows Skynet's existing host-tree order — no new sort rule, no recency-shuffle. Sessions that end vanish from the list; the list only ever shows what's live right now.
 - **The view.** Whichever conversation is currently selected takes the main real estate. Only one conversation is visible at a time. The internal experience of a conversation is unchanged — identity sessions still open into the pretty view, plain-SSH sessions still open into a terminal, RDP hosts still open into a remote desktop.
 - **Session persistence.** Clicking a conversation for the first time in a page-load opens its underlying connection and mounts its view. Clicking a different conversation hides the previous one but does not tear it down; the connection stays alive and its state is preserved. Clicking back returns to the previous conversation instantly, with no reconnect. A full browser refresh resets everything from scratch — persistence is in-memory only, not stored.
 - **Mobile.** The list and the view are two distinct screens. From the list, tapping a row navigates into that conversation. A back button in the top-left returns to the list. The bottom-of-screen navigation bar that mobile currently shows is gone entirely.
@@ -20,7 +20,7 @@ Termix reshaped around a conversation-list interface — the same interaction sh
 
 ## Philosophy
 
-The shape is admitting a reality that already exists. Ashley converses with a small stable set of identities across many machines; the product she reaches for on her phone and desktop when doing this is Telegram; Termix has been drifting toward that same shape for months already (pretty view, expanding sidebar, mobile-only bottom-nav gate). This work names that drift and completes it.
+The shape is admitting a reality that already exists. Ashley converses with a small stable set of identities across many machines; the product she reaches for on her phone and desktop when doing this is Telegram; Skynet has been drifting toward that same shape for months already (pretty view, expanding sidebar, mobile-only bottom-nav gate). This work names that drift and completes it.
 
 The stance is minimal-additive, aggressive-subtractive. The internals of each conversation type are unchanged. The sidebar's fixed host grouping is unchanged. The desktop collapse behavior is unchanged. What we're removing is more than what we're adding — the tab strip goes, the mobile bottom-nav destinations shift somewhere quiet, and "opening a tab" is replaced by "selecting a conversation."
 
@@ -30,7 +30,7 @@ What would violate the spirit even if it passed a spec: adding any always-visibl
 
 ## Prior context
 
-Termix today is a tab-manager on top of a host tree. The sidebar shows a hierarchy of hosts and their existing sessions; clicking a session opens a new tab in the main area; multiple tabs can be open simultaneously; a tab strip along the top lets Ashley switch between them. Each tab hosts either a pretty view (for identity-attached claude sessions), a terminal (for plain SSH), or a remote-desktop canvas (for RDP).
+Skynet today is a tab-manager on top of a host tree. The sidebar shows a hierarchy of hosts and their existing sessions; clicking a session opens a new tab in the main area; multiple tabs can be open simultaneously; a tab strip along the top lets Ashley switch between them. Each tab hosts either a pretty view (for identity-attached claude sessions), a terminal (for plain SSH), or a remote-desktop canvas (for RDP).
 
 Over the last several months, the product has been evolving in a Telegram-ward direction without anyone naming it as such. The pretty view was introduced and refined until Ashley stopped using the raw terminal view entirely for identity sessions. The sidebar became collapsible with a thin-strip idle state. The mobile bottom navigation bar was constrained to appear only on mobile, since desktop already had a better nav surface.
 
@@ -73,7 +73,7 @@ The current sidebar already groups sessions by host with visual separators, whic
 
 ## Vehicle notes
 
-Vehicle is a GSD phase (or a small sequence of phases) inside the Termix fork. The scope crosses too many surfaces to make sense as a single quick task or a sequence of quick tasks; the risk of shipping a partial state — new list layout without the tab-strip removal, or vice versa — is real and unacceptable. The full phase pipeline gives us spec / plan / execute / verify with the deadman rollback and pinning discipline that fork work already runs behind.
+Vehicle is a GSD phase (or a small sequence of phases) inside the Skynet fork. The scope crosses too many surfaces to make sense as a single quick task or a sequence of quick tasks; the risk of shipping a partial state — new list layout without the tab-strip removal, or vice versa — is real and unacceptable. The full phase pipeline gives us spec / plan / execute / verify with the deadman rollback and pinning discipline that fork work already runs behind.
 
 Phase decomposition — a starting sketch, not binding on planning:
 

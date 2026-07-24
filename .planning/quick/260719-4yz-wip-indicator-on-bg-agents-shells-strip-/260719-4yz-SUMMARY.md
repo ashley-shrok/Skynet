@@ -63,7 +63,7 @@ All three variables were already in scope in the render function (line 110, 120,
 - `git status -- PlanPendingBubble.tsx BackgroundedAgentsPanel.tsx BackgroundedShellsPanel.tsx` → all clean (untouched).
 - `ls ~/.claude/identities/tina/bounties/wip-indicator-on-bg-agents-or-shells` → No such file or directory (folder moved).
 - `jq -r .status ~/.claude/identities/tina/bounties/archive/wip-indicator-on-bg-agents-or-shells/bounty.json` → `done`.
-- `~/git/termix-patches.md` untouched (write-up happens at pin time per Tina fleet rule).
+- `~/git/skynet-patches.md` untouched (write-up happens at pin time per Tina fleet rule).
 
 ## Commits
 

@@ -1,31 +1,31 @@
 services:
-  termix:
-    image: ghcr.io/lukegus/termix:latest
-    container_name: termix
+  skynet:
+    image: ghcr.io/lukegus/skynet:latest
+    container_name: skynet
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - termix-data:/app/data
+      - skynet-data:/app/data
     environment:
       PORT: "8080"
       GUACD_HOST: "guacd"
     depends_on:
       - guacd
     networks:
-      - termix-net
+      - skynet-net
 
   guacd:
     image: guacamole/guacd:1.6.0
     container_name: guacd
     restart: unless-stopped
     networks:
-      - termix-net
+      - skynet-net
 
 volumes:
-  termix-data:
+  skynet-data:
     driver: local
 
 networks:
-  termix-net:
+  skynet-net:
     driver: bridge

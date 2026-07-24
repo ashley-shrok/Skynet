@@ -123,7 +123,7 @@ sending a message.
 
 ## Prior context
 
-Termix is the browser SSH/RDP surface the whole fleet uses. Pretty view is
+Skynet is the browser SSH/RDP surface the whole fleet uses. Pretty view is
 its chat-style rendering of Claude Code sessions running inside tmux on
 managed boxes — bubbles, streaming, message queue drawer, identity
 badges, WIP indicators, plan-pending bubbles, backgrounded-agents panels,
@@ -255,7 +255,7 @@ Why phase and not smaller:
 - **Multi-file, multi-layer scope.** Frontend components (drop overlay,
   chip strip, per-chip progress, mobile paperclip, clipboard paste
   handler, message-stream chip rendering), backend upload path (browser
-  → Termix EC2 → target box), protocol additions (message format for
+  → Skynet EC2 → target box), protocol additions (message format for
   the injected user turn), and a new filesystem convention on the
   receiving side. Too much surface for `/gsd:quick`.
 - **Tight coupling around atomic-send semantics.** Splitting into

@@ -13,7 +13,7 @@ export function isSshLaunchableHost(h: Host): boolean {
   return Boolean(h.enableSsh);
 }
 
-// Subset of the above: hosts where Termix will start/attach a named tmux
+// Subset of the above: hosts where Skynet will start/attach a named tmux
 // session on connect. The click handler uses this to decide whether to pop
 // the name dialog vs. open a plain terminal.
 export function isAutoTmuxHost(h: Host): boolean {

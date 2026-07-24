@@ -111,7 +111,7 @@ Output: Modified `src/ui/features/pretty-view/use-auto-scroll.ts` with a new mes
   </action>
 
   <verify>
-    <automated>cd /home/ubuntu/termix &amp;&amp; npx tsc --noEmit -p tsconfig.app.json 2>&amp;1 | grep -E 'pretty-view|use-auto-scroll' | wc -l</automated>
+    <automated>cd /home/ubuntu/skynet &amp;&amp; npx tsc --noEmit -p tsconfig.app.json 2>&amp;1 | grep -E 'pretty-view|use-auto-scroll' | wc -l</automated>
   </verify>
 
   <acceptance_criteria>

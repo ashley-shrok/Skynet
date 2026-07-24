@@ -252,7 +252,7 @@ Served via:
 cd /home/ubuntu/.claude/identities/tina/bounties/compose-box-redesign && python3 -m http.server 8899
 ```
 
-Ashley opens at: `http://100.99.149.8:8899/prototype.html` in a new browser tab (NOT embedded in Termix — mixed-content block applies).
+Ashley opens at: `http://100.99.149.8:8899/prototype.html` in a new browser tab (NOT embedded in Skynet — mixed-content block applies).
 
 ### Prototype must exercise
 

@@ -24,11 +24,11 @@ import { AttachmentChipStrip } from "./AttachmentChipStrip";
 // `dark:prose-invert` so headings/code/strong/em get light-mode prose
 // colors on the light theme card and dark-mode prose colors (light
 // grays) on the dark theme card. Without the assistant-side invert,
-// Termix's dark card renders headings/inline-code in default light-mode
+// Skynet's dark card renders headings/inline-code in default light-mode
 // prose colors — dark grays that read as "faint/unreadable" against
 // the dark card background.
 //
-// Font: Termix sets `font-mono` (JetBrains Mono) globally for the
+// Font: Skynet sets `font-mono` (JetBrains Mono) globally for the
 // terminal aesthetic. Pretty view is a prose surface, so we override
 // with Inter — the modern default for chat/UI text at small sizes,
 // tuned for screen legibility. Inline `code` bubbles opt back into

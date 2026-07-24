@@ -25,7 +25,7 @@ key-files:
     - .planning/phases/12-.../12-01-SUMMARY.md
   modified: []
 decisions:
-  - "shell/Tab.tsx is the Termix tab bar chrome (PURGE-08) — grep-verified 0 consumers, safe to delete without stripping"
+  - "shell/Tab.tsx is the Skynet tab bar chrome (PURGE-08) — grep-verified 0 consumers, safe to delete without stripping"
   - "features/keyboard/ is the on-screen modifier bar for Terminal + Guacamole, NOT the PURGE-09 shortcut editor UI — RETAINED"
   - "PURGE-09 resolves to commandPaletteShortcutEnabled writer (UserProfilePanel) + reader (AppShell) pair — same atomic commit retire"
   - "dashboard/NewSessionDialog.tsx (dies in Plan 02 relocate) is a DIFFERENT file from sidebar/NewSessionDialog.tsx (PROTECTED, PrettyConversationsPanel pencil consumer)"
@@ -63,7 +63,7 @@ A read-only audit document with grep-verified evidence for every deletion target
 
 ## Key findings (surprises from enumeration)
 
-- **`src/ui/shell/Tab.tsx` is already fully orphan** — grep `from.*shell/Tab` returns 0 hits. Phase 11's landing swap implicitly retired the visible tab strip. Plan 05 is a single `git rm` (no import stripping needed) — smaller than anticipated. This is the "Termix tab bar chrome" file confirmed.
+- **`src/ui/shell/Tab.tsx` is already fully orphan** — grep `from.*shell/Tab` returns 0 hits. Phase 11's landing swap implicitly retired the visible tab strip. Plan 05 is a single `git rm` (no import stripping needed) — smaller than anticipated. This is the "Skynet tab bar chrome" file confirmed.
 - **`features/keyboard/` is the ON-SCREEN MODIFIER BAR, not the PURGE-09 target.** All 5 files (Toolbar.tsx, sshAdapter.ts, sshAdapter.test.ts, guacamoleAdapter.ts, inputAdapter.ts) are consumed by Terminal.tsx and GuacamoleApp.tsx — deleting them would break both retained-UI panes. Section G resolves PURGE-09 to the `commandPaletteShortcutEnabled` writer/reader pair instead. Documented as PROTECTED in Section J with the exact 5-file consumer grep.
 - **The `dashboard/NewSessionDialog.tsx` vs `sidebar/NewSessionDialog.tsx` file collision requires explicit protection.** They're separate files with the same base name; the dashboard version dies in Plan 02's relocate to `features/session-launcher/`; the sidebar version is PROTECTED (PrettyConversationsPanel pencil consumer). Section I.2 + Section J call this out repeatedly with grep patterns that distinguish them.
 - **`nav.copyPassword` + `nav.copySudoPassword` + `nav.passwordCopied` + `nav.failedToCopyPassword` have DOUBLE consumers.** They're referenced from both `shell/Tab.tsx` (dies Section F) AND `sidebar/SidebarTree.tsx` (dies Section D). Neither Section alone kills them; they only enter batch-2 after BOTH land. Plan 06 executor must sequence: 03/04/05 → then batch-2.

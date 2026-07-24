@@ -16,7 +16,7 @@ dependency_graph:
 tech_stack:
   added: []
   patterns:
-    - "same-origin WebSocket construction: scheme derived from window.location.protocol, host from window.location.host, path /claude-session/websocket/ — matches Termix's /ssh/websocket/ convention"
+    - "same-origin WebSocket construction: scheme derived from window.location.protocol, host from window.location.host, path /claude-session/websocket/ — matches Skynet's /ssh/websocket/ convention"
     - "cookie-only auth: no ?token= query-string fallback in the browser path (the fallback exists in the server for wscat testing only)"
     - "discriminated-union render state: single `status` string of 'connecting' | 'streaming' | 'inactive' | 'error' rather than a bag of booleans"
     - "wasPinnedRef pattern: capture isPinnedToBottom BEFORE setMessages so the post-add effect knows whether to scroll — standard chat-app RENDER-03 behavior"
@@ -347,7 +347,7 @@ scope, which is where any external-surface review should happen.
 
 ## Next Plan
 
-Plan 01-04 wires `PrettyView` into `src/ui/shell/tabUtils.tsx` so a Termix
+Plan 01-04 wires `PrettyView` into `src/ui/shell/tabUtils.tsx` so a Skynet
 tab can render it in place of (or beside) the existing xterm pane. Plan
 01-05 adds the nginx location blocks to both `docker/nginx.conf` and
 `docker/nginx-https.conf` so the port-30003 WS is reachable through the

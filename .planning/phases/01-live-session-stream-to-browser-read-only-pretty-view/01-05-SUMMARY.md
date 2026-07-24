@@ -32,8 +32,8 @@ in CONTEXT.md without a grep of the existing codebase for collisions.
 ## Deploy record
 
 Pushed feat/tab-title-from-tmux to GitHub (`68db714` — nginx + port fix),
-built `termix-patched:local` via `/opt/termix/termix-patches/build-termix.sh`,
-armed 15-min deadman, `docker compose up -d --force-recreate termix`.
+built `skynet-patched:local` via `/opt/skynet/skynet-patches/build-skynet.sh`,
+armed 15-min deadman, `docker compose up -d --force-recreate skynet`.
 
 **Smoke sequence outcome:**
 - Backend port 30011 listener: ✓ present after boot
@@ -84,12 +84,12 @@ reported "worked!" — pretty view rendered the live conversation.
 
 ## Deadman flow record (for future reference)
 
-- Initial arm: `/tmp/termix-keep-patched` sentinel + `sleep 900` at 16:25
+- Initial arm: `/tmp/skynet-keep-patched` sentinel + `sleep 900` at 16:25
 - First deploy live at 16:26
 - Broken discovery reported 16:32
 - Root-caused + fixed + committed + pushed 16:37
 - Old deadman kept inert by touching sentinel; v2 deadman armed with
-  distinct `/tmp/termix-keep-patched-v2` sentinel to give Ashley a
+  distinct `/tmp/skynet-keep-patched-v2` sentinel to give Ashley a
   fresh 15-min window for the fix
 - Second deploy live at 16:38
 - "Worked!" confirmed 16:39

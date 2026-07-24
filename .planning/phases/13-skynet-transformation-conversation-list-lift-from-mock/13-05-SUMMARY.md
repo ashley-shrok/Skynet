@@ -10,7 +10,7 @@ dependency_graph:
     - phase: 13-02
       provides: Wave 2 panel header + AppShell chevron rebase (SHAPE-02 + SHAPE-04)
     - phase: 13-03
-      provides: Wave 3 PinAction bare-icon-with-hue-glow + final Termix theme-class purge (SHAPE-03)
+      provides: Wave 3 PinAction bare-icon-with-hue-glow + final Skynet theme-class purge (SHAPE-03)
     - phase: 13-04
       provides: Wave 4 pre-UAT diagnostic pass + UAT template + route-back matrix (SHAPE-05 preparation)
     - `~/.claude/identities/tina/bounties/skynet-transformation/` (MASTER bounty — closes on Ashley UAT sign-off)
@@ -19,12 +19,12 @@ dependency_graph:
   provides:
     - 13-BUILD-VERIFY-LOG.md — tsc + vitest + npm run build evidence + 21 grep hygiene gates covering SHAPE-01..SHAPE-07 + Baseline preservation + requirement traceability
     - 13-UAT-CHECKLIST.md — Ashley's post-deploy verification walkthrough (Desktop 1-12 + Mobile 13-20 + Cross-viewport 21-26 + Failure route-back table + Post-UAT deploy runbook + Master bounty closeout note)
-    - 13-PATCHES-MD-ENTRY.md — patch #140 write-up paste-ready for `~/.claude/identities/tina/termix-patches.md`
+    - 13-PATCHES-MD-ENTRY.md — patch #140 write-up paste-ready for `~/.claude/identities/tina/skynet-patches.md`
     - Phase-boundary closeout: Skynet-SHAPE-COMPLETE-pending-Ashley-UAT-and-deploy-greenlight
   affects:
     - Master bounty `~/.claude/identities/tina/bounties/skynet-transformation/` — closes on Ashley UAT sign-off, marking Ship-of-Theseus movement (Phases 11+12+13) complete
     - The three-patch batch (#138 + #139 + #140) queues for Ashley's greenlight per fleet-standing "batch patches into meaningful deploys" rule
-    - Tina's `termix-patches.md` catalog — patch #140 paste-ready
+    - Tina's `skynet-patches.md` catalog — patch #140 paste-ready
 tech_stack:
   added: []
   patterns:
@@ -45,7 +45,7 @@ decisions:
   - "Referenced ONLY the master bounty `~/.claude/identities/tina/bounties/skynet-transformation/` throughout all three deliverables — no sibling bounty names, no sibling bounty references. Per CONTEXT.md § meta-lesson (Ashley 2026-07-23 verbatim: 'I fragmented the Ship-of-Theseus movement into sibling bounties instead of tracking it all inside the master bounty')."
   - "The UAT checklist includes an explicit 'Master bounty closeout note' section binding Ashley's UAT sign-off to the master bounty's `/close skynet-transformation` action. This makes the phase-13-completes-the-Ship-of-Theseus-movement narrative traceable in the fork docs, not just in Tina's identity file."
   - "The patch #140 write-up recommends batching patches #138 + #139 + #140 into ONE combined pin at the batch-deploy moment as the natural semantic unit ('Ship-of-Theseus movement complete'). Alternative flow (patch #138 pinned earlier as solo bump) is documented as a secondary path in the post-paste bookkeeping section."
-  - "All Ashley's this-session verbatim complaints are called out in the patch-entry motivating-gap section: 'panel header still looks Termix', 'active conversations not glowing fully', 'pin buttons totally obnoxious', 'the bar at the top that says the name of the session still looks Termix' (mapped to SHAPE-02, SHAPE-01 ambient recession, SHAPE-03, SHAPE-04 respectively). This preserves the direct-user-voice provenance in the patches-md catalog."
+  - "All Ashley's this-session verbatim complaints are called out in the patch-entry motivating-gap section: 'panel header still looks Skynet', 'active conversations not glowing fully', 'pin buttons totally obnoxious', 'the bar at the top that says the name of the session still looks Skynet' (mapped to SHAPE-02, SHAPE-01 ambient recession, SHAPE-03, SHAPE-04 respectively). This preserves the direct-user-voice provenance in the patches-md catalog."
 requirements_completed: [SHAPE-06, SHAPE-07]
 metrics:
   duration: 15min
@@ -62,7 +62,7 @@ metrics:
 
 # Phase 13 Plan 05: Skynet Transformation — Docs Closeout Summary
 
-**Phase 13 docs closeout: authored 3 deliverables (13-BUILD-VERIFY-LOG.md + 13-UAT-CHECKLIST.md + 13-PATCHES-MD-ENTRY.md) capturing the phase-boundary code-complete-clean state, Ashley's post-deploy verification walkthrough, and the patch #140 write-up ready for Tina's `termix-patches.md`. Ran the full build-verify sweep (tsc + full vitest + npm run build) + phase-boundary grep hygiene gates — all PASS at the phase tip. Ship-of-Theseus movement (Phases 11+12+13) is code-complete-pending-Ashley-UAT-and-deploy-greenlight.**
+**Phase 13 docs closeout: authored 3 deliverables (13-BUILD-VERIFY-LOG.md + 13-UAT-CHECKLIST.md + 13-PATCHES-MD-ENTRY.md) capturing the phase-boundary code-complete-clean state, Ashley's post-deploy verification walkthrough, and the patch #140 write-up ready for Tina's `skynet-patches.md`. Ran the full build-verify sweep (tsc + full vitest + npm run build) + phase-boundary grep hygiene gates — all PASS at the phase tip. Ship-of-Theseus movement (Phases 11+12+13) is code-complete-pending-Ashley-UAT-and-deploy-greenlight.**
 
 ## One-Liner
 
@@ -84,7 +84,7 @@ Phase 13 closes as **Skynet-SHAPE-COMPLETE-pending-Ashley-UAT-and-deploy-greenli
   - Section 1 (`npx tsc --noEmit`): exit 0, zero errors
   - Section 2 (`npx vitest run`): 524/526 passing — byte-identical Phase 11 + Phase 12 baseline; 2 pre-existing ComposeBox failures inherited from patches #121 + #124 (SHAPE-06 lockout — `src/ui/features/pretty-view/` not touched)
   - Section 3 (`npm run build`): exit 0 in 8.87s; AppShell bundle **−6.18 kB / −8.32%** vs Phase 12 tip; cumulative Phase 11 + Phase 12 + Phase 13 vs Phase 10 tip = **−380.76 kB / −84.8%** on AppShell
-  - Section 4 (21 grep hygiene gates): SHAPE-01 x4 + SHAPE-02 x2 + SHAPE-03 x3 (including the **final Termix theme-class purge deep gate** — 0 non-comment code hits under improved awk-based filter) + SHAPE-04 x3 + SHAPE-06 x4 (**scope-boundary evidence: `git diff --stat f1c77fd..HEAD` on `src/ui/features/pretty-view/`, `src/ui/components/`, `src/ui/ssh/`, `src/ui/features/terminal/` all return 0**) + SHAPE-07 x3 + Baseline preservation x4 = 21 gates, all PASS
+  - Section 4 (21 grep hygiene gates): SHAPE-01 x4 + SHAPE-02 x2 + SHAPE-03 x3 (including the **final Skynet theme-class purge deep gate** — 0 non-comment code hits under improved awk-based filter) + SHAPE-04 x3 + SHAPE-06 x4 (**scope-boundary evidence: `git diff --stat f1c77fd..HEAD` on `src/ui/features/pretty-view/`, `src/ui/components/`, `src/ui/ssh/`, `src/ui/features/terminal/` all return 0**) + SHAPE-07 x3 + Baseline preservation x4 = 21 gates, all PASS
   - Section 5: requirement traceability mapping SHAPE-01 through SHAPE-07 to specific commits + verification evidence (SHAPE-05 deferred to Ashley's live UAT per the plan's design)
 - **Task 2: 13-UAT-CHECKLIST.md authored** (5-section structure):
   - Desktop UAT (12 items covering SHAPE-01 through SHAPE-07 with side-by-side mock-comparison verifies + DevTools snippets for SHAPE-05 verification)
@@ -118,7 +118,7 @@ Plan-suggested two-commit split (combined docs + separate summary) followed exac
 - `.planning/phases/13-skynet-transformation-conversation-list-lift-from-mock/13-BUILD-VERIFY-LOG.md` (~350 lines)
   - 5-section structure: tsc + vitest + npm run build + grep hygiene gates + requirement traceability
   - 21 grep hygiene gates all PASS (SHAPE-01/02/03/04/06/07 non-negotiables + Baseline preservation carry-forward from Phase 11 + Phase 12)
-  - SHAPE-03 deep gate (final Termix theme-class purge in `src/ui/features/pretty-conversations/`) — 0 non-comment code hits verified under improved awk-based filter
+  - SHAPE-03 deep gate (final Skynet theme-class purge in `src/ui/features/pretty-conversations/`) — 0 non-comment code hits verified under improved awk-based filter
   - SHAPE-06 scope-boundary gate (git diff --stat on 4 locked directories) — 0 lines each
   - Bundle-size deltas: −6.18 kB / −8.32% AppShell vs Phase 12 tip; cumulative −380.76 kB / −84.8% vs Phase 10 tip
 - `.planning/phases/13-skynet-transformation-conversation-list-lift-from-mock/13-UAT-CHECKLIST.md` (~330 lines)
@@ -131,7 +131,7 @@ Plan-suggested two-commit split (combined docs + separate summary) followed exac
   - Multi-commit-under-one-pin format matching patches #104, #105, #128, #138, #139
   - All 4 SHAPE fix summaries + SHAPE-06 preservation + bundle-size headline + 12 Phase 13 commits enumerated
   - Master bounty referenced 4x; ZERO sibling bounty references (per plan explicit requirement)
-  - Rebase-risk section marks the Phase 13 delta as MEDIUM (row treatment is fork-native; upstream Termix will keep evolving)
+  - Rebase-risk section marks the Phase 13 delta as MEDIUM (row treatment is fork-native; upstream Skynet will keep evolving)
   - Post-paste bookkeeping section binds Ashley's UAT sign-off to `/close skynet-transformation` master bounty action
 
 ## Decisions Made
@@ -142,7 +142,7 @@ Plan-suggested two-commit split (combined docs + separate summary) followed exac
 - **Master bounty only** referenced throughout all three deliverables. Per CONTEXT.md § meta-lesson, no sibling bounty names appear anywhere in the deliverables' active-reference content. First draft of the patches-md entry included a naming/archival narrative that named the 4 archived siblings; that narrative was reworded to remove specific names ("merged all prior fragment bounties into the master") since the plan explicitly said "do NOT reference any archived sibling bounties" — the reword preserves the meta-lesson while eliminating even accidental sibling-name mentions.
 - **UAT checklist includes explicit Master bounty closeout note** binding Ashley's UAT sign-off to the master bounty's `/close skynet-transformation` action. This makes the phase-13-completes-the-Ship-of-Theseus-movement narrative traceable in the fork docs, not just in Tina's identity file.
 - **Recommended combined pin** for patches #138 + #139 + #140 at the batch-deploy moment as the natural semantic unit ("Ship-of-Theseus movement complete"). Alternative flow (patch #138 pinned earlier as solo bump) documented as a secondary path.
-- **Ashley's direct-user-voice complaints** captured verbatim in the patch #140 motivating-gap section: "panel header still looks Termix" → SHAPE-02, "active conversations not glowing fully like a glowing border or something" → SHAPE-01 ambient recession, "pin buttons totally obnoxious" → SHAPE-03, "the bar at the top that says the name of the session still looks Termix" → SHAPE-04. Preserves user-voice provenance in the patches-md catalog for future-me.
+- **Ashley's direct-user-voice complaints** captured verbatim in the patch #140 motivating-gap section: "panel header still looks Skynet" → SHAPE-02, "active conversations not glowing fully like a glowing border or something" → SHAPE-01 ambient recession, "pin buttons totally obnoxious" → SHAPE-03, "the bar at the top that says the name of the session still looks Skynet" → SHAPE-04. Preserves user-voice provenance in the patches-md catalog for future-me.
 
 ## Deviations from Plan
 
@@ -159,7 +159,7 @@ None escalated. All work stayed within the docs-authoring scope.
 ## Issues Encountered
 
 - **Docker + build sizes reported different bundle sizes than Phase 12 tip.** Phase 12's log reports AppShell = 74.24 kB; the fresh build for this log reports AppShell = 68.06 kB. This is the expected Phase 13 shrink (−6.18 kB / −8.32%) documented in Section 3 of the build-verify log; not an issue, just noted here for completeness. The delta comes from the 284-line JS strip in `PrettyConversationRow.tsx` (JS-computed inline CSSProperties + hover state machine retired in favor of CSS class-toggle emission).
-- **SHAPE-03 deep gate 1 raw hit** — under the plan's original grep filter (`grep -vE '\.md:|^\s*//|/\*|\* '`), the pretty-conversations subtree returns 1 hit for the Termix theme-class purge check. Investigation confirmed the hit is a `//` line-comment in `PinAction.tsx` documenting the retired treatment. Applied the awk-based improved comment filter (Phase 12 tip precedent) — the hit correctly resolves to 0 non-comment code lines. Documented the resolution methodology in the build-verify log. Not a real gate failure.
+- **SHAPE-03 deep gate 1 raw hit** — under the plan's original grep filter (`grep -vE '\.md:|^\s*//|/\*|\* '`), the pretty-conversations subtree returns 1 hit for the Skynet theme-class purge check. Investigation confirmed the hit is a `//` line-comment in `PinAction.tsx` documenting the retired treatment. Applied the awk-based improved comment filter (Phase 12 tip precedent) — the hit correctly resolves to 0 non-comment code lines. Documented the resolution methodology in the build-verify log. Not a real gate failure.
 - **First-pass sibling-bounty archival narrative** in the patches-md entry named the 4 archived siblings. Corrected to remove specific names per plan's explicit requirement ("do NOT reference the archived sibling bounties"). Meta-lesson still preserved via the "merged all prior fragment bounties into the master" phrasing.
 
 ## Acceptance Criteria Rundown
@@ -178,7 +178,7 @@ None escalated. All work stayed within the docs-authoring scope.
 | Contains `text-muted-foreground` (the SHAPE-03 deep gate purge pattern) | PASS |
 | Contains SHAPE-07 + `Section 5` + `traceability` markers | PASS |
 | Section 4 lists SHAPE-01 through SHAPE-07 grep gates with expected counts | PASS |
-| Section 4 includes the final Termix-theme-class purge gate for `src/ui/features/pretty-conversations/` (SHAPE-03 deep) with expected count 0 (resolved via awk-filter) | PASS |
+| Section 4 includes the final Skynet-theme-class purge gate for `src/ui/features/pretty-conversations/` (SHAPE-03 deep) with expected count 0 (resolved via awk-filter) | PASS |
 | Section 4 includes the SHAPE-06 scope-boundary gate (git diff --stat) with expected count 0 | PASS |
 | Section 5 covers all 7 SHAPE-XX requirements with evidence pointers | PASS |
 | Pre-existing ComposeBox test failures from Phase 10 explicitly named as INHERITED BASELINE | PASS |
@@ -226,7 +226,7 @@ None escalated. All work stayed within the docs-authoring scope.
 | Phase 13 is code-complete-pending-Ashley-UAT-and-deploy-greenlight | PASS |
 | Ashley has a concrete UAT checklist covering SHAPE-01..SHAPE-07 for post-deploy verification | PASS |
 | Ashley has an authoritative deploy runbook citation that will not misdirect | PASS |
-| Tina has a paste-ready patch entry for termix-patches.md that references the master bounty (not a sibling) | PASS |
+| Tina has a paste-ready patch entry for skynet-patches.md that references the master bounty (not a sibling) | PASS |
 | The Ship-of-Theseus movement (Phases 11+12+13) is one Ashley UAT away from complete | PASS |
 | Zero source-tree modifications in Plan 05 | PASS (verified: `git diff --stat 058c362^..HEAD -- 'src/**'` returns empty) |
 
@@ -256,7 +256,7 @@ No new security-relevant surface. This plan is pure docs authoring — no networ
 - **Ashley's live UAT session:** `13-UAT-CHECKLIST.md` gives her a structured 26-item observation walk-through (12 Desktop + 8 Mobile + 6 Cross-viewport) with side-by-side mock comparison + DevTools snippets for SHAPE-05 primary verification.
 - **Ashley's `13-04-UAT-DIAG-LOG.md § Section 2` fill-in:** UAT checklist item 15 (Mobile SHAPE-05) + item 16 (mobile scroll) + item 17 (safe-area) explicitly reference the 13-04 diag log's Section 2C/D/E for verdict copying. Route-back matrix in Section 3 of the diag log translates her verdicts to follow-up actions.
 - **Deploy handoff:** Post-UAT deploy runbook cites `deploy-runbook.md` verbatim; batching rule + check-before-recreate one-liner + fork CLAUDE.md 15-min deadman stale callout all captured. Ashley (or Tina) can run the deploy from the checklist without needing to lookup runbook fragments.
-- **Tina's `termix-patches.md` catalog:** patch #140 write-up paste-ready; combined pin recommendation for patches #138 + #139 + #140 as "Ship-of-Theseus movement complete" bumps count from "ONE HUNDRED THIRTY-SEVEN" to "ONE HUNDRED FORTY" in one atomic action.
+- **Tina's `skynet-patches.md` catalog:** patch #140 write-up paste-ready; combined pin recommendation for patches #138 + #139 + #140 as "Ship-of-Theseus movement complete" bumps count from "ONE HUNDRED THIRTY-SEVEN" to "ONE HUNDRED FORTY" in one atomic action.
 - **Master `skynet-transformation` bounty closure:** Ashley's UAT sign-off is what triggers `/close skynet-transformation`. The bounty's timeline+todos will reflect Phase 13 patch #140 completing the last item; no follow-up bounty needs to be spawned for this movement (per meta-lesson).
 
 ## Follow-up Candidates for Master Bounty
@@ -290,6 +290,6 @@ Enumerated in `13-04-UAT-DIAG-LOG.md § Section 3` route-back matrix. Highlights
 
 **Skynet-SHAPE-COMPLETE-pending-Ashley-UAT-and-deploy-greenlight.**
 
-Phase 13 (patch #140) is code-complete on `feat/tab-title-from-tmux` at commit `058c362` (Plan 05 docs) + the SUMMARY commit landing this file. The three-patch batch (#138 + #139 + #140) queues for Ashley's greenlight per fleet-standing "batch patches into meaningful deploys" rule. Ashley's live UAT of the deployed batch (via `13-UAT-CHECKLIST.md` — 26 non-negotiable items) is the terminal handoff; her PASS sign-off closes the master `skynet-transformation` bounty and completes the full Ship-of-Theseus movement (Phases 11+12+13). The Skynet SHAPE — Telegram-mobile-app-of-Termix — is done.
+Phase 13 (patch #140) is code-complete on `feat/tab-title-from-tmux` at commit `058c362` (Plan 05 docs) + the SUMMARY commit landing this file. The three-patch batch (#138 + #139 + #140) queues for Ashley's greenlight per fleet-standing "batch patches into meaningful deploys" rule. Ashley's live UAT of the deployed batch (via `13-UAT-CHECKLIST.md` — 26 non-negotiable items) is the terminal handoff; her PASS sign-off closes the master `skynet-transformation` bounty and completes the full Ship-of-Theseus movement (Phases 11+12+13). The Skynet SHAPE — Telegram-mobile-app-of-Skynet — is done.
 
-Ashley's next set of Termix bounties will be NEW-FEATURE work (pretty-view enhancements, message-queue improvements, translation asides, tool-use bubble upgrades) — not further Ship-of-Theseus purge.
+Ashley's next set of Skynet bounties will be NEW-FEATURE work (pretty-view enhancements, message-queue improvements, translation asides, tool-use bubble upgrades) — not further Ship-of-Theseus purge.

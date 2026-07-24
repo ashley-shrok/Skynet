@@ -20,7 +20,7 @@
 
 ## Sign-off (top-of-page so you can find it fast)
 
-- [ ] **All 🚨 items in Non-Negotiable sections (Desktop 1-7 + Mobile 8-15 + Cross-viewport 16-19) pass** → **greenlight the deploy as good**, then help Tina pin patch #128: paste `.planning/phases/10-pretty-conversations-visual-language-rework/10-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` at the next ordinal position (patch #128 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3`). Bump the "ONE HUNDRED TWENTY-SEVEN numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED TWENTY-EIGHT". Commit the pin (`docs(patches): pin patch #128 — pretty-conversations visual-language rework`). Then `/close pretty-conversations-panel-redesign` on the Phase 10 bounty.
+- [ ] **All 🚨 items in Non-Negotiable sections (Desktop 1-7 + Mobile 8-15 + Cross-viewport 16-19) pass** → **greenlight the deploy as good**, then help Tina pin patch #128: paste `.planning/phases/10-pretty-conversations-visual-language-rework/10-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` at the next ordinal position (patch #128 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`). Bump the "ONE HUNDRED TWENTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED TWENTY-EIGHT". Commit the pin (`docs(patches): pin patch #128 — pretty-conversations visual-language rework`). Then `/close pretty-conversations-panel-redesign` on the Phase 10 bounty.
 
 - [ ] **Any 🚨 item fails** → note the failing item and observed-vs-expected behavior. Decide by severity: if the failure is a visual regression only (e.g. wrong hue, slight geometry off) mark it for a follow-up polish patch and consider the deploy conditionally-good. If the failure is functional (row won't open, pin doesn't persist, swipe hijacks vertical scroll, sidebar unreachable at any width, mobile session-create broken), route back to the specific Wave via the "Failure → route-back" table at the bottom of this file.
 
@@ -54,7 +54,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 > **Contract:** The retiring shadcn-derived ConversationsPanel is GONE. New chunky Telegram-style rows load in its place. Each row shows a 40px hue-ring avatar disc + primary label (session name = identity name) + secondary line (Server-glyph + host name).
 
-- [ ] 🚨 **Fresh desktop page-load renders new rows.** Open Termix on desktop. Wait for `/sessions/list` to resolve (~2s). Expected: the sidebar ConversationsPanel shows the NEW chunky rows — approximately **62px tall** (min-height), each with a **40px identity-hue avatar disc** (radial-gradient, with a `hsla(colorHue, 65%, 55%, 0.45)` hue-ring), primary label = the session name (= identity name per Ashley convention), and a secondary line with a **Server-glyph** + the host name. **If: rows look dense/compact like before** → the AppShell cutover regressed; the old ConversationsPanel is still mounted somewhere. Grep the compiled `dist/assets/AppShell-*.js` for `ConversationsPanel` — should ONLY appear inside `PrettyConversationsPanel` string mentions (comment-preserved history annotations from Wave 4).
+- [ ] 🚨 **Fresh desktop page-load renders new rows.** Open Skynet on desktop. Wait for `/sessions/list` to resolve (~2s). Expected: the sidebar ConversationsPanel shows the NEW chunky rows — approximately **62px tall** (min-height), each with a **40px identity-hue avatar disc** (radial-gradient, with a `hsla(colorHue, 65%, 55%, 0.45)` hue-ring), primary label = the session name (= identity name per Ashley convention), and a secondary line with a **Server-glyph** + the host name. **If: rows look dense/compact like before** → the AppShell cutover regressed; the old ConversationsPanel is still mounted somewhere. Grep the compiled `dist/assets/AppShell-*.js` for `ConversationsPanel` — should ONLY appear inside `PrettyConversationsPanel` string mentions (comment-preserved history annotations from Wave 4).
 - [ ] 🚨 **No IdentityBadge chip on rows.** Look closely at any identity row. Confirm there is NO chip/badge showing the identity name in the row body. The label carries the identity presence, the avatar hue-ring reinforces it — no separate chip. **If: chip visible** → PrettyConversationRow accidentally regained the IdentityBadge import (grep confirmed zero at Wave 1 commit `55624a9`).
 
 ### 2. Selected-row treatment matches ChatMessage assistant bubble
@@ -181,7 +181,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 ### 19. Fleet-native rows appear on fresh page-load (Phase 7 lock)
 
-- [ ] 🚨 **Fresh incognito → fleet rows appear.** Fresh incognito window, ensure at least one tmux identity session exists on the backend. Load Termix. Expected: identity rows for fleet-discovered tmux sessions appear (from the one-shot `/sessions/list` fetch — Phase 7 Plan 07-01 lock). Clicking a fleet-only row transparently attaches (Phase 7 TG-14 lock, no dialog).
+- [ ] 🚨 **Fresh incognito → fleet rows appear.** Fresh incognito window, ensure at least one tmux identity session exists on the backend. Load Skynet. Expected: identity rows for fleet-discovered tmux sessions appear (from the one-shot `/sessions/list` fetch — Phase 7 Plan 07-01 lock). Clicking a fleet-only row transparently attaches (Phase 7 TG-14 lock, no dialog).
 
 ---
 
@@ -242,14 +242,14 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 Once Ashley greenlights, the deploy sequence for the batched #123-#128 stack (single build/deploy per current fork DEPLOY DISCIPLINE — the 15-min deadman regime was retired 2026-07-21):
 
 1. **Confirm the batch is on the branch.** `git log --oneline feat/tab-title-from-tmux | head -30` — verify all Phase 10 commits from Wave 1 through Wave 5 are present, plus the #123-#127 patches from the earlier batch.
-2. **Sanity grep on the compose file.** `grep -n "termix-patched:local" /opt/termix/docker-compose.yml` — check-before-recreate that we're pinned to the patched image tag.
+2. **Sanity grep on the compose file.** `grep -n "skynet-patched:local" /opt/skynet/docker-compose.yml` — check-before-recreate that we're pinned to the patched image tag.
 3. **Push the branch** (only after Ashley signs off): `git push origin feat/tab-title-from-tmux`.
-4. **Build the image on the deploy host:** `sudo docker build -t termix-patched:local ~/termix` (from the freshly-pulled branch).
-5. **Recreate the container:** `cd /opt/termix && sudo docker compose up -d --force-recreate termix`.
-6. **Wait for healthy.** `docker ps` shows termix as `(healthy)` — typically within 30s.
-7. **Verify patch signature bytes in the container** (optional smoke): `docker exec termix grep -c "PrettyConversationRow" /app/dist/assets/AppShell-*.js || echo "grep-fallback-check-source-mangling"`. If the identifier survived (or via a fallback: grep the panel scroller className `pretty-conversations`), the new panel shipped.
+4. **Build the image on the deploy host:** `sudo docker build -t skynet-patched:local ~/skynet` (from the freshly-pulled branch).
+5. **Recreate the container:** `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
+6. **Wait for healthy.** `docker ps` shows skynet as `(healthy)` — typically within 30s.
+7. **Verify patch signature bytes in the container** (optional smoke): `docker exec skynet grep -c "PrettyConversationRow" /app/dist/assets/AppShell-*.js || echo "grep-fallback-check-source-mangling"`. If the identifier survived (or via a fallback: grep the panel scroller className `pretty-conversations`), the new panel shipped.
 8. **Hand back for full-flow UAT.** Ashley walks items 1-19 above on desktop AND iPhone.
-9. **If PASS:** paste the patches-md draft into `~/.claude/identities/tina/termix-patches.md` (with the fill-in placeholders resolved from the build-verify log), bump the patch count, commit the pin, `/close pretty-conversations-panel-redesign`.
+9. **If PASS:** paste the patches-md draft into `~/.claude/identities/tina/skynet-patches.md` (with the fill-in placeholders resolved from the build-verify log), bump the patch count, commit the pin, `/close pretty-conversations-panel-redesign`.
 10. **If any 🚨 fails:** decide by severity per the route-back table above. Prod is running the batched-patched image; no automatic rollback (deadman regime retired 2026-07-21). Manual rollback if needed via the previous-known-good image tag.
 
 ---

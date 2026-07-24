@@ -39,10 +39,10 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "release_tag=release-$VERSION-tag" >> "$GITHUB_OUTPUT"
 
-          MOBILE_RAW=$(gh release view -R Termix-SSH/Mobile --json tagName -q .tagName)
+          MOBILE_RAW=$(gh release view -R Skynet-SSH/Mobile --json tagName -q .tagName)
           MOBILE_VERSION=$(echo "$MOBILE_RAW" | sed -E 's/^release-//; s/-tag$//')
           if [ -z "$MOBILE_VERSION" ]; then
-            echo "Failed to resolve the latest Termix-SSH/Mobile release version."
+            echo "Failed to resolve the latest Skynet-SSH/Mobile release version."
             exit 1
           fi
           echo "mobile_version=$MOBILE_VERSION" >> "$GITHUB_OUTPUT"
@@ -135,16 +135,16 @@ jobs:
             exit 0
           fi
 
-          sed -i "s|version \".*\"|version \"$VERSION\"|g" Casks/termix.rb
-          sed -i "s|sha256 \".*\"|sha256 \"$DMG_SHA256\"|g" Casks/termix.rb
+          sed -i "s|version \".*\"|version \"$VERSION\"|g" Casks/skynet.rb
+          sed -i "s|sha256 \".*\"|sha256 \"$DMG_SHA256\"|g" Casks/skynet.rb
 
-          if git diff --quiet Casks/termix.rb; then
+          if git diff --quiet Casks/skynet.rb; then
             echo "Cask already up to date."
             exit 0
           fi
 
           git config user.name "LukeGus"
           git config user.email "bugattiguy527@gmail.com"
-          git add Casks/termix.rb
+          git add Casks/skynet.rb
           git commit -m "chore: bump Homebrew cask to $VERSION"
           git push origin HEAD:main

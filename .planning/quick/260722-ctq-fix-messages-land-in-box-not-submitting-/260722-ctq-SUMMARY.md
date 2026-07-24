@@ -13,7 +13,7 @@ key_files:
   created: []
   modified:
     - src/backend/ssh/terminal.ts
-    - /home/ubuntu/.claude/identities/tina/termix-patches.md
+    - /home/ubuntu/.claude/identities/tina/skynet-patches.md
 decisions:
   - "Enter is dispatched as a real keypress via `tmux send-keys` over a fresh exec on the SAME sshConn, NOT via the PTY channel — Ink's paste-detection framing absorbs any CR-in-PTY regardless of delay (root cause pinned this session)."
   - "Fallback to CR-in-PTY when session is not tmux-attached OR the exec errors — non-tmux SSH panes retain pre-patch (flaky) behavior but NEVER regress."
@@ -98,7 +98,7 @@ is new-to-#118.
    (guard) — the block itself is unmoved beyond the line-number
    shift caused by the earlier insertion.
 
-### `/home/ubuntu/.claude/identities/tina/termix-patches.md` — catalog (outside repo, no commit)
+### `/home/ubuntu/.claude/identities/tina/skynet-patches.md` — catalog (outside repo, no commit)
 
 1. Header patch-count bumped: `ONE HUNDRED SEVENTEEN` → `ONE HUNDRED EIGHTEEN`.
 2. New numbered entry `118.` appended after #117, following the
@@ -115,11 +115,11 @@ is new-to-#118.
 
 Verification greps:
 ```
-$ grep -c "ONE HUNDRED EIGHTEEN" /home/ubuntu/.claude/identities/tina/termix-patches.md
+$ grep -c "ONE HUNDRED EIGHTEEN" /home/ubuntu/.claude/identities/tina/skynet-patches.md
 1
-$ grep -c "^   118\." /home/ubuntu/.claude/identities/tina/termix-patches.md
+$ grep -c "^   118\." /home/ubuntu/.claude/identities/tina/skynet-patches.md
 1
-$ grep -c "patch 118 replaces the setTimeout tail" /home/ubuntu/.claude/identities/tina/termix-patches.md
+$ grep -c "patch 118 replaces the setTimeout tail" /home/ubuntu/.claude/identities/tina/skynet-patches.md
 1
 ```
 All three markers land exactly once.
@@ -137,9 +137,9 @@ Clean compile under strict TS.
 ```
 $ git log --oneline -1 | grep -c "patch #118"
 1
-$ grep -c "^   118\." /home/ubuntu/.claude/identities/tina/termix-patches.md
+$ grep -c "^   118\." /home/ubuntu/.claude/identities/tina/skynet-patches.md
 1
-$ grep -c "ONE HUNDRED EIGHTEEN" /home/ubuntu/.claude/identities/tina/termix-patches.md
+$ grep -c "ONE HUNDRED EIGHTEEN" /home/ubuntu/.claude/identities/tina/skynet-patches.md
 1
 ```
 All three checks return `1`.
@@ -185,14 +185,14 @@ at "commit landed at HEAD of feat/tab-title-from-tmux".
 
 Post-deploy manual UAT (out of scope for this quick task, per plan
 `<verification>` section 4):
-1. Build fork: `sudo bash /opt/termix/termix-patches/build-termix.sh`
+1. Build fork: `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`
 2. Deploy behind the 15-min deadman: standard fork deploy runbook.
 3. Open pretty view against a Claude Code target, send 10 normal
    messages, verify all submit reliably (target: 10/10, matching
    local prototype).
 4. Paste a 3-line message, verify it submits as ONE message with
    newlines preserved.
-5. Point a Termix host at a target where tmux isn't attached (or
+5. Point a Skynet host at a target where tmux isn't attached (or
    kill the tmux session), send a message, verify the INFO-level
    `ssh_input_tmux_send_keys_fallback` warning fires AND the
    message still delivers via the CR-in-PTY fallback (retaining
@@ -206,7 +206,7 @@ plan `<success_criteria>`).
 
 - FOUND: src/backend/ssh/terminal.ts (modified, staged, committed)
 - FOUND: commit 7d6506f (git log --oneline -1)
-- FOUND: patch #118 entry in /home/ubuntu/.claude/identities/tina/termix-patches.md
-- FOUND: ONE HUNDRED EIGHTEEN header in /home/ubuntu/.claude/identities/tina/termix-patches.md
+- FOUND: patch #118 entry in /home/ubuntu/.claude/identities/tina/skynet-patches.md
+- FOUND: ONE HUNDRED EIGHTEEN header in /home/ubuntu/.claude/identities/tina/skynet-patches.md
 - FOUND: drift caveat update for src/backend/ssh/terminal.ts (patch 118 callout)
 - CONFIRMED: no push, no build, no deploy — all Ashley-gated steps remain Ashley-gated.

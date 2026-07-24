@@ -497,7 +497,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         }
         cwdPending = true;
         cwdBuffer = "";
-        activeStream.write('\x15a=TERMIX_CWD; echo "$a:$(pwd)"\r');
+        activeStream.write('\x15a=SKYNET_CWD; echo "$a:$(pwd)"\r');
         break;
       }
 
@@ -942,7 +942,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               }),
             );
           } else {
-            const newName = `termix-${session.hostId}-${Date.now().toString(36).slice(-4)}`;
+            const newName = `skynet-${session.hostId}-${Date.now().toString(36).slice(-4)}`;
             attachOrCreateTmuxSession(session.sshStream, undefined, newName);
             const sshConn = session.sshConn;
             if (sshConn) {
@@ -1770,7 +1770,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
           const boundSessionId = currentSessionId;
 
-          const CWD_SENTINEL = "TERMIX_CWD:";
+          const CWD_SENTINEL = "SKYNET_CWD:";
 
           // Idle-pulse activity gating. The PTY emits small periodic bursts
           // (tmux status-bar repaints, e.g. a clock that ticks every minute)
@@ -2101,7 +2101,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   );
                   runPostShellCommands(0);
                 } else if (detection.sessions.length === 0) {
-                  const newName = `termix-${id}-${Date.now().toString(36).slice(-4)}`;
+                  const newName = `skynet-${id}-${Date.now().toString(36).slice(-4)}`;
                   attachOrCreateTmuxSession(stream, undefined, newName);
                   const confirmed = await waitForTmuxSession(conn, newName);
                   const session = sessionManager.getSession(boundSessionId);
@@ -3112,6 +3112,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // keepaliveCountMax, tcpKeepAlive), which handles connection health monitoring
   // without producing visible output on the terminal.
   //
-  // See: https://github.com/Termix-SSH/Support/issues/232
-  // See: https://github.com/Termix-SSH/Support/issues/309
+  // See: https://github.com/Skynet-SSH/Support/issues/232
+  // See: https://github.com/Skynet-SSH/Support/issues/309
 });

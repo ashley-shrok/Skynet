@@ -16,7 +16,7 @@
  *
  * ENV VARS:
  * - IDENTITIES_LOCAL_HOST_IDS: comma-separated positive integer hostIds for which the
- *   bind-mount is authoritative (e.g. termix-ec2's own hostId). Parsed once at module load.
+ *   bind-mount is authoritative (e.g. skynet-ec2's own hostId). Parsed once at module load.
  * - IDENTITIES_HOST_DIR: the bind-mount path (patch #89). Used by getLocalIdentitiesRoot().
  *
  * SSH EXEC: all remote reads use execCommand from tmux-helper.ts (R3). Each call wrapped

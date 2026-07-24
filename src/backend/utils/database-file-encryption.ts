@@ -44,7 +44,7 @@ class DatabaseFileEncryption {
         iv: iv.toString("hex"),
         tag: tag.toString("hex"),
         version: this.VERSION,
-        fingerprint: "termix-v2-systemcrypto",
+        fingerprint: "skynet-v2-systemcrypto",
         algorithm: this.ALGORITHM,
         keySource: "SystemCrypto",
         dataSize: encrypted.length,
@@ -149,7 +149,7 @@ class DatabaseFileEncryption {
         iv: iv.toString("hex"),
         tag: tag.toString("hex"),
         version: this.VERSION,
-        fingerprint: "termix-v2-systemcrypto",
+        fingerprint: "skynet-v2-systemcrypto",
         algorithm: this.ALGORITHM,
         keySource: "SystemCrypto",
         dataSize: encrypted.length,
@@ -292,7 +292,7 @@ class DatabaseFileEncryption {
         }
         const salt = Buffer.from(metadata.salt, "hex");
         const fixedSeed =
-          process.env.DB_FILE_KEY || "termix-database-file-encryption-seed-v1";
+          process.env.DB_FILE_KEY || "skynet-database-file-encryption-seed-v1";
         key = crypto.pbkdf2Sync(fixedSeed, salt, 100000, 32, "sha256");
       } else {
         throw new Error(`Unsupported encryption version: ${metadata.version}`);

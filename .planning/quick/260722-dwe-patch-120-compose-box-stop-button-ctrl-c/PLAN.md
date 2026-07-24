@@ -216,11 +216,11 @@ byte-identical.
 
 ## Verification steps
 
-1. `cd ~/termix && npx tsc --noEmit` — MUST be clean. This is the only
+1. `cd ~/skynet && npx tsc --noEmit` — MUST be clean. This is the only
    pre-deploy gate. Types must compile end-to-end (new WS-message shape
    is untyped on the frontend side and the backend `parsed as { type }`
    already accepts any string, so no shared-type file needs a change).
-2. `cd ~/termix && git diff --stat` — should show exactly 4 files:
+2. `cd ~/skynet && git diff --stat` — should show exactly 4 files:
    `src/backend/ssh/terminal.ts`, `src/ui/features/pretty-view/ComposeBox.tsx`,
    `src/ui/features/pretty-view/PrettyView.tsx`,
    `src/ui/features/terminal/Terminal.tsx`. No test files, no config

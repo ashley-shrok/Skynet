@@ -14,16 +14,16 @@ Post-deploy walk-through for Ashley. Every TG-01..TG-11 requirement gets an obse
 
 - [ ] All 🚨 items pass → **disarm deadman:**
       ```
-      sudo touch /tmp/termix-keep-patched
-      sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'
+      sudo touch /tmp/skynet-keep-patched
+      sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'
       ```
-      Then help me pin the patch: paste `.planning/phases/06-telegram-like-interface/06-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` as patch #105 (or next available — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3`), bump the "ONE HUNDRED FOUR numbered patches" count near the top of that file to "ONE HUNDRED FIVE" (or actual new count), and commit the pin.
-- [ ] Any 🚨 item fails → **let the deadman fire** (15-min timer will auto-revert) OR run `sudo bash /opt/termix/.tmp-revert.sh` immediately for instant rollback.
+      Then help me pin the patch: paste `.planning/phases/06-telegram-like-interface/06-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` as patch #105 (or next available — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`), bump the "ONE HUNDRED FOUR numbered patches" count near the top of that file to "ONE HUNDRED FIVE" (or actual new count), and commit the pin.
+- [ ] Any 🚨 item fails → **let the deadman fire** (15-min timer will auto-revert) OR run `sudo bash /opt/skynet/.tmp-revert.sh` immediately for instant rollback.
 
 ## Setup — one time
 
 1. Open https://term.gigaashley.click in Chrome on desktop AND on your phone.
-2. Have at least 3 hosts configured in Termix (any mix of SSH/RDP is fine).
+2. Have at least 3 hosts configured in Skynet (any mix of SSH/RDP is fine).
 3. Have at least 2 sessions active on distinct hosts before starting (one identity-attached Claude session in a tmux window, one plain shell — this covers TG-04 "unchanged internals" for both pretty view and plain terminal).
 4. Note the URL fragment after opening a specific conversation — you'll compare this against the post-restore URL later (patch #25 regression check + TG-06 mobile-URL survival).
 
@@ -90,11 +90,11 @@ Plan 06-02 Task 2's persistence smoke test landed programmatic guards for Tests 
 
 > **TG-06 contract:** *"On mobile (any viewport where `useIsTouchDevice()` returns true), the list and the view are two distinct screens — never both visible at once. From the list, tapping a row navigates into that conversation, fully replacing the list view. A back button in the top-left of the view returns to the list, fully replacing the view. The back gesture also works via the browser's back button"*
 
-- [ ] 🚨 **TG-06 initial load = full-screen list** Open Termix on phone (fresh navigation, no `#mv=1` in URL). Verify: the initial view is the ConversationsPanel occupying the full viewport. NO tab strip. NO main content area visible. The AppRail rail is absent on touchscreens (Plan 06-03 gated it on `!isTouchDevice`).
+- [ ] 🚨 **TG-06 initial load = full-screen list** Open Skynet on phone (fresh navigation, no `#mv=1` in URL). Verify: the initial view is the ConversationsPanel occupying the full viewport. NO tab strip. NO main content area visible. The AppRail rail is absent on touchscreens (Plan 06-03 gated it on `!isTouchDevice`).
 - [ ] 🚨 **TG-06 tap row → full-screen view (list vanishes)** Tap a conversation row. Verify: the list is FULLY REPLACED by the conversation view (the list is NOT visible in the background — this is a screen swap, not a peek/panel). Top-left of the view has a ChevronLeft back button + separator + the conversation's label as the header title (Plan 06-03's MobileViewHeader).
 - [ ] 🚨 **TG-06 top-left back → returns to list (view vanishes)** From the conversation view, tap the top-left back button. Verify: the view is FULLY REPLACED by the list. URL fragment loses `mv=1`. NO transition artifact — clean swap.
-- [ ] 🚨 **TG-06 browser back gesture** From the conversation view (with `#mv=1` in URL), hit the browser back button (or phone's system back gesture). Verify: returns to the list. From the list (no `mv=1`), hit browser back again. Verify: leaves Termix (navigates back in browser history to whatever page was before Termix).
-- [ ] 🚨 **TG-06 URL fragment survives Chrome window-restore (mobile-view marker case)** On the phone, open a specific conversation view. Note the URL fragment (should contain `mv=1` alongside `tab=` — e.g. `#tab=terminal:hostA:sessionA&active=0&mv=1`). Close the Chrome tab. Reopen via Chrome's Recent Tabs menu (or Ctrl+Shift+T on desktop for the same test — the fragment scheme is identical). Verify: the URL survives AND Termix reopens ON THE VIEW SCREEN for that specific conversation, not on the list. **This is patch #25's Chrome-window-restore lesson extended to the `mv=` key** (Plan 06-03) — if `mv=1` were stored in the query string (`?mv=1`), Chrome would strip it on restore; the fragment approach preserves it. If this test fails, `mv=1` did not survive; investigate before pinning.
+- [ ] 🚨 **TG-06 browser back gesture** From the conversation view (with `#mv=1` in URL), hit the browser back button (or phone's system back gesture). Verify: returns to the list. From the list (no `mv=1`), hit browser back again. Verify: leaves Skynet (navigates back in browser history to whatever page was before Skynet).
+- [ ] 🚨 **TG-06 URL fragment survives Chrome window-restore (mobile-view marker case)** On the phone, open a specific conversation view. Note the URL fragment (should contain `mv=1` alongside `tab=` — e.g. `#tab=terminal:hostA:sessionA&active=0&mv=1`). Close the Chrome tab. Reopen via Chrome's Recent Tabs menu (or Ctrl+Shift+T on desktop for the same test — the fragment scheme is identical). Verify: the URL survives AND Skynet reopens ON THE VIEW SCREEN for that specific conversation, not on the list. **This is patch #25's Chrome-window-restore lesson extended to the `mv=` key** (Plan 06-03) — if `mv=1` were stored in the query string (`?mv=1`), Chrome would strip it on restore; the fragment approach preserves it. If this test fails, `mv=1` did not survive; investigate before pinning.
 
 > **TG-07 contract:** *"The mobile-only bottom navigation bar (whose current entries — host manager, credentials editor, and adjacent admin surfaces — Ashley does not use) is deleted entirely as a surface. It does not appear on any mobile viewport in any state"*
 
@@ -127,7 +127,7 @@ Plan 06-04 chose: full-width primary CTA at TOP of scroller ABOVE pins (both mob
 
 The following are surfaced from Plan 06-04's SUMMARY as the canonical UAT sequence for the new-session flow:
 
-1. **(covered above by "TG-09 button visible")** open Termix at conversations view (default rail). Click the "New session" button at the top of the panel. Modal opens.
+1. **(covered above by "TG-09 button visible")** open Skynet at conversations view (default rail). Click the "New session" button at the top of the panel. Modal opens.
 2. **(covered by "TG-09 host search filters")** search filter works.
 3. **(covered by "TG-09 host selection")** sole-host auto-select on open when tree has exactly one host.
 4. **(covered by "TG-09 optional name — empty")** empty session name: server auto-fills from tmux window title.
@@ -181,7 +181,7 @@ Ashley MUST verify that certain things are NOT present. These catch scope creep.
 
 Once all 🚨 items pass and you've disarmed the deadman:
 
-1. **Pin the patch.** Paste the content of `06-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` at the appropriate ordinal position (patch #105 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3`).
-2. **Bump the count.** Update the "ONE HUNDRED FOUR numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED FIVE" (or actual new count).
+1. **Pin the patch.** Paste the content of `06-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` at the appropriate ordinal position (patch #105 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`).
+2. **Bump the count.** Update the "ONE HUNDRED FOUR numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED FIVE" (or actual new count).
 3. **Commit the pin.** Standard conventional-commit style.
 4. **Close the bounty.** `~/.claude/identities/tina/bounties/telegram-like-interface/` via `/close telegram-like-interface`.

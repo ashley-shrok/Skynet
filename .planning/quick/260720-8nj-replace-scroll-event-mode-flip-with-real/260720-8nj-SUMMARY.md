@@ -91,7 +91,7 @@ The `06:07:44` log line `RESIZE scrollTop=14207 clampTgt=14101 anchor.top=-106 d
 
 ## Pin-Time Reminder
 
-The `termix-patches.md` header bump (97 → 98) and per-patch entry belong to PIN time — do NOT edit termix-patches.md here (per brief constraint and Ashley's pin-time-only rule for `/home/ubuntu/.claude/identities/tina/termix-patches.md`).
+The `skynet-patches.md` header bump (97 → 98) and per-patch entry belong to PIN time — do NOT edit skynet-patches.md here (per brief constraint and Ashley's pin-time-only rule for `/home/ubuntu/.claude/identities/tina/skynet-patches.md`).
 
 ## Deviations from Plan
 

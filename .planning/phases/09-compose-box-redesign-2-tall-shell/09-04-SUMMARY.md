@@ -35,7 +35,7 @@
 
 ## Pin
 
-Full patch write-ups landed in `~/.claude/identities/tina/termix-patches.md`
+Full patch write-ups landed in `~/.claude/identities/tina/skynet-patches.md`
 for #106-#117 in the same turn as this approval per fleet-standing rule.
 Header count updated `ONE HUNDRED FIVE` → `ONE HUNDRED SEVENTEEN`.
 

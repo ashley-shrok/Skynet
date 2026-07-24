@@ -1,6 +1,6 @@
 # Patch #106 draft — Fleet-native conversation list (Phase 7 follow-up to patch #105)
 
-**This file is a DRAFT for Ashley review — expect edits.** Paste into `~/.claude/identities/tina/termix-patches.md` at the next ordinal position (patch #106) after Phase 7 UAT sign-off. Format matches patch #105's multi-commit precedent verbatim; only the content differs. Placeholders `<date>`, `<time>`, `<deploy-sha>` filled in at PIN time.
+**This file is a DRAFT for Ashley review — expect edits.** Paste into `~/.claude/identities/tina/skynet-patches.md` at the next ordinal position (patch #106) after Phase 7 UAT sign-off. Format matches patch #105's multi-commit precedent verbatim; only the content differs. Placeholders `<date>`, `<time>`, `<deploy-sha>` filled in at PIN time.
 
 Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to `"ONE HUNDRED SIX numbered patches"` when pinning.
 
@@ -26,7 +26,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
         * **Motivating gap** (from patch #105 UAT). Phase 6 shipped the
           conversation-list metaphor but the list's data source was scoped
           too narrowly — it mirrored only the browser-tab's currently-open
-          Termix tabs. On a fresh mobile page-load with no tabs open, the
+          Skynet tabs. On a fresh mobile page-load with no tabs open, the
           list showed "no active conversations" even when Ashley had running
           sessions across her fleet. Shape file at
           `.planning/shapes/shape-fleet-native-conversation-list.md`
@@ -67,7 +67,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           in AppShell (empty dep array): `getSessionList()` fires ONCE on
           mount, silent try/catch on failure (falls back to Phase 6
           openTabs-only rendering), cancelled-guard on unmount race.
-          NOT wired into the existing `termix:hosts-changed` event
+          NOT wired into the existing `skynet:hosts-changed` event
           listener. NOT re-fetched on window focus / tab visibility
           change. NOT re-fetched on interval. Cross-device / cross-
           session fleet staleness is DELIBERATELY acceptable — Ashley
@@ -75,7 +75,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           `grep -cE "setInterval|setTimeout" src/ui/state/conversation-
           store.ts` = 0; `grep -B2 -A15 "getSessionList()" src/ui/
           AppShell.tsx | grep -cE "setInterval|setTimeout"` = 0;
-          `grep -B2 -A5 "termix:hosts-changed" src/ui/AppShell.tsx |
+          `grep -B2 -A5 "skynet:hosts-changed" src/ui/AppShell.tsx |
           grep -c "getSessionList\|updateFleetSessions"` = 0.
 
         * **RDP row placement decision: SENTINEL HostGroup.** Chosen
@@ -166,7 +166,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
             Tests 24, 26 assert.
           - T-07-01-02 (accidental polling regression): empty-dep-
             array useEffect + grep gates for setInterval/setTimeout
-            near getSessionList + NOT-wired-to-termix:hosts-changed.
+            near getSessionList + NOT-wired-to-skynet:hosts-changed.
             All three gates return 0.
           - T-07-01-03 (fleet-session list disclosure): accepted —
             same list Ashley already sees in SessionsPanel + double-
@@ -195,7 +195,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
             across breakpoints on desktop causes gear to vanish when
             useIsTouchDevice flips true — acceptable, matches Plan
             06-03's mobile flow gate on the same signal.
-          - T-07-03-01 (bad build wedges Termix): mitigated by Plan
+          - T-07-03-01 (bad build wedges Skynet): mitigated by Plan
             07-03 Task 1 build verification + deadman rollback at T+
             15min if UAT fails.
           - T-07-*-SC (supply chain — new npm deps): mitigated —
@@ -227,18 +227,18 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           checks — Vite mangles most user-defined identifiers, so
           verifications lean on i18n key strings + URL literal
           strings + SVG icon paths that survive minification):
-          - `docker exec termix grep -oc 'fleet::' /app/dist/assets/AppShell-*.js` → ≥ 1 (fleet row id prefix — was 1 at ship)
-          - `docker exec termix grep -oc 'rdp-host::' /app/dist/assets/AppShell-*.js` → ≥ 1 (RDP row id prefix — was 2 at ship)
-          - `docker exec termix grep -oc '__rdp__' /app/dist/assets/AppShell-*.js` → ≥ 1 (sentinel HostGroup id — was 2 at ship)
-          - `docker exec termix grep -oc 'rdpHostRow' /app/dist/assets/AppShell-*.js` → ≥ 1 (INTERNAL routing marker — was 3 at ship)
-          - `docker exec termix grep -oc 'fleetOnly' /app/dist/assets/AppShell-*.js` → ≥ 1 (INTERNAL routing marker — was 2 at ship)
-          - `docker exec termix grep -oc 'data-rdp-host-row' /app/dist/assets/AppShell-*.js` → ≥ 1 (DevTools attr — was 1 at ship)
-          - `docker exec termix grep -oc '/sessions/list' /app/dist/assets/AppShell-*.js` → ≥ 1 (fleet-fetch URL — was 1 at ship)
-          - `docker exec termix grep -oc 'M21.174' /app/dist/assets/ui-vendor-*.js` → ≥ 1 (lucide Pencil SVG path — was 2 at ship)
-          - `docker exec termix grep -oc 'nav.newSession' /app/dist/assets/AppShell-*.js` → ≥ 8 (i18n key — was 10 at ship; matches patch #105 baseline exactly)
-          - `docker exec termix grep -oc 'nav.conversations' /app/dist/assets/AppShell-*.js` → ≥ 20 (Phase 6 preserved — was 24 at ship; same as patch #105 baseline)
-          - `docker exec termix grep -c 'MobileBottomBar\|TabBar' /app/dist/assets/*.js` → **0** (Phase 6 deletions still gone — was 0 across all chunks at ship)
-          - `docker exec termix grep -oc 'appendChild' /app/dist/assets/AppShell-*.js` → ≥ 5 (patch #35 DOM-move preserved — was 6 at ship; matches patch #105 baseline exactly, byte-for-byte)
+          - `docker exec skynet grep -oc 'fleet::' /app/dist/assets/AppShell-*.js` → ≥ 1 (fleet row id prefix — was 1 at ship)
+          - `docker exec skynet grep -oc 'rdp-host::' /app/dist/assets/AppShell-*.js` → ≥ 1 (RDP row id prefix — was 2 at ship)
+          - `docker exec skynet grep -oc '__rdp__' /app/dist/assets/AppShell-*.js` → ≥ 1 (sentinel HostGroup id — was 2 at ship)
+          - `docker exec skynet grep -oc 'rdpHostRow' /app/dist/assets/AppShell-*.js` → ≥ 1 (INTERNAL routing marker — was 3 at ship)
+          - `docker exec skynet grep -oc 'fleetOnly' /app/dist/assets/AppShell-*.js` → ≥ 1 (INTERNAL routing marker — was 2 at ship)
+          - `docker exec skynet grep -oc 'data-rdp-host-row' /app/dist/assets/AppShell-*.js` → ≥ 1 (DevTools attr — was 1 at ship)
+          - `docker exec skynet grep -oc '/sessions/list' /app/dist/assets/AppShell-*.js` → ≥ 1 (fleet-fetch URL — was 1 at ship)
+          - `docker exec skynet grep -oc 'M21.174' /app/dist/assets/ui-vendor-*.js` → ≥ 1 (lucide Pencil SVG path — was 2 at ship)
+          - `docker exec skynet grep -oc 'nav.newSession' /app/dist/assets/AppShell-*.js` → ≥ 8 (i18n key — was 10 at ship; matches patch #105 baseline exactly)
+          - `docker exec skynet grep -oc 'nav.conversations' /app/dist/assets/AppShell-*.js` → ≥ 20 (Phase 6 preserved — was 24 at ship; same as patch #105 baseline)
+          - `docker exec skynet grep -c 'MobileBottomBar\|TabBar' /app/dist/assets/*.js` → **0** (Phase 6 deletions still gone — was 0 across all chunks at ship)
+          - `docker exec skynet grep -oc 'appendChild' /app/dist/assets/AppShell-*.js` → ≥ 5 (patch #35 DOM-move preserved — was 6 at ship; matches patch #105 baseline exactly, byte-for-byte)
 
         * **Files touched** (6 source files: 0 NEW, 6 modified — the
           entire Phase 7 landing surface is additive edits to Phase 6
@@ -316,7 +316,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           loop — Phase 7 does NOT change this territory, `createPortal(`
           count in AppShell.tsx must still be exactly 1; (2) the fleet-
           fetch effect must retain empty dep array (TG-17 lock); (3)
-          the fetch effect must NOT be wired to `termix:hosts-changed`
+          the fetch effect must NOT be wired to `skynet:hosts-changed`
           (grep gate); (4) the fetch effect must NOT be wrapped in a
           setInterval/setTimeout retry (grep gate); (5) allowCreateTmux
           must remain `false` on onDetachedRowClick (T-07-01-05 lock);
@@ -342,19 +342,19 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           new nginx location blocks (Phase 7 is frontend-only). Zero
           new npm dependencies (`git diff --stat package.json package-
           lock.json` = empty across both plans). Deploy sequence:
-          standard `sudo bash /opt/termix/termix-patches/build-termix
-          .sh` + `sudo docker compose up -d --force-recreate termix`
+          standard `sudo bash /opt/skynet/skynet-patches/build-skynet
+          .sh` + `sudo docker compose up -d --force-recreate skynet`
           via runbook step 1-9 (arm-BEFORE-deploy sentinel cleanup,
           nohup deadman arm, force-recreate, wait healthy, Ashley
           UAT, disarm-on-green-light with narrow pkill, let-fire-on-
           failure). UAT checklist for the walk-through:
-          `~/termix/.planning/phases/07-fleet-native-conversation-list/
+          `~/skynet/.planning/phases/07-fleet-native-conversation-list/
           07-UAT-CHECKLIST.md` (65 blocking gates covering TG-12..18 +
           Plan 07-01/07-02 additional items + Phase 6 regression walk
           TG-01..11 + prior-patch smoke against patches #25/#35/#57/
           #60/#100/#102/#105 + negative-space scope-fence). Build-
           verify log for the deploy-side confidence baseline:
-          `~/termix/.planning/phases/07-fleet-native-conversation-list/
+          `~/skynet/.planning/phases/07-fleet-native-conversation-list/
           07-03-BUILD-VERIFY-LOG.md` (AppShell +2,984 bytes / +0.68%
           vs Phase 6; Terminal/index/backend byte-identical to Phase 6;
           all Phase 7 markers in dist; all prior-patch bytes intact;
@@ -378,7 +378,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
 
 **Top-of-file update:**
 
-Change the "ONE HUNDRED FIVE numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED SIX numbered patches" when pinning.
+Change the "ONE HUNDRED FIVE numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED SIX numbered patches" when pinning.
 
 **Bounty close command:**
 
@@ -392,4 +392,4 @@ Runs against `~/.claude/identities/tina/bounties/telegram-like-interface/` — t
 
 *Draft phase: 07-fleet-native-conversation-list*
 *Draft generated: 2026-07-21T06:33Z by Plan 07-03 Task 3 (Tasks 1-3 scope only; Task 4 deploy Ashley-gated in main orchestrator context)*
-*Format precedent: patch #105 (Phase 6) in `~/.claude/identities/tina/termix-patches.md` lines 7213-7552*
+*Format precedent: patch #105 (Phase 6) in `~/.claude/identities/tina/skynet-patches.md` lines 7213-7552*

@@ -44,7 +44,7 @@ key-files:
 key-decisions:
   - "HOME resolution: sftp.realpath('.') at upload_start, NEVER hardcoded /home/<user>/ concat (LOCKED per 05-CONTEXT.md)"
   - "Temp-file naming: $HOME/pretty-view-uploads/<yyyy-mm-dd>/.<hhmmss>-<sanitized>.<8-char-random>.partial — the random component is T-05-02 belt-and-suspenders on top of createWriteStream({flags: 'wx'}) so pre-planted symlinks on the predictable name also fail-safe"
-  - "Landing timestamp: box-local (Termix backend clock, boxLocalIso() format YYYY-MM-DDTHH:mm:ss) per CONTEXT.md recommendation for user legibility"
+  - "Landing timestamp: box-local (Skynet backend clock, boxLocalIso() format YYYY-MM-DDTHH:mm:ss) per CONTEXT.md recommendation for user legibility"
   - "Filename collision suffix: '-N' inserted BEFORE the last '.ext' (e.g. log.txt collides → log-2.txt), retrying up to 10 attempts before emitting collision_max_retries"
   - "Chunk size 64 KB, max concurrent 3 — kept at plan-recommended defaults (see CHUNK_SIZE_BYTES / MAX_CONCURRENT_UPLOADS_PER_BATCH constants)"
   - "Null-byte in filename REJECTED rather than stripped — stripping risks collapsing 'bad\\x00.exe' onto existing 'bad.exe' landing (T-05-01 defense-in-depth)"

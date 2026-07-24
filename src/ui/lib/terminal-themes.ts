@@ -28,8 +28,8 @@ export interface TerminalTheme {
 }
 
 export const TERMINAL_THEMES: Record<string, TerminalTheme> = {
-  termix: {
-    name: "Termix Default",
+  skynet: {
+    name: "Skynet Default",
     category: "dark",
     colors: {
       background: "#0c0d0b",
@@ -56,8 +56,8 @@ export const TERMINAL_THEMES: Record<string, TerminalTheme> = {
     },
   },
 
-  termixDark: {
-    name: "Termix Dark",
+  skynetDark: {
+    name: "Skynet Dark",
     category: "dark",
     colors: {
       background: "#0c0d0b",
@@ -84,8 +84,8 @@ export const TERMINAL_THEMES: Record<string, TerminalTheme> = {
     },
   },
 
-  termixLight: {
-    name: "Termix Light",
+  skynetLight: {
+    name: "Skynet Light",
     category: "light",
     colors: {
       background: "#ffffff",
@@ -802,7 +802,7 @@ export const DEFAULT_TERMINAL_CONFIG = {
   fontFamily: "Caskaydia Cove Nerd Font Mono",
   letterSpacing: 0,
   lineHeight: 1.0,
-  theme: "termix",
+  theme: "skynet",
 
   scrollback: 10000,
   bellStyle: "none" as const,

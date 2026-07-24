@@ -1,11 +1,11 @@
 # Patch #140 — Skynet transformation: conversation list lift-from-mock (final Ship-of-Theseus slice) — Phase 13
 
-**Paste target:** `~/.claude/identities/tina/termix-patches.md`
+**Paste target:** `~/.claude/identities/tina/skynet-patches.md`
 **Paste timing:** Only after Ashley greenlights the batched Phase 11 + Phase 12 + Phase 13 Ship-of-Theseus movement deploy AND UAT passes on the 26 non-negotiable items in `13-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
 **Batch context:** Patch #140 is the FINAL Phase-13-cluster patch (patch #138 = Phase 11 first slice; #139 = Phase 12 second slice; #140 = this Phase 13 final slice). Per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23), it does NOT ship standalone. Batches with patches #138 + #139 into a single grouped-semantic-unit deploy ("the Ship-of-Theseus movement complete") — the whole three-phase Skynet SHAPE transformation lands in ONE Ashley-verified deploy window.
 
 Explicit contract line for the fork-catalog integrity gate: **patch #140 batches with patches #138 + #139 as the Ship-of-Theseus movement completion.** No Co-Authored-By trailer per fork convention (also called out at the top of this file).
-**Ordinal position on paste:** Update the count line near the top of `termix-patches.md`. Current baseline is "ONE HUNDRED THIRTY-SEVEN numbered patches" (patches #138 + #139 not yet pinned). Bump to "ONE HUNDRED FORTY" — pin patches #138 (Phase 11) + #139 (Phase 12) + #140 (Phase 13) together at the batch-deploy moment as the Ship-of-Theseus movement completion. If patches #138 + #139 were pinned earlier as an interstitial bump, bump from whatever the current count is to "ONE HUNDRED FORTY".
+**Ordinal position on paste:** Update the count line near the top of `skynet-patches.md`. Current baseline is "ONE HUNDRED THIRTY-SEVEN numbered patches" (patches #138 + #139 not yet pinned). Bump to "ONE HUNDRED FORTY" — pin patches #138 (Phase 11) + #139 (Phase 12) + #140 (Phase 13) together at the batch-deploy moment as the Ship-of-Theseus movement completion. If patches #138 + #139 were pinned earlier as an interstitial bump, bump from whatever the current count is to "ONE HUNDRED FORTY".
 **No Co-Authored-By trailer** — fork convention (per 260723-bbt quick task pattern and Phase 10 + Phase 11 + Phase 12 patches-md-entry precedents).
 
 ---
@@ -21,17 +21,17 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
         with patches #138 (Phase 11 first slice) + #139 (Phase 12 second slice)
         per Ashley 2026-07-23 fleet-standing "batch patches into meaningful
         deploys" rule; not deployed standalone unless Ashley explicitly
-        greenlights; the three-patch batch tells the "we deleted the Termix
+        greenlights; the three-patch batch tells the "we deleted the Skynet
         client surfaces AND lifted the remaining conversation-list surface
         verbatim from the mock" story = the Ship-of-Theseus movement complete).
 
         * **Motivating gap** (Ashley's direct call-outs, this-session 2026-07-23):
-          Ashley kept saying "get away from this termix front end stuff" through
+          Ashley kept saying "get away from this skynet front end stuff" through
           Phases 11 + 12 while stripping the dead surfaces. Phase 13 is the
           LAST slice — the surface Ashley kept calling out as "still looks
-          Termix" after Phases 11 + 12 shipped. Verbatim quotes this session:
+          Skynet" after Phases 11 + 12 shipped. Verbatim quotes this session:
           - "The bar at the top that says like conversations or something that
-            to me looks like it's coming out of old Termix stuff" — the
+            to me looks like it's coming out of old Skynet stuff" — the
             PrettyConversationsPanel's `.panel-header` with the 13px mixed-case
             chunky title + filled-glass pencil pill (rewritten to UPPERCASE +
             0.1em tracking + transparent pencil per mock v4).
@@ -44,11 +44,11 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
             Reduced-intensity ambient values verbatim into `.pv-row.ambient`
             AND by preserving activeSet propagation through the row rewrite.
           - "The pin buttons are totally obnoxious" — retire the button chrome
-            (rounded-md, `bg-transparent hover:bg-white/[0.06]`, Termix
+            (rounded-md, `bg-transparent hover:bg-white/[0.06]`, Skynet
             muted-gray icon color) and lift the mock's bare-icon-with-hue-
             drop-shadow, hidden when not pinned.
           - "The bar at the top that says the name of the session still looks
-            Termix" — the AppShell top-left persistent sidebar-toggle chevron
+            Skynet" — the AppShell top-left persistent sidebar-toggle chevron
             (rebased from opaque-glass filled pill to `--color-pv-*`
             transparent bare-icon, matching the panel-header pencil aesthetic).
           The LOCKED mock v4 at `~/.claude/identities/tina/bounties/skynet-
@@ -65,7 +65,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           machine gone); Tailwind layout scaffolding (`flex-1 min-w-0 flex
           flex-col gap-0.5`, `shrink-0 flex items-center gap-1.5`, `rounded-
           full`, `w-12 h-12` / `w-10 h-10`, `px-4 py-3` / `px-3 py-2.5`,
-          `gap-3` / `gap-2.5` on the row/avatar/body/meta divs); Termix theme
+          `gap-3` / `gap-2.5` on the row/avatar/body/meta divs); Skynet theme
           classes (`bg-background`, `bg-card`, `text-foreground`, `border-
           border`, `text-muted-foreground/60`, `hover:text-foreground`).
           Kept: identity resolution, `isAmbient = !isRdp && !inActiveSet`
@@ -148,7 +148,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           rebased from `bg-[rgba(20,22,28,0.85)] backdrop-blur-[10px]
           backdrop-saturate-150 border border-white/[0.08] shadow-[0_2px_8px_
           rgba(0,0,0,0.35)] text-muted-foreground hover:text-foreground`
-          (Termix filled-glass pill treatment) to `bg-transparent border
+          (Skynet filled-glass pill treatment) to `bg-transparent border
           border-transparent text-[color:var(--color-pv-fg-muted)] hover:bg-
           [rgba(220,225,245,0.06)] hover:border-[color:var(--color-pv-
           border-quiet)] hover:text-[color:var(--color-pv-fg)]` (mock's
@@ -197,8 +197,8 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           pre-Phase-13; Ashley's iPhone swipe-reveal affordance is
           uncompromised.
 
-        * **Fix summary — final Termix theme-class purge** (SHAPE-03 deep).
-          Purged the last 2 Termix theme-class hits in the conversation-list
+        * **Fix summary — final Skynet theme-class purge** (SHAPE-03 deep).
+          Purged the last 2 Skynet theme-class hits in the conversation-list
           subtree (PinAction.tsx pre-plan lines 97-101 had `text-muted-
           foreground/60`, `hover:text-foreground`). Full-subtree grep for
           `text-muted-foreground|hover:text-foreground|bg-background|bg-card|
@@ -207,8 +207,8 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           raw hit is a `//` line-comment historical annotation in PinAction.
           tsx documenting the retired treatment; Phase 10 Wave 4 + Phase 12
           tip comment-only policy). **The subtree is 100% palette-tokenized
-          / class-toggle-driven.** No more Termix theme classes in the
-          conversation-list surface — the last vestiges of the Termix look
+          / class-toggle-driven.** No more Skynet theme classes in the
+          conversation-list surface — the last vestiges of the Skynet look
           are gone.
 
         * **Fix summary — post-lift diagnostic pass** (SHAPE-05 preparation).
@@ -240,7 +240,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           chrome). Verified: `git diff --stat f1c77fd..HEAD -- src/ui/
           features/pretty-view/ src/ui/components/ src/ui/ssh/ src/ui/
           features/terminal/ | wc -l` returns 0. Ship-of-Theseus rule
-          preserves them for upstream Termix rebase-ability. Backend routes
+          preserves them for upstream Skynet rebase-ability. Backend routes
           untouched — Phase 13 is UI-only, no server changes; backend-cleanup
           for now-orphaned routes was deferred forever per Ashley 2026-07-23
           mid-purge discussion (kept for rebase-ability, zero user impact) —
@@ -370,7 +370,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           - **SHAPE-03 gates (3):** `pv-pin-action-desktop` in PinAction.tsx
             = 4 (target ≥ 1); `pv-pin-action-desktop` in pretty-conversations.
             css = 6 (target ≥ 1); **SHAPE-03 deep gate** (full-subtree
-            Termix theme-class purge) = 0 non-comment code lines under
+            Skynet theme-class purge) = 0 non-comment code lines under
             improved awk-based filter (1 raw hit is a `//` line-comment
             historical annotation in PinAction.tsx documenting the retired
             treatment; Phase 10 Wave 4 policy: acceptable).
@@ -432,12 +432,12 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
         * **Rebase risk**: MEDIUM — the row treatment is entirely fork-
           native now (the mock lifted verbatim into pretty-conversations.
           css and the row emits fork-specific class names). When we next
-          rebase against upstream `main`, upstream Termix's conversation-
+          rebase against upstream `main`, upstream Skynet's conversation-
           list surface (which never had this look and never will) may add
           new interactions in the same file region; conflicts resolve to
           "keep fork's class-toggle contract + evaluate any upstream new
           interactions for whether they preserve the mock v4 SHAPE
-          (accept) or introduce Termix regression (reject)." The AppShell
+          (accept) or introduce Skynet regression (reject)." The AppShell
           chevron block edit (L1407-1479) is a targeted delta that will
           likely conflict if upstream reworks the same region; resolution
           is mechanical (accept the palette-token rebase). The PinAction
@@ -446,7 +446,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           conflicts expected. Grep for `text-muted-foreground`, `bg-white/
           [0.06]`, `w-[34px] h-[34px] rounded-full` in any post-rebase
           conversation-list surface source tree to sanity-check that no
-          Termix theme-class regression survived the merge.
+          Skynet theme-class regression survived the merge.
 
         * **Commits** (all on `feat/tab-title-from-tmux`, in order landed):
           - **Plan 01 (Wave 1 — row + CSS foundation)**: 4 commits
@@ -521,17 +521,17 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
             lifted to bare-icon-with-hue-drop-shadow + AppShell chevron
             rebased to `--color-pv-*` palette; the LOCKED mock v4 lifted
             verbatim onto the conversation-list surface
-          Ashley's next set of Termix bounties will be NEW-FEATURE work
+          Ashley's next set of Skynet bounties will be NEW-FEATURE work
           (pretty-view enhancements, message-queue improvements,
           translation asides, tool-use bubble upgrades) — not further
           Ship-of-Theseus purge. The Skynet SHAPE (Telegram-mobile-app-of-
-          Termix) is done.
+          Skynet) is done.
 
 ---
 
 ## Fill-in placeholders (before pasting)
 
-Before pasting into termix-patches.md, replace the following (obtain from
+Before pasting into skynet-patches.md, replace the following (obtain from
 `git rev-parse --short HEAD` immediately after the Plan 05 docs commits):
 
 - `[Plan-05 docs SHA — fill in after commit]` — from
@@ -550,7 +550,7 @@ counts (524/526), and grep-gate results are all resolved from
 
 ## Post-paste bookkeeping
 
-After pasting into termix-patches.md:
+After pasting into skynet-patches.md:
 
 1. **Update the count line** near the top of the file. Current baseline
    is "ONE HUNDRED THIRTY-SEVEN numbered patches". Recommended: pin
@@ -559,7 +559,7 @@ After pasting into termix-patches.md:
    SEVEN" to "ONE HUNDRED FORTY". If patches #138 + #139 were pinned
    earlier as an interstitial bump (unlikely given the batching rule),
    adjust accordingly. Verify current count first with `grep "numbered
-   patches" ~/.claude/identities/tina/termix-patches.md | head -3`.
+   patches" ~/.claude/identities/tina/skynet-patches.md | head -3`.
 2. **Commit the pin.** Recommended combined pin (matches the natural
    batching unit): `docs(patches): pin patches #138 + #139 + #140 —
    Skynet transformation Ship-of-Theseus movement complete`. Solo pin
@@ -571,7 +571,7 @@ After pasting into termix-patches.md:
    the LOAD-BEARING closeout for the entire Ship-of-Theseus movement —
    the whole three-slice narrative (Phases 11 + 12 + 13) is complete;
    Ashley UAT-verified; deploy landed; the Skynet SHAPE (Telegram-mobile-
-   app-of-Termix) is done. No SIBLING bounty exists to close (per the
+   app-of-Skynet) is done. No SIBLING bounty exists to close (per the
    meta-lesson pinned in CONTEXT.md); the master IS the bounty.
 4. **Update `~/.claude/identities/tina/tina.md`** compact overview if
    warranted. The "Skynet direction — the app IS Telegram" section

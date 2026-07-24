@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="../public/icon.svg" width="120" height="120" alt="Termix Logo" />
+<img src="../public/icon.svg" width="120" height="120" alt="Skynet Logo" />
 
-<h1>Termix</h1>
+<h1>Skynet</h1>
 
 <p>Самостоятельно размещаемое управление SSH и доступ к удалённому рабочему столу</p>
 
@@ -24,15 +24,15 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/github/stars/Termix-SSH/Termix?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/forks/Termix-SSH/Termix?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/v/release/Termix-SSH/Termix?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
+  <img src="https://img.shields.io/github/stars/Skynet-SSH/Skynet?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/forks/Skynet-SSH/Skynet?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/v/release/Skynet-SSH/Skynet?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
   <a href="https://discord.gg/jVQGdvHDrf"><img alt="Discord" src="https://img.shields.io/discord/1347374268253470720?color=F39044&labelColor=1a1a1a" /></a>
 </p>
 
 <br />
 
-<img src="../repo-images/Termix Header.png" alt="Termix Banner" width="900" />
+<img src="../repo-images/Skynet Header.png" alt="Skynet Banner" width="900" />
 
 <br />
 <br />
@@ -49,7 +49,7 @@
 
 ## Обзор
 
-Termix - это платформа для управления серверами с открытым исходным кодом, навсегда бесплатная и размещаемая на собственном сервере. Она предоставляет мультиплатформенное решение для управления вашими серверами и инфраструктурой через единый интуитивно понятный интерфейс. Termix предлагает доступ к SSH-терминалу, управление удаленным рабочим столом (RDP, VNC, Telnet), возможности SSH-туннелирования, удаленное управление файлами SSH и множество других инструментов. Termix - это идеальная бесплатная альтернатива Termius с возможностью размещения на собственном сервере, доступная для всех платформ.
+Skynet - это платформа для управления серверами с открытым исходным кодом, навсегда бесплатная и размещаемая на собственном сервере. Она предоставляет мультиплатформенное решение для управления вашими серверами и инфраструктурой через единый интуитивно понятный интерфейс. Skynet предлагает доступ к SSH-терминалу, управление удаленным рабочим столом (RDP, VNC, Telnet), возможности SSH-туннелирования, удаленное управление файлами SSH и множество других инструментов. Skynet - это идеальная бесплатная альтернатива Termius с возможностью размещения на собственном сервере, доступная для всех платформ.
 
 <br />
 
@@ -122,7 +122,7 @@ Termix - это платформа для управления серверам�
 <td width="50%" valign="top">
 
 **Шифрование базы данных:**
-Бэкенд хранится в виде зашифрованных файлов базы данных SQLite. Подробнее в [документации](https://docs.termix.site/security).
+Бэкенд хранится в виде зашифрованных файлов базы данных SQLite. Подробнее в [документации](https://docs.skynet.site/security).
 
 </td>
 </tr>
@@ -150,7 +150,7 @@ SSH-сессии и вкладки остаются открытыми на вс
 <td width="50%" valign="top">
 
 **Языки:**
-Встроенная поддержка около 30 языков (управляется через [Crowdin](https://docs.termix.site/translations)).
+Встроенная поддержка около 30 языков (управляется через [Crowdin](https://docs.skynet.site/translations)).
 
 </td>
 </tr>
@@ -213,24 +213,24 @@ SSH-сессии и вкладки остаются открытыми на вс
 
 ## Установка
 
-Посетите [документацию](https://docs.termix.site/install) Termix для получения дополнительной информации об установке Termix на всех платформах. Также вы можете ознакомиться с примером файла Docker Compose здесь (вы можете опустить guacd и сеть, если не планируете использовать функции удаленного рабочего стола):
+Посетите [документацию](https://docs.skynet.site/install) Skynet для получения дополнительной информации об установке Skynet на всех платформах. Также вы можете ознакомиться с примером файла Docker Compose здесь (вы можете опустить guacd и сеть, если не планируете использовать функции удаленного рабочего стола):
 
 ```yaml
 services:
-  termix:
-    image: ghcr.io/lukegus/termix:latest
-    container_name: termix
+  skynet:
+    image: ghcr.io/lukegus/skynet:latest
+    container_name: skynet
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - termix-data:/app/data
+      - skynet-data:/app/data
     environment:
       PORT: "8080"
     depends_on:
       - guacd
     networks:
-      - termix-net
+      - skynet-net
 
   guacd:
     image: guacamole/guacd:1.6.0
@@ -239,14 +239,14 @@ services:
     ports:
       - "4822:4822"
     networks:
-      - termix-net
+      - skynet-net
 
 volumes:
-  termix-data:
+  skynet-data:
     driver: local
 
 networks:
-  termix-net:
+  skynet-net:
     driver: bridge
 ```
 
@@ -258,7 +258,7 @@ networks:
 
 <br />
 
-[![YouTube](../repo-images/YouTube.png)](https://www.youtube.com/@TermixSSH/videos)
+[![YouTube](../repo-images/YouTube.png)](https://www.youtube.com/@SkynetSSH/videos)
 
 <sub>Смотрите обзоры обновлений на YouTube</sub>
 
@@ -267,32 +267,32 @@ networks:
 
 <table>
 <tr>
-<td><img src="../repo-images/Image 1.png" alt="Termix Screenshot 1" width="400" /></td>
-<td><img src="../repo-images/Image 2.png" alt="Termix Screenshot 2" width="400" /></td>
+<td><img src="../repo-images/Image 1.png" alt="Skynet Screenshot 1" width="400" /></td>
+<td><img src="../repo-images/Image 2.png" alt="Skynet Screenshot 2" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 3.png" alt="Termix Screenshot 3" width="400" /></td>
-<td><img src="../repo-images/Image 4.png" alt="Termix Screenshot 4" width="400" /></td>
+<td><img src="../repo-images/Image 3.png" alt="Skynet Screenshot 3" width="400" /></td>
+<td><img src="../repo-images/Image 4.png" alt="Skynet Screenshot 4" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 5.png" alt="Termix Screenshot 5" width="400" /></td>
-<td><img src="../repo-images/Image 6.png" alt="Termix Screenshot 6" width="400" /></td>
+<td><img src="../repo-images/Image 5.png" alt="Skynet Screenshot 5" width="400" /></td>
+<td><img src="../repo-images/Image 6.png" alt="Skynet Screenshot 6" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 7.png" alt="Termix Screenshot 7" width="400" /></td>
-<td><img src="../repo-images/Image 8.png" alt="Termix Screenshot 8" width="400" /></td>
+<td><img src="../repo-images/Image 7.png" alt="Skynet Screenshot 7" width="400" /></td>
+<td><img src="../repo-images/Image 8.png" alt="Skynet Screenshot 8" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 9.png" alt="Termix Screenshot 9" width="400" /></td>
-<td><img src="../repo-images/Image 10.png" alt="Termix Screenshot 10" width="400" /></td>
+<td><img src="../repo-images/Image 9.png" alt="Skynet Screenshot 9" width="400" /></td>
+<td><img src="../repo-images/Image 10.png" alt="Skynet Screenshot 10" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 11.png" alt="Termix Screenshot 11" width="400" /></td>
-<td><img src="../repo-images/Image 12.png" alt="Termix Screenshot 12" width="400" /></td>
+<td><img src="../repo-images/Image 11.png" alt="Skynet Screenshot 11" width="400" /></td>
+<td><img src="../repo-images/Image 12.png" alt="Skynet Screenshot 12" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 13.png" alt="Termix Screenshot 13" width="400" /></td>
-<td><img src="../repo-images/Image 14.png" alt="Termix Screenshot 14" width="400" /></td>
+<td><img src="../repo-images/Image 13.png" alt="Skynet Screenshot 13" width="400" /></td>
+<td><img src="../repo-images/Image 14.png" alt="Skynet Screenshot 14" width="400" /></td>
 </tr>
 </table>
 
@@ -304,7 +304,7 @@ networks:
 
 ## Запланированные функции
 
-Смотрите [Проекты](https://github.com/orgs/Termix-SSH/projects/2) для просмотра всех запланированных функций. Если вы хотите внести вклад, смотрите [Участие в разработке](https://github.com/Termix-SSH/Termix/blob/main/CONTRIBUTING.md).
+Смотрите [Проекты](https://github.com/orgs/Skynet-SSH/projects/2) для просмотра всех запланированных функций. Если вы хотите внести вклад, смотрите [Участие в разработке](https://github.com/Skynet-SSH/Skynet/blob/main/CONTRIBUTING.md).
 
 <br />
 
@@ -348,7 +348,7 @@ networks:
 
 ## Поддержка
 
-Если вам нужна помощь или вы хотите запросить новую функцию для Termix, посетите страницу [Проблемы](https://github.com/Termix-SSH/Support/issues), войдите в систему и нажмите `New Issue`. Пожалуйста, опишите вашу проблему как можно подробнее, предпочтительно на английском языке. Вы также можете присоединиться к серверу [Discord](https://discord.gg/jVQGdvHDrf) и обратиться в канал поддержки, однако время ответа может быть дольше.
+Если вам нужна помощь или вы хотите запросить новую функцию для Skynet, посетите страницу [Проблемы](https://github.com/Skynet-SSH/Support/issues), войдите в систему и нажмите `New Issue`. Пожалуйста, опишите вашу проблему как можно подробнее, предпочтительно на английском языке. Вы также можете присоединиться к серверу [Discord](https://discord.gg/jVQGdvHDrf) и обратиться в канал поддержки, однако время ответа может быть дольше.
 
 <br />
 

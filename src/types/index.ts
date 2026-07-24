@@ -473,7 +473,7 @@ export interface HostInfo {
 // ALERT TYPES
 // ============================================================================
 
-export interface TermixAlert {
+export interface SkynetAlert {
   id: string;
   title: string;
   message: string;
@@ -679,12 +679,12 @@ export interface FileManagerProps {
 }
 
 export interface AlertCardProps {
-  alert: TermixAlert;
+  alert: SkynetAlert;
   onDismiss: (alertId: string) => void;
 }
 
 export interface AlertManagerProps {
-  alerts: TermixAlert[];
+  alerts: SkynetAlert[];
   onDismiss: (alertId: string) => void;
   loggedIn: boolean;
 }

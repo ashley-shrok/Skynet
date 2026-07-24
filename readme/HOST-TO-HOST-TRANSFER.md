@@ -4,33 +4,33 @@ This document describes the host-to-host copy/move feature. It is intended for o
 
 ## Overview
 
-Host-to-host transfer copies or moves files from one SSH host to another through the **Termix server** as a relay. The UI lives in **File Manager**: right-click files or folders and choose **Copy to host…** or **Move to host…**.
+Host-to-host transfer copies or moves files from one SSH host to another through the **Skynet server** as a relay. The UI lives in **File Manager**: right-click files or folders and choose **Copy to host…** or **Move to host…**.
 
-Compared to copying via your laptop (`scp -3` or `ssh one 'cat …' | ssh two 'cat …'`), Termix keeps the job on the server so transfers continue if you close the browser, and you get integrated progress, cancel, retry, and cleanup.
+Compared to copying via your laptop (`scp -3` or `ssh one 'cat …' | ssh two 'cat …'`), Skynet keeps the job on the server so transfers continue if you close the browser, and you get integrated progress, cancel, retry, and cleanup.
 
 ```mermaid
 flowchart LR
   Browser[Browser_UI]
-  Termix[Termix_server]
+  Skynet[Skynet_server]
   Src[Source_host]
   Dst[Destination_host]
 
-  Browser -->|start_transfer_API| Termix
-  Termix -->|dedicated_SSH_xfer_src| Src
-  Termix -->|dedicated_SSH_xfer_dst| Dst
-  Termix -->|SFTP_read_then_write| Termix
+  Browser -->|start_transfer_API| Skynet
+  Skynet -->|dedicated_SSH_xfer_src| Src
+  Skynet -->|dedicated_SSH_xfer_dst| Dst
+  Skynet -->|SFTP_read_then_write| Skynet
 ```
 
-Data for remote-to-remote paths **always passes through the Termix process** (pipelined SFTP buffers, or a tar archive stream). There is no source→destination SSH tunnel for file bytes today.
+Data for remote-to-remote paths **always passes through the Skynet process** (pipelined SFTP buffers, or a tar archive stream). There is no source→destination SSH tunnel for file bytes today.
 
 ## Prerequisites
 
 1. **Two hosts** with File Manager enabled, saved in Host Manager.
-2. **Both hosts reachable from the Termix server** on SSH (each host’s jump hosts and SOCKS5 proxy chain apply to the **Termix→host** connection, not host→host).
+2. **Both hosts reachable from the Skynet server** on SSH (each host’s jump hosts and SOCKS5 proxy chain apply to the **Skynet→host** connection, not host→host).
 3. **File Manager open** on the source host (browse session connected). The destination host should show **Ready** in the transfer dialog; if it shows authentication required, open File Manager on that host once first.
 4. For **multi-file or folder** transfers, pick a **destination directory** (not a file path).
 
-The dialog shows a reminder: _“Both hosts must be reachable from the Termix server. Direct host-to-host routing is not supported.”_
+The dialog shows a reminder: _“Both hosts must be reachable from the Skynet server. Direct host-to-host routing is not supported.”_
 
 ## Using the UI
 
@@ -73,8 +73,8 @@ On success, expanded timing details can include: prepare destination, compress (
 | Method                   | When used                                                                           | Behavior                                                                                                     |
 | ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | **Stream (single file)** | Exactly one file, copy or move                                                      | Pipelined SFTP read on source → write on destination; segmented above 32 MiB; parallel lanes for throughput. |
-| **Tar archive**          | Multi-file/folder when Auto or user selects Tar, and both sides are Unix with `tar` | `tar -czf` on source → one archive streamed through Termix → `tar -xzf` on destination.                      |
-| **Per-file SFTP**        | Windows involved, tar unavailable, or Auto chooses it                               | Each file copied sequentially over SFTP through Termix.                                                      |
+| **Tar archive**          | Multi-file/folder when Auto or user selects Tar, and both sides are Unix with `tar` | `tar -czf` on source → one archive streamed through Skynet → `tar -xzf` on destination.                      |
+| **Per-file SFTP**        | Windows involved, tar unavailable, or Auto chooses it                               | Each file copied sequentially over SFTP through Skynet.                                                      |
 
 **Auto** heuristics (see `src/backend/ssh/transfer-routing.ts`) consider file count, total size, largest file, and compressibility (e.g. many small files → tar; large incompressible sets → per-file SFTP).
 
@@ -94,7 +94,7 @@ On success, expanded timing details can include: prepare destination, compress (
 
 **Sessions:** Browse sessions identify hosts. Each transfer opens **dedicated** SSH sessions (`xfer:{transferId}:src` / `:dst`) so browsing and transfers do not share channels. Parallel lanes add `xfer:{transferId}:src:pN` / `:dst:pN`.
 
-**Special case:** If the destination host is the **same machine as Termix** (local SSH endpoint), writes use the local filesystem via `fastGet` instead of dest SFTP; data still originates from the remote source through Termix.
+**Special case:** If the destination host is the **same machine as Skynet** (local SSH endpoint), writes use the local filesystem via `fastGet` instead of dest SFTP; data still originates from the remote source through Skynet.
 
 **Persistence:** Recent destinations are stored in `transfer_recent` (per user, per source host). Folder shortcuts use `file_manager_shortcuts` on the destination host.
 
@@ -122,9 +122,9 @@ Database (main API): `GET/POST /host/transfer/recent` for recent destinations.
 
 ## Limitations
 
-1. **No direct host-to-host data path** — Termix must reach **both** hosts independently (with each host’s jump/proxy settings).
+1. **No direct host-to-host data path** — Skynet must reach **both** hosts independently (with each host’s jump/proxy settings).
 2. **Not the same as S2S SSH tunnels** — Tunnels in Host Manager forward TCP ports; they do not carry file-manager transfers today.
-3. **Throughput** — Remote-to-remote speed is bounded by Termix CPU/RAM and min(Termix↔source, Termix↔dest) links; very large files on a small Termix box may be slower than `scp -3` from a powerful desktop.
+3. **Throughput** — Remote-to-remote speed is bounded by Skynet CPU/RAM and min(Skynet↔source, Skynet↔dest) links; very large files on a small Skynet box may be slower than `scp -3` from a powerful desktop.
 4. **Parallel lanes** — Writes are out of order on disk; fine for copy, not for playing media from a partially written file. Default is 2 lanes; UI may not expose lane count (API default applies).
 5. **Tar** — Requires `tar` on both Unix hosts; temporary archive under `/tmp` on source during transfer.
 6. **Windows** — Tar path disabled; per-file SFTP only for Windows endpoints.
@@ -136,15 +136,15 @@ Database (main API): `GET/POST /host/transfer/recent` for recent destinations.
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | No destination hosts listed           | Open File Manager on another host; ensure host has File Manager enabled.                                   |
 | Destination “Authentication required” | Connect File Manager on that host once in this session.                                                    |
-| Transfer fails immediately            | SSH from Termix to both hosts (firewall, jump host, SOCKS5, credentials).                                  |
-| Slow speed                            | Termix link to slower side; try off-peak; for single huge files, parallel lanes help if CPU/network allow. |
+| Transfer fails immediately            | SSH from Skynet to both hosts (firewall, jump host, SOCKS5, credentials).                                  |
+| Slow speed                            | Skynet link to slower side; try off-peak; for single huge files, parallel lanes help if CPU/network allow. |
 | Stuck progress                        | Wait for stall/reconnect; cancel and retry; check server logs for `host_transfer` / `transfer_ssh_*`.      |
 | Partial files after cancel            | Use **Clean up destination** in the toast.                                                                 |
 | 28 GB / 25 GB style progress          | Usually parallel progress accounting; status polls use destination size probes.                            |
 
 ## Comparison to manual `scp` between remotes
 
-See [Unix & Linux: scp from one remote server to another](https://unix.stackexchange.com/questions/85292/scp-from-one-remote-server-to-another-remote-server). Naive `scp one:file two:file` runs **from the first host** and fails unless that host can SSH to the second. `scp -3` relays through your workstation. **Termix relay** is analogous to `scp -3` through the **Termix server**, with richer lifecycle management, not analogous to direct `ssh source 'scp … dest'`.
+See [Unix & Linux: scp from one remote server to another](https://unix.stackexchange.com/questions/85292/scp-from-one-remote-server-to-another-remote-server). Naive `scp one:file two:file` runs **from the first host** and fails unless that host can SSH to the second. `scp -3` relays through your workstation. **Skynet relay** is analogous to `scp -3` through the **Skynet server**, with richer lifecycle management, not analogous to direct `ssh source 'scp … dest'`.
 
 ---
 
@@ -154,20 +154,20 @@ The following are **planned / discussed** enhancements, not shipped in the curre
 
 ### Why tunnels matter
 
-Many homelabs have a destination that is **only reachable from another host** (e.g. NAS on LAN behind a Pi), while Termix runs elsewhere. Today that destination cannot receive a dedicated `xfer:dst` session from Termix even if an S2S tunnel from Pi → NAS is configured and working.
+Many homelabs have a destination that is **only reachable from another host** (e.g. NAS on LAN behind a Pi), while Skynet runs elsewhere. Today that destination cannot receive a dedicated `xfer:dst` session from Skynet even if an S2S tunnel from Pi → NAS is configured and working.
 
 ### Possible routes (future)
 
-| Route                                   | Termix SSH legs | Data path                   | Benefit vs today                                                                         |
+| Route                                   | Skynet SSH legs | Data path                   | Benefit vs today                                                                         |
 | --------------------------------------- | --------------- | --------------------------- | ---------------------------------------------------------------------------------------- |
-| **Relay (current)**                     | 2               | Termix buffers SFTP         | Works when both hosts reachable from Termix.                                             |
-| **Tunnel-bridged SFTP**                 | 1 (+ bridge)    | Still through Termix memory | Dest reached via source `forwardOut`; fixes reachability; reuses most of current engine. |
-| **Direct remote (rsync/scp on source)** | 1 (control)     | **Source → dest** bytes     | Best throughput; Termix orchestrates `rsync`/`scp` on source when forward + tools allow. |
+| **Relay (current)**                     | 2               | Skynet buffers SFTP         | Works when both hosts reachable from Skynet.                                             |
+| **Tunnel-bridged SFTP**                 | 1 (+ bridge)    | Still through Skynet memory | Dest reached via source `forwardOut`; fixes reachability; reuses most of current engine. |
+| **Direct remote (rsync/scp on source)** | 1 (control)     | **Source → dest** bytes     | Best throughput; Skynet orchestrates `rsync`/`scp` on source when forward + tools allow. |
 
 ### Integration ideas (not implemented)
 
 1. **`transfer-bridge` module** — Shared `forwardOut` probe and `connectDestThroughSource` (extracted from tunnel code); lookup matching `tunnel_connections` on the source host record.
-2. **Route resolver** — Auto-select relay vs bridged vs direct; expose route in method preview (“via Termix” vs “direct host-to-host”).
+2. **Route resolver** — Auto-select relay vs bridged vs direct; expose route in method preview (“via Skynet” vs “direct host-to-host”).
 3. **Reuse active S2S tunnel** — If Host Manager tunnel source→dest is already connected, reuse `endpointClient` instead of opening a second bridge.
 4. **Jump hosts on S2S tunnel source** — Align tunnel connect with file-manager jump chains so tunnel and transfer eligibility match.
 5. **Fallback** — Always fall back to current relay when probe or remote `rsync` fails (Windows, missing tools, forwarding denied).

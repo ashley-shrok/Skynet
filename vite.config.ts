@@ -5,8 +5,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import svgr from "vite-plugin-svgr";
 
-const sslCertPath = path.join(process.cwd(), "ssl/termix.crt");
-const sslKeyPath = path.join(process.cwd(), "ssl/termix.key");
+const sslCertPath = path.join(process.cwd(), "ssl/skynet.crt");
+const sslKeyPath = path.join(process.cwd(), "ssl/skynet.key");
 
 const hasSSL = fs.existsSync(sslCertPath) && fs.existsSync(sslKeyPath);
 const useHTTPS = process.env.VITE_HTTPS === "true" && hasSSL;

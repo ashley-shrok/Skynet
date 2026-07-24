@@ -21,7 +21,7 @@ must_haves:
     - "WIP frames are emitted on the existing claude-session WebSocket only on state transitions plus once as initial state"
     - "The five changes ship as exactly five atomic conventional-commits, one per file"
     - "The tree builds locally after all five commits (`npm run build` succeeds)"
-    - "No deploy, no /opt/termix modification, no docker compose invocation, no AGENTS.md update — this is a source-only patch"
+    - "No deploy, no /opt/skynet modification, no docker compose invocation, no AGENTS.md update — this is a source-only patch"
   artifacts:
     - path: "src/backend/claude-session/wip-classifier.ts"
       provides: "Pure helper classifyWipTransition(rawObj) → 'start' | 'end' | null"
@@ -49,7 +49,7 @@ must_haves:
 ---
 
 <objective>
-Patch #51 for the Termix fork: add a work-in-progress indicator to pretty view.
+Patch #51 for the Skynet fork: add a work-in-progress indicator to pretty view.
 
 While Claude Code is working (making an API call, running a tool, thinking), a
 spinner bubble appears at the bottom of the pretty-view message list. The
@@ -73,18 +73,18 @@ deploy. Local `npm run build` must succeed before the plan is done.
 </execution_context>
 
 <context>
-@/home/ubuntu/termix/CLAUDE.md
-@/home/ubuntu/termix/AGENTS.md
-@/home/ubuntu/termix/src/backend/claude-session/claude-session-server.ts
-@/home/ubuntu/termix/src/backend/claude-session/session-file-parser.ts
-@/home/ubuntu/termix/src/ui/api/claude-session-api.ts
-@/home/ubuntu/termix/src/ui/features/pretty-view/PrettyView.tsx
-@/home/ubuntu/termix/src/ui/features/pretty-view/ChatMessage.tsx
+@/home/ubuntu/skynet/CLAUDE.md
+@/home/ubuntu/skynet/AGENTS.md
+@/home/ubuntu/skynet/src/backend/claude-session/claude-session-server.ts
+@/home/ubuntu/skynet/src/backend/claude-session/session-file-parser.ts
+@/home/ubuntu/skynet/src/ui/api/claude-session-api.ts
+@/home/ubuntu/skynet/src/ui/features/pretty-view/PrettyView.tsx
+@/home/ubuntu/skynet/src/ui/features/pretty-view/ChatMessage.tsx
 
 # Constraints (Ashley, 2026-07-17):
-# - Do NOT deploy. Do NOT touch /opt/termix. Do NOT run docker compose.
+# - Do NOT deploy. Do NOT touch /opt/skynet. Do NOT run docker compose.
 # - Do NOT arm any deadman timer. Do NOT update AGENTS.md.
-# - Working directory MUST be /home/ubuntu/termix on branch feat/tab-title-from-tmux.
+# - Working directory MUST be /home/ubuntu/skynet on branch feat/tab-title-from-tmux.
 # - Exactly 5 atomic commits, one per file, using the conventional-commits prefixes
 #   documented in the task actions below.
 # - `session-file-parser.ts` is HANDS OFF. The classifier goes in a sibling file.
@@ -458,7 +458,7 @@ Concrete edits:
       This confirms the WipBubble appear/disappear will trigger a
       re-pin without additional work.
 
-9. DO NOT deploy. DO NOT run `docker compose`. DO NOT touch /opt/termix.
+9. DO NOT deploy. DO NOT run `docker compose`. DO NOT touch /opt/skynet.
    DO NOT arm a deadman. DO NOT update AGENTS.md. Ashley has explicitly
    scoped this task to source-level changes only.
   </action>
@@ -498,7 +498,7 @@ for the goal-backward invariant):
 5. Working tree is on `feat/tab-title-from-tmux` branch (verify with
    `git branch --show-current`).
 
-6. No files under `/opt/termix` touched. No docker commands run. No
+6. No files under `/opt/skynet` touched. No docker commands run. No
    AGENTS.md updates. This is source-only.
 </verification>
 
@@ -518,11 +518,11 @@ for the goal-backward invariant):
   when `wipActive` is true, and does not render it at all when false.
 - The known edge case (Claude Code crashed mid-tool-call → forever-WIP)
   is documented but has NO code fix in this patch (accepted).
-- No deploy. No `/opt/termix` change. No AGENTS.md update.
+- No deploy. No `/opt/skynet` change. No AGENTS.md update.
 </success_criteria>
 
 <output>
-Create `/home/ubuntu/termix/.planning/quick/260717-vbw-work-in-progress-indicator-for-pretty-vi/260717-vbw-SUMMARY.md`
+Create `/home/ubuntu/skynet/.planning/quick/260717-vbw-work-in-progress-indicator-for-pretty-vi/260717-vbw-SUMMARY.md`
 when all five commits have landed and `npm run build` has succeeded. The
 SUMMARY should record:
 - The 5 commit hashes (from `git log --format='%h %s' -5`).

@@ -6,7 +6,7 @@ Scope: Local `npm run build` verification only. Docker image build is Ashley-gat
 
 ## Step A — Clean build
 
-Command: `cd /home/ubuntu/termix && npm run build`
+Command: `cd /home/ubuntu/skynet && npm run build`
 Outcome: **✓ built in 13.48s** — no `error TS`, no `[vite]` error markers.
 
 Key output bundles (bytes):

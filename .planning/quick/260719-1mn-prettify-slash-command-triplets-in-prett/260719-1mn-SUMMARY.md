@@ -75,7 +75,7 @@ Committed in the order (2)→(1)→(3) so each task's tsc pass is strictly clean
 
 **3. [Rule 3 - Blocking] Unused-import ESLint error on `CommandChip` in ChatMessage.tsx**
 - **Found during:** Task 3 verify (post-edit lint)
-- **Issue:** Plan's `must_haves.key_links` contract requires `ChatMessage.tsx` to `import { CommandChip } from "./CommandChip"` — but ChatMessage doesn't reference CommandChip directly; the pill is instantiated by `splitMarkers` via `React.createElement` inside `commandTags.ts`. Termix's ESLint config has `unused-imports/no-unused-imports` at error level, and `npm run build` would fail on it.
+- **Issue:** Plan's `must_haves.key_links` contract requires `ChatMessage.tsx` to `import { CommandChip } from "./CommandChip"` — but ChatMessage doesn't reference CommandChip directly; the pill is instantiated by `splitMarkers` via `React.createElement` inside `commandTags.ts`. Skynet's ESLint config has `unused-imports/no-unused-imports` at error level, and `npm run build` would fail on it.
 - **Fix:** Added a `// eslint-disable-next-line unused-imports/no-unused-imports` comment plus a two-line explanatory comment above the import, satisfying both the plan's key_links contract AND the build-must-pass constraint. Not a redesign — the plan explicitly encodes the import as a must-have.
 - **Files modified:** `src/ui/features/pretty-view/ChatMessage.tsx` (in Task 3 commit)
 - **Commit:** `391c469`

@@ -16,7 +16,7 @@ requires:
 provides:
   - "05-04-BUILD-VERIFY-LOG.md — paper trail proving Phase 5 build is clean, artifacts survive Vite tree-shake, load-bearing prior-patch bytes intact"
   - "05-UAT-CHECKLIST.md — Nyquist UAT walkthrough for Ashley post-deploy (38 checkbox items across UPLOAD-01..14 verbatim contracts, 32 blocking 🚨 markers, regression smoke section for patches #57/#60/#100/#102)"
-  - "05-PATCHES-MD-ENTRY.md — draft patch-catalog entry ready to paste into ~/.claude/identities/tina/termix-patches.md at pin time (Ashley expected to assign #104)"
+  - "05-PATCHES-MD-ENTRY.md — draft patch-catalog entry ready to paste into ~/.claude/identities/tina/skynet-patches.md at pin time (Ashley expected to assign #104)"
 
 affects: []  # end of Phase 5; nothing downstream
 
@@ -95,7 +95,7 @@ This SUMMARY covers **Tasks 1, 2, and 3 only.** Task 4 (the end-to-end deploy ch
 - 38 checkbox items across UPLOAD-01..14 verbatim contracts (each requirement gets 2-5 observable checks; total ≥ 1 per requirement = 14/14 requirements covered)
 - 32 blocking 🚨 markers (regression = revert-immediately)
 - Sections: Setup → Desktop happy-path → Clipboard paste → Failure recovery → Draft persistence asymmetry → Folder rejection → Mobile paperclip → Works-on-any-pane → Regression smoke (patches #57, #60, #100, #102 all explicitly covered) → Post-sign-off actions
-- Sign-off section at top of page (fast access) with both disarm command (`sudo touch /tmp/termix-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'`) and let-fire-or-manual-revert paths
+- Sign-off section at top of page (fast access) with both disarm command (`sudo touch /tmp/skynet-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'`) and let-fire-or-manual-revert paths
 - 8 Phase 5 code-side commit hashes referenced so failures can be traced to origin
 
 ### Task 3: Patches-md entry draft (commit `7f857a2`)
@@ -103,10 +103,10 @@ This SUMMARY covers **Tasks 1, 2, and 3 only.** Task 4 (the end-to-end deploy ch
 `.planning/phases/05-pretty-view-file-upload-support/05-PATCHES-MD-ENTRY.md` produced:
 - Full multi-file entry following patch #60's canonical style (motivation → transport → atomic transfer → landing convention → injected metadata block → parser hardening → threat model → frontend UX → persistence asymmetry → sender-side render → works-on-any-pane → verify-post-deploy → files touched → rebase risk → deploy note)
 - All 4 canonical section headings present: `Files touched` (1), `Verify post-deploy invariants` (1), `Rebase risk` (1), `Deploy note` (1)
-- Patch numbering LEFT AS `NNN.` placeholder — Ashley fills at pin time (currently expected patch #104, since #103 is the current top per `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3`)
+- Patch numbering LEFT AS `NNN.` placeholder — Ashley fills at pin time (currently expected patch #104, since #103 is the current top per `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`)
 - Deploy date LEFT AS `2026-MM-DD` placeholder — fill at pin time
 - References to load-bearing prior patches: #57 (2 mentions), #60 (8 mentions — the injected turn inherits patch #60's lifecycle key), #100 (2 mentions), #102 (2 mentions)
-- 12 grep-gate `docker exec termix grep -c ...` invariants for future rebase smoke checks
+- 12 grep-gate `docker exec skynet grep -c ...` invariants for future rebase smoke checks
 - Files-touched section itemizes all 10 files across the 8 Phase 5 commits, with per-file sub-bullets explaining what shipped and what stayed byte-identical
 
 ## Task Commits
@@ -134,13 +134,13 @@ Each task committed atomically:
 
 1. **Get explicit per-deploy green light from Ashley** before running any deploy steps (blanket pre-authorization from Plans 01-03 does NOT authorize the deploy per Ashley 2026-07-12).
 2. `git push` before build (Caddy's build script clones from GitHub — local-only commits cache-hit the frontend-builder layer per patches #43 + #69 trap).
-3. `sudo bash /opt/termix/termix-patches/build-termix.sh`.
-4. `sudo rm -f /tmp/termix-keep-patched` (clear stale sentinel from any prior deploy — DO NOT try to kill any prior deadman's sleep child during this window per 2026-07-18 catastrophe rule).
-5. Arm the new deadman: `nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/termix-keep-patched ] && bash /opt/termix/.tmp-revert.sh' > /tmp/termix-revert-bg.log 2>&1`.
-6. `cd /opt/termix && sudo docker compose up -d --force-recreate termix`.
+3. `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`.
+4. `sudo rm -f /tmp/skynet-keep-patched` (clear stale sentinel from any prior deploy — DO NOT try to kill any prior deadman's sleep child during this window per 2026-07-18 catastrophe rule).
+5. Arm the new deadman: `nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/skynet-keep-patched ] && bash /opt/skynet/.tmp-revert.sh' > /tmp/skynet-revert-bg.log 2>&1`.
+6. `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
 7. Tell Ashley: "Deployed. Please run `05-UAT-CHECKLIST.md`."
-8. On all-🚨-green: `sudo touch /tmp/termix-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'`. Then help pin per `05-PATCHES-MD-ENTRY.md`.
-9. On any 🚨 failure or non-response within 15 min: deadman fires OR run `sudo bash /opt/termix/.tmp-revert.sh` immediately.
+8. On all-🚨-green: `sudo touch /tmp/skynet-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'`. Then help pin per `05-PATCHES-MD-ENTRY.md`.
+9. On any 🚨 failure or non-response within 15 min: deadman fires OR run `sudo bash /opt/skynet/.tmp-revert.sh` immediately.
 
 The Task 4 checkpoint content in `05-04-PLAN.md` remains the authoritative script for tina's execution.
 
@@ -148,7 +148,7 @@ The Task 4 checkpoint content in `05-04-PLAN.md` remains the authoritative scrip
 
 See `key-decisions` in frontmatter. Highlights:
 
-- **Executor/orchestrator split for the deploy checkpoint.** Tasks 1-3 are pure artifact preparation and are safe for a sub-agent to execute in isolation (no source changes, no network side-effects, no container churn). Task 4 owns the deadman-armed deploy sequence which touches `/opt/termix/`, `/tmp/termix-*`, and the running container — these effects must stay under direct main-context supervision so the "explicit per-deploy green light" and "get Ashley's yes before starting" preferences are honored end-to-end.
+- **Executor/orchestrator split for the deploy checkpoint.** Tasks 1-3 are pure artifact preparation and are safe for a sub-agent to execute in isolation (no source changes, no network side-effects, no container churn). Task 4 owns the deadman-armed deploy sequence which touches `/opt/skynet/`, `/tmp/skynet-*`, and the running container — these effects must stay under direct main-context supervision so the "explicit per-deploy green light" and "get Ashley's yes before starting" preferences are honored end-to-end.
 
 - **Patch #57 grep-gate updated from function names to URL literal.** The plan's Task 1 acceptance criterion originally asked for `putComposeDraft|flushComposeDraftKeepalive` grep ≥ 1 in `dist/assets/*.js`. When Task 1 ran, that grep returned 0 — investigation showed the function names were mangled by Vite/Terser to short identifiers (`Dr`, etc.) because they're internal exports (only consumed within the bundle, not part of any HTML/entry-point surface). The correct post-tree-shake gate is the URL literal `/compose-drafts` (returns 1 hit in `Terminal-Cyyq-xMQ.js`, appearing in both the GET and PUT-via-fetch call sites). The 05-PATCHES-MD-ENTRY.md verify-post-deploy invariants block uses the URL-based gate.
 
@@ -186,7 +186,7 @@ None from this plan. **The next action lives with tina in the main context:** ge
 - All three artifacts required by the deploy flow are committed on `feat/tab-title-from-tmux`:
   - `05-04-BUILD-VERIFY-LOG.md` — proof that Plans 01-03 built clean and load-bearing prior-patch bytes are intact
   - `05-UAT-CHECKLIST.md` — the walk-through Ashley will run post-deploy
-  - `05-PATCHES-MD-ENTRY.md` — the entry to paste into `termix-patches.md` after all-🚨-green
+  - `05-PATCHES-MD-ENTRY.md` — the entry to paste into `skynet-patches.md` after all-🚨-green
 - `git push` is a Task 4 prerequisite (Caddy build script clones from GitHub) — currently 15 commits ahead of `origin/feat/tab-title-from-tmux` (the 12 pre-existing Phase 5 code + doc commits + the 3 new Task 1-3 commits). Task 4 handles the push before build.
 - Task 4's checkpoint content in `05-04-PLAN.md` remains the authoritative script.
 
@@ -217,7 +217,7 @@ None. This plan produces zero source diffs and zero new surface. All Phase 5 thr
 - UAT checklist covers all 14 UPLOAD-NN: each ≥ 1 (verified in Task 2 commit acceptance) ✓
 - UAT checklist has ≥ 8 blocking 🚨 markers: 32 present ✓
 - UAT checklist references patches #57/#60/#100/#102: all present ✓
-- UAT checklist has disarm command (`termix-keep-patched`): present ✓
+- UAT checklist has disarm command (`skynet-keep-patched`): present ✓
 - Patches-md entry has 4 canonical section headings (Files touched, Verify post-deploy invariants, Rebase risk, Deploy note): all present exactly once ✓
 - Patches-md entry references patches #57/#60/#100/#102: all present ✓
 - Patches-md entry mentions 3 WS case labels (upload_start/chunk/abort): all present ✓
@@ -229,7 +229,7 @@ None. This plan produces zero source diffs and zero new surface. All Phase 5 thr
 
 **Boundaries respected:**
 - STATE.md and ROADMAP.md NOT modified in Plan 04 commits (both have pre-existing uncommitted modifications from prior planning work — not touched, per orchestrator instructions)
-- No touches to `/opt/termix/`, no touches to `/tmp/termix-*`, no `docker compose` commands, no deadman armed — Task 4 deferred to tina in main context
+- No touches to `/opt/skynet/`, no touches to `/tmp/skynet-*`, no `docker compose` commands, no deadman armed — Task 4 deferred to tina in main context
 
 ---
 

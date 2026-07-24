@@ -129,14 +129,14 @@ This removal is **intentional**. The one-shot `scrollTop = newEl.offsetTop` writ
 | F — programmatic scroll gate | scroll listener attached with `{ passive: true }`; counter gates user-vs-programmatic |
 | G (x2) — scrollToBottomAndFollow | `isPinnedToBottom` flips to true; `scrollEl.scrollTop` set to `scrollHeight` |
 
-### Files Touched (for pin-time termix-patches.md #96 entry)
+### Files Touched (for pin-time skynet-patches.md #96 entry)
 
 - `src/ui/features/pretty-view/use-auto-scroll.ts` — full rewrite
 - `src/ui/features/pretty-view/use-auto-scroll.test.ts` — new file (12 tests)
 - `src/ui/features/pretty-view/PrettyView.tsx` — hook call-site update + anchor wiring + pill onClick + ComposeBox prop
 - `src/ui/features/pretty-view/ComposeBox.tsx` — onGoodToGo prop + ThumbsUp onClick
 
-**Pin-time reminder:** bump `termix-patches.md` header 95 → 96, add per-patch entry for the four files above, update the "Patch drift caveat" file list, and follow `~/.claude/identities/tina/deploy-runbook.md` (mandatory 15-min deadman) at deploy time — NOT now (Ashley handles deploy separately per fleet rule).
+**Pin-time reminder:** bump `skynet-patches.md` header 95 → 96, add per-patch entry for the four files above, update the "Patch drift caveat" file list, and follow `~/.claude/identities/tina/deploy-runbook.md` (mandatory 15-min deadman) at deploy time — NOT now (Ashley handles deploy separately per fleet rule).
 
 ## Commits
 
@@ -163,7 +163,7 @@ This removal is **intentional**. The one-shot `scrollTop = newEl.offsetTop` writ
 **2. [Rule 3 - Blocking] node_modules symlink for worktree vitest**
 - **Found during:** Task 2 test run
 - **Issue:** Worktree at `.claude/worktrees/agent-a1cd696b0dffb9304/` had no `node_modules`; running `npx vitest run` from the worktree directory failed with "No test files found"
-- **Fix:** Created `node_modules` → `/home/ubuntu/termix/node_modules` symlink in worktree root so vitest's include pattern `src/ui/**/*.test.{ts,tsx}` resolves relative to the worktree
+- **Fix:** Created `node_modules` → `/home/ubuntu/skynet/node_modules` symlink in worktree root so vitest's include pattern `src/ui/**/*.test.{ts,tsx}` resolves relative to the worktree
 
 ## Known Stubs
 

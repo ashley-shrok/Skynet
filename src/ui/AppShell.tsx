@@ -208,11 +208,11 @@ export function AppShell({
   const [tabsReady, setTabsReady] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [splitMode, setSplitMode] = useState<SplitMode>(
-    () => (localStorage.getItem("termix_splitMode") as SplitMode) ?? "none",
+    () => (localStorage.getItem("skynet_splitMode") as SplitMode) ?? "none",
   );
   const [paneTabIds, setPaneTabIds] = useState<(string | null)[]>(
     () =>
-      JSON.parse(localStorage.getItem("termix_paneTabIds") ?? "null") ??
+      JSON.parse(localStorage.getItem("skynet_paneTabIds") ?? "null") ??
       Array(6).fill(null),
   );
   const [focusedPaneIndex, setFocusedPaneIndex] = useState<number | null>(null);
@@ -229,22 +229,22 @@ export function AppShell({
   // is the only sidebar-panel content). profileDropdownOpen also retired —
   // it was an AppRail-only state per Plan 01 Section E item 2.
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem("termix_sidebarWidth");
+    const saved = localStorage.getItem("skynet_sidebarWidth");
     return saved ? parseInt(saved, 10) : 266;
   });
   const [sidebarDragging, setSidebarDragging] = useState(false);
   const [sidebarEditing, setSidebarEditing] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem("termix_sidebarWidth", String(sidebarWidth));
+    localStorage.setItem("skynet_sidebarWidth", String(sidebarWidth));
   }, [sidebarWidth]);
 
   useEffect(() => {
-    localStorage.setItem("termix_splitMode", splitMode);
+    localStorage.setItem("skynet_splitMode", splitMode);
   }, [splitMode]);
 
   useEffect(() => {
-    localStorage.setItem("termix_paneTabIds", JSON.stringify(paneTabIds));
+    localStorage.setItem("skynet_paneTabIds", JSON.stringify(paneTabIds));
   }, [paneTabIds]);
 
   const isMobile = useIsMobile();
@@ -346,8 +346,8 @@ export function AppShell({
 
   useEffect(() => {
     const handle = () => onLogout();
-    window.addEventListener("termix:logout", handle);
-    return () => window.removeEventListener("termix:logout", handle);
+    window.addEventListener("skynet:logout", handle);
+    return () => window.removeEventListener("skynet:logout", handle);
   }, [onLogout]);
 
   useEffect(() => {
@@ -435,7 +435,7 @@ export function AppShell({
   //
   // TG-17 hard shape lock: fleet fetch is EXACTLY ONCE per page-load. No
   // polling, no interval, no focus/visibility refetch, NOT wired to
-  // termix:hosts-changed. Cross-device staleness acceptable — Ashley
+  // skynet:hosts-changed. Cross-device staleness acceptable — Ashley
   // refreshes to update. The empty-dep-array useEffect enforces the lock.
   //
   // Silent try/catch on fetch failure — a network error just leaves
@@ -669,7 +669,7 @@ export function AppShell({
         if (prefs.theme) setTheme(prefs.theme as ThemeId);
         if (prefs.fontSize) applyFontSize(prefs.fontSize as FontSizeId);
         if (prefs.accentColor) {
-          localStorage.setItem("termix-accent", prefs.accentColor);
+          localStorage.setItem("skynet-accent", prefs.accentColor);
           applyAccentColor(prefs.accentColor);
         }
         if (prefs.language && prefs.language !== i18n.language) {
@@ -701,8 +701,8 @@ export function AppShell({
   }, [loadHosts]);
 
   useEffect(() => {
-    window.addEventListener("termix:hosts-changed", loadHosts);
-    return () => window.removeEventListener("termix:hosts-changed", loadHosts);
+    window.addEventListener("skynet:hosts-changed", loadHosts);
+    return () => window.removeEventListener("skynet:hosts-changed", loadHosts);
   }, [loadHosts]);
 
   // Sync tab host data when allHosts updates (e.g. after editing terminal theme in host settings)
@@ -717,7 +717,7 @@ export function AppShell({
     );
   }, [allHosts]);
 
-  // Custom event bridge: any surface can request a tab open via termix:open-tab
+  // Custom event bridge: any surface can request a tab open via skynet:open-tab
   useEffect(() => {
     const handle = (e: Event) => {
       const { hostId, type } = (
@@ -726,8 +726,8 @@ export function AppShell({
       const host = allHosts.find((h) => h.id === hostId);
       if (host) connectHost(host, type);
     };
-    window.addEventListener("termix:open-tab", handle);
-    return () => window.removeEventListener("termix:open-tab", handle);
+    window.addEventListener("skynet:open-tab", handle);
+    return () => window.removeEventListener("skynet:open-tab", handle);
   }, [allHosts]);
 
   const PERSISTENT_TAB_TYPES: TabType[] = [
@@ -1422,11 +1422,11 @@ export function AppShell({
             background + transparent border + border-radius 8px (rounded-lg)
             + `--color-pv-fg-muted` icon color + `rgba(220,225,245,0.06)`
             hover bg + `--color-pv-border-quiet` hover border +
-            `--color-pv-fg` hover text. Retires the Termix-theme filled-
+            `--color-pv-fg` hover text. Retires the Skynet-theme filled-
             glass pill (opaque rgba fill + backdrop-blur + white-alpha
-            border + drop shadow + Termix muted-foreground text) that
+            border + drop shadow + Skynet muted-foreground text) that
             Ashley called out as "the bar at the top that still looks
-            Termix." No shadow, no backdrop-blur — the mock's pencil is a
+            Skynet." No shadow, no backdrop-blur — the mock's pencil is a
             bare transparent button that lets the pretty-view surface
             beneath show through.
 
@@ -1491,7 +1491,7 @@ export function AppShell({
 
         {/* Phase 11 Plan 03 (PURGE-02): AppRail mount RETIRED here — the
             skinny icon rail was the primary UI entry point to every dead
-            Termix surface (host manager, snippets, admin, user profile,
+            Skynet surface (host manager, snippets, admin, user profile,
             etc.). With the rail gone, the pretty-conversations sidebar is
             the only visible sidebar chrome; touchscreens already had no
             rail per Plan 06-03. */}

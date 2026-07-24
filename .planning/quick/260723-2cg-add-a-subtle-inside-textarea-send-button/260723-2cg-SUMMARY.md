@@ -118,7 +118,7 @@ Stacks on top of #123-#128 (six commits since last push at `491d828`, now seven 
 
 Awaiting Ashley's morning UAT walkthrough of the batched #123-#128 stack; deploy sequence documented in `.planning/phases/10-pretty-conversations-visual-language-rework/10-UAT-CHECKLIST.md`. This patch (#129) will land in that same UAT + deploy stack — do NOT `docker build`, `docker compose up`, or `git push` without explicit Ashley greenlight per fork discipline.
 
-## Draft Patch #129 Entry for Tina's `termix-patches.md`
+## Draft Patch #129 Entry for Tina's `skynet-patches.md`
 
 *(Paste-ready in the established Tina multi-commit-under-one-pin format, single-commit variant:)*
 

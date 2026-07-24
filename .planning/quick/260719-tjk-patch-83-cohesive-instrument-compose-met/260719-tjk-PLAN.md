@@ -190,7 +190,7 @@ Do NOT touch: handleSend, handleQuickSend, handleTextChange, handleBlur, handleK
 Do NOT introduce any new imports beyond what's already at the top of the file. `useEffect`, `useRef`, `useState`, `useCallback` are already imported. `RotateCcw`, `Send`, `ThumbsUp` are already imported. `cn` is already imported. If you factor the segment mapper into an inline arrow function or helper, keep it inside ComposeBox — do not export it.
   </action>
   <verify>
-    <automated>cd /home/ubuntu/termix && npx tsc --noEmit 2>&1 | tail -30 && npx vite build 2>&1 | tail -20</automated>
+    <automated>cd /home/ubuntu/skynet && npx tsc --noEmit 2>&1 | tail -30 && npx vite build 2>&1 | tail -20</automated>
   </verify>
   <done>
 - Compose shelf outer padding is px-2 py-2 (was px-3 py-3).
@@ -218,7 +218,7 @@ Do NOT introduce any new imports beyond what's already at the top of the file. `
 Patch #83 restructures the ComposeBox compose row: the old thin colored strip meter and the separate RotateCcw icon-column button have been replaced by a single segmented-well "instrument" — a 12-segment vertical meter with an integrated reset cell at its bottom. Clicking reset triggers a top-to-bottom drain sweep (~600ms) with the reset cell pulsing lit-green at the drain peak.
   </what-built>
   <how-to-verify>
-1. `npm run dev` (or whatever the fork's dev command is) and open a Termix window with a pretty-view pane where `contextPct` is set (any pane with a Claude Code session running).
+1. `npm run dev` (or whatever the fork's dev command is) and open a Skynet window with a pretty-view pane where `contextPct` is set (any pane with a Claude Code session running).
 2. Confirm visual: meter and reset button read as ONE instrument (shared well, shared vocabulary) — not two separate widgets.
 3. Confirm segments: 12 stacked segments, position-colored (bottom green → middle amber → top red), lit up to the current contextPct level. Dim segments above the lit line show their position color at low alpha.
 4. Confirm reset cell rests as unlit-green; hover it — cell brightens to lit-green with outer glow. Move mouse away — cell settles back.

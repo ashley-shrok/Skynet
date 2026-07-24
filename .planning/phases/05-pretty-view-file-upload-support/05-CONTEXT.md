@@ -2,16 +2,16 @@
 
 **Gathered:** 2026-07-20
 **Status:** Ready for planning
-**Source:** Synthesized from shape file `.planning/shapes/shape-pretty-view-file-upload-support.md` — that file is authoritative and every philosophical question was locked during a long `/open` discussion with Ashley on 2026-07-20 (see the shape's session log for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete termix-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
+**Source:** Synthesized from shape file `.planning/shapes/shape-pretty-view-file-upload-support.md` — that file is authoritative and every philosophical question was locked during a long `/open` discussion with Ashley on 2026-07-20 (see the shape's session log for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
 
 <domain>
 ## Phase Boundary
 
-This phase adds a "cognitively-free" file-attachment affordance to pretty view without disturbing any other Termix surface. Scope:
+This phase adds a "cognitively-free" file-attachment affordance to pretty view without disturbing any other Skynet surface. Scope:
 
 1. **Frontend (pretty-view compose surface only).** Drop overlay, chip strip staging component, per-chip progress indicators, clipboard-paste handling, mobile-only paperclip button, sender-side chip rendering in the just-sent message bubble.
 2. **Backend upload path over the EXISTING per-pane SSH channel.** No new WebSocket, no new HTTP endpoint. Files travel down the same channel that already carries `TerminalHandle.sendInput()` from patch #40 / #60 / #100; the wire-protocol addition is a distinct message type for upload chunks + progress ACKs, layered onto the existing WS.
-3. **Receiving-side landing convention.** Backend service on Termix EC2 orchestrates writing bytes to `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>` on the receiving box via SSH (SFTP or `cat > file` — planner's call, see decisions below). The receiving user is whoever the SSH channel is authenticated as — no assumption about identity loading on the box.
+3. **Receiving-side landing convention.** Backend service on Skynet EC2 orchestrates writing bytes to `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>` on the receiving box via SSH (SFTP or `cat > file` — planner's call, see decisions below). The receiving user is whoever the SSH channel is authenticated as — no assumption about identity loading on the box.
 4. **Injected user turn.** Once all files land, an injected message (caption + per-file metadata block) is sent through the SAME split-send path patch #100 fixed — inheriting Enter-drop reliability for free.
 
 Phase 5 does NOT touch: terminal tab bar, RDP/VNC panes, message queue drawer chrome, session-file tail / WS bridge, identity registry, host records, Filestash, Caddy. If the planner surfaces tasks in those areas, that is a scope violation — file transfer rides existing infrastructure, does not build new.
@@ -152,7 +152,7 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 
 ### Backend send path (atomic delete-on-send + split-and-delay Enter)
 - `src/backend/ssh/terminal.ts` — the input handler patch #60 introduced `messageQueueItemId` and atomic delete-on-send in. Patch #100 added the split-and-delay Enter path here. The upload orchestration extends this handler; do NOT add a parallel one.
-- `~/.claude/identities/tina/termix-patches.md` — see patch #60 and patch #100 entries for full rationale and code shape. (Not in the fork's git — lives in tina's identity dir; read before touching terminal.ts.)
+- `~/.claude/identities/tina/skynet-patches.md` — see patch #60 and patch #100 entries for full rationale and code shape. (Not in the fork's git — lives in tina's identity dir; read before touching terminal.ts.)
 
 ### Touch device detection (mobile-only paperclip)
 - `src/ui/hooks/use-is-touch-device.ts` — patch #102. Returns `true` on touch devices (coarse pointer, no hover). Reuse as-is.
@@ -169,7 +169,7 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 
 ### Fork operational context
 - `~/.claude/identities/tina/deploy-runbook.md` — mandatory deadman + build + deploy + rollback flow. Ship path for Phase 5 patches. Standard fork build + force-recreate.
-- `~/.claude/identities/tina/termix-patches.md` — 103-patch catalog. Read #49, #60, #86, #100, #102 entries before planning; those are the load-bearing analogs.
+- `~/.claude/identities/tina/skynet-patches.md` — 103-patch catalog. Read #49, #60, #86, #100, #102 entries before planning; those are the load-bearing analogs.
 
 </canonical_refs>
 

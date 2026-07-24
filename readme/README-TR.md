@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="../public/icon.svg" width="120" height="120" alt="Termix Logo" />
+<img src="../public/icon.svg" width="120" height="120" alt="Skynet Logo" />
 
-<h1>Termix</h1>
+<h1>Skynet</h1>
 
 <p>Kendi sunucunuzda barindirilan SSH yonetimi ve uzak masaustu erisimi</p>
 
@@ -24,15 +24,15 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/github/stars/Termix-SSH/Termix?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/forks/Termix-SSH/Termix?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/v/release/Termix-SSH/Termix?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
+  <img src="https://img.shields.io/github/stars/Skynet-SSH/Skynet?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/forks/Skynet-SSH/Skynet?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/v/release/Skynet-SSH/Skynet?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
   <a href="https://discord.gg/jVQGdvHDrf"><img alt="Discord" src="https://img.shields.io/discord/1347374268253470720?color=F39044&labelColor=1a1a1a" /></a>
 </p>
 
 <br />
 
-<img src="../repo-images/Termix Header.png" alt="Termix Banner" width="900" />
+<img src="../repo-images/Skynet Header.png" alt="Skynet Banner" width="900" />
 
 <br />
 <br />
@@ -49,7 +49,7 @@
 
 ## Genel Bakis
 
-Termix, acik kaynakli, sonsuza kadar ucretsiz, kendi sunucunuzda barindirabileceginez hepsi bir arada sunucu yonetim platformudur. Sunucularinizi ve altyapinizi tek bir sezgisel arayuz uzerinden yonetmek icin cok platformlu bir cozum sunar. Termix, SSH terminal erisimi, uzak masaustu kontrolu (RDP, VNC, Telnet), SSH tunelleme yetenekleri, uzak SSH dosya yonetimi ve daha bircok arac saglar. Termix, tum platformlarda kullanilabilen Termius'un mukemmel ucretsiz ve kendi barindirmali alternatifidir.
+Skynet, acik kaynakli, sonsuza kadar ucretsiz, kendi sunucunuzda barindirabileceginez hepsi bir arada sunucu yonetim platformudur. Sunucularinizi ve altyapinizi tek bir sezgisel arayuz uzerinden yonetmek icin cok platformlu bir cozum sunar. Skynet, SSH terminal erisimi, uzak masaustu kontrolu (RDP, VNC, Telnet), SSH tunelleme yetenekleri, uzak SSH dosya yonetimi ve daha bircok arac saglar. Skynet, tum platformlarda kullanilabilen Termius'un mukemmel ucretsiz ve kendi barindirmali alternatifidir.
 
 <br />
 
@@ -122,7 +122,7 @@ Roller olusturun ve ana bilgisayarlari kullanicilar/roller arasinda paylasin.
 <td width="50%" valign="top">
 
 **Veritabani Sifreleme:**
-Arka uc, sifrelenmis SQLite veritabani dosyalari olarak depolanir. Daha fazla bilgi icin [belgelere](https://docs.termix.site/security) bakin.
+Arka uc, sifrelenmis SQLite veritabani dosyalari olarak depolanir. Daha fazla bilgi icin [belgelere](https://docs.skynet.site/security) bakin.
 
 </td>
 </tr>
@@ -150,7 +150,7 @@ Kullanici profilinde etkinlestirilmisse SSH oturumlari ve sekmeler cihazlar/yeni
 <td width="50%" valign="top">
 
 **Diller:**
-Yaklasik 30 dil icin yerlesik destek ([Crowdin](https://docs.termix.site/translations) tarafindan yonetilir).
+Yaklasik 30 dil icin yerlesik destek ([Crowdin](https://docs.skynet.site/translations) tarafindan yonetilir).
 
 </td>
 </tr>
@@ -213,24 +213,24 @@ Yaklasik 30 dil icin yerlesik destek ([Crowdin](https://docs.termix.site/transla
 
 ## Kurulum
 
-Termix'i tum platformlara nasil kuracaginiz hakkinda daha fazla bilgi icin Termix [Belgelerine](https://docs.termix.site/install) bakin. Ornek bir Docker Compose dosyasini asagida inceleyebilirsiniz (uzak masaustu ozelliklerini kullanmayi planlamiyorsaniz guacd'yi ve agi cikarabilirsiniz):
+Skynet'i tum platformlara nasil kuracaginiz hakkinda daha fazla bilgi icin Skynet [Belgelerine](https://docs.skynet.site/install) bakin. Ornek bir Docker Compose dosyasini asagida inceleyebilirsiniz (uzak masaustu ozelliklerini kullanmayi planlamiyorsaniz guacd'yi ve agi cikarabilirsiniz):
 
 ```yaml
 services:
-  termix:
-    image: ghcr.io/lukegus/termix:latest
-    container_name: termix
+  skynet:
+    image: ghcr.io/lukegus/skynet:latest
+    container_name: skynet
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - termix-data:/app/data
+      - skynet-data:/app/data
     environment:
       PORT: "8080"
     depends_on:
       - guacd
     networks:
-      - termix-net
+      - skynet-net
 
   guacd:
     image: guacamole/guacd:1.6.0
@@ -239,14 +239,14 @@ services:
     ports:
       - "4822:4822"
     networks:
-      - termix-net
+      - skynet-net
 
 volumes:
-  termix-data:
+  skynet-data:
     driver: local
 
 networks:
-  termix-net:
+  skynet-net:
     driver: bridge
 ```
 
@@ -258,7 +258,7 @@ networks:
 
 <br />
 
-[![YouTube](../repo-images/YouTube.png)](https://www.youtube.com/@TermixSSH/videos)
+[![YouTube](../repo-images/YouTube.png)](https://www.youtube.com/@SkynetSSH/videos)
 
 <sub>YouTube'da guncelleme ozetlerini izleyin</sub>
 
@@ -267,32 +267,32 @@ networks:
 
 <table>
 <tr>
-<td><img src="../repo-images/Image 1.png" alt="Termix Screenshot 1" width="400" /></td>
-<td><img src="../repo-images/Image 2.png" alt="Termix Screenshot 2" width="400" /></td>
+<td><img src="../repo-images/Image 1.png" alt="Skynet Screenshot 1" width="400" /></td>
+<td><img src="../repo-images/Image 2.png" alt="Skynet Screenshot 2" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 3.png" alt="Termix Screenshot 3" width="400" /></td>
-<td><img src="../repo-images/Image 4.png" alt="Termix Screenshot 4" width="400" /></td>
+<td><img src="../repo-images/Image 3.png" alt="Skynet Screenshot 3" width="400" /></td>
+<td><img src="../repo-images/Image 4.png" alt="Skynet Screenshot 4" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 5.png" alt="Termix Screenshot 5" width="400" /></td>
-<td><img src="../repo-images/Image 6.png" alt="Termix Screenshot 6" width="400" /></td>
+<td><img src="../repo-images/Image 5.png" alt="Skynet Screenshot 5" width="400" /></td>
+<td><img src="../repo-images/Image 6.png" alt="Skynet Screenshot 6" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 7.png" alt="Termix Screenshot 7" width="400" /></td>
-<td><img src="../repo-images/Image 8.png" alt="Termix Screenshot 8" width="400" /></td>
+<td><img src="../repo-images/Image 7.png" alt="Skynet Screenshot 7" width="400" /></td>
+<td><img src="../repo-images/Image 8.png" alt="Skynet Screenshot 8" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 9.png" alt="Termix Screenshot 9" width="400" /></td>
-<td><img src="../repo-images/Image 10.png" alt="Termix Screenshot 10" width="400" /></td>
+<td><img src="../repo-images/Image 9.png" alt="Skynet Screenshot 9" width="400" /></td>
+<td><img src="../repo-images/Image 10.png" alt="Skynet Screenshot 10" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 11.png" alt="Termix Screenshot 11" width="400" /></td>
-<td><img src="../repo-images/Image 12.png" alt="Termix Screenshot 12" width="400" /></td>
+<td><img src="../repo-images/Image 11.png" alt="Skynet Screenshot 11" width="400" /></td>
+<td><img src="../repo-images/Image 12.png" alt="Skynet Screenshot 12" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 13.png" alt="Termix Screenshot 13" width="400" /></td>
-<td><img src="../repo-images/Image 14.png" alt="Termix Screenshot 14" width="400" /></td>
+<td><img src="../repo-images/Image 13.png" alt="Skynet Screenshot 13" width="400" /></td>
+<td><img src="../repo-images/Image 14.png" alt="Skynet Screenshot 14" width="400" /></td>
 </tr>
 </table>
 
@@ -304,7 +304,7 @@ networks:
 
 ## Planlanan Ozellikler
 
-Tum planlanan ozellikler icin [Projeler](https://github.com/orgs/Termix-SSH/projects/2) sayfasina bakin. Katkida bulunmak istiyorsaniz, [Katkida Bulunma](https://github.com/Termix-SSH/Termix/blob/main/CONTRIBUTING.md) sayfasina bakin.
+Tum planlanan ozellikler icin [Projeler](https://github.com/orgs/Skynet-SSH/projects/2) sayfasina bakin. Katkida bulunmak istiyorsaniz, [Katkida Bulunma](https://github.com/Skynet-SSH/Skynet/blob/main/CONTRIBUTING.md) sayfasina bakin.
 
 <br />
 
@@ -348,7 +348,7 @@ Tum planlanan ozellikler icin [Projeler](https://github.com/orgs/Termix-SSH/proj
 
 ## Destek
 
-Termix ile ilgili yardima ihtiyaciniz varsa veya bir ozellik talep etmek istiyorsaniz, [Sorunlar](https://github.com/Termix-SSH/Support/issues) sayfasini ziyaret edin, giris yapin ve `New Issue` butonuna basin. Lutfen sorununuzu mumkun oldugunca ayrintili yazin, tercihen Ingilizce olarak. Ayrica [Discord](https://discord.gg/jVQGdvHDrf) sunucusuna katilabilir ve destek kanalini ziyaret edebilirsiniz, ancak yanit sureleri daha uzun olabilir.
+Skynet ile ilgili yardima ihtiyaciniz varsa veya bir ozellik talep etmek istiyorsaniz, [Sorunlar](https://github.com/Skynet-SSH/Support/issues) sayfasini ziyaret edin, giris yapin ve `New Issue` butonuna basin. Lutfen sorununuzu mumkun oldugunca ayrintili yazin, tercihen Ingilizce olarak. Ayrica [Discord](https://discord.gg/jVQGdvHDrf) sunucusuna katilabilir ve destek kanalini ziyaret edebilirsiniz, ancak yanit sureleri daha uzun olabilir.
 
 <br />
 

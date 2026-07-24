@@ -2,7 +2,7 @@
 
 **Insertion point in AGENTS.md**: After patch #68 (the current-highest as of 2026-07-18). Follow the same indentation and formatting as the surrounding entries — 3-space indent for the `NN.` header, 7-space indent for continuation body lines.
 
-**Deploy-batch scenario**: **Scenario B (standalone deploy)** — Phase 3 patches (#61/#62/#63) have already been deployed (bounty dir `/home/ubuntu/.claude/identities/tina/bounties/pending-patch-batch-post-60/` does not exist as of pre-pin check 2026-07-18). Phase 4 ships as its own deploy behind the mandatory 15-min deadman + `docker compose up -d --force-recreate termix` cycle.
+**Deploy-batch scenario**: **Scenario B (standalone deploy)** — Phase 3 patches (#61/#62/#63) have already been deployed (bounty dir `/home/ubuntu/.claude/identities/tina/bounties/pending-patch-batch-post-60/` does not exist as of pre-pin check 2026-07-18). Phase 4 ships as its own deploy behind the mandatory 15-min deadman + `docker compose up -d --force-recreate skynet` cycle.
 
 **Adjust at PIN time**: replace `NN` → actual next patch number if #68 has been incremented since draft (should still be #69), replace `YYYY-MM-DD` with actual deploy date.
 
@@ -25,7 +25,7 @@
        Terminal / RDP / VNC / file manager / dashboard / sidebar / tab
        bar / AppRail chrome **COMPLETELY unchanged**.
        * **Aesthetic goal**: pretty view was flat-brutalist to match
-         the rest of Termix; Ashley wanted a distinct visual identity
+         the rest of Skynet; Ashley wanted a distinct visual identity
          — a **"warm dark Glass depth aesthetic with real physical
          dimensionality"** — that reads as a themed island for the
          surface where she coordinates parallel Claude Code sessions.
@@ -72,7 +72,7 @@
          theme-independent (hardcoded from the mock, not `oklch()`
          derivations from theme vars) — pretty view is a themed
          island (VISUAL-10) that keeps its Glass aesthetic
-         regardless of which Termix theme is active.
+         regardless of which Skynet theme is active.
        * **Identity-hue plumbing**: PrettyView reads the pane's
          identity via the existing `useSessionIdentity` hook
          (patch #30 lifted from Terminal.tsx), gets `identityHue`
@@ -201,12 +201,12 @@
          reading is a friction cost.
        * **Verify post-deploy invariants** (for future rebase smoke
          checks):
-         - `sudo docker exec termix grep -l '\-\-pv-id-hue' /app/dist/assets/*.css /app/dist/assets/*.js`
+         - `sudo docker exec skynet grep -l '\-\-pv-id-hue' /app/dist/assets/*.css /app/dist/assets/*.js`
            should return `≥1` file (Vite + Tailwind v4 tree-shake
            did not drop the identity hue custom property).
-         - `sudo docker exec termix grep -l '\-\-color-pv-base' /app/dist/assets/*.css`
+         - `sudo docker exec skynet grep -l '\-\-color-pv-base' /app/dist/assets/*.css`
            should return `≥1` file.
-         - `sudo docker exec termix grep -l 'pv-identity-breathe' /app/dist/assets/*.css`
+         - `sudo docker exec skynet grep -l 'pv-identity-breathe' /app/dist/assets/*.css`
            should return `≥1` file (the breathing keyframes made it
            through).
          - Live smoke: flip to pretty view on any identity-matched
@@ -224,7 +224,7 @@
            does NOT drop.
        * **Deploy note**: shipped standalone via mandatory 15-min
          deadman + `sudo docker compose up -d --force-recreate
-         termix`, pinned after Ashley's UAT green-light on
+         skynet`, pinned after Ashley's UAT green-light on
          `.planning/phases/04-pretty-view-visual-reskin-glass-depth-aesthetic/04-UAT-CHECKLIST.md`,
          YYYY-MM-DD. Phase 3 patches (#61-#68) had already deployed
          before Phase 4 landed, so this was not a batch deploy.

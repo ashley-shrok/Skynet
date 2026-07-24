@@ -1,11 +1,11 @@
 # Patch #139 — Skynet transformation: purge dead frontend surfaces (second slice) — Phase 12
 
-**Paste target:** `~/.claude/identities/tina/termix-patches.md`
+**Paste target:** `~/.claude/identities/tina/skynet-patches.md`
 **Paste timing:** Only after Ashley greenlights the batched Phase 11 + Phase 12 purge cluster deploy AND UAT passes on the 23 non-negotiable items in `12-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
-**Batch context:** Patch #139 is the SECOND Phase-12-cluster patch (patch #138 = Phase 11 first slice; #139 = this Phase 12 second slice). Per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23), it does NOT ship standalone. Batches with patch #138 (Phase 11) and any subsequent Phase 13+ backend-route purge patches into a single grouped-semantic-unit deploy ("the Termix-client-surface purge cluster") unless Ashley explicitly greenlights an earlier standalone Phase 12 deploy.
+**Batch context:** Patch #139 is the SECOND Phase-12-cluster patch (patch #138 = Phase 11 first slice; #139 = this Phase 12 second slice). Per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23), it does NOT ship standalone. Batches with patch #138 (Phase 11) and any subsequent Phase 13+ backend-route purge patches into a single grouped-semantic-unit deploy ("the Skynet-client-surface purge cluster") unless Ashley explicitly greenlights an earlier standalone Phase 12 deploy.
 
 Explicit contract line for the fork-catalog integrity gate: **patch #139 batches with subsequent Phase 13+ backend-route purge patches.** No Co-Authored-By trailer per fork convention (also called out at the top of this file).
-**Ordinal position on paste:** Update the count line near the top of `termix-patches.md` from "ONE HUNDRED THIRTY-SEVEN numbered patches" (pre-Phase-11 baseline) to "ONE HUNDRED THIRTY-NINE" — pin both patch #138 (Phase 11) and patch #139 (Phase 12) together at the batch-deploy moment. If patch #138 was already pinned earlier as a solo bump, bump from "ONE HUNDRED THIRTY-EIGHT" to "ONE HUNDRED THIRTY-NINE" here.
+**Ordinal position on paste:** Update the count line near the top of `skynet-patches.md` from "ONE HUNDRED THIRTY-SEVEN numbered patches" (pre-Phase-11 baseline) to "ONE HUNDRED THIRTY-NINE" — pin both patch #138 (Phase 11) and patch #139 (Phase 12) together at the batch-deploy moment. If patch #138 was already pinned earlier as a solo bump, bump from "ONE HUNDRED THIRTY-EIGHT" to "ONE HUNDRED THIRTY-NINE" here.
 **No Co-Authored-By trailer** — fork convention (per 260723-bbt quick task pattern and Phase 10 + Phase 11 patches-md-entry precedents).
 
 ---
@@ -25,7 +25,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
 
         * **Motivating gap** (Ashley's direct call-out, Phase 10 UAT 2026-07-23,
           same quote that motivated Phase 11 patch #138):
-          "I really feel like we need to get away from this termix front end
+          "I really feel like we need to get away from this skynet front end
           stuff before any of this is worth quibbling over." Phase 11 (patch
           #138) delivered the FIRST slice — landing swap + AppRail retirement
           + SettingsRow retirement + rail-view state-machine strip — stripping
@@ -105,7 +105,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
             `<NetworkGraphCard/>` to `<PrettyLandingCard/>`, mirroring Phase
             11's `case "dashboard"` swap onto the second still-dead TabType).
 
-        * **Fix summary — Termix tab bar chrome deletion** (PURGE-08). Deleted
+        * **Fix summary — Skynet tab bar chrome deletion** (PURGE-08). Deleted
           `src/ui/shell/Tab.tsx` (`5357279`), 442 lines. This was the top-of-
           window horizontal tab-strip visible UI showing per-tab-type icons
           (SSH/RDP/VNC/etc.), click-to-focus routing, X-close button, split
@@ -203,7 +203,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
           routes for SSH terminal, RDP/guac, pretty-view session-file tail)
           UNCHANGED — zero `src/backend/**` files touched in the whole phase
           (verified `git log --name-only cbff367..HEAD | grep "^src/backend/" |
-          wc -l` = 0, build-verify G70). The encrypted-SQLite `termix-data`
+          wc -l` = 0, build-verify G70). The encrypted-SQLite `skynet-data`
           volume untouched. RDP/VNC/Guacamole render paths preserved verbatim
           — `case "rdp"` in tabUtils.tsx count = 2 (baseline unchanged from
           Phase 11, build-verify G66); repo-wide `case "rdp"` = 6 (unchanged,
@@ -254,11 +254,11 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
           **Cumulative Phase 11 + Phase 12 delta vs Phase 10 tip**:
           - AppShell chunk: 448.82 kB → 74.24 kB = **−374.58 kB / −83.4%**
           - AppShell gzip: 87.63 kB → 20.21 kB = **−67.42 kB / −76.9%**
-          Ashley's Termix client now downloads ~125 kB less across first-load
+          Ashley's Skynet client now downloads ~125 kB less across first-load
           + code-split idle chunks compared to Phase 11 tip, on top of the
           Phase 11 −373 kB AppShell reduction. Ship-of-Theseus purge landed
           in two waves — patches #138 + #139 together tell the full "we
-          deleted the Termix client surfaces" story.
+          deleted the Skynet client surfaces" story.
 
         * **Scope fence held.** Zero touches to `src/backend/**`, docker/
           caddy/nginx config, the encrypted-SQLite schema, guacd/RDP/VNC
@@ -440,7 +440,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
             `claude-md-15min-deadman-stale` bounty tracks the update).
 
         * **Rebase risk**: HIGH — accept the divergence per CONTEXT.md
-          § scope-fence discipline. Upstream Termix keeps evolving the
+          § scope-fence discipline. Upstream Skynet keeps evolving the
           panel files this patch deletes; our fork just doesn't have them
           anymore. When we next rebase against upstream `main`, deleted-file
           conflicts resolve to "stays deleted" — this is intentional. The
@@ -468,7 +468,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
               (942-line 12-01-STRIP-LIST.md + 12-01-SUMMARY.md)
           - **Plan 05 (Wave 1 — shell/Tab.tsx delete)**: 2 commits
             - `5357279` `chore(shell): delete retired Tab.tsx (Phase 12
-              PURGE-08 — Termix tab bar chrome retired implicitly by Phase
+              PURGE-08 — Skynet tab bar chrome retired implicitly by Phase
               11 landing swap)`
             - `e44272c` `docs(12-05): summary`
           - **Plan 02 (Wave 2 — pre-flight refactors)**: 4 commits
@@ -555,7 +555,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
 
 ## Fill-in placeholders (before pasting)
 
-Before pasting into termix-patches.md, replace the following (obtain from
+Before pasting into skynet-patches.md, replace the following (obtain from
 `git rev-parse --short HEAD` immediately after the Plan 07 docs commits):
 
 - `[Plan-07 build-verify SHA — fill in after commit]` — from
@@ -577,7 +577,7 @@ from `12-BUILD-VERIFY-LOG.md` and do not need further substitution.
 
 ## Post-paste bookkeeping
 
-After pasting into termix-patches.md:
+After pasting into skynet-patches.md:
 
 1. **Update the count line** near the top of the file. Current state depends
    on whether patch #138 was pinned before or alongside patch #139:
@@ -588,7 +588,7 @@ After pasting into termix-patches.md:
      count line is "ONE HUNDRED THIRTY-SEVEN"; bump to "ONE HUNDRED
      THIRTY-NINE".
    - Verify current count first with `grep "numbered patches"
-     ~/.claude/identities/tina/termix-patches.md | head -3`; if an
+     ~/.claude/identities/tina/skynet-patches.md | head -3`; if an
      interstitial patch pinned first, adjust accordingly.
 2. **Commit the pin.** Two possible flows:
    - Solo pin: `docs(patches): pin patch #139 — Skynet transformation
@@ -615,7 +615,7 @@ After pasting into termix-patches.md:
    warranted. Phase 12 is presentation-only + the AppShell orphan surface
    cleanup, so likely no tina.md update needed for the second slice. If
    Phase 13 lands the backend-route deletion + nginx.conf shrinkage, then
-   tina.md's box-map may need a Termix operational-context adjustment
+   tina.md's box-map may need a Skynet operational-context adjustment
    (fewer routes served → smaller nginx.conf → note the reduction in the
    "Nginx caveat" line + potentially update the `~/.claude/identities/tina/box-map.md`
-   Termix section to reflect the smaller API surface).
+   Skynet section to reflect the smaller API surface).

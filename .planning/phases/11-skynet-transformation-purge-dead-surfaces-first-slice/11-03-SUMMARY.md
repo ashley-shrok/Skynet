@@ -1,5 +1,5 @@
 ---
-phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice
+phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice
 plan: 03
 subsystem: ui/app-shell
 tags: [ui, app-shell, sidebar, deletion, cleanup, skynet-purge, apprail-retirement, settings-retirement]
@@ -32,7 +32,7 @@ tech-stack:
 
 key-files:
   created:
-    - .planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-03-SUMMARY.md
+    - .planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-03-SUMMARY.md
   modified:
     - src/ui/AppShell.tsx
     - src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx
@@ -66,7 +66,7 @@ commits_landed: 5
 
 # Phase 11 Plan 03: AppRail + SettingsRow retirement + rail-view state-machine strip Summary
 
-**Deleted 481 lines across two component files (AppRail.tsx, SettingsRow.tsx) and stripped 340 net lines from AppShell.tsx — every visible UI path from the pretty-conversations sidebar to a Termix dashboard, host manager, snippets, admin console, or settings surface is now gone; the sidebar's only content is the pretty-conversations panel with its RDP-sentinel rows still opening Guacamole panes unchanged.**
+**Deleted 481 lines across two component files (AppRail.tsx, SettingsRow.tsx) and stripped 340 net lines from AppShell.tsx — every visible UI path from the pretty-conversations sidebar to a Skynet dashboard, host manager, snippets, admin console, or settings surface is now gone; the sidebar's only content is the pretty-conversations panel with its RDP-sentinel rows still opening Guacamole panes unchanged.**
 
 ## Performance
 
@@ -127,7 +127,7 @@ Five atomic commits — tsc-clean and vitest-green at every commit boundary per 
 - `src/ui/sidebar/SettingsRow.tsx` — 198 lines. Ashley's "no settings" lock delivered.
 
 **Created:**
-- `.planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-03-SUMMARY.md` (this file)
+- `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-03-SUMMARY.md` (this file)
 
 ## Decisions Made
 
@@ -211,7 +211,7 @@ See frontmatter `key-decisions`. Highlights:
 - ✓ The SettingsRow component file `src/ui/sidebar/SettingsRow.tsx` no longer exists on disk (Ashley's "no settings" lock)
 - ✓ Zero imports of `@/sidebar/AppRail` or `@/sidebar/SettingsRow` remain anywhere under `src/` (PURGE-02)
 - ✓ The rail-view state machine in `AppShell.tsx` (railView, handleRailClick, sidebarTitle Record, RailView type, profileDropdownOpen, editHostInManager) is fully removed (PURGE-03)
-- ✓ No visible UI navigation path exists from the pretty-conversations sidebar to the Termix dashboard, host manager, snippets manager, admin console, or any settings surface (PURGE-03)
+- ✓ No visible UI navigation path exists from the pretty-conversations sidebar to the Skynet dashboard, host manager, snippets manager, admin console, or any settings surface (PURGE-03)
 - ✓ Backend routes `/host/db/*` and `/identities/*` are unchanged — this plan touched zero backend files (PURGE-04)
 - ✓ Phase 7's RDP-host-sentinel row in the pretty-conversations panel continues to open Guacamole panes via the onRdpRowClick handler (PURGE-05) — handler body preserved verbatim
 - ✓ TypeScript compiles clean at EVERY commit boundary (5 commits, 5 tsc-clean verifications)
@@ -229,7 +229,7 @@ None — this is a UI-only deletion with no infrastructure changes, no new depen
 
 ## Known Stubs
 
-None. Every deletion in this plan removes UI paths that were reaching Termix dashboard / host manager / admin panels — those surfaces are stubs no more only because they're now unreachable, not because they had stub data. The invisible-shell backend routes stay operational per PURGE-04, so the surfaces themselves still respond; they're just no longer visible from the UI.
+None. Every deletion in this plan removes UI paths that were reaching Skynet dashboard / host manager / admin panels — those surfaces are stubs no more only because they're now unreachable, not because they had stub data. The invisible-shell backend routes stay operational per PURGE-04, so the surfaces themselves still respond; they're just no longer visible from the UI.
 
 ## Threat Flags
 
@@ -251,7 +251,7 @@ Threat-model dispositions from PLAN.md `<threat_model>` all held:
 ## Next Plan Readiness
 
 **Plan 04 (phase-boundary gate) ready to execute.** This plan's outputs:
-- Every visible UI path to a Termix dead surface is gone (PURGE-03 delivered).
+- Every visible UI path to a Skynet dead surface is gone (PURGE-03 delivered).
 - AppRail + SettingsRow files deleted from disk (PURGE-02 delivered).
 - Backend untouched (PURGE-04 preserved).
 - RDP/VNC/Guacamole render paths untouched (PURGE-05 preserved).
@@ -287,5 +287,5 @@ Follow-up phase (Phase 12+) targets:
 ## Self-Check: PASSED
 
 ---
-*Phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice*
+*Phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice*
 *Completed: 2026-07-23*

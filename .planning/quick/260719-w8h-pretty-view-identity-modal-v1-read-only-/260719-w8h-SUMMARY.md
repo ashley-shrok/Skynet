@@ -31,7 +31,7 @@ commits:
 
 ## New WS Wire-Protocol Frames (patch #87)
 
-For termix-patches.md write-up at eventual pin (NOT now — code-only commit):
+For skynet-patches.md write-up at eventual pin (NOT now — code-only commit):
 
 ```
 client -> server:
@@ -112,8 +112,8 @@ None — plan executed exactly as written. All D-01..D-15 honored without deviat
 1. **Stack position:** This is patch #87, stacking on top of patches #82-#86 (all unbuilt).
    The whole stack (#82-#87) deploys together in the next batch deploy.
 
-2. **termix-patches.md entry:** Per Ashley 2026-07-17 rule — add the patch #87 entry to
-   termix-patches.md at PIN TIME (after deploy green-light), NOT now. This commit is code-only.
+2. **skynet-patches.md entry:** Per Ashley 2026-07-17 rule — add the patch #87 entry to
+   skynet-patches.md at PIN TIME (after deploy green-light), NOT now. This commit is code-only.
 
 3. **Manual spot-check at deploy time:**
    - Click the lg badge in pretty-view → modal opens with backdrop blur (glass tokens match badge)

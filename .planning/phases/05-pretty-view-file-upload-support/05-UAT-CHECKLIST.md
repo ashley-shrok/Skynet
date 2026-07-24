@@ -12,11 +12,11 @@ Post-deploy walk-through for Ashley. Every UPLOAD-NN requirement gets an observa
 
 - [ ] All 🚨 items pass → **disarm deadman:**
       ```
-      sudo touch /tmp/termix-keep-patched
-      sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'
+      sudo touch /tmp/skynet-keep-patched
+      sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'
       ```
-      Then help me pin the patch: paste `.planning/phases/05-pretty-view-file-upload-support/05-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` as patch #104 (or next available), bump the "ONE HUNDRED THREE numbered patches" count near the top of that file, and commit the pin.
-- [ ] Any 🚨 item fails → **let the deadman fire** (15-min timer will auto-revert) OR run `sudo bash /opt/termix/.tmp-revert.sh` immediately for instant rollback.
+      Then help me pin the patch: paste `.planning/phases/05-pretty-view-file-upload-support/05-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` as patch #104 (or next available), bump the "ONE HUNDRED THREE numbered patches" count near the top of that file, and commit the pin.
+- [ ] Any 🚨 item fails → **let the deadman fire** (15-min timer will auto-revert) OR run `sudo bash /opt/skynet/.tmp-revert.sh` immediately for instant rollback.
 
 ## Setup — one time
 
@@ -94,7 +94,7 @@ Post-deploy walk-through for Ashley. Every UPLOAD-NN requirement gets an observa
 - [ ] **UPLOAD-06 chip-red on failure** Stage `test.txt`. Open DevTools Network tab. Set throttling to Offline. Click Send. Verify the chip transitions to an error state (red border, AlertCircle icon, error message text like `network_error` or similar). Verify no message appears in the pretty-view stream (atomicity per UPLOAD-06).
 - [ ] **UPLOAD-06 message stays in staging** After the error surfaces, the chip is STILL in the strip (not cleared). The caption text is STILL in the textarea (not cleared).
 - [ ] **UPLOAD-07 retry without re-attaching** Set DevTools throttling back to Online. Click the **Retry** button that appears above the chip strip (small variant=outline size=xs, only visible when at least one chip has status=error). Verify the batch re-uploads and completes successfully. You did NOT need to re-drag `test.txt`.
-- [ ] **UPLOAD-07 queue-on-disconnect** Optional/harder to reproduce: with a staged batch, close the SSH pane's underlying WS (kill the terminal via `.docker kill termix` — DON'T actually do this during a deploy window; use only if you're deliberately regression-testing this later). The staged batch parks in `pendingSendWaitingForWs=true`. When the WS reconnects, the batch fires. If this is hard to reproduce in production, it's fine to mark N/A — Test 10 in `use-pretty-view-uploads.test.ts` covers this in the unit suite.
+- [ ] **UPLOAD-07 queue-on-disconnect** Optional/harder to reproduce: with a staged batch, close the SSH pane's underlying WS (kill the terminal via `.docker kill skynet` — DON'T actually do this during a deploy window; use only if you're deliberately regression-testing this later). The staged batch parks in `pendingSendWaitingForWs=true`. When the WS reconnects, the batch fires. If this is hard to reproduce in production, it's fine to mark N/A — Test 10 in `use-pretty-view-uploads.test.ts` covers this in the unit suite.
 
 ---
 
@@ -163,7 +163,7 @@ Post-deploy walk-through for Ashley. Every UPLOAD-NN requirement gets an observa
 
 Once all 🚨 items pass and you've disarmed the deadman:
 
-1. **Pin the patch.** Paste the content of `05-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` at the appropriate ordinal position (currently patch #104 — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3`).
-2. **Bump the count.** Update the "ONE HUNDRED THREE numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED FOUR" (or the actual new count).
+1. **Pin the patch.** Paste the content of `05-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` at the appropriate ordinal position (currently patch #104 — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`).
+2. **Bump the count.** Update the "ONE HUNDRED THREE numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED FOUR" (or the actual new count).
 3. **Commit the pin.** Standard conventional-commit style.
 4. **Close the bounty.** `~/.claude/identities/tina/bounties/pretty-view-file-upload-support/` via `/close pretty-view-file-upload-support`.

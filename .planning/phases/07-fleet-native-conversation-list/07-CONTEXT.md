@@ -2,12 +2,12 @@
 
 **Gathered:** 2026-07-21
 **Status:** Ready for planning
-**Source:** Synthesized from shape file `.planning/shapes/shape-fleet-native-conversation-list.md` — that file is authoritative and every philosophical / scope-edge question was locked during a `/open` discussion with Ashley on 2026-07-21 (see the shape's "What would make it wrong" and "Scope edges" sections for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete Termix-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
+**Source:** Synthesized from shape file `.planning/shapes/shape-fleet-native-conversation-list.md` — that file is authoritative and every philosophical / scope-edge question was locked during a `/open` discussion with Ashley on 2026-07-21 (see the shape's "What would make it wrong" and "Scope edges" sections for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete Skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
 
 <domain>
 ## Phase Boundary
 
-Phase 7 is a follow-up to Phase 6 addressing the two UAT gaps Ashley surfaced on 2026-07-21 after patch #105 shipped: (a) a small chrome bug where the mobile settings surface renders in duplicate (header gear AND bottom settings row both visible on mobile, both routing to the same menu), and (b) the load-bearing shape gap where the conversation list's data source mirrored only the browser-tab's currently-open Termix tabs, causing a fresh mobile page-load to show "no active conversations" even when Ashley had running sessions across her fleet.
+Phase 7 is a follow-up to Phase 6 addressing the two UAT gaps Ashley surfaced on 2026-07-21 after patch #105 shipped: (a) a small chrome bug where the mobile settings surface renders in duplicate (header gear AND bottom settings row both visible on mobile, both routing to the same menu), and (b) the load-bearing shape gap where the conversation list's data source mirrored only the browser-tab's currently-open Skynet tabs, causing a fresh mobile page-load to show "no active conversations" even when Ashley had running sessions across her fleet.
 
 Scope:
 
@@ -92,8 +92,8 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 - `.planning/REQUIREMENTS.md` § Telegram-like Interface (Phase 6) — TG-01..TG-11 (preserved verbatim; Phase 7 does not modify any Phase 6 requirement).
 
 ### Fork operating baseline
-- `~/.claude/identities/tina/box-map.md` — Termix operational context.
-- `~/.claude/identities/tina/termix-patches.md` — full patch catalog through patch #105 (Phase 6). Phase 7 will be pinned as patch #106 (or next available at ship time).
+- `~/.claude/identities/tina/box-map.md` — Skynet operational context.
+- `~/.claude/identities/tina/skynet-patches.md` — full patch catalog through patch #105 (Phase 6). Phase 7 will be pinned as patch #106 (or next available at ship time).
 - `~/.claude/identities/tina/deploy-runbook.md` — mandatory deadman + deploy flow.
 
 </canonical_refs>

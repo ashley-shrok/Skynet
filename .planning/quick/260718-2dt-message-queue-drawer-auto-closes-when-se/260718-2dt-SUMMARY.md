@@ -90,7 +90,7 @@ All this plan does is add a second invocation site inside `handleSend`. Zero API
 
 ## Build Outcome
 
-`cd /home/ubuntu/termix && npm run build` → **PASS** (exit 0).
+`cd /home/ubuntu/skynet && npm run build` → **PASS** (exit 0).
 
 - `vite build` completed in 23.92s.
 - `tsc -p tsconfig.node.json` clean.

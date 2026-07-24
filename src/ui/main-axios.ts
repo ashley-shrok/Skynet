@@ -2,7 +2,7 @@ import axios, { AxiosError, type AxiosInstance } from "axios";
 import { toast } from "sonner";
 import { getBasePath } from "@/lib/base-path";
 import { isElectron } from "@/lib/electron";
-import { clearTermixSessionStorage } from "@/shell/TabContext";
+import { clearSkynetSessionStorage } from "@/shell/TabContext";
 import type { SSHHost } from "@/types/index";
 
 // ============================================================================
@@ -367,9 +367,9 @@ function createApiInstance(
         }
       }
       if (config.headers.set) {
-        config.headers.set("User-Agent", `Termix-Mobile/${platform}`);
+        config.headers.set("User-Agent", `Skynet-Mobile/${platform}`);
       } else {
-        config.headers["User-Agent"] = `Termix-Mobile/${platform}`;
+        config.headers["User-Agent"] = `Skynet-Mobile/${platform}`;
       }
     }
 
@@ -1599,7 +1599,7 @@ export async function logoutUser(): Promise<{
   try {
     const response = await authApi.post("/users/logout");
 
-    clearTermixSessionStorage();
+    clearSkynetSessionStorage();
 
     if (isElectron()) {
       const electronAPI = (
@@ -1618,7 +1618,7 @@ export async function logoutUser(): Promise<{
 
     return response.data;
   } catch (error) {
-    clearTermixSessionStorage();
+    clearSkynetSessionStorage();
 
     if (isElectron()) {
       const electronAPI = (

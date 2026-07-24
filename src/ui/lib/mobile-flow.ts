@@ -30,7 +30,7 @@ export type MobileScreen = "list" | "view";
 
 const MV_KEY = "mv";
 const MV_VALUE = "1";
-const HISTORY_STATE_SENTINEL = "__termixMobileView";
+const HISTORY_STATE_SENTINEL = "__skynetMobileView";
 
 // Module-scoped listener registry. Mirrors the conversation-store subscribe
 // pattern (Plan 06-01) so useSyncExternalStore + jsdom play together cleanly.

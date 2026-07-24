@@ -73,9 +73,9 @@ interface TabProviderProps {
   children: ReactNode;
 }
 
-export function clearTermixSessionStorage() {
-  localStorage.removeItem("termix_tabs");
-  localStorage.removeItem("termix_currentTab");
+export function clearSkynetSessionStorage() {
+  localStorage.removeItem("skynet_tabs");
+  localStorage.removeItem("skynet_currentTab");
 }
 
 export function TabProvider({ children }: TabProviderProps) {

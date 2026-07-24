@@ -1,5 +1,5 @@
-const CACHE_NAME = "termix-static-v2";
-const BASE_PATH = "__TERMIX_SW_BASE_PATH__";
+const CACHE_NAME = "skynet-static-v2";
+const BASE_PATH = "__SKYNET_SW_BASE_PATH__";
 const STATIC_ASSETS = [
   `${BASE_PATH}/favicon.ico`,
   `${BASE_PATH}/icons/48x48.png`,

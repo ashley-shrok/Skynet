@@ -100,10 +100,10 @@ function App() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const savedAccent = localStorage.getItem("termix-accent");
+    const savedAccent = localStorage.getItem("skynet-accent");
     if (savedAccent) applyAccentColor(savedAccent);
     const savedSize = localStorage.getItem(
-      "termix-font-size",
+      "skynet-font-size",
     ) as FontSizeId | null;
     applyFontSize(savedSize ?? "lg");
     return () => {

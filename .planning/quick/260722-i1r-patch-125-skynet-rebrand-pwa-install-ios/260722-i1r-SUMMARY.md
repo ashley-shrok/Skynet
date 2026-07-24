@@ -12,7 +12,7 @@ key_files_created: [public/manifest.webmanifest, 10 icon PNGs under public/]
 key_files_modified: [index.html, docker/nginx.conf, docker/nginx-https.conf, src/ui/index.css, src/ui/AppShell.tsx, src/ui/main-axios.ts, src/ui/sidebar/AdminIdentitiesSection.tsx, src/ui/sidebar/HostEditorGuacamoleTabs.tsx, src/ui/locales/en.json]
 decisions:
   - "Left orphaned public/manifest.json in place (rebase-safe upstream diff minimization); index.html <link rel=manifest> now points at new /manifest.webmanifest instead"
-  - "Terminal-theme registry entry 'Termix Default' in src/ui/lib/terminal-themes.ts added to SKIP list — same rationale as 'Termix Dark'/'Termix Light' (renaming migrates user config keys silently, breaks saved themes)"
+  - "Terminal-theme registry entry 'Skynet Default' in src/ui/lib/terminal-themes.ts added to SKIP list — same rationale as 'Skynet Dark'/'Skynet Light' (renaming migrates user config keys silently, breaks saved themes)"
   - "Empty types { } + default_type application/manifest+json in nginx location block, so W3C-correct MIME wins over inherited mime.types fallback (which would produce application/octet-stream)"
   - "max(env(safe-area-inset-*), 0px) idiom for AppShell padding — browser-tab mode (insets=0) is a no-op, standalone mode with notch gets real padding"
 metrics:
@@ -43,13 +43,13 @@ One-liner: Six-workstream PWA install polish for Ashley's iPhone — Skynet rebr
 - theme-color `#09090b` → `#080808` (Skynet-locked per Ashley's shape)
 - added `mobile-web-app-capable` metadata (modern-spec companion)
 - retained `apple-mobile-web-app-capable="yes"` + `apple-mobile-web-app-status-bar-style="black-translucent"`
-- `apple-mobile-web-app-title` "Termix" → "Skynet"
+- `apple-mobile-web-app-title` "Skynet" → "Skynet"
 - 5 `<link rel="apple-touch-icon">` tags for sizes 180/152/120/76/60
 - 2 `<link rel="icon">` favicon tags (32/16 PNG) — fixes upstream's wrong image/svg+xml MIME on .ico
 - `<link rel="manifest">` retargeted to `/manifest.webmanifest` (leading slash matches nginx `location = /...` exact match)
-- `<title>` "Termix" → "Skynet"
+- `<title>` "Skynet" → "Skynet"
 - inline scrollbar `<style>` block preserved verbatim
-- `window.__TERMIX_BASE_PATH__` internal identifier preserved
+- `window.__SKYNET_BASE_PATH__` internal identifier preserved
 
 ### 2. public/manifest.webmanifest added (new file, +14 lines)
 
@@ -97,52 +97,52 @@ No new PNG location added — the existing wildcard `\.png$` block at nginx.conf
   - `paddingBottom: "max(env(safe-area-inset-bottom), 0px)"`
 - The `max(…, 0px)` idiom is browser-tab-mode-safe: unresolved env() returns 0px, in browser-tab mode env() is 0px, `max(0px, 0px)` is 0px. Only standalone-with-notch produces real padding. Net effect: zero layout change in browser tab, notch-safe in standalone.
 
-### 6. 13 user-visible Termix → Skynet renames
+### 6. 13 user-visible Skynet → Skynet renames
 
 **TSX/TS sources (5 edits in 4 files):**
 
 | File | Line | Old | New |
 |------|------|-----|-----|
-| src/ui/AppShell.tsx | 436 | `document.title = tmux \|\| activeTab?.label \|\| "Termix";` | `… \|\| "Skynet";` |
-| src/ui/main-axios.ts | 994 | `"No server configured. Please configure a Termix server first."` | `"… configure a Skynet server first."` |
-| src/ui/sidebar/AdminIdentitiesSection.tsx | 374 | `placeholder="optional, e.g. Termix maintainer"` | `placeholder="optional, e.g. Skynet maintainer"` |
-| src/ui/sidebar/HostEditorGuacamoleTabs.tsx | 372 | `placeholder="Termix Drive"` | `placeholder="Skynet Drive"` |
-| src/ui/sidebar/HostEditorGuacamoleTabs.tsx | 437 | `placeholder="Termix"` | `placeholder="Skynet"` |
+| src/ui/AppShell.tsx | 436 | `document.title = tmux \|\| activeTab?.label \|\| "Skynet";` | `… \|\| "Skynet";` |
+| src/ui/main-axios.ts | 994 | `"No server configured. Please configure a Skynet server first."` | `"… configure a Skynet server first."` |
+| src/ui/sidebar/AdminIdentitiesSection.tsx | 374 | `placeholder="optional, e.g. Skynet maintainer"` | `placeholder="optional, e.g. Skynet maintainer"` |
+| src/ui/sidebar/HostEditorGuacamoleTabs.tsx | 372 | `placeholder="Skynet Drive"` | `placeholder="Skynet Drive"` |
+| src/ui/sidebar/HostEditorGuacamoleTabs.tsx | 437 | `placeholder="Skynet"` | `placeholder="Skynet"` |
 
 **src/ui/locales/en.json (8 string-value swaps, keys unchanged):**
 
 | Line | Key | Old value | New value |
 |------|-----|-----------|-----------|
-| 31 | `serverConfig.description` | "Configure the Termix server URL to connect to your backend services" | "Configure the Skynet server URL to connect to your backend services" |
-| 38 | `serverConfig.helpText` | "Enter the URL where your Termix server is running (…)" | "Enter the URL where your Skynet server is running (…)" |
-| 44 | `serverConfig.embeddedDesc` | "Run Termix with the built-in local server (…)" | "Run Skynet with the built-in local server (…)" |
-| 83 | `common.appName` | "Termix" | "Skynet" |
-| 886 | (paste/HTTPS warning) | "…serve Termix over HTTPS." | "…serve Skynet over HTTPS." |
-| 1242 | (jump-host limitation) | "…reachable from the Termix server. …" | "…reachable from the Skynet server. …" |
-| 1315 | (client manual-start desc) | "…Termix will not open it automatically." | "…Skynet will not open it automatically." |
-| 1438 | (login title) | "Login to Termix" | "Login to Skynet" |
+| 31 | `serverConfig.description` | "Configure the Skynet server URL to connect to your backend services" | "Configure the Skynet server URL to connect to your backend services" |
+| 38 | `serverConfig.helpText` | "Enter the URL where your Skynet server is running (…)" | "Enter the URL where your Skynet server is running (…)" |
+| 44 | `serverConfig.embeddedDesc` | "Run Skynet with the built-in local server (…)" | "Run Skynet with the built-in local server (…)" |
+| 83 | `common.appName` | "Skynet" | "Skynet" |
+| 886 | (paste/HTTPS warning) | "…serve Skynet over HTTPS." | "…serve Skynet over HTTPS." |
+| 1242 | (jump-host limitation) | "…reachable from the Skynet server. …" | "…reachable from the Skynet server. …" |
+| 1315 | (client manual-start desc) | "…Skynet will not open it automatically." | "…Skynet will not open it automatically." |
+| 1438 | (login title) | "Login to Skynet" | "Login to Skynet" |
 
-`grep -c Termix src/ui/locales/en.json` = 0.
+`grep -c Skynet src/ui/locales/en.json` = 0.
 
-## SKIP-list Termix occurrences left in place (fork discipline preserved)
+## SKIP-list Skynet occurrences left in place (fork discipline preserved)
 
 These are internal identifiers or theme registry keys where renaming would silently migrate config schema, break UA parsing, break rebase-ability, or reference actual upstream project URLs:
 
 | File:Line pattern | Occurrence | Rationale |
 |---|---|---|
-| `src/ui/TabContext.tsx:76`, `src/ui/main-axios.ts:5,1602,1621` | `clearTermixSessionStorage` | Function identifier (internal) |
-| `src/ui/AppShell.tsx` (multiple) | `termix:logout`, `termix:hosts-changed`, `termix:open-tab` | window.dispatchEvent contract event names (internal) |
-| `src/ui/main-axios.ts:370,372` | `User-Agent: Termix-Mobile/…` | HTTP header, backend log parsing depends on it |
-| `src/ui/auth/LoginPage.tsx:47`, `src/ui/auth/Auth.tsx:123` | `/Termix-Mobile\/(Android\|iOS)/` | Regex matches above UA, must stay in lockstep |
-| `src/ui/dashboard/panels/alerts/AlertManager.tsx`, `AlertCard.tsx`, `src/types/index.ts` | `TermixAlert` | Type name (internal) |
-| `src/ui/features/terminal/Terminal.tsx:62,144,1970,2042` | `resolveTermixThemeColors` | Function identifier (internal) |
-| `src/ui/sidebar/HostEditorData.ts:49` | `"Termix Dark"`, `"Termix Light"` | Theme config keys stored in per-host schema (rename = silent migration) |
-| `src/ui/lib/terminal-themes.ts:32` | `name: "Termix Default"` | Terminal theme registry display-name — **added to SKIP list mid-execution** (not in original pre_flight_findings; same rationale as HostEditorData theme keys — rename would silently migrate user's saved terminal-theme config key `termix:` and break restored panes) |
-| `src/ui/dashboard/Dashboard.tsx:697,709` | `https://github.com/Termix-SSH/…` | Upstream GitHub URLs — must reference upstream project |
+| `src/ui/TabContext.tsx:76`, `src/ui/main-axios.ts:5,1602,1621` | `clearSkynetSessionStorage` | Function identifier (internal) |
+| `src/ui/AppShell.tsx` (multiple) | `skynet:logout`, `skynet:hosts-changed`, `skynet:open-tab` | window.dispatchEvent contract event names (internal) |
+| `src/ui/main-axios.ts:370,372` | `User-Agent: Skynet-Mobile/…` | HTTP header, backend log parsing depends on it |
+| `src/ui/auth/LoginPage.tsx:47`, `src/ui/auth/Auth.tsx:123` | `/Skynet-Mobile\/(Android\|iOS)/` | Regex matches above UA, must stay in lockstep |
+| `src/ui/dashboard/panels/alerts/AlertManager.tsx`, `AlertCard.tsx`, `src/types/index.ts` | `SkynetAlert` | Type name (internal) |
+| `src/ui/features/terminal/Terminal.tsx:62,144,1970,2042` | `resolveSkynetThemeColors` | Function identifier (internal) |
+| `src/ui/sidebar/HostEditorData.ts:49` | `"Skynet Dark"`, `"Skynet Light"` | Theme config keys stored in per-host schema (rename = silent migration) |
+| `src/ui/lib/terminal-themes.ts:32` | `name: "Skynet Default"` | Terminal theme registry display-name — **added to SKIP list mid-execution** (not in original pre_flight_findings; same rationale as HostEditorData theme keys — rename would silently migrate user's saved terminal-theme config key `skynet:` and break restored panes) |
+| `src/ui/dashboard/Dashboard.tsx:697,709` | `https://github.com/Skynet-SSH/…` | Upstream GitHub URLs — must reference upstream project |
 | `src/ui/lib/tab-url.ts:2,170`, `src/ui/NewSessionHostChips.tsx:16`, `src/ui/features/pretty-view/ChatMessage.tsx:27,31` | fork-history code comments | Rebase-anchor documentation |
 | `src/ui/locales/translated/*.json` (34 files) | crowdin-generated translations | Out-of-band from Ashley's English UI; crowdin regenerates post-rebase |
 
-`window.__TERMIX_BASE_PATH__` (index.html:51) — internal identifier, patch #10-era plumbing.
+`window.__SKYNET_BASE_PATH__` (index.html:51) — internal identifier, patch #10-era plumbing.
 
 ## Verification results
 
@@ -167,14 +167,14 @@ These are internal identifiers or theme registry keys where renaming would silen
 - ✓ `application/manifest+json` in BOTH nginx confs
 - ✓ Zoom-lock: `maximum-scale=1`, `user-scalable=no`, `viewport-fit=cover` all in ONE viewport meta
 - ✓ Safe-area padding on outer `flex w-screen bg-background` div (reachability confirmed via 5-line grep window; plan's `-B1` check needed widening because I formatted the JSX as multi-line for readability)
-- ✓ `grep -c Termix src/ui/locales/en.json` = 0
+- ✓ `grep -c Skynet src/ui/locales/en.json` = 0
 - ✓ Both nginx confs contain exactly one `location = /manifest.webmanifest` block
 
 ### Non-goal integrity
 
-- ✓ `package.json` name field unchanged (still `"termix"`)
+- ✓ `package.json` name field unchanged (still `"skynet"`)
 - ✓ `public/sw.js` present, untouched
-- ✓ `~/.claude/identities/tina/termix-patches.md` unchanged
+- ✓ `~/.claude/identities/tina/skynet-patches.md` unchanged
 - ✓ Docker image tag unchanged
 - ✓ No backend files touched
 - ✓ No translated locale files touched
@@ -183,7 +183,7 @@ These are internal identifiers or theme registry keys where renaming would silen
 
 **One SKIP-list addition, mid-execution:**
 
-- `src/ui/lib/terminal-themes.ts:32` — `name: "Termix Default"` was NOT enumerated in the plan's pre_flight_findings section 12 SKIP list. Discovered during the phase-level rename-completeness grep. Applied the same SKIP rationale as `"Termix Dark"/"Termix Light"` in `HostEditorData.ts:49`: this is a terminal-theme registry display-name keyed under `TERMINAL_THEMES.termix`. The `termix` key IS what's persisted in per-host terminal-theme config, so renaming the display-name-string is technically safe, BUT the registry key `termix` itself is not renamable without a config migration. Leaving the display-name matches fork discipline for the paired keys (display + key stay in-sync visually). Documented and left unchanged. Consistent with plan intent — this is a Rule 4 architectural boundary (would require config migration of stored user theme selections).
+- `src/ui/lib/terminal-themes.ts:32` — `name: "Skynet Default"` was NOT enumerated in the plan's pre_flight_findings section 12 SKIP list. Discovered during the phase-level rename-completeness grep. Applied the same SKIP rationale as `"Skynet Dark"/"Skynet Light"` in `HostEditorData.ts:49`: this is a terminal-theme registry display-name keyed under `TERMINAL_THEMES.skynet`. The `skynet` key IS what's persisted in per-host terminal-theme config, so renaming the display-name-string is technically safe, BUT the registry key `skynet` itself is not renamable without a config migration. Leaving the display-name matches fork discipline for the paired keys (display + key stay in-sync visually). Documented and left unchanged. Consistent with plan intent — this is a Rule 4 architectural boundary (would require config migration of stored user theme selections).
 
 Otherwise: **plan executed exactly as written.** All 7 tasks complete, no auth gates, no checkpoints, no other Rule 1/2/3 fixes needed.
 
@@ -199,7 +199,7 @@ The batch (patches #118 through #125) sits behind the mandatory 15-min deadman-r
 
 ## Follow-up bookkeeping
 
-**termix-patches.md entry (draft for Ashley's fork patch catalog):**
+**skynet-patches.md entry (draft for Ashley's fork patch catalog):**
 
 ```markdown
 ### #125 — Skynet rebrand + PWA install (iOS) + zoom lock
@@ -211,12 +211,12 @@ The batch (patches #118 through #125) sits behind the mandatory 15-min deadman-r
 
 Six-work-stream PWA install polish for the Ashley-iPhone Add-to-Home-Screen moment:
 
-1. **index.html head rewrite** — viewport zoom-lock (`maximum-scale=1, user-scalable=no, viewport-fit=cover`), theme-color `#080808` (Skynet-locked), added `mobile-web-app-capable`, `apple-mobile-web-app-title` "Skynet", 5 apple-touch-icon <link>s (180/152/120/76/60), 2 favicon <link>s (32/16 PNG), `<link rel="manifest">` → `/manifest.webmanifest`, `<title>` "Skynet"; inline scrollbar <style> and `window.__TERMIX_BASE_PATH__` internal id preserved.
+1. **index.html head rewrite** — viewport zoom-lock (`maximum-scale=1, user-scalable=no, viewport-fit=cover`), theme-color `#080808` (Skynet-locked), added `mobile-web-app-capable`, `apple-mobile-web-app-title` "Skynet", 5 apple-touch-icon <link>s (180/152/120/76/60), 2 favicon <link>s (32/16 PNG), `<link rel="manifest">` → `/manifest.webmanifest`, `<title>` "Skynet"; inline scrollbar <style> and `window.__SKYNET_BASE_PATH__` internal id preserved.
 2. **public/manifest.webmanifest** (new) — name/short_name Skynet, standalone, portrait-primary, `#080808` colors, 192+512 icons.
 3. **10 icon PNGs to public/** — `apple-touch-icon-{40,60,76,120,152,180,192,512}.png` + `favicon-{16,32}.png` (1024 master intentionally NOT shipped).
 4. **Both nginx confs updated** (CLAUDE.md symmetry rule) — symmetric `location = /manifest.webmanifest` block in HTTP and HTTPS confs with `types { } + default_type application/manifest+json;` for correct W3C MIME.
 5. **Safe-area CSS + AppShell outer padding** — `body { overscroll-behavior: none; }` + `.safe-top` utility beside `.safe-bottom` in index.css; outer `<div className="flex w-screen bg-background">` extended with `paddingTop/paddingBottom: max(env(safe-area-inset-*), 0px)` inline (browser-tab mode unaffected, standalone-with-notch gets padding).
-6. **13 user-visible Termix → Skynet renames** — 5 TSX/TS (AppShell.tsx document.title fallback, main-axios.ts server-error toast, AdminIdentitiesSection.tsx placeholder, HostEditorGuacamoleTabs.tsx two placeholders) + 8 en.json string values (source locale; translated/*.json crowdin-managed and left alone). Internal identifiers (`clearTermixSessionStorage`, `termix:*` events, `Termix-Mobile` UA, `TermixAlert`, `resolveTermixThemeColors`, `"Termix Dark/Light/Default"` theme registry keys, `github.com/Termix-SSH/*` upstream URLs, fork-history code comments, `window.__TERMIX_BASE_PATH__`, package.json name field) all preserved for rebase-ability.
+6. **13 user-visible Skynet → Skynet renames** — 5 TSX/TS (AppShell.tsx document.title fallback, main-axios.ts server-error toast, AdminIdentitiesSection.tsx placeholder, HostEditorGuacamoleTabs.tsx two placeholders) + 8 en.json string values (source locale; translated/*.json crowdin-managed and left alone). Internal identifiers (`clearSkynetSessionStorage`, `skynet:*` events, `Skynet-Mobile` UA, `SkynetAlert`, `resolveSkynetThemeColors`, `"Skynet Dark/Light/Default"` theme registry keys, `github.com/Skynet-SSH/*` upstream URLs, fork-history code comments, `window.__SKYNET_BASE_PATH__`, package.json name field) all preserved for rebase-ability.
 
 **Ashley's iPhone use case:** Tap "Add to Home Screen" on term.gigaashley.click → launches as standalone app (no Safari chrome), Skynet whole-mesh-energized network graph icon, notch-safe padding, no pinch-zoom + no tap-into-input auto-zoom, "Skynet" everywhere she looks in the UI.
 

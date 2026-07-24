@@ -1,7 +1,7 @@
 import type {
   AuthenticatedRequest,
   CacheEntry,
-  TermixAlert,
+  SkynetAlert,
 } from "../../../types/index.js";
 import express from "express";
 import { db } from "../db/index.js";
@@ -42,13 +42,13 @@ class AlertCache {
 const alertCache = new AlertCache();
 
 const GITHUB_RAW_BASE = "https://raw.githubusercontent.com";
-const REPO_OWNER = "Termix-SSH";
+const REPO_OWNER = "Skynet-SSH";
 const REPO_NAME = "Docs";
-const ALERTS_FILE = "main/termix-alerts.json";
+const ALERTS_FILE = "main/skynet-alerts.json";
 
-async function fetchAlertsFromGitHub(): Promise<TermixAlert[]> {
-  const cacheKey = "termix_alerts";
-  const cachedData = alertCache.get<TermixAlert[]>(cacheKey);
+async function fetchAlertsFromGitHub(): Promise<SkynetAlert[]> {
+  const cacheKey = "skynet_alerts";
+  const cachedData = alertCache.get<SkynetAlert[]>(cacheKey);
   if (cachedData) {
     return cachedData;
   }
@@ -58,7 +58,7 @@ async function fetchAlertsFromGitHub(): Promise<TermixAlert[]> {
     const response = await fetch(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "TermixAlertChecker/1.0",
+        "User-Agent": "SkynetAlertChecker/1.0",
       },
       dispatcher: getProxyAgent(url),
     });
@@ -74,7 +74,7 @@ async function fetchAlertsFromGitHub(): Promise<TermixAlert[]> {
       );
     }
 
-    const alerts: TermixAlert[] = (await response.json()) as TermixAlert[];
+    const alerts: SkynetAlert[] = (await response.json()) as SkynetAlert[];
 
     const now = new Date();
 
@@ -135,7 +135,7 @@ router.get("/", authenticateJWT, async (req, res) => {
 
     res.json({
       alerts: activeAlertsForUser,
-      cached: alertCache.get("termix_alerts") !== null,
+      cached: alertCache.get("skynet_alerts") !== null,
       total_count: activeAlertsForUser.length,
     });
   } catch (error) {

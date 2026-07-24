@@ -262,7 +262,7 @@ Downstream notes for Plan 06-05's executor:
 
 **UAT walk items for the new-session flow (TG-09):**
 
-1. **On desktop:** open Termix at conversations view (default rail). Click the "New session" button at the top of the panel. Modal opens with a filterable host list.
+1. **On desktop:** open Skynet at conversations view (default rail). Click the "New session" button at the top of the panel. Modal opens with a filterable host list.
 2. **Search filter works:** type partial host name / username / ip into the search input. List filters correctly.
 3. **Sole-host auto-select:** if the current fleet has exactly one host, the dialog auto-selects it on open (unlikely for Ashley's fleet but easy to verify by temporarily filtering the tree to 1 host — or just observe that Open is disabled until a host is clicked, then enabled).
 4. **Empty session name:** click Open with empty name; new tab opens with a name derived from the tmux window title (patch #43-adjacent behavior). Verify server auto-fill works and the tab label reflects the tmux window title.

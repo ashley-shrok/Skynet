@@ -61,7 +61,7 @@ function composeDraftLsKey(
   hostId: number,
   tmuxSessionKey: string | null | undefined,
 ): string {
-  return `termix:compose-draft:${hostId}:${tmuxSessionKey ?? ""}`;
+  return `skynet:compose-draft:${hostId}:${tmuxSessionKey ?? ""}`;
 }
 
 // Patch #83: segmented meter well with integrated reset cell (one instrument).

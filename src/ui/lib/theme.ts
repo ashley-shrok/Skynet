@@ -74,7 +74,7 @@ export function applyFontSize(id: FontSizeId) {
   const root = document.documentElement;
   root.classList.remove("fs-xs", "fs-sm", "fs-md", "fs-lg", "fs-xl");
   root.classList.add(`fs-${id}`);
-  localStorage.setItem("termix-font-size", id);
+  localStorage.setItem("skynet-font-size", id);
 }
 
 export const FOLDER_COLORS = [

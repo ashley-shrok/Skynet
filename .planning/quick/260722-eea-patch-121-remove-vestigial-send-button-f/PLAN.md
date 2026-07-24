@@ -31,7 +31,7 @@ Bounty #4 (`send-button-bigger`) re-scoped mid-session: the original ask was to 
 
 ## Verification steps
 
-1. `cd ~/termix && npx tsc --noEmit` — MUST be clean.
+1. `cd ~/skynet && npx tsc --noEmit` — MUST be clean.
 2. `grep -n "<Send " src/ui/features/pretty-view/ComposeBox.tsx` — should return NOTHING (no more JSX Send icon).
 3. `grep -n "sendDisabled" src/ui/features/pretty-view/ComposeBox.tsx` — should return NOTHING.
 4. `git diff --stat` — one file, net negative line count (~ -25 lines).

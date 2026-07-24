@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="../public/icon.svg" width="120" height="120" alt="Termix Logo" />
+<img src="../public/icon.svg" width="120" height="120" alt="Skynet Logo" />
 
-<h1>Termix</h1>
+<h1>Skynet</h1>
 
 <p>セルフホスト型 SSH 管理とリモートデスクトップアクセス</p>
 
@@ -24,15 +24,15 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/github/stars/Termix-SSH/Termix?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/forks/Termix-SSH/Termix?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/v/release/Termix-SSH/Termix?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
+  <img src="https://img.shields.io/github/stars/Skynet-SSH/Skynet?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/forks/Skynet-SSH/Skynet?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/v/release/Skynet-SSH/Skynet?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
   <a href="https://discord.gg/jVQGdvHDrf"><img alt="Discord" src="https://img.shields.io/discord/1347374268253470720?color=F39044&labelColor=1a1a1a" /></a>
 </p>
 
 <br />
 
-<img src="../repo-images/Termix Header.png" alt="Termix Banner" width="900" />
+<img src="../repo-images/Skynet Header.png" alt="Skynet Banner" width="900" />
 
 <br />
 <br />
@@ -49,7 +49,7 @@
 
 ## 概要
 
-Termixは、オープンソースで永久無料のセルフホスト型オールインワンサーバー管理プラットフォームです。単一の直感的なインターフェースを通じて、サーバーとインフラストラクチャを管理するマルチプラットフォームソリューションを提供します。Termixは、SSHターミナルアクセス、リモートデスクトップ制御（RDP、VNC、Telnet）、SSHトンネリング機能、リモートSSHファイル管理、およびその他多くのツールを提供します。Termixは、すべてのプラットフォームで利用可能なTermiusの完全無料でセルフホスト可能な代替ソリューションです。
+Skynetは、オープンソースで永久無料のセルフホスト型オールインワンサーバー管理プラットフォームです。単一の直感的なインターフェースを通じて、サーバーとインフラストラクチャを管理するマルチプラットフォームソリューションを提供します。Skynetは、SSHターミナルアクセス、リモートデスクトップ制御（RDP、VNC、Telnet）、SSHトンネリング機能、リモートSSHファイル管理、およびその他多くのツールを提供します。Skynetは、すべてのプラットフォームで利用可能なTermiusの完全無料でセルフホスト可能な代替ソリューションです。
 
 <br />
 
@@ -122,7 +122,7 @@ Termixは、オープンソースで永久無料のセルフホスト型オー�
 <td width="50%" valign="top">
 
 **データベース暗号化:**
-バックエンドは暗号化されたSQLiteデータベースファイルとして保存されます。詳細は[ドキュメント](https://docs.termix.site/security)をご覧ください。
+バックエンドは暗号化されたSQLiteデータベースファイルとして保存されます。詳細は[ドキュメント](https://docs.skynet.site/security)をご覧ください。
 
 </td>
 </tr>
@@ -150,7 +150,7 @@ Termixは、オープンソースで永久無料のセルフホスト型オー�
 <td width="50%" valign="top">
 
 **多言語対応:**
-約30言語の組み込みサポート（[Crowdin](https://docs.termix.site/translations)で管理されています）。
+約30言語の組み込みサポート（[Crowdin](https://docs.skynet.site/translations)で管理されています）。
 
 </td>
 </tr>
@@ -213,24 +213,24 @@ Termixは、オープンソースで永久無料のセルフホスト型オー�
 
 ## インストール
 
-すべてのプラットフォームへのTermixのインストール方法については、Termixの[ドキュメント](https://docs.termix.site/install)をご覧ください。また、以下のサンプルDocker Composeファイルをご覧ください（リモートデスクトップ機能を使用する予定がない場合は、guacdとネットワークの設定を省略できます）：
+すべてのプラットフォームへのSkynetのインストール方法については、Skynetの[ドキュメント](https://docs.skynet.site/install)をご覧ください。また、以下のサンプルDocker Composeファイルをご覧ください（リモートデスクトップ機能を使用する予定がない場合は、guacdとネットワークの設定を省略できます）：
 
 ```yaml
 services:
-  termix:
-    image: ghcr.io/lukegus/termix:latest
-    container_name: termix
+  skynet:
+    image: ghcr.io/lukegus/skynet:latest
+    container_name: skynet
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - termix-data:/app/data
+      - skynet-data:/app/data
     environment:
       PORT: "8080"
     depends_on:
       - guacd
     networks:
-      - termix-net
+      - skynet-net
 
   guacd:
     image: guacamole/guacd:1.6.0
@@ -239,14 +239,14 @@ services:
     ports:
       - "4822:4822"
     networks:
-      - termix-net
+      - skynet-net
 
 volumes:
-  termix-data:
+  skynet-data:
     driver: local
 
 networks:
-  termix-net:
+  skynet-net:
     driver: bridge
 ```
 
@@ -258,7 +258,7 @@ networks:
 
 <br />
 
-[![YouTube](../repo-images/YouTube.png)](https://www.youtube.com/@TermixSSH/videos)
+[![YouTube](../repo-images/YouTube.png)](https://www.youtube.com/@SkynetSSH/videos)
 
 <sub>YouTubeでアップデートの概要を視聴する</sub>
 
@@ -267,32 +267,32 @@ networks:
 
 <table>
 <tr>
-<td><img src="../repo-images/Image 1.png" alt="Termix Screenshot 1" width="400" /></td>
-<td><img src="../repo-images/Image 2.png" alt="Termix Screenshot 2" width="400" /></td>
+<td><img src="../repo-images/Image 1.png" alt="Skynet Screenshot 1" width="400" /></td>
+<td><img src="../repo-images/Image 2.png" alt="Skynet Screenshot 2" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 3.png" alt="Termix Screenshot 3" width="400" /></td>
-<td><img src="../repo-images/Image 4.png" alt="Termix Screenshot 4" width="400" /></td>
+<td><img src="../repo-images/Image 3.png" alt="Skynet Screenshot 3" width="400" /></td>
+<td><img src="../repo-images/Image 4.png" alt="Skynet Screenshot 4" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 5.png" alt="Termix Screenshot 5" width="400" /></td>
-<td><img src="../repo-images/Image 6.png" alt="Termix Screenshot 6" width="400" /></td>
+<td><img src="../repo-images/Image 5.png" alt="Skynet Screenshot 5" width="400" /></td>
+<td><img src="../repo-images/Image 6.png" alt="Skynet Screenshot 6" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 7.png" alt="Termix Screenshot 7" width="400" /></td>
-<td><img src="../repo-images/Image 8.png" alt="Termix Screenshot 8" width="400" /></td>
+<td><img src="../repo-images/Image 7.png" alt="Skynet Screenshot 7" width="400" /></td>
+<td><img src="../repo-images/Image 8.png" alt="Skynet Screenshot 8" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 9.png" alt="Termix Screenshot 9" width="400" /></td>
-<td><img src="../repo-images/Image 10.png" alt="Termix Screenshot 10" width="400" /></td>
+<td><img src="../repo-images/Image 9.png" alt="Skynet Screenshot 9" width="400" /></td>
+<td><img src="../repo-images/Image 10.png" alt="Skynet Screenshot 10" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 11.png" alt="Termix Screenshot 11" width="400" /></td>
-<td><img src="../repo-images/Image 12.png" alt="Termix Screenshot 12" width="400" /></td>
+<td><img src="../repo-images/Image 11.png" alt="Skynet Screenshot 11" width="400" /></td>
+<td><img src="../repo-images/Image 12.png" alt="Skynet Screenshot 12" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 13.png" alt="Termix Screenshot 13" width="400" /></td>
-<td><img src="../repo-images/Image 14.png" alt="Termix Screenshot 14" width="400" /></td>
+<td><img src="../repo-images/Image 13.png" alt="Skynet Screenshot 13" width="400" /></td>
+<td><img src="../repo-images/Image 14.png" alt="Skynet Screenshot 14" width="400" /></td>
 </tr>
 </table>
 
@@ -304,7 +304,7 @@ networks:
 
 ## 予定されている機能
 
-すべての予定機能については[Projects](https://github.com/orgs/Termix-SSH/projects/2)をご覧ください。コントリビュートをご希望の方は[Contributing](https://github.com/Termix-SSH/Termix/blob/main/CONTRIBUTING.md)をご覧ください。
+すべての予定機能については[Projects](https://github.com/orgs/Skynet-SSH/projects/2)をご覧ください。コントリビュートをご希望の方は[Contributing](https://github.com/Skynet-SSH/Skynet/blob/main/CONTRIBUTING.md)をご覧ください。
 
 <br />
 
@@ -348,7 +348,7 @@ networks:
 
 ## サポート
 
-Termixに関するヘルプや機能リクエストが必要な場合は、[Issues](https://github.com/Termix-SSH/Support/issues)ページにアクセスし、ログインして`New Issue`を押してください。Issueはできるだけ詳細に記述し、英語での記述が望ましいです。また、[Discord](https://discord.gg/jVQGdvHDrf)サーバーに参加してサポートチャンネルを利用することもできますが、応答時間が長くなる場合があります。
+Skynetに関するヘルプや機能リクエストが必要な場合は、[Issues](https://github.com/Skynet-SSH/Support/issues)ページにアクセスし、ログインして`New Issue`を押してください。Issueはできるだけ詳細に記述し、英語での記述が望ましいです。また、[Discord](https://discord.gg/jVQGdvHDrf)サーバーに参加してサポートチャンネルを利用することもできますが、応答時間が長くなる場合があります。
 
 <br />
 

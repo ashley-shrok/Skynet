@@ -34,7 +34,7 @@ Enumerate the exact code sites Plan 02 modifies:
 **DEFERRED to Phase 12+ (do NOT list as Plan 02/03 deletion targets):**
 - `src/ui/dashboard/DashboardTab.tsx`, `src/ui/dashboard/Dashboard.tsx`, `src/ui/dashboard/SessionDashboard.tsx`, `src/ui/dashboard/cards/**`, `src/ui/dashboard/panels/**` — file-tree deletion belongs to Phase 12+ per phase-scope-fence (`11-CONTEXT.md` `<deferred>`).
 
-**Recommendation for Plan 02:** Create a new `src/ui/features/pretty-view/PrettyLandingCard.tsx` component (warm-glass idle card matching the pretty-conversations empty-state visual language, using `--color-pv-*` tokens per palette authority). Rendered inline in `tabUtils.tsx` where `case "dashboard"` used to render `<DashboardTab>`. This preserves the `"dashboard"` TabType as a load-bearing fallback in `effectiveSelectedTabId` / `closeTab` logic while removing every UI path to the Termix dashboard component tree. This IS the "delete not gate" pattern applied minimally: the `<DashboardTab>` render site is REMOVED (the import too), a new landing card replaces it, `DashboardTab.tsx` becomes dead code slated for Phase 12+.
+**Recommendation for Plan 02:** Create a new `src/ui/features/pretty-view/PrettyLandingCard.tsx` component (warm-glass idle card matching the pretty-conversations empty-state visual language, using `--color-pv-*` tokens per palette authority). Rendered inline in `tabUtils.tsx` where `case "dashboard"` used to render `<DashboardTab>`. This preserves the `"dashboard"` TabType as a load-bearing fallback in `effectiveSelectedTabId` / `closeTab` logic while removing every UI path to the Skynet dashboard component tree. This IS the "delete not gate" pattern applied minimally: the `<DashboardTab>` render site is REMOVED (the import too), a new landing card replaces it, `DashboardTab.tsx` becomes dead code slated for Phase 12+.
 
 ---
 
@@ -62,7 +62,7 @@ Enumerate the exact code sites Plan 02 modifies:
    $ grep -rn "pinAppRail" src/ | grep -v "\.json$"
    (zero hits — no production code references)
    ```
-   Every "pinAppRail" / "pinAppRailDesc" appears ONLY in locale JSON files. These are already-dead translation strings for an upstream Termix "Pin App Rail" setting that no production code consumes today; they were dead before Phase 11. **Out of scope for Phase 11 — dead-string sweep is a follow-up hygiene task.** Do NOT delete these in Plan 03.
+   Every "pinAppRail" / "pinAppRailDesc" appears ONLY in locale JSON files. These are already-dead translation strings for an upstream Skynet "Pin App Rail" setting that no production code consumes today; they were dead before Phase 11. **Out of scope for Phase 11 — dead-string sweep is a follow-up hygiene task.** Do NOT delete these in Plan 03.
 
 ---
 
@@ -317,7 +317,7 @@ Per `11-CONTEXT.md` `<deferred>`, mirror the exclusions here so the executor of 
 **Backend + data layer (untouched per PURGE-04):**
 - `/host/db/*` routes.
 - `/identities/*` routes.
-- Encrypted-SQLite data layer + termix-data volume + migrations.
+- Encrypted-SQLite data layer + skynet-data volume + migrations.
 
 **Terminal + protocol panes (untouched per PURGE-05):**
 - Terminal (xterm.js) renderer, tab plumbing, WebSocket lifecycle.
@@ -325,7 +325,7 @@ Per `11-CONTEXT.md` `<deferred>`, mirror the exclusions here so the executor of 
 - Pretty-view session-file tail internals.
 
 **Locale JSON `pinAppRail` strings (out of scope):**
-- 34 locale files carry `pinAppRail` + `pinAppRailDesc` translation strings — see Section B item 7. These are dead upstream-Termix carryovers, already unused pre-Phase-11. A dead-string sweep is a follow-up hygiene task, NOT part of Plans 02/03.
+- 34 locale files carry `pinAppRail` + `pinAppRailDesc` translation strings — see Section B item 7. These are dead upstream-Skynet carryovers, already unused pre-Phase-11. A dead-string sweep is a follow-up hygiene task, NOT part of Plans 02/03.
 
 ---
 

@@ -1,12 +1,12 @@
 <!-- Fork notice — visitors should know this isn't upstream before reading. -->
 > [!NOTE]
-> **Personal fork** of [`Termix-SSH/Termix`](https://github.com/Termix-SSH/Termix) maintained by [@ashley-shrok](https://github.com/ashley-shrok), focused on streamlined tmux session UX, RDP polish (keep-alive across backgrounded tabs, canvas sizing, quick-launch), and mobile input quality-of-life. Active work lives on the [`feat/tab-title-from-tmux`](https://github.com/ashley-shrok/Termix/commits/feat/tab-title-from-tmux) branch — see its commit history for the full patch set. `main` tracks upstream.
+> **Personal fork** of [`Skynet-SSH/Skynet`](https://github.com/Skynet-SSH/Skynet) maintained by [@ashley-shrok](https://github.com/ashley-shrok), focused on streamlined tmux session UX, RDP polish (keep-alive across backgrounded tabs, canvas sizing, quick-launch), and mobile input quality-of-life. Active work lives on the [`feat/tab-title-from-tmux`](https://github.com/ashley-shrok/Skynet/commits/feat/tab-title-from-tmux) branch — see its commit history for the full patch set. `main` tracks upstream.
 
 <div align="center">
 
-<img src="./public/icon.svg" width="120" height="120" alt="Termix Logo" />
+<img src="./public/icon.svg" width="120" height="120" alt="Skynet Logo" />
 
-<h1>Termix</h1>
+<h1>Skynet</h1>
 
 <p>Self-hosted SSH management and remote desktop access</p>
 
@@ -28,15 +28,15 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/github/stars/Termix-SSH/Termix?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/forks/Termix-SSH/Termix?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/v/release/Termix-SSH/Termix?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
+  <img src="https://img.shields.io/github/stars/Skynet-SSH/Skynet?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/forks/Skynet-SSH/Skynet?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/v/release/Skynet-SSH/Skynet?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
   <a href="https://discord.gg/jVQGdvHDrf"><img alt="Discord" src="https://img.shields.io/discord/1347374268253470720?color=F39044&labelColor=1a1a1a" /></a>
 </p>
 
 <br />
 
-<img src="./repo-images/Termix Header.png" alt="Termix Banner" width="900" />
+<img src="./repo-images/Skynet Header.png" alt="Skynet Banner" width="900" />
 
 <br />
 <br />
@@ -53,7 +53,7 @@
 
 ## Overview
 
-Termix is an open-source, forever-free, self-hosted all-in-one server management platform. It provides a multi-platform solution for managing your servers and infrastructure through a single, intuitive interface. Termix offers SSH terminal access, remote desktop control (RDP, VNC, Telnet), SSH tunneling capabilities, remote file management, and many other tools. Termix is the perfect free and self-hosted alternative to Termius available for all platforms.
+Skynet is an open-source, forever-free, self-hosted all-in-one server management platform. It provides a multi-platform solution for managing your servers and infrastructure through a single, intuitive interface. Skynet offers SSH terminal access, remote desktop control (RDP, VNC, Telnet), SSH tunneling capabilities, remote file management, and many other tools. Skynet is the perfect free and self-hosted alternative to Termius available for all platforms.
 
 <br />
 
@@ -126,7 +126,7 @@ Create roles and share hosts across users/roles.
 <td width="50%" valign="top">
 
 **Database Encryption:**
-Backend stored as encrypted SQLite database files. View [docs](https://docs.termix.site/security) for more.
+Backend stored as encrypted SQLite database files. View [docs](https://docs.skynet.site/security) for more.
 
 </td>
 </tr>
@@ -154,7 +154,7 @@ SSH sessions and tabs stay open across devices/refreshes if enabled in user prof
 <td width="50%" valign="top">
 
 **Languages:**
-Built-in support ~30 languages (managed by [Crowdin](https://docs.termix.site/translations)).
+Built-in support ~30 languages (managed by [Crowdin](https://docs.skynet.site/translations)).
 
 </td>
 </tr>
@@ -217,26 +217,26 @@ Built-in support ~30 languages (managed by [Crowdin](https://docs.termix.site/tr
 
 ## Installation
 
-Visit the [Termix Docs](https://docs.termix.site/install) for full installation instructions across all platforms.
+Visit the [Skynet Docs](https://docs.skynet.site/install) for full installation instructions across all platforms.
 
 Sample Docker Compose file (you can omit `guacd` and the network if you don't plan on using remote desktop features):
 
 ```yaml
 services:
-  termix:
-    image: ghcr.io/lukegus/termix:latest
-    container_name: termix
+  skynet:
+    image: ghcr.io/lukegus/skynet:latest
+    container_name: skynet
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - termix-data:/app/data
+      - skynet-data:/app/data
     environment:
       PORT: "8080"
     depends_on:
       - guacd
     networks:
-      - termix-net
+      - skynet-net
 
   guacd:
     image: guacamole/guacd:1.6.0
@@ -245,14 +245,14 @@ services:
     ports:
       - "4822:4822"
     networks:
-      - termix-net
+      - skynet-net
 
 volumes:
-  termix-data:
+  skynet-data:
     driver: local
 
 networks:
-  termix-net:
+  skynet-net:
     driver: bridge
 ```
 
@@ -264,7 +264,7 @@ networks:
 
 <br />
 
-[![YouTube](./repo-images/YouTube.png)](https://www.youtube.com/@TermixSSH/videos)
+[![YouTube](./repo-images/YouTube.png)](https://www.youtube.com/@SkynetSSH/videos)
 
 <sub>Watch update overviews on YouTube</sub>
 
@@ -273,32 +273,32 @@ networks:
 
 <table>
 <tr>
-<td><img src="./repo-images/Image 1.png" alt="Termix Screenshot 1" width="400" /></td>
-<td><img src="./repo-images/Image 2.png" alt="Termix Screenshot 2" width="400" /></td>
+<td><img src="./repo-images/Image 1.png" alt="Skynet Screenshot 1" width="400" /></td>
+<td><img src="./repo-images/Image 2.png" alt="Skynet Screenshot 2" width="400" /></td>
 </tr>
 <tr>
-<td><img src="./repo-images/Image 3.png" alt="Termix Screenshot 3" width="400" /></td>
-<td><img src="./repo-images/Image 4.png" alt="Termix Screenshot 4" width="400" /></td>
+<td><img src="./repo-images/Image 3.png" alt="Skynet Screenshot 3" width="400" /></td>
+<td><img src="./repo-images/Image 4.png" alt="Skynet Screenshot 4" width="400" /></td>
 </tr>
 <tr>
-<td><img src="./repo-images/Image 5.png" alt="Termix Screenshot 5" width="400" /></td>
-<td><img src="./repo-images/Image 6.png" alt="Termix Screenshot 6" width="400" /></td>
+<td><img src="./repo-images/Image 5.png" alt="Skynet Screenshot 5" width="400" /></td>
+<td><img src="./repo-images/Image 6.png" alt="Skynet Screenshot 6" width="400" /></td>
 </tr>
 <tr>
-<td><img src="./repo-images/Image 7.png" alt="Termix Screenshot 7" width="400" /></td>
-<td><img src="./repo-images/Image 8.png" alt="Termix Screenshot 8" width="400" /></td>
+<td><img src="./repo-images/Image 7.png" alt="Skynet Screenshot 7" width="400" /></td>
+<td><img src="./repo-images/Image 8.png" alt="Skynet Screenshot 8" width="400" /></td>
 </tr>
 <tr>
-<td><img src="./repo-images/Image 9.png" alt="Termix Screenshot 9" width="400" /></td>
-<td><img src="./repo-images/Image 10.png" alt="Termix Screenshot 10" width="400" /></td>
+<td><img src="./repo-images/Image 9.png" alt="Skynet Screenshot 9" width="400" /></td>
+<td><img src="./repo-images/Image 10.png" alt="Skynet Screenshot 10" width="400" /></td>
 </tr>
 <tr>
-<td><img src="./repo-images/Image 11.png" alt="Termix Screenshot 11" width="400" /></td>
-<td><img src="./repo-images/Image 12.png" alt="Termix Screenshot 12" width="400" /></td>
+<td><img src="./repo-images/Image 11.png" alt="Skynet Screenshot 11" width="400" /></td>
+<td><img src="./repo-images/Image 12.png" alt="Skynet Screenshot 12" width="400" /></td>
 </tr>
 <tr>
-<td><img src="./repo-images/Image 13.png" alt="Termix Screenshot 13" width="400" /></td>
-<td><img src="./repo-images/Image 14.png" alt="Termix Screenshot 14" width="400" /></td>
+<td><img src="./repo-images/Image 13.png" alt="Skynet Screenshot 13" width="400" /></td>
+<td><img src="./repo-images/Image 14.png" alt="Skynet Screenshot 14" width="400" /></td>
 </tr>
 </table>
 
@@ -310,7 +310,7 @@ networks:
 
 ## Planned Features
 
-See [Projects](https://github.com/orgs/Termix-SSH/projects/2) for all planned features. If you are looking to contribute, see [Contributing](https://github.com/Termix-SSH/Termix/blob/main/CONTRIBUTING.md).
+See [Projects](https://github.com/orgs/Skynet-SSH/projects/2) for all planned features. If you are looking to contribute, see [Contributing](https://github.com/Skynet-SSH/Skynet/blob/main/CONTRIBUTING.md).
 
 <br />
 
@@ -354,7 +354,7 @@ See [Projects](https://github.com/orgs/Termix-SSH/projects/2) for all planned fe
 
 ## Support
 
-If you need help or want to request a feature with Termix, visit the [Issues](https://github.com/Termix-SSH/Support/issues) page, log in, and press `New Issue`. Please be as detailed as possible in your issue, preferably written in English. You can also join the [Discord](https://discord.gg/jVQGdvHDrf) server and visit the support channel, however, response times may be longer.
+If you need help or want to request a feature with Skynet, visit the [Issues](https://github.com/Skynet-SSH/Support/issues) page, log in, and press `New Issue`. Please be as detailed as possible in your issue, preferably written in English. You can also join the [Discord](https://discord.gg/jVQGdvHDrf) server and visit the support channel, however, response times may be longer.
 
 <br />
 

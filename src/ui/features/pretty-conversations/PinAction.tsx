@@ -17,7 +17,7 @@
 //   - desktop: prototype.html lines 333-337 — bare-icon-with-hue-drop-shadow
 //     treatment (`.meta .pin { color: hsla(var(--hue), 80%, 70%, 0.95);
 //     filter: drop-shadow(0 0 4px hsla(var(--hue), 80%, 60%, 0.55)); }`).
-//     Phase 13 Plan 03 (SHAPE-03) retires the Termix button chrome
+//     Phase 13 Plan 03 (SHAPE-03) retires the Skynet button chrome
 //     (`w-6 h-6 rounded-md bg-transparent border-0 hover:bg-white/[0.06]`
 //     + `text-muted-foreground/60`) and delegates styling to the
 //     `.pv-pin-action-desktop` selector in pretty-conversations.css. The

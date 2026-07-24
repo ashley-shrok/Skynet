@@ -127,7 +127,7 @@ Randomly spot-checked 5 tasks across plans for `<read_first>` presence + `<accep
 - `<action>` names concrete: `handleUploadStart`, `handleUploadChunk`, `handleUploadAbort`, `emitEvent`, `cleanupBatchesForConnection`, `activeBatches: Map<...>`, `sftp.realpath('.')`, `sftp.createWriteStream(tempPath, { flags: 'wx' })` — deeply concrete ✓
 
 **Plan 02 Task 1** (usePrettyViewUploads hook):
-- `<read_first>` — 6 items with specific line references and rationale (protocol module, test file, CONTEXT decisions, use-auto-scroll as hook idiom reference, patch #60 offset in termix-patches.md) ✓
+- `<read_first>` — 6 items with specific line references and rationale (protocol module, test file, CONTEXT decisions, use-auto-scroll as hook idiom reference, patch #60 offset in skynet-patches.md) ✓
 - `<acceptance_criteria>` — 8 concrete assertions with grep gates (return shape, imports, `crypto.randomUUID` occurrences, `File.slice(...).arrayBuffer()` occurrence, 14 vitest tests) ✓
 - `<action>` names concrete: `stageAttachments`, `startBatch(caption)`, `retryBatch`, `resetBatch`, `onWsReconnect`, `MAX_CONCURRENT_UPLOADS_PER_BATCH`, `getBufferedAmount` — 7+ concrete names ✓
 
@@ -138,7 +138,7 @@ Randomly spot-checked 5 tasks across plans for `<read_first>` presence + `<accep
 
 **Plan 04 Task 4** (deploy checkpoint):
 - `<what-built>` — accurately synthesizes Plans 01-04 output ✓
-- `<how-to-verify>` — 9-step deploy sequence with exact commands (`sudo touch /tmp/termix-keep-patched`, deadman-arm nohup line, force-recreate) ✓ — matches deploy-runbook.md
+- `<how-to-verify>` — 9-step deploy sequence with exact commands (`sudo touch /tmp/skynet-keep-patched`, deadman-arm nohup line, force-recreate) ✓ — matches deploy-runbook.md
 - `<resume-signal>` — precise Ashley-facing phrase ✓
 
 No anti-shallow rule violations. Every spot-checked task has read-first prereqs, concrete acceptance criteria, and named identifiers in actions.
@@ -232,7 +232,7 @@ Plan 04 Task 1 Step B grep checks `dist/backend/backend/ssh/pretty-view-upload.j
 
 7. **Post-deploy verify command Ashley may want to keep handy:**
    ```
-   docker exec termix grep -c 'case "upload_start":' /app/dist/backend/backend/ssh/terminal.js
+   docker exec skynet grep -c 'case "upload_start":' /app/dist/backend/backend/ssh/terminal.js
    # → should return 1
    ```
 

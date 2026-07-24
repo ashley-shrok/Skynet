@@ -27,7 +27,7 @@ export interface GuacamoleConnectionSettings {
 
 export interface GuacamoleToken {
   connection: GuacamoleConnectionSettings;
-  // Termix session-takeover metadata — top-level on purpose. guacamole-lite's
+  // Skynet session-takeover metadata — top-level on purpose. guacamole-lite's
   // ClientConnection.mergeConnectionOptions() overwrites .connection with a
   // flat compiledSettings dict (see node_modules/guacamole-lite/lib/
   // ClientConnection.js), so anything inside `connection` other than

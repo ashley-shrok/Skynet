@@ -31,7 +31,7 @@ const newTimezone = "if (protocolVersion !== '1_0_0') {";
 // human-readable identifier for the joining user). guacd 1.6.0 began requiring
 // it during the VNC handshake even when negotiating older protocol versions,
 // causing connections to silently drop right after "User joined". See
-// Termix-SSH/Support#567 and #734.
+// Skynet-SSH/Support#567 and #734.
 const oldConnect =
   "        this.sendInstruction(['connect'].concat(connectArgs));";
 const newConnect =

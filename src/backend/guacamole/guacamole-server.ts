@@ -175,7 +175,7 @@ type TrackableConn = {
   sendErrorToClient?: (message: string, errorCode?: string) => void;
   close?: (error?: unknown) => void;
 };
-const TAKEOVER_MARKER = "TERMIX_SUPERSEDED:";
+const TAKEOVER_MARKER = "SKYNET_SUPERSEDED:";
 const activeGuacClients = new Map<string, TrackableConn>();
 function takeoverKey(userId: string, hostId: number, type: string): string {
   return `${userId}:${hostId}:${type}`;

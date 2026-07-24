@@ -59,4 +59,4 @@ None. Plan executed exactly as written.
 
 ## Deploy Status
 
-NOT DEPLOYED. Requires a future `build-termix.sh` + `docker compose up -d --force-recreate termix` behind the mandatory 15-min deadman when Ashley authorizes.
+NOT DEPLOYED. Requires a future `build-skynet.sh` + `docker compose up -d --force-recreate skynet` behind the mandatory 15-min deadman when Ashley authorizes.

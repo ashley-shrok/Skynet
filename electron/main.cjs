@@ -20,7 +20,7 @@ const { URL } = require("url");
 const { fork } = require("child_process");
 const WebSocket = require("ws");
 
-const logFile = path.join(app.getPath("userData"), "termix-main.log");
+const logFile = path.join(app.getPath("userData"), "skynet-main.log");
 const electronAuthCookiesPath = path.join(
   app.getPath("userData"),
   "electron-auth-cookies.json",
@@ -500,7 +500,7 @@ const electronCacheBuildPath = path.join(
   app.getPath("userData"),
   "client-cache-build.json",
 );
-const termixSessionPartition = "persist:termix";
+const skynetSessionPartition = "persist:skynet";
 
 app.on(
   "certificate-error",
@@ -621,7 +621,7 @@ async function clearElectronJwtCookiesAtStartup() {
 
   const targetSessions = new Set([
     session.defaultSession,
-    session.fromPartition(termixSessionPartition),
+    session.fromPartition(skynetSessionPartition),
   ]);
 
   for (const targetSession of targetSessions) {
@@ -829,7 +829,7 @@ function createTray() {
     }
 
     tray = new Tray(trayIcon);
-    tray.setToolTip("Termix");
+    tray.setToolTip("Skynet");
 
     const contextMenu = Menu.buildFromTemplate([
       {
@@ -884,14 +884,14 @@ function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    title: "Termix",
+    title: "Skynet",
     icon: path.join(appRoot, "public", "icon.png"),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,
       preload: path.join(__dirname, "preload.js"),
-      partition: termixSessionPartition,
+      partition: skynetSessionPartition,
       allowRunningInsecureContent: true,
       webviewTag: true,
       offscreen: false,
@@ -917,7 +917,7 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
   }
 
-  const customUserAgent = `Termix-Desktop/${appVersion} (${platform}; Electron/${electronVersion})`;
+  const customUserAgent = `Skynet-Desktop/${appVersion} (${platform}; Electron/${electronVersion})`;
   mainWindow.webContents.setUserAgent(customUserAgent);
 
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
@@ -1073,8 +1073,8 @@ ipcMain.handle("get-app-version", () => {
 });
 
 const GITHUB_API_BASE = "https://api.github.com";
-const REPO_OWNER = "Termix-SSH";
-const REPO_NAME = "Termix";
+const REPO_OWNER = "Skynet-SSH";
+const REPO_NAME = "Skynet";
 
 const githubCache = new Map();
 const CACHE_DURATION = 30 * 60 * 1000;
@@ -1093,7 +1093,7 @@ async function fetchGitHubAPI(endpoint, cacheKey) {
     const response = await httpFetch(`${GITHUB_API_BASE}${endpoint}`, {
       headers: {
         Accept: "application/vnd.github+json",
-        "User-Agent": "TermixElectronUpdateChecker/1.0",
+        "User-Agent": "SkynetElectronUpdateChecker/1.0",
         "X-GitHub-Api-Version": "2022-11-28",
       },
       timeout: 10000,
@@ -1206,7 +1206,7 @@ ipcMain.handle(
 
           res.writeHead(200, { "Content-Type": "text/html" });
           res.end(
-            `<html><body><h2>${success === "true" ? "Authentication successful!" : "Authentication failed."}</h2><p>You can close this tab and return to Termix.</p><script>window.close()</script></body></html>`,
+            `<html><body><h2>${success === "true" ? "Authentication successful!" : "Authentication failed."}</h2><p>You can close this tab and return to Skynet.</p><script>window.close()</script></body></html>`,
           );
 
           server.close();
@@ -1403,7 +1403,7 @@ function getC2SRelayUrl() {
   const serverUrl =
     config?.serverUrl || (!isDev ? "http://127.0.0.1:30003" : null);
   if (!serverUrl) {
-    throw new Error("No Termix server configured");
+    throw new Error("No Skynet server configured");
   }
 
   const base = serverUrl.replace(/\/$/, "");
@@ -2489,7 +2489,7 @@ ipcMain.handle("test-server-connection", async (event, serverUrl) => {
           return {
             success: false,
             error:
-              "Server returned HTML instead of JSON. This does not appear to be a Termix server.",
+              "Server returned HTML instead of JSON. This does not appear to be a Skynet server.",
           };
         }
 
@@ -2535,7 +2535,7 @@ ipcMain.handle("test-server-connection", async (event, serverUrl) => {
           return {
             success: false,
             error:
-              "Server returned HTML instead of JSON. This does not appear to be a Termix server.",
+              "Server returned HTML instead of JSON. This does not appear to be a Skynet server.",
           };
         }
 
@@ -2568,7 +2568,7 @@ ipcMain.handle("test-server-connection", async (event, serverUrl) => {
     return {
       success: false,
       error:
-        "Server is not responding or does not appear to be a valid Termix server. Please ensure the server is running and accessible.",
+        "Server is not responding or does not appear to be a valid Skynet server. Please ensure the server is running and accessible.",
     };
   } catch (error) {
     return { success: false, error: error.message };

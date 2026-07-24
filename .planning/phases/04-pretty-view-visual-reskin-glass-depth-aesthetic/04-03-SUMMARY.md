@@ -70,7 +70,7 @@ All three tokens made it through the pipeline. The `Terminal-CZuTs-wn.js` chunk 
 - **VISUAL-10 first** as the safety canary — if terminal chrome looks different, STOP and revert. Structural: canary before content check.
 - **Prerequisites section** names required setup state (identity panes with/without `colorHue`, non-identity pane, safety-canary check).
 - **VISUAL-09 (behavior preservation)** enumerates ALL existing pretty-view features that must still work end-to-end: chat rendering + markdown + code, ComposeBox all 3 send paths (Enter/Reset/Go-ahead), Shift-Enter newlines, context bar semantic HARD LOCK (≥80% RED), all 3 ambient panels, WipBubble, PlanPendingBubble, SessionHoldingBanner sticky-positioning acid test (the FRAGILITY WARNING acid test explicitly called out), draft persistence, message-queue drawer coexistence, patch #60 atomic delete-on-send, jump-to-latest pill, auto-scroll ratchet, keyboard chords (Ctrl+Shift+O/;/L/[/]).
-- **Sign-off section** names the pin-deploy command with the **narrow pkill pattern** per AGENTS.md (`pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'`) — explicitly warns against the bare `sleep 900` match that would kill the guacd-zombie sentinel too.
+- **Sign-off section** names the pin-deploy command with the **narrow pkill pattern** per AGENTS.md (`pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'`) — explicitly warns against the bare `sleep 900` match that would kill the guacd-zombie sentinel too.
 
 **Verification**: all 10 VISUAL requirement IDs present in the file, prerequisites + failure-indicator + sign-off sections all present.
 
@@ -80,7 +80,7 @@ All three tokens made it through the pipeline. The `Terminal-CZuTs-wn.js` chunk 
 
 **Current-highest patch number in AGENTS.md**: `#68` (`feat(pretty-view): backgrounded shells panel`). Phase 4 becomes **patch #69** at PIN time.
 
-**Deploy scenario**: **Scenario B — standalone deploy**. Bounty dir `/home/ubuntu/.claude/identities/tina/bounties/pending-patch-batch-post-60/` does not exist, so Phase 3 patches (#61-#68) are already deployed and pinned. Phase 4 ships as its own deploy behind the mandatory 15-min deadman + `sudo docker compose up -d --force-recreate termix` cycle.
+**Deploy scenario**: **Scenario B — standalone deploy**. Bounty dir `/home/ubuntu/.claude/identities/tina/bounties/pending-patch-batch-post-60/` does not exist, so Phase 3 patches (#61-#68) are already deployed and pinned. Phase 4 ships as its own deploy behind the mandatory 15-min deadman + `sudo docker compose up -d --force-recreate skynet` cycle.
 
 **Draft structure follows fork's AGENTS.md patch-entry format**:
 - Numbered header with `feat(pretty-view):` prefix and multi-line title.
@@ -112,11 +112,11 @@ Phase 4 is **code-side complete**. All three plan waves have shipped:
 
 **Between now and deploy-ready**:
 1. Ashley reviews `04-UAT-CHECKLIST.md` and gives explicit per-deploy green light (blanket pre-authorization ≠ per-deploy green light per tina.md rule).
-2. Arm the mandatory 15-min deadman (`nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/termix-keep-patched ] && bash /opt/termix/.tmp-revert.sh' > /tmp/termix-revert-bg.log 2>&1`).
-3. Run `sudo bash /opt/termix/termix-patches/build-termix.sh` to build `termix-patched:local` on the EC2 from the current branch state.
-4. `cd /opt/termix && sudo docker compose up -d --force-recreate termix`.
+2. Arm the mandatory 15-min deadman (`nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/skynet-keep-patched ] && bash /opt/skynet/.tmp-revert.sh' > /tmp/skynet-revert-bg.log 2>&1`).
+3. Run `sudo bash /opt/skynet/skynet-patches/build-skynet.sh` to build `skynet-patched:local` on the EC2 from the current branch state.
+4. `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
 5. Ashley walks `04-UAT-CHECKLIST.md` to verify visual-01 through visual-10 all pass on the live deploy.
-6. On green: pin via the **narrow pkill pattern** (`sudo touch /tmp/termix-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'`).
+6. On green: pin via the **narrow pkill pattern** (`sudo touch /tmp/skynet-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'`).
 7. Immediately at pin: paste `04-AGENTS-MD-ENTRY.md` into `/home/ubuntu/AGENTS.md` as patch #69 (or whatever the current-highest+1 is at pin time; verify via `grep -E '^   [0-9]+\.' AGENTS.md | tail -3`).
 
-If any UAT step fails: the 15-min deadman auto-reverts, or Ashley can trigger immediate revert via `sudo bash /opt/termix/.tmp-revert.sh`.
+If any UAT step fails: the 15-min deadman auto-reverts, or Ashley can trigger immediate revert via `sudo bash /opt/skynet/.tmp-revert.sh`.

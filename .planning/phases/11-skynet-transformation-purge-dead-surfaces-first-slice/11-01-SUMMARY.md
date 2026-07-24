@@ -1,5 +1,5 @@
 ---
-phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice
+phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice
 plan: 01
 subsystem: ui/enumeration
 tags: [ui, app-shell, enumeration, prove-dead, skynet-purge, strip-list, docs]
@@ -33,8 +33,8 @@ tech-stack:
 
 key-files:
   created:
-    - .planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-01-STRIP-LIST.md
-    - .planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-01-SUMMARY.md
+    - .planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-01-STRIP-LIST.md
+    - .planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-01-SUMMARY.md
   modified: []
 
 key-decisions:
@@ -88,8 +88,8 @@ Each task committed atomically:
 
 ## Files Created/Modified
 
-- `.planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-01-STRIP-LIST.md` — authoritative deletion-target enumeration (7 sections A-G, ~330 lines).
-- `.planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-01-SUMMARY.md` — this file.
+- `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-01-STRIP-LIST.md` — authoritative deletion-target enumeration (7 sections A-G, ~330 lines).
+- `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-01-SUMMARY.md` — this file.
 
 ## Decisions Made
 
@@ -134,5 +134,5 @@ None — no external service configuration required. This was a discovery + docu
 ## Self-Check: PASSED
 
 ---
-*Phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice*
+*Phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice*
 *Completed: 2026-07-23*

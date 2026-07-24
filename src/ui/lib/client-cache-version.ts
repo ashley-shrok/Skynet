@@ -1,4 +1,4 @@
-const CLIENT_CACHE_VERSION_KEY = "termix_client_cache_version";
+const CLIENT_CACHE_VERSION_KEY = "skynet_client_cache_version";
 const CURRENT_CLIENT_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
 
 async function clearCacheStorage(): Promise<void> {

@@ -61,7 +61,7 @@ export function registerUserTotpRoutes(
       }
 
       const secret = speakeasy.generateSecret({
-        name: `Termix (${userRecord.username})`,
+        name: `Skynet (${userRecord.username})`,
         length: 32,
       });
 

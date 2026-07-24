@@ -1447,7 +1447,7 @@ function tcpPing(
         const dataStr = data.toString("utf8");
         if (dataStr.startsWith("SSH-")) {
           try {
-            socket.end("SSH-2.0-TermixHealthCheck\r\n");
+            socket.end("SSH-2.0-SkynetHealthCheck\r\n");
           } catch {
             // expected
           }

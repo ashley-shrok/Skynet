@@ -1,9 +1,9 @@
-# Phase 6 termix-patches.md entry — DRAFT for pin time
+# Phase 6 skynet-patches.md entry — DRAFT for pin time
 
 **Instructions for Ashley at pin time:**
 
-1. Assign the patch number — likely **`NNN. = 105.`** (check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3` — if an interstitial pin landed since Phase 5, bump to the next available integer).
-2. Paste the entry BELOW (from the "```105.…```" fenced block) into `~/.claude/identities/tina/termix-patches.md` at the appropriate ordinal position (immediately after patch #104 — Phase 5 file uploads).
+1. Assign the patch number — likely **`NNN. = 105.`** (check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3` — if an interstitial pin landed since Phase 5, bump to the next available integer).
+2. Paste the entry BELOW (from the "```105.…```" fenced block) into `~/.claude/identities/tina/skynet-patches.md` at the appropriate ordinal position (immediately after patch #104 — Phase 5 file uploads).
 3. Bump the "ONE HUNDRED FOUR numbered patches" line near the top of the file to "ONE HUNDRED FIVE" (or actual new count).
 4. Commit the pin.
 
@@ -29,7 +29,7 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
    105. `feat(navigation): telegram-like interface — sidebar conversation
         list, tab strip removed, mobile list-vs-view flow, session
         persistence across switches` — Phase 6, shipped 2026-07-21.
-        Reshapes Termix's top-level navigation model around a Telegram-
+        Reshapes Skynet's top-level navigation model around a Telegram-
         style single-select conversation list. Sidebar becomes a flat
         list of currently-active sessions (grouped by host with
         separators, per-session pins float on top). Tab strip removed
@@ -44,7 +44,7 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
         this one patch number)** — see git log
         `feat/tab-title-from-tmux 4bc6b2a..12a41a9` for the full sequence.
 
-        * **Motivation** (from shape file). Termix has been drifting
+        * **Motivation** (from shape file). Skynet has been drifting
           toward Telegram-shape for months (pretty view, expanding
           sidebar, mobile-bottom-nav gate). Ashley uses it like a chat
           client to talk to agents on remote boxes, not like a tab
@@ -101,7 +101,7 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
           OR view-full-screen based on `useMobileScreen()`. Top-left
           back button (MobileViewHeader) calls `navigateToList()`;
           browser back gesture also works via popstate + a
-          `{ __termixMobileView: true }` history-state sentinel that
+          `{ __skynetMobileView: true }` history-state sentinel that
           lets `navigateToList` prefer `history.back()` for a consistent
           back-stack when we own the entry. `mv=1` survives Chrome
           window-restore for the same reason `tab=` does — it lives in
@@ -212,17 +212,17 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
           checks — Vite mangles most user-defined identifiers, so
           verifications lean on i18n key strings + URL-fragment
           literals + backend markers that survive minification):
-          - `docker exec termix grep -oc 'nav.conversations' /app/dist/assets/AppShell-*.js` → ≥ 20 (i18n namespace — was 24 at ship)
-          - `docker exec termix grep -oc 'newSession' /app/dist/assets/AppShell-*.js` → ≥ 8 (9 nav.newSession* keys + label — was 10 at ship)
-          - `docker exec termix grep -oc 'settingsMenu' /app/dist/assets/AppShell-*.js` → ≥ 10 (10 SETTINGS_MENU_ITEMS keys)
-          - `docker exec termix grep -oc 'backToList' /app/dist/assets/AppShell-*.js` → ≥ 1 (mobile back button aria + title)
-          - `docker exec termix grep -oc 'mobileView' /app/dist/assets/AppShell-*.js` → ≥ 1 (URL scheme field name)
-          - `docker exec termix grep -c 'MobileBottomBar\|TabBar' /app/dist/assets/*.js` → **0** (deletions confirmed — 0 across all chunks at ship)
-          - `docker exec termix grep -oc 'appendChild' /app/dist/assets/AppShell-*.js` → ≥ 5 (patch #35 DOM-move — was 6 at ship; tabNodesRef identifier is mangled but appendChild semantic is preserved)
-          - `docker exec termix grep -c 'message_queue_delete_on_send' /app/dist/backend/backend/ssh/terminal.js` → ≥ 1 (patch #60 preserved)
-          - `docker exec termix grep -c 'ssh_input_delayed_enter' /app/dist/backend/backend/ssh/terminal.js` → ≥ 1 (patch #100 preserved)
-          - `docker exec termix grep -oc 'pointer: coarse' /app/dist/assets/Terminal-*.js` → ≥ 1 (patch #102 preserved)
-          - `docker exec termix grep -oc '/compose-drafts' /app/dist/assets/Terminal-*.js` → ≥ 3 (patch #57 preserved)
+          - `docker exec skynet grep -oc 'nav.conversations' /app/dist/assets/AppShell-*.js` → ≥ 20 (i18n namespace — was 24 at ship)
+          - `docker exec skynet grep -oc 'newSession' /app/dist/assets/AppShell-*.js` → ≥ 8 (9 nav.newSession* keys + label — was 10 at ship)
+          - `docker exec skynet grep -oc 'settingsMenu' /app/dist/assets/AppShell-*.js` → ≥ 10 (10 SETTINGS_MENU_ITEMS keys)
+          - `docker exec skynet grep -oc 'backToList' /app/dist/assets/AppShell-*.js` → ≥ 1 (mobile back button aria + title)
+          - `docker exec skynet grep -oc 'mobileView' /app/dist/assets/AppShell-*.js` → ≥ 1 (URL scheme field name)
+          - `docker exec skynet grep -c 'MobileBottomBar\|TabBar' /app/dist/assets/*.js` → **0** (deletions confirmed — 0 across all chunks at ship)
+          - `docker exec skynet grep -oc 'appendChild' /app/dist/assets/AppShell-*.js` → ≥ 5 (patch #35 DOM-move — was 6 at ship; tabNodesRef identifier is mangled but appendChild semantic is preserved)
+          - `docker exec skynet grep -c 'message_queue_delete_on_send' /app/dist/backend/backend/ssh/terminal.js` → ≥ 1 (patch #60 preserved)
+          - `docker exec skynet grep -c 'ssh_input_delayed_enter' /app/dist/backend/backend/ssh/terminal.js` → ≥ 1 (patch #100 preserved)
+          - `docker exec skynet grep -oc 'pointer: coarse' /app/dist/assets/Terminal-*.js` → ≥ 1 (patch #102 preserved)
+          - `docker exec skynet grep -oc '/compose-drafts' /app/dist/assets/Terminal-*.js` → ≥ 3 (patch #57 preserved)
 
         * **Files touched** (16 source files: 8 NEW, 5 modified, 2
           DELETED, 1 i18n):
@@ -355,10 +355,10 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
           new npm dependencies (`git diff --stat package.json
           package-lock.json` = empty). Zero new nginx location
           blocks (Phase 6 is frontend-only; no backend routes added).
-          Standard `sudo bash /opt/termix/termix-patches/build-termix.sh`
-          + `sudo docker compose up -d --force-recreate termix`.
+          Standard `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`
+          + `sudo docker compose up -d --force-recreate skynet`.
           UAT checklist for the walk-through:
-          `~/termix/.planning/phases/06-telegram-like-interface/
+          `~/skynet/.planning/phases/06-telegram-like-interface/
           06-UAT-CHECKLIST.md` (70 blocking gates covering TG-01..11
           + persistence + mobile flow + negative-space + regression
           smoke against patches #25/#35/#57/#60/#100/#102).
@@ -374,7 +374,7 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
 
 After paste + count-bump + commit:
 
-- [ ] `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3` shows the new 105. entry at the appropriate position
+- [ ] `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3` shows the new 105. entry at the appropriate position
 - [ ] "ONE HUNDRED FOUR" → "ONE HUNDRED FIVE" (or actual count) bumped near top of file
 - [ ] Pin commit landed on `~/.claude/identities/tina/` (the identities repo)
 - [ ] `/close telegram-like-interface` closes the bounty

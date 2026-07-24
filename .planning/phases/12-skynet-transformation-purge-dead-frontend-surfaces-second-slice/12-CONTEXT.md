@@ -13,7 +13,7 @@ This phase's slice covers:
 
 1. **Sidebar panel file deletion.** All `src/ui/sidebar/*Panel.tsx` files that Phase 11 stripped imports of (HostsPanel, SessionsPanel, CredentialsPanel, QuickConnectPanel, SshToolsPanel, SnippetsPanel, HistoryPanel, SplitScreenPanel, ConnectionsPanel, UserProfilePanel, AdminSettingsPanel) plus the transitive-orphan sections files (AdminApiKeysSection, AdminIdentitiesSection, AdminManagementSections, AdminSettingsSections, AdminSettingsShared, AdminUserDialogs) plus the HostManager subtree (HostManager, HostManagerData, HostManagerTabs, HostShareModal, HostEditor + HostEditorData/FeatureTabs/GeneralTab/GuacamoleTabs/StatsTab, HostCredentialList, CredentialEditorView) plus SidebarTree. **KEEP**: `sidebar/NewSessionDialog.tsx` (used by pretty-conversations pencil button in the header) and anything it imports.
 2. **Dashboard subtree deletion.** `src/ui/dashboard/` — DashboardTab.tsx (dead per Phase 11), Dashboard.tsx, SessionDashboard.tsx, NewSessionHostChips.tsx, RemoteHostChips.tsx, sshHostToHost.ts, plus its cards/components/hooks/panels/ subdirs. The "dashboard" TabType STAYS in `src/types/ui-types.ts` (Phase 11 preserved it as load-bearing for URL restore / synthetic fallback).
-3. **Termix tab bar chrome.** The top-level visible tab strip UI (whatever file is the visible chrome of the tab strip Ashley sees at the top of Termix today but doesn't see in Skynet). The invisible tab plumbing — mount/unmount, WebSocket lifecycle, focus routing, `TabType` machinery — is untouched.
+3. **Skynet tab bar chrome.** The top-level visible tab strip UI (whatever file is the visible chrome of the tab strip Ashley sees at the top of Skynet today but doesn't see in Skynet). The invisible tab plumbing — mount/unmount, WebSocket lifecycle, focus routing, `TabType` machinery — is untouched.
 4. **Keyboard shortcut editor UI.** The visible editor surface under `src/ui/features/keyboard/` — whatever renders the "customize keyboard shortcuts" UI. The underlying keyboard shortcut handling for retained UI (Ctrl+Shift+O pretty-view toggle, ChordDropdown mechanics, other retained shortcuts) is preserved.
 5. **Dead locale strings.** Across all ~34 `src/ui/locales/*.json` files: `pinAppRail` (from Phase 11 STRIP-LIST Section B item 7), `nav.dashboard`, `nav.hosts`, `nav.snippets`, `nav.admin`, `nav.credentials`, `nav.history`, and any transitively-dead key referencing deleted surfaces (planner enumerates via grep).
 
@@ -55,11 +55,11 @@ All items below are **LOCKED** by the bounty + tina.md § Skynet direction + Pha
 ### Locale string deletion
 
 - **One commit per removed key set.** Group `pinAppRail` + `nav.dashboard` + `nav.hosts` + `nav.snippets` + `nav.admin` + related nav.* keys as one atomic locale-strip commit (they were part of the same AppRail-driven nav surface).
-- **Tsc-clean is the safety net.** Termix uses typed i18n (the react-i18next TFunction generics resolve keys at compile time). If a consumer still uses a removed key, tsc fails — that's the load-bearing gate that no consumer was missed. Do NOT skip the tsc check per commit.
+- **Tsc-clean is the safety net.** Skynet uses typed i18n (the react-i18next TFunction generics resolve keys at compile time). If a consumer still uses a removed key, tsc fails — that's the load-bearing gate that no consumer was missed. Do NOT skip the tsc check per commit.
 - **Across all ~34 JSON files simultaneously.** The `src/ui/locales/` directory has one JSON per language; every key removal touches every file. This is fine — one atomic multi-file commit.
 - **Don't touch keys for retained UI.** Nav keys for pretty-conversations, pretty-view, terminal, RDP all stay.
 
-### Termix tab bar chrome (item 3) — identification
+### Skynet tab bar chrome (item 3) — identification
 
 - **The visible chrome file is TBD until planner enumerates.** It's likely somewhere in `src/ui/shell/` (adjacent to `tabUtils.tsx`) or `src/ui/AppShell.tsx` (though Phase 11 didn't identify it). If it's already stripped from AppShell mount (Phase 11 stripped a lot), it's already dead and the FILE just needs deletion. If it's still mounted in AppShell, planner must strip the mount FIRST (same Phase 11 pattern — imports/mount before file).
 - **What "tab bar chrome" means concretely:** the top-level tab-strip visible UI showing "which tab is active" via horizontal tabs at the top of the app. Skynet lands on the pretty-conversations panel with pretty-view chat + NO visible tab strip; tabs are managed via the conversation-list clicks instead. If Phase 11 didn't already retire the visible tab strip, Phase 12 does. If Phase 11 did, the enumeration confirms it and the file itself is deleted.
@@ -92,7 +92,7 @@ All items below are **LOCKED** by the bounty + tina.md § Skynet direction + Pha
 - `~/.claude/identities/tina/tina.md` § Skynet direction — Ship of Theseus (dead-surfaces canonical list; palette authority `--color-pv-*`; "conversation list + pretty view is all Ashley sees" scope-decision heuristic; "no settings at all" lock; "it is ONE project, not a collection of bounties" fleet lock).
 
 ### Phase 11 shipped artifacts (this-phase's direct input)
-- `.planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-01-STRIP-LIST.md` — Phase 11's enumeration pattern to mirror + Section G's explicit Phase 12+ deferrals (host manager UI, snippets, admin console, dashboard file itself, tab bar chrome, keyboard shortcut editor UI, dead pinAppRail locale strings).
+- `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-01-STRIP-LIST.md` — Phase 11's enumeration pattern to mirror + Section G's explicit Phase 12+ deferrals (host manager UI, snippets, admin console, dashboard file itself, tab bar chrome, keyboard shortcut editor UI, dead pinAppRail locale strings).
 - `.planning/phases/11-.../11-CONTEXT.md` — Phase 11's LOCKED decisions (same scope-fence discipline carries forward).
 - `.planning/phases/11-.../11-01-SUMMARY.md` through `11-04-SUMMARY.md` — what Phase 11 shipped (AppShell surgery, PrettyLandingCard, dashboard TabType preservation, RDP preservation, 83% AppShell chunk shrink).
 - `.planning/phases/11-.../11-VERIFICATION.md` — automated PASS verdict + 3 human UAT items pending.
@@ -114,9 +114,9 @@ All items below are **LOCKED** by the bounty + tina.md § Skynet direction + Pha
 - `.planning/REQUIREMENTS.md` § Dead-Surfaces Purge — Second Slice (Phase 12) — PURGE-06..PURGE-10.
 
 ### Fork operating baseline
-- `~/.claude/identities/tina/box-map.md` — Termix operational context.
+- `~/.claude/identities/tina/box-map.md` — Skynet operational context.
 - `~/.claude/identities/tina/deploy-runbook.md` — AUTHORITATIVE deploy policy (supersedes fork CLAUDE.md's stale 15-min deadman reference).
-- `~/.claude/identities/tina/termix-patches.md` — patch catalog through #137. Phase 12 patches will pick up from #139 (patch #138 = Phase 11).
+- `~/.claude/identities/tina/skynet-patches.md` — patch catalog through #137. Phase 12 patches will pick up from #139 (patch #138 = Phase 11).
 
 </canonical_refs>
 
@@ -138,7 +138,7 @@ All items below are **LOCKED** by the bounty + tina.md § Skynet direction + Pha
 - **CLAUDE.md fork-update.** The `claude-md-15min-deadman-stale` bounty. Not in Phase 12 — Ashley should approve the CLAUDE.md content update separately (touches project onboarding, worth Ashley's eyes before landing).
 - **Locale file structural cleanup.** After the dead-key strip, some language files may have orphan section headers or empty sub-objects. Cosmetic — deferred if it happens.
 - **Any visual polish on retained UI** (bubble+badge refresh, ready-dot debugging, sidebar-scroll-padding) — separate bounties, all parked until purge completes.
-- **Rebase against upstream Termix.** Will be a manual pass at some point post-purge. Not this phase.
+- **Rebase against upstream Skynet.** Will be a manual pass at some point post-purge. Not this phase.
 
 </deferred>
 

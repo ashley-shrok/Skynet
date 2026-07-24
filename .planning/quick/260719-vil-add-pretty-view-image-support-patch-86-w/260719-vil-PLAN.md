@@ -61,13 +61,13 @@ must_haves:
 ---
 
 <objective>
-Add pretty-view image support (patch #86, conceptually — patch-number is a commit-message label only for this quick; termix-patches.md write-up is out of scope per fleet directive).
+Add pretty-view image support (patch #86, conceptually — patch-number is a commit-message label only for this quick; skynet-patches.md write-up is out of scope per fleet directive).
 
 Extend the JSONL parser to emit a new `kind:"image"` variant carrying inline base64 images, extend the claude-session WS server to emit those as a new `{type:"image"}` frame, and render them in pretty view via a new `ImageBubble` component styled to match `ChatMessage`'s assistant identity-hue treatment exactly.
 
 Purpose: When Claude reads a PNG (avatar review, screenshot, etc.) the tool_result currently drops silently at the parser (RENDER-01 hard-lock, "aggressive minimalism"). Ashley (in pretty view) then can't see the image the agent just read. This patch lifts that restriction FOR IMAGES ONLY — non-image tool_results still drop as before.
 
-Design de-risked by the prototype at `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-image-support/proto/server.mjs` — the `extractImageRefs` logic and WS event shape are validated against 4 real Termix session JSONLs (7 image events on Amelia review). Port the LOGIC to TypeScript, not the JS itself.
+Design de-risked by the prototype at `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-image-support/proto/server.mjs` — the `extractImageRefs` logic and WS event shape are validated against 4 real Skynet session JSONLs (7 image events on Amelia review). Port the LOGIC to TypeScript, not the JS itself.
 
 Design flip: RESEARCH.md's Option B (HTTP endpoint) is superseded by WS-inline (Option A). The fork's pretty-view is WS-only on port 30011 with no HTTP surface to bolt onto, so inline-b64-over-existing-WS matches the pattern. Base64 payloads are typically ~150KB per PNG — acceptable inline for the read-only sessions pretty-view targets.
 
@@ -80,13 +80,13 @@ Output: A working end-to-end image bubble path — parser emits ImageMessage, WS
 </execution_context>
 
 <context>
-@/home/ubuntu/termix/.planning/STATE.md
-@/home/ubuntu/termix/CLAUDE.md
-@/home/ubuntu/termix/src/backend/claude-session/session-file-parser.ts
-@/home/ubuntu/termix/src/backend/claude-session/claude-session-server.ts
-@/home/ubuntu/termix/src/ui/api/claude-session-api.ts
-@/home/ubuntu/termix/src/ui/features/pretty-view/ChatMessage.tsx
-@/home/ubuntu/termix/src/ui/features/pretty-view/PrettyView.tsx
+@/home/ubuntu/skynet/.planning/STATE.md
+@/home/ubuntu/skynet/CLAUDE.md
+@/home/ubuntu/skynet/src/backend/claude-session/session-file-parser.ts
+@/home/ubuntu/skynet/src/backend/claude-session/claude-session-server.ts
+@/home/ubuntu/skynet/src/ui/api/claude-session-api.ts
+@/home/ubuntu/skynet/src/ui/features/pretty-view/ChatMessage.tsx
+@/home/ubuntu/skynet/src/ui/features/pretty-view/PrettyView.tsx
 @/home/ubuntu/.claude/identities/tina/bounties/pretty-view-image-support/proto/server.mjs
 @/home/ubuntu/.claude/identities/tina/bounties/pretty-view-image-support/findings.md
 
@@ -158,7 +158,7 @@ Output: A working end-to-end image bubble path — parser emits ImageMessage, WS
     Verification: `npm test -- session-file-parser` runs the new test file with all 9 cases green.
   </behavior>
   <verify>
-    <automated>cd /home/ubuntu/termix && npm test -- session-file-parser 2>&1 | tail -30</automated>
+    <automated>cd /home/ubuntu/skynet && npm test -- session-file-parser 2>&1 | tail -30</automated>
   </verify>
   <done>
     - `src/backend/claude-session/session-file-parser.ts` exports `ImageBlock`, `ImageMessage`, extended `ParsedLine`, and `extractImageRefs`.
@@ -198,10 +198,10 @@ Output: A working end-to-end image bubble path — parser emits ImageMessage, WS
     Verification:
     - TypeScript compile passes: `npm run build` succeeds (the union addition + new emit must be well-typed both sides).
     - The existing parser test suite still passes (no regressions).
-    - Optional hand-verify (not required in `done`): run `wscat` against the local backend against a session with image events to confirm a `{type:"image",...}` frame lands on the wire. This is a nice-to-have not gated in `<verify>` because backend-live-test requires a running Termix dev instance + SSH creds.
+    - Optional hand-verify (not required in `done`): run `wscat` against the local backend against a session with image events to confirm a `{type:"image",...}` frame lands on the wire. This is a nice-to-have not gated in `<verify>` because backend-live-test requires a running Skynet dev instance + SSH creds.
   </action>
   <verify>
-    <automated>cd /home/ubuntu/termix && npm run build 2>&1 | tail -20</automated>
+    <automated>cd /home/ubuntu/skynet && npm run build 2>&1 | tail -20</automated>
   </verify>
   <done>
     - Wire-protocol comment block in claude-session-server.ts documents the new `type: "image"` frame with its shape and payload-size rationale.
@@ -254,7 +254,7 @@ Output: A working end-to-end image bubble path — parser emits ImageMessage, WS
     - Hand-verify NOT gated (requires live dev server + Ashley's fleet SSH), but the CLAUDE.md GSD Workflow / Nginx caveat is not relevant here (no new backend HTTP routes — WS-only).
   </action>
   <verify>
-    <automated>cd /home/ubuntu/termix && npm run build 2>&1 | tail -20 && npm test 2>&1 | tail -30</automated>
+    <automated>cd /home/ubuntu/skynet && npm run build 2>&1 | tail -20 && npm test 2>&1 | tail -30</automated>
   </verify>
   <done>
     - `src/ui/features/pretty-view/ImageBubble.tsx` exists and renders the assistant identity-hue-tinted glass bubble matching ChatMessage assistant treatment.
@@ -270,9 +270,9 @@ Output: A working end-to-end image bubble path — parser emits ImageMessage, WS
 <verification>
 End-to-end verification (all automated):
 
-1. `cd /home/ubuntu/termix && npm test -- session-file-parser` — 9 new tests pass, existing tests unchanged.
-2. `cd /home/ubuntu/termix && npm run build` — clean TypeScript build across backend + frontend.
-3. `cd /home/ubuntu/termix && npm test` — full test suite passes (no regressions in commandTags, terminal-syntax-highlighter, or any other pretty-view / backend test file).
+1. `cd /home/ubuntu/skynet && npm test -- session-file-parser` — 9 new tests pass, existing tests unchanged.
+2. `cd /home/ubuntu/skynet && npm run build` — clean TypeScript build across backend + frontend.
+3. `cd /home/ubuntu/skynet && npm test` — full test suite passes (no regressions in commandTags, terminal-syntax-highlighter, or any other pretty-view / backend test file).
 
 Optional live-run hand-verification (NOT gated — requires deploy which is out of scope):
 - Open pretty view against a pane with a recent PNG Read → verify:
@@ -304,5 +304,5 @@ HTTP endpoint to bolt onto). Non-image tool_results still drop
 structurally (RENDER-01 hard-lock preserved).
 ```
 
-Branch: stay on `feat/tab-title-from-tmux` — this adds to the existing 13-commit stack, do NOT create a new branch, do NOT deploy (per constraints: no build/docker/deploy; termix-patches.md write-up deferred to pin time).
+Branch: stay on `feat/tab-title-from-tmux` — this adds to the existing 13-commit stack, do NOT create a new branch, do NOT deploy (per constraints: no build/docker/deploy; skynet-patches.md write-up deferred to pin time).
 </output>

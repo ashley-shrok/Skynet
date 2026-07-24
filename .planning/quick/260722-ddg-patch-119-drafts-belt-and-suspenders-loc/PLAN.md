@@ -4,7 +4,7 @@ task_id: 260722-ddg
 slug: patch-119-drafts-belt-and-suspenders-loc
 description: >
   Add a client-side localStorage mirror for compose-box and message-queue
-  drafts so they survive Termix container restarts regardless of any
+  drafts so they survive Skynet container restarts regardless of any
   server-side failure mode. Diagnostic console.warns on save/load help
   narrow the still-unknown root cause of post-restart draft loss.
 created: 2026-07-22
@@ -13,7 +13,7 @@ status: planned
 
 ## Task Summary
 
-Compose-box and message-queue drafts vanish when the Termix container recreates on deploy, even though the 400ms debounced saves reach SQLite. Ashley (maintainer) explicitly authorized a "sync irresponsibly, personal tool max ~20 sessions" belt-and-suspenders: mirror every keystroke to `localStorage` in both surfaces, hydrate from `localStorage` on mount when the server returns an empty body, and emit a one-line `console.warn` on save and load so the next post-restart repro reveals whether the server or the load-key is at fault. No debounce, no root-cause fix, no deploy — Ashley is stacking bounties for a batch deploy later.
+Compose-box and message-queue drafts vanish when the Skynet container recreates on deploy, even though the 400ms debounced saves reach SQLite. Ashley (maintainer) explicitly authorized a "sync irresponsibly, personal tool max ~20 sessions" belt-and-suspenders: mirror every keystroke to `localStorage` in both surfaces, hydrate from `localStorage` on mount when the server returns an empty body, and emit a one-line `console.warn` on save and load so the next post-restart repro reveals whether the server or the load-key is at fault. No debounce, no root-cause fix, no deploy — Ashley is stacking bounties for a batch deploy later.
 
 ## Files to modify
 
@@ -29,7 +29,7 @@ Compose-box and message-queue drafts vanish when the Termix container recreates 
   - On `listMessageQueueItems` hydrate: per-item, if localStorage has content that server doesn't, restore into `items` state and schedule the existing debounced PATCH.
   - Mirror on successful debounced PATCH, clear on successful `deleteMessageQueueItem`.
   - Two diagnostic `console.warn` lines (one per save, one per load).
-- `~/.claude/identities/tina/termix-patches.md` (NOT in the repo, NOT git-tracked — plain file edit)
+- `~/.claude/identities/tina/skynet-patches.md` (NOT in the repo, NOT git-tracked — plain file edit)
   - Bump patch count 118 → 119.
   - Add full entry for #119.
   - Add both `.tsx` files to the patch-drift caveat list if not already present.
@@ -52,7 +52,7 @@ function composeDraftLsKey(
   hostId: string,
   tmuxSessionKey: string | null | undefined,
 ): string {
-  return `termix:compose-draft:${hostId}:${tmuxSessionKey ?? ""}`;
+  return `skynet:compose-draft:${hostId}:${tmuxSessionKey ?? ""}`;
 }
 ```
 
@@ -182,7 +182,7 @@ Near the top of the file (below imports, above the component), add:
 // Patch #119 — draft-loss belt-and-suspenders: per-item localStorage mirror
 // for queued-message bodies. Keyed by itemId (server-generated UUID).
 function messageQueueDraftLsKey(itemId: string): string {
-  return `termix:message-queue-draft:${itemId}`;
+  return `skynet:message-queue-draft:${itemId}`;
 }
 ```
 
@@ -334,13 +334,13 @@ After editing, `grep -n "localStorage" src/ui/features/terminal/MessageQueueDraw
 - 1 in the debounced-save success `setItem`
 - 2-3 in the delete-site `removeItem` calls (2 delete sites + 1 auto-cleanup)
 
-### 3. `~/.claude/identities/tina/termix-patches.md`
+### 3. `~/.claude/identities/tina/skynet-patches.md`
 
 Plain file edit — NOT a git commit, NOT in the repo.
 
 - Bump the header patch count from **118 → 119**.
 - Add a full entry for **#119**:
-  - **Motivation:** compose-box and message-queue drafts vanish after Termix container restart (20+ min old drafts confirmed lost). Debounced 400ms server writes DO reach SQLite; the failure is somewhere between save and post-restart load (suspected: `(userId, hostId, tmuxSession)` load-key mismatch, but root cause not diagnosed). Ashley auth'd "sync irresponsibly" client-side belt-and-suspenders.
+  - **Motivation:** compose-box and message-queue drafts vanish after Skynet container restart (20+ min old drafts confirmed lost). Debounced 400ms server writes DO reach SQLite; the failure is somewhere between save and post-restart load (suspected: `(userId, hostId, tmuxSession)` load-key mismatch, but root cause not diagnosed). Ashley auth'd "sync irresponsibly" client-side belt-and-suspenders.
   - **Fix summary:** localStorage mirror in both compose and message-queue surfaces. Every keystroke and every successful debounced save writes to `localStorage`. On mount, if the server returns empty but ls has content, restore from ls and schedule a debounced save so the server catches up. Two `console.warn` diagnostic lines per surface (save + load) reveal the actual `serverLen` vs `lsLen` next repro.
   - **Files touched:** `src/ui/features/pretty-view/ComposeBox.tsx`, `src/ui/features/terminal/MessageQueueDrawer.tsx`.
   - **Rebase risk:** MEDIUM. Both files are heavily patched (60+ patches on ComposeBox). Changes are additive and localized but sit right on top of the debounce/hydrate machinery. Comment WHY (draft-loss belt-and-suspenders, patch #119) at each insertion site so upstream conflicts are self-explanatory.
@@ -348,14 +348,14 @@ Plain file edit — NOT a git commit, NOT in the repo.
 
 ### 4. Commit
 
-- Read recent commit messages: `git log --oneline -20` in `~/termix` — match the fork's format.
-- Commit message (adjust to fork style, e.g. `feat(termix-composebox):` vs `fix:` vs conventional):
-  - `feat(termix-composebox): patch #119 — localStorage mirror for compose + message-queue drafts`
-- Single commit for both `.tsx` files. The `termix-patches.md` edit is out-of-repo and does not participate in the commit.
+- Read recent commit messages: `git log --oneline -20` in `~/skynet` — match the fork's format.
+- Commit message (adjust to fork style, e.g. `feat(skynet-composebox):` vs `fix:` vs conventional):
+  - `feat(skynet-composebox): patch #119 — localStorage mirror for compose + message-queue drafts`
+- Single commit for both `.tsx` files. The `skynet-patches.md` edit is out-of-repo and does not participate in the commit.
 
 ## Verification steps
 
-1. **`cd ~/termix && npx tsc --noEmit`** — must be clean. Zero errors, zero warnings introduced.
+1. **`cd ~/skynet && npx tsc --noEmit`** — must be clean. Zero errors, zero warnings introduced.
 2. **grep audit on both files** (see 1f and 2f above). Numbers roughly match — a large deviation means a mirror was missed or duplicated.
 3. **Manual diff eyeball:** Ensure `console.warn` count is exactly 4 across both files (2 per file: one `[*-draft] load` and one `[*-draft] save`). More than 4 means a debug leftover; fewer means a diagnostic is missing.
 4. **Diff eyeball on non-goals:** `git diff --stat` should show exactly two files changed. Any third file in the stat is a non-goal violation and must be reverted.

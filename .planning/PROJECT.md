@@ -1,8 +1,8 @@
-# Termix Fork
+# Skynet Fork
 
 ## What This Is
 
-A maintained fork of Termix (self-hosted browser SSH/RDP manager) that adds 42
+A maintained fork of Skynet (self-hosted browser SSH/RDP manager) that adds 42
 numbered patches on top of upstream v2.3.x to fit Ashley's specific workflow:
 many parallel Claude Code sessions on many machines, coordinated via
 identity-aware terminal panes with per-pane message queues. Runs in production
@@ -10,7 +10,7 @@ at term.gigaashley.click as the central access point for her fleet.
 
 ## Core Value
 
-Ashley never loses access to her fleet. Termix is the gateway to every managed
+Ashley never loses access to her fleet. Skynet is the gateway to every managed
 machine (SSM-only admin on the EC2, tailnet-only on the peers). Every change
 must preserve reliable browser SSH+RDP access; features are added around that
 hard constraint, not through it.
@@ -46,7 +46,7 @@ hard constraint, not through it.
 
 <!-- Explicit boundaries. Includes reasoning to prevent re-adding. -->
 
-- Rewriting/replacing upstream Termix — this is a maintained fork, not a rebrand
+- Rewriting/replacing upstream Skynet — this is a maintained fork, not a rebrand
 - Changes that break rebase-ability — patches must apply cleanly and stay
   individually PR-able upstream
 - Speculative features outside Ashley's workflow — no additions for hypothetical users
@@ -55,12 +55,12 @@ hard constraint, not through it.
 
 ## Context
 
-- Fork branch: `feat/tab-title-from-tmux` on `github.com/ashley-shrok/Termix`
-- Upstream: `github.com/Termix-SSH/Termix`
+- Fork branch: `feat/tab-title-from-tmux` on `github.com/ashley-shrok/Skynet`
+- Upstream: `github.com/Skynet-SSH/Skynet`
 - 42 numbered patches as of 2026-07-17; each patch is PR-able upstream individually
-- Runtime: `termix-patched:local` docker image built by
-  `/opt/termix/termix-patches/build-termix.sh` and deployed via docker compose
-- Deployed on this EC2 (termix-ec2), Caddy 2 edge with Let's Encrypt HTTP-01
+- Runtime: `skynet-patched:local` docker image built by
+  `/opt/skynet/skynet-patches/build-skynet.sh` and deployed via docker compose
+- Deployed on this EC2 (skynet-ec2), Caddy 2 edge with Let's Encrypt HTTP-01
 - Maintainer: tina identity (this box's whole-box maintainer)
 - Full runbook and per-patch documentation: `/home/ubuntu/AGENTS.md`
 - Design work for in-flight patches lives at `.planning/shapes/shape-*.md`
@@ -73,16 +73,16 @@ hard constraint, not through it.
   goes through the existing SSH exec-channel plumbing, not a new subsystem.
 - **Rebase-ability**: Every fork commit must survive rebases against upstream
   `main`. Feature commits are numbered and individually PR-able; no squashes.
-- **Deploy safety**: Every `docker compose up -d --force-recreate termix` runs
-  behind the 15-min deadman rollback timer (`/opt/termix/.tmp-revert.sh`) —
+- **Deploy safety**: Every `docker compose up -d --force-recreate skynet` runs
+  behind the 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) —
   no exceptions, per Ashley 2026-07-03, even when she is at the keyboard.
 - **Blast radius**: A bad deploy loses Ashley access to her whole fleet
-  (Termix is the gateway to every managed box). Asymmetric risk drives all
+  (Skynet is the gateway to every managed box). Asymmetric risk drives all
   safety practices.
-- **Encryption**: Termix stores host credentials + SSH keys in AES-encrypted
-  SQLite (`termix-data` volume). Backup is daily EBS DLM snapshot of the root
+- **Encryption**: Skynet stores host credentials + SSH keys in AES-encrypted
+  SQLite (`skynet-data` volume). Backup is daily EBS DLM snapshot of the root
   volume; no separate DB backup story.
-- **Access model**: EC2 admin is AWS SSM only (no public inbound SSH). Termix
+- **Access model**: EC2 admin is AWS SSM only (no public inbound SSH). Skynet
   reaches managed targets over Tailscale (not `--accept-routes`).
 - **Nginx caveat**: Every new backend route needs matching `location` blocks
   in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`, else it 200s
@@ -93,7 +93,7 @@ hard constraint, not through it.
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Maintain as a numbered-patch fork, not a rewrite | Preserves rebase-ability against upstream + PR-able commits + clear audit trail | ✓ Good — 42 patches shipped, all upstream-PR-able |
-| Mandatory 15-min deadman on every deploy | Asymmetric risk: lose Termix = lose fleet = can't recover; the timer is the only safety net that survives lockout | ✓ Good — saved 2 known bad deploys |
+| Mandatory 15-min deadman on every deploy | Asymmetric risk: lose Skynet = lose fleet = can't recover; the timer is the only safety net that survives lockout | ✓ Good — saved 2 known bad deploys |
 | Adopt GSD for the fork (2026-07-17) | Patch #43 is large enough (~500+ lines, backend session-file tail + WS bridge + new pane component + compose box + layout refactor) to justify one-time GSD bootstrap | — Pending |
 | Vertical-MVP phase mode (phase = one patch) | Each shipped patch is an end-to-end user-visible slice; matches how the fork has always worked | — Pending |
 

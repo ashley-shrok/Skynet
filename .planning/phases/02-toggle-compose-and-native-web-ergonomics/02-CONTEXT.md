@@ -92,7 +92,7 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 - `src/ui/features/pretty-view/use-auto-scroll.ts` — chat-app scrollback convention hook.
 - `src/ui/shell/tabUtils.tsx:120-183` — Phase 1's `TerminalTabContent` with the `isPrettyMode` computed off `#pretty=1`. Phase 2 removes the fragment gate and lifts mode state up to Terminal.
 
-### Prior-art code (Termix fork) to reuse — MUST follow these patterns
+### Prior-art code (Skynet fork) to reuse — MUST follow these patterns
 - `src/ui/hooks/use-keyboard-close-tab.ts` — reference implementation for the mode-toggle chord. Copy this shape 1:1 (adjust `KeyCode` and `localStorage` key). Patch #37 pattern.
 - `src/ui/hooks/use-keyboard-message-queue.ts` — a second reference for the same pattern; Ctrl+Shift+; opens the drawer, dispatched via `TerminalHandle.toggleMessageQueue()`. Patch #39 pattern.
 - `src/ui/hooks/use-keyboard-tab-nav.ts` — original reference (patch #31). All three keyboard-chord hooks in this dir follow the same shape; Phase 2's new hook makes four.
@@ -104,15 +104,15 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 - `src/ui/locales/en.json` — three `keyboard*` + `keyboard*Desc` key pairs already present; add a fourth.
 
 ### The project scope
-- `.planning/PROJECT.md` — Termix fork context; Core Value = Ashley never loses access.
+- `.planning/PROJECT.md` — Skynet fork context; Core Value = Ashley never loses access.
 - `.planning/REQUIREMENTS.md` — Phase 2 covers TOGGLE-01..03, RENDER-04..05 (verify-only), COMPOSE-01..05.
 - `.planning/ROADMAP.md` — Phase 2 Goal and Success Criteria.
 - `.planning/phases/01-live-session-stream-to-browser-read-only-pretty-view/01-CONTEXT.md` — Phase 1 context; the "Rendering — Chat App, Not Terminal Wrapper" section and the "No-Active-Session Fallback" already govern PrettyView; Phase 2 does not restate those.
 
 ### Deploy discipline (STANDING CONSTRAINT — NOT a plan task)
-- The fork's mandatory 15-min deadman rollback timer (`/opt/termix/.tmp-revert.sh`) fires on every deploy per Ashley 2026-07-03; no exceptions.
+- The fork's mandatory 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) fires on every deploy per Ashley 2026-07-03; no exceptions.
 - Every backend route change (Phase 2 has none unless verification finds one) needs matching nginx location blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`. Phase 2 SHOULD NOT introduce backend route changes; the compose box send reuses the existing terminal WS input path.
-- Fork build: `sudo bash /opt/termix/termix-patches/build-termix.sh`. Deploy: `cd /opt/termix && sudo docker compose up -d --force-recreate termix`.
+- Fork build: `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`. Deploy: `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
 - Fleet directive (Ashley 2026-07-12): pre-authorized code work does NOT authorize the deploy — every build → deploy transition is a distinct ask. Planner should note this so the executor doesn't stumble.
 
 ### Docs / runbook

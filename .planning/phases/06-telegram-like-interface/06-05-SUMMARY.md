@@ -22,7 +22,7 @@ requires:
 provides:
   - "06-05-BUILD-VERIFY-LOG.md (116 lines) — paper-trail of build clean + Phase 6 artifacts in dist (via i18n + literal marker inventory since Vite mangles identifiers) + patch #35/#57/#60/#100/#102 preservation + scope-fence verification"
   - "06-UAT-CHECKLIST.md (187 lines) — Nyquist walk of TG-01..TG-11 requirements + persistence contract (Plan 06-02 deferred Tests 4-6) + mobile flow + TG-09 new-session walk items (Plan 06-04 SUMMARY 1-9) + negative-space scope-fence + regression smoke against 6 prior patches. 70 blocking (🚨) gates."
-  - "06-PATCHES-MD-ENTRY.md (380 lines) — ready-to-paste draft entry for ~/.claude/identities/tina/termix-patches.md as patch #105. MULTI-COMMIT patch (9 code commits under one pin) explicitly documented. Follows patch #104 (Phase 5) canonical fork-catalog format."
+  - "06-PATCHES-MD-ENTRY.md (380 lines) — ready-to-paste draft entry for ~/.claude/identities/tina/skynet-patches.md as patch #105. MULTI-COMMIT patch (9 code commits under one pin) explicitly documented. Follows patch #104 (Phase 5) canonical fork-catalog format."
 
 affects: []  # Task 4 (deploy) deferred to Ashley-gated main-orchestrator context — no downstream plans in phase 6
 
@@ -31,29 +31,29 @@ tech-stack:
   added: []  # Zero source-code diffs in this plan — all 3 artifacts are markdown
   patterns:
     - "Grep-gate strategy for minified dist: prefer string literals (i18n keys, empty-state copy, URL-fragment key constants) over user-defined identifier names because Vite minification mangles ConversationsPanel/useMobileScreen/etc. to short mangled tokens. This is the NOTE-04 fallback pattern the plan-check called out — documented in 06-05-BUILD-VERIFY-LOG.md Step B."
-    - "MULTI-COMMIT patch entry format for termix-patches.md: pin ONE patch number that covers N code commits landing across multiple planning waves. Precedent set by patch #104 (Phase 5 shipped as 8 code commits under one pin). Distinguishes 'the patch as a semantic unit' from 'the commits that landed it.'"
+    - "MULTI-COMMIT patch entry format for skynet-patches.md: pin ONE patch number that covers N code commits landing across multiple planning waves. Precedent set by patch #104 (Phase 5 shipped as 8 code commits under one pin). Distinguishes 'the patch as a semantic unit' from 'the commits that landed it.'"
     - "Task 4 deferral pattern for Ashley-gated deploys: the executor documents Tasks 1-3 (verification artifacts) as CLEAN and explicitly hands the deploy off to the main-orchestrator context WITHOUT running any docker/build/deadman commands. This preserves the fork's DEPLOY DISCIPLINE per deploy-runbook.md — 'BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT.'"
 
 key-files:
   created:
     - ".planning/phases/06-telegram-like-interface/06-05-BUILD-VERIFY-LOG.md (116 lines — build paper trail with per-step grep outputs, dist bundle sizes, patch preservation checks, scope-fence verification)"
     - ".planning/phases/06-telegram-like-interface/06-UAT-CHECKLIST.md (187 lines — Nyquist Ashley walk of all TG-01..11 + deferred tests + Plan 06-04 items)"
-    - ".planning/phases/06-telegram-like-interface/06-PATCHES-MD-ENTRY.md (380 lines — patch #105 draft for ~/.claude/identities/tina/termix-patches.md)"
+    - ".planning/phases/06-telegram-like-interface/06-PATCHES-MD-ENTRY.md (380 lines — patch #105 draft for ~/.claude/identities/tina/skynet-patches.md)"
     - ".planning/phases/06-telegram-like-interface/06-05-SUMMARY.md (this file)"
   modified: []
   deleted: []
 
 key-decisions:
-  - "Task 4 (deploy) EXPLICITLY NOT EXECUTED per invocation hard-scope. This is an Ashley-gated deploy per fork discipline (~/.claude/identities/tina/deploy-runbook.md — 'DEADMAN IS MANDATORY. NO EXCEPTIONS' + Ashley 2026-07-12 'BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT'). The deploy runs manually in the main orchestrator context AFTER Ashley reviews the UAT checklist + patches-md entry and gives explicit deploy green-light. No docker commands ran; no /opt/termix/ files touched; no deadman armed; no sentinel touched."
+  - "Task 4 (deploy) EXPLICITLY NOT EXECUTED per invocation hard-scope. This is an Ashley-gated deploy per fork discipline (~/.claude/identities/tina/deploy-runbook.md — 'DEADMAN IS MANDATORY. NO EXCEPTIONS' + Ashley 2026-07-12 'BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT'). The deploy runs manually in the main orchestrator context AFTER Ashley reviews the UAT checklist + patches-md entry and gives explicit deploy green-light. No docker commands ran; no /opt/skynet/ files touched; no deadman armed; no sentinel touched."
   - "Build-verify grep-gate strategy: use string literals (i18n keys like 'nav.conversations', 'newSession', 'settingsMenu', 'backToList'; URL-fragment key 'mv'; empty-state copy 'No active conversations'; SESSION_NAME_PATTERN regex body '[\\w-]{0,64}') instead of user-defined identifier names (ConversationsPanel, useMobileScreen, selectConversationDeferred are all mangled by Vite minification). Rationale: NOTE-04 in the plan-check explicitly called out that identifier grep gates are unreliable in minified bundles; the plan documented the fallback and this executor invoked it."
   - "grep -oc (occurrence count) preferred over grep -c (line count) for verification against minified dist chunks. Rationale: minified bundles are effectively single-line; grep -c returns 1 for present and 0 for absent, losing the density information. grep -oc counts each occurrence — e.g. nav.conversations returns 24 in AppShell chunk (matches the 24 i18n interpolations in source), a much stronger signal than 'present at all'. Cross-verified with python3 str.count() to confirm."
-  - "Patches-md entry drafted as patch #105 placeholder. Ashley updates the number at pin time if an interstitial patch pinned between Phase 5's #104 and this. Ashley also bumps the 'ONE HUNDRED FOUR numbered patches' count at the top of termix-patches.md."
+  - "Patches-md entry drafted as patch #105 placeholder. Ashley updates the number at pin time if an interstitial patch pinned between Phase 5's #104 and this. Ashley also bumps the 'ONE HUNDRED FOUR numbered patches' count at the top of skynet-patches.md."
   - "Patches-md entry explicitly documents the MULTI-COMMIT nature (9 code commits + 5 docs commits landing under ONE pin #105). Rationale: patch #104 (Phase 5) set the precedent (8 code + 4 docs commits under one pin) — the 'patch' in this fork's catalog is a semantic unit, not a git commit unit."
   - "Patches-md entry's 'Rebase risk' explicitly marks src/ui/AppShell.tsx as HEAVY (largest single-file edit surface in the fork's history — net +296/-150 across 3 plans that touched it). Documents 6 preservation invariants to hold on rebase, and points to AppShell.persistence.test.tsx as the byte-identity check that will trip if patch #35 mechanism drifts."
   - "UAT checklist front-loads the sign-off block at the TOP of the page (matches Phase 5 UAT precedent) so Ashley can find the disarm sequence + pin instructions immediately after a successful walk."
 
 patterns-established:
-  - "MULTI-COMMIT patch entry format for termix-patches.md — one pin covers N code commits + M docs commits landing across multiple planning waves"
+  - "MULTI-COMMIT patch entry format for skynet-patches.md — one pin covers N code commits + M docs commits landing across multiple planning waves"
   - "String-literal grep-gate strategy for minified dist verification — i18n keys + URL constants + empty-state copy survive Vite mangling; identifier names don't"
   - "grep -oc + python3 str.count() dual verification for occurrence density in minified single-line bundles"
 
@@ -141,11 +141,11 @@ completed: 2026-07-21
 ### Task 4 — DEPLOY — **NOT EXECUTED (deferred to Ashley-gated main-orchestrator context per fork discipline)**
 
 This executor did NOT:
-- Run `sudo bash /opt/termix/termix-patches/build-termix.sh` or any docker build for the termix image
-- Run `sudo docker compose up -d --force-recreate termix` or any container recreate
-- Edit `/opt/termix/docker-compose.yml`
+- Run `sudo bash /opt/skynet/skynet-patches/build-skynet.sh` or any docker build for the skynet image
+- Run `sudo docker compose up -d --force-recreate skynet` or any container recreate
+- Edit `/opt/skynet/docker-compose.yml`
 - Arm any deadman (`nohup sudo -b bash -c 'sleep 900...'`)
-- Touch `/tmp/termix-keep-patched` or any sentinel file
+- Touch `/tmp/skynet-keep-patched` or any sentinel file
 - Run any `docker` commands beyond the build being verified locally via `npm run build`
 
 **Rationale:** per `~/.claude/identities/tina/deploy-runbook.md`:
@@ -261,7 +261,7 @@ None. This plan produces ZERO source-code diffs; only markdown artifacts. No new
 **What's pending Ashley's call:**
 - Review UAT checklist + patches-md entry (may edit both — they're drafts for Ashley review per invocation contract)
 - Give explicit per-deploy green-light per Ashley 2026-07-12 discipline
-- Ashley (or Tina in main orchestrator context) runs `deploy-runbook.md` steps 1-9: git push → build → arm deadman → force-recreate → UAT walk → disarm or let fire → pin patch #105 in `~/.claude/identities/tina/termix-patches.md`
+- Ashley (or Tina in main orchestrator context) runs `deploy-runbook.md` steps 1-9: git push → build → arm deadman → force-recreate → UAT walk → disarm or let fire → pin patch #105 in `~/.claude/identities/tina/skynet-patches.md`
 - Close bounty via `/close telegram-like-interface`
 
 **This executor's contribution is complete.** Deploy is Ashley's next call.
@@ -277,7 +277,7 @@ None. This plan produces ZERO source-code diffs; only markdown artifacts. No new
 **Commit existence** (all on `feat/tab-title-from-tmux`):
 - `0cfb5d9` (docs(06-05): build-verify log — Phase 6 clean into dist) — FOUND ✓
 - `5fcc81c` (docs(06-05): Nyquist UAT checklist for Phase 6 telegram-like interface) — FOUND ✓
-- `2c6bc19` (docs(06-05): draft termix-patches.md entry for Phase 6 pin) — FOUND ✓
+- `2c6bc19` (docs(06-05): draft skynet-patches.md entry for Phase 6 pin) — FOUND ✓
 
 **Acceptance criteria bundle:**
 - Build clean (13.48s, no errors) ✓
@@ -294,7 +294,7 @@ None. This plan produces ZERO source-code diffs; only markdown artifacts. No new
 - No changes under `src/` ✓
 - No changes under `docker/` ✓
 - No changes to `package.json` / `package-lock.json` ✓
-- No touches to `/opt/termix/` or any docker/deadman/sentinel infrastructure ✓
+- No touches to `/opt/skynet/` or any docker/deadman/sentinel infrastructure ✓
 
 ---
 *Phase: 06-telegram-like-interface*

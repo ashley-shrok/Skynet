@@ -173,7 +173,7 @@ describe("mobile-flow: tab-url.ts round-trip", () => {
     const payload = encodeWorkspaceSpec(spec);
     expect(payload).toContain("mv=1");
     // Stash into sessionStorage the way snapshotPendingTab would, then read.
-    window.sessionStorage.setItem("termix_pending_tab", payload);
+    window.sessionStorage.setItem("skynet_pending_tab", payload);
     const parsed = consumePendingWorkspace();
     expect(parsed).not.toBeNull();
     expect(parsed!.mobileView).toBe(true);

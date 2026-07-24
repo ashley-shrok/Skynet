@@ -1,9 +1,9 @@
 # Patch #128 — Pretty-Conversations visual-language rework (Phase 10)
 
-**Paste target:** `~/.claude/identities/tina/termix-patches.md`
+**Paste target:** `~/.claude/identities/tina/skynet-patches.md`
 **Paste timing:** After Ashley greenlights the batched #123-#128 deploy AND UAT passes on the 19 non-negotiable items. Post-deadman-retirement flow per current `deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
 **Batch context:** Stacks on the pending #123-#127 stack (paperclip decouple, ThumbsUp "yes"→"let's go" rename, Skynet rebrand + PWA install, PWA safe-area polish, plus whatever #127 landed as). Single build/deploy per current fork discipline.
-**Ordinal position on paste:** Update the "ONE HUNDRED TWENTY-SEVEN numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED TWENTY-EIGHT".
+**Ordinal position on paste:** Update the "ONE HUNDRED TWENTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED TWENTY-EIGHT".
 
 ---
 
@@ -16,7 +16,7 @@
 
         * **Motivating gap** (three-part, all Ashley-called):
           (a) The Phase 6/7 ConversationsPanel + ConversationRow felt
-          like a Termix retrofit — dense rows, small tap targets, no
+          like a Skynet retrofit — dense rows, small tap targets, no
           identity presence — not mobile-native and out of step with
           pretty-view's visual language. Rows read as generic terminal-
           list entries rather than "conversations with an identity."
@@ -252,7 +252,7 @@
 
 ## Fill-in placeholders (before pasting)
 
-Before pasting into termix-patches.md, replace the following if not already resolved:
+Before pasting into skynet-patches.md, replace the following if not already resolved:
 
 - `[Wave-5 docs SHA — fill in after commit]` — from `git rev-parse --short HEAD` immediately after the Wave 5 docs commit.
 - `[Wave-5 tip SHA]` — the same SHA (Wave 5 is the tip after the docs commit).
@@ -261,9 +261,9 @@ The LOC counts + vitest count (499/503) + AppShell bundle delta (+5,288 bytes) a
 
 ## Post-paste bookkeeping
 
-After pasting into termix-patches.md:
+After pasting into skynet-patches.md:
 
-1. Update the count line near the top of the file from "ONE HUNDRED TWENTY-SEVEN numbered patches" to "ONE HUNDRED TWENTY-EIGHT numbered patches" (or whatever the actual pre-paste count reads — verify with `grep "numbered patches" ~/.claude/identities/tina/termix-patches.md | head -3`).
+1. Update the count line near the top of the file from "ONE HUNDRED TWENTY-SEVEN numbered patches" to "ONE HUNDRED TWENTY-EIGHT numbered patches" (or whatever the actual pre-paste count reads — verify with `grep "numbered patches" ~/.claude/identities/tina/skynet-patches.md | head -3`).
 2. Commit the pin: `docs(patches): pin patch #128 — pretty-conversations visual-language rework`.
 3. `/close pretty-conversations-panel-redesign` on the Phase 10 bounty at `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/`.
 4. Update `~/.claude/identities/tina/tina.md` compact overview if warranted (typically only for phase-scoped patches that alter tina's operating envelope — Phase 10 is presentation-only so likely no tina.md update needed; check convention).

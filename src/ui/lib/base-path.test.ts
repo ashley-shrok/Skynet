@@ -4,7 +4,7 @@ import { getBasePath } from "./base-path.js";
 const win = window as unknown as Record<string, unknown>;
 
 afterEach(() => {
-  delete win.__TERMIX_BASE_PATH__;
+  delete win.__SKYNET_BASE_PATH__;
 });
 
 describe("getBasePath", () => {
@@ -14,12 +14,12 @@ describe("getBasePath", () => {
   });
 
   it("uses the runtime override when present", () => {
-    win.__TERMIX_BASE_PATH__ = "/termix";
-    expect(getBasePath()).toBe("/termix");
+    win.__SKYNET_BASE_PATH__ = "/skynet";
+    expect(getBasePath()).toBe("/skynet");
   });
 
   it("strips a trailing slash from the runtime override", () => {
-    win.__TERMIX_BASE_PATH__ = "/termix/";
-    expect(getBasePath()).toBe("/termix");
+    win.__SKYNET_BASE_PATH__ = "/skynet/";
+    expect(getBasePath()).toBe("/skynet");
   });
 });

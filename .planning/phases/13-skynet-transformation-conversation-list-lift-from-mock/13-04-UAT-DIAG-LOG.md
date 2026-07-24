@@ -662,7 +662,7 @@ either.**
       running against a workstation build)
 - [ ] Ashley freshly reloads the page (Cmd+R desktop / iOS reload PWA) to
       clear stale sessionStorage / activeSet from prior sessions
-- [ ] The 15-min deadman rollback timer (`/opt/termix/.tmp-revert.sh`) is
+- [ ] The 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) is
       armed if deploying to prod
 
 **Deployment status:** _(Ashley: fill after deploy)_
@@ -800,7 +800,7 @@ _PASS (smooth all gestures) / FAIL_FREEZE (locks partway; specify which gesture)
 **How to check:**
 
 1. Click into an RDP-host-sentinel row → Guacamole pane opens.
-2. Confirm visual is unchanged from pre-Phase-13 (Termix theme classes
+2. Confirm visual is unchanged from pre-Phase-13 (Skynet theme classes
    preserved for RDP/shadcn per Ship-of-Theseus rule).
 3. Optionally open any shadcn dialog (NewSessionDialog, TmuxSessionPicker,
    SSHAuthDialog, OPKSSHDialog) and confirm visual unchanged.
@@ -890,7 +890,7 @@ mechanism it maps to.
 |-----|-----|-----|-----|
 | PASS | Ship-of-Theseus scope preserved. | Close. | closed |
 | FAIL: shadcn dialog broken | Wave 1/2/3 modified `src/ui/components/`, `src/ui/ssh/`, or `src/ui/features/terminal/` | HARD FAIL — revert + rebase. Verify Ship-of-Theseus rule is honored for upstream rebase-ability. | phase-13 (immediate revert + rebase); mandatory before phase closes |
-| FAIL: RDP pane visual regressed | Same as above (probably a shared class-inheritance leak from `--color-pv-*` tokens into a Termix theme surface) | Investigate CSS token bleeding. Termix theme classes (`--foreground`, `--background`, etc.) should be independent from `--color-pv-*`. If any pv token is being applied to an RDP surface, that's the leak. | phase-13 (diagnostic + revert appropriate scope) |
+| FAIL: RDP pane visual regressed | Same as above (probably a shared class-inheritance leak from `--color-pv-*` tokens into a Skynet theme surface) | Investigate CSS token bleeding. Skynet theme classes (`--foreground`, `--background`, etc.) should be independent from `--color-pv-*`. If any pv token is being applied to an RDP surface, that's the leak. | phase-13 (diagnostic + revert appropriate scope) |
 
 ---
 

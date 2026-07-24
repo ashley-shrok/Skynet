@@ -4,8 +4,8 @@
 
 ## Prerequisites (do these once before starting the checklist)
 
-- Confirm the fresh build is running: `sudo docker exec termix cat /app/dist/backend/backend/starter.js | head -3` (any nonempty output means the container is up on the current patch).
-- Have at least two identity-tagged tmux panes available in Termix. Ideally:
+- Confirm the fresh build is running: `sudo docker exec skynet cat /app/dist/backend/backend/starter.js | head -3` (any nonempty output means the container is up on the current patch).
+- Have at least two identity-tagged tmux panes available in Skynet. Ideally:
   - One pane matched to an identity **with `colorHue` set** (e.g. tina at hue 35 = amber — verify via `curl -s -H "Authorization: Bearer <tmx_>" https://term.gigaashley.click/identities/ | jq '.[] | {identity_key, color_hue}'`).
   - One pane matched to a **different-colorHue identity** (e.g. bella if her colorHue is set to a distinct value — pink/hue 320 works if configured).
 - Have at least one non-identity pane available (e.g. a fresh `ssh` session on GIGAASHLEYPC or any host with no matching identity in the registry).
@@ -26,13 +26,13 @@
 - [ ] Sidebar (AppRail + expanded panels) unchanged: HostsPanel, SessionsPanel, HistoryPanel, SnippetsPanel, UserProfilePanel, AdminIdentitiesSection all render as pre-deploy.
 - [ ] TabBar unchanged: identity tint + avatar carry-through (patch #32) still works, tab hover states, drag-to-reorder, right-click menu, overflow dropdown.
 
-**Failure indicator**: any visual difference in terminal / RDP / VNC / dashboard / sidebar / tab bar / AppRail / file manager. If yes, revert immediately per AGENTS.md deploy runbook (`sudo bash /opt/termix/.tmp-revert.sh`).
+**Failure indicator**: any visual difference in terminal / RDP / VNC / dashboard / sidebar / tab bar / AppRail / file manager. If yes, revert immediately per AGENTS.md deploy runbook (`sudo bash /opt/skynet/.tmp-revert.sh`).
 
 ### VISUAL-01 — Atmospheric warm-neutral base
 
 - [ ] Flip to pretty view on any pane (Ctrl+Shift+O). Background reads as a **warm off-black atmosphere**, not flat black, not cool navy-black. Two radial-gradient overlays imply an ambient light source: warm hue-tinted glow from the top-left, cool violet from the bottom-right.
 - [ ] Scroll through the message list — the atmospheric background stays consistent (no banding, no visible seams, no repeat pattern).
-- [ ] The overall feel is "themed island" — pretty view has its own distinct visual identity separate from Termix's flat-brutalist chrome.
+- [ ] The overall feel is "themed island" — pretty view has its own distinct visual identity separate from Skynet's flat-brutalist chrome.
 
 **Failure indicator**: flat black/dark background, cool blue-black tint, or visible gradient banding.
 
@@ -132,10 +132,10 @@
 - [ ] SessionHoldingBanner sticky positioning verified as PRESERVED (FRAGILITY WARNING acid test passed).
 - [ ] Ashley signs off: **"Phase 4 UAT green — pin the deploy."**
 
-If any item fails, the standard 15-min deadman timer + `sudo bash /opt/termix/.tmp-revert.sh` runbook handles rollback. Otherwise pin with the **narrow pkill pattern** per AGENTS.md:
+If any item fails, the standard 15-min deadman timer + `sudo bash /opt/skynet/.tmp-revert.sh` runbook handles rollback. Otherwise pin with the **narrow pkill pattern** per AGENTS.md:
 
 ```bash
-sudo touch /tmp/termix-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'
+sudo touch /tmp/skynet-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'
 ```
 
 ⚠️ Do NOT use `pkill -f "sleep 900"` — the bare match kills the guacd-zombie sentinel too.

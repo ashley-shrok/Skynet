@@ -13,9 +13,9 @@ const swaggerOptions: SwaggerJSDocOptions = {
   definition: {
     openapi: "3.0.3",
     info: {
-      title: "Termix API",
+      title: "Skynet API",
       version: "0.0.0",
-      description: "Termix Backend API Reference",
+      description: "Skynet Backend API Reference",
     },
     servers: [
       {

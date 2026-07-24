@@ -81,7 +81,7 @@ const LANGUAGES = [
   { code: "vi", label: "Tiếng Việt" },
 ];
 
-const STORAGE_KEY = "termix_auth";
+const STORAGE_KEY = "skynet_auth";
 
 export function getStoredAuth(): {
   loggedIn: boolean;
@@ -120,7 +120,7 @@ interface ExtendedWindow extends Window {
 }
 
 const isInMobileWebView = () =>
-  /Termix-Mobile\/(Android|iOS)/.test(navigator.userAgent) ||
+  /Skynet-Mobile\/(Android|iOS)/.test(navigator.userAgent) ||
   !!(window as ExtendedWindow).ReactNativeWebView;
 
 const isInElectronWebView = () => {
@@ -352,7 +352,7 @@ export function Auth({ onLogin }: AuthProps) {
       if (isInMobileWebView()) {
         // The OIDC callback authenticated via an HttpOnly cookie on this origin,
         // so the token isn't in localStorage. Prefer a token passed in the URL
-        // (termix-mobile:-origin callbacks include one), otherwise read it back
+        // (skynet-mobile:-origin callbacks include one), otherwise read it back
         // from the cookie via /users/me/token before handing it to the app.
         const postToken = (token: string) => {
           (window as ExtendedWindow).ReactNativeWebView?.postMessage(
@@ -941,7 +941,7 @@ export function Auth({ onLogin }: AuthProps) {
           />
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 px-12">
             <span className="text-4xl font-bold tracking-[0.3em] font-mono">
-              TERMIX
+              SKYNET
             </span>
             <div className="w-8 h-px bg-accent-brand" />
             <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-[0.25em]">

@@ -217,7 +217,7 @@ Do not renumber or move the surrounding comment lines.
 `setInterval` at line 475 and is orthogonal to this scan.
   </action>
   <verify>
-    <automated>cd ~/termix &amp;&amp; npx tsc --noEmit 2&gt;&amp;1 | grep -E 'claude-session-server\.ts' | head -20 ; echo EXIT=$?</automated>
+    <automated>cd ~/skynet &amp;&amp; npx tsc --noEmit 2&gt;&amp;1 | grep -E 'claude-session-server\.ts' | head -20 ; echo EXIT=$?</automated>
   </verify>
   <done>
 - The `pendingPlans` map + `pendingPlansLastSerialized` init are declared
@@ -268,7 +268,7 @@ Do not touch any other export in this file. Do not export
 event type is a named export.
   </action>
   <verify>
-    <automated>cd ~/termix &amp;&amp; grep -c 'PlanPendingEvent' src/ui/api/claude-session-api.ts</automated>
+    <automated>cd ~/skynet &amp;&amp; grep -c 'PlanPendingEvent' src/ui/api/claude-session-api.ts</automated>
   </verify>
   <done>
 - `PlanPendingEvent` is exported with the exact shape `{ type:
@@ -354,7 +354,7 @@ rules apply globally within the pretty-view render tree, and the
 default browser `<code>` styling is fine when they do not.
   </action>
   <verify>
-    <automated>test -f /home/ubuntu/termix/src/ui/features/pretty-view/PlanPendingBubble.tsx &amp;&amp; grep -c 'ClipboardList\|PlanPendingBubble' /home/ubuntu/termix/src/ui/features/pretty-view/PlanPendingBubble.tsx</automated>
+    <automated>test -f /home/ubuntu/skynet/src/ui/features/pretty-view/PlanPendingBubble.tsx &amp;&amp; grep -c 'ClipboardList\|PlanPendingBubble' /home/ubuntu/skynet/src/ui/features/pretty-view/PlanPendingBubble.tsx</automated>
   </verify>
   <done>
 - File exists at `src/ui/features/pretty-view/PlanPendingBubble.tsx`.
@@ -448,7 +448,7 @@ for you". Do NOT gate one against the other.
   from patches #52 and #61.
   </action>
   <verify>
-    <automated>cd ~/termix &amp;&amp; grep -c 'PlanPendingBubble\|planPending' src/ui/features/pretty-view/PrettyView.tsx</automated>
+    <automated>cd ~/skynet &amp;&amp; grep -c 'PlanPendingBubble\|planPending' src/ui/features/pretty-view/PrettyView.tsx</automated>
   </verify>
   <done>
 - `PlanPendingBubble` is imported after `WipBubble` on ~line 15.
@@ -470,18 +470,18 @@ for you". Do NOT gate one against the other.
 <verification>
 Post-execution checks:
 
-1. **Type check** (from `~/termix` root):
+1. **Type check** (from `~/skynet` root):
    ```
-   cd ~/termix && npx tsc --noEmit
+   cd ~/skynet && npx tsc --noEmit
    ```
    Expect zero errors. Any error touching the four files listed above
    is a plan bug — fix in-file, do NOT relax types.
 
-2. **Build check** (from `~/termix` root):
+2. **Build check** (from `~/skynet` root):
    ```
-   cd ~/termix && npm run build
+   cd ~/skynet && npm run build
    ```
-   Expect clean build. This is what `build-termix.sh` runs inside the
+   Expect clean build. This is what `build-skynet.sh` runs inside the
    image; verifying it here catches problems before touching Docker.
 
 3. **git diff --stat** should show exactly four files:
@@ -492,11 +492,11 @@ Post-execution checks:
 
 4. **Compiled invariants** (only after a subsequent deploy — deferred):
    ```
-   docker exec termix grep -c 'type: "plan_pending"' /app/dist/backend/backend/claude-session/claude-session-server.js
+   docker exec skynet grep -c 'type: "plan_pending"' /app/dist/backend/backend/claude-session/claude-session-server.js
    ```
    Expect ≥1 (the emit call).
    ```
-   docker exec termix grep -c 'pendingPlans' /app/dist/backend/backend/claude-session/claude-session-server.js
+   docker exec skynet grep -c 'pendingPlans' /app/dist/backend/backend/claude-session/claude-session-server.js
    ```
    Expect ≥3 (Map declaration + set + delete + iter + emit — after
    minification the count depends on Vite's mangler; anything ≥3 confirms

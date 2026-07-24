@@ -1,4 +1,4 @@
-# Requirements: Termix Fork — Pretty Session View (Patch #43)
+# Requirements: Skynet Fork — Pretty Session View (Patch #43)
 
 **Defined:** 2026-07-17
 **Core Value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
@@ -73,9 +73,9 @@ Requirements for patch #43. Each maps to a roadmap phase.
 
 ### Dead-Surfaces Purge — First Slice (Phase 11)
 
-- [ ] **PURGE-01**: On desktop, fresh page-load without a hash-fragment lands on the pretty-conversations panel (sidebar) + PrettyView chat surface (default main pane) — NOT the Termix dashboard, host manager, or any prior Termix landing UI
+- [ ] **PURGE-01**: On desktop, fresh page-load without a hash-fragment lands on the pretty-conversations panel (sidebar) + PrettyView chat surface (default main pane) — NOT the Skynet dashboard, host manager, or any prior Skynet landing UI
 - [ ] **PURGE-02**: The left AppRail component file no longer exists in the source tree; zero imports of the deleted AppRail path remain anywhere under `src/`; `tsc` clean; test suite green after removal
-- [ ] **PURGE-03**: No visible UI navigation path exists from a fresh Termix landing to the Termix dashboard, host manager pages, snippets manager, admin console, or any settings surface (surfaces may still have route files pending follow-up phase deletion, but they must be unreachable from AppShell)
+- [ ] **PURGE-03**: No visible UI navigation path exists from a fresh Skynet landing to the Skynet dashboard, host manager pages, snippets manager, admin console, or any settings surface (surfaces may still have route files pending follow-up phase deletion, but they must be unreachable from AppShell)
 - [ ] **PURGE-04**: Backend `/host/db/*` and `/identities/*` endpoints and the encrypted-SQLite data layer are untouched — no backend route or schema deletion in this phase; the pretty-conversations panel continues to read the host list via the same API path it uses today
 - [ ] **PURGE-05**: RDP/VNC/Guacamole sessions launch and render exactly as they did before the purge; Phase 7's RDP-host-sentinel row in the conversation list continues to open Guacamole panes for RDP-enabled hosts
 
@@ -83,9 +83,19 @@ Requirements for patch #43. Each maps to a roadmap phase.
 
 - [ ] **PURGE-06**: All Phase-11-orphaned sidebar panel files are deleted from `src/ui/sidebar/` — HostsPanel, SessionsPanel, CredentialsPanel, QuickConnectPanel, SshToolsPanel, SnippetsPanel, HistoryPanel, SplitScreenPanel, ConnectionsPanel, UserProfilePanel, AdminSettingsPanel + AdminApiKeys/Identities/Management/Settings/Shared/UserDialogs sections, HostManager + HostManagerData/HostManagerTabs/HostShareModal, HostEditor + HostEditorData/HostEditorFeatureTabs/HostEditorGeneralTab/HostEditorGuacamoleTabs/HostEditorStatsTab, HostCredentialList, CredentialEditorView, SidebarTree — grep for each identifier returns 0 code hits across `src/`; `sidebar/NewSessionDialog.tsx` (used by pretty-conversations pencil) STAYS
 - [ ] **PURGE-07**: `src/ui/dashboard/` subtree is deleted (DashboardTab.tsx, Dashboard.tsx, SessionDashboard.tsx, NewSessionHostChips.tsx, RemoteHostChips.tsx, sshHostToHost.ts, plus cards/components/hooks/panels/ subdirs whose only consumers are dashboard files); the "dashboard" TabType STAYS as a load-bearing fallback identifier in `src/types/ui-types.ts`
-- [ ] **PURGE-08**: Termix tab bar chrome (top-level visible tab strip UI Ashley never sees in Skynet) is deleted from the source tree; invisible tab plumbing (mount/unmount, WebSocket lifecycle, focus routing) stays intact
+- [ ] **PURGE-08**: Skynet tab bar chrome (top-level visible tab strip UI Ashley never sees in Skynet) is deleted from the source tree; invisible tab plumbing (mount/unmount, WebSocket lifecycle, focus routing) stays intact
 - [ ] **PURGE-09**: Keyboard shortcut editor UI (`src/ui/features/keyboard/` visible editor surfaces) is deleted; underlying keyboard shortcut handling for retained UI (Ctrl+Shift+O pretty-view toggle, ChordDropdown, other retained shortcuts) stays intact
 - [ ] **PURGE-10**: Dead locale strings (`pinAppRail`, `nav.dashboard`, `nav.hosts`, `nav.snippets`, `nav.admin`, `nav.credentials`, `nav.history`, and every transitively-dead key referencing deleted surfaces) are removed from all `src/ui/locales/*.json` files; `tsc --noEmit` exits 0 across typed-i18n consumers
+
+### Skynet Shape Completion — Conversation List + Shell Chrome Lift-from-Mock (Phase 13)
+
+- [ ] **SHAPE-01**: The conversation list rows (`PrettyConversationRow.tsx`) are lifted directly from the locked mock at `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` (mock v4) — the mock's `.row` / `.avatar` / `.body` / `.meta` / `.dot` selectors + `.selected` / `.active-set` / `.working` / `.pinned` class-toggle state variants become the source of truth for row rendering. JS-computed inline styles for the base + variant treatments are retired in favor of a real CSS file (or CSS module) with the mock's flat selectors. Tailwind layout scaffolding on the row itself (`flex-1 min-w-0 flex flex-col gap-0.5`, `shrink-0 flex items-center gap-1.5`, etc.) is retired in favor of the mock's raw CSS layout. Surviving JS-only concerns (swipe reveal, ready-dot conditional render, avatar image src) stay in the component — those are logic, not styling.
+- [ ] **SHAPE-02**: The panel header (`PrettyConversationsPanel.tsx` header row with title + pencil) is lifted from the mock's `.panel-header` / `.panel-header .title` / `.panel-header .pencil` selectors. Title becomes ALL-CAPS with `letter-spacing: 0.1em` at 12px/weight-700 (from current 13px/weight-600/tight-tracking mixed-case). Pencil button retires its filled-glass-pill treatment (`bg-white/[0.04] border border-white/[0.09] rounded-full` at 34x34) for the mock's transparent-icon-with-rounded-md treatment (32x32, transparent bg + border, `border-radius: 8px`, `--color-pv-fg-muted` icon color).
+- [ ] **SHAPE-03**: The `PinAction.tsx` pin button retires its Skynet button chrome (`w-6 h-6 rounded-md bg-transparent border-0 hover:bg-white/[0.06] text-muted-foreground/60`) and lifts the mock's bare-icon-with-hue-drop-shadow treatment: `color: hsla(hue, 80%, 70%, 0.95)` + `filter: drop-shadow(0 0 4px hsla(hue, 80%, 60%, 0.55))` on pinned rows; unpinned rows hide the pin button entirely (mock's `.row:not(.pinned) .meta .pin { display: none }` rule). The last two Skynet theme-class hits in the conversation-list subtree (`text-muted-foreground/60`, `hover:text-foreground` at `PinAction.tsx:98,101`) are eliminated.
+- [ ] **SHAPE-04**: The shell chrome top bar around the conversation list — the surface with the sidebar-toggle chevron in `AppShell.tsx` (~L1407) — is rebased to the mock's palette (`--color-pv-*`, not Skynet `--background`/`--foreground` tokens) and matching visual treatment (transparent-icon-with-rounded-md button style, no filled-glass pill). Any `100dvh`/`100vh` reference that escapes AppShell's safe-area padding chain is identified and structurally fixed so the pretty-conversations panel's per-scroller `pb-[env(safe-area-inset-bottom)]` workaround (patch #126) can eventually be reverted.
+- [ ] **SHAPE-05**: Post-lift, the ready-for-attention dot on rows Ashley has clicked into IS visible in UAT (mobile + desktop). If the lift alone doesn't resolve dot visibility, the four candidates are investigated: (a) Terminal.tsx isIdle null-start (ticker not fired post-recreate?), (b) sessionWorkingKey mismatch (row.targetTmuxSession null vs Terminal publishing real tmuxSessionName), (c) activeSet sessionStorage populate on fresh session, (d) PrettyConversationRowLive Rules-of-Hooks compliance.
+- [ ] **SHAPE-06**: The pretty-view chat surface interior (bubbles, compose box, IdentityBadge, message rendering, chat-column background) is NOT touched. If any Phase 13 task appears to want to edit `src/ui/features/pretty-view/*.tsx` for styling reasons, the scope check fails and the task is rejected — pretty-view interior is locked. RDP/VNC panes, xterm.js renderer, and shadcn primitives serving those surfaces are also NOT touched (Ship-of-Theseus rule — upstream Skynet rebase-ability preserved). Only the conversation list + its surrounding shell chrome are in scope.
+- [ ] **SHAPE-07**: Ashley UATs the conversation list at parity with the mock on both mobile (iPhone PWA) and desktop viewports; `tsc --noEmit` exits 0; `npx vitest run` all green (or unchanged from Phase 12's baseline); `npm run build` succeeds.
 
 ### Visual Reskin — Glass Depth Aesthetic (Phase 4)
 
@@ -98,7 +108,7 @@ Requirements for patch #43. Each maps to a roadmap phase.
 - [x] **VISUAL-07**: The textarea within the compose has a lightest-touch 1px warm-white outline (~0.09 opacity) that makes it findable as a receptacle for typing, without becoming visually loud; focused textarea gets an identity-hue focus ring
 - [ ] **VISUAL-08**: The send button retains a saturated identity-hue glow — the ONE intentional attention-grab-point in the compose area for "I am ready to fire this message"
 - [x] **VISUAL-09**: All existing pretty-view functionality (chat rendering, ComposeBox split-send + reset + go-ahead paths, HarnessTasksPanel, BackgroundedAgentsPanel, BackgroundedShellsPanel, WipBubble, PlanPendingBubble, session-changeover holding/changed banners, empty state, error states, keyboard chords) is preserved end-to-end — the reskin is CSS-only, no behavior changes to any component's props, state, effects, or WebSocket handling
-- [ ] **VISUAL-10**: The reskin does NOT visually touch terminal / RDP / VNC / file manager / dashboard / sidebar / tab bar / AppRail chrome — pretty view remains a themed island in the current Termix visual system. Identity badge specifically preserves its existing patch #38 hover-fade behavior wherever it's used (including terminal panes, not just pretty view)
+- [ ] **VISUAL-10**: The reskin does NOT visually touch terminal / RDP / VNC / file manager / dashboard / sidebar / tab bar / AppRail chrome — pretty view remains a themed island in the current Skynet visual system. Identity badge specifically preserves its existing patch #38 hover-fade behavior wherever it's used (including terminal panes, not just pretty view)
 
 ### Telegram-like Interface (Phase 6)
 
@@ -116,9 +126,9 @@ Requirements for patch #43. Each maps to a roadmap phase.
 
 ### Fleet-native Conversation List (Phase 7)
 
-Continuation of the TG-XX numbering from Phase 6. Follow-up to address the Phase 6 UAT gap where the list's data source mirrored only the browser-tab's open Termix tabs (empty on fresh page-load) instead of the fleet's running tmux sessions.
+Continuation of the TG-XX numbering from Phase 6. Follow-up to address the Phase 6 UAT gap where the list's data source mirrored only the browser-tab's open Skynet tabs (empty on fresh page-load) instead of the fleet's running tmux sessions.
 
-- [ ] **TG-12**: The list's data source is fleet-native — every tmux session on every reachable host appears as a row, sourced from the same fleet-discovery signal the current sidebar host-tree and double-shift menu already use. The set of rows is the union of "fleet-discovered tmux sessions" and "browser-tab's open Termix tabs," deduplicated by session identity. On a fresh page-load with no browser-tab tabs open, the list shows every running tmux session across every reachable host.
+- [ ] **TG-12**: The list's data source is fleet-native — every tmux session on every reachable host appears as a row, sourced from the same fleet-discovery signal the current sidebar host-tree and double-shift menu already use. The set of rows is the union of "fleet-discovered tmux sessions" and "browser-tab's open Skynet tabs," deduplicated by session identity. On a fresh page-load with no browser-tab tabs open, the list shows every running tmux session across every reachable host.
 - [ ] **TG-13**: Attached (clicked earlier this page-load, live connection open, pane warm) and detached (existing on the box but not yet clicked this page-load) rows are visually indistinguishable. No brightness difference, no italic, no dot, no per-row status indicator distinguishing the two states. Rows are rows.
 - [ ] **TG-14**: Clicking a detached row transparently attaches, mounts, and shows the session — a single-click flow with no attach dialog, no confirmation modal, no separate "connect" step. The user experience of clicking a detached row and clicking an attached row is functionally identical; only the underlying latency differs, and that difference is not surfaced.
 - [ ] **TG-15**: Remote-desktop host rows sit at the bottom of the list — one row per RDP-enabled host, rendered with a monitor icon in the avatar slot (no identity hue, no identity name, just the host name + monitor glyph). The row exists as long as the host is RDP-enabled, independent of whether an RDP tab is currently open for that host. Clicking the row opens the remote desktop (attach + mount + show) using the existing RDP tab lifecycle mechanism (unchanged from today).
@@ -244,6 +254,13 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PURGE-08 | Phase 12 | Pending |
 | PURGE-09 | Phase 12 | Pending |
 | PURGE-10 | Phase 12 | Pending |
+| SHAPE-01 | Phase 13 | Pending |
+| SHAPE-02 | Phase 13 | Pending |
+| SHAPE-03 | Phase 13 | Pending |
+| SHAPE-04 | Phase 13 | Pending |
+| SHAPE-05 | Phase 13 | Pending |
+| SHAPE-06 | Phase 13 | Pending |
+| SHAPE-07 | Phase 13 | Pending |
 
 **Coverage:**
 - v1 requirements: 76 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12)

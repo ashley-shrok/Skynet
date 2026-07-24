@@ -12,7 +12,7 @@ interface TerminalPreviewProps {
 }
 
 export function TerminalPreview({
-  theme = "termix",
+  theme = "skynet",
   fontSize = 14,
   fontFamily = "Caskaydia Cove Nerd Font Mono",
   cursorStyle = "bar",
@@ -23,12 +23,12 @@ export function TerminalPreview({
   const { theme: appTheme } = useTheme();
 
   const resolvedTheme =
-    theme === "termix"
+    theme === "skynet"
       ? appTheme === "dark" ||
         (appTheme === "system" &&
           window.matchMedia("(prefers-color-scheme: dark)").matches)
-        ? "termixDark"
-        : "termixLight"
+        ? "skynetDark"
+        : "skynetLight"
       : theme;
 
   const colors = TERMINAL_THEMES[resolvedTheme]?.colors;

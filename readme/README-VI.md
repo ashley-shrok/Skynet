@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="../public/icon.svg" width="120" height="120" alt="Termix Logo" />
+<img src="../public/icon.svg" width="120" height="120" alt="Skynet Logo" />
 
-<h1>Termix</h1>
+<h1>Skynet</h1>
 
 <p>Quan ly SSH tu luu tru va truy cap may tinh tu xa</p>
 
@@ -24,15 +24,15 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/github/stars/Termix-SSH/Termix?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/forks/Termix-SSH/Termix?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
-  <img src="https://img.shields.io/github/v/release/Termix-SSH/Termix?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
+  <img src="https://img.shields.io/github/stars/Skynet-SSH/Skynet?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/forks/Skynet-SSH/Skynet?style=flat&label=Forks&color=F39044&labelColor=1a1a1a" />
+  <img src="https://img.shields.io/github/v/release/Skynet-SSH/Skynet?style=flat&label=Release&color=F39044&labelColor=1a1a1a&v=1" />
   <a href="https://discord.gg/jVQGdvHDrf"><img alt="Discord" src="https://img.shields.io/discord/1347374268253470720?color=F39044&labelColor=1a1a1a" /></a>
 </p>
 
 <br />
 
-<img src="../repo-images/Termix Header.png" alt="Termix Banner" width="900" />
+<img src="../repo-images/Skynet Header.png" alt="Skynet Banner" width="900" />
 
 <br />
 <br />
@@ -49,7 +49,7 @@
 
 ## Tong Quan
 
-Termix la nen tang quan ly may chu tat ca trong mot, ma nguon mo, mien phi vinh vien, tu luu tru. No cung cap giai phap da nen tang de quan ly may chu va co so ha tang cua ban thong qua mot giao dien truc quan duy nhat. Termix cung cap quyen truy cap terminal SSH, dieu khien may tinh tu xa (RDP, VNC, Telnet), kha nang tao duong ham SSH, quan ly tep SSH tu xa va nhieu cong cu khac. Termix la giai phap thay the mien phi va tu luu tru hoan hao cho Termius, kha dung tren tat ca cac nen tang.
+Skynet la nen tang quan ly may chu tat ca trong mot, ma nguon mo, mien phi vinh vien, tu luu tru. No cung cap giai phap da nen tang de quan ly may chu va co so ha tang cua ban thong qua mot giao dien truc quan duy nhat. Skynet cung cap quyen truy cap terminal SSH, dieu khien may tinh tu xa (RDP, VNC, Telnet), kha nang tao duong ham SSH, quan ly tep SSH tu xa va nhieu cong cu khac. Skynet la giai phap thay the mien phi va tu luu tru hoan hao cho Termius, kha dung tren tat ca cac nen tang.
 
 <br />
 
@@ -122,7 +122,7 @@ Tao vai tro va chia se may chu giua nguoi dung/vai tro.
 <td width="50%" valign="top">
 
 **Ma Hoa Co So Du Lieu:**
-Backend duoc luu tru duoi dang tep co so du lieu SQLite duoc ma hoa. Xem [tai lieu](https://docs.termix.site/security) de biet them.
+Backend duoc luu tru duoi dang tep co so du lieu SQLite duoc ma hoa. Xem [tai lieu](https://docs.skynet.site/security) de biet them.
 
 </td>
 </tr>
@@ -150,7 +150,7 @@ Cac phien SSH va tab van mo tren cac thiet bi/lan lam moi neu duoc bat trong ho 
 <td width="50%" valign="top">
 
 **Ngon Ngu:**
-Ho tro tich hop khoang 30 ngon ngu (duoc quan ly boi [Crowdin](https://docs.termix.site/translations)).
+Ho tro tich hop khoang 30 ngon ngu (duoc quan ly boi [Crowdin](https://docs.skynet.site/translations)).
 
 </td>
 </tr>
@@ -213,24 +213,24 @@ Ho tro tich hop khoang 30 ngon ngu (duoc quan ly boi [Crowdin](https://docs.term
 
 ## Cai Dat
 
-Truy cap [Tai Lieu](https://docs.termix.site/install) Termix de biet them thong tin ve cach cai dat Termix tren tat ca cac nen tang. Ngoai ra, xem tep Docker Compose mau tai day (ban co the bo qua guacd va mang neu khong co y dinh su dung cac tinh nang dieu khien may tinh tu xa):
+Truy cap [Tai Lieu](https://docs.skynet.site/install) Skynet de biet them thong tin ve cach cai dat Skynet tren tat ca cac nen tang. Ngoai ra, xem tep Docker Compose mau tai day (ban co the bo qua guacd va mang neu khong co y dinh su dung cac tinh nang dieu khien may tinh tu xa):
 
 ```yaml
 services:
-  termix:
-    image: ghcr.io/lukegus/termix:latest
-    container_name: termix
+  skynet:
+    image: ghcr.io/lukegus/skynet:latest
+    container_name: skynet
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - termix-data:/app/data
+      - skynet-data:/app/data
     environment:
       PORT: "8080"
     depends_on:
       - guacd
     networks:
-      - termix-net
+      - skynet-net
 
   guacd:
     image: guacamole/guacd:1.6.0
@@ -239,14 +239,14 @@ services:
     ports:
       - "4822:4822"
     networks:
-      - termix-net
+      - skynet-net
 
 volumes:
-  termix-data:
+  skynet-data:
     driver: local
 
 networks:
-  termix-net:
+  skynet-net:
     driver: bridge
 ```
 
@@ -258,7 +258,7 @@ networks:
 
 <br />
 
-[![YouTube](../repo-images/YouTube.png)](https://www.youtube.com/@TermixSSH/videos)
+[![YouTube](../repo-images/YouTube.png)](https://www.youtube.com/@SkynetSSH/videos)
 
 <sub>Xem tong quan cap nhat tren YouTube</sub>
 
@@ -267,32 +267,32 @@ networks:
 
 <table>
 <tr>
-<td><img src="../repo-images/Image 1.png" alt="Termix Screenshot 1" width="400" /></td>
-<td><img src="../repo-images/Image 2.png" alt="Termix Screenshot 2" width="400" /></td>
+<td><img src="../repo-images/Image 1.png" alt="Skynet Screenshot 1" width="400" /></td>
+<td><img src="../repo-images/Image 2.png" alt="Skynet Screenshot 2" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 3.png" alt="Termix Screenshot 3" width="400" /></td>
-<td><img src="../repo-images/Image 4.png" alt="Termix Screenshot 4" width="400" /></td>
+<td><img src="../repo-images/Image 3.png" alt="Skynet Screenshot 3" width="400" /></td>
+<td><img src="../repo-images/Image 4.png" alt="Skynet Screenshot 4" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 5.png" alt="Termix Screenshot 5" width="400" /></td>
-<td><img src="../repo-images/Image 6.png" alt="Termix Screenshot 6" width="400" /></td>
+<td><img src="../repo-images/Image 5.png" alt="Skynet Screenshot 5" width="400" /></td>
+<td><img src="../repo-images/Image 6.png" alt="Skynet Screenshot 6" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 7.png" alt="Termix Screenshot 7" width="400" /></td>
-<td><img src="../repo-images/Image 8.png" alt="Termix Screenshot 8" width="400" /></td>
+<td><img src="../repo-images/Image 7.png" alt="Skynet Screenshot 7" width="400" /></td>
+<td><img src="../repo-images/Image 8.png" alt="Skynet Screenshot 8" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 9.png" alt="Termix Screenshot 9" width="400" /></td>
-<td><img src="../repo-images/Image 10.png" alt="Termix Screenshot 10" width="400" /></td>
+<td><img src="../repo-images/Image 9.png" alt="Skynet Screenshot 9" width="400" /></td>
+<td><img src="../repo-images/Image 10.png" alt="Skynet Screenshot 10" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 11.png" alt="Termix Screenshot 11" width="400" /></td>
-<td><img src="../repo-images/Image 12.png" alt="Termix Screenshot 12" width="400" /></td>
+<td><img src="../repo-images/Image 11.png" alt="Skynet Screenshot 11" width="400" /></td>
+<td><img src="../repo-images/Image 12.png" alt="Skynet Screenshot 12" width="400" /></td>
 </tr>
 <tr>
-<td><img src="../repo-images/Image 13.png" alt="Termix Screenshot 13" width="400" /></td>
-<td><img src="../repo-images/Image 14.png" alt="Termix Screenshot 14" width="400" /></td>
+<td><img src="../repo-images/Image 13.png" alt="Skynet Screenshot 13" width="400" /></td>
+<td><img src="../repo-images/Image 14.png" alt="Skynet Screenshot 14" width="400" /></td>
 </tr>
 </table>
 
@@ -304,7 +304,7 @@ networks:
 
 ## Tinh Nang Du Kien
 
-Xem [Du An](https://github.com/orgs/Termix-SSH/projects/2) de biet tat ca cac tinh nang du kien. Neu ban muon dong gop, xem [Dong Gop](https://github.com/Termix-SSH/Termix/blob/main/CONTRIBUTING.md).
+Xem [Du An](https://github.com/orgs/Skynet-SSH/projects/2) de biet tat ca cac tinh nang du kien. Neu ban muon dong gop, xem [Dong Gop](https://github.com/Skynet-SSH/Skynet/blob/main/CONTRIBUTING.md).
 
 <br />
 
@@ -348,7 +348,7 @@ Xem [Du An](https://github.com/orgs/Termix-SSH/projects/2) de biet tat ca cac ti
 
 ## Ho Tro
 
-Neu ban can tro giup hoac muon yeu cau tinh nang voi Termix, hay truy cap trang [Van De](https://github.com/Termix-SSH/Support/issues), dang nhap va nhan `New Issue`. Vui long mo ta van de cang chi tiet cang tot, uu tien viet bang tieng Anh. Ban cung co the tham gia may chu [Discord](https://discord.gg/jVQGdvHDrf) va truy cap kenh ho tro, tuy nhien thoi gian phan hoi co the lau hon.
+Neu ban can tro giup hoac muon yeu cau tinh nang voi Skynet, hay truy cap trang [Van De](https://github.com/Skynet-SSH/Support/issues), dang nhap va nhan `New Issue`. Vui long mo ta van de cang chi tiet cang tot, uu tien viet bang tieng Anh. Ban cung co the tham gia may chu [Discord](https://discord.gg/jVQGdvHDrf) va truy cap kenh ho tro, tuy nhien thoi gian phan hoi co the lau hon.
 
 <br />
 

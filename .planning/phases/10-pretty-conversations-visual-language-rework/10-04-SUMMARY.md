@@ -145,7 +145,7 @@ Code-complete state ready for build-verify + UAT + patch #128 draft:
 - All F3-diag telemetry removed; historical retirement annotations preserved as documentation.
 
 Wave 5 can proceed with:
-1. `docker compose build` + `docker compose up -d --force-recreate termix` under whatever deploy discipline is active in the fork on 2026-07-22 (Ashley noted the 15-min deadman regime was retired 2026-07-21; use whatever supersedes it).
+1. `docker compose build` + `docker compose up -d --force-recreate skynet` under whatever deploy discipline is active in the fork on 2026-07-22 (Ashley noted the 15-min deadman regime was retired 2026-07-21; use whatever supersedes it).
 2. Ashley UAT of the new PrettyConversationsPanel across desktop + mobile viewports.
 3. Draft patch #128 (the fork-patch number for this phase's cutover) with a body describing the sidebar-tree simplification + F3-diag retirement.
 

@@ -17,15 +17,15 @@ describe("detectPlatform", () => {
     );
   });
 
-  it("detects desktop from a Termix-Desktop user agent", () => {
+  it("detects desktop from a Skynet-Desktop user agent", () => {
     expect(
-      detectPlatform(reqWith({ "user-agent": "Termix-Desktop/1.0 (Windows)" })),
+      detectPlatform(reqWith({ "user-agent": "Skynet-Desktop/1.0 (Windows)" })),
     ).toBe("desktop");
   });
 
-  it("detects mobile from a Termix-Mobile user agent", () => {
+  it("detects mobile from a Skynet-Mobile user agent", () => {
     expect(
-      detectPlatform(reqWith({ "user-agent": "Termix-Mobile/Android 1.0" })),
+      detectPlatform(reqWith({ "user-agent": "Skynet-Mobile/Android 1.0" })),
     ).toBe("mobile");
   });
 
@@ -78,19 +78,19 @@ describe("parseUserAgent", () => {
     expect(info.browser).toBe("Edge");
   });
 
-  it("parses a Termix desktop user agent", () => {
+  it("parses a Skynet desktop user agent", () => {
     const info = parseUserAgent(
-      reqWith({ "user-agent": "Termix-Desktop/2.3.1 (macOS; arm64)" }),
+      reqWith({ "user-agent": "Skynet-Desktop/2.3.1 (macOS; arm64)" }),
     );
     expect(info.type).toBe("desktop");
-    expect(info.browser).toBe("Termix Desktop");
+    expect(info.browser).toBe("Skynet Desktop");
     expect(info.version).toBe("2.3.1");
     expect(info.os).toBe("macOS");
   });
 
   it("parses an iOS mobile user agent", () => {
     const info = parseUserAgent(
-      reqWith({ "user-agent": "Termix-Mobile/iOS1.5 (OS 17_2)" }),
+      reqWith({ "user-agent": "Skynet-Mobile/iOS1.5 (OS 17_2)" }),
     );
     expect(info.type).toBe("mobile");
     expect(info.os).toContain("iOS");
@@ -137,7 +137,7 @@ describe("generateDeviceFingerprint", () => {
   it("produces a 64-char hex sha256 digest", () => {
     const fp = generateDeviceFingerprint({
       type: "desktop",
-      browser: "Termix Desktop",
+      browser: "Skynet Desktop",
       version: "2.3.1",
       os: "macOS",
       deviceInfo: "",

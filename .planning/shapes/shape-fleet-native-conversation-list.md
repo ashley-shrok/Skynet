@@ -5,7 +5,7 @@
 
 ## What this is
 
-The follow-up to Phase 6. Phase 6 reshaped Termix's top-level navigation into a Telegram-style conversation-list interface, but the list's data source was scoped too narrowly — it mirrored only the browser-tab's currently-open Termix tabs. On a fresh mobile page-load with no tabs open, that showed empty even when Ashley had running sessions across her fleet. This phase reshapes the list's data source so it mirrors the fleet: every running tmux session on every reachable host appears as a row automatically, whether or not Ashley has opened it as a Termix tab in this browser. The Telegram-native experience Phase 6 aimed at only really lands with this data-source correction.
+The follow-up to Phase 6. Phase 6 reshaped Skynet's top-level navigation into a Telegram-style conversation-list interface, but the list's data source was scoped too narrowly — it mirrored only the browser-tab's currently-open Skynet tabs. On a fresh mobile page-load with no tabs open, that showed empty even when Ashley had running sessions across her fleet. This phase reshapes the list's data source so it mirrors the fleet: every running tmux session on every reachable host appears as a row automatically, whether or not Ashley has opened it as a Skynet tab in this browser. The Telegram-native experience Phase 6 aimed at only really lands with this data-source correction.
 
 ## Shape
 
@@ -17,7 +17,7 @@ The follow-up to Phase 6. Phase 6 reshaped Termix's top-level navigation into a 
 
 - **The one creation button is the pencil.** Phase 6 shipped a "New Session" button; this phase re-styles it as the Telegram-native pencil-analog. Function is the same — pick a host, name the session, opens as an identity tmux row. Placement is planner's discretion (mobile floating action button in the bottom-right vs. top-of-list on desktop is the Telegram-per-viewport default, but consistent-both-viewports is also fine). This is the ONLY creation button, because the only time Ashley starts a new session is when she's starting a new identity; plain SSH one-off shells and RDP sessions don't have a "create" concept — RDP appears as a per-host row, plain SSH isn't in the list at all.
 
-- **Remote-desktop rows are conceptually persistent, technically not.** Each Termix RDP tab is a fresh remote-desktop session, but Ashley experiences the desktop as continuous because the remote OS state is. So the row exists as long as the host is RDP-enabled, whether or not she has an RDP tab open right now. The row renders with a monitor icon in the avatar slot — no identity hue, no identity name, just the host name + monitor glyph. Clicking behaves like any other row: attach + mount + show. Pin capability on RDP rows is planner's call (Ashley doesn't care either way).
+- **Remote-desktop rows are conceptually persistent, technically not.** Each Skynet RDP tab is a fresh remote-desktop session, but Ashley experiences the desktop as continuous because the remote OS state is. So the row exists as long as the host is RDP-enabled, whether or not she has an RDP tab open right now. The row renders with a monitor icon in the avatar slot — no identity hue, no identity name, just the host name + monitor glyph. Clicking behaves like any other row: attach + mount + show. Pin capability on RDP rows is planner's call (Ashley doesn't care either way).
 
 - **No polling, no real-time push.** The list snapshots the fleet on page-load. If Ashley wants the latest state — because she created a session on another device, or a session died on a box she wasn't in — she refreshes the browser. Her own actions in this browser tab (creating a session via the pencil, closing one) update the list live because the tab machinery updates live. Ambient staleness for edge cases is acceptable; the simpler model wins.
 
@@ -40,7 +40,7 @@ What would violate the spirit even if it passed a spec: adding any real-time pol
 **Phase 6 shipped as patch #105 on 2026-07-21.** It removed the tab strip, wired a conversation-list into the sidebar, established the session-persistence contract (mounted-but-hidden across switches within a page-load), rewired mobile into a list-vs-view two-screen flow with a top-left back button, deleted the mobile bottom navigation bar, and added a New Session button. That much of the interface is working correctly on desktop. On mobile, two gaps surfaced during Ashley's post-deploy UAT:
 
 1. A small chrome bug — a header gear icon and a bottom settings row both render on mobile, both routing to the same menu. Duplicate settings entry.
-2. The bigger problem — on a fresh mobile page-load, the list shows "no active conversations" because it mirrors the browser-tab's open Termix tabs, which is empty on fresh load. Ashley expected the list to show her fleet's running tmux sessions, the way the current sidebar host-tree and the double-shift menu do.
+2. The bigger problem — on a fresh mobile page-load, the list shows "no active conversations" because it mirrors the browser-tab's open Skynet tabs, which is empty on fresh load. Ashley expected the list to show her fleet's running tmux sessions, the way the current sidebar host-tree and the double-shift menu do.
 
 The current sidebar's host-tree already discovers fleet-wide tmux sessions and displays them under their host. The double-shift menu already presents the same. So the discovery signal exists in the current system — this phase points the conversation-list at it, in addition to (rather than instead of) the browser-tab's open-tab state.
 
@@ -87,7 +87,7 @@ The shape agreement for Phase 6 is at `.planning/shapes/shape-telegram-like-inte
 
 ## Vehicle notes
 
-Vehicle is a GSD phase (Phase 7) inside the Termix fork — same track Phase 6 followed. The scope is smaller than Phase 6 (probably 2-3 plans: fleet-native data-source rewiring, RDP-row rendering + pencil re-style + gear-duplicate fix, deploy checkpoint) but crosses enough surfaces that a series of quick tasks would leave visible partial states between deploys (list mid-reshape, RDP rows missing, pencil half-applied).
+Vehicle is a GSD phase (Phase 7) inside the Skynet fork — same track Phase 6 followed. The scope is smaller than Phase 6 (probably 2-3 plans: fleet-native data-source rewiring, RDP-row rendering + pencil re-style + gear-duplicate fix, deploy checkpoint) but crosses enough surfaces that a series of quick tasks would leave visible partial states between deploys (list mid-reshape, RDP rows missing, pencil half-applied).
 
 Phase 6 established a strong integration pattern: shape file, then locked-decisions CONTEXT.md synthesized from the shape, then planner + plan-checker, then executor waves, then Ashley-gated deploy behind the mandatory 15-minute deadman rollback. Reuse verbatim. The gear-duplicate fix is bundled into this phase's deploy so it ships in one deadman cycle rather than two.
 

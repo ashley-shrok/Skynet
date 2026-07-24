@@ -1,6 +1,6 @@
 {
-  "appId": "com.karmaa.termix",
-  "productName": "Termix",
+  "appId": "com.karmaa.skynet",
+  "productName": "Skynet",
   "publish": null,
   "directories": {
     "output": "release"
@@ -53,22 +53,22 @@
       }
     ],
     "icon": "public/icon.ico",
-    "executableName": "Termix"
+    "executableName": "Skynet"
   },
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
-    "artifactName": "termix_windows_${arch}_nsis.${ext}",
+    "artifactName": "skynet_windows_${arch}_nsis.${ext}",
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "Termix",
-    "uninstallDisplayName": "Termix"
+    "shortcutName": "Skynet",
+    "uninstallDisplayName": "Skynet"
   },
   "msi": {
-    "artifactName": "termix_windows_${arch}_msi.${ext}"
+    "artifactName": "skynet_windows_${arch}_msi.${ext}"
   },
   "linux": {
-    "artifactName": "termix_linux_${arch}_portable.${ext}",
+    "artifactName": "skynet_linux_${arch}_portable.${ext}",
     "target": [
       {
         "target": "AppImage",
@@ -85,22 +85,22 @@
     ],
     "icon": "public/icon.png",
     "category": "Development",
-    "executableName": "termix",
-    "maintainer": "Termix <mail@termix.site>",
+    "executableName": "skynet",
+    "maintainer": "Skynet <mail@skynet.site>",
     "desktop": {
       "entry": {
-        "Name": "Termix",
+        "Name": "Skynet",
         "Comment": "Self-hosted SSH and remote desktop management. ",
-        "Keywords": "docker;ssh;terminal;telnet;self-hosted;rdp;file-management;vnc;ssh-tunnel;server-stats;termix",
-        "StartupWMClass": "termix"
+        "Keywords": "docker;ssh;terminal;telnet;self-hosted;rdp;file-management;vnc;ssh-tunnel;server-stats;skynet",
+        "StartupWMClass": "skynet"
       }
     }
   },
   "appImage": {
-    "artifactName": "termix_linux_${arch}_appimage.${ext}"
+    "artifactName": "skynet_linux_${arch}_appimage.${ext}"
   },
   "deb": {
-    "artifactName": "termix_linux_${arch}_deb.${ext}"
+    "artifactName": "skynet_linux_${arch}_deb.${ext}"
   },
 
   "mac": {
@@ -127,22 +127,22 @@
     "x64ArchFiles": "**/*.{node,bare}"
   },
   "dmg": {
-    "artifactName": "termix_macos_${arch}_dmg.${ext}",
+    "artifactName": "skynet_macos_${arch}_dmg.${ext}",
     "sign": true
   },
   "afterSign": "build/notarize.cjs",
   "mas": {
-    "provisioningProfile": "build/Termix_Mac_App_Store.provisionprofile",
+    "provisioningProfile": "build/Skynet_Mac_App_Store.provisionprofile",
     "entitlements": "build/entitlements.mas.plist",
     "entitlementsInherit": "build/entitlements.mas.inherit.plist",
     "hardenedRuntime": false,
     "gatekeeperAssess": false,
     "type": "distribution",
     "category": "public.app-category.developer-tools",
-    "artifactName": "termix_macos_${arch}_mas.${ext}",
+    "artifactName": "skynet_macos_${arch}_mas.${ext}",
     "extendInfo": {
       "ITSAppUsesNonExemptEncryption": false,
-      "NSAppleEventsUsageDescription": "Termix needs access to control other applications for terminal operations."
+      "NSAppleEventsUsageDescription": "Skynet needs access to control other applications for terminal operations."
     }
   },
   "generateUpdatesFilesForAllChannels": true

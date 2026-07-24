@@ -2545,7 +2545,7 @@ async function transferViaTar(
     reconnectMeta,
   );
   const archiveId = randomUUID();
-  const tempArchive = `/tmp/termix-transfer-${archiveId}.tar.gz`;
+  const tempArchive = `/tmp/skynet-transfer-${archiveId}.tar.gz`;
   updateTransfer(transferId, { tempArchivePath: tempArchive });
   trackDestArtifact(transferId, tempArchive);
   const workingDir = getWorkingDir(sourcePaths);

@@ -60,7 +60,7 @@ import {
 import { ConnectionLog } from "@/ssh/connection-log/ConnectionLog.tsx";
 import { toast } from "sonner";
 import { Button } from "@/components/button";
-import { resolveTermixThemeColors } from "./terminal-theme.ts";
+import { resolveSkynetThemeColors } from "./terminal-theme.ts";
 import type { TerminalHandle, TerminalHostConfig } from "./terminal-types.ts";
 export type { TerminalHandle, TerminalHostConfig } from "./terminal-types.ts";
 import { Toolbar } from "@/features/keyboard/Toolbar.tsx";
@@ -142,7 +142,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     };
 
     const activeTheme = previewTheme || config.theme;
-    const themeColors = resolveTermixThemeColors(activeTheme, appTheme);
+    const themeColors = resolveSkynetThemeColors(activeTheme, appTheme);
     const backgroundColor = themeColors.background;
     const fitAddonRef = useRef<FitAddon | null>(null);
     const webSocketRef = useRef<WebSocket | null>(null);
@@ -1980,7 +1980,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       };
 
       const activeTheme = previewTheme || config.theme;
-      const themeColors = resolveTermixThemeColors(activeTheme, appTheme);
+      const themeColors = resolveSkynetThemeColors(activeTheme, appTheme);
 
       const fontConfig = TERMINAL_FONTS.find(
         (f) => f.value === config.fontFamily,
@@ -2052,7 +2052,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       const fontFamily = fontConfig?.fallback || TERMINAL_FONTS[0].fallback;
 
       const activeTheme = previewTheme || config.theme;
-      const themeColors = resolveTermixThemeColors(activeTheme, appTheme);
+      const themeColors = resolveSkynetThemeColors(activeTheme, appTheme);
 
       // Set initial options before opening the terminal
       terminal.options = {
@@ -2351,7 +2351,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         ev.stopPropagation();
         if (typeof console !== "undefined" && console.debug) {
           console.debug(
-            "[termix] multi-char input intercepted:",
+            "[skynet] multi-char input intercepted:",
             JSON.stringify(data),
             "sent=",
             JSON.stringify(toSend),

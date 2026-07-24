@@ -1,9 +1,9 @@
 # Patch #129 — Subtle inside-textarea Send button
 
-**Paste target:** `~/.claude/identities/tina/termix-patches.md`
+**Paste target:** `~/.claude/identities/tina/skynet-patches.md`
 **Paste timing:** After Ashley greenlights the batched #123-#129 deploy AND UAT passes. Post-deadman-retirement flow per current `deploy-runbook.md`.
 **Batch context:** Stacks on the six-patch stack (#123-#128) already awaiting UAT; ships as one build/deploy with them (now a seven-patch stack).
-**Ordinal position on paste:** Bump the "ONE HUNDRED TWENTY-SEVEN numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED TWENTY-NINE" — accounting for both #128 (Phase 10 pretty-conversations) and #129 (this patch) landing together at deploy time.
+**Ordinal position on paste:** Bump the "ONE HUNDRED TWENTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED TWENTY-NINE" — accounting for both #128 (Phase 10 pretty-conversations) and #129 (this patch) landing together at deploy time.
 
 ---
 

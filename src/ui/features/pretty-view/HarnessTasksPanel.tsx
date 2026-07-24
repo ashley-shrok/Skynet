@@ -13,7 +13,7 @@ import type { HarnessTask } from "@/api/claude-session-api";
 //   - Hidden entirely when no non-completed tasks. Zero-chrome empty state.
 //   - Read-only for v1. No edit / complete / add affordances. The client
 //     that owns writes to ~/.claude/tasks/ is Claude Code itself, and racing
-//     it from Termix is not worth v1 complexity.
+//     it from Skynet is not worth v1 complexity.
 //   - Compact rows so N tasks don't devour vertical space. subject only,
 //     one row each. activeForm swaps in for the in-progress task's subject.
 

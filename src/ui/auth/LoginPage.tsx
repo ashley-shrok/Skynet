@@ -44,7 +44,7 @@ interface ExtendedWindow extends Window {
 }
 
 const isInMobileWebView = () =>
-  /Termix-Mobile\/(Android|iOS)/.test(navigator.userAgent) ||
+  /Skynet-Mobile\/(Android|iOS)/.test(navigator.userAgent) ||
   !!(window as ExtendedWindow).ReactNativeWebView;
 
 interface AuthProps extends React.ComponentProps<"div"> {
@@ -718,7 +718,7 @@ export function Auth({
 
       if (isInMobileWebView()) {
         // The OIDC callback authenticated via an HttpOnly cookie on this origin,
-        // so prefer a token in the URL (termix-mobile:-origin callbacks include
+        // so prefer a token in the URL (skynet-mobile:-origin callbacks include
         // one), otherwise read it back from the cookie via /users/me/token.
         const finish = (token: string) => {
           postMobileAuthSuccess(token);

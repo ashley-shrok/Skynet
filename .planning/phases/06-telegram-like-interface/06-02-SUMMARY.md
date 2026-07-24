@@ -263,7 +263,7 @@ Downstream notes for Plan 06-05's executor:
   3. Selecting a conversation updates the URL fragment `#tab=...&active=N` to reflect the new index (matches Plan 06-02 Test 6 — patch #25's Chrome-window-restore contract).
   4. Selecting conversation A, scrolling in a pretty-view pane, selecting B, then selecting A back — the scroll position is preserved (the ultimate end-to-end proof of the T-06-02-01 mitigation).
 - **The tabNodesRef grep-gate for dist bytes (NOTE-04):** since Vite minification may mangle `tabNodesRef`, Plan 06-05's grep gate should look for a more distinctive marker. Suggested: `grep -c 'appendChild' dist/assets/*.js` combined with `grep -c 'ConversationsPanel' dist/assets/*.js ≥ 1`. This plan does not need to fix the gate itself — 06-05 owns that.
-- **No deploy this plan.** Plan 06-05 is the deploy checkpoint. The tab strip is gone, ConversationsPanel is wired, TG-05 persistence is proven — but nothing in this plan runs `docker compose ... up`. Per the plan's `<hard_constraints>` NO DEPLOY, no deadman armed, no `/opt/termix/docker-compose.yml` edit.
+- **No deploy this plan.** Plan 06-05 is the deploy checkpoint. The tab strip is gone, ConversationsPanel is wired, TG-05 persistence is proven — but nothing in this plan runs `docker compose ... up`. Per the plan's `<hard_constraints>` NO DEPLOY, no deadman armed, no `/opt/skynet/docker-compose.yml` edit.
 
 ## Self-Check: PASSED
 

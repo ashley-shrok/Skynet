@@ -1,10 +1,10 @@
-# Phase 11 UAT Checklist — Skynet transformation: purge dead Termix surfaces (first slice)
+# Phase 11 UAT Checklist — Skynet transformation: purge dead Skynet surfaces (first slice)
 
 **For:** Ashley
 **Post-deploy validation of patch #138 (Phase 11 — Ship-of-Theseus first slice: landing swap + AppRail retirement + SettingsRow retirement + rail-view state-machine strip)**
 **Batch context:** Patch #138 is the FIRST Phase 11 patch. **DO NOT deploy standalone.** Batch with subsequent Phase 12+ purge patches per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23) — see § Post-UAT deploy runbook at the bottom.
 **Deploy anchor:** term.gigaashley.click (production) — post-deploy, once Ashley greenlights the batch.
-**Design source-of-truth:** `.planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-CONTEXT.md` (LOCKED — no re-litigation) + `~/.claude/identities/tina/tina.md` § Skynet direction (Ship of Theseus).
+**Design source-of-truth:** `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-CONTEXT.md` (LOCKED — no re-litigation) + `~/.claude/identities/tina/tina.md` § Skynet direction (Ship of Theseus).
 
 **Trace commits (Phase 11 on `feat/tab-title-from-tmux`):**
 
@@ -24,7 +24,7 @@
 
 ## Sign-off (top-of-page so you can find it fast)
 
-- [ ] **All 🚨 items in Non-Negotiable sections (Desktop 1-10 + Mobile 11-17 + Cross-viewport 18-22) pass** → **greenlight patch #138 for the batched Phase 11+12 purge cluster deploy** OR **hold patch #138 in the batch** until the next grouped-semantic-unit is ready. Per the fleet-standing "batch patches into meaningful deploys" rule, THE DEFAULT ANSWER IS HOLD. Only greenlight standalone if there's a specific reason (Ashley wants to smoke-test the Skynet first-slice on prod before Phase 12+ lands, or something is actively broken in prod that Phase 11 fixes). Then help Tina pin patch #138: paste `.planning/phases/11-skynet-transformation-purge-dead-termix-surfaces-first-slice/11-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` at the next ordinal position (patch #138 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3`). Bump the "ONE HUNDRED THIRTY-SEVEN numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED THIRTY-EIGHT". Commit the pin (`docs(patches): pin patch #138 — Skynet transformation first slice`). Then `/close skynet-transformation-purge-dead-surfaces` on the Phase 11 bounty (or leave open if Phase 12+ is still ahead in the bounty's todo set).
+- [ ] **All 🚨 items in Non-Negotiable sections (Desktop 1-10 + Mobile 11-17 + Cross-viewport 18-22) pass** → **greenlight patch #138 for the batched Phase 11+12 purge cluster deploy** OR **hold patch #138 in the batch** until the next grouped-semantic-unit is ready. Per the fleet-standing "batch patches into meaningful deploys" rule, THE DEFAULT ANSWER IS HOLD. Only greenlight standalone if there's a specific reason (Ashley wants to smoke-test the Skynet first-slice on prod before Phase 12+ lands, or something is actively broken in prod that Phase 11 fixes). Then help Tina pin patch #138: paste `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` at the next ordinal position (patch #138 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`). Bump the "ONE HUNDRED THIRTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED THIRTY-EIGHT". Commit the pin (`docs(patches): pin patch #138 — Skynet transformation first slice`). Then `/close skynet-transformation-purge-dead-surfaces` on the Phase 11 bounty (or leave open if Phase 12+ is still ahead in the bounty's todo set).
 
 - [ ] **Any 🚨 item fails** → note the failing item and observed-vs-expected behavior. Decide by severity: if the failure is a visual regression only (wrong padding, minor color hue drift), mark it for a follow-up polish patch and consider the deploy conditionally-good. If the failure is functional (landing renders dashboard cards instead of PrettyLandingCard, AppRail visible, dead-surface panel renders at `#hosts` / `#admin` / `#snippets`, RDP row click doesn't open Guacamole, SettingsRow visible on mobile), route back to the specific Plan/Task via the "Failure → route-back" table.
 
@@ -52,17 +52,17 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 ## Non-negotiable — Desktop UAT (wide window 1400px+)
 
-### 1. Fresh page-load lands on PrettyLandingCard (NOT Termix dashboard)
+### 1. Fresh page-load lands on PrettyLandingCard (NOT Skynet dashboard)
 
-> **Contract:** Desktop fresh page-load with no URL hash-fragment and no persisted tab state → main pane renders the new warm-glass PrettyLandingCard empty-landing card. NOT the Termix dashboard with host cards / stats bars / recent-sessions grid. Card contains no "Termix" or "Dashboard" text.
+> **Contract:** Desktop fresh page-load with no URL hash-fragment and no persisted tab state → main pane renders the new warm-glass PrettyLandingCard empty-landing card. NOT the Skynet dashboard with host cards / stats bars / recent-sessions grid. Card contains no "Skynet" or "Dashboard" text.
 
-- [ ] 🚨 **Fresh page-load at `https://term.gigaashley.click/`** (no hash, session storage cleared per Setup 3). Wait ~2s for `/sessions/list` to resolve. Expected: main pane shows a warm-glass empty-landing card centered in its container — subtle `rgba(240, 235, 224, 0.9)` warm-cream text ("Select a conversation" or similar copy) on a `linear-gradient(160deg, rgba(45,55,80,0.55), rgba(28,35,55,0.6))` glass background with a `rgba(255, 220, 170, 0.10)` inset warm-glow highlight + 20px backdrop-blur. **NO** host cards. **NO** stats. **NO** recent-sessions grid. **NO** "Dashboard" heading. **NO** "Termix" branding. **If: Termix dashboard renders** → Plan 02 Task 2 (tabUtils.tsx case-body swap) didn't land — grep the compiled `dist/assets/AppShell-*.js` for `PrettyLandingCard` (should be present) and for `DashboardTab` (should be absent, except comment-preserved history annotations).
+- [ ] 🚨 **Fresh page-load at `https://term.gigaashley.click/`** (no hash, session storage cleared per Setup 3). Wait ~2s for `/sessions/list` to resolve. Expected: main pane shows a warm-glass empty-landing card centered in its container — subtle `rgba(240, 235, 224, 0.9)` warm-cream text ("Select a conversation" or similar copy) on a `linear-gradient(160deg, rgba(45,55,80,0.55), rgba(28,35,55,0.6))` glass background with a `rgba(255, 220, 170, 0.10)` inset warm-glow highlight + 20px backdrop-blur. **NO** host cards. **NO** stats. **NO** recent-sessions grid. **NO** "Dashboard" heading. **NO** "Skynet" branding. **If: Skynet dashboard renders** → Plan 02 Task 2 (tabUtils.tsx case-body swap) didn't land — grep the compiled `dist/assets/AppShell-*.js` for `PrettyLandingCard` (should be present) and for `DashboardTab` (should be absent, except comment-preserved history annotations).
 
 ### 2. AppRail is gone
 
 > **Contract:** The left AppRail (the ~40-48px-wide column of icon buttons for Dashboard / Hosts / Sessions / Credentials / Connections / Quick-Connect / SSH Tools / Snippets / History / Split Screen / Network Graph / User Profile / Admin Settings) is DELETED FROM THE DOM. Nothing renders where it used to be.
 
-- [ ] 🚨 **Look at the left edge of the app shell.** Expected: the pretty-conversations sidebar sits flush against the left edge of the viewport (with only the persistent top-left chevron toggle overlaying it at `top: 8px, left: 8px, z-index: 30` per Phase 10 patch #128). **NO** icon column between the viewport edge and the sidebar. **If: icon column visible** → Plan 03 Task 2 (AppShell surgery — AppRail mount removal at old lines 1826-1847) didn't land, OR the file deletion at Plan 03 Task 5 (`c386068`) reverted somehow. Grep the deployed bundle: `docker exec termix grep -c 'AppRail' /app/html/assets/*.js` should return 0 (except within comment strings that were preserved). Grep the source: `test ! -f src/ui/sidebar/AppRail.tsx` should pass.
+- [ ] 🚨 **Look at the left edge of the app shell.** Expected: the pretty-conversations sidebar sits flush against the left edge of the viewport (with only the persistent top-left chevron toggle overlaying it at `top: 8px, left: 8px, z-index: 30` per Phase 10 patch #128). **NO** icon column between the viewport edge and the sidebar. **If: icon column visible** → Plan 03 Task 2 (AppShell surgery — AppRail mount removal at old lines 1826-1847) didn't land, OR the file deletion at Plan 03 Task 5 (`c386068`) reverted somehow. Grep the deployed bundle: `docker exec skynet grep -c 'AppRail' /app/html/assets/*.js` should return 0 (except within comment strings that were preserved). Grep the source: `test ! -f src/ui/sidebar/AppRail.tsx` should pass.
 
 ### 3. Sidebar is the pretty-conversations panel
 
@@ -111,7 +111,7 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 - [ ] 🚨 **`https://term.gigaashley.click/#hosts`** — expected: 404-equivalent (blank main pane, or error card, or fallback) OR PrettyLandingCard warm-glass empty card. **NOT** the HostManagerPanel (host list, add-host CTA, edit-host modal chrome, credentials editor, etc.). If HostManagerPanel renders → **route back to Plan 03 Task 2**: a `railView === "hosts"` handler survived the strip in `sidebarPanelContent` or a `case "hosts"` block survived in the tab-content router.
 - [ ] 🚨 **`https://term.gigaashley.click/#admin`** — expected: 404-equivalent OR PrettyLandingCard. **NOT** the AdminSettingsPanel (user list, permissions matrix, system-config editor, etc.). If AdminSettingsPanel renders → **route back to Plan 03 Task 2** (surviving `railView === "admin-settings"` handler).
 - [ ] 🚨 **`https://term.gigaashley.click/#snippets`** — expected: 404-equivalent OR PrettyLandingCard. **NOT** the SnippetsPanel (snippet list, editor, tag manager). If SnippetsPanel renders → **route back to Plan 03 Task 2** (surviving `railView === "snippets"` handler).
-- [ ] 🚨 **`https://term.gigaashley.click/#dashboard`** — expected: PrettyLandingCard warm-glass empty card (this is the intended outcome — the `"dashboard"` TabType identifier is preserved as a load-bearing fallback per Plan 02 decision, but its render path now returns `<PrettyLandingCard/>` instead of `<DashboardTab>`). **NOT** the Termix DashboardTab with host cards, stats bars, recent-sessions grid. If DashboardTab renders → **route back to Plan 02 Task 2** (`22b5cfb` `case "dashboard"` swap didn't land).
+- [ ] 🚨 **`https://term.gigaashley.click/#dashboard`** — expected: PrettyLandingCard warm-glass empty card (this is the intended outcome — the `"dashboard"` TabType identifier is preserved as a load-bearing fallback per Plan 02 decision, but its render path now returns `<PrettyLandingCard/>` instead of `<DashboardTab>`). **NOT** the Skynet DashboardTab with host cards, stats bars, recent-sessions grid. If DashboardTab renders → **route back to Plan 02 Task 2** (`22b5cfb` `case "dashboard"` swap didn't land).
 
 **Acceptance framing:** for each of the four probes, both possible outcomes (404-equivalent OR PrettyLandingCard) are acceptable — the requirement is that the CORRESPONDING DEAD-SURFACE PANEL must not render. This dual-outcome acceptance exists because the URL-fragment router is not modified in Phase 11 (that's a Phase 12+ scope item — deleting the router branches that handle these fragments), and the fallback behavior at each unhandled fragment is code-path-specific (some fragments may fall through to the initial-tab-seed which now uses PrettyLandingCard; others may hit the closeTab fallback which also uses PrettyLandingCard; others may render an empty tab tree with no active tab). All three fall-through outcomes prove the same thing: the dead-surface panels are unreachable from any UI path.
 
@@ -204,7 +204,7 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 
 | Symptom | Root Plan / Task | Route-back target |
 |---|---|---|
-| Landing shows Termix dashboard cards / stats bars (not PrettyLandingCard) | Plan 02 Task 2 | Re-verify commit `22b5cfb` — the `case "dashboard"` swap in `src/ui/shell/tabUtils.tsx` |
+| Landing shows Skynet dashboard cards / stats bars (not PrettyLandingCard) | Plan 02 Task 2 | Re-verify commit `22b5cfb` — the `case "dashboard"` swap in `src/ui/shell/tabUtils.tsx` |
 | AppRail (skinny icon column) still visible on desktop | Plan 03 Task 2 or Plan 03 Task 5 | Re-verify commit `cf7fe27` (AppRail mount removal in AppShell) + `c386068` (file deletion) — `test ! -f src/ui/sidebar/AppRail.tsx` should pass |
 | SettingsRow (gear icon + settings label) visible at bottom of mobile pretty-conversations list | Plan 03 Task 2, Plan 03 Task 3, or Plan 03 Task 4 | Re-verify `cf7fe27` (AppShell strip removed the SettingsRow import + mount), `992bee3` (settingsRowSlot prop dropped from PrettyConversationsPanel), `c3c84be` (SettingsRow.tsx file deletion) |
 | RDP row click no longer opens Guacamole | Plan 03 Task 2 | `grep -c "onRdpRowClick" src/ui/AppShell.tsx` should be 1; body should be preserved verbatim from pre-Plan-03 |
@@ -214,7 +214,7 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 | Hash-fragment `#hosts` still renders HostManagerPanel | Plan 03 Task 2 | A `railView === "hosts"` handler survived the sidebarPanelContent strip. Grep AppShell.tsx for `"hosts"` — should only appear in the `case "hosts"` block inside `renderTabContent` if the tab was seeded from a URL fragment (which is Phase 12+ scope to strip). |
 | Hash-fragment `#admin` still renders AdminSettingsPanel | Plan 03 Task 2 | Same pattern — grep for `"admin-settings"` or `"admin"`. |
 | Hash-fragment `#snippets` still renders SnippetsPanel | Plan 03 Task 2 | Same pattern — grep for `"snippets"`. |
-| Hash-fragment `#dashboard` still renders DashboardTab (Termix stats bars, host cards) | Plan 02 Task 2 | Re-verify `22b5cfb` — the `case "dashboard"` block in tabUtils.tsx should render `<PrettyLandingCard/>`, NOT `<DashboardTab>`. `grep -c "DashboardTab" src/ui/shell/tabUtils.tsx` should be 0. |
+| Hash-fragment `#dashboard` still renders DashboardTab (Skynet stats bars, host cards) | Plan 02 Task 2 | Re-verify `22b5cfb` — the `case "dashboard"` block in tabUtils.tsx should render `<PrettyLandingCard/>`, NOT `<DashboardTab>`. `grep -c "DashboardTab" src/ui/shell/tabUtils.tsx` should be 0. |
 | `profileDropdownOpen` state referenced somewhere (state field survived the strip) | Plan 03 Task 2 | The Plan 01 §E.2 safety-gate grep missed a consumer. Re-run `grep -rn "profileDropdownOpen\|setProfileDropdownOpen" src/` — should return only `//` comment-mention hits. If a code-hit survives, restore the state declaration + investigate the surviving consumer. |
 | Persistent top-left chevron toggle broken (won't collapse/expand or won't rotate) | Plan 03 Task 2 | The AppShell surgery accidentally regressed the Phase 10 patch #128 toggle wiring. Grep AppShell.tsx for `sidebarOpen` — should return 5-10 hits (state declaration + setter calls + JSX conditional + transform binding). |
 | PrettyView chat surface broken (regressed from Phase 4-10 baseline) | Any Plan 03 task | STOP — this means Phase 11 breached its scope fence (pretty-view internals were NOT supposed to be touched). Bisect the Plan 03 commits to find the breach and revert. |
@@ -227,13 +227,13 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 
 ### AUTHORITATIVE SOURCE
 
-**Deploy procedure lives at `~/.claude/identities/tina/deploy-runbook.md`** (dated post-2026-07-21). This is the current, self-contained procedure for shipping `termix-patched:local` onto termix-ec2. **Follow the steps in that file verbatim.** This UAT checklist does not duplicate the runbook; it points at it.
+**Deploy procedure lives at `~/.claude/identities/tina/deploy-runbook.md`** (dated post-2026-07-21). This is the current, self-contained procedure for shipping `skynet-patched:local` onto skynet-ec2. **Follow the steps in that file verbatim.** This UAT checklist does not duplicate the runbook; it points at it.
 
 ### Stale-reference callout — do NOT follow the fork CLAUDE.md 15-min deadman regime
 
 The fork's `CLAUDE.md` (in this repo root) still contains this line under `Deploy safety`:
 
-> "Every `docker compose up -d --force-recreate termix` runs behind the 15-min deadman rollback timer (`/opt/termix/.tmp-revert.sh`) — no exceptions, per Ashley 2026-07-03, even when she is at the keyboard."
+> "Every `docker compose up -d --force-recreate skynet` runs behind the 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) — no exceptions, per Ashley 2026-07-03, even when she is at the keyboard."
 
 **THIS CONSTRAINT WAS RETIRED FLEET-WIDE ON 2026-07-21.** Ashley's SSM-tmux-attach-via-SSH-over-SSM fallback (documented in `deploy-runbook.md` § "FALLBACK: tmux-attach via SSH-through-SSM") replaced the deadman's catastrophic-loss-recovery role. The fork's `CLAUDE.md` hasn't been updated yet; that update is a **SEPARATE OPEN BOUNTY** — `claude-md-15min-deadman-stale` — that will land in a Phase-12+ hygiene sweep. **Ignore the fork CLAUDE.md's 15-min deadman line. Use `~/.claude/identities/tina/deploy-runbook.md` as the authoritative source.**
 
@@ -244,27 +244,27 @@ If Ashley asks "why aren't you arming the deadman before the recreate?" the answ
 **"Batch patches into meaningful deploys — one patch ≠ one deploy."** Ashley called this out 2026-07-23 immediately after patch #135 landed (I keep reflexively recommending a deploy after every single fork patch, and every container recreate kills 20+ live WebSocket sessions across her open fleet). Phase 11 patches (patch #138 for the whole Phase 11 slice) **MUST NOT auto-deploy**. Batch them until:
 
 - **Ashley explicitly says "deploy" for this batch,** OR
-- **A grouped semantic unit is complete** (e.g., Phase 11 + Phase 12 landing together as "the visible-surface purge cluster" — the Phase 11 landing swap + AppRail retirement + Phase 12 dashboard/panel-file deletion + backend-route deletion together tell the "we deleted the Termix client surfaces" story), OR
+- **A grouped semantic unit is complete** (e.g., Phase 11 + Phase 12 landing together as "the visible-surface purge cluster" — the Phase 11 landing swap + AppRail retirement + Phase 12 dashboard/panel-file deletion + backend-route deletion together tell the "we deleted the Skynet client surfaces" story), OR
 - **Something is actively broken in production requiring an emergency patch ship** (Phase 11 doesn't fix anything broken in prod — it removes UI surfaces Ashley never uses — so this scenario does not apply).
 
 **The default answer is HOLD.** Do not treat "code-complete-clean" as "deploy-ready." Patch #138 sits in the batch queue behind whatever Phase 12+ purge patches ship next; the deploy notification to Ashley bundles all Phase 11 + Phase 12 changes into ONE UAT + ONE recreate + ONE pin.
 
 ### CHECK-BEFORE-RECREATE ONE-LINER (from `~/.claude/identities/tina/tina.md` § learned preferences)
 
-Before EVERY `docker compose up -d --force-recreate termix`, grep the compose file image line to catch pre-retirement leftover `sed` or any stale `sleep 900` process that might have rewritten the compose image line back to `ghcr.io/lukegus/termix:latest`:
+Before EVERY `docker compose up -d --force-recreate skynet`, grep the compose file image line to catch pre-retirement leftover `sed` or any stale `sleep 900` process that might have rewritten the compose image line back to `ghcr.io/lukegus/skynet:latest`:
 
 ```
-grep 'image:' /opt/termix/docker-compose.yml | grep -q termix-patched:local || \
-  sudo sed -i 's|image: ghcr.io/lukegus/termix:latest|image: termix-patched:local|' /opt/termix/docker-compose.yml
+grep 'image:' /opt/skynet/docker-compose.yml | grep -q skynet-patched:local || \
+  sudo sed -i 's|image: ghcr.io/lukegus/skynet:latest|image: skynet-patched:local|' /opt/skynet/docker-compose.yml
 ```
 
-Idempotent — no-op when compose is already patched, corrects when it's been reverted. This one-liner is called out here because a naïve `docker compose up -d --force-recreate termix` without this grep can silently ship stock upstream — the container reports healthy because stock IS functional, so there's no failure signal. That's the trap that bit patches #43 and #69 pre-retirement, and it stays a risk post-retirement because manual sed mistakes and any leftover pre-retirement `sleep 900` background processes could still rewrite the compose file. **Survived deadman retirement, stays in force per `~/.claude/identities/tina/tina.md` § learned preferences.**
+Idempotent — no-op when compose is already patched, corrects when it's been reverted. This one-liner is called out here because a naïve `docker compose up -d --force-recreate skynet` without this grep can silently ship stock upstream — the container reports healthy because stock IS functional, so there's no failure signal. That's the trap that bit patches #43 and #69 pre-retirement, and it stays a risk post-retirement because manual sed mistakes and any leftover pre-retirement `sleep 900` background processes could still rewrite the compose file. **Survived deadman retirement, stays in force per `~/.claude/identities/tina/tina.md` § learned preferences.**
 
 ### ASHLEY PRE-WARN — first hard-refresh may white-screen
 
 Per `~/.claude/identities/tina/tina.md` § learned preferences (2026-07-23, learned on the #131-#134 deploy during patch #133 write-up):
 
-> After `docker compose up -d --force-recreate termix`, the FIRST hard-refresh may white-screen with `net::ERR_HTTP2_PROTOCOL_ERROR` on chunk loads. **The fix is close+reopen the tab, NOT a real deploy failure.** Symptom: two specific chunks (in Ashley's case `codemirror-*.js` + `file-preview-vendor-*.js`) fail with HTTP2_PROTOCOL_ERROR → white screen. Root cause: Caddy holds persistent upstream connections to the termix container; when the container dies mid-fetch during recreate, the browser's existing H2 stream to Caddy sees the upstream fail and marks the stream broken client-side. Fix = close and reopen the tab (spawns a fresh H2 connection).
+> After `docker compose up -d --force-recreate skynet`, the FIRST hard-refresh may white-screen with `net::ERR_HTTP2_PROTOCOL_ERROR` on chunk loads. **The fix is close+reopen the tab, NOT a real deploy failure.** Symptom: two specific chunks (in Ashley's case `codemirror-*.js` + `file-preview-vendor-*.js`) fail with HTTP2_PROTOCOL_ERROR → white screen. Root cause: Caddy holds persistent upstream connections to the skynet container; when the container dies mid-fetch during recreate, the browser's existing H2 stream to Caddy sees the upstream fail and marks the stream broken client-side. Fix = close and reopen the tab (spawns a fresh H2 connection).
 
 **When the deploy actually happens, PRE-WARN Ashley in the deploy notification message** that the first hard-refresh may white-screen and the fix is close+reopen. Do NOT jump to rollback on the first PROTOCOL_ERROR report. Verify chunks reachable from tailnet first (curl them from the box), then guide her through the tab-close-and-reopen.
 
@@ -275,15 +275,15 @@ Per `~/.claude/identities/tina/deploy-runbook.md` steps 1-8. Summary in this ord
 1. **Apply + commit + push + build** — per deploy-runbook step 1. `git push` BEFORE build. The build script clones from GitHub; local-only commits cache-hit the frontend-builder layer. This is the trap that bit patches #43 and #69.
 2. **Ask Ashley for explicit go-ahead for THIS deploy window.** A distinct green light, not carried over from any earlier "go for it" that authorized the code change. Every build → deploy transition is a new "may I?" moment.
 3. **Run the check-before-recreate one-liner** (see above).
-4. `cd /opt/termix && sudo docker compose up -d --force-recreate termix`
-5. **Wait for `(healthy)`** — should be within 30s. Corroborate the patch shipped by grepping the deployed dist for the patch's signature bytes: `docker exec termix grep -c 'PrettyLandingCard' /app/html/assets/*.js` should return ≥ 1 (if not, the frontend build layer cache-hit and stock shipped — rollback + re-push + re-build).
+4. `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`
+5. **Wait for `(healthy)`** — should be within 30s. Corroborate the patch shipped by grepping the deployed dist for the patch's signature bytes: `docker exec skynet grep -c 'PrettyLandingCard' /app/html/assets/*.js` should return ≥ 1 (if not, the frontend build layer cache-hit and stock shipped — rollback + re-push + re-build).
 6. **PRE-WARN Ashley in the deploy DM** about the first-hard-refresh white-screen risk; tell her the fix is close+reopen the tab.
-7. **Tell Ashley to test** by walking this checklist. On her "pin it" reply: paste `.planning/phases/11-.../11-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md`, bump the header count, commit the pin (`docs(patches): pin patch #138 — Skynet transformation first slice`).
-8. **If broken**: manual rollback per deploy-runbook.md step 8 — `sudo sed -i 's|image: termix-patched:local|image: ghcr.io/lukegus/termix:latest|' /opt/termix/docker-compose.yml && cd /opt/termix && sudo docker compose up -d --force-recreate termix`. Then investigate.
+7. **Tell Ashley to test** by walking this checklist. On her "pin it" reply: paste `.planning/phases/11-.../11-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md`, bump the header count, commit the pin (`docs(patches): pin patch #138 — Skynet transformation first slice`).
+8. **If broken**: manual rollback per deploy-runbook.md step 8 — `sudo sed -i 's|image: skynet-patched:local|image: ghcr.io/lukegus/skynet:latest|' /opt/skynet/docker-compose.yml && cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`. Then investigate.
 
 ---
 
-*Phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice*
+*Phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice*
 *Checklist generated: 2026-07-23 (Plan 04 automation)*
 *Design source-of-truth: `.planning/phases/11-.../11-CONTEXT.md` (LOCKED) + `~/.claude/identities/tina/tina.md` § Skynet direction*
 *Deploy source-of-truth: `~/.claude/identities/tina/deploy-runbook.md` (post-2026-07-21)*

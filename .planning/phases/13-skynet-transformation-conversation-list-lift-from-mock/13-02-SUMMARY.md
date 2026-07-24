@@ -31,7 +31,7 @@ decisions:
   - "Kept the header container's `shrink-0` utility class alongside the new `pv-panel-header` class. `pv-panel-header` handles display/padding/border/justify-content per the mock, but `shrink-0` defends against parent-flex shrinking (unchanged from the pre-Phase-13 behavior). Simpler than moving `flex-shrink: 0` into the CSS file where it would apply to every consumer."
   - "For AppShell chevron, chose the inline Tailwind palette-token utility form (`text-[color:var(--color-pv-fg-muted)]`) over the shared `.pv-pencil` CSS class. Both are called out as acceptable in the plan — inline form was chosen because AppShell is far from pretty-conversations.css conceptually and the palette-token references make the color contract explicit at the call site."
   - "Unwrapped the inner `<div className='flex items-center gap-1'>` around the pencil button. The plan noted this wrapper was 'historical' and 'Simpler is better; unwrap if only one control exists.' Pencil is the only right-side control; wrapper unwrapped."
-  - "Retired the exact-value comment describing what was retired (`bg-[rgba(20,22,28,0.85)]` etc.) in the AppShell JSDoc block. Kept a semantic description of the retired treatment ('opaque rgba fill + backdrop-blur + white-alpha border + drop shadow + Termix muted-foreground text') so the intent is documented without tripping the plan's post-condition grep."
+  - "Retired the exact-value comment describing what was retired (`bg-[rgba(20,22,28,0.85)]` etc.) in the AppShell JSDoc block. Kept a semantic description of the retired treatment ('opaque rgba fill + backdrop-blur + white-alpha border + drop shadow + Skynet muted-foreground text') so the intent is documented without tripping the plan's post-condition grep."
   - "No changes to pretty-conversations.css — parallel-safety guarantee with 13-03. Wave 1 already declared every selector this task needed (`.pv-panel-header`, `.pv-title`, `.pv-pencil`, `.pv-pencil svg`, hover treatment, cursor + user-select + tap-highlight-color); this plan just consumes them."
 requirements_completed: [SHAPE-02, SHAPE-04]
 metrics:
@@ -48,11 +48,11 @@ metrics:
 
 # Phase 13 Plan 02: Skynet Transformation — Panel Header + AppShell Chevron Lift-from-Mock Summary
 
-**PrettyConversationsPanel header + AppShell sidebar-toggle chevron both rebased to the mock v4 `.pv-panel-header`/`.pv-pencil` aesthetic — 12px UPPERCASE 0.1em-tracked title, 32x32 transparent bare-icon-with-rounded-md buttons, hairline border-bottom via --color-pv-border-quiet; retires Termix filled-glass pill + mixed-case chunky title treatment across two surfaces.**
+**PrettyConversationsPanel header + AppShell sidebar-toggle chevron both rebased to the mock v4 `.pv-panel-header`/`.pv-pencil` aesthetic — 12px UPPERCASE 0.1em-tracked title, 32x32 transparent bare-icon-with-rounded-md buttons, hairline border-bottom via --color-pv-border-quiet; retires Skynet filled-glass pill + mixed-case chunky title treatment across two surfaces.**
 
 ## One-Liner
 
-Header + chevron now look like the mock: transparent bare-icon buttons in `--color-pv-fg-muted`, UPPERCASE 12px 0.1em-tracked title in `--color-pv-fg`, hairline border-bottom. Retired: 34x34 rounded-full filled-glass pencil pill + 13px mixed-case chunky title (panel) + rgba(20,22,28,0.85) opaque glass + backdrop-blur + white/8% border + drop shadow + `text-muted-foreground` Termix theme (chevron).
+Header + chevron now look like the mock: transparent bare-icon buttons in `--color-pv-fg-muted`, UPPERCASE 12px 0.1em-tracked title in `--color-pv-fg`, hairline border-bottom. Retired: 34x34 rounded-full filled-glass pencil pill + 13px mixed-case chunky title (panel) + rgba(20,22,28,0.85) opaque glass + backdrop-blur + white/8% border + drop shadow + `text-muted-foreground` Skynet theme (chevron).
 
 ## Performance
 
@@ -65,7 +65,7 @@ Header + chevron now look like the mock: transparent bare-icon buttons in `--col
 ## Accomplishments
 
 - PrettyConversationsPanel header renders the mock's `.pv-panel-header` (14px 16px padding + hairline border-bottom + display:flex + justify-content:space-between), `.pv-title` (12px + 700 + 0.1em + UPPERCASE + `--color-pv-fg`), and `.pv-pencil` (32x32 + transparent bg + transparent border + 8px radius + `--color-pv-fg-muted` icon + `rgba(220,225,245,0.06)` hover) treatment
-- AppShell top-left persistent sidebar-toggle chevron rebased from Termix filled-glass pill (`bg-[rgba(20,22,28,0.85)]` + `backdrop-blur-[10px]` + `border-white/[0.08]` + `shadow-[0_2px_8px]` + `text-muted-foreground`) to mock's transparent bare-icon-with-rounded-md aesthetic (matches Task 1's panel-header pencil visually)
+- AppShell top-left persistent sidebar-toggle chevron rebased from Skynet filled-glass pill (`bg-[rgba(20,22,28,0.85)]` + `backdrop-blur-[10px]` + `border-white/[0.08]` + `shadow-[0_2px_8px]` + `text-muted-foreground`) to mock's transparent bare-icon-with-rounded-md aesthetic (matches Task 1's panel-header pencil visually)
 - All 14 PrettyConversationsPanel tests still pass with updated assertions on the new mock's markup structure — old assertions on `text-[13px] font-semibold` + `w-[34px] h-[34px] rounded-full bg-white/[0.04]` retired
 - Chevron edit strictly scoped to L1407-1479 — `git diff --stat src/ui/AppShell.tsx` confirms 15 insertions + 4 deletions, all within the chevron block
 - Scroll region + empty state + NewSessionDialog wiring in PrettyConversationsPanel preserved verbatim (no touch of lines 275-410 area)
@@ -92,14 +92,14 @@ Plan-suggested atomic split (2 commits for Task 1 source + test, 1 commit for Ta
 - **Retain-shrink-0-only-defence:** Header container keeps `shrink-0` alongside the new `pv-panel-header` class. `shrink-0` defends against parent-flex shrinking (unchanged behavior from pre-Phase-13); all other layout comes from the CSS class. Simpler than moving `flex-shrink: 0` into the CSS file where it would apply to every consumer.
 - **Inline Tailwind palette-token form on AppShell (not shared `.pv-pencil` class):** Plan explicitly allowed either. Chose inline form because AppShell is conceptually far from `pretty-conversations` and the explicit palette-token references at the call site make the color contract self-documenting. Cost: three `hover:` utilities × three tokens vs. one class name. Benefit: no coupling between AppShell shell chrome and a CSS class named after the panel's pencil affordance.
 - **Unwrap inner `<div className='flex items-center gap-1'>` around the pencil:** Plan's "Simpler is better; unwrap if only one control exists" applied — pencil is the only right-side control now (gear removed in patch #133). Wrapper removed, pencil placed as direct sibling of the title/aria-hidden span.
-- **Retire exact-string comment mentions of the retired classes in AppShell JSDoc:** First pass documented retirement using the exact class strings (`bg-[rgba(20,22,28,0.85)]` etc.) which tripped the plan's post-condition grep (grep can't distinguish comment vs code). Rewrote the comment to describe retired treatment semantically ("opaque rgba fill + backdrop-blur + white-alpha border + drop shadow + Termix muted-foreground text") — grep gate now green, intent still documented.
+- **Retire exact-string comment mentions of the retired classes in AppShell JSDoc:** First pass documented retirement using the exact class strings (`bg-[rgba(20,22,28,0.85)]` etc.) which tripped the plan's post-condition grep (grep can't distinguish comment vs code). Rewrote the comment to describe retired treatment semantically ("opaque rgba fill + backdrop-blur + white-alpha border + drop shadow + Skynet muted-foreground text") — grep gate now green, intent still documented.
 - **No CSS file touch:** Wave 1's `pretty-conversations.css` already declared `.pv-panel-header` with `justify-content: space-between`, `.pv-pencil` with all needed states + hover + `-webkit-tap-highlight-color`, `.pv-pencil svg` with 18x18. Verified before starting Task 1; no CSS augmentation needed. Parallel-safety with 13-03 preserved.
 
 ## Deviations from Plan
 
 None. All work stayed within the class-toggle-state-variant architecture Ashley locked in `13-CONTEXT.md`, and the plan's suggested commit split (2 for Task 1 source+test, 1 for Task 2) was followed exactly.
 
-The plan's post-condition grep for AppShell's chevron block briefly tripped after the first pass because the initial JSDoc revision mentioned exact retired class strings (`bg-[rgba(20,22,28,0.85)]` etc.) inside a `{/* */}` comment. The grep uses `grep -vE '^\s*//'` to filter only `//` line comments and can't distinguish JSX block comments. This is a comment-only concern (not a code-behavior concern), and was resolved by rewriting the JSDoc to describe the retired treatment semantically ("opaque rgba fill + backdrop-blur + white-alpha border + drop shadow + Termix muted-foreground text") rather than by exact class strings. Documented here as a note rather than as a deviation because no functional behavior changed and no rule was triggered.
+The plan's post-condition grep for AppShell's chevron block briefly tripped after the first pass because the initial JSDoc revision mentioned exact retired class strings (`bg-[rgba(20,22,28,0.85)]` etc.) inside a `{/* */}` comment. The grep uses `grep -vE '^\s*//'` to filter only `//` line comments and can't distinguish JSX block comments. This is a comment-only concern (not a code-behavior concern), and was resolved by rewriting the JSDoc to describe the retired treatment semantically ("opaque rgba fill + backdrop-blur + white-alpha border + drop shadow + Skynet muted-foreground text") rather than by exact class strings. Documented here as a note rather than as a deviation because no functional behavior changed and no rule was triggered.
 
 ## Issues Encountered
 
@@ -171,7 +171,7 @@ This plan's execution makes Wave 3 (13-03 PinAction rewrite) and Wave 4 (13-04 p
 
 None require sibling bounties. Everything in this plan flows through the master `skynet-transformation` bounty:
 
-- The AppShell shell chrome outside the chevron (`className="flex w-screen bg-background"` outer wrapper on L1400, the `100dvh` + `paddingTop` safe-area logic) still uses Termix theme classes. Ashley's SHAPE-04 description explicitly limited SHAPE-04 to "the chevron area only"; broader shell-chrome rebase would be a future patch if it turns out to matter for the visual match. Deferred candidate for the master bounty timeline, NOT a sibling bounty.
+- The AppShell shell chrome outside the chevron (`className="flex w-screen bg-background"` outer wrapper on L1400, the `100dvh` + `paddingTop` safe-area logic) still uses Skynet theme classes. Ashley's SHAPE-04 description explicitly limited SHAPE-04 to "the chevron area only"; broader shell-chrome rebase would be a future patch if it turns out to matter for the visual match. Deferred candidate for the master bounty timeline, NOT a sibling bounty.
 - The 2 pre-existing ComposeBox test failures (`Test :send-yes | send-no` in `src/ui/features/pretty-view/ComposeBox.test.tsx`) are baseline flakes / regressions from an earlier phase, not caused by this plan. If they matter, they belong in a fresh bounty (compose-box test-suite hygiene) — SHAPE-06 lockout keeps them out of the Ship-of-Theseus scope, but they COULD be resolved by a `/gsd:quick`-style fix if Ashley cares. Not this plan's problem.
 
 ## Self-Check: PASSED

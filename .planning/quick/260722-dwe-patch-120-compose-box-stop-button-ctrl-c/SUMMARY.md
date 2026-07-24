@@ -65,7 +65,7 @@ post-deploy UAT.
 
 ## Patches doc
 
-`~/.claude/identities/tina/termix-patches.md` updated:
+`~/.claude/identities/tina/skynet-patches.md` updated:
 - Header patch count bumped `ONE HUNDRED NINETEEN` → `ONE HUNDRED TWENTY`.
 - Full per-patch entry #120 added after #119, matching the style of
   #117/#118/#119 entries (motivating gap, fix summary, fallback,

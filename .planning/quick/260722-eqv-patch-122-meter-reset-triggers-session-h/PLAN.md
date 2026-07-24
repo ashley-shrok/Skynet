@@ -369,7 +369,7 @@ line 436–447):**
 
 ## Verification steps
 
-1. `cd ~/termix && npx tsc --noEmit` — MUST be clean (no type errors
+1. `cd ~/skynet && npx tsc --noEmit` — MUST be clean (no type errors
    introduced by the new props or state additions).
 2. `git diff --stat` — expect exactly 3 files changed:
    `ComposeBox.tsx`, `PrettyView.tsx`, `SessionHoldingOverlay.tsx`.

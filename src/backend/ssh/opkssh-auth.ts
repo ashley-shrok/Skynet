@@ -69,7 +69,7 @@ async function createTemplateConfig(): Promise<void> {
   const template = `
 # OPKSSH Configuration
 # OPKSSH Documentation: https://github.com/openpubkey/opkssh/blob/main/docs/config.md
-# Termix Documentation: https://docs.termix.site/opkssh
+# Skynet Documentation: https://docs.skynet.site/opkssh
 `;
 
   try {
@@ -180,7 +180,7 @@ async function checkOPKConfigExists(): Promise<{
 // OPKSSH's `redirect_uris` field lists candidate LOCAL ports for the callback listener
 // that OPKSSH binds on the host running the binary. The openpubkey library enforces these
 // must be localhost, a non-localhost entry causes ECONNRESET on /select/ at runtime.
-// The publicly registered OAuth redirect URI is what Termix passes via --remote-redirect-uri
+// The publicly registered OAuth redirect URI is what Skynet passes via --remote-redirect-uri
 // (derived from request origin); users do NOT put that URL in this config field.
 function validateRedirectUrisAreLocalhost(
   providers: ProviderRedirectInfo[],
@@ -223,11 +223,11 @@ function validateRedirectUrisAreLocalhost(
         `${issues.join("\n")}\n\n` +
         `This field is OPKSSH's local callback listener, it must be localhost (or omitted to use ` +
         `the defaults http://localhost:3000/login-callback, :10001, :11110). ` +
-        `The public Termix callback URL is supplied automatically by Termix via --remote-redirect-uri; ` +
-        `you do not put it here. Register the PUBLIC Termix URL with your OAuth provider instead ` +
+        `The public Skynet callback URL is supplied automatically by Skynet via --remote-redirect-uri; ` +
+        `you do not put it here. Register the PUBLIC Skynet URL with your OAuth provider instead ` +
         `(e.g. https://your-domain${OPKSSH_CALLBACK_PATH}).\n\n` +
         `Fix: remove the non-localhost entries above, or delete the whole 'redirect_uris' block to use defaults.\n\n` +
-        `Docs: https://docs.termix.site/opkssh`,
+        `Docs: https://docs.skynet.site/opkssh`,
     };
   }
 
@@ -406,11 +406,11 @@ export async function startOPKSSHAuth(
             error:
               `OPKSSH rejected the local callback URI: every entry in 'redirect_uris' must be localhost.\n\n` +
               `OPKSSH output:\n${stderr.trim()}\n\n` +
-              `The 'redirect_uris' config field is OPKSSH's LOCAL listener — it is not the public Termix callback. ` +
+              `The 'redirect_uris' config field is OPKSSH's LOCAL listener — it is not the public Skynet callback. ` +
               `Remove any non-localhost entries from redirect_uris (or delete the whole block to use OPKSSH's ` +
-              `defaults of :3000, :10001, :11110). Register the public Termix callback URL with your OAuth ` +
-              `provider instead, Termix passes it to OPKSSH automatically via --remote-redirect-uri.`,
-            instructions: "See documentation: https://docs.termix.site/opkssh",
+              `defaults of :3000, :10001, :11110). Register the public Skynet callback URL with your OAuth ` +
+              `provider instead, Skynet passes it to OPKSSH automatically via --remote-redirect-uri.`,
+            instructions: "See documentation: https://docs.skynet.site/opkssh",
           }),
         );
         await cleanup();
@@ -443,12 +443,12 @@ export async function startOPKSSHAuth(
             requestId,
             error:
               `OPKSSH or the OAuth provider rejected the redirect URI.\n\n` +
-              `Computed Termix callback URI (sent to provider): ${remoteRedirectUri}\n\n` +
+              `Computed Skynet callback URI (sent to provider): ${remoteRedirectUri}\n\n` +
               `OPKSSH output:\n${stderr.trim()}\n\n` +
               `Register '${remoteRedirectUri}' as an authorized redirect URI with your OAuth provider ` +
               `(e.g. in Google Cloud Console → OAuth client). ` +
               `Also confirm any 'redirect_uris' in your OPKSSH config contain ONLY localhost URLs.`,
-            instructions: "See documentation: https://docs.termix.site/opkssh",
+            instructions: "See documentation: https://docs.skynet.site/opkssh",
           }),
         );
         await cleanup();

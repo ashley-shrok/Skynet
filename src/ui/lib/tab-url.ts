@@ -1,5 +1,5 @@
 // URL-encoded workspace addressing so Chrome tab-restore preserves the
-// full Termix tab set in each browser tab. See patches #25 (single tab),
+// full Skynet tab set in each browser tab. See patches #25 (single tab),
 // #34 (only=1 marker), #35 (multi-tab).
 //
 // State lives in the URL FRAGMENT (hash), NOT the query string. Chrome's
@@ -38,7 +38,7 @@
 
 import type { TabType } from "@/types/ui-types";
 
-const STORAGE_KEY = "termix_pending_tab";
+const STORAGE_KEY = "skynet_pending_tab";
 
 export interface TabSpec {
   protocol: "tmux" | "terminal" | "rdp" | "vnc" | "telnet";
@@ -167,7 +167,7 @@ function readTabPayloadFromUrl(): string | null {
 // Called at module load in main.tsx BEFORE the React tree renders. Reads the
 // URL and stashes into sessionStorage so it survives every downstream
 // replaceState (auth flow, OIDC, etc.). sessionStorage is per-Chrome-tab, so a
-// browser with N Termix tabs open holds N independent pending workspaces.
+// browser with N Skynet tabs open holds N independent pending workspaces.
 export function snapshotPendingTab(): void {
   if (typeof window === "undefined") return;
   try {

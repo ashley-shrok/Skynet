@@ -264,7 +264,7 @@ handling semantics change that would need Ashley's approval).
 **Task 2 (Ashley's live UAT human-verify checkpoint) — REQUIRES:**
 
 1. Waves 1-3 deployed to a runnable instance (either `npm run dev` locally
-   or `docker compose up -d --force-recreate termix` to term.gigaashley.click
+   or `docker compose up -d --force-recreate skynet` to term.gigaashley.click
    with the 15-min deadman rollback armed)
 2. Ashley visits the running app on:
    - Desktop browser (Chrome / Safari on her laptop)

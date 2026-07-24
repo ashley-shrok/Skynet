@@ -1,6 +1,6 @@
 export function getBasePath(): string {
   const runtime = (window as unknown as Record<string, unknown>)
-    .__TERMIX_BASE_PATH__ as string | undefined;
+    .__SKYNET_BASE_PATH__ as string | undefined;
   if (runtime) {
     return runtime.endsWith("/") ? runtime.slice(0, -1) : runtime;
   }

@@ -1,5 +1,5 @@
 ---
-phase: 11-skynet-transformation-purge-dead-termix-surfaces-first-slice
+phase: 11-skynet-transformation-purge-dead-skynet-surfaces-first-slice
 verified: 2026-07-23T00:00:00Z
 status: human_needed
 score: 6/6 must-haves verified (automated); 3 items require human UAT
@@ -10,20 +10,20 @@ re_verification:
 gaps: []
 deferred: []
 human_verification:
-  - test: "Desktop fresh page-load (Chrome + Safari, wide window ≥1400px, no URL hash-fragment): visible top-level surface is the pretty-conversations sidebar + PrettyView chat surface (PrettyLandingCard empty-state) — NOT the Termix dashboard or any prior Termix landing UI. Also probe #hosts / #admin / #snippets / #dashboard direct URLs: none render a dead-surface panel."
+  - test: "Desktop fresh page-load (Chrome + Safari, wide window ≥1400px, no URL hash-fragment): visible top-level surface is the pretty-conversations sidebar + PrettyView chat surface (PrettyLandingCard empty-state) — NOT the Skynet dashboard or any prior Skynet landing UI. Also probe #hosts / #admin / #snippets / #dashboard direct URLs: none render a dead-surface panel."
     expected: "Landing surface = pretty-conversations panel (left) + PrettyLandingCard warm-glass idle card (main pane). Direct hash-fragment nav lands on either 404-equivalent OR PrettyLandingCard fallback (both acceptable per Plan 04 checker W-4)."
     why_human: "Fresh-load visual rendering + runtime hash-fragment probes cannot be observed by static grep. See 11-UAT-CHECKLIST.md Desktop items 1, 9. Contract is what does NOT render (dead-surface panel), which requires a live DOM."
   - test: "RDP click-through: on a live tenant with an RDP-enabled host, click the RDP-host-sentinel row in the pretty-conversations sidebar; a Guacamole pane opens and remote desktop is usable."
     expected: "Guacamole pane opens and connects to guacd, remote desktop is interactive (mouse + keyboard + screen render) — identical to pre-Phase-11 behavior."
     why_human: "Automated tests can verify the onRdpRowClick handler is bound (they do — see G16 gate, hit count 1) but cannot verify live guacd session established + remote desktop actually usable. See 11-UAT-CHECKLIST.md Desktop item 6 + Cross-viewport item 3."
-  - test: "Mobile fresh page-load (iOS Safari or Skynet PWA reinstall): landing surface is the pretty-conversations list view with mobile back-button flow to PrettyView chat surface unchanged. No SettingsRow at bottom of list. iOS PWA safe-area colors follow --color-pv-* palette (not Termix dark-mode)."
+  - test: "Mobile fresh page-load (iOS Safari or Skynet PWA reinstall): landing surface is the pretty-conversations list view with mobile back-button flow to PrettyView chat surface unchanged. No SettingsRow at bottom of list. iOS PWA safe-area colors follow --color-pv-* palette (not Skynet dark-mode)."
     expected: "Mobile landing = pretty-conversations list. Tap-row navigates to view screen; back-button returns to list. No gear icon, no settings surface, no bottom nav bar. Safe-area color aligns with pretty-view palette."
     why_human: "Mobile viewport rendering + touch-flow behavior requires a real touchscreen or emulator with PWA install. See 11-UAT-CHECKLIST.md Mobile items 1-7."
 ---
 
-# Phase 11: Skynet transformation — purge dead Termix surfaces (first slice) Verification Report
+# Phase 11: Skynet transformation — purge dead Skynet surfaces (first slice) Verification Report
 
-**Phase Goal:** Desktop's landing surface renders the pretty-conversations panel + PrettyView chat surface on session load (NOT the Termix dashboard), and the left AppRail — its file plus every reference — is deleted from AppShell so the Termix dashboard, host manager UI, snippets manager, admin console, and any settings surfaces reachable via the AppRail become unreachable from the UI. The invisible-shell technical capability (tab plumbing, terminal renderer, RDP/VNC panes, host CRUD BACKEND API + encrypted-SQLite data layer) is untouched.
+**Phase Goal:** Desktop's landing surface renders the pretty-conversations panel + PrettyView chat surface on session load (NOT the Skynet dashboard), and the left AppRail — its file plus every reference — is deleted from AppShell so the Skynet dashboard, host manager UI, snippets manager, admin console, and any settings surfaces reachable via the AppRail become unreachable from the UI. The invisible-shell technical capability (tab plumbing, terminal renderer, RDP/VNC panes, host CRUD BACKEND API + encrypted-SQLite data layer) is untouched.
 
 **Verified:** 2026-07-23 (HEAD `a17db3f` on branch `feat/tab-title-from-tmux`)
 **Status:** human_needed (all automated gates PASS; three runtime UAT items remain for Ashley's walkthrough)
@@ -35,9 +35,9 @@ human_verification:
 
 | # | Success Criterion | Verdict | Evidence |
 |---|-------------------|---------|----------|
-| 1 | Desktop fresh page-load w/o hash-fragment renders pretty-conversations panel + PrettyView, NOT Termix dashboard | PASS (automated) — runtime UAT deferred | `tabUtils.tsx:187-194` `case "dashboard": return <PrettyLandingCard />;`. Initial tab seed at `AppShell.tsx:175-183` uses `type: "dashboard"` (load-bearing) with `label: t("nav.conversations.title", …)`. Zero `DashboardTab` imports in tabUtils/AppShell. Ashley's post-deploy visual walk is the final gate (see human_verification #1). |
+| 1 | Desktop fresh page-load w/o hash-fragment renders pretty-conversations panel + PrettyView, NOT Skynet dashboard | PASS (automated) — runtime UAT deferred | `tabUtils.tsx:187-194` `case "dashboard": return <PrettyLandingCard />;`. Initial tab seed at `AppShell.tsx:175-183` uses `type: "dashboard"` (load-bearing) with `label: t("nav.conversations.title", …)`. Zero `DashboardTab` imports in tabUtils/AppShell. Ashley's post-deploy visual walk is the final gate (see human_verification #1). |
 | 2 | AppRail file + imports gone; tsc clean; test suite green | PASS | `ls src/ui/sidebar/AppRail.tsx` → No such file (deleted commit `c386068`). `grep -rn "AppRail" src/ --include=*.ts --include=*.tsx` returns 8 hits, ALL inside `//` or `{/* */}` comments (verified line-by-line at AppShell.tsx:20,53,78,230,1081,1499 and PrettyConversationsPanel.tsx:23,118). Zero code-line hits. Build-verify §1 tsc exit 0; §2 vitest 524/526 (2 pre-existing ComposeBox baseline failures, zero net-new). |
-| 3 | No visible UI navigation path from fresh landing to Termix dashboard/host manager/snippets/admin/settings | PASS (automated) — runtime UAT deferred | `AppShell.tsx` grep: zero `<AppRail`, zero `<SettingsRow`, zero non-comment `railView`/`handleRailClick`/`editHostInManager`/`openSingletonTab`/`profileDropdownOpen`. `sidebarPanelContent` at 1317-1361 mounts `<PrettyConversationsPanel />` unconditionally as sole child. 11 sibling `{railView === "X"}` conditionals eliminated. Hash-fragment probe outcome deferred to human_verification #1. |
+| 3 | No visible UI navigation path from fresh landing to Skynet dashboard/host manager/snippets/admin/settings | PASS (automated) — runtime UAT deferred | `AppShell.tsx` grep: zero `<AppRail`, zero `<SettingsRow`, zero non-comment `railView`/`handleRailClick`/`editHostInManager`/`openSingletonTab`/`profileDropdownOpen`. `sidebarPanelContent` at 1317-1361 mounts `<PrettyConversationsPanel />` unconditionally as sole child. 11 sibling `{railView === "X"}` conditionals eliminated. Hash-fragment probe outcome deferred to human_verification #1. |
 | 4 | Backend `/host/db/*` and `/identities/*` untouched; no backend route deletion | PASS | `git diff b19fc20^..HEAD -- src/backend/` returns empty. `git log --name-only HEAD~14..HEAD \| grep ^src/backend/` = 0 files. Full Phase 11 commit range (14 commits from b19fc20 to a17db3f) touches zero backend files. Build-verify §5 G17 gate confirms. |
 | 5 | RDP/VNC/Guacamole sessions launch + render as before; RDP-host-sentinel row opens Guacamole | PASS (automated) — live RDP click-through deferred | `grep -c 'case "rdp"' src/` = 6 (baseline unchanged from Phase 10 tip: main.tsx:84, backend/guacamole/routes.ts:88/277/389, tabUtils.tsx:93/261). `grep -c "onRdpRowClick" src/ui/AppShell.tsx` = 1 (handler mounted with full body at 1350-1357). PrettyConversationsPanel.tsx:107,135,178-179 wires row → onRdpRowClick. Live guacd session verification requires runtime (human_verification #2). |
 | 6 | Mobile landing = pretty-conversations panel; mobile back-button flow to PrettyView unchanged | PASS (automated) — runtime UAT deferred | `AppShell.tsx:1321` mounts `<PrettyConversationsPanel variant={isMobile ? "mobile" : "desktop"} …>` with `onConversationSelected={isTouchDevice ? () => navigateToView() : undefined}` — the Phase 10 mobile list→view flow untouched. No SettingsRow at bottom of mobile list (SettingsRow.tsx deleted commit `c3c84be`; `settingsRowSlot` prop removed from PrettyConversationsPanel signature + JSX). Test suite passes at baseline. Live mobile viewport verification deferred to human_verification #3. |
@@ -122,7 +122,7 @@ Three runtime observations remain — all intrinsic to the phase goal (visual re
 #### 1. Desktop fresh page-load + hash-fragment probes
 
 **Test:** Chrome + Safari at ≥1400px wide, fresh page-load with no URL hash. Then probe direct URLs `#hosts`, `#admin`, `#snippets`, `#dashboard`.
-**Expected:** Landing surface = pretty-conversations sidebar (left) + PrettyLandingCard warm-glass "Select a conversation" idle card (main pane). No Termix dashboard, no host manager panel, no admin panel visible. Direct hash-fragment nav lands on either 404-equivalent OR PrettyLandingCard fallback (both acceptable per Plan 04 checker W-4). Dead-surface panel must NOT render.
+**Expected:** Landing surface = pretty-conversations sidebar (left) + PrettyLandingCard warm-glass "Select a conversation" idle card (main pane). No Skynet dashboard, no host manager panel, no admin panel visible. Direct hash-fragment nav lands on either 404-equivalent OR PrettyLandingCard fallback (both acceptable per Plan 04 checker W-4). Dead-surface panel must NOT render.
 **Why human:** Runtime DOM composition and fragment-routing behavior are not observable by static grep. Automated evidence proves the code paths are wired correctly and the dead-surface imports are gone; the live-render observation is the final gate.
 
 #### 2. RDP click-through end-to-end
@@ -134,7 +134,7 @@ Three runtime observations remain — all intrinsic to the phase goal (visual re
 #### 3. Mobile fresh page-load + safe-area check
 
 **Test:** iOS Safari or Skynet PWA (reinstall for safe-area check). Fresh page-load with no URL hash.
-**Expected:** Landing = pretty-conversations list view. Tap-row transitions to view screen; browser/PWA back-button returns to list. No gear icon, no settings surface, no bottom nav bar, no SettingsRow at bottom of list. iOS PWA safe-area color follows --color-pv-* palette (not Termix dark-mode `--background`).
+**Expected:** Landing = pretty-conversations list view. Tap-row transitions to view screen; browser/PWA back-button returns to list. No gear icon, no settings surface, no bottom nav bar, no SettingsRow at bottom of list. iOS PWA safe-area color follows --color-pv-* palette (not Skynet dark-mode `--background`).
 **Why human:** Mobile viewport rendering + touch-flow behavior + PWA safe-area color require a real touchscreen/emulator with PWA install. Documented in 11-UAT-CHECKLIST.md Mobile items 1-7.
 
 ### Gaps Summary

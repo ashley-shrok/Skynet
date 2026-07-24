@@ -1,11 +1,11 @@
-# Shape: Pretty session view — a native web chat mode for Claude Code sessions in Termix
+# Shape: Pretty session view — a native web chat mode for Claude Code sessions in Skynet
 
 **Opened:** 2026-07-17
 **Vehicle:** GSD phase (`/gsd:plan-phase` → `/gsd:execute-phase`; requires a one-time GSD bootstrap in the fork worktree first)
 
 ## What this is
 
-A second mode for the top pane of an existing Termix terminal tab that holds a Claude Code session running under tmux. Today that pane is always the raw tmux terminal. This adds a "pretty view" mode: a chat-style rendering of the same session's conversation, backed by the session file Claude Code writes to disk on the remote host. The bottom of the tab keeps the existing message queue drawer, unchanged. A keyboard chord flips the top pane between the two modes. Pretty view has its own inline compose-and-send box for the "reply now" case, distinct from the queue drawer's prep-and-cherry-pick role.
+A second mode for the top pane of an existing Skynet terminal tab that holds a Claude Code session running under tmux. Today that pane is always the raw tmux terminal. This adds a "pretty view" mode: a chat-style rendering of the same session's conversation, backed by the session file Claude Code writes to disk on the remote host. The bottom of the tab keeps the existing message queue drawer, unchanged. A keyboard chord flips the top pane between the two modes. Pretty view has its own inline compose-and-send box for the "reply now" case, distinct from the queue drawer's prep-and-cherry-pick role.
 
 ## Shape
 
@@ -25,7 +25,7 @@ When pretty mode is toggled on a pane that has **no Claude Code process running 
 
 The point isn't a nicer terminal wrapper. It's giving Claude Code a **real native web chat experience** so the user doesn't have to tiptoe around a hostile interface. The daily pain that motivates this:
 
-- Copy requires a Termix-specific keybind (highlight, then press Enter). Not what web users know.
+- Copy requires a Skynet-specific keybind (highlight, then press Enter). Not what web users know.
 - Pastes into Claude Code's input get compressed to "[pasted N lines]" so you can't verify what you actually sent.
 - Click-to-focus a pane accidentally selects one character because the terminal treats every mouse-down as a text-selection start.
 - Reading is cramped, cluttered by tool-call output, and nothing you can select with a normal cursor.
@@ -46,12 +46,12 @@ Anything that dilutes "real native web chat experience" — rendering conversati
 
 ## Prior context
 
-- The **queue drawer** is a shipped feature (Termix patches 39–41). It handles async prep of multiple messages that the user cherry-picks to send. Its send mechanism (the message text followed by an Enter as two separate input events 60ms apart, to defeat bracketed-paste batching in Ink UIs) is proven — pretty view's compose box uses the exact same path.
-- Termix already renders Claude Code sessions in tmux panes inside terminal tabs on the browser. This has been the workflow for months. The user's daily Termix use is dominated by these Claude Code tabs.
+- The **queue drawer** is a shipped feature (Skynet patches 39–41). It handles async prep of multiple messages that the user cherry-picks to send. Its send mechanism (the message text followed by an Enter as two separate input events 60ms apart, to defeat bracketed-paste batching in Ink UIs) is proven — pretty view's compose box uses the exact same path.
+- Skynet already renders Claude Code sessions in tmux panes inside terminal tabs on the browser. This has been the workflow for months. The user's daily Skynet use is dominated by these Claude Code tabs.
 - The **claude-code-trace** project (github.com/delexw/claude-code-trace) is a read-only viewer for Claude Code's local session files. It has already worked out the file-format parsing, session-boundary logic, and tail-a-live-session mechanics. The user is **not committed** to using or depending on this project — she surfaced it because the legwork is done there and thought it might save us time. Pretty view may crib whatever parts of it are useful (parsing shape, boundary logic, tail approach) and reimplement anything that's simpler to write ourselves. No obligation to consume it as a library or match its interface.
-- The existing "highlight and press Enter to copy" behavior is one of Termix's own fork patches to tmux copy-mode bindings, not upstream Claude Code. It's an ergonomic wart in the tmux experience that pretty view sidesteps entirely by using native browser text selection.
+- The existing "highlight and press Enter to copy" behavior is one of Skynet's own fork patches to tmux copy-mode bindings, not upstream Claude Code. It's an ergonomic wart in the tmux experience that pretty view sidesteps entirely by using native browser text selection.
 - Multiple Claude Code sessions may run on the same host under different tmux sessions. Pretty view keys off the pane's own tmux session and finds the Claude process running in it, so tabs on the same host don't confuse each other.
-- Termix already has an established fork-patch → build → 15-minute deadman rollback → deploy flow. Every commit landed by this work will go through it.
+- Skynet already has an established fork-patch → build → 15-minute deadman rollback → deploy flow. Every commit landed by this work will go through it.
 
 ## What would make it wrong
 
@@ -91,9 +91,9 @@ The user waved off enumerating failure modes and instead gave a stance — see p
 
 Vehicle is a full GSD phase — `/gsd:plan-phase` → `/gsd:execute-phase` — chosen over plan mode because the patch is large (backend session-file discovery and live tail over the existing SSH exec channel, streaming bridge to the browser, a new pane component with native web semantics, compose box, layout refactor on the existing terminal tab, keyboard chord, likely 500+ lines across many files) and the atomic-commit safety net is worth the ceremony when mid-execute reshaping is likely.
 
-GSD is **not yet bootstrapped** on the fork worktree. First operational step after this shape is to run the GSD bootstrap on `~/termix`, then `/gsd:plan-phase` referencing this shape file. This is the specific-patch justification the identity's standing directive contemplates for the one-time bootstrap cost.
+GSD is **not yet bootstrapped** on the fork worktree. First operational step after this shape is to run the GSD bootstrap on `~/skynet`, then `/gsd:plan-phase` referencing this shape file. This is the specific-patch justification the identity's standing directive contemplates for the one-time bootstrap cost.
 
-Maintainer of the Termix fork is Tina (the current identity on this box). Execution happens on this box against the local fork worktree; commits push to the fork remote. Every deploy along the way is guarded by the mandatory 15-minute deadman rollback timer per Tina's standing DEPLOY DISCIPLINE rule — external to this shape but binding on every commit landed during execute-phase.
+Maintainer of the Skynet fork is Tina (the current identity on this box). Execution happens on this box against the local fork worktree; commits push to the fork remote. Every deploy along the way is guarded by the mandatory 15-minute deadman rollback timer per Tina's standing DEPLOY DISCIPLINE rule — external to this shape but binding on every commit landed during execute-phase.
 
 Close-out at the end via `/close pretty-session-view`.
 
@@ -107,7 +107,7 @@ Close-out at the end via `/close pretty-session-view`.
 
 ### Per-facet
 
-- **What this is** — hit · Second top-pane mode on the existing Termix terminal tab holding a Claude Code session; chat-style rendering backed by the session file on the remote host; drawer preserved; own inline compose distinct from the drawer.
+- **What this is** — hit · Second top-pane mode on the existing Skynet terminal tab holding a Claude Code session; chat-style rendering backed by the session file on the remote host; drawer preserved; own inline compose distinct from the drawer.
 - **Shape (three pieces coexist)** — hit · Terminal is a flex-column with xterm hidden via `display:none` when pretty is on, PrettyView mounted alongside, drawer sibling below — drawer's presence orthogonal to mode.
 - **Shape (tmux is default, no memory)** — hit · Plain useState default false; nothing persists it; every fresh mount lands on tmux.
 - **Shape (keyboard chord flip)** — hit · Ctrl+Shift+O, document capture-phase intercept, layout-independent, matches the established sibling-hooks pattern exactly.

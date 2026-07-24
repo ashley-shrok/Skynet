@@ -1,12 +1,12 @@
-# Draft entry for `~/.claude/identities/tina/termix-patches.md`
+# Draft entry for `~/.claude/identities/tina/skynet-patches.md`
 
 **Patch number placeholder:** `NNN.` — Ashley fills in at pin time. Current top is patch #103 (jump-pill scroll fix, 2026-07-20), so this will most likely be **patch #104** unless something else lands between now and Phase 5 deploy.
 
 **Deploy date placeholder:** `2026-MM-DD` — fill in with the actual deploy date at pin time.
 
 **At pin time:**
-1. Assign patch number (check `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3` for the current top).
-2. Paste the entry below (with number + date filled in) into `~/.claude/identities/tina/termix-patches.md` at the appropriate ordinal position (after patch #103).
+1. Assign patch number (check `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3` for the current top).
+2. Paste the entry below (with number + date filled in) into `~/.claude/identities/tina/skynet-patches.md` at the appropriate ordinal position (after patch #103).
 3. Bump the "ONE HUNDRED THREE numbered patches" count near the top of that file to the new count (e.g. "ONE HUNDRED FOUR").
 4. Commit the pin.
 
@@ -212,41 +212,41 @@ Formatted to match patch #60's canonical multi-file entry style (motivation → 
 
        * **Verify post-deploy invariants** (for future rebase smoke
          checks):
-         - `docker exec termix grep -c 'case "upload_start":' /app/
+         - `docker exec skynet grep -c 'case "upload_start":' /app/
            dist/backend/backend/ssh/terminal.js` should return 1
-         - `docker exec termix grep -c 'case "upload_chunk":' /app/
+         - `docker exec skynet grep -c 'case "upload_chunk":' /app/
            dist/backend/backend/ssh/terminal.js` should return 1
-         - `docker exec termix grep -c 'case "upload_abort":' /app/
+         - `docker exec skynet grep -c 'case "upload_abort":' /app/
            dist/backend/backend/ssh/terminal.js` should return 1
-         - `docker exec termix ls /app/dist/backend/backend/ssh/
+         - `docker exec skynet ls /app/dist/backend/backend/ssh/
            pretty-view-upload.js` should exit 0 (module ships)
-         - `docker exec termix grep -c 'sanitizeFilenameForUpload\|
+         - `docker exec skynet grep -c 'sanitizeFilenameForUpload\|
            handleUploadStart\|handleUploadChunk' /app/dist/backend/
            backend/ssh/pretty-view-upload.js` should return ≥ 3
            (orchestrator exports reachable)
-         - `docker exec termix grep -c 'message_queue_delete_on_
+         - `docker exec skynet grep -c 'message_queue_delete_on_
            send' /app/dist/backend/backend/ssh/terminal.js` should
            return ≥ 1 (patch #60 preserved — atomic delete-on-send
            byte still there)
-         - `docker exec termix grep -c 'ssh_input_delayed_enter' /
+         - `docker exec skynet grep -c 'ssh_input_delayed_enter' /
            app/dist/backend/backend/ssh/terminal.js` should return
            ≥ 1 (patch #100 preserved — split-and-delay Enter byte
            still there)
-         - `docker exec termix grep -c '\-\-\- attached files \-\-\-'
+         - `docker exec skynet grep -c '\-\-\- attached files \-\-\-'
            /app/dist/assets/*.js` should return ≥ 1 (INJECTED_
            DELIMITER constant survived Vite tree-shake)
-         - `docker exec termix grep -c 'webkitGetAsEntry' /app/dist/
+         - `docker exec skynet grep -c 'webkitGetAsEntry' /app/dist/
            assets/*.js` should return ≥ 1 (folder-detection code
            shipped)
-         - `docker exec termix grep -c 'Drop files here' /app/dist/
+         - `docker exec skynet grep -c 'Drop files here' /app/dist/
            assets/*.js` should return ≥ 1 (DropOverlay visible-text
            shipped)
-         - `docker exec termix grep -c '/compose-drafts' /app/dist/
+         - `docker exec skynet grep -c '/compose-drafts' /app/dist/
            assets/*.js` should return ≥ 1 (patch #57 compose-drafts
            persistence still wired — function names are mangled
            by Terser, so the correct post-tree-shake gate is the
            URL literal, not `putComposeDraft`)
-         - `docker exec termix grep -c 'pointer: coarse' /app/dist/
+         - `docker exec skynet grep -c 'pointer: coarse' /app/dist/
            assets/*.js` should return ≥ 1 (patch #102 useIsTouchDevice
            matchMedia query still there)
 
@@ -366,8 +366,8 @@ Formatted to match patch #60's canonical multi-file entry style (motivation → 
          (rides existing `/ssh/websocket/` — no new backend HTTP
          or WS route was added, so the fork's "location block on
          both nginx configs" trap does NOT apply here). Standard
-         `sudo bash /opt/termix/termix-patches/build-termix.sh` +
-         `sudo docker compose up -d --force-recreate termix`
+         `sudo bash /opt/skynet/skynet-patches/build-skynet.sh` +
+         `sudo docker compose up -d --force-recreate skynet`
          inside the arm-deadman → deploy → wait-for-Ashley →
          disarm-or-fire flow documented in `~/.claude/identities/
          tina/deploy-runbook.md`. UAT walkthrough for post-deploy

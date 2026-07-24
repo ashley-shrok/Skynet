@@ -103,7 +103,7 @@ Zero new features. Four coherent deletion commits landed in wave order.
 
 - **`git rm`** on all 12 HostManager subtree files: `HostManager`, `HostManagerData`, `HostManagerTabs`, `HostShareModal`, `HostEditor`, `HostEditorData`, `HostEditorFeatureTabs`, `HostEditorGeneralTab`, `HostEditorGuacamoleTabs`, `HostEditorStatsTab`, `HostCredentialList`, `CredentialEditorView` — a combined 6082 dead lines.
 - **`src/types/index.ts`** — removed 2 orphaned prop-interface declarations (`HostManagerProps` + `SSHManagerHostEditorProps`, 16 lines total) that named deleted components with zero external consumers (Rule 1 auto-fix — dead type declarations).
-- **`src/ui/AppShell.tsx`** — stale single-line comment "Let HostManager trigger tab opens via custom event" (line 720) updated to generic wording — the underlying `termix:open-tab` event listener is unchanged.
+- **`src/ui/AppShell.tsx`** — stale single-line comment "Let HostManager trigger tab opens via custom event" (line 720) updated to generic wording — the underlying `skynet:open-tab` event listener is unchanged.
 
 ### Task 4 — SidebarTree.tsx atomic delete (commit `8d46043`)
 
@@ -185,8 +185,8 @@ Zero new features. Four coherent deletion commits landed in wave order.
 - **Found during:** Tasks 1 and 3 — strict identifier-survivor greps flagged residual mentions of deleted panels/components inside `//` and `{/* */}` comment blocks.
 - **Issue:** Two stale comment blocks in `src/ui/AppShell.tsx`:
   1. Lines 1607-1616 — JSX block comment inside the tab-strip container referenced (now-deleted) `SplitScreenPanel` as still using `splitTabQuick / addTabToSplit / removeTabFromSplit`.
-  2. Line 720 — line comment "Let HostManager trigger tab opens via custom event" — the `HostManager` component is gone, but the underlying `termix:open-tab` event bridge is retained and generic.
-- **Fix:** Rewrote both comment blocks to remove references to deleted symbols. Comment (1) trimmed by 1 sentence; comment (2) rewritten as "Custom event bridge: any surface can request a tab open via termix:open-tab".
+  2. Line 720 — line comment "Let HostManager trigger tab opens via custom event" — the `HostManager` component is gone, but the underlying `skynet:open-tab` event bridge is retained and generic.
+- **Fix:** Rewrote both comment blocks to remove references to deleted symbols. Comment (1) trimmed by 1 sentence; comment (2) rewritten as "Custom event bridge: any surface can request a tab open via skynet:open-tab".
 - **Rationale:** Stale comments naming deleted components are misleading and would fail the strict identifier-survivor grep gates. Applied Rule 1 (bug fix — misleading documentation) within the same atomic commits.
 - **Files modified:** `src/ui/AppShell.tsx` (both comments touched in the same task-appropriate commits — SplitScreenPanel-cleanup in Task 1's `fc283d2`; HostManager-cleanup in Task 3's `4080e9f`).
 

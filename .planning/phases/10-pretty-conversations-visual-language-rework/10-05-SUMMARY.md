@@ -162,11 +162,11 @@ All 5 waves shipped:
 **What's next (after Ashley greenlights):**
 
 1. Push `feat/tab-title-from-tmux` to origin.
-2. Build the image on the deploy host (`sudo docker build -t termix-patched:local ~/termix`).
-3. Recreate the container (`cd /opt/termix && sudo docker compose up -d --force-recreate termix`).
+2. Build the image on the deploy host (`sudo docker build -t skynet-patched:local ~/skynet`).
+3. Recreate the container (`cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`).
 4. Wait for healthy.
 5. Ashley walks `10-UAT-CHECKLIST.md` items 1-19 on desktop AND iPhone.
-6. If PASS: paste `10-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` (resolving the Wave-5 SHA placeholders), bump the patch count, commit the pin, `/close pretty-conversations-panel-redesign`.
+6. If PASS: paste `10-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` (resolving the Wave-5 SHA placeholders), bump the patch count, commit the pin, `/close pretty-conversations-panel-redesign`.
 
 ## Known Stubs
 

@@ -235,7 +235,7 @@ upstream analog.
 
 **Deploy pending Ashley's explicit go-ahead.** Per fork DEPLOY
 DISCIPLINE (tina.md), the build step landed via `npm run build`
-locally but the `sudo docker compose up -d --force-recreate termix`
+locally but the `sudo docker compose up -d --force-recreate skynet`
 step is a separate risk gate that needs its own "go" — this patch
 joins the pending-batch alongside patches #60/#61/#62. The batch
 deploy happens later with the mandatory deadman + green-light

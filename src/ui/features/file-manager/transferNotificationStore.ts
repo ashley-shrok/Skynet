@@ -1,5 +1,5 @@
-const PENDING_KEY = "termix_pending_transfers";
-const NOTIFIED_KEY = "termix_notified_transfers";
+const PENDING_KEY = "skynet_pending_transfers";
+const NOTIFIED_KEY = "skynet_notified_transfers";
 
 function readJsonArray(key: string): string[] {
   try {

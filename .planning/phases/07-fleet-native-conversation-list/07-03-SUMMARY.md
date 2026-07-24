@@ -19,7 +19,7 @@ requires:
 provides:
   - "07-03-BUILD-VERIFY-LOG.md — deploy-side confidence baseline (Phase 7 dist bytes clean, prior-patch bytes intact, 315/315 tests pass, scope fence honored)"
   - "07-UAT-CHECKLIST.md — Ashley's post-deploy walk-through (65 blocking gates covering TG-12..18 + Plan 07-01/07-02 additional items + Phase 6 regression TG-01..11 + prior-patch smoke #25/#35/#57/#60/#100/#102/#105 + negative-space scope-fence + deadman disarm sequence)"
-  - "07-PATCHES-MD-ENTRY.md — paste-ready patch #106 draft for `~/.claude/identities/tina/termix-patches.md` PIN (multi-commit format per patch #105 precedent; includes rebase risk analysis + 12 post-deploy verify grep gates + 13 threat mitigations enumeration + bounty closure note)"
+  - "07-PATCHES-MD-ENTRY.md — paste-ready patch #106 draft for `~/.claude/identities/tina/skynet-patches.md` PIN (multi-commit format per patch #105 precedent; includes rebase risk analysis + 12 post-deploy verify grep gates + 13 threat mitigations enumeration + bounty closure note)"
 
 affects: []
 # Task 4 (deploy) is DEFERRED to Ashley-gated main orchestrator context per plan
@@ -43,7 +43,7 @@ key-files:
   modified: []
 
 key-decisions:
-  - "**Task 4 deploy DEFERRED to Ashley-gated main orchestrator context.** Per fork DEPLOY DISCIPLINE (CLAUDE.md + `~/.claude/identities/tina/deploy-runbook.md`), the deploy checkpoint is Ashley-gated — the executor writes the paste-ready UAT + patches-md drafts and stops. No docker build. No arm deadman. No `docker compose up -d --force-recreate`. Ashley reviews the artifacts and issues the deploy green-light in the orchestrator context; the actual deploy sequence (build-termix.sh → sentinel cleanup → nohup deadman arm → force-recreate → wait healthy → Ashley UAT → narrow-pkill disarm on green light) is executed in that context, not here."
+  - "**Task 4 deploy DEFERRED to Ashley-gated main orchestrator context.** Per fork DEPLOY DISCIPLINE (CLAUDE.md + `~/.claude/identities/tina/deploy-runbook.md`), the deploy checkpoint is Ashley-gated — the executor writes the paste-ready UAT + patches-md drafts and stops. No docker build. No arm deadman. No `docker compose up -d --force-recreate`. Ashley reviews the artifacts and issues the deploy green-light in the orchestrator context; the actual deploy sequence (build-skynet.sh → sentinel cleanup → nohup deadman arm → force-recreate → wait healthy → Ashley UAT → narrow-pkill disarm on green light) is executed in that context, not here."
   - "**UAT checklist follows patch #105's Phase 6 pattern verbatim** — sign-off block at top with narrow-pkill disarm sequence; sections ordered by TG-XX with observable-check + expected + 'if this fails' triage note per item; 🚨 marker for blocking gates; setup section; deadman-disarm section at bottom. Ashley can work through it in a single sitting during the 15-min UAT window."
   - "**Patches-md #106 entry follows patch #105 multi-commit format** — one PIN entry describing the whole Phase 7 landing arc (7 code commits + docs across 2 code waves + 1 verify wave). Rebase-risk section enumerates 10 preservation invariants specific to Phase 7 additions layered on top of patch #35 + #25 + #105 territory. Verify-post-deploy invariants section provides 12 grep gates for future rebase smoke checks against the mangling-resistant markers (URL literals, i18n keys, SVG icon paths, DevTools attributes, sentinel ids)."
   - "**Bounty closure semantics**: `~/.claude/identities/tina/bounties/telegram-like-interface/` spans BOTH patch #105 (Phase 6) and patch #106 (Phase 7) as ONE ship arc across two deploy cycles. Close via `/close telegram-like-interface` AFTER patch #106's UAT sign-off, NOT after patch #105's — the bounty represents the whole conversation-list shape and both patches are required to fulfill it. This is explicitly noted in the patches-md draft's Deploy Note section AND the UAT checklist's Post-Sign-Off Actions section."
@@ -116,7 +116,7 @@ completed: 2026-07-21
 ### Task 2 — UAT checklist (`07-UAT-CHECKLIST.md`)
 
 - **65 checkboxes total, 66 blocking-gate 🚨 markers** across 5 sections (Phase 7 core / Plan 07-01/07-02 additional / Phase 6 regression / prior-patch smoke / negative-space).
-- **Sign-off block at top** with narrow-pkill disarm sequence per deploy-runbook.md (`sudo touch /tmp/termix-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'` + `ps -ef | grep 'sleep 900' | grep -v grep` verification for empty output). Explicit warning about narrow pattern vs bare `pkill -f "sleep 900"` learned-2026-07-11-the-annoying-way.
+- **Sign-off block at top** with narrow-pkill disarm sequence per deploy-runbook.md (`sudo touch /tmp/skynet-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'` + `ps -ef | grep 'sleep 900' | grep -v grep` verification for empty output). Explicit warning about narrow pattern vs bare `pkill -f "sleep 900"` learned-2026-07-11-the-annoying-way.
 - **Section 1 — Phase 7 core (TG-12..18)**: 7 sections, one per requirement, with observable-check + expected + "if this fails" triage per item.
   - **TG-12** (fleet-native list on fresh page-load): 3 items — desktop, mobile, graceful fallback if `/sessions/list` fails
   - **TG-13** (attached vs detached visually indistinguishable): 2 items — no visual delta, both sources render via same ConversationRow
@@ -130,21 +130,21 @@ completed: 2026-07-21
 - **Section 4 — Prior-patch smoke (#25/#35/#57/#60/#100/#102/#105)**: 7 items with direct end-to-end tests where possible (TG-05 pretty-view-scroll IS the patch #35 test).
 - **Section 5 — Negative-space checks**: 9 items ensuring what's NOT shipped stays NOT shipped (no polling indicator, no plain-SSH rows, no attached/detached distinction, no cross-device sync, no second creation button, no activity signals, no viewport-based mobile detection, no tab strip in any state, no changes to identity-tmux/RDP/plain-SSH tab lifecycle).
 - **Post-sign-off actions**: 4-step block — pin patch #106 → bump "ONE HUNDRED FIVE" → "ONE HUNDRED SIX" → commit the pin → `/close telegram-like-interface` (shared bounty with Phase 6).
-- **Verified against Task 2 grep gates**: `### TG-1[2-8]` sections = 7 ✓; TG-01..11 items = 13 (≥11 required); `deadman` = 5 (≥3 required); `deploy-runbook` = 2 (≥1); `termix-keep-patched` = 6 (≥2).
+- **Verified against Task 2 grep gates**: `### TG-1[2-8]` sections = 7 ✓; TG-01..11 items = 13 (≥11 required); `deadman` = 5 (≥3 required); `deploy-runbook` = 2 (≥1); `skynet-keep-patched` = 6 (≥2).
 
 ### Task 3 — patches-md #106 entry draft (`07-PATCHES-MD-ENTRY.md`)
 
-- **Format matches patch #105 multi-commit precedent verbatim** (checked against `~/.claude/identities/tina/termix-patches.md` lines 7213-7552).
+- **Format matches patch #105 multi-commit precedent verbatim** (checked against `~/.claude/identities/tina/skynet-patches.md` lines 7213-7552).
 - **Motivating gap section** cites the specific patch #105 UAT surface (list empty on fresh mobile page-load) and links to the shape file locked 2026-07-21.
 - **Store extension section** covers FleetSession type + fleetSessions/hostsFlat state fields + updateFleetSessions/updateHostsFlat actions + fleetOnly/rdpHostRow INTERNAL routing markers + computeSnapshot union+dedup + RDP emission pass + `__rdp__` sentinel HostGroup. Dedup-separator decision explained (null-byte internal + visible `::` for row ids).
-- **One-shot fetch section** enumerates all three TG-17 defenses: empty dep array + silent try/catch + cancelled-guard AND grep gates that enforce zero setInterval/setTimeout AND NOT-wired-to-termix:hosts-changed.
+- **One-shot fetch section** enumerates all three TG-17 defenses: empty dep array + silent try/catch + cancelled-guard AND grep gates that enforce zero setInterval/setTimeout AND NOT-wired-to-skynet:hosts-changed.
 - **RDP row placement decision section** explains sentinel HostGroup choice + parallel RdpRow component approach (vs prop-override on ConversationRow — TG-13 preservation).
 - **Attached vs detached transparency section** explains onDetachedRowClick → allowCreateTmux: false → selectConversationDeferred wiring, and reuses of Plan 06-04's race defense verbatim.
 - **Pencil re-style section** explains icon-family choice (Pencil vs PencilLine/PenTool/SquarePen/Edit/Edit2/Edit3) and preservation-byte-identical of all other button chrome.
 - **Mobile gear-dedup fix section** explains the Phase 6 bug cause + the single-signal-lock fix using useIsTouchDevice.
 - **Threat model section** enumerates all 13 threat IDs with dispositions and mitigations (T-07-01-01..06, T-07-02-01..05, T-07-03-01, T-07-*-SC).
 - **What-we-didn't-do section** lists 9 explicitly-out-of-scope items with rationale.
-- **Verify-post-deploy invariants section** provides 12 `docker exec termix grep -oc` gates for future rebase smoke checks, calibrated to the mangling-resistant markers found in the Task 1 build-verify log.
+- **Verify-post-deploy invariants section** provides 12 `docker exec skynet grep -oc` gates for future rebase smoke checks, calibrated to the mangling-resistant markers found in the Task 1 build-verify log.
 - **Files-touched section** lists all 6 modified source files with net line counts (conversation-store.ts 437→703, conversation-store.test.ts 601→1081, ConversationsPanel.tsx 268→413, NewSessionButton.tsx 33→40, AppShell.tsx 1823→1950, AppShell.persistence.test.tsx 383→444) — 0 new source files created (RdpRow declared inline in ConversationsPanel.tsx, single-use, ~40 lines).
 - **Rebase-risk section** enumerates 10 preservation invariants specific to Phase 7 additions layered on top of patch #35 + #25 + #105 territory. Overall risk assessment: LOW on all files (additive extensions, no upstream conflict surface for the new territory).
 - **Deploy note section** references deploy-runbook.md verbatim + notes zero backend/docker/package.json changes + points at the UAT checklist and build-verify log paths.
@@ -154,19 +154,19 @@ completed: 2026-07-21
 
 ### Task 4 — DEFERRED (Ashley-gated main orchestrator context)
 
-**NOT EXECUTED per plan hard_constraint + fork DEPLOY DISCIPLINE (CLAUDE.md + `~/.claude/identities/tina/deploy-runbook.md`).** The deploy checkpoint is Ashley-gated — the executor writes paste-ready UAT + patches-md drafts and stops. No `sudo bash /opt/termix/termix-patches/build-termix.sh`. No arm deadman. No `docker compose up -d --force-recreate termix`. No touch of `/tmp/termix-keep-patched`. No edit of `/opt/termix/docker-compose.yml`. Only READ-ONLY `docker` inspection permitted (none performed in this executor invocation).
+**NOT EXECUTED per plan hard_constraint + fork DEPLOY DISCIPLINE (CLAUDE.md + `~/.claude/identities/tina/deploy-runbook.md`).** The deploy checkpoint is Ashley-gated — the executor writes paste-ready UAT + patches-md drafts and stops. No `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`. No arm deadman. No `docker compose up -d --force-recreate skynet`. No touch of `/tmp/skynet-keep-patched`. No edit of `/opt/skynet/docker-compose.yml`. Only READ-ONLY `docker` inspection permitted (none performed in this executor invocation).
 
 **Next steps for Task 4 (in main orchestrator context, after Ashley reviews Tasks 1-3 artifacts and issues explicit deploy green-light):**
 
 1. Push branch to deploy remote: `git push origin feat/tab-title-from-tmux` (or fork's existing deploy sync path per Ashley's box-map.md).
-2. Sentinel cleanup: `sudo rm -f /tmp/termix-keep-patched` (belt-and-braces before arm).
-3. Arm deadman verbatim per deploy-runbook.md step 4: `nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/termix-keep-patched ] && bash /opt/termix/.tmp-revert.sh' > /tmp/termix-revert-bg.log 2>&1`.
-4. Deploy: `cd /opt/termix && sudo docker compose up -d --force-recreate termix`.
-5. Wait for container health: `docker compose ps termix` → healthy (~10-30s).
+2. Sentinel cleanup: `sudo rm -f /tmp/skynet-keep-patched` (belt-and-braces before arm).
+3. Arm deadman verbatim per deploy-runbook.md step 4: `nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/skynet-keep-patched ] && bash /opt/skynet/.tmp-revert.sh' > /tmp/skynet-revert-bg.log 2>&1`.
+4. Deploy: `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
+5. Wait for container health: `docker compose ps skynet` → healthy (~10-30s).
 6. Notify Ashley the container is up. Point at `07-UAT-CHECKLIST.md`. Note 15-min deadman deadline.
 7. Ashley works through UAT checklist.
-8. On sign-off: disarm deadman via narrow pkill sequence + pin `07-PATCHES-MD-ENTRY.md` into termix-patches.md as #106 + bump "ONE HUNDRED FIVE" to "ONE HUNDRED SIX" + `/close telegram-like-interface`.
-9. On UAT failure: DO NOT touch `/tmp/termix-keep-patched` — let deadman fire at T+15min OR explicit rollback via `sudo bash /opt/termix/.tmp-revert.sh`. Note failing item for follow-up amendment plan.
+8. On sign-off: disarm deadman via narrow pkill sequence + pin `07-PATCHES-MD-ENTRY.md` into skynet-patches.md as #106 + bump "ONE HUNDRED FIVE" to "ONE HUNDRED SIX" + `/close telegram-like-interface`.
+9. On UAT failure: DO NOT touch `/tmp/skynet-keep-patched` — let deadman fire at T+15min OR explicit rollback via `sudo bash /opt/skynet/.tmp-revert.sh`. Note failing item for follow-up amendment plan.
 
 ## Task Commits
 
@@ -212,7 +212,7 @@ Task 4 (deploy) has NO commit — it's an operational step in the main orchestra
 - TG-01..11 items = **13** ✓ (≥ 11 required)
 - `deadman` mentions = **5** ✓ (≥ 3 required)
 - `deploy-runbook` mentions = **2** ✓ (≥ 1 required)
-- `termix-keep-patched` mentions = **6** ✓ (≥ 2 required)
+- `skynet-keep-patched` mentions = **6** ✓ (≥ 2 required)
 
 **Task 3 grep-checkable acceptance criteria:**
 - `^# Patch #106` = **1** ✓ (== 1 required)
@@ -241,7 +241,7 @@ See `key-decisions` in frontmatter for the full list. Highlights:
 
 **None.** The plan was well-shaped and executed exactly as written for Tasks 1-3. Every task landed with its verify gates passing on first attempt; no auto-fixes needed; no scope-fence violations; no auth gates; no architectural surprises.
 
-**Task 4 (deploy) is DEFERRED per the invocation-context hard constraint from the parent orchestrator** — the plan itself has Task 4 as `checkpoint:human-verify gate="blocking"` waiting for Ashley's explicit green-light. The parent orchestrator's invocation prompt explicitly scoped this executor invocation to Tasks 1-3 ONLY, with an absolute prohibition on executing Task 4 (no docker build, no arm deadman, no `docker compose up -d --force-recreate`, no touch of `/tmp/termix-keep-patched`, no edit of `/opt/termix/docker-compose.yml`). This is not a plan deviation — it's an intentional and correct scope-narrowing for this executor invocation. Task 4 will execute in the Ashley-gated main orchestrator context.
+**Task 4 (deploy) is DEFERRED per the invocation-context hard constraint from the parent orchestrator** — the plan itself has Task 4 as `checkpoint:human-verify gate="blocking"` waiting for Ashley's explicit green-light. The parent orchestrator's invocation prompt explicitly scoped this executor invocation to Tasks 1-3 ONLY, with an absolute prohibition on executing Task 4 (no docker build, no arm deadman, no `docker compose up -d --force-recreate`, no touch of `/tmp/skynet-keep-patched`, no edit of `/opt/skynet/docker-compose.yml`). This is not a plan deviation — it's an intentional and correct scope-narrowing for this executor invocation. Task 4 will execute in the Ashley-gated main orchestrator context.
 
 ## Issues Encountered
 
@@ -251,7 +251,7 @@ None. Zero blockers, zero auth gates, zero architectural questions, zero fix att
 
 Every mitigation in the plan's `<threat_model>` block for Tasks 1-3 is landed as evidence, per this executor's scope:
 
-- **T-07-03-01 (bad build wedges Termix):** mitigated by Task 1's build verification landing clean — all Phase 7 signals in dist, all Phase 6 signals preserved, all prior-patch bytes intact, scope fence honored. Gates Task 4 deploy.
+- **T-07-03-01 (bad build wedges Skynet):** mitigated by Task 1's build verification landing clean — all Phase 7 signals in dist, all Phase 6 signals preserved, all prior-patch bytes intact, scope fence honored. Gates Task 4 deploy.
 - **T-07-03-02 (deadman not armed before deploy):** GATE PENDING — Task 4 is deferred to Ashley-gated main orchestrator context where the arm-BEFORE-deploy ordering is enforced by deploy-runbook.md step 4 (arm nohup) executed before step 5 (docker compose up). This executor does not execute the deploy sequence.
 - **T-07-03-03 (deploy runs without Ashley's approval):** GATE PENDING — Task 4 is `checkpoint:human-verify gate="blocking"`, mirrored by this executor's own scope constraint (invocation prompt explicitly forbids executing Task 4). Deploy will only run in the main orchestrator context after Ashley's explicit `approved` signal.
 - **T-07-03-04 (deploy exposes Phase 7 code to fleet):** accepted — Phase 7 code is not sensitive (UI-layer reshape). No new secrets, no new credentials, no new schemas.
@@ -285,7 +285,7 @@ Prerequisites for the deploy step, all satisfied by this executor's Tasks 1-3:
 3. On green-light: execute deploy sequence per deploy-runbook.md steps 3-6 (sentinel cleanup, arm deadman, force-recreate container, wait healthy, tell Ashley to test).
 4. Ashley works through `07-UAT-CHECKLIST.md`.
 5. On sign-off: narrow-pkill disarm + pin patches-md entry + bump count + `/close telegram-like-interface`.
-6. On failure: let deadman fire OR explicit rollback via `sudo bash /opt/termix/.tmp-revert.sh`; note failing UAT item for follow-up amendment plan.
+6. On failure: let deadman fire OR explicit rollback via `sudo bash /opt/skynet/.tmp-revert.sh`; note failing UAT item for follow-up amendment plan.
 
 **Phase 7 close semantics:**
 
@@ -312,7 +312,7 @@ Prerequisites for the deploy step, all satisfied by this executor's Tasks 1-3:
 
 **Grep-checkable acceptance criteria bundle:**
 - Task 1: build clean + all Phase 7 signals in dist + all Phase 6 signals preserved + all prior-patch bytes intact + 315/315 tests + 0 tsc errors + scope fence empty ✓
-- Task 2: 7 TG-1[2-8] sections + 13 TG-0[1-9]/TG-1[01] items + 5 deadman + 2 deploy-runbook + 6 termix-keep-patched ✓
+- Task 2: 7 TG-1[2-8] sections + 13 TG-0[1-9]/TG-1[01] items + 5 deadman + 2 deploy-runbook + 6 skynet-keep-patched ✓
 - Task 3: 1 ^# Patch #106 + 15 Fleet-native/FleetSession + 15 TG-XX refs + 4 deadman/deploy-runbook + 7 bounty/telegram-like-interface ✓
 
 **Task 4 status:**

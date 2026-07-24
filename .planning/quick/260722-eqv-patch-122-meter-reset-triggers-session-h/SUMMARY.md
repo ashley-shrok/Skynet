@@ -68,7 +68,7 @@ alongside the existing `setIsHolding(false)`.
 NOT DEPLOYED. Batched with patches #118-#121 for a single deploy later
 per Ashley 2026-07-22 batching directive. All five bounties are now
 code-complete on `feat/tab-title-from-tmux` and ship together on the
-next `docker compose up -d --force-recreate termix` behind the 15-min
+next `docker compose up -d --force-recreate skynet` behind the 15-min
 deadman rollback.
 
 ## Commits
@@ -80,7 +80,7 @@ deadman rollback.
 ## Deviations from plan
 
 None. Executed as written; every insertion site + JSDoc + comment
-paragraph landed on the lines the plan called out. `termix-patches.md`
+paragraph landed on the lines the plan called out. `skynet-patches.md`
 outside the repo was updated with a full per-patch entry #122 matching
 the `### Patch #N` header format established by patch #121, and the
 top-of-file count marker was bumped ONE HUNDRED TWENTY-ONE → ONE

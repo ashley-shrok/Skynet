@@ -18,14 +18,14 @@
 
 - [ ] **All 🚨 items in Phase 7 CORE pass** → **disarm deadman:**
       ```
-      sudo touch /tmp/termix-keep-patched
-      sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'
+      sudo touch /tmp/skynet-keep-patched
+      sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'
       ```
       Verify no `sleep 900` process remains: `ps -ef | grep 'sleep 900' | grep -v grep` — expected empty output.
 
-      Then help me pin the patch: paste `.planning/phases/07-fleet-native-conversation-list/07-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` as patch #106 (or next available — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3`), bump the "ONE HUNDRED FIVE numbered patches" count near the top of that file to "ONE HUNDRED SIX" (or actual new count), and commit the pin. Then `/close telegram-like-interface` on the shared Phase 6 + Phase 7 bounty.
+      Then help me pin the patch: paste `.planning/phases/07-fleet-native-conversation-list/07-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` as patch #106 (or next available — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`), bump the "ONE HUNDRED FIVE numbered patches" count near the top of that file to "ONE HUNDRED SIX" (or actual new count), and commit the pin. Then `/close telegram-like-interface` on the shared Phase 6 + Phase 7 bounty.
 
-- [ ] **Any 🚨 item in Phase 7 CORE fails** → **let the deadman fire** (15-min timer auto-reverts) OR run `sudo bash /opt/termix/.tmp-revert.sh` immediately for instant rollback. Note the failing item and the observed-vs-expected behavior for the follow-up amendment.
+- [ ] **Any 🚨 item in Phase 7 CORE fails** → **let the deadman fire** (15-min timer auto-reverts) OR run `sudo bash /opt/skynet/.tmp-revert.sh` immediately for instant rollback. Note the failing item and the observed-vs-expected behavior for the follow-up amendment.
 
 - [ ] **Only regression-smoke items fail** → decide case-by-case. Phase 6 was UAT-signed at patch #105 so a Phase 6 regression is Phase 7's doing. Same rollback rules apply if the regression is severe.
 
@@ -43,7 +43,7 @@ Work through top-to-bottom. Each item has an action + expected result + "if this
 ## Setup — one time
 
 1. Open https://term.gigaashley.click in **Chrome on desktop** AND **on your phone** (or use DevTools "Toggle device toolbar" with a mobile viewport + `pointer: coarse` emulation).
-2. Have at least 3 hosts configured in Termix (any mix of SSH/RDP is fine; **at least one host must have `enableRdp: true`** for the TG-15 walk).
+2. Have at least 3 hosts configured in Skynet (any mix of SSH/RDP is fine; **at least one host must have `enableRdp: true`** for the TG-15 walk).
 3. Have at least 2 running tmux sessions active on distinct hosts before starting (one identity-attached Claude session, one plain shell). Kill nothing prior — Phase 7's whole point is discovering these sessions.
 4. Open **DevTools → Network tab** on desktop, filter by "sessions/list" — you'll use this for the TG-17 no-polling check.
 5. Fresh incognito window recommended for TG-12 (mimics "fresh page-load, no open tabs" scenario).
@@ -54,10 +54,10 @@ Work through top-to-bottom. Each item has an action + expected result + "if this
 
 ### TG-12 — Fleet-native list on fresh page-load
 
-> **TG-12 contract:** *"The conversation list on a fresh page-load shows the running tmux sessions across the fleet (unioned with any browser-tab-open Termix tabs), not just tabs open in the current browser session."*
+> **TG-12 contract:** *"The conversation list on a fresh page-load shows the running tmux sessions across the fleet (unioned with any browser-tab-open Skynet tabs), not just tabs open in the current browser session."*
 
-- [ ] 🚨 **TG-12 desktop fresh page-load** Open Termix in a fresh incognito window on desktop. Wait for the page to load fully (allow ~2 seconds for `/sessions/list` to resolve). Expected: the ConversationsPanel shows one row per running tmux session across ALL your reachable hosts — the same set the current sidebar host-tree + double-shift menu would show. Rows grouped by host with separators. **If: only shows tabs from this browser tab (empty on fresh load)** → Plan 07-01's fetch effect isn't firing; check DevTools console for JS errors + Network tab for the `/sessions/list` request; if the request is missing, the useEffect empty-dep-array wiring in `AppShell.tsx` regressed; if the request returns non-200, backend session-list endpoint is broken.
-- [ ] 🚨 **TG-12 mobile fresh page-load** Open Termix in fresh incognito on phone (or DevTools with `pointer: coarse` + narrow viewport). Same expectation: full-screen ConversationsPanel shows running tmux sessions. **This is THE gap patch #105 shipped with** — Phase 6 UAT found "no active conversations" on a fresh mobile page-load even when Ashley had active sessions on hosts. Phase 7 fix must show them.
+- [ ] 🚨 **TG-12 desktop fresh page-load** Open Skynet in a fresh incognito window on desktop. Wait for the page to load fully (allow ~2 seconds for `/sessions/list` to resolve). Expected: the ConversationsPanel shows one row per running tmux session across ALL your reachable hosts — the same set the current sidebar host-tree + double-shift menu would show. Rows grouped by host with separators. **If: only shows tabs from this browser tab (empty on fresh load)** → Plan 07-01's fetch effect isn't firing; check DevTools console for JS errors + Network tab for the `/sessions/list` request; if the request is missing, the useEffect empty-dep-array wiring in `AppShell.tsx` regressed; if the request returns non-200, backend session-list endpoint is broken.
+- [ ] 🚨 **TG-12 mobile fresh page-load** Open Skynet in fresh incognito on phone (or DevTools with `pointer: coarse` + narrow viewport). Same expectation: full-screen ConversationsPanel shows running tmux sessions. **This is THE gap patch #105 shipped with** — Phase 6 UAT found "no active conversations" on a fresh mobile page-load even when Ashley had active sessions on hosts. Phase 7 fix must show them.
 - [ ] 🚨 **TG-12 graceful fallback if `/sessions/list` fails** Simulate backend failure (block `/sessions/list` in DevTools Network tab → Block request URL). Refresh. Expected: page loads, ConversationsPanel renders Phase 6 openTabs-only behavior (empty state on fresh incognito, or existing tabs if any). NO error toast, NO crash — Plan 07-01's silent try/catch swallowing keeps the UI graceful. **If: page crashes or shows error banner** → the try/catch on the fetch effect regressed.
 
 ### TG-13 — Attached vs detached rows visually indistinguishable
@@ -73,7 +73,7 @@ Work through top-to-bottom. Each item has an action + expected result + "if this
 
 - [ ] 🚨 **TG-14 detached row single click = open** From the fresh page-load state (TG-12), click a row you haven't opened yet in this browser session. Expected: pane opens immediately, **NO dialog**, **NO confirmation prompt**, **NO "connect" step**. Single click transitions the row from "detached" → "attached + selected + shown" and the tmux session displays in the main pane. **If: dialog appears** → AppShell's `onDetachedRowClick` handler is wired to the create-session flow instead of the attach flow; verify `allowCreateTmux: false` (ATTACH not create) in the handler per Plan 07-01 lock.
 - [ ] 🚨 **TG-14 T-06-02-01 mount-lifecycle preserved on detached-attach** After the detached row opens, scroll the pane content (pretty view: scroll UP through history; terminal: type some commands to fill the buffer). Click a different row to switch away. Click back to the first row. Expected: **instant switch**, **no reconnect flash**, **scroll position preserved**, **terminal buffer preserved**. Because Plan 07-01's onDetachedRowClick handler routes through the same `openTab(host, "terminal", ...)` + `selectConversationDeferred` chain that Phase 6's tab-attach path uses, the tabNodesRef DOM-move mechanism (patch #35) preserves the pane's mounted DOM node byte-for-byte.
-- [ ] 🚨 **TG-14 session died between page-load and click → backend errors** Kill a fleet-discovered session on the backend AFTER page-load but BEFORE clicking its row: `ssh <host> tmux kill-session -t <name>`. Then click the row. Expected: backend returns an error (no session to attach to; `allowCreateTmux: false` means the backend does NOT resurrect an empty pane). The UI shows a normal Termix session-open failure (whatever the existing openTab flow does for a failed attach; typically an inline error in the pane area). **If: an empty pane opens** → the handler is using `allowCreateTmux: true` instead of `false`, which would silently re-create the killed session (wrong per Plan 07-01 lock).
+- [ ] 🚨 **TG-14 session died between page-load and click → backend errors** Kill a fleet-discovered session on the backend AFTER page-load but BEFORE clicking its row: `ssh <host> tmux kill-session -t <name>`. Then click the row. Expected: backend returns an error (no session to attach to; `allowCreateTmux: false` means the backend does NOT resurrect an empty pane). The UI shows a normal Skynet session-open failure (whatever the existing openTab flow does for a failed attach; typically an inline error in the pane area). **If: an empty pane opens** → the handler is using `allowCreateTmux: true` instead of `false`, which would silently re-create the killed session (wrong per Plan 07-01 lock).
 
 ### TG-15 — RDP host rows at bottom
 
@@ -106,23 +106,23 @@ Work through top-to-bottom. Each item has an action + expected result + "if this
 
 > **TG-17 contract:** *"No polling. The fleet-discovery signal fires ONCE on mount. No subsequent requests on interval, focus, visibility change, or hosts-changed event."*
 
-- [ ] 🚨 **TG-17 exactly ONE /sessions/list on page-load** Open DevTools → Network tab. Filter for `sessions/list`. Refresh Termix (Cmd+R). Expected: **exactly ONE request** to `/sessions/list` at page-load. **If: multiple requests** → polling regression; check Plan 07-01's empty dep array on the fetch effect.
-- [ ] 🚨 **TG-17 no /sessions/list on tab focus/blur** Leave Termix open in tab A. Switch to tab B (any other tab). Wait 30 seconds. Switch back to tab A. Expected: still ZERO subsequent `/sessions/list` requests in the Network tab (only the original one from page-load). **If: request fires on focus** → a `visibilitychange` or `focus` listener was accidentally wired to the fetch.
-- [ ] 🚨 **TG-17 no /sessions/list on hosts-changed event** In Termix, add a new host via Host Manager (or edit an existing host's `enableRdp` flag). Save. This fires the `termix:hosts-changed` event internally. Expected: still ZERO subsequent `/sessions/list` requests. Plan 07-01's grep gate explicitly asserted `getSessionList` is NOT wired to this event. **If: request fires on host edit** → the fetch effect got listener-wired somehow; check `AppShell.tsx` around `termix:hosts-changed` handling.
-- [ ] 🚨 **TG-17 no /sessions/list on idle** Sit idle for 5 minutes with Termix as the active tab. Expected: still ZERO subsequent `/sessions/list` requests. Cross-device / cross-session fleet staleness is DELIBERATELY acceptable per shape lock.
+- [ ] 🚨 **TG-17 exactly ONE /sessions/list on page-load** Open DevTools → Network tab. Filter for `sessions/list`. Refresh Skynet (Cmd+R). Expected: **exactly ONE request** to `/sessions/list` at page-load. **If: multiple requests** → polling regression; check Plan 07-01's empty dep array on the fetch effect.
+- [ ] 🚨 **TG-17 no /sessions/list on tab focus/blur** Leave Skynet open in tab A. Switch to tab B (any other tab). Wait 30 seconds. Switch back to tab A. Expected: still ZERO subsequent `/sessions/list` requests in the Network tab (only the original one from page-load). **If: request fires on focus** → a `visibilitychange` or `focus` listener was accidentally wired to the fetch.
+- [ ] 🚨 **TG-17 no /sessions/list on hosts-changed event** In Skynet, add a new host via Host Manager (or edit an existing host's `enableRdp` flag). Save. This fires the `skynet:hosts-changed` event internally. Expected: still ZERO subsequent `/sessions/list` requests. Plan 07-01's grep gate explicitly asserted `getSessionList` is NOT wired to this event. **If: request fires on host edit** → the fetch effect got listener-wired somehow; check `AppShell.tsx` around `skynet:hosts-changed` handling.
+- [ ] 🚨 **TG-17 no /sessions/list on idle** Sit idle for 5 minutes with Skynet as the active tab. Expected: still ZERO subsequent `/sessions/list` requests. Cross-device / cross-session fleet staleness is DELIBERATELY acceptable per shape lock.
 - [ ] 🚨 **TG-17 no visible polling indicator** Nowhere in the UI is there a "syncing…" spinner, live-count, activity indicator, or refresh countdown for the conversation list. The list is a snapshot; snapshots don't animate.
 
 ### TG-18 — Mobile gear/settings-row dedup
 
 > **TG-18 contract:** *"On mobile: NO gear icon in the header, SettingsRow visible at bottom. On desktop: gear icon in header, NO SettingsRow at bottom. Neither viewport shows both."*
 
-- [ ] 🚨 **TG-18 mobile (touch device): no gear + settings row visible** Open Termix on your phone (or DevTools with `pointer: coarse` + narrow viewport). Look at the ConversationsPanel:
+- [ ] 🚨 **TG-18 mobile (touch device): no gear + settings row visible** Open Skynet on your phone (or DevTools with `pointer: coarse` + narrow viewport). Look at the ConversationsPanel:
   - **NO gear icon** in the panel header (the entire header row with the gear should be absent — `showGear = false` on touch device → renders empty spacer instead)
   - **SettingsRow visible** at the BOTTOM of the scroller (below RDP rows if present, else below last identity-tmux HostGroup) — same location Plan 06-03 established
   - Tapping SettingsRow opens the dropdown with all 10 admin destinations (Users, Hosts, Snippets, Alerts, Files, Docker, Docker Sync, Db Backup, Db Restore, Db Import, Db Export — from Plan 06-02's SETTINGS_MENU_ITEMS registry)
   - **If: gear AND SettingsRow both visible** → Phase 6's TG-18 bug regressed; check ConversationsPanel `showGear` gate has `&& !isTouchDevice`
   - **If: neither gear NOR SettingsRow visible on mobile** → both entry points broke; check the useIsTouchDevice hook detection and Plan 06-03's mobile SettingsRow mount at AppShell:1348
-- [ ] 🚨 **TG-18 desktop (non-touch): gear visible + no settings row** Open Termix on desktop (mouse, non-touch viewport). Look at the ConversationsPanel:
+- [ ] 🚨 **TG-18 desktop (non-touch): gear visible + no settings row** Open Skynet on desktop (mouse, non-touch viewport). Look at the ConversationsPanel:
   - **Gear icon visible** in the panel header (top-right, tooltip "Settings & Admin")
   - **NO SettingsRow** at the bottom of the scroller (AppShell:1348 gate `isTouchDevice ? <SettingsRow /> : undefined` → undefined on desktop)
   - Clicking the gear opens the same dropdown with the same 10 admin destinations (single SETTINGS_MENU_ITEMS registry — no menu drift between mobile and desktop)
@@ -200,8 +200,8 @@ Phase 7 explicitly does NOT ship these; verify they are ABSENT.
 On the EC2 host (via SSM per CLAUDE.md — no public SSH), run:
 
 ```
-sudo touch /tmp/termix-keep-patched
-sudo pkill -f 'sleep 900; \[ ! -f /tmp/termix-keep-patched'
+sudo touch /tmp/skynet-keep-patched
+sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'
 ```
 
 Verify no revert cron/nohup is still running:
@@ -214,14 +214,14 @@ Expected: empty output.
 
 **⚠️ NARROW pkill pattern** — a bare `pkill -f "sleep 900"` matches AND kills the guacd-zombie sentinel's own poll loop and any other future 15-min sentinel. Learned 2026-07-11 the annoying way. **Do NOT use bare `pkill -f "sleep 900"`.**
 
-**⚠️ NEVER kill a deadman's sleep child directly** while sentinel is absent — see `deploy-runbook.md` §"NEVER kill a deadman's sleep 900 child directly." The `sudo touch /tmp/termix-keep-patched` above ensures sentinel is PRESENT when the pkill fires, which is the safe order.
+**⚠️ NEVER kill a deadman's sleep child directly** while sentinel is absent — see `deploy-runbook.md` §"NEVER kill a deadman's sleep 900 child directly." The `sudo touch /tmp/skynet-keep-patched` above ensures sentinel is PRESENT when the pkill fires, which is the safe order.
 
 ---
 
 ## If a UAT item fails
 
-- **Phase 7 core (TG-12..18) fails** → DO NOT touch `/tmp/termix-keep-patched`. Deadman fires at the 15-min mark; production auto-rolls-back to `ghcr.io/lukegus/termix:latest` (pre-patch state). Note which item failed for a follow-up amendment (Plan 07-04 or a delta patch).
-- **Phase 7 additional (Plan 07-01/07-02 items) fails** → decide by severity. If session-identity dedup broken (double-rendered rows) or the isEmpty derivation broken, disarm-and-rollback via explicit `sudo bash /opt/termix/.tmp-revert.sh`.
+- **Phase 7 core (TG-12..18) fails** → DO NOT touch `/tmp/skynet-keep-patched`. Deadman fires at the 15-min mark; production auto-rolls-back to `ghcr.io/lukegus/skynet:latest` (pre-patch state). Note which item failed for a follow-up amendment (Plan 07-04 or a delta patch).
+- **Phase 7 additional (Plan 07-01/07-02 items) fails** → decide by severity. If session-identity dedup broken (double-rendered rows) or the isEmpty derivation broken, disarm-and-rollback via explicit `sudo bash /opt/skynet/.tmp-revert.sh`.
 - **Phase 6 regression fails** → decide by severity. Phase 6 was UAT-signed at patch #105 so any regression is Phase 7's doing. Same rollback rules.
 - **Prior-patch regression fails** → severity-dependent. Patches #25/#35/#57/#60/#100/#102 are load-bearing; regression means the rebase-hostile territory in AppShell.tsx got disturbed. Rollback recommended.
 
@@ -231,8 +231,8 @@ Expected: empty output.
 
 Once all 🚨 items pass and the deadman is disarmed:
 
-1. **Pin the patch.** Paste `.planning/phases/07-fleet-native-conversation-list/07-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/termix-patches.md` at the next ordinal position (patch #106 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/termix-patches.md | tail -3`).
-2. **Bump the count.** Update the "ONE HUNDRED FIVE numbered patches" line near the top of `termix-patches.md` to "ONE HUNDRED SIX" (or actual new count).
+1. **Pin the patch.** Paste `.planning/phases/07-fleet-native-conversation-list/07-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` at the next ordinal position (patch #106 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`).
+2. **Bump the count.** Update the "ONE HUNDRED FIVE numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED SIX" (or actual new count).
 3. **Commit the pin.** Standard conventional-commit style (`docs(patches): pin patch #106 — fleet-native conversation list`).
 4. **Close the bounty.** `~/.claude/identities/tina/bounties/telegram-like-interface/` via `/close telegram-like-interface`. The bounty spans BOTH patch #105 (Phase 6) and patch #106 (Phase 7) as one ship arc; closing it now marks the whole Telegram-like interface project complete.
 

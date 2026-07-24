@@ -8,11 +8,11 @@ export class AutoSSLSetup {
   private static readonly SSL_DIR = path.join(AutoSSLSetup.DATA_DIR, "ssl");
   private static readonly CERT_FILE = path.join(
     AutoSSLSetup.SSL_DIR,
-    "termix.crt",
+    "skynet.crt",
   );
   private static readonly KEY_FILE = path.join(
     AutoSSLSetup.SSL_DIR,
-    "termix.key",
+    "skynet.key",
   );
   private static readonly ENV_FILE = path.join(AutoSSLSetup.DATA_DIR, ".env");
 
@@ -122,7 +122,7 @@ req_extensions = v3_req
 C=US
 ST=State
 L=City
-O=Termix
+O=Skynet
 OU=IT Department
 CN=localhost
 
@@ -135,8 +135,8 @@ subjectAltName = @alt_names
 DNS.1 = localhost
 DNS.2 = 127.0.0.1
 DNS.3 = *.localhost
-DNS.4 = termix.local
-DNS.5 = *.termix.local
+DNS.4 = skynet.local
+DNS.5 = *.skynet.local
 IP.1 = 127.0.0.1
 IP.2 = ::1
 IP.3 = 0.0.0.0

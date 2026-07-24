@@ -15,11 +15,11 @@ export function detectPlatform(req: Request): DeviceType {
   const userAgent = req.headers["user-agent"] || "";
   const electronHeader = req.headers["x-electron-app"];
 
-  if (electronHeader === "true" || userAgent.includes("Termix-Desktop")) {
+  if (electronHeader === "true" || userAgent.includes("Skynet-Desktop")) {
     return "desktop";
   }
 
-  if (userAgent.includes("Termix-Mobile")) {
+  if (userAgent.includes("Skynet-Mobile")) {
     return "mobile";
   }
 
@@ -60,10 +60,10 @@ function parseElectronUserAgent(userAgent: string): DeviceInfo {
   let os = "Unknown OS";
   let version = "Unknown";
 
-  const termixMatch = userAgent.match(/Termix-Desktop\/([\d.]+)\s*\(([^;)]+)/);
-  if (termixMatch) {
-    version = termixMatch[1];
-    os = termixMatch[2].trim();
+  const skynetMatch = userAgent.match(/Skynet-Desktop\/([\d.]+)\s*\(([^;)]+)/);
+  if (skynetMatch) {
+    version = skynetMatch[1];
+    os = skynetMatch[2].trim();
   } else {
     if (userAgent.includes("Windows")) {
       os = parseWindowsVersion(userAgent);
@@ -83,10 +83,10 @@ function parseElectronUserAgent(userAgent: string): DeviceInfo {
 
   return {
     type: "desktop",
-    browser: "Termix Desktop",
+    browser: "Skynet Desktop",
     version,
     os,
-    deviceInfo: `Termix Desktop on ${os}`,
+    deviceInfo: `Skynet Desktop on ${os}`,
   };
 }
 
@@ -94,9 +94,9 @@ function parseMobileUserAgent(userAgent: string): DeviceInfo {
   let os = "Unknown OS";
   let version = "Unknown";
 
-  const termixPlatformMatch = userAgent.match(/Termix-Mobile\/(Android|iOS)/i);
-  if (termixPlatformMatch) {
-    const platform = termixPlatformMatch[1];
+  const skynetPlatformMatch = userAgent.match(/Skynet-Mobile\/(Android|iOS)/i);
+  if (skynetPlatformMatch) {
+    const platform = skynetPlatformMatch[1];
     if (platform.toLowerCase() === "android") {
       const androidMatch = userAgent.match(/Android ([\d.]+)/);
       os = androidMatch ? `Android ${androidMatch[1]}` : "Android";
@@ -129,7 +129,7 @@ function parseMobileUserAgent(userAgent: string): DeviceInfo {
   }
 
   const versionMatch = userAgent.match(
-    /Termix-Mobile\/(?:Android|iOS|)([\d.]+)/i,
+    /Skynet-Mobile\/(?:Android|iOS|)([\d.]+)/i,
   );
   if (versionMatch) {
     version = versionMatch[1];
@@ -137,10 +137,10 @@ function parseMobileUserAgent(userAgent: string): DeviceInfo {
 
   return {
     type: "mobile",
-    browser: "Termix Mobile",
+    browser: "Skynet Mobile",
     version,
     os,
-    deviceInfo: `Termix Mobile on ${os}`,
+    deviceInfo: `Skynet Mobile on ${os}`,
   };
 }
 
