@@ -733,7 +733,6 @@ export function AppShell({
     "rdp",
     "vnc",
     "telnet",
-    "stats",
   ];
 
   // On load: always read saved tabs from DB so background sessions are preserved across refreshes.

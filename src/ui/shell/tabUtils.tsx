@@ -7,7 +7,6 @@ import {
   Settings,
   Terminal,
   User,
-  Activity,
   TerminalSquare,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,7 +16,6 @@ import type {
   TerminalHandle,
   TerminalHostConfig,
 } from "@/features/terminal/Terminal";
-import { ServerStats } from "@/features/server-stats/ServerStats";
 import GuacamoleApp from "@/features/guacamole/GuacamoleApp";
 import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
 import type { Tab, TabType, Host } from "@/types/ui-types";
@@ -90,8 +88,6 @@ export function tabIcon(type: TabType) {
       return <Monitor className="size-3.5" />;
     case "telnet":
       return <Terminal className="size-3.5" />;
-    case "stats":
-      return <Server className="size-3.5" />;
     case "host-manager":
       return <Server className="size-3.5" />;
     case "user-profile":
@@ -202,21 +198,6 @@ export function renderTabContent(
               : undefined
           }
           onTmuxSessionMissing={onTmuxSessionMissing}
-        />
-      );
-
-    case "stats":
-      if (!host)
-        return (
-          <EmptyState icon={Activity} messageKey="serverStats.noHostSelected" />
-        );
-      return (
-        <ServerStats
-          hostConfig={hostToSSHHost(host)}
-          title={label}
-          isVisible={isVisible}
-          isTopbarOpen={false}
-          embedded={true}
         />
       );
 
