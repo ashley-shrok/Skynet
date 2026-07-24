@@ -1,7 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import {
   Box,
-  FolderSearch,
   LayoutDashboard,
   Monitor,
   Network,
@@ -19,7 +18,6 @@ import type {
   TerminalHandle,
   TerminalHostConfig,
 } from "@/features/terminal/Terminal";
-import { FileManager } from "@/features/file-manager/FileManager";
 import { DockerManager } from "@/features/docker/DockerManager";
 import { ServerStats } from "@/features/server-stats/ServerStats";
 import GuacamoleApp from "@/features/guacamole/GuacamoleApp";
@@ -97,8 +95,6 @@ export function tabIcon(type: TabType) {
       return <Terminal className="size-3.5" />;
     case "stats":
       return <Server className="size-3.5" />;
-    case "files":
-      return <FolderSearch className="size-3.5" />;
     case "host-manager":
       return <Server className="size-3.5" />;
     case "user-profile":
@@ -215,16 +211,6 @@ export function renderTabContent(
           onTmuxSessionMissing={onTmuxSessionMissing}
         />
       );
-
-    case "files":
-      if (!host)
-        return (
-          <EmptyState
-            icon={FolderSearch}
-            messageKey="fileManager.noHostSelected"
-          />
-        );
-      return <FileManager initialHost={hostToSSHHost(host)} />;
 
     case "docker":
       if (!host)

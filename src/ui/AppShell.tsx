@@ -61,8 +61,6 @@ import {
   selectConversationDeferred,
 } from "@/state/conversation-store";
 import { getSessionList } from "@/api/sessions-api";
-import { TransferMonitor } from "@/features/file-manager/TransferMonitor.tsx";
-import { getPendingTransferIds } from "@/features/file-manager/transferNotificationStore.ts";
 import {
   consumePendingWorkspace,
   specForTab,
@@ -735,7 +733,6 @@ export function AppShell({
     "rdp",
     "vnc",
     "telnet",
-    "files",
     "docker",
     "stats",
     "tunnel",
@@ -1273,21 +1270,6 @@ export function AppShell({
 
   const terminalTabs = tabs.filter((t) => t.type === "terminal");
 
-  // Only mount TransferMonitor when there's actual work for it. Upstream
-  // mounts it unconditionally; combined with the sub-2s polling loop it does
-  // (POLL_INTERVAL_MS = 2000 in TransferMonitor.tsx), that flooded the backend
-  // with /ssh/file_manager/ssh/activeTransfers requests on every browser tab
-  // whether or not the user ever opens the file manager — and any cancelled
-  // request tripped dbHealthMonitor's false-positive "connection lost" toast.
-  // Gate: a "files" tab is open, OR a pending transfer id is in localStorage
-  // (persisted across reloads by transferNotificationStore). See fork patch #27.
-  const needsTransferMonitor = useMemo(
-    () =>
-      tabs.some((t) => t.type === "files") ||
-      getPendingTransferIds().length > 0,
-    [tabs],
-  );
-
   // Sidebar panel content — pretty-conversations is the only visible surface.
   // Phase 11 Plan 03 (PURGE-03): 11 sibling {railView === "X"} branches
   // (hosts, credentials, quick-connect, ssh-tools, snippets, history,
@@ -1717,7 +1699,6 @@ export function AppShell({
         setIsOpen={setCommandPaletteOpen}
         onOpenTab={openTab}
       />
-      {needsTransferMonitor && <TransferMonitor />}
     </>
   );
 }

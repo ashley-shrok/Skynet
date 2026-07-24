@@ -31,22 +31,6 @@ const TerminalApp = lazy(() =>
     default: m.default,
   })),
 );
-const FileManagerApp = lazy(() =>
-  import("@/features/file-manager/FileManagerApp").then((m) => ({
-    default: m.default,
-  })),
-);
-const TunnelApp = lazy(() =>
-  import("@/features/tunnel/TunnelApp").then((m) => ({ default: m.default })),
-);
-const ServerStatsApp = lazy(() =>
-  import("@/features/server-stats/ServerStatsApp").then((m) => ({
-    default: m.default,
-  })),
-);
-const DockerApp = lazy(() =>
-  import("@/features/docker/DockerApp").then((m) => ({ default: m.default })),
-);
 const GuacamoleApp = lazy(() =>
   import("@/features/guacamole/GuacamoleApp").then((m) => ({
     default: m.default,
@@ -74,14 +58,6 @@ function FullscreenApp() {
   switch (view) {
     case "terminal":
       return <TerminalApp hostId={hostId || undefined} />;
-    case "file-manager":
-      return <FileManagerApp hostId={hostId || undefined} />;
-    case "tunnel":
-      return <TunnelApp hostId={hostId || undefined} />;
-    case "server-stats":
-      return <ServerStatsApp hostId={hostId || undefined} />;
-    case "docker":
-      return <DockerApp hostId={hostId || undefined} />;
     case "rdp":
     case "vnc":
     case "telnet":
