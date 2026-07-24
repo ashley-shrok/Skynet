@@ -25,6 +25,13 @@ export function ConnectionLogProvider({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const addLog = useCallback((entry: Omit<LogEntry, "id" | "timestamp">) => {
+    // Patch #147: mirror every ConnectionLog entry to console.warn so tina's
+    // #146 log-forwarder captures the full reconnect/WebSocket diagnostic
+    // trail on iOS PWA where DevTools is unreachable. Terminal.tsx and other
+    // consumers route all their meaningful diagnostics through addLog()
+    // rather than console.*, so the forwarder was silent on the paths that
+    // matter most for #143 iOS PWA reconnect debugging.
+    console.warn("[SkynetLog]", entry.stage, entry.type, entry.message);
     const newLog: LogEntry = {
       ...entry,
       id: `${Date.now()}-${Math.random()}`,
