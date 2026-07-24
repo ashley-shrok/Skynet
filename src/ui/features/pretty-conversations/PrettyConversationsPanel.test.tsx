@@ -119,6 +119,7 @@ vi.mock("@/state/conversation-store", () => ({
   useActiveSet: () => new Set<string>(),
   selectConversation: (id: string | null) => selectConversationSpy(id),
   togglePinConversation: (id: string) => togglePinConversationSpy(id),
+  addToActiveSet: () => {},
 }));
 
 // Patch #137: PrettyConversationsPanel calls useSessionWorking(sessionKey)

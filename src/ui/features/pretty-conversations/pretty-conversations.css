@@ -71,6 +71,14 @@
   border-bottom: 1px solid var(--color-pv-border-quiet);
 }
 
+/* Patch #142 Fix 5 — chevron clears "Conversations" title when sidebar open
+   on desktop. The fixed persistent chevron is 8px from left + 32px wide + 8px
+   breathing = 48px total clearance needed. Mobile unaffected (showDesktopTitle
+   is false on mobile, so padding-left does nothing visible). */
+.pv-panel-header[data-sidebar-toggle-overlaps="true"] {
+  padding-left: 48px; /* 8px chevron left + 32px chevron width + 8px breathing */
+}
+
 .pv-panel-header .pv-title {
   flex: 1;
   font-size: 12px;
@@ -199,6 +207,15 @@
   letter-spacing: -0.01em;
   flex-shrink: 0;
   overflow: hidden;
+}
+
+/* Patch #142 Fix 3 — RDP Monitor icon size in avatar.
+   tabIcon() returns lucide icons with hard-coded className="size-3.5" (14px);
+   the mock expects 18x18 inside the 40px disc. Scoped to .pv-avatar so
+   tab-bar rendering (different container, no .pv-avatar ancestor) is unaffected. */
+.pv-avatar .pv-avatar-fallback-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .pv-body {

@@ -49,6 +49,7 @@ import {
   usePinnedIds,
   useActiveSet,
   selectConversation,
+  addToActiveSet,
   togglePinConversation,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
@@ -105,6 +106,7 @@ export function PrettyConversationsPanel({
   onCreateSession,
   onDetachedRowClick,
   onRdpRowClick,
+  sidebarToggleOverlaps = false,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -133,6 +135,11 @@ export function PrettyConversationsPanel({
   // ConversationsPanel. When omitted, RDP rows fall through to
   // selectConversation (silent-no-op at the store level).
   onRdpRowClick?: (row: ConversationRowShape) => void;
+  // Patch #142 (Fix 5): when the desktop sidebar is open, the fixed
+  // top-left chevron overlaps the "Conversations" title. This prop adds
+  // padding-left clearance via data-sidebar-toggle-overlaps attribute +
+  // CSS rule. Mobile unaffected (mobile hides the desktop title already).
+  sidebarToggleOverlaps?: boolean;
 }) {
   const { t } = useTranslation();
   const { pinned, grouped } = useConversations();
@@ -175,6 +182,7 @@ export function PrettyConversationsPanel({
   // for the case where two rows are open due to a race.
   const handleRowSelect = (row: ConversationRowShape) => {
     if (isMobileVariant) setCurrentlySwipedId(null);
+    addToActiveSet(row.id);
     if (row.rdpHostRow && onRdpRowClick) {
       onRdpRowClick(row);
       onConversationSelected?.(row.id);
@@ -247,7 +255,7 @@ export function PrettyConversationsPanel({
           Layout branches on `variant`:
             desktop → title (left) + pencil (right)
             mobile  → empty left, pencil only (right)  */}
-      <div className="pv-panel-header shrink-0">
+      <div className="pv-panel-header shrink-0" data-sidebar-toggle-overlaps={sidebarToggleOverlaps ? "true" : "false"}>
         {showDesktopTitle ? (
           <span className="pv-title">{headerLabel}</span>
         ) : (
@@ -272,7 +280,7 @@ export function PrettyConversationsPanel({
       {/* Scroll region: safe-area padding lives on outer container (patch #131)
           so the panel bottom sits ABOVE the safe-area — settings row is not
           covered when scroll is at rest. */}
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+      <div className="pv-panel-scroll min-h-0">
         {isEmpty ? (
           // Empty-state = PlanPendingBubble-style idle glass card centered
           // in the scroll region. Uses the neutral no-identity treatment

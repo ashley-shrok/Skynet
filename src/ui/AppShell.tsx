@@ -1283,6 +1283,7 @@ export function AppShell({
       <div className="flex flex-col flex-1 min-h-0">
         <PrettyConversationsPanel
           variant={isMobile ? "mobile" : "desktop"}
+          sidebarToggleOverlaps={!isMobile && !isTouchDevice && sidebarOpen}
           onConversationSelected={
             isTouchDevice ? () => navigateToView() : undefined
           }
@@ -1422,7 +1423,7 @@ export function AppShell({
                   : "Toggle sidebar",
               },
             )}
-            className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-transparent border border-transparent text-[color:var(--color-pv-fg-muted)] hover:bg-[rgba(220,225,245,0.06)] hover:border-[color:var(--color-pv-border-quiet)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer"
+            className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(220,225,245,0.06)] border border-[color:var(--color-pv-border-quiet)] text-[color:var(--color-pv-fg-muted)] hover:bg-[rgba(220,225,245,0.12)] hover:border-[color:var(--color-pv-border-quiet-strong)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer"
             style={{
               top: "max(env(safe-area-inset-top), 8px)",
               left: "max(env(safe-area-inset-left), 8px)",
