@@ -836,6 +836,20 @@ describe("conversation-store (Plan 07-01): updateHostsFlat no-op guards", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test 1 shape-guard extension: empty state must expose activeSet field
+// (appended to the existing Test 1 assertions inline in a new describe block
+// rather than modifying the original, to keep git diff surgical)
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Patch #149 B+C): empty state exposes activeSet field", () => {
+  it("returns empty activeSet alongside empty pinned + grouped on the happy-empty path", () => {
+    const { result: convs } = renderHook(() => useConversations());
+    expect(convs.current.activeSet).toEqual([]);
+    expect(convs.current.pinned).toEqual([]);
+    expect(convs.current.grouped).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test 30 (Patch #149 A): fleet-only rows CAN be pinned — pinConversation
 // accepts any id. The pre-#149 openTabs-only guard was retired: the mock
 // treats all non-RDP rows uniformly, so the pin affordance and the store must
@@ -865,10 +879,115 @@ describe("conversation-store (Patch #149 A): fleet-only rows are pinnable", () =
 
     const snap2 = __getSnapshotForTest();
     expect(snap2.pinnedIds.has("fleet::1::work")).toBe(true);
-    // Slice A does not move the row to the pinned section — that's Slice B.
-    // The row remains in grouped and gains the .pinned class at render time
-    // via the panel's `pinned={pinnedIds.has(row.id)}` prop.
-    expect(snap2.grouped[0].rows[0].id).toBe("fleet::1::work");
+    // Slice B (Patch #149 B+C): the pinned-section now surfaces fleet rows,
+    // so the fleet row is promoted to snap2.pinned and is NOT in grouped.
+    // The Slice A regression we protect here is that pinnedIds contains the
+    // fleet id — that assertion above is the load-bearing one.
+    expect(snap2.pinned.length).toBe(1);
+    expect(snap2.pinned[0].id).toBe("fleet::1::work");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 30b-30e (Patch #149 B+C): three-tier sort + strict dedup contract
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store (Patch #149 B+C): Test 30b — pinned fleet row appears in snap.pinned", () => {
+  it("pinning a fleet-only id moves the row into the pinned tier and removes it from grouped", () => {
+    const hostA = makeHost("1", "hostA");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+      pinConversation("fleet::1::work");
+    });
+
+    const snap = __getSnapshotForTest();
+
+    // Tier 2: pinned contains the fleet row
+    expect(snap.pinned.length).toBe(1);
+    expect(snap.pinned[0].id).toBe("fleet::1::work");
+    expect((snap.pinned[0] as unknown as { fleetOnly?: boolean }).fleetOnly).toBe(true);
+
+    // Dedup: the row must NOT appear in any grouped[] group
+    const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
+    expect(allGroupedIds).not.toContain("fleet::1::work");
+  });
+});
+
+describe("conversation-store (Patch #149 B+C): Test 30c — active-set row overtakes pinned tier", () => {
+  it("addToActiveSet on a pinned fleet id promotes it to activeSet and removes it from pinned", () => {
+    const hostA = makeHost("1", "hostA");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+      pinConversation("fleet::1::work");
+      addToActiveSet("fleet::1::work");
+    });
+
+    const snap = __getSnapshotForTest();
+
+    // Tier 1: activeSet contains the fleet row
+    expect(snap.activeSet.length).toBe(1);
+    expect(snap.activeSet[0].id).toBe("fleet::1::work");
+
+    // Strict dedup: NOT in pinned (promoted out)
+    expect(snap.pinned.length).toBe(0);
+
+    // Strict dedup: NOT in grouped
+    const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
+    expect(allGroupedIds).not.toContain("fleet::1::work");
+  });
+});
+
+describe("conversation-store (Patch #149 B+C): Test 30d — activeSet-only row (not pinned)", () => {
+  it("fleet row in activeSet but not pinned goes to Tier 1 only; pinned stays empty; not in grouped", () => {
+    const hostA = makeHost("1", "hostA");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateHostsFlat(new Map([[1, hostA]]));
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+      ]);
+      addToActiveSet("fleet::1::work");
+    });
+
+    const snap = __getSnapshotForTest();
+
+    expect(snap.activeSet[0].id).toBe("fleet::1::work");
+    expect(snap.pinned.length).toBe(0);
+
+    const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
+    expect(allGroupedIds).not.toContain("fleet::1::work");
+  });
+});
+
+describe("conversation-store (Patch #149 B+C): Test 30e — openTab pinned + activeSet → activeSet only", () => {
+  it("openTab row in both pinnedIds and activeSet goes to Tier 1 only (dedup applies to openTab path too)", () => {
+    const hostA = makeHost("hA", "hostA");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("t1", "terminal", hostA, "s1", "t1-label")]);
+      pinConversation("t1");
+      addToActiveSet("t1");
+    });
+
+    const snap = __getSnapshotForTest();
+
+    // Tier 1: t1 is in activeSet
+    expect(snap.activeSet[0].id).toBe("t1");
+
+    // Strict dedup: NOT in pinned (promoted to Tier 1)
+    expect(snap.pinned.length).toBe(0);
+
+    // Strict dedup: NOT in grouped
+    const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
+    expect(allGroupedIds).not.toContain("t1");
   });
 });
 

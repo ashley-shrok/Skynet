@@ -69,6 +69,7 @@ export type HostGroup = {
 };
 
 export type ConversationList = {
+  activeSet: ConversationRow[];
   pinned: ConversationRow[];
   grouped: HostGroup[];
 };
@@ -265,63 +266,32 @@ function fleetRowId(hostId: number, sessionName: string): string {
 function computeSnapshot(): ConversationList {
   const conversationTabs = state.openTabs.filter(isConversationTab);
 
-  // Pinned rows first — iterate openTabs order and filter by pinnedIds.
-  // pinnedIds is authoritative on "is this pinned?"; openTabs order gives
-  // deterministic within-pinned ordering (see plan Task 1 Step 7 — no
-  // drag-to-reorder, pin order = pin-creation-relative = openTabs order).
-  // Plan 07-01: pins are ONLY from openTabs (fleet-only rows CANNOT be
-  // pinned — the existing pinConversation guard at lines below rejects any
-  // id not in openTabs, and fleet ids never appear in openTabs; Test 30
-  // asserts this defense-in-depth).
-  const pinned: ConversationRow[] = [];
-  for (const tab of conversationTabs) {
-    if (state.pinnedIds.has(tab.id)) pinned.push(rowFromTab(tab));
-  }
-
-  // Grouped rows below — bucket non-pinned tabs by host id, then emit in
-  // host-tree order. Hosts with zero non-pinned rows are skipped so the
-  // panel doesn't render empty group headers.
-  const byHostId = new Map<string, ConversationRow[]>();
-  // Plan 07-01: build the openTabs session-identity set for dedup. For each
-  // conversation tab that has (host, targetTmuxSession) both defined, add
-  // `dedupKey(String(parseInt(host.id)), targetTmuxSession)` — normalizing
-  // the string Host.id to numeric string aligns with FleetSession.hostId
-  // (a raw JS number) after `String(hostId)`. Matches SessionsPanel.tsx:47's
-  // `parseInt(h.id)` precedent verbatim. A null/empty targetTmuxSession tab
-  // does NOT enter the dedup set (Test 26): its identity is "attached to
-  // hostA without a known session", which is not the same as any named
-  // fleet session on hostA.
+  // Plan 07-01: build the openTabs session-identity set for dedup FIRST (own
+  // pass over conversationTabs) so the tier-assignment loops below can iterate
+  // from scratch with clean semantics. A null/empty targetTmuxSession tab does
+  // NOT enter the dedup set (Test 26): its identity is "attached to hostA
+  // without a known session", not the same as any named fleet session on hostA.
   const openTabsSessionKeys = new Set<string>();
   for (const tab of conversationTabs) {
-    if (state.pinnedIds.has(tab.id)) continue; // already in pinned
-    if (!tab.host) continue; // defense-in-depth; isConversationTab already filtered
-    const bucket = byHostId.get(tab.host.id);
-    if (bucket) bucket.push(rowFromTab(tab));
-    else byHostId.set(tab.host.id, [rowFromTab(tab)]);
-
+    if (!tab.host) continue;
     const tmux = tab.targetTmuxSession;
     if (tmux !== null && tmux !== "") {
       openTabsSessionKeys.add(dedupKey(String(parseInt(tab.host.id)), tmux));
     }
   }
 
-  // Plan 07-01: emit fleet-derived synthetic rows for every FleetSession
-  // whose (hostId, sessionName) identity is NOT already represented in
-  // openTabs (openTabs-entry-wins per hard_constraint #7). Bucketed by
-  // hostId (as a string, matching the byHostId map's key type) so fleet
-  // rows for a host that ALSO has openTabs rows land in the SAME HostGroup
-  // (append order — openTabs first, fleet-only after).
+  // Plan 07-01: build the merged fleet-derived synthetic-row list. Emit one
+  // ConversationRow per FleetSession whose (hostId, sessionName) identity is
+  // NOT already represented in openTabs (openTabs-entry-wins). Collect the
+  // rows as { hostIdStr, row } tuples so the Tier 3 bucketing loop below
+  // doesn't need to re-parse the fleet id.
   //
-  // Host resolution for synthetic rows: prefer state.hostsFlat.get(hostId)
-  // (a real Host object with all fields — enableRdp, terminalConfig, etc.)
-  // so the detached-row-click handler at AppShell can invoke openTab(host)
-  // with everything it needs. Fall back to `undefined` (no Host object)
-  // when hostsFlat has not yet populated — Test 28 covers this race.
-  //
-  // Also collect a per-fleet-hostId hostName fallback so the HostGroup
-  // header can render even when the host is absent from state.hostTree
-  // AND state.hostsFlat (initial-load race — Test 28).
+  // Host resolution: prefer state.hostsFlat.get(hostId) (a real Host with all
+  // fields); fall back to undefined when hostsFlat hasn't populated yet (Test 28).
+  // Also collect per-fleet-hostId hostName fallback so the HostGroup header can
+  // render even when the host is absent from hostTree AND hostsFlat (Test 28).
   const fleetHostNameFallback = new Map<string, string>();
+  const fleetSyntheticRows: { hostIdStr: string; row: ConversationRow }[] = [];
   for (const session of state.fleetSessions) {
     const hostIdStr = String(session.hostId);
     const key = dedupKey(hostIdStr, session.sessionName);
@@ -335,14 +305,71 @@ function computeSnapshot(): ConversationList {
       targetTmuxSession: session.sessionName,
       fleetOnly: true,
     };
-    const bucket = byHostId.get(hostIdStr);
-    if (bucket) bucket.push(syntheticRow);
-    else byHostId.set(hostIdStr, [syntheticRow]);
+    fleetSyntheticRows.push({ hostIdStr, row: syntheticRow });
     if (!fleetHostNameFallback.has(hostIdStr)) {
       fleetHostNameFallback.set(hostIdStr, session.hostName);
     }
   }
 
+  // Tier-assignment dedup tracker — every emitted row id is added here after
+  // placement so Tier 2 and Tier 3 can skip ids already claimed by a higher tier.
+  const emittedIds = new Set<string>();
+
+  // ── Tier 1 (activeSet): rows in state.activeSet, overtaking pinned ──────────
+  // Iterate conversationTabs first (openTabs order), then fleetSyntheticRows
+  // (fleetSessions order) — same openTabs-first precedence used throughout.
+  // RDP rows are never eligible: activeSet excludes them per patch #137
+  // contract, and the loops here only iterate conversationTabs +
+  // fleetSyntheticRows (rdpRows is a separate synthesized list that never
+  // joins either set).
+  const activeSetRows: ConversationRow[] = [];
+  for (const tab of conversationTabs) {
+    if (!state.activeSet.has(tab.id)) continue;
+    activeSetRows.push(rowFromTab(tab));
+    emittedIds.add(tab.id);
+  }
+  for (const { row } of fleetSyntheticRows) {
+    if (!state.activeSet.has(row.id)) continue;
+    activeSetRows.push(row);
+    emittedIds.add(row.id);
+  }
+
+  // ── Tier 2 (pinned, not in activeSet): rows in pinnedIds and NOT emitted ────
+  // Patch #149 B: previously iterated only conversationTabs; now ALSO iterates
+  // fleetSyntheticRows so fleet-derived pinned rows surface at the top.
+  const pinned: ConversationRow[] = [];
+  for (const tab of conversationTabs) {
+    if (!state.pinnedIds.has(tab.id)) continue;
+    if (emittedIds.has(tab.id)) continue; // already in Tier 1
+    pinned.push(rowFromTab(tab));
+    emittedIds.add(tab.id);
+  }
+  for (const { row } of fleetSyntheticRows) {
+    if (!state.pinnedIds.has(row.id)) continue;
+    if (emittedIds.has(row.id)) continue; // already in Tier 1
+    pinned.push(row);
+    emittedIds.add(row.id);
+  }
+
+  // ── Tier 3 (grouped): everything else, bucketed by host ─────────────────────
+  // Iterate conversationTabs, bucket non-emitted rows by host id.
+  const byHostId = new Map<string, ConversationRow[]>();
+  for (const tab of conversationTabs) {
+    if (emittedIds.has(tab.id)) continue; // already in Tier 1 or Tier 2
+    if (!tab.host) continue; // defense-in-depth; isConversationTab already filtered
+    const bucket = byHostId.get(tab.host.id);
+    if (bucket) bucket.push(rowFromTab(tab));
+    else byHostId.set(tab.host.id, [rowFromTab(tab)]);
+  }
+  // Iterate fleetSyntheticRows, bucket non-emitted fleet rows by hostIdStr.
+  for (const { hostIdStr, row } of fleetSyntheticRows) {
+    if (emittedIds.has(row.id)) continue; // already in Tier 1 or Tier 2
+    const bucket = byHostId.get(hostIdStr);
+    if (bucket) bucket.push(row);
+    else byHostId.set(hostIdStr, [row]);
+  }
+
+  // Emit HostGroups in host-tree order, then fallback for orphan hosts.
   const grouped: HostGroup[] = [];
   const orderedHosts = collectHostOrder(state.hostTree);
   const seenHostIds = new Set<string>();
@@ -402,6 +429,11 @@ function computeSnapshot(): ConversationList {
   // Row shape: id `rdp-host::${host.id}` (deterministic per host — a fleet
   // fact, not tied to any tab-lifecycle counter), type "rdp", label
   // `host.name`, host: resolvedHost, targetTmuxSession: null, rdpHostRow: true.
+  //
+  // RDP rows are NEVER considered for Tier 1 or Tier 2: activeSet excludes
+  // them per patch #137 contract, and the tier loops above only iterate
+  // conversationTabs + fleetSyntheticRows. rdpRows is a separate synthesized
+  // list that never joins those sets.
   const rdpRows: ConversationRow[] = [];
   const rdpEmittedHostIds = new Set<number>();
   // Hosts in hostTree order first
@@ -439,7 +471,7 @@ function computeSnapshot(): ConversationList {
     grouped.push({ hostId: "__rdp__", hostName: "", rows: rdpRows });
   }
 
-  return { pinned, grouped };
+  return { activeSet: activeSetRows, pinned, grouped };
 }
 
 function getSnapshot(): ConversationList {
@@ -751,6 +783,7 @@ export function __subscribeForTest(cb: () => void): () => void {
 export function __getSnapshotForTest(): SnapshotForTest {
   const list = getSnapshot();
   return {
+    activeSet: list.activeSet,
     pinned: list.pinned,
     grouped: list.grouped,
     selectedId: state.selectedId,
@@ -786,6 +819,7 @@ export function __resetActiveSetForTest(): void {
 export function __getFleetOnlyRowsForTest(): ConversationRow[] {
   const list = getSnapshot();
   const out: ConversationRow[] = [];
+  for (const r of list.activeSet) if (r.fleetOnly) out.push(r);
   for (const r of list.pinned) if (r.fleetOnly) out.push(r);
   for (const g of list.grouped) {
     for (const r of g.rows) if (r.fleetOnly) out.push(r);
