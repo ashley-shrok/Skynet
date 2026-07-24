@@ -236,7 +236,7 @@ function ColDivider({
         onTouchStart={onTouchStart}
         className="absolute inset-y-0 -left-2 -right-2 cursor-col-resize flex items-center justify-center group"
       >
-        <div className="w-px h-full bg-border group-hover:bg-accent-brand/60 transition-colors pointer-events-none" />
+        <div className="w-px h-full bg-[color:var(--color-pv-border-quiet-strong)] group-hover:bg-[hsla(var(--pv-hue,35),55%,50%,0.6)] transition-colors pointer-events-none" />
       </div>
     </div>
   );
@@ -256,7 +256,7 @@ function RowDivider({
         onTouchStart={onTouchStart}
         className="absolute inset-x-0 -top-2 -bottom-2 cursor-row-resize flex flex-col items-center justify-center group"
       >
-        <div className="h-px w-full bg-border group-hover:bg-accent-brand/60 transition-colors pointer-events-none" />
+        <div className="h-px w-full bg-[color:var(--color-pv-border-quiet-strong)] group-hover:bg-[hsla(var(--pv-hue,35),55%,50%,0.6)] transition-colors pointer-events-none" />
       </div>
     </div>
   );
@@ -278,20 +278,20 @@ function PaneHeader({
     <div
       className={`flex items-center gap-1.5 px-2.5 h-7 shrink-0 border-b text-xs font-medium select-none transition-colors ${
         isFocused
-          ? "bg-accent-brand/10 border-accent-brand/40 text-accent-brand"
-          : "bg-sidebar border-border text-muted-foreground"
+          ? "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] border-[hsla(var(--pv-hue,35),55%,50%,0.4)] text-[color:var(--color-pv-code-fg)]"
+          : "bg-[color:var(--color-pv-surface-quiet)] border-[color:var(--color-pv-border-quiet)] text-[color:var(--color-pv-fg-muted)]"
       }`}
     >
       {isFocused && (
-        <span className="w-1 h-3.5 rounded-full bg-accent-brand shrink-0" />
+        <span className="w-1 h-3.5 rounded-full bg-[hsla(var(--pv-hue,35),55%,45%,0.9)] shrink-0" />
       )}
       {tab ? (
         <>
-          <span className={isFocused ? "text-accent-brand" : "opacity-60"}>
+          <span className={isFocused ? "text-[color:var(--color-pv-code-fg)]" : "opacity-60"}>
             {tabIcon(tab.type)}
           </span>
           <span
-            className={`truncate ${isFocused ? "text-accent-brand font-semibold" : "text-foreground"}`}
+            className={`truncate ${isFocused ? "text-[color:var(--color-pv-code-fg)] font-semibold" : "text-[color:var(--color-pv-fg)]"}`}
           >
             {tab.type === "dashboard" ? "Dashboard" : tab.label}
           </span>
@@ -308,7 +308,7 @@ function PaneHeader({
 function EmptyPane() {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-col items-center justify-center w-full h-full gap-2 text-muted-foreground/30 bg-background">
+    <div className="flex flex-col items-center justify-center w-full h-full gap-2 text-[color:var(--color-pv-fg-dim)] bg-[color:var(--color-pv-base)]">
       <div className="grid grid-cols-2 gap-1">
         <div className="size-5 border-2 border-current rounded-sm" />
         <div className="size-5 border-2 border-current rounded-sm" />
@@ -372,8 +372,8 @@ const Pane = memo(function Pane({
           <EmptyPane />
         )}
         {isDragOver && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-accent-brand/10 border-2 border-dashed border-accent-brand pointer-events-none">
-            <span className="text-xs font-medium text-accent-brand">
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] border-2 border-dashed border-[hsla(var(--pv-hue,35),65%,55%,0.6)] pointer-events-none">
+            <span className="text-xs font-medium text-[color:var(--color-pv-code-fg)]">
               Drop to assign
             </span>
           </div>
@@ -510,7 +510,7 @@ export const SplitView = memo(function SplitView({
     >
       <button
         onClick={reset}
-        className="absolute top-1 right-1 z-20 text-xs text-muted-foreground hover:text-foreground bg-background/80 border border-border px-1.5 py-0.5 leading-tight"
+        className="absolute top-1 right-1 z-20 text-xs text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] bg-[rgba(20,21,32,0.85)] border border-[color:var(--color-pv-border-quiet-strong)] px-1.5 py-0.5 leading-tight"
         title="Reset to equal split"
       >
         Reset

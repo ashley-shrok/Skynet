@@ -38,7 +38,7 @@ export function CommandAutocomplete({
   return (
     <div
       ref={containerRef}
-      className="fixed z-[9999] bg-canvas border border-edge rounded-md shadow-lg min-w-[200px] max-w-[600px] flex flex-col"
+      className="fixed z-[9999] bg-canvas border border-[color:var(--color-pv-border-quiet)] rounded-md shadow-lg min-w-[200px] max-w-[600px] flex flex-col"
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
@@ -56,7 +56,7 @@ export function CommandAutocomplete({
             className={cn(
               "px-3 py-1.5 text-sm font-mono cursor-pointer transition-colors",
               "hover:bg-hover",
-              index === selectedIndex && "bg-surface text-muted-foreground",
+              index === selectedIndex && "bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg-muted)]",
             )}
             onClick={() => onSelect(suggestion)}
             onMouseEnter={() => {}}
@@ -65,7 +65,7 @@ export function CommandAutocomplete({
           </div>
         ))}
       </div>
-      <div className="px-3 py-1 text-xs text-muted-foreground border-t border-edge bg-canvas/50 shrink-0">
+      <div className="px-3 py-1 text-xs text-[color:var(--color-pv-fg-muted)] border-t border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-base)]/50 shrink-0">
         Tab/Enter to complete • ↑↓ to navigate • Esc to close
       </div>
     </div>

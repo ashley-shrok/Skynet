@@ -2952,7 +2952,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           />
         )}
         {isPrettyMode && (hostConfig.id == null || !tmuxSessionName) && (
-          <div className="flex-1 min-h-0 flex items-center justify-center p-4 text-sm text-muted-foreground">
+          <div className="flex-1 min-h-0 flex items-center justify-center p-4 text-sm text-[color:var(--color-pv-fg-muted)]">
             no active Claude session
           </div>
         )}
@@ -3016,7 +3016,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-[120]"
             style={{ backgroundColor }}
           >
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-[color:var(--color-pv-fg-muted)]">
               {t("terminal.connectionLost")}
             </p>
             <div className="flex gap-2">

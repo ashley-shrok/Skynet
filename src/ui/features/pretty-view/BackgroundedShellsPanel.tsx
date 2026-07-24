@@ -67,7 +67,7 @@ export function BackgroundedShellsPanel({
               className="flex items-start gap-2 text-sm leading-snug"
               title={s.command || undefined}
             >
-              <Terminal className="size-3.5 shrink-0 text-primary mt-0.5" />
+              <Terminal className="size-3.5 shrink-0 text-[color:var(--color-pv-code-fg)] mt-0.5" />
               <span className="min-w-0 text-[var(--color-pv-fg)]/90 break-words">
                 {primary}
               </span>

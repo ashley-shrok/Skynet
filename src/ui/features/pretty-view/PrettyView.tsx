@@ -685,7 +685,7 @@ export function PrettyView({
       )}
 
       {status === "error" && errorMessage && (
-        <div className="p-4 text-sm text-destructive">{errorMessage}</div>
+        <div className="p-4 text-sm text-[color:var(--color-pv-code-fg)]">{errorMessage}</div>
       )}
 
       {(status === "streaming" ||
@@ -769,7 +769,7 @@ export function PrettyView({
       )}
 
       {errorMessage && status === "streaming" && (
-        <div className="border-t border-white/[0.08] bg-[rgba(255,240,215,0.04)] text-destructive text-xs px-3 py-1">
+        <div className="border-t border-white/[0.08] bg-[rgba(255,240,215,0.04)] text-[color:var(--color-pv-code-fg)] text-xs px-3 py-1">
           {errorMessage}
         </div>
       )}

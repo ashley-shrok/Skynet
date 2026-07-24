@@ -541,7 +541,7 @@ export function IdentityModal({
             ) : error ? (
               // Error state with retry button
               <div className="flex flex-col items-start gap-3">
-                <div className="text-sm text-destructive">
+                <div className="text-sm text-[color:var(--color-pv-code-fg)]">
                   Couldn&apos;t load bounties: {error}
                 </div>
                 <Button

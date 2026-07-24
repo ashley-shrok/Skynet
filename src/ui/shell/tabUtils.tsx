@@ -62,10 +62,10 @@ function EmptyState({
   const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center justify-center flex-1 gap-3 p-6 text-center">
-      <div className="size-10 rounded-full bg-muted/40 flex items-center justify-center">
-        <Icon className="size-5 text-muted-foreground/30" />
+      <div className="size-10 rounded-full bg-[color:var(--color-pv-surface-quiet)] flex items-center justify-center">
+        <Icon className="size-5 text-[color:var(--color-pv-fg-dim)]" />
       </div>
-      <span className="text-sm font-semibold text-muted-foreground/60">
+      <span className="text-sm font-semibold text-[color:var(--color-pv-fg-dim)]">
         {t(messageKey)}
       </span>
     </div>

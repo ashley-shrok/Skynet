@@ -26,7 +26,7 @@ export function RemoteHostChips({ hosts, onSelect }: RemoteHostChipsProps) {
   if (hosts.length === 0) return null;
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
+      <div className="text-[10px] uppercase tracking-widest font-semibold text-[color:var(--color-pv-fg-muted)]">
         Remote Desktops
       </div>
       <div className="flex flex-wrap gap-2">
@@ -36,12 +36,12 @@ export function RemoteHostChips({ hosts, onSelect }: RemoteHostChipsProps) {
             <button
               key={h.id}
               onClick={() => onSelect(h, protocol)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 border border-border bg-muted hover:bg-muted/50 text-xs cursor-pointer transition-colors"
+              className="inline-flex items-center gap-2 px-3 py-1.5 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-surface-quiet)] hover:bg-[hsla(var(--pv-hue,35),40%,25%,0.18)] text-xs cursor-pointer transition-colors"
             >
-              <Monitor className="size-3 text-accent-brand shrink-0" />
+              <Monitor className="size-3 text-[color:var(--color-pv-code-fg)] shrink-0" />
               <span className="truncate">{h.name}</span>
               {protocol !== "rdp" && (
-                <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
+                <span className="text-[9px] uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
                   {protocol}
                 </span>
               )}

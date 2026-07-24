@@ -101,10 +101,10 @@ export function ElectronVersionCheck({ onContinue }: VersionCheckModalProps) {
 
   if (versionChecking && !versionInfo) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background p-6 z-50">
-        <div className="flex flex-col gap-5 p-6 border border-border bg-background max-w-md w-full items-center">
-          <div className="w-5 h-5 border-2 border-accent-brand border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground">
+      <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6 z-50">
+        <div className="flex flex-col gap-5 p-6 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-base)] max-w-md w-full items-center">
+          <div className="w-5 h-5 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.6)] border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-[color:var(--color-pv-fg-muted)]">
             {t("versionCheck.checkingUpdates")}
           </p>
         </div>
@@ -114,8 +114,8 @@ export function ElectronVersionCheck({ onContinue }: VersionCheckModalProps) {
 
   if (!versionInfo || versionDismissed) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background p-6 z-50">
-        <div className="flex flex-col gap-5 p-6 border border-border bg-background max-w-md w-full">
+      <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6 z-50">
+        <div className="flex flex-col gap-5 p-6 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-base)] max-w-md w-full">
           <p className="font-bold">{t("versionCheck.checkUpdates")}</p>
           {versionInfo && !versionDismissed && (
             <VersionAlert
@@ -125,7 +125,7 @@ export function ElectronVersionCheck({ onContinue }: VersionCheckModalProps) {
           )}
           <Button
             onClick={handleContinue}
-            className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold rounded-none"
+            className="w-full font-bold"
           >
             {t("common.continue")}
           </Button>
@@ -135,8 +135,8 @@ export function ElectronVersionCheck({ onContinue }: VersionCheckModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-background p-6 z-50">
-      <div className="flex flex-col gap-5 p-6 border border-border bg-background max-w-md w-full">
+    <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6 z-50">
+      <div className="flex flex-col gap-5 p-6 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-base)] max-w-md w-full">
         <p className="font-bold">{versionModalTitle}</p>
         <VersionAlert
           updateInfo={versionInfo}
@@ -144,7 +144,7 @@ export function ElectronVersionCheck({ onContinue }: VersionCheckModalProps) {
         />
         <Button
           onClick={handleContinue}
-          className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold rounded-none"
+          className="w-full font-bold"
         >
           {t("common.continue")}
         </Button>

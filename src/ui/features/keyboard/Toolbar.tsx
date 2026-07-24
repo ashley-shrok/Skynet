@@ -56,12 +56,12 @@ const MOD_LABELS: Record<ModifierName, string> = {
 const MOD_ORDER: ModifierName[] = ["ctrl", "alt", "shift", "win"];
 
 const BTN_BASE =
-  "flex items-center justify-center gap-1 h-7 px-2 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-sm whitespace-nowrap select-none";
+  "flex items-center justify-center gap-1 h-7 px-2 text-[10px] font-medium text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] hover:bg-[color:var(--color-pv-surface-quiet)] transition-colors rounded-sm whitespace-nowrap select-none";
 
 const BTN_ICON =
-  "flex items-center justify-center size-7 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-sm select-none";
+  "flex items-center justify-center size-7 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] hover:bg-[color:var(--color-pv-surface-quiet)] transition-colors rounded-sm select-none";
 
-const SEP = "w-px h-5 bg-border mx-0.5 shrink-0";
+const SEP = "w-px h-5 bg-[color:var(--color-pv-border-quiet-strong)] mx-0.5 shrink-0";
 
 interface ToolbarProps {
   adapter: InputAdapter;
@@ -355,20 +355,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         {collapsed ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center bg-background/85 backdrop-blur-sm border border-border shadow-lg rounded-sm overflow-hidden">
+              <div className="flex items-center bg-[rgba(20,21,32,0.88)] backdrop-blur-sm border border-[color:var(--color-pv-border-quiet-strong)] shadow-lg rounded-sm overflow-hidden">
                 <button
                   type="button"
                   onPointerDown={startDrag}
                   style={{ touchAction: "none" }}
-                  className="flex items-center justify-center size-7 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-grab active:cursor-grabbing"
+                  className="flex items-center justify-center size-7 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] hover:bg-[color:var(--color-pv-surface-quiet)] transition-colors cursor-grab active:cursor-grabbing"
                 >
                   <GripVertical className="size-3" />
                 </button>
-                <div className="w-px h-4 bg-border" />
+                <div className="w-px h-4 bg-[color:var(--color-pv-border-quiet-strong)]" />
                 <button
                   type="button"
                   onClick={() => setCollapsed(false)}
-                  className="flex items-center justify-center size-7 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  className="flex items-center justify-center size-7 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] hover:bg-[color:var(--color-pv-surface-quiet)] transition-colors"
                 >
                   <Monitor className="size-3.5" />
                 </button>
@@ -379,7 +379,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </TooltipContent>
           </Tooltip>
         ) : (
-          <div className="flex items-center bg-background/85 backdrop-blur-sm border border-border shadow-lg rounded-sm px-0.5 py-0.5 gap-0 max-w-full overflow-x-auto">
+          <div className="flex items-center bg-[rgba(20,21,32,0.88)] backdrop-blur-sm border border-[color:var(--color-pv-border-quiet-strong)] shadow-lg rounded-sm px-0.5 py-0.5 gap-0 max-w-full overflow-x-auto">
             {/* Drag handle */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -387,7 +387,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   type="button"
                   onPointerDown={startDrag}
                   style={{ touchAction: "none" }}
-                  className="flex items-center justify-center h-7 px-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-sm cursor-grab active:cursor-grabbing"
+                  className="flex items-center justify-center h-7 px-1 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] hover:bg-[color:var(--color-pv-surface-quiet)] transition-colors rounded-sm cursor-grab active:cursor-grabbing"
                 >
                   <GripVertical className="size-3.5" />
                 </button>
@@ -437,7 +437,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         className={cn(
                           BTN_BASE,
                           stickyKeys[m] &&
-                            "bg-primary/15 text-primary border border-primary/30",
+                            "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] text-[color:var(--color-pv-fg)] border border-[hsla(var(--pv-hue,35),55%,50%,0.35)]",
                         )}
                       >
                         {t(MOD_LABELS[m])}
@@ -464,7 +464,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               onClick={() => setShowFKeys((v) => !v)}
               className={cn(
                 showFKeys &&
-                  "bg-primary/15 text-primary border border-primary/30",
+                  "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] text-[color:var(--color-pv-fg)] border border-[hsla(var(--pv-hue,35),55%,50%,0.35)]",
               )}
             >
               Fn
@@ -554,7 +554,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </div>
 
             {/* Collapse */}
-            <div className="w-px h-5 bg-border mx-0.5 shrink-0" />
+            <div className="w-px h-5 bg-[color:var(--color-pv-border-quiet-strong)] mx-0.5 shrink-0" />
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

@@ -51,21 +51,21 @@ export function NewSessionDialog({
         className="absolute inset-0 bg-black/40"
         onClick={onCancel}
       />
-      <div className="bg-card border border-border w-full max-w-sm mx-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
-        <div className="p-4 border-b border-border">
+      <div className="bg-[linear-gradient(180deg,rgba(28,30,40,0.92),rgba(18,20,28,0.95))] border border-[color:var(--color-pv-border-quiet-strong)] rounded-[var(--radius-pv-card)] shadow-[0_30px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(220,225,245,0.08)] backdrop-blur-xl [backdrop-filter:blur(28px)_saturate(1.35)] w-full max-w-sm mx-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
+        <div className="p-4 border-b border-[color:var(--color-pv-border-quiet)]">
           <div className="flex items-center gap-2">
-            <Plus className="size-4 text-accent-brand" />
+            <Plus className="size-4 text-[color:var(--color-pv-code-fg)]" />
             <h3 className="text-xs font-bold uppercase tracking-widest">
               New Session
             </h3>
           </div>
-          <p className="text-[10px] font-bold uppercase tracking-tight text-muted-foreground mt-1">
-            On <span className="text-foreground">{host.name || host.ip}</span>
+          <p className="text-[10px] font-bold uppercase tracking-tight text-[color:var(--color-pv-fg-muted)] mt-1">
+            On <span className="text-[color:var(--color-pv-fg)]">{host.name || host.ip}</span>
           </p>
         </div>
         <form onSubmit={handleSubmit} className="p-4 flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
               Session name
             </label>
             <Input
@@ -76,7 +76,7 @@ export function NewSessionDialog({
                 if (error) setError(null);
               }}
               placeholder="e.g. fix-login-bug"
-              className="rounded-none bg-muted/50 border-border text-sm"
+              className="rounded-none border-[color:var(--color-pv-border-quiet-strong)] text-sm"
             />
           </div>
           {error && (
@@ -94,7 +94,7 @@ export function NewSessionDialog({
             <Button
               type="submit"
               variant="outline"
-              className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 rounded-none text-[10px] font-bold uppercase tracking-widest"
+              className="border-[hsla(var(--pv-hue,35),55%,50%,0.4)] text-[color:var(--color-pv-code-fg)] hover:bg-[hsla(var(--pv-hue,35),55%,45%,0.9)]/10 rounded-none text-[10px] font-bold uppercase tracking-widest"
             >
               Start
             </Button>

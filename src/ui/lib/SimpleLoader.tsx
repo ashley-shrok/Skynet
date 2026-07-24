@@ -52,7 +52,7 @@ export function SimpleLoader({
         <div className="flex flex-col items-center gap-4">
           <div className="simple-spinner"></div>
           {message && (
-            <p className="text-sm text-foreground-secondary font-medium">
+            <p className="text-sm text-[color:var(--color-pv-fg)]-secondary font-medium">
               {message}
             </p>
           )}

@@ -25,7 +25,7 @@ export function HandoffTab({ state }: { state: TabState<string> }) {
 
   if (state.status === "error") {
     return (
-      <div className="text-sm text-destructive">
+      <div className="text-sm text-[color:var(--color-pv-code-fg)]">
         Couldn&apos;t load handoff: {state.error}
       </div>
     );

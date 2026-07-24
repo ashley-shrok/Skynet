@@ -67,7 +67,7 @@ export function BackgroundedAgentsPanel({
                   : undefined
               }
             >
-              <ArrowRight className="size-3.5 shrink-0 text-primary mt-0.5" />
+              <ArrowRight className="size-3.5 shrink-0 text-[color:var(--color-pv-fg)] mt-0.5" />
               <span className="min-w-0 flex items-baseline gap-2 flex-wrap">
                 {/* Phase 4: subagentType tag picks up the per-pane identity
                     hue so the panel visually ties to the pane it belongs

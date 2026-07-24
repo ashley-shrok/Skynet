@@ -1455,7 +1455,7 @@ export function ComposeBox({
         </div>
       </div>
       {errorMessage && (
-        <div className="text-xs text-destructive">{errorMessage}</div>
+        <div className="text-xs text-[color:var(--color-pv-code-fg)]">{errorMessage}</div>
       )}
     </div>
   );

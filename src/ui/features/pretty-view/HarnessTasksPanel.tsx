@@ -29,13 +29,13 @@ function statusIcon(status: string) {
     // stacking a second animated glyph in the tasks panel was visually
     // ambiguous (Ashley 2026-07-18). Arrow reads as "this is what's being
     // worked on right now" while leaving motion for the working state alone.
-    return <ArrowRight className="size-3.5 shrink-0 text-primary" />;
+    return <ArrowRight className="size-3.5 shrink-0 text-[color:var(--color-pv-fg)]" />;
   }
   if (status === "completed") {
     // completed shouldn't reach us (parent filters), but render defensively
-    return <CircleDot className="size-3.5 shrink-0 text-muted-foreground" />;
+    return <CircleDot className="size-3.5 shrink-0 text-[color:var(--color-pv-fg-muted)]" />;
   }
-  return <Circle className="size-3.5 shrink-0 text-muted-foreground" />;
+  return <Circle className="size-3.5 shrink-0 text-[color:var(--color-pv-fg-muted)]" />;
 }
 
 export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) {

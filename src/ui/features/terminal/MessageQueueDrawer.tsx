@@ -422,13 +422,13 @@ export function MessageQueueDrawer({
 
   return (
     <div
-      className="flex-shrink-0 border-t border-border bg-card text-card-foreground flex flex-col"
+      className="flex-shrink-0 border-t border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] flex flex-col"
       style={{ height: 240 }}
     >
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[color:var(--color-pv-border-quiet)]">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-bold">Message queue</span>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
             {items.length} {items.length === 1 ? "item" : "items"}
           </span>
         </div>
@@ -444,13 +444,13 @@ export function MessageQueueDrawer({
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 flex flex-col gap-2">
         {loading && (
-          <div className="text-xs text-muted-foreground">Loading…</div>
+          <div className="text-xs text-[color:var(--color-pv-fg-muted)]">Loading…</div>
         )}
         {error && (
-          <div className="text-xs text-destructive">{error}</div>
+          <div className="text-xs text-[color:var(--color-pv-code-fg)]">{error}</div>
         )}
         {!loading && items.length === 0 && (
-          <div className="text-xs text-muted-foreground">
+          <div className="text-xs text-[color:var(--color-pv-fg-muted)]">
             No queued messages. Prep one below.
           </div>
         )}
@@ -473,7 +473,7 @@ export function MessageQueueDrawer({
         ))}
       </div>
 
-      <div className="border-t border-border px-3 py-2 flex justify-end">
+      <div className="border-t border-[color:var(--color-pv-border-quiet)] px-3 py-2 flex justify-end">
         <Button size="sm" variant="outline" onClick={handleAdd}>
           <Plus className="size-4 mr-1" />
           Add message

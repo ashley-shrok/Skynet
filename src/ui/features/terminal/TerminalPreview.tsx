@@ -37,7 +37,7 @@ export function TerminalPreview({
     TERMINAL_FONTS[0].fallback;
 
   return (
-    <div className="border border-input overflow-hidden">
+    <div className="border border-[color:var(--color-pv-border-quiet-strong)] overflow-hidden">
       <div
         className="p-3 font-mono"
         style={{

@@ -23,7 +23,7 @@ export function SessionRow({
     <button
       onClick={() => onSelect(session)}
       className={cn(
-        "relative flex items-center justify-between border-b border-border last:border-b-0 hover:bg-muted/50 cursor-pointer text-left transition-colors",
+        "relative flex items-center justify-between border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 hover:bg-[hsla(var(--pv-hue,35),40%,25%,0.18)] cursor-pointer text-left transition-colors",
         compact ? "px-3 py-2" : "px-4 py-3",
         newHostGroup && "border-t-[3px] border-t-accent-brand/40",
       )}
@@ -47,7 +47,7 @@ export function SessionRow({
           className={cn(
             "flex items-center justify-center shrink-0 overflow-hidden",
             compact ? "size-6" : "size-7",
-            identity ? "" : "border border-border bg-muted",
+            identity ? "" : "border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-surface-quiet)]",
           )}
         >
           {identity ? (
@@ -58,7 +58,7 @@ export function SessionRow({
               draggable={false}
             />
           ) : (
-            <Terminal className="size-3 text-accent-brand" />
+            <Terminal className="size-3 text-[color:var(--color-pv-code-fg)]" />
           )}
         </div>
         <span className="text-sm font-semibold truncate">
@@ -67,7 +67,7 @@ export function SessionRow({
       </div>
       <span
         className={cn(
-          "relative uppercase tracking-widest font-semibold border border-border text-muted-foreground shrink-0",
+          "relative uppercase tracking-widest font-semibold border border-[color:var(--color-pv-border-quiet-strong)] text-[color:var(--color-pv-fg-muted)] shrink-0",
           compact
             ? "text-[9px] px-1.5 py-0.5 ml-2 truncate max-w-[40%]"
             : "text-[10px] px-2 py-0.5",

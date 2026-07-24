@@ -31,7 +31,7 @@ export function WakeupsTab({
 
   if (state.status === "error") {
     return (
-      <div className="text-sm text-destructive">
+      <div className="text-sm text-[color:var(--color-pv-code-fg)]">
         Couldn&apos;t load wakeups: {state.error}
       </div>
     );

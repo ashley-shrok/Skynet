@@ -162,7 +162,7 @@ function Chip({
       {!readOnly && isError && (
         <>
           <AlertCircle
-            className="size-3.5 shrink-0 text-destructive"
+            className="size-3.5 shrink-0 text-[color:var(--color-pv-code-fg)]"
             aria-label="Upload failed"
           />
           {error && (
