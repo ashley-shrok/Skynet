@@ -733,7 +733,6 @@ export function AppShell({
     "rdp",
     "vnc",
     "telnet",
-    "docker",
     "stats",
     "tunnel",
   ];

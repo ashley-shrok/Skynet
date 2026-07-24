@@ -1,6 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
 import {
-  Box,
   LayoutDashboard,
   Monitor,
   Network,
@@ -18,7 +17,6 @@ import type {
   TerminalHandle,
   TerminalHostConfig,
 } from "@/features/terminal/Terminal";
-import { DockerManager } from "@/features/docker/DockerManager";
 import { ServerStats } from "@/features/server-stats/ServerStats";
 import GuacamoleApp from "@/features/guacamole/GuacamoleApp";
 import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
@@ -101,8 +99,6 @@ export function tabIcon(type: TabType) {
       return <User className="size-3.5" />;
     case "admin-settings":
       return <Settings className="size-3.5" />;
-    case "docker":
-      return <Box className="size-3.5" />;
     case "tunnel":
       return <Network className="size-3.5" />;
     case "network_graph":
@@ -209,19 +205,6 @@ export function renderTabContent(
               : undefined
           }
           onTmuxSessionMissing={onTmuxSessionMissing}
-        />
-      );
-
-    case "docker":
-      if (!host)
-        return <EmptyState icon={Box} messageKey="docker.noHostSelected" />;
-      return (
-        <DockerManager
-          hostConfig={hostToSSHHost(host)}
-          title={label}
-          isVisible={isVisible}
-          isTopbarOpen={false}
-          embedded={true}
         />
       );
 
