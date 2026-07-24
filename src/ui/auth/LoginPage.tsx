@@ -817,7 +817,7 @@ export function Auth({
 
   const Spinner = (
     <svg
-      className="animate-spin mr-2 h-4 w-4 text-foreground inline-block"
+      className="animate-spin mr-2 h-4 w-4 text-[color:var(--color-pv-fg)] inline-block"
       viewBox="0 0 24 24"
     >
       <circle
@@ -889,7 +889,7 @@ export function Auth({
         {...props}
       >
         <div className="flex items-center justify-center h-32">
-          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.7)] border-t-transparent rounded-full animate-spin" />
         </div>
       </div>
     );
@@ -944,11 +944,11 @@ export function Auth({
         }}
         {...props}
       >
-        <div className="w-[420px] max-w-full p-8 flex flex-col backdrop-blur-sm bg-card/50 rounded-2xl shadow-xl border-2 border-edge overflow-y-auto thin-scrollbar my-2 animate-in fade-in zoom-in-95 duration-300">
+        <div className="w-[420px] max-w-full p-8 flex flex-col backdrop-blur-sm bg-[color:var(--color-pv-surface-quiet)]/50 rounded-2xl shadow-xl border-2 border-edge overflow-y-auto thin-scrollbar my-2 animate-in fade-in zoom-in-95 duration-300">
           <div className="flex items-center justify-center h-32">
             <div className="text-center">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-muted-foreground">
+              <div className="w-8 h-8 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.7)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-[color:var(--color-pv-fg-muted)]">
                 {t("common.checkingAuthentication")}
               </p>
             </div>
@@ -993,11 +993,11 @@ export function Auth({
         }}
         {...props}
       >
-        <div className="w-[420px] max-w-full p-8 flex flex-col backdrop-blur-sm bg-card/50 rounded-2xl shadow-xl border-2 border-edge overflow-y-auto thin-scrollbar my-2 animate-in fade-in zoom-in-95 duration-300">
+        <div className="w-[420px] max-w-full p-8 flex flex-col backdrop-blur-sm bg-[color:var(--color-pv-surface-quiet)]/50 rounded-2xl shadow-xl border-2 border-edge overflow-y-auto thin-scrollbar my-2 animate-in fade-in zoom-in-95 duration-300">
           <div className="flex items-center justify-center h-32">
             <div className="text-center">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-muted-foreground">
+              <div className="w-8 h-8 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.7)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-[color:var(--color-pv-fg-muted)]">
                 {t("common.checkingDatabase")}
               </p>
             </div>
@@ -1024,14 +1024,14 @@ export function Auth({
         {...props}
       >
         <div
-          className="w-[420px] max-w-full p-8 flex flex-col backdrop-blur-sm bg-card/50 rounded-2xl shadow-xl border-2 border-edge overflow-y-auto thin-scrollbar my-2 animate-in fade-in zoom-in-95 duration-300"
+          className="w-[420px] max-w-full p-8 flex flex-col backdrop-blur-sm bg-[color:var(--color-pv-surface-quiet)]/50 rounded-2xl shadow-xl border-2 border-edge overflow-y-auto thin-scrollbar my-2 animate-in fade-in zoom-in-95 duration-300"
           style={{ maxHeight: "calc(100vh - 1rem)" }}
         >
           <div className="mb-6 text-center">
             <h2 className="text-xl font-bold mb-1">
               {t("errors.databaseConnection")}
             </h2>
-            <p className="text-muted-foreground">
+            <p className="text-[color:var(--color-pv-fg-muted)]">
               {t("messages.databaseConnectionFailed")}
             </p>
           </div>
@@ -1077,10 +1077,10 @@ export function Auth({
             {isElectron() && currentServerUrl && (
               <div className="flex items-center justify-between">
                 <div>
-                  <Label className="text-sm text-muted-foreground">
+                  <Label className="text-sm text-[color:var(--color-pv-fg-muted)]">
                     Server
                   </Label>
-                  <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                  <div className="text-xs text-[color:var(--color-pv-fg-muted)] truncate max-w-[200px]">
                     {currentServerUrl}
                   </div>
                 </div>
@@ -1122,7 +1122,7 @@ export function Auth({
         >
           <div className="relative text-center px-8">
             <div
-              className="text-7xl font-bold tracking-wider mb-4 text-foreground"
+              className="text-7xl font-bold tracking-wider mb-4 text-[color:var(--color-pv-fg)]"
               style={{
                 fontFamily:
                   "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -1130,14 +1130,14 @@ export function Auth({
             >
               {t("common.appName").toUpperCase()}
             </div>
-            <div className="text-lg text-muted-foreground tracking-widest font-light">
+            <div className="text-lg text-[color:var(--color-pv-fg-muted)] tracking-widest font-light">
               {t("auth.tagline")}
             </div>
           </div>
         </div>
 
-        <div className="flex-1 flex p-6 md:p-12 bg-background overflow-y-auto thin-scrollbar">
-          <div className="m-auto w-full max-w-md backdrop-blur-sm bg-card/50 rounded-2xl p-8 shadow-xl border-2 border-edge animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col">
+        <div className="flex-1 flex p-6 md:p-12 bg-[color:var(--color-pv-base)] overflow-y-auto thin-scrollbar">
+          <div className="m-auto w-full max-w-md backdrop-blur-sm bg-[color:var(--color-pv-surface-quiet)]/50 rounded-2xl p-8 shadow-xl border-2 border-edge animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col">
             {isInElectronWebView() && !webviewAuthSuccess && (
               <Alert className="mb-4 border-blue-500 bg-blue-500/10">
                 <Monitor className="h-4 w-4" />
@@ -1154,7 +1154,7 @@ export function Auth({
                     <h2 className="text-xl font-bold mb-2">
                       {t("messages.loginSuccess")}
                     </h2>
-                    <p className="text-muted-foreground">
+                    <p className="text-[color:var(--color-pv-fg-muted)]">
                       {t("auth.redirectingToApp")}
                     </p>
                   </div>
@@ -1172,7 +1172,7 @@ export function Auth({
                   <h2 className="text-xl font-bold mb-1">
                     {t("auth.twoFactorAuth")}
                   </h2>
-                  <p className="text-muted-foreground">{t("auth.enterCode")}</p>
+                  <p className="text-[color:var(--color-pv-fg-muted)]">{t("auth.enterCode")}</p>
                 </div>
 
                 <div className="flex flex-col gap-2">
@@ -1194,7 +1194,7 @@ export function Auth({
                     className="text-center text-2xl tracking-widest font-mono"
                     autoComplete="one-time-code"
                   />
-                  <p className="text-xs text-muted-foreground text-center">
+                  <p className="text-xs text-[color:var(--color-pv-fg-muted)] text-center">
                     {t("auth.backupCode")}
                   </p>
                 </div>
@@ -1242,7 +1242,7 @@ export function Auth({
                           <h2 className="text-xl font-bold mb-1">
                             {t("auth.authenticationDisabled")}
                           </h2>
-                          <p className="text-muted-foreground">
+                          <p className="text-[color:var(--color-pv-fg-muted)]">
                             {t("auth.authenticationDisabledDesc")}
                           </p>
                         </div>
@@ -1318,14 +1318,14 @@ export function Auth({
                           <div className="flex flex-col gap-5">
                             {tab === "external" && (
                               <>
-                                <div className="text-center text-muted-foreground mb-4">
+                                <div className="text-center text-[color:var(--color-pv-fg-muted)] mb-4">
                                   <p>{t("auth.loginWithExternalDesc")}</p>
                                 </div>
                                 {(() => {
                                   if (isElectron()) {
                                     return (
-                                      <div className="text-center p-4 bg-muted/50 rounded-lg border">
-                                        <p className="text-muted-foreground text-sm">
+                                      <div className="text-center p-4 bg-[color:var(--color-pv-surface-quiet)]/50 rounded-lg border">
+                                        <p className="text-[color:var(--color-pv-fg-muted)] text-sm">
                                           {t(
                                             "auth.externalNotSupportedInElectron",
                                           )}
@@ -1378,7 +1378,7 @@ export function Auth({
                                         {t("auth.dataLossWarning")}
                                       </AlertDescription>
                                     </Alert>
-                                    <div className="text-center text-muted-foreground mb-4">
+                                    <div className="text-center text-[color:var(--color-pv-fg-muted)] mb-4">
                                       <p>{t("auth.resetCodeDesc")}</p>
                                     </div>
                                     <div className="flex flex-col gap-4">
@@ -1416,7 +1416,7 @@ export function Auth({
 
                                 {resetStep === "verify" && (
                                   <>
-                                    <div className="text-center text-muted-foreground mb-4">
+                                    <div className="text-center text-[color:var(--color-pv-fg-muted)] mb-4">
                                       <p>
                                         {t("auth.enterResetCode")}{" "}
                                         <strong>{localUsername}</strong>
@@ -1474,7 +1474,7 @@ export function Auth({
                                 {resetStep === "newPassword" &&
                                   !resetSuccess && (
                                     <>
-                                      <div className="text-center text-muted-foreground mb-4">
+                                      <div className="text-center text-[color:var(--color-pv-fg-muted)] mb-4">
                                         <p>
                                           {t("auth.enterNewPassword")}{" "}
                                           <strong>{localUsername}</strong>
@@ -1676,10 +1676,10 @@ export function Auth({
                           {isElectron() && currentServerUrl && (
                             <div className="flex items-center justify-between">
                               <div>
-                                <Label className="text-sm text-muted-foreground">
+                                <Label className="text-sm text-[color:var(--color-pv-fg-muted)]">
                                   {t("serverConfig.serverUrl")}
                                 </Label>
-                                <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                <div className="text-xs text-[color:var(--color-pv-fg-muted)] truncate max-w-[200px]">
                                   {currentServerUrl}
                                 </div>
                               </div>

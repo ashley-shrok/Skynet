@@ -168,14 +168,14 @@ export function ElectronServerConfig({
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-background p-6">
-      <div className="flex flex-col gap-5 p-6 border border-border bg-card max-w-md w-full">
+    <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6">
+      <div className="flex flex-col gap-5 p-6 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-surface-quiet)] max-w-md w-full">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2.5">
-            <Server className="size-4 text-accent-brand shrink-0" />
+            <Server className="size-4 text-[color:var(--color-pv-code-fg)] shrink-0" />
             <p className="font-bold">{t("serverConfig.title")}</p>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-[color:var(--color-pv-fg-muted)]">
             {t("serverConfig.description")}
           </p>
         </div>
@@ -204,15 +204,15 @@ export function ElectronServerConfig({
                 </span>
               )}
             </Button>
-            <p className="text-xs text-muted-foreground -mt-3">
+            <p className="text-xs text-[color:var(--color-pv-fg-muted)] -mt-3">
               {t("serverConfig.embeddedDesc")}
             </p>
             <div className="flex items-center gap-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-[color:var(--color-pv-border-quiet)]" />
+              <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
                 {t("common.or") || "OR"}
               </span>
-              <div className="h-px flex-1 bg-border" />
+              <div className="h-px flex-1 bg-[color:var(--color-pv-border-quiet)]" />
             </div>
           </>
         )}
@@ -231,12 +231,12 @@ export function ElectronServerConfig({
           </div>
 
           {serverUrl.trim().startsWith("https://") && (
-            <div className="flex items-start justify-between gap-3 border border-border bg-muted/20 p-3">
+            <div className="flex items-start justify-between gap-3 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-surface-quiet)]/20 p-3">
               <div className="flex flex-col gap-1">
                 <Label htmlFor="allow-invalid-certificate">
                   {t("serverConfig.allowInvalidCertificate")}
                 </Label>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-[color:var(--color-pv-fg-muted)]">
                   {t("serverConfig.allowInvalidCertificateDesc")}
                 </p>
               </div>
@@ -270,7 +270,7 @@ export function ElectronServerConfig({
             )}
             <Button
               type="button"
-              className={`bg-accent-brand hover:bg-accent-brand/90 text-background font-bold ${onCancel && !isFirstTime ? "flex-1" : "w-full"}`}
+              className={`font-bold ${onCancel && !isFirstTime ? "flex-1" : "w-full"}`}
               onClick={handleSaveConfig}
               disabled={loading || embeddedLoading || !serverUrl.trim()}
             >
@@ -285,7 +285,7 @@ export function ElectronServerConfig({
             </Button>
           </div>
 
-          <p className="text-xs text-muted-foreground text-center">
+          <p className="text-xs text-[color:var(--color-pv-fg-muted)] text-center">
             {t("serverConfig.helpText")}
           </p>
         </div>

@@ -125,18 +125,18 @@ export function ElectronLoginForm({
   const isEmbeddedServer = serverUrl.includes("localhost:30001");
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-background flex flex-col">
+    <div className="fixed inset-0 w-screen h-screen bg-[color:var(--color-pv-base)] flex flex-col">
       {isAuthenticating && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background z-50">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] z-50">
+          <Loader2 className="h-8 w-8 animate-spin text-[color:var(--color-pv-fg)]" />
         </div>
       )}
 
       {!isAuthenticating && (
-        <div className="flex items-center justify-between p-4 bg-background border-b border-border">
+        <div className="flex items-center justify-between p-4 bg-[color:var(--color-pv-base)] border-b border-[color:var(--color-pv-border-quiet)]">
           <button
             onClick={onChangeServer}
-            className="flex items-center gap-2 text-foreground hover:text-primary transition-colors"
+            className="flex items-center gap-2 text-[color:var(--color-pv-fg)] hover:text-[color:var(--color-pv-code-fg)] transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
             <span className="text-base font-medium">
@@ -144,13 +144,13 @@ export function ElectronLoginForm({
             </span>
           </button>
           <div className="flex-1 mx-4 text-center">
-            <span className="text-muted-foreground text-sm truncate block">
+            <span className="text-[color:var(--color-pv-fg-muted)] text-sm truncate block">
               {isEmbeddedServer ? t("serverConfig.localServer") : displayUrl}
             </span>
           </div>
           <button
             onClick={handleRefresh}
-            className="p-2 text-foreground hover:text-primary transition-colors"
+            className="p-2 text-[color:var(--color-pv-fg)] hover:text-[color:var(--color-pv-code-fg)] transition-colors"
             disabled={loading}
           >
             <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
@@ -170,12 +170,12 @@ export function ElectronLoginForm({
 
       {loading && !isAuthenticating && (
         <div
-          className="absolute inset-0 flex items-center justify-center bg-background z-40"
+          className="absolute inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] z-40"
           style={{ marginTop: "60px" }}
         >
           <div className="flex items-center">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <span className="ml-3 text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin text-[color:var(--color-pv-fg)]" />
+            <span className="ml-3 text-[color:var(--color-pv-fg-muted)]">
               {t("auth.loadingServer")}
             </span>
           </div>

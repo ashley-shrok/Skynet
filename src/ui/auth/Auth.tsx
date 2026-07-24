@@ -163,7 +163,7 @@ function PasswordInput({
         type="button"
         tabIndex={-1}
         onClick={() => setShow((o) => !o)}
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors"
       >
         {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
       </button>
@@ -181,7 +181,7 @@ function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground"
+      className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
     >
       {children}
     </label>
@@ -788,13 +788,13 @@ export function Auth({ onLogin }: AuthProps) {
   if (isElectron() && !isInElectronWebView()) {
     if (showServerConfig === null)
       return (
-        <div className="fixed inset-0 flex items-center justify-center bg-background">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)]">
+          <div className="w-5 h-5 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.7)] border-t-transparent rounded-full animate-spin" />
         </div>
       );
     if (showServerConfig)
       return (
-        <div className="fixed inset-0 flex items-center justify-center bg-background p-6">
+        <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6">
           <div className="w-full max-w-md">
             <ServerConfigComponent
               onServerConfigured={() => window.location.reload()}
@@ -814,7 +814,7 @@ export function Auth({ onLogin }: AuthProps) {
       );
     if (!webviewAuthSuccess && showServerConfig === false && currentServerUrl)
       return (
-        <div className="w-full h-screen flex items-center justify-center p-4 bg-background">
+        <div className="w-full h-screen flex items-center justify-center p-4 bg-[color:var(--color-pv-base)]">
           <div className="w-full max-w-4xl h-[90vh]">
             <ElectronLoginForm
               serverUrl={currentServerUrl}
@@ -828,37 +828,37 @@ export function Auth({ onLogin }: AuthProps) {
 
   if (webviewAuthSuccess || (isInElectronWebView() && webviewAuthSuccess))
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
+      <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)]">
         <div className="text-center">
-          <CheckCircle2 className="size-12 text-accent-brand mx-auto mb-4" />
-          <p className="text-muted-foreground">{t("auth.redirectingToApp")}</p>
+          <CheckCircle2 className="size-12 text-[color:var(--color-pv-code-fg)] mx-auto mb-4" />
+          <p className="text-[color:var(--color-pv-fg-muted)]">{t("auth.redirectingToApp")}</p>
         </div>
       </div>
     );
 
   if (dbConnectionFailed)
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background p-6">
-        <div className="flex flex-col gap-5 p-6 border border-border bg-card max-w-sm w-full">
+      <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6">
+        <div className="flex flex-col gap-5 p-6 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-surface-quiet)] max-w-sm w-full">
           <div className="flex flex-col gap-1">
-            <p className="font-bold text-destructive">
+            <p className="font-bold text-[color:var(--color-pv-code-fg)]">
               {t("errors.databaseConnection")}
             </p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-[color:var(--color-pv-fg-muted)]">
               {t("messages.databaseConnectionFailed")}
             </p>
           </div>
           <Button onClick={() => window.location.reload()}>
             {t("common.refresh")}
           </Button>
-          <div className="flex items-center justify-between pt-2 border-t border-border">
-            <span className="text-xs text-muted-foreground">
+          <div className="flex items-center justify-between pt-2 border-t border-[color:var(--color-pv-border-quiet)]">
+            <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
               {t("common.language")}
             </span>
             <select
               value={language}
               onChange={(e) => handleLanguageChange(e.target.value)}
-              className="px-2.5 py-1.5 text-xs bg-background border border-border text-foreground outline-none focus:ring-1 focus:ring-ring"
+              className="px-2.5 py-1.5 text-xs bg-[color:var(--color-pv-base)] border border-[color:var(--color-pv-border-quiet-strong)] text-[color:var(--color-pv-fg)] outline-none focus:ring-1 focus:ring-[hsla(var(--pv-hue,35),70%,55%,0.35)]"
             >
               {LANGUAGES.map((lang) => (
                 <option key={lang.code} value={lang.code}>
@@ -870,10 +870,10 @@ export function Auth({ onLogin }: AuthProps) {
           {isElectron() && currentServerUrl && (
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
                   {t("serverConfig.serverUrl")}
                 </span>
-                <span className="text-xs text-muted-foreground font-mono truncate max-w-[180px]">
+                <span className="text-xs text-[color:var(--color-pv-fg-muted)] font-mono truncate max-w-[180px]">
                   {currentServerUrl}
                 </span>
               </div>
@@ -892,8 +892,8 @@ export function Auth({ onLogin }: AuthProps) {
 
   if (dbHealthChecking && showServerConfig === false)
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
-        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)]">
+        <div className="w-5 h-5 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.7)] border-t-transparent rounded-full animate-spin" />
       </div>
     );
 
@@ -912,17 +912,17 @@ export function Auth({ onLogin }: AuthProps) {
   ];
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-background overflow-hidden">
+    <div className="fixed inset-0 flex flex-col bg-[color:var(--color-pv-base)] overflow-hidden">
       {isElectron() && !isInElectronWebView() && showServerConfig === false && (
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--color-pv-border-quiet)] shrink-0">
           <button
             onClick={() => setShowServerConfig(true)}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-2 text-sm text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors"
           >
             <ArrowLeft className="size-4" />
             {t("serverConfig.changeServer")}
           </button>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
             {t("serverConfig.localServer")}
           </span>
           <div className="w-20" />
@@ -930,7 +930,7 @@ export function Auth({ onLogin }: AuthProps) {
       )}
       <div className="flex flex-1 overflow-hidden">
         {/* Left decorative panel */}
-        <div className="hidden lg:flex flex-col w-[420px] shrink-0 bg-sidebar border-r border-border relative overflow-hidden select-none">
+        <div className="hidden lg:flex flex-col w-[420px] shrink-0 bg-[color:var(--color-pv-surface-quiet)] border-r border-[color:var(--color-pv-border-quiet)] relative overflow-hidden select-none">
           <div
             className="absolute inset-0"
             style={{
@@ -943,8 +943,8 @@ export function Auth({ onLogin }: AuthProps) {
             <span className="text-4xl font-bold tracking-[0.3em] font-mono">
               SKYNET
             </span>
-            <div className="w-8 h-px bg-accent-brand" />
-            <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-[0.25em]">
+            <div className="w-8 h-px bg-[hsla(var(--pv-hue,35),55%,45%,0.9)]" />
+            <span className="text-[11px] font-mono text-[color:var(--color-pv-fg-muted)] uppercase tracking-[0.25em]">
               {t("auth.tagline")}
             </span>
           </div>
@@ -960,7 +960,7 @@ export function Auth({ onLogin }: AuthProps) {
                   <h1 className="text-xl font-bold">
                     {t("auth.twoFactorAuth")}
                   </h1>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-[color:var(--color-pv-fg-muted)]">
                     {t("auth.enterCode")}
                   </p>
                 </div>
@@ -983,7 +983,7 @@ export function Auth({ onLogin }: AuthProps) {
                   </Field>
                   <Button
                     type="submit"
-                    className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold"
+                    className="w-full font-bold"
                     disabled={loading || totpCode.length !== 6}
                   >
                     {loading ? t("common.loading") : t("auth.verifyCode")}
@@ -1006,7 +1006,7 @@ export function Auth({ onLogin }: AuthProps) {
               <div className="flex flex-col gap-5">
                 <button
                   onClick={() => switchView("login")}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
+                  className="flex items-center gap-1.5 text-xs text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors w-fit"
                 >
                   <ArrowLeft className="size-3.5" />
                   {t("common.back")}
@@ -1015,7 +1015,7 @@ export function Auth({ onLogin }: AuthProps) {
                   <h1 className="text-xl font-bold">
                     {t("auth.forgotPassword")}
                   </h1>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-[color:var(--color-pv-fg-muted)]">
                     {t("auth.resetCodeDesc")}
                   </p>
                 </div>
@@ -1033,13 +1033,13 @@ export function Auth({ onLogin }: AuthProps) {
                           className="flex items-center gap-2 flex-1"
                         >
                           <div
-                            className={`size-5 flex items-center justify-center text-[10px] font-bold border transition-colors ${done ? "bg-accent-brand border-accent-brand text-background" : active ? "border-accent-brand text-accent-brand" : "border-border text-muted-foreground"}`}
+                            className={`size-5 flex items-center justify-center text-[10px] font-bold border transition-colors ${done ? "bg-[hsla(var(--pv-hue,35),55%,45%,0.9)] border-[hsla(var(--pv-hue,35),65%,55%,0.55)] text-[#fbf5e8]" : active ? "border-[hsla(var(--pv-hue,35),55%,50%,0.4)] text-[color:var(--color-pv-code-fg)]" : "border-[color:var(--color-pv-border-quiet)] text-[color:var(--color-pv-fg-muted)]"}`}
                           >
                             {done ? <CheckCircle2 className="size-3" /> : i + 1}
                           </div>
                           {i < 2 && (
                             <div
-                              className={`h-px flex-1 transition-colors ${done ? "bg-accent-brand" : "bg-border"}`}
+                              className={`h-px flex-1 transition-colors ${done ? "bg-[hsla(var(--pv-hue,35),55%,45%,0.9)]" : "bg-[color:var(--color-pv-border-quiet)]"}`}
                             />
                           )}
                         </div>
@@ -1063,7 +1063,7 @@ export function Auth({ onLogin }: AuthProps) {
                     </Field>
                     <Button
                       type="submit"
-                      className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold"
+                      className="w-full font-bold"
                       disabled={loading}
                     >
                       {loading ? t("common.loading") : t("auth.sendResetCode")}
@@ -1090,7 +1090,7 @@ export function Auth({ onLogin }: AuthProps) {
                     </Field>
                     <Button
                       type="submit"
-                      className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold"
+                      className="w-full font-bold"
                       disabled={loading || resetCode.length !== 6}
                     >
                       {loading
@@ -1134,7 +1134,7 @@ export function Auth({ onLogin }: AuthProps) {
                     </Field>
                     <Button
                       type="submit"
-                      className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold"
+                      className="w-full font-bold"
                       disabled={loading}
                     >
                       {loading
@@ -1151,12 +1151,12 @@ export function Auth({ onLogin }: AuthProps) {
               view === "register" ||
               view === "external") && (
               <div className="flex flex-col gap-5">
-                <div className="flex border border-border overflow-hidden">
+                <div className="flex border border-[color:var(--color-pv-border-quiet-strong)] overflow-hidden">
                   {TAB_ITEMS.filter((item) => item.show).map((item) => (
                     <button
                       key={item.id}
                       onClick={() => switchView(item.id)}
-                      className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-widest transition-colors ${view === item.id ? "bg-accent-brand text-background" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+                      className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-widest transition-colors ${view === item.id ? "bg-[hsla(var(--pv-hue,35),55%,45%,0.9)] text-background" : "text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] hover:bg-[rgba(220,225,245,0.06)]"}`}
                     >
                       {item.label}
                     </button>
@@ -1171,7 +1171,7 @@ export function Auth({ onLogin }: AuthProps) {
                         ? t("auth.registerTitle")
                         : t("auth.loginWithExternal")}
                   </h1>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-[color:var(--color-pv-fg-muted)]">
                     {view === "login"
                       ? t("auth.loginSubtitle", "")
                       : view === "register"
@@ -1183,7 +1183,7 @@ export function Auth({ onLogin }: AuthProps) {
                 {view === "external" && (
                   <div className="flex flex-col gap-4">
                     {isElectron() ? (
-                      <p className="text-xs text-muted-foreground text-center">
+                      <p className="text-xs text-[color:var(--color-pv-fg-muted)] text-center">
                         {t("auth.externalNotSupportedInElectron")}
                       </p>
                     ) : (
@@ -1196,7 +1196,7 @@ export function Auth({ onLogin }: AuthProps) {
                           />
                           <label
                             htmlFor="rememberOIDC"
-                            className="text-xs text-muted-foreground cursor-pointer"
+                            className="text-xs text-[color:var(--color-pv-fg-muted)] cursor-pointer"
                           >
                             {t("auth.rememberMe")}
                           </label>
@@ -1204,7 +1204,7 @@ export function Auth({ onLogin }: AuthProps) {
                         <Button
                           onClick={handleOIDCLogin}
                           disabled={oidcLoading}
-                          className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold"
+                          className="w-full font-bold"
                         >
                           {oidcLoading
                             ? t("common.loading")
@@ -1219,7 +1219,7 @@ export function Auth({ onLogin }: AuthProps) {
                   <form onSubmit={handleLogin} className="flex flex-col gap-4">
                     <Field label={t("common.username")} htmlFor="login-user">
                       <div className="relative">
-                        <User className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                        <User className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-[color:var(--color-pv-fg-muted)] pointer-events-none" />
                         <Input
                           id="login-user"
                           value={username}
@@ -1249,7 +1249,7 @@ export function Auth({ onLogin }: AuthProps) {
                         />
                         <label
                           htmlFor="rememberMe"
-                          className="text-xs text-muted-foreground cursor-pointer"
+                          className="text-xs text-[color:var(--color-pv-fg-muted)] cursor-pointer"
                         >
                           {t("auth.rememberMe")}
                         </label>
@@ -1258,7 +1258,7 @@ export function Auth({ onLogin }: AuthProps) {
                         <button
                           type="button"
                           onClick={() => switchView("reset")}
-                          className="text-xs text-muted-foreground hover:text-accent-brand transition-colors"
+                          className="text-xs text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-code-fg)] transition-colors"
                         >
                           {t("auth.forgotPassword")}
                         </button>
@@ -1266,7 +1266,7 @@ export function Auth({ onLogin }: AuthProps) {
                     </div>
                     <Button
                       type="submit"
-                      className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold h-10"
+                      className="w-full font-bold h-10"
                       disabled={loading}
                     >
                       {loading ? (
@@ -1288,7 +1288,7 @@ export function Auth({ onLogin }: AuthProps) {
                   >
                     <Field label={t("common.username")} htmlFor="reg-user">
                       <div className="relative">
-                        <User className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                        <User className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-[color:var(--color-pv-fg-muted)] pointer-events-none" />
                         <Input
                           id="reg-user"
                           value={username}
@@ -1325,7 +1325,7 @@ export function Auth({ onLogin }: AuthProps) {
                     </Field>
                     <Button
                       type="submit"
-                      className="w-full bg-accent-brand hover:bg-accent-brand/90 text-background font-bold h-10"
+                      className="w-full font-bold h-10"
                       disabled={loading}
                     >
                       {loading ? (
@@ -1341,13 +1341,13 @@ export function Auth({ onLogin }: AuthProps) {
                 )}
 
                 <Separator />
-                <p className="text-center text-xs text-muted-foreground">
+                <p className="text-center text-xs text-[color:var(--color-pv-fg-muted)]">
                   {view === "login" && registrationAllowed ? (
                     <>
                       {t("auth.noAccount", "Don't have an account?")}{" "}
                       <button
                         onClick={() => switchView("register")}
-                        className="text-accent-brand hover:text-accent-brand/70 font-bold transition-colors"
+                        className="text-[color:var(--color-pv-code-fg)] hover:opacity-80 font-bold transition-colors"
                       >
                         {t("common.register")}
                       </button>
@@ -1359,7 +1359,7 @@ export function Auth({ onLogin }: AuthProps) {
                       {t("auth.hasAccount", "Already have an account?")}{" "}
                       <button
                         onClick={() => switchView("login")}
-                        className="text-accent-brand hover:text-accent-brand/70 font-bold transition-colors"
+                        className="text-[color:var(--color-pv-code-fg)] hover:opacity-80 font-bold transition-colors"
                       >
                         {t("common.login")}
                       </button>
@@ -1367,13 +1367,13 @@ export function Auth({ onLogin }: AuthProps) {
                   ) : null}
                 </p>
                 <div className="flex items-center justify-between pt-1">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
                     {t("common.language")}
                   </span>
                   <select
                     value={language}
                     onChange={(e) => handleLanguageChange(e.target.value)}
-                    className="px-2.5 py-1.5 text-xs bg-background border border-border text-foreground outline-none focus:ring-1 focus:ring-ring"
+                    className="px-2.5 py-1.5 text-xs bg-[color:var(--color-pv-base)] border border-[color:var(--color-pv-border-quiet-strong)] text-[color:var(--color-pv-fg)] outline-none focus:ring-1 focus:ring-[hsla(var(--pv-hue,35),70%,55%,0.35)]"
                   >
                     {LANGUAGES.map((lang) => (
                       <option key={lang.code} value={lang.code}>
