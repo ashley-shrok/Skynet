@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Separator } from "@/components/separator";
 import { Button } from "@/components/button";
 import { Sheet, SheetContent } from "@/components/sheet";
-import { ChevronLeft, Maximize2 } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { useState, useRef, useCallback, useEffect, useMemo, createRef } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -1321,42 +1321,15 @@ export function AppShell({
     </div>
   );
 
-  // Sidebar header — shared
-  const sidebarHeader = (
-    <div className="flex flex-row items-center border-b border-border h-12.5 shrink-0">
-      {/* Phase 10 Wave 3: `pl-12` reserves 48px on the left of the title span
-          so the persistent top-left sidebar-toggle chevron (fixed at
-          top:8px, left:8px, 32x32) can sit over this header when the sidebar
-          is open without covering the title text. Mirrors desktop.html
-          .sidebar-header `padding-left: 52px` treatment. */}
-      <span className="flex-1 text-base font-bold tracking-tight text-foreground px-3 pl-12">
-        {t("nav.conversations.title", { defaultValue: "Conversations" })}
-      </span>
-      {!isMobile && (
-        <>
-          <Separator orientation="vertical" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-full w-12.5 border-y-0 border-border rounded-none text-muted-foreground hover:text-foreground"
-            title="Reset width"
-            onClick={() => setSidebarWidth(266)}
-          >
-            <Maximize2 className="size-3.5" />
-          </Button>
-        </>
-      )}
-      <Separator orientation="vertical" />
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-full w-12.5 rounded-none text-muted-foreground hover:text-foreground"
-        onClick={() => setSidebarOpen(false)}
-      >
-        <ChevronLeft className="size-4" />
-      </Button>
-    </div>
-  );
+  // Phase 14B Slice 1 (Bug A): outer `sidebarHeader` retired. The Termix-flavored
+  // bar with mixed-case "Conversations" title + reset-width Maximize2 button +
+  // ChevronLeft close-sidebar button lived above the pretty-conversations panel
+  // and jarred against the pv aesthetic Ashley signed off on. The sidebar-toggle
+  // chevron (the persistent fixed top-left button at ~L1424) already handles
+  // open/close so ChevronLeft was redundant; PrettyConversationsPanel's
+  // `.pv-panel-header` provides the UPPERCASE title + pv-pencil affordance. The
+  // reset-width button (Maximize2) died with the header — Ashley didn't call it
+  // out as essential; can be re-added with pv styling if needed.
 
   // Plan 06-03: touchscreen viewports render the Telegram-style two-screen
   // flow — "list" (full-screen ConversationsPanel) and "view" (full-screen
@@ -1486,7 +1459,6 @@ export function AppShell({
               transition: sidebarDragging ? "none" : "width 0.2s",
             }}
           >
-            {sidebarHeader}
             {sidebarPanelContent}
 
             {sidebarOpen && !sidebarEditing && (
@@ -1510,7 +1482,6 @@ export function AppShell({
               className="p-0 flex flex-col w-[min(85vw,360px)] max-w-full bg-sidebar border-r border-border gap-0"
               style={{ height: "100dvh" }}
             >
-              {sidebarHeader}
               {sidebarPanelContent}
             </SheetContent>
           </Sheet>
@@ -1519,20 +1490,20 @@ export function AppShell({
         {/* Touchscreen list screen: full-viewport sidebar column, no
             main-content column visible. Uses a plain `<div>` (NOT the Sheet
             component) per plan Step D — the mobile flow's two screens
-            REPLACE each other, they don't peek/panel/overlay. `sidebarHeader`
-            + `sidebarPanelContent` are reused verbatim so the ConversationsPanel
+            REPLACE each other, they don't peek/panel/overlay.
+            `sidebarPanelContent` is reused verbatim so the ConversationsPanel
             renders the same content (with the mobile SettingsRow slot filled
             in above). The main-content region below is CSS-hidden (not
             conditionally unmounted) so the createPortal loop's tab nodes
             and normalViewRef stay mounted — the T-06-02-01 mount-lifecycle-
             regression mitigation depends on that identity being preserved
-            across list-vs-view switches too. */}
+            across list-vs-view switches too. Phase 14B Slice 1 retired the
+            outer sidebarHeader that used to sit above the panel (Bug A). */}
         {isMobileListScreen && (
           <div
-            className="flex flex-col flex-1 min-w-0 bg-sidebar"
+            className="flex flex-col flex-1 min-w-0 bg-[color:var(--color-pv-base)]"
             style={{ height: "100dvh" }}
           >
-            {sidebarHeader}
             {sidebarPanelContent}
           </div>
         )}
