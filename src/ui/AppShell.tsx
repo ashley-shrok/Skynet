@@ -734,7 +734,6 @@ export function AppShell({
     "vnc",
     "telnet",
     "stats",
-    "tunnel",
   ];
 
   // On load: always read saved tabs from DB so background sessions are preserved across refreshes.
@@ -789,7 +788,7 @@ export function AppShell({
                 const host = saved.hostId
                   ? allHosts.find((h) => h.id === String(saved.hostId))
                   : undefined;
-                const hostlessTypes: TabType[] = ["dashboard", "tunnel"];
+                const hostlessTypes: TabType[] = ["dashboard"];
                 if (!host && !hostlessTypes.includes(saved.tabType as TabType))
                   continue;
 

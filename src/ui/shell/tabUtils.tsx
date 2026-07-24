@@ -20,7 +20,6 @@ import type {
 import { ServerStats } from "@/features/server-stats/ServerStats";
 import GuacamoleApp from "@/features/guacamole/GuacamoleApp";
 import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
-import { TunnelTab } from "@/features/tunnel/TunnelTab";
 import type { Tab, TabType, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 import { useTabsSafe } from "@/shell/TabContext";
@@ -99,8 +98,6 @@ export function tabIcon(type: TabType) {
       return <User className="size-3.5" />;
     case "admin-settings":
       return <Settings className="size-3.5" />;
-    case "tunnel":
-      return <Network className="size-3.5" />;
     case "network_graph":
       return <Network className="size-3.5" />;
   }
@@ -222,9 +219,6 @@ export function renderTabContent(
           embedded={true}
         />
       );
-
-    case "tunnel":
-      return <TunnelTab label={label} host={host} />;
 
     case "rdp":
     case "vnc":
