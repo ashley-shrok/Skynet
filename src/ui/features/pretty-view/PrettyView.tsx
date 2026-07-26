@@ -16,6 +16,7 @@ import { ChatMessage } from "./ChatMessage";
 import { ImageBubble } from "./ImageBubble";
 import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
+import { AsideBubble } from "./AsideBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
 import { IdentityModal } from "./IdentityModal";
 import { useAutoScroll } from "./use-auto-scroll";
@@ -181,6 +182,24 @@ export function PrettyView({
   const [planPending, setPlanPending] = useState<
     { planFilePath: string } | null
   >(null);
+  // Phase 14 (plain-language-translation-asides) Wave 3: currently-
+  // displayed plain-language aside for this session. `null` = no aside;
+  // `string` = aside text extracted by the backend from the tmux BTW
+  // overlay (delivered via `{type:'aside_ready', text}` WS frame) and
+  // ready to render inside <AsideBubble />. Backend is the sole source
+  // of truth (per CONTEXT.md § State model — the tmux overlay itself is
+  // the sole source of truth; backend is a pure translator). This state
+  // flips off via:
+  //   1. `{type:'aside_dismissed'}` WS frame — server-authoritative
+  //      cross-tab-coherent broadcast on marker-disappearance OR any
+  //      client's dismiss.
+  //   2. Optimistic clear in handleAsideDismiss (X-click) BEFORE the
+  //      round-trip completes.
+  //   3. Fresh-pane reset (paneKey change) so a new pane starts clean.
+  // Refs: ASIDE-01 (arm→display), ASIDE-05 (in-flow at bottom of
+  // message stream), ASIDE-09 (re-attach probe delivers aside_ready to
+  // a late-mounting client).
+  const [asideText, setAsideText] = useState<string | null>(null);
   // Phase 3: session-changeover holding state. True during the ~5s gap
   // between the old Claude session's death and the new one's launch (per
   // Plan 03-01 backend's Layer 1 raw-line /exit scan OR Layer 2 discovery-
@@ -221,6 +240,42 @@ export function PrettyView({
     setIsHolding(true);
     setHoldingTimeoutError(false);
   }, []);
+  // Phase 14 Wave 3: dismiss callback for the aside (X/Resume click in
+  // ComposeBox — Wave 4 wires the button). Two steps per CONTEXT.md
+  // § Dismiss:
+  //   1. Optimistic clear of asideText so the AsideBubble unmounts
+  //      immediately (no visible latency waiting for the WS round-trip).
+  //   2. WS-send {type:'aside_dismissed', hostId, tmuxSession} — Wave 2
+  //      backend receives this, sendEscapeToBtw's into tmux, then
+  //      broadcastAsideDismissed fans out to peer tabs on the same
+  //      sessionKey (cross-tab dismiss coherence per ASIDE-11).
+  // Idempotent: if the WS is closed or the send throws, the optimistic
+  // clear still happened. The backend's next poller cycle will detect
+  // marker-disappearance (Ashley may still have to Escape manually via
+  // SSH in that failure mode) and broadcast dismissed; the WS
+  // aside_dismissed handler above is idempotent so no double-render.
+  // Per T-14-02-01 mitigation: the backend IGNORES msg.hostId +
+  // msg.tmuxSession for send-keys routing (uses connection-scoped
+  // currentHostId + currentTmuxSession only), so these fields are
+  // informational-only from the backend's perspective. Included here
+  // matching AsideDismissedPayload's exported type shape.
+  const handleAsideDismiss = useCallback(() => {
+    setAsideText(null);
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "aside_dismissed",
+            hostId,
+            tmuxSession,
+          }),
+        );
+      } catch {
+        /* swallow — best-effort; backend detects marker disappearance on its own cycle */
+      }
+    }
+  }, [hostId, tmuxSession]);
   // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
   // (patch #51 rework — was previously state fed by a JSONL classifier
   // over the claude-session WS, which turned out to be unreliable
@@ -244,6 +299,15 @@ export function PrettyView({
   const paneKeyRef = useRef<string>('');
   const [retryKey, setRetryKey] = useState<number>(0);
   const statusRef = useRef<Status>('connecting');
+  // Phase 14 Wave 3: previous-value ref for the isIdle-transition
+  // arm-emitter useEffect below. Holds the isIdle value from the
+  // previous render so we can detect a real false→true transition
+  // (agent settled after a completed turn — the WIP-indicator idle
+  // window). Initialized to the current isIdle prop so a mount with
+  // isIdle already true does NOT fire arm on first paint (per
+  // CONTEXT.md § Trigger — only real transitions arm, not the initial
+  // steady-state observation).
+  const prevIsIdleRef = useRef<boolean | null | undefined>(isIdle);
 
   // Phase 05: touch-device gate for the mobile paperclip (UPLOAD-03).
   // The paperclip appears on touch devices only — desktop NEVER sees it
@@ -324,6 +388,11 @@ export function PrettyView({
       setPlanPending(null);
       setIsHolding(false);
       setShowOverlay(false);
+      // Phase 14 Wave 3: fresh-pane mount must clear any aside carried
+      // over from the prior pane. The backend's connect-time re-attach
+      // probe (ASIDE-09) will re-emit `aside_ready` if the NEW pane's
+      // tmux still has an open BTW overlay — so this reset is safe.
+      setAsideText(null);
       reconnectAttemptsRef.current = 0;
       paneKeyRef.current = paneKey;
     }
@@ -421,6 +490,31 @@ export function PrettyView({
         }
         case "plan_pending": {
           setPlanPending(parsed.pending);
+          break;
+        }
+        case "aside_ready": {
+          // Phase 14 Wave 3: backend extracted a /btw answer from the
+          // tmux BTW overlay (Wave 2's server-authoritative extraction
+          // poller OR Wave 2's connect-time re-attach probe for a
+          // late-mounting tab per ASIDE-09). Flip asideText to the
+          // extracted text — AsideBubble mounts as the last child of
+          // the message-stream flex column and useAutoScroll pins the
+          // viewport to it. Cross-tab dismiss coherence (ASIDE-11) is
+          // handled by the aside_dismissed case below fanned out from
+          // the backend broadcast primitive.
+          setAsideText(parsed.text);
+          break;
+        }
+        case "aside_dismissed": {
+          // Phase 14 Wave 3: backend observed the BTW overlay
+          // disappearing — either from THIS client's earlier X-click
+          // (handleAsideDismiss sent aside_dismissed, backend
+          // sendEscapeToBtw'd, poller saw marker vanish and broadcast
+          // dismissed) OR from any other cause (Ashley SSH-attached
+          // and pressed Escape herself, tmux died, peer tab dismissed).
+          // Idempotent: if THIS client already optimistically cleared
+          // asideText in handleAsideDismiss, this setState is a no-op.
+          setAsideText(null);
           break;
         }
         case "session_holding": {
@@ -639,6 +733,52 @@ export function PrettyView({
     if (!isHolding) setHoldingTimeoutError(false);
   }, [isHolding]);
 
+  // Phase 14 (plain-language-translation-asides) Wave 3 — isIdle-transition
+  // arm emitter. This is THE SOLE trigger source for the aside subsystem
+  // per CONTEXT.md § Trigger LOCK 2026-07-26 (frontend-arm architecture,
+  // decided post plan-checker B1/B2/B4): backend does NOT observe the
+  // terminal WSS's idle-signal frame (the two WSSes live on separate
+  // ports with no shared state). The frontend, which already receives
+  // `isIdle` as a prop from Terminal.tsx (the WIP-indicator's idle-window
+  // signal, established in Phase 9), emits `{type:"aside_arm"}` on the
+  // pretty-view WS at the false→true transition — that IS the aside
+  // trigger. Backend Wave 2's aside_arm handler receives it, guards
+  // against overlap-in-flight via the module-scope asideState Map, and
+  // if clear injects the fixed /btw prompt into tmux + arms the
+  // extraction poller.
+  //
+  // Three guards on the fire:
+  //   1. `prev === false && isIdle === true` — a REAL false→true
+  //      transition. `prev === undefined` (initial mount) does NOT fire.
+  //      `prev === null` (backend hasn't spoken yet) does NOT fire.
+  //      Only a real transition where the previous frame was actively
+  //      working AND the current frame is now settled qualifies.
+  //   2. `pvIdentity != null` — identity gating happens FRONTEND-SIDE
+  //      per CONTEXT.md § Trigger. Anonymous sessions never emit arm,
+  //      so the backend never needs to know identity vs anonymous
+  //      (aligned with ASIDE-02).
+  //   3. `wsRef.current` is OPEN — otherwise the send throws / no-ops
+  //      and is meaningless. Wrapped in try/catch anyway since the
+  //      backend re-arms on the next transition (best-effort emit).
+  //
+  // Deps: [isIdle, pvIdentity] — re-run only when either flips. The
+  // prevIsIdleRef.current update happens BEFORE the guard so consecutive
+  // renders with the same value are correctly detected as "no transition."
+  useEffect(() => {
+    const prev = prevIsIdleRef.current;
+    prevIsIdleRef.current = isIdle;
+    if (prev === false && isIdle === true && pvIdentity != null) {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: "aside_arm" }));
+        } catch {
+          /* swallow — best-effort; backend re-arms on next transition */
+        }
+      }
+    }
+  }, [isIdle, pvIdentity]);
+
   return (
     <div
       data-pv-root
@@ -851,6 +991,11 @@ export function PrettyView({
             })()}
             {(wipActive || backgroundedAgents.length > 0 || backgroundedShells.length > 0) && <WipBubble />}
             {planPending && <PlanPendingBubble />}
+            {/* Phase 14 Wave 3: aside bubble mounts as the last child of
+                the contentRef flex column so useAutoScroll's ResizeObserver
+                pins the viewport to it on mount (in-flow, per ASIDE-05 —
+                NOT an overlay, popup, or fixed-position element). */}
+            {asideText !== null && <AsideBubble text={asideText} />}
           </div>
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
@@ -961,6 +1106,13 @@ export function PrettyView({
           showPaperclip={true}
           isTouchDevice={isTouchDevice}
           onAttachFiles={uploads.stageAttachments}
+          // Phase 14 Wave 3: aside props. Wave 3 owns the interface
+          // (Task 2 above added asideActive + onAsideDismiss to
+          // ComposeBoxProps). Wave 4 will consume them in the
+          // ComposeBox body — until then, passing them is a no-op
+          // rendering-wise but the wire is in place.
+          asideActive={asideText !== null}
+          onAsideDismiss={handleAsideDismiss}
           onSendWithAttachments={(caption) => {
             // Fire-and-forget: the promise resolves when upload_start has
             // been issued, not when uploads complete. The batch's
