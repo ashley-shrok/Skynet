@@ -207,6 +207,27 @@ export function PrettyView({
   // message stream), ASIDE-09 (re-attach probe delivers aside_ready to
   // a late-mounting client).
   const [asideText, setAsideText] = useState<string | null>(null);
+  // Phase 14 quick-task 260726-vbd — generation-window blocking parity.
+  //
+  // WHY: The aside-active blocking (ComposeBox aux buttons disabled +
+  // send button morphs to X/Resume) currently only covers the DISPLAY
+  // phase (post-aside_ready, pre-dismiss). This leaves the GENERATION
+  // phase (from /btw submit through aside_ready arrival, typically a
+  // few seconds to ~1 min) unblocked — Ashley can accidentally send
+  // unrelated input that collides with Claude Code's in-flight /btw
+  // handling. The same single-Escape-primitive (sendEscapeToBtw) works
+  // to cancel an in-flight /btw OR clear a displayed aside, so a single
+  // button + handler suffices. Only the "when is aside active?" predicate
+  // needs to widen.
+  //
+  // asidePending: true from /btw submit until aside_ready arrives (or
+  // handleAsideDismiss runs, or the 60s safety timeout fires).
+  //
+  // 60s safety timeout: belt-and-suspenders for "aside_ready never
+  // arrives" (e.g. Claude Code died mid-answer). When it fires it just
+  // calls clearAsidePending() — no backend broadcast, no retry.
+  const [asidePending, setAsidePending] = useState(false);
+  const asidePendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Phase 3: session-changeover holding state. True during the ~5s gap
   // between the old Claude session's death and the new one's launch (per
   // Plan 03-01 backend's Layer 1 raw-line /exit scan OR Layer 2 discovery-
@@ -247,6 +268,21 @@ export function PrettyView({
     setIsHolding(true);
     setHoldingTimeoutError(false);
   }, []);
+  // Phase 14 quick-task 260726-vbd: single clear-primitive for asidePending.
+  // Clears both the boolean flag and the 60s safety timer. Used by:
+  //   (a) aside_ready case — display state takes over, pending flag clears.
+  //   (b) aside_dismissed case — backend observed marker disappear.
+  //   (c) handleAsideDismiss — X/Resume click during pending or displayed phase.
+  //   (d) session_changed — fresh pane starts with no in-flight aside.
+  //   (e) the 60s timeout callback itself — self-fires and nulls the ref.
+  const clearAsidePending = useCallback(() => {
+    setAsidePending(false);
+    if (asidePendingTimerRef.current !== null) {
+      clearTimeout(asidePendingTimerRef.current);
+      asidePendingTimerRef.current = null;
+    }
+  }, []);
+
   // Phase 14 Wave 3: dismiss callback for the aside (X/Resume click in
   // ComposeBox — Wave 4 wires the button). Two steps per CONTEXT.md
   // § Dismiss:
@@ -276,6 +312,10 @@ export function PrettyView({
   const dismissCooldownUntilRef = useRef<number>(0);
   const handleAsideDismiss = useCallback(() => {
     setAsideText(null);
+    // Phase 14 quick-task 260726-vbd: clear the pending flag and 60s timer
+    // regardless of whether the aside was still pending or already displayed.
+    // Same Escape-into-tmux payload closes an in-flight /btw OR a displayed one.
+    clearAsidePending();
     dismissCooldownUntilRef.current = Date.now() + 8000;
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -292,6 +332,37 @@ export function PrettyView({
       }
     }
   }, [hostId, tmuxSession]);
+  // Phase 14 quick-task 260726-vbd: onSend wrapper that detects /btw
+  // submissions and arms the asidePending flag + 60s safety timer.
+  //
+  // Detection: `text.trim().startsWith('/btw ')` OR `text.trim() === '/btw'`
+  // — `/btwXYZ` is NOT the aside slash-command; `/btw` alone or `/btw foo` are.
+  //
+  // Intentionally arms asidePending EVEN IF onSend returns false (WS not open).
+  // Rationale: ComposeBox shows an inline error; the 60s timeout clears the
+  // false alarm; X/Resume also clears immediately (sends Escape to a pane that
+  // received no /btw — a no-op in tmux). Simpler than conditionally arming
+  // based on the boolean return value.
+  //
+  // Always delegates to onSend(text) and returns its boolean result unchanged —
+  // the send itself still needs to fire (that IS what triggers the aside).
+  const handleComposeSend = useCallback((text: string): boolean => {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('/btw ') || trimmed === '/btw') {
+      // Clear any existing timer before arming a fresh one (in case the user
+      // sends /btw twice before the first aside_ready arrives).
+      if (asidePendingTimerRef.current !== null) {
+        clearTimeout(asidePendingTimerRef.current);
+      }
+      setAsidePending(true);
+      asidePendingTimerRef.current = setTimeout(() => {
+        asidePendingTimerRef.current = null;
+        setAsidePending(false);
+      }, 60000);
+    }
+    return onSend ? onSend(text) : false;
+  }, [onSend]);
+
   // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
   // (patch #51 rework — was previously state fed by a JSONL classifier
   // over the claude-session WS, which turned out to be unreliable
@@ -409,6 +480,13 @@ export function PrettyView({
       // probe (ASIDE-09) will re-emit `aside_ready` if the NEW pane's
       // tmux still has an open BTW overlay — so this reset is safe.
       setAsideText(null);
+      // Phase 14 quick-task 260726-vbd: also clear asidePending + timer on
+      // pane navigation — a new pane has no in-flight aside.
+      if (asidePendingTimerRef.current !== null) {
+        clearTimeout(asidePendingTimerRef.current);
+        asidePendingTimerRef.current = null;
+      }
+      setAsidePending(false);
       reconnectAttemptsRef.current = 0;
       paneKeyRef.current = paneKey;
     }
@@ -518,6 +596,12 @@ export function PrettyView({
           // viewport to it. Cross-tab dismiss coherence (ASIDE-11) is
           // handled by the aside_dismissed case below fanned out from
           // the backend broadcast primitive.
+          //
+          // Phase 14 quick-task 260726-vbd: clear the pending flag and 60s timer
+          // atomically with the display-state flip. The pending→displayed transition
+          // is invisible to the user (ComposeBox stays morphed; only the flag that
+          // drives the predicate changes from asidePending to asideText).
+          clearAsidePending();
           setAsideText(parsed.text);
           break;
         }
@@ -530,7 +614,13 @@ export function PrettyView({
           // and pressed Escape herself, tmux died, peer tab dismissed).
           // Idempotent: if THIS client already optimistically cleared
           // asideText in handleAsideDismiss, this setState is a no-op.
+          //
+          // Phase 14 quick-task 260726-vbd: also clear asidePending — the
+          // backend can broadcast aside_dismissed without this client having
+          // sent it (peer-tab dismiss OR marker-disappearance), so the
+          // pending flag must clear in this path too.
           setAsideText(null);
+          clearAsidePending();
           break;
         }
         case "session_holding": {
@@ -574,6 +664,9 @@ export function PrettyView({
           // this success, error state must not persist.
           setHoldingTimeoutError(false);
           setStatus("streaming");
+          // Phase 14 quick-task 260726-vbd: fresh pane starts with no
+          // in-flight aside — clear the pending flag and 60s timer.
+          clearAsidePending();
           // Diagnostic: parsed.newSessionFile is available if a future console
           // log is wanted; do not add ambient debug logging in this patch.
           break;
@@ -798,6 +891,18 @@ export function PrettyView({
       }
     }
   }, [isIdle, pvIdentity]);
+
+  // Phase 14 quick-task 260726-vbd: unmount cleanup for the 60s safety timer.
+  // Ensures an asidePendingTimerRef pending during component unmount does not
+  // fire a setState on an unmounted component. Mounted once ([] deps); the ref
+  // is always current because React refs are mutable and don't need to be in deps.
+  useEffect(() => {
+    return () => {
+      if (asidePendingTimerRef.current !== null) {
+        clearTimeout(asidePendingTimerRef.current);
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div
@@ -1100,7 +1205,7 @@ export function PrettyView({
 
       {onSend && status === "streaming" && (
         <ComposeBox
-          onSend={onSend}
+          onSend={handleComposeSend}
           onResetClicked={onResetClicked}
           canSend={status === "streaming"}
           isHolding={isHolding}
@@ -1126,12 +1231,14 @@ export function PrettyView({
           showPaperclip={true}
           isTouchDevice={isTouchDevice}
           onAttachFiles={uploads.stageAttachments}
-          // Phase 14 Wave 3: aside props. Wave 3 owns the interface
-          // (Task 2 above added asideActive + onAsideDismiss to
-          // ComposeBoxProps). Wave 4 will consume them in the
-          // ComposeBox body — until then, passing them is a no-op
-          // rendering-wise but the wire is in place.
-          asideActive={asideText !== null}
+          // Phase 14 quick-task 260726-vbd: widened asideActive predicate
+          // covers both the GENERATION phase (asidePending=true, from /btw
+          // submit through aside_ready arrival) and the DISPLAY phase
+          // (asideText !== null, post-aside_ready pre-dismiss). Same visual
+          // state for both phases — ComposeBox aux buttons disabled + send
+          // button morphs to X/Resume. Same Escape-based dismiss primitive
+          // cancels an in-flight /btw or clears a displayed aside.
+          asideActive={asideText !== null || asidePending}
           onAsideDismiss={handleAsideDismiss}
           onTogglePrettyMode={onTogglePrettyMode}
           onSendWithAttachments={(caption) => {
