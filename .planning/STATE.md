@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 14 (plain-language-translation-asides) — EXECUTING
 Plan: 6 of 6
 Status: Ready to execute
-Last activity: 2026-07-26 - Completed quick task 260726-s2f: Phase A docker-build perf (11min→6m41s fresh, 2s cache-warm)
+Last activity: 2026-07-26 - Completed quick task 260726-t1m: Patch #152 — fix aside injectBtw two-call form (Claude Code v2.1.150 REPL paste-mode absorption)
 
 Progress: [██████████] 98%
 
