@@ -1673,6 +1673,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       state.armed = true;
       lastStableCapture = null;
       hadMarkerLastCapture = false;
+      sshLogger.info("aside poll diag: armed", {
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+      });
       // injectBtw log-and-swallows internally; do NOT roll back state.armed
       // on failure — the poller's disarm-on-emit path handles the "no
       // answer arrived" case, and a stuck armed flag clears on next
@@ -1996,6 +2000,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
         .then((output) => {
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
           const markerPresent = output.includes(ASIDE_END_MARKER);
+          sshLogger.info("aside poll diag: poll", {
+            hostId: currentHostId,
+            tmuxSession: currentTmuxSession,
+            len: output.length,
+            markerPresent,
+            hadMarkerLast: hadMarkerLastCapture,
+            lastStableLen: lastStableCapture === null ? null : lastStableCapture.length,
+            tail: output.slice(-60),
+          });
 
           // Marker-disappearance detection FIRST — cross-tab coherence
           // when Ashley externally Escapes via SSH, or tmux dies. If we
@@ -2010,6 +2023,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             currentHostId != null &&
             currentTmuxSession != null
           ) {
+            sshLogger.info("aside poll diag: marker-disappeared → dismiss");
             broadcastAsideDismissed(
               sessionKey(currentHostId, currentTmuxSession),
             );
@@ -2029,15 +2043,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // First capture with the marker, OR a later capture that has
             // still-changing content (agent finalizing the answer). Store
             // and wait for stability on the next poll.
+            sshLogger.info("aside poll diag: unstable-or-first", {
+              wasNull: lastStableCapture === null,
+              prevLen: lastStableCapture?.length ?? null,
+              nowLen: output.length,
+            });
             lastStableCapture = output;
             hadMarkerLastCapture = true;
             return;
           }
 
           // Stable: same output as last capture, marker present.
+          sshLogger.info("aside poll diag: stable-extracting", { len: output.length });
           const text = extractBtwAnswer(output, ASIDE_END_MARKER);
           if (text === null) {
             // Degenerate — marker + no /btw echo. Disarm; swallow.
+            sshLogger.info("aside poll diag: extract-null → disarm");
             const s = asideState.get(ws);
             if (s) s.armed = false;
             lastStableCapture = null;
@@ -2056,6 +2077,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
               : null;
           const peers = key ? activeViewers.get(key) : undefined;
           const recipients = peers ?? new Set<import("ws").WebSocket>([ws]);
+          sshLogger.info("aside poll diag: emit aside_ready", {
+            textLen: text.length,
+            recipients: recipients.size,
+            keyPresent: key !== null,
+            peerRegistryHit: peers !== undefined,
+          });
           // Fallback single-recipient set covers the pathological case
           // where the pane's connectToPane hadn't yet registered this ws
           // in activeViewers (shouldn't happen — registration is
