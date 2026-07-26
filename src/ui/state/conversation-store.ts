@@ -500,11 +500,37 @@ export function updateOpenTabs(tabs: Tab[]): void {
   const nextIds = new Set<string>();
   for (const t of tabs) nextIds.add(t.id);
 
-  // Prune pinned ids that no longer correspond to any open tab
+  // Patch #150 A: prune pinned ids that are neither open tabs NOR fleet-derived.
+  // Post-#149 A (cf624a4) `pinConversation` accepts any id, including fleet
+  // synthetic ids from `fleetRowId(hostId, sessionName)` — so `pinnedIds` now
+  // legitimately holds a union of openTab ids and fleet ids. The pre-#150
+  // pruner only considered openTabs membership, which silently nuked every
+  // pinned fleet row the instant `updateOpenTabs` fired (Ashley's followup-1:
+  // "pin 4-5 fleet rows → single click destroys all pins"). The keep-set is
+  // now the union `nextIds ∪ fleetPinKeepSet`; ids belonging to neither
+  // (stale openTab pin after session-end, or fleet id after the session left
+  // fleetSessions) are still dropped as they were pre-#150. Regression tests:
+  //   - "clicking a pinned fleet row does NOT unpin OTHER pinned fleet rows"
+  //   - "clicking an openTab row still prunes stale openTab pins as before"
+  // (both in the "pruner fleet-aware (patch #150 A)" describe block).
+  //
+  // Micro-guard: only pay the O(fleetSessions) fleetPinKeepSet build cost on
+  // the uncommon pinnedIds-non-empty path — the empty-pinned hot path (fresh
+  // page load, every tab reconciliation before Ashley pins anything) stays
+  // exactly as fast as pre-#150.
+  let fleetPinKeepSet: Set<string> | null = null;
+  if (state.pinnedIds.size > 0) {
+    fleetPinKeepSet = new Set<string>();
+    for (const session of state.fleetSessions) {
+      fleetPinKeepSet.add(fleetRowId(session.hostId, session.sessionName));
+    }
+  }
+
+  // Prune pinned ids that no longer correspond to any open tab OR fleet session
   let nextPinnedIds = state.pinnedIds;
   let pinnedChanged = false;
   for (const id of state.pinnedIds) {
-    if (!nextIds.has(id)) {
+    if (!nextIds.has(id) && !(fleetPinKeepSet && fleetPinKeepSet.has(id))) {
       if (!pinnedChanged) {
         nextPinnedIds = new Set(state.pinnedIds);
         pinnedChanged = true;

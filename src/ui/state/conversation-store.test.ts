@@ -235,6 +235,95 @@ describe("conversation-store: session-end lifecycle", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tests 5b/5c (Patch #150 A): pruner fleet-aware — updateOpenTabs must keep
+// pinnedIds that are legitimate fleet-derived ids (from state.fleetSessions),
+// not just openTabs-derived ids. Pre-#150 A the pruner dropped any pinnedId
+// not in nextIds (openTab id set), which nuked Ashley's 4-5 pinned fleet rows
+// the instant she clicked ANY row to activate its session. Regression guard
+// pair: (5b) fleet pins survive an openTabs mutation; (5c) stale openTab pins
+// (not fleet, not in openTabs) are STILL pruned as they were pre-#150.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: pruner fleet-aware (patch #150 A)", () => {
+  it("clicking a pinned fleet row does NOT unpin OTHER pinned fleet rows", () => {
+    // Two-host layout with 4 fleet-only sessions (all synthetic fleet::N::S ids).
+    const hostA = makeHost("1", "hostA");
+    const hostB = makeHost("2", "hostB");
+    const tree: HostFolder = { name: "root", children: [hostA, hostB] };
+
+    act(() => {
+      updateHostTree(tree);
+      updateHostsFlat(
+        new Map<number, Host>([
+          [1, hostA],
+          [2, hostB],
+        ]),
+      );
+      updateFleetSessions([
+        { hostId: 1, hostName: "hostA", sessionName: "work", created: 100 },
+        { hostId: 1, hostName: "hostA", sessionName: "scratch", created: 200 },
+        { hostId: 2, hostName: "hostB", sessionName: "srv", created: 300 },
+        { hostId: 2, hostName: "hostB", sessionName: "dev", created: 400 },
+      ]);
+      pinConversation("fleet::1::work");
+      pinConversation("fleet::1::scratch");
+      pinConversation("fleet::2::srv");
+      pinConversation("fleet::2::dev");
+    });
+
+    // Sanity: all four fleet ids present in pinnedIds
+    let snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.size).toBe(4);
+    expect(snap.pinnedIds.has("fleet::1::work")).toBe(true);
+    expect(snap.pinnedIds.has("fleet::1::scratch")).toBe(true);
+    expect(snap.pinnedIds.has("fleet::2::srv")).toBe(true);
+    expect(snap.pinnedIds.has("fleet::2::dev")).toBe(true);
+
+    // Exercise: openTab appears (activating an unrelated conversation).
+    // The new openTab does NOT reference any of the fleet ids above.
+    act(() => updateOpenTabs([makeTab("t1", "terminal", hostA)]));
+
+    // Post-#150 A: all four fleet pins survive.
+    // Pre-#150 A (regression this test guards): pinnedIds.size would be 0.
+    snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.size).toBe(4);
+    expect(snap.pinnedIds.has("fleet::1::work")).toBe(true);
+    expect(snap.pinnedIds.has("fleet::1::scratch")).toBe(true);
+    expect(snap.pinnedIds.has("fleet::2::srv")).toBe(true);
+    expect(snap.pinnedIds.has("fleet::2::dev")).toBe(true);
+  });
+
+  it("clicking an openTab row still prunes stale openTab pins as before (regression guard)", () => {
+    // fleetSessions is empty per beforeEach — this test proves the pre-#150
+    // pruner behavior for non-fleet ids is preserved. If the fix accidentally
+    // stopped pruning stale openTab pins (e.g. by keeping every pinnedId
+    // regardless of both openTabs AND fleet membership), this test would fail.
+    const hostA = makeHost("hA", "alpha");
+    const tabT1 = makeTab("t1", "terminal", hostA);
+    const tabT2 = makeTab("t2", "terminal", hostA);
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabT1, tabT2]);
+      pinConversation("t1");
+      pinConversation("t2");
+    });
+
+    // Sanity: both openTab pins present
+    let snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.has("t1")).toBe(true);
+    expect(snap.pinnedIds.has("t2")).toBe(true);
+
+    // Exercise: t1 vanishes from openTabs (session-end simulation).
+    // t1 is NOT a fleet id (fleetSessions is empty), so the pruner MUST drop it.
+    act(() => updateOpenTabs([tabT2]));
+
+    snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.has("t1")).toBe(false);
+    expect(snap.pinnedIds.has("t2")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test 6: single-select coercion — stale id is a no-op
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store: selectConversation stale-id guard", () => {
