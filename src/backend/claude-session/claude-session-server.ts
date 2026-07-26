@@ -104,6 +104,100 @@ const HARNESS_TASKS_INTERVAL_MS = 3000;
 const UUID_RE =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
+// Phase 14 (plain-language-translation-asides) Wave 1 — module-scope primitives.
+//
+// The aside subsystem injects a fixed `/btw` prompt into an identity's tmux
+// pane, extracts the BTW-overlay answer, and dismisses the overlay via
+// Escape. All three operations reuse the pane's existing sshConn + the
+// existing execCommand primitive (per PATTERNS.md L438-440 and CONTEXT.md
+// § canonical_refs: no new SSH subsystem, no new port).
+//
+// Per ASIDE-10 (no aside store): these helpers carry NO module-scope state —
+// they are pure request/response over the passed-in SSH connection. Wave 2
+// (14-02) composes them into the frontend-arm-driven poller + WS event
+// surface.
+//
+// BTW_PROMPT is the EXACT literal text from CONTEXT.md § Injection (per
+// ASIDE-03 no-paraphrase rule). The em-dash MUST be a real U+2014 character.
+export const BTW_PROMPT =
+  "/btw Re-explain whatever's currently going on to me without using code symbols, in a conceptual model style. Not a metaphor — explain the actual thing, don't recast it as an extended analogy.";
+
+// ASIDE_END_MARKER is the literal end-of-answer substring from the BTW
+// overlay's footer line (full marker: `↑/↓ to scroll · f to fork · Esc to
+// close`). Stable across BTW invocations in Claude Code 2.1.150 per the
+// kumquat-test verification (CONTEXT.md § Mechanism).
+export const ASIDE_END_MARKER = "Esc to close";
+
+// Local shellQuote — byte-identical to src/backend/ssh/terminal.ts L123.
+// Kept local (not cross-module import) to preserve terminal.ts's
+// "no new deps, no new modules" comment above L122. If a future refactor
+// promotes shellQuote to a shared module, update both call sites in lock-step.
+const shellQuote = (s: string): string =>
+  `'${s.replace(/'/g, `'\\''`)}'`;
+
+// Test-only re-export of the local shellQuote helper. NOT for production
+// callers — the underscore prefix marks it as an internal test seam. Lets
+// claude-session-server.aside.test.ts verify byte-parity with terminal.ts L123
+// without duplicating the 2-line body in the test file.
+export const __asideShellQuoteForTests = shellQuote;
+
+/**
+ * injectBtw — send the fixed /btw prompt into the identity's tmux pane via
+ * the pane's existing SSH connection. Wraps the send-keys payload and target
+ * in shellQuote (house-style parity with terminal.ts L574 + L760). Failures
+ * are logged and swallowed — a failed injection is not fatal; Wave 2's
+ * poll-timeout logic handles the "no answer arrived" case.
+ */
+async function injectBtw(
+  conn: SSHClientType,
+  tmuxSession: string,
+): Promise<void> {
+  try {
+    await execCommand(
+      conn,
+      `tmux send-keys -t ${shellQuote(tmuxSession)} ${shellQuote(BTW_PROMPT)} Enter`,
+    );
+  } catch (err) {
+    sshLogger.info("aside injectBtw failed", {
+      operation: "aside_inject",
+      tmuxSession,
+      err,
+    });
+  }
+}
+
+/**
+ * sendEscapeToBtw — send Escape into the identity's tmux pane to close the
+ * BTW overlay cleanly (kumquat-test finding: Escape returns the pane to the
+ * normal compose prompt with the main conversation intact). `Escape` is an
+ * unquoted tmux send-keys key name — same shape as `Enter` / `C-c` in
+ * terminal.ts L574 + L760.
+ */
+async function sendEscapeToBtw(
+  conn: SSHClientType,
+  tmuxSession: string,
+): Promise<void> {
+  try {
+    await execCommand(
+      conn,
+      `tmux send-keys -t ${shellQuote(tmuxSession)} Escape`,
+    );
+  } catch (err) {
+    sshLogger.info("aside sendEscapeToBtw failed", {
+      operation: "aside_dismiss_escape",
+      tmuxSession,
+      err,
+    });
+  }
+}
+
+// Wave 2 (14-02) will consume injectBtw + sendEscapeToBtw. Silence
+// unused-symbol warnings until then via a void reference in a no-op
+// compile-time constant — this keeps the primitives named + testable
+// without perturbing the runtime footprint.
+void injectBtw;
+void sendEscapeToBtw;
+
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
