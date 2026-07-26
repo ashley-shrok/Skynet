@@ -3,6 +3,7 @@ import {
   BTW_PROMPT,
   ASIDE_END_MARKER,
   __asideShellQuoteForTests,
+  extractBtwAnswer,
 } from "./claude-session-server.js";
 
 // Phase 14 Plan 01 Task 1 — RED-gate tests for the Wave 1 primitives.
@@ -59,3 +60,87 @@ describe("Phase 14 aside primitives — shellQuote parity with terminal.ts L123"
     expect(__asideShellQuoteForTests("$FOO;rm -rf /")).toBe("'$FOO;rm -rf /'");
   });
 });
+
+// Phase 14 Plan 01 Task 2 — extractBtwAnswer pure-string helper.
+//
+// Cases A-E enumerated in the plan's <behavior> block. The extractor is
+// pure — no side effects, no I/O — so we test purely by feeding synthetic
+// capture-pane output strings and asserting the returned string / null.
+//
+// Anchor semantics under test:
+//   - LAST-occurrence rule on the end marker (scrollback may contain prior
+//     invocations' markers).
+//   - LAST-occurrence rule on the `/btw ` echo BEFORE the end marker (same
+//     reason — prior BTW echoes still visible in the pane buffer).
+//   - `/^\s*(>\s*)?\/btw\b/` regex allows tmux prompt prefixes like `> ` in
+//     front of the echoed slash-command.
+
+describe("Phase 14 aside primitives — extractBtwAnswer", () => {
+  it("CASE A: returns null when the end marker is not present (answer still streaming)", () => {
+    const paneOutput = [
+      "> /btw Re-explain whatever's currently going on to me…",
+      "",
+      "Sure — here is the current situation, still being written…",
+    ].join("\n");
+    expect(extractBtwAnswer(paneOutput, ASIDE_END_MARKER)).toBeNull();
+  });
+
+  it("CASE B: single-line answer between echoed /btw line and end-marker line, trimmed", () => {
+    const paneOutput = [
+      "> /btw Re-explain whatever's currently going on to me…",
+      "",
+      "The agent is currently reviewing the diff you pasted.",
+      "",
+      "↑/↓ to scroll · f to fork · Esc to close",
+    ].join("\n");
+    expect(extractBtwAnswer(paneOutput, ASIDE_END_MARKER)).toBe(
+      "The agent is currently reviewing the diff you pasted.",
+    );
+  });
+
+  it("CASE C: multi-line answer with scrollback lines above the /btw echo — last-occurrence anchor picks the CURRENT invocation", () => {
+    const paneOutput = [
+      // A prior BTW invocation still in scrollback:
+      "> /btw earlier question…",
+      "the prior answer",
+      "↑/↓ to scroll · f to fork · Esc to close",
+      // Normal conversation between the two invocations:
+      "",
+      "some intervening conversation",
+      "",
+      // The CURRENT invocation:
+      "> /btw Re-explain whatever's currently going on to me…",
+      "",
+      "line one of the current answer",
+      "line two of the current answer",
+      "line three of the current answer",
+      "",
+      "↑/↓ to scroll · f to fork · Esc to close",
+    ].join("\n");
+    expect(extractBtwAnswer(paneOutput, ASIDE_END_MARKER)).toBe(
+      [
+        "line one of the current answer",
+        "line two of the current answer",
+        "line three of the current answer",
+      ].join("\n"),
+    );
+  });
+
+  it("CASE D: end marker present but no /btw echo found → returns null (malformed, do not emit garbage)", () => {
+    const paneOutput = [
+      "some assistant text with no /btw echo above the marker",
+      "another line",
+      "↑/↓ to scroll · f to fork · Esc to close",
+    ].join("\n");
+    expect(extractBtwAnswer(paneOutput, ASIDE_END_MARKER)).toBeNull();
+  });
+
+  it("CASE E: end marker present, /btw echo found, no lines between them → returns empty string", () => {
+    const paneOutput = [
+      "> /btw Re-explain whatever's currently going on to me…",
+      "↑/↓ to scroll · f to fork · Esc to close",
+    ].join("\n");
+    expect(extractBtwAnswer(paneOutput, ASIDE_END_MARKER)).toBe("");
+  });
+});
+
