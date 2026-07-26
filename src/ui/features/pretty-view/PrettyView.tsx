@@ -109,6 +109,12 @@ export interface PrettyViewProps {
   // flows through the existing split-and-delay path (patch #100) under
   // the same lifecycle key.
   onInjectedTurnReady?: (text: string, messageQueueItemId: string) => void;
+  // Optional callback for the ComposeBox aux-row Terminal-icon button
+  // that flips pretty view OFF (revealing the raw xterm.js). Terminal
+  // wires this to the same handle.togglePrettyMode() path as the
+  // Ctrl+Shift+O shortcut. Omit for read-only PrettyView callers — the
+  // button then never renders.
+  onTogglePrettyMode?: () => void;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -138,6 +144,7 @@ export function PrettyView({
   isIdle,
   terminalWs,
   onInjectedTurnReady,
+  onTogglePrettyMode,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
@@ -1113,6 +1120,7 @@ export function PrettyView({
           // rendering-wise but the wire is in place.
           asideActive={asideText !== null}
           onAsideDismiss={handleAsideDismiss}
+          onTogglePrettyMode={onTogglePrettyMode}
           onSendWithAttachments={(caption) => {
             // Fire-and-forget: the promise resolves when upload_start has
             // been issued, not when uploads complete. The batch's

@@ -2996,6 +2996,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }}
             terminalWs={webSocketRef.current}
             onInjectedTurnReady={handleInjectedTurnReady}
+            onTogglePrettyMode={() => setIsPrettyMode((v) => !v)}
           />
         )}
         {isPrettyMode && (hostConfig.id == null || !tmuxSessionName) && (
