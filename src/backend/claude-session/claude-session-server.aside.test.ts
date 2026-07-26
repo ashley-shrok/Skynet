@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   BTW_PROMPT,
   ASIDE_END_MARKER,
@@ -15,7 +15,20 @@ import {
   // source of truth; observing it is a legitimate integration seam, not a
   // test-only export.
   asideState,
+  // Phase 14 Patch #152 Task 1: test seam for injectBtw two-call shape.
+  __injectBtwForTests,
 } from "./claude-session-server.js";
+
+// Phase 14 Patch #152 — vi.mock for tmux-helper execCommand.
+// Scoped here so the new injectBtw two-call tests can spy on execCommand
+// calls. The existing describe blocks above do NOT call execCommand, so
+// the mock is inert for them. afterEach inside the new describe resets state.
+vi.mock("../ssh/tmux-helper.js", () => ({
+  execCommand: vi.fn(),
+}));
+
+// Import the mocked reference AFTER vi.mock so the mock is active.
+import { execCommand } from "../ssh/tmux-helper.js";
 
 // Phase 14 Plan 01 Task 1 — RED-gate tests for the Wave 1 primitives.
 //
@@ -307,5 +320,96 @@ describe("Phase 14 Plan 05 Task 1 — asideState is a named export", () => {
   it("asideState is the SAME Map instance as __asideStateForTests (single source of truth)", () => {
     expect(asideState).toBe(__asideStateForTests);
     expect(asideState).toBeInstanceOf(Map);
+  });
+});
+
+// Phase 14 Patch #152 — injectBtw two-call shape (Claude Code v2.1.150 REPL paste-mode workaround).
+//
+// Locks the two-call contract so a future refactor cannot silently revert to the
+// one-call form that causes Claude Code's Ink REPL to absorb the trailing Enter
+// into its paste buffer (/btw overlay never opens). Three tests:
+//
+//   Test 1: call count === 2; call #1 contains BTW_PROMPT but NOT " Enter";
+//           call #2 ends with " Enter" and does NOT contain BTW_PROMPT.
+//   Test 2: 200ms delay is enforced BETWEEN the two calls (fake-timers gate).
+//   Test 3: log-and-swallow preserved if EITHER call throws.
+
+describe("Phase 14 Patch #152 — injectBtw two-call shape (Claude Code v2.1.150 REPL paste-mode workaround)", () => {
+  // Stub SSHClientType — execCommand is mocked at module level, so conn is never accessed.
+  const fakeConn = {} as unknown as Parameters<typeof __injectBtwForTests>[0];
+
+  afterEach(() => {
+    vi.mocked(execCommand).mockReset();
+    vi.useRealTimers();
+  });
+
+  it("Test 1: execCommand called exactly twice — call #1 has BTW_PROMPT text only, call #2 has Enter only", async () => {
+    vi.mocked(execCommand).mockResolvedValue("");
+
+    await __injectBtwForTests(fakeConn, "test-session");
+
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(2);
+
+    const cmd1 = vi.mocked(execCommand).mock.calls[0][1] as string;
+    const cmd2 = vi.mocked(execCommand).mock.calls[1][1] as string;
+
+    // Call #1: contains send-keys, the shellQuote-wrapped tmux target, and BTW_PROMPT.
+    // Must NOT contain the trailing " Enter" token.
+    expect(cmd1).toContain("send-keys");
+    expect(cmd1).toContain("-t 'test-session'");
+    expect(cmd1).toContain(BTW_PROMPT);
+    expect(cmd1).not.toMatch(/\sEnter\s*$/);
+
+    // Call #2: contains send-keys and the shellQuote-wrapped tmux target.
+    // Must end with " Enter" and must NOT contain BTW_PROMPT.
+    expect(cmd2).toContain("send-keys");
+    expect(cmd2).toContain("-t 'test-session'");
+    expect(cmd2).toMatch(/\sEnter\s*$/);
+    expect(cmd2).not.toContain(BTW_PROMPT);
+  });
+
+  it("Test 2: 200ms delay is enforced between call #1 and call #2 (fake-timers gate)", async () => {
+    vi.useFakeTimers();
+    vi.mocked(execCommand).mockResolvedValue("");
+
+    // Kick off without awaiting so we can interleave timer ticks.
+    const promise = __injectBtwForTests(fakeConn, "test-session");
+
+    // After the first execCommand resolves but BEFORE the 200ms setTimeout fires,
+    // only call #1 should have been made.
+    // Allow microtasks to flush so call #1 completes.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Advance to 199ms — setTimeout has not yet fired.
+    await vi.advanceTimersByTimeAsync(199);
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+
+    // Advance by 1 more ms (total 200ms) — setTimeout fires, call #2 executes.
+    await vi.advanceTimersByTimeAsync(1);
+    // Allow microtasks triggered by the timer to flush.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(2);
+
+    // Await the overall promise to clean up.
+    await promise;
+  });
+
+  it("Test 3A: log-and-swallow preserved when call #1 throws (function resolves, does not rethrow)", async () => {
+    vi.mocked(execCommand).mockRejectedValue(new Error("ssh channel error"));
+
+    // Must resolve without throwing — outer try/catch swallows it.
+    await expect(__injectBtwForTests(fakeConn, "test-session")).resolves.toBeUndefined();
+  });
+
+  it("Test 3B: log-and-swallow preserved when call #2 throws (text sent, Enter fails, still resolves)", async () => {
+    vi.mocked(execCommand)
+      .mockResolvedValueOnce("")          // call #1 succeeds
+      .mockRejectedValueOnce(new Error("enter key error")); // call #2 throws
+
+    // Must resolve without throwing.
+    await expect(__injectBtwForTests(fakeConn, "test-session")).resolves.toBeUndefined();
   });
 });
