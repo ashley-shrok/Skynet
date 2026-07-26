@@ -243,6 +243,8 @@ export function ComposeBox({
   onAttachFiles,
   onSendWithAttachments,
   onRetryBatch,
+  asideActive,
+  onAsideDismiss,
   className,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
@@ -1027,7 +1029,7 @@ export function ComposeBox({
           <button
             type="button"
             onClick={handleResetSend}
-            disabled={canSend === false}
+            disabled={canSend === false || asideActive === true}
             aria-label="Send with /id reset prefix"
             title="Send with /id reset prefix"
             className={cn(
@@ -1183,7 +1185,7 @@ export function ComposeBox({
               size="icon-sm"
               variant="outline"
               onClick={handleOpenFilePicker}
-              disabled={canSend === false}
+              disabled={canSend === false || asideActive === true}
               aria-label="Attach file"
               title="Attach file"
               className={cn(
@@ -1241,7 +1243,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="outline"
             onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
-            disabled={canSend === false}
+            disabled={canSend === false || asideActive === true}
             aria-label="Send 'let's go'"
             title="Send 'let's go'"
             className={cn(
@@ -1272,7 +1274,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="outline"
             onClick={handleQueue}
-            disabled={queueDisabled}
+            disabled={queueDisabled || asideActive === true}
             aria-label={
               queueArmed
                 ? "Cancel queued send"
