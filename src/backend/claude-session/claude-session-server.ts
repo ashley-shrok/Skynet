@@ -120,7 +120,7 @@ const UUID_RE =
 // BTW_PROMPT is the EXACT literal text from CONTEXT.md § Injection (per
 // ASIDE-03 no-paraphrase rule). The em-dash MUST be a real U+2014 character.
 export const BTW_PROMPT =
-  "/btw Re-explain concisely whatever's currently going on to me without using code symbols, in a conceptual model style. Not a metaphor — explain the actual thing, don't recast it as an extended analogy.";
+  "/btw Re-explain concisely whatever's currently going on to me — just this turn, not a session recap — without using code symbols, in a conceptual model style. Not a metaphor — explain the actual thing, don't recast it as an extended analogy.";
 
 // ASIDE_END_MARKER is the literal end-of-answer substring from the BTW
 // overlay's footer line (full marker: `↑/↓ to scroll · f to fork · Esc to
