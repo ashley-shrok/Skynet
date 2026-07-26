@@ -266,8 +266,17 @@ export function PrettyView({
   // currentHostId + currentTmuxSession only), so these fields are
   // informational-only from the backend's perspective. Included here
   // matching AsideDismissedPayload's exported type shape.
+  // Dismiss-loop guard (Ashley 2026-07-26 UAT): dismissing an aside
+  // sends Escape into tmux to close the /btw overlay, which produces
+  // brief pane activity → Claude Code's isIdle flips false → 4s later
+  // returns true. Without a cooldown, that trailing false→true
+  // transition trips the arm-emitter useEffect and re-injects /btw,
+  // creating a dismiss→arm→dismiss loop. 8s covers the ~4-5s
+  // dismiss→settle→isIdle=true path with safety margin.
+  const dismissCooldownUntilRef = useRef<number>(0);
   const handleAsideDismiss = useCallback(() => {
     setAsideText(null);
+    dismissCooldownUntilRef.current = Date.now() + 8000;
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       try {
@@ -775,6 +784,10 @@ export function PrettyView({
     const prev = prevIsIdleRef.current;
     prevIsIdleRef.current = isIdle;
     if (prev === false && isIdle === true && pvIdentity != null) {
+      // Suppress the trailing false→true transition that follows a
+      // user-initiated dismiss (Escape into tmux → pane activity →
+      // isIdle bounce). See dismissCooldownUntilRef declaration.
+      if (Date.now() < dismissCooldownUntilRef.current) return;
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
