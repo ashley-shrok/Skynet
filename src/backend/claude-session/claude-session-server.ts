@@ -2066,6 +2066,28 @@ wss.on("connection", async (ws: WebSocket, req) => {
             return;
           }
 
+          // Still-working guard (2026-07-26). The stability check
+          // (`lastStableCapture !== output`) only compares two consecutive
+          // 300ms polls. If Claude Code's spinner (`✻ Answering…`,
+          // `✻ Cerebrating…`, etc.) happens to be byte-identical across
+          // a single 300ms window — animation lull, network stall, or
+          // the spinner refresh rate lower than 2Hz — the poller
+          // false-positive "stable" and extracts the spinner text as
+          // the answer (Ashley UAT 2026-07-26: got a bubble with just
+          // `"✻ Answering…"`). Guard: reject any extract still
+          // containing Claude's working indicators. Reset lastStableCapture
+          // so the NEXT real-quiescence pair of polls re-establishes
+          // stability on the finished answer. Do NOT disarm — the /btw
+          // is still valid, we're just waiting for Claude to finish.
+          if (/✻|esc to interrupt/i.test(text)) {
+            sshLogger.info("aside poll diag: still-working → reset stability", {
+              textPreview: text.slice(0, 60),
+            });
+            lastStableCapture = null;
+            hadMarkerLastCapture = true;
+            return;
+          }
+
           // Emit aside_ready to THIS ws AND every peer in the fan-out
           // registry. For each recipient (including self), flip
           // asideState.displayed = true so the overlap-ignore gate
