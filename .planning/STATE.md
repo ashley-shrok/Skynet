@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-26T15:30:00.000Z"
-last_activity: 2026-07-26 -- Completed quick task 260726-l1p: Patch #150 A + C — pruner fleet-aware + URL-restore multi-tab glow (three atomic commits, no deploy — pending Ashley greenlight; solo-deploy carveout applies for #150 A per actively-broken-in-production trigger)
+last_updated: "2026-07-26T18:03:27.232Z"
+last_activity: 2026-07-26
 progress:
-  total_phases: 13
-  completed_phases: 7
-  total_plans: 48
-  completed_plans: 38
-  percent: 54
+  total_phases: 15
+  completed_phases: 9
+  total_plans: 59
+  completed_plans: 51
+  percent: 60
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 12 — skynet-transformation-purge-dead-frontend-surfaces-second-slice
+**Current focus:** Phase 14 — plain-language-translation-asides
 
 ## Current Position
 
-Phase: 12 (skynet-transformation-purge-dead-frontend-surfaces-second-slice) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 12
-Last activity: 2026-07-26 -- Completed quick task 260726-l1p: Patch #150 A + C — pruner fleet-aware (updateOpenTabs no longer nukes legitimate fleet-derived pinnedIds; fixes Ashley's live-hit pin-nuke where clicking any pinned fleet row destroyed all 4-5 pins in one action) + URL-restore multi-tab glow (iterates all restoredTabs so every URL-restored session enters activeSet and glows, not just [0]). C-investigate verdict SAME_BUG — Ashley's "click didn't auto-load" symptom is Terminal.tsx's deliberate isVisible-gated connect (not a bug), just WS-handshake latency perception. Three atomic commits on feat/tab-title-from-tmux, no push, no deploy — solo-deploy carveout applies for #150 A per actively-broken-in-production trigger; pending Ashley's greenlight to ship
+Phase: 14 (plain-language-translation-asides) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-07-26
 
-Progress: [██████████] 100% (Phase 10 code-complete on feat/tab-title-from-tmux; deploy deferred to Ashley greenlight)
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [██████████] 100% (Phase 10 code-complete on feat/
 | Phase 10 P02 | 419 | 2 tasks | 2 files |
 | Phase 10 P04 | 15min | 3 tasks | 4 files (3 deleted, 1 modified) |
 | Phase 10 P05 | 5min | 3 tasks | 4 files (3 docs created + 1 SUMMARY + STATE.md updated) |
+| Phase 14 P01 | 15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Plan 07-02: TG-18 mobile gear-dedup via shared useIsTouchDevice const in ConversationsPanel; showGear += !isTouchDevice; SettingsRow gate at AppShell:1348 unchanged
 - [Phase ?]: Plan 07-02: RDP rendering via parallel RdpRow (inline in ConversationsPanel.tsx); ConversationRow.tsx UNTOUCHED preserving TG-13 shape lock
 - [Phase ?]: Plan 09-03: closestFlexRowAncestor walker helper defined in describe block scope; compareDocumentPosition used for DOM order assertion in Test A
+- [Phase ?]: Phase 14 Plan 01: shellQuote duplicated byte-for-byte from terminal.ts L123 (not shared) — preserves no-new-deps posture; both definitions stay byte-identical, enforced via __asideShellQuoteForTests re-export in vitest parity block
+- [Phase ?]: Phase 14 Plan 01: BTW_PROMPT locked byte-for-byte to CONTEXT.md § Injection (U+2014 em-dash required); shellQuote wraps BOTH tmuxSession target AND payload (mirrors terminal.ts L760 Enter precedent, NOT JSON.stringify — plan-checker W2 grep-negative gate enforces)
+- [Phase ?]: Phase 14 Plan 01: extractBtwAnswer uses LAST-occurrence anchoring on BOTH end marker AND /btw echo, so prior BTW invocations still visible in -S -200 scrollback don't spoof the current answer (ASIDE-04); regex allows optional tmux prompt prefix like '> '
 
 ### Pending Todos
 
@@ -174,6 +178,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-22T18:25:00.000Z
+Last session: 2026-07-26T18:02:53.503Z
 Stopped at: Phase 10 Wave 5 complete — Phase 10 (pretty-conversations visual-language rework) is now code-complete-pending-deploy on `feat/tab-title-from-tmux`, batched with #123-#127 stack pending Ashley's morning greenlight. Wave 5 shipped 3 docs deliverables + 1 SUMMARY + STATE.md update in one atomic commit: (1) `10-BUILD-VERIFY-LOG.md` — tsc-clean, vitest 499/503 (4 pre-existing ComposeBox failures unchanged from Wave 4, documented in deferred-items.md), `npm run build` succeeds in 13.60s, AppShell bundle delta vs Phase 7 baseline +5,288 bytes for the new pretty-conversations component tree; (2) `10-UAT-CHECKLIST.md` — 19 non-negotiable items across Desktop (7) + Mobile iPhone (8) + Cross-viewport regression (4) + 3 polish items + failure route-back table + post-UAT deploy runbook (updated for the post-2026-07-21 no-deadman regime per user directive); (3) `10-PATCHES-MD-ENTRY.md` — paste-ready patch #128 draft in Tina's multi-commit-under-one-pin format (patches #104/#105 precedent) covering all 16 Wave 1-4 commits + Wave 5 SHA fill-in placeholder. Phase 10 landed 15 waves-worth of code across 5 waves: Wave 1 (foundation — PrettyConversationRow + PinAction + tokens, 12/12 tests), Wave 2 (PrettyConversationsPanel, 15/15 tests), Wave 3 (AppShell cutover + persistent top-left chevron toggle + narrow-window thin-strip retired — fixes Ashley's small-window sidebar-affordance regression), Wave 4 (3 retired sidebar files deleted, F3-diag fully retired, Test 1 pruned), Wave 5 (this docs commit). Ready state: Ashley walks the UAT checklist post-deploy on desktop + iPhone; if PASS, paste the patches-md draft into ~/.claude/identities/tina/skynet-patches.md at ordinal #128 (bump count from ONE HUNDRED TWENTY-SEVEN → ONE HUNDRED TWENTY-EIGHT), commit the pin, `/close pretty-conversations-panel-redesign`. Follow-up bookkeeping unchanged: 4 pre-existing ComposeBox test failures (patch #121 stale Send-button refs + patch #124 stale ThumbsUp aria-label refs) still awaiting a Phase 11 test-hygiene sweep OR companion quick task.
-Resume file: .planning/phases/10-pretty-conversations-visual-language-rework/10-UAT-CHECKLIST.md (Ashley's post-deploy walkthrough)
+Resume file: None
