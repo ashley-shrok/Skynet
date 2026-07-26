@@ -4,6 +4,10 @@ import {
   ASIDE_END_MARKER,
   __asideShellQuoteForTests,
   extractBtwAnswer,
+  __asideStateForTests,
+  __activeViewersForTests,
+  __sessionKeyForTests,
+  __broadcastAsideDismissedForTests,
 } from "./claude-session-server.js";
 
 // Phase 14 Plan 01 Task 1 — RED-gate tests for the Wave 1 primitives.
@@ -141,6 +145,146 @@ describe("Phase 14 aside primitives — extractBtwAnswer", () => {
       "↑/↓ to scroll · f to fork · Esc to close",
     ].join("\n");
     expect(extractBtwAnswer(paneOutput, ASIDE_END_MARKER)).toBe("");
+  });
+});
+
+// Phase 14 Plan 02 Task 2 — RED-gate tests for the backend aside subsystem.
+//
+// These tests validate the LOCKED architecture from CONTEXT.md:
+//   § Backend per-connection state (2026-07-26 lock): asideState + activeViewers
+//     MUST live at module scope, NOT inside wss.on("connection") closure.
+//   § Dismiss / § State model: broadcastAsideDismissed MUST be atomic —
+//     BOTH send the dismiss frame to every peer AND flip each peer's
+//     asideState.displayed = false. Missing step (b) silently breaks the
+//     v1 overlap policy (ASIDE-08) across tabs.
+//
+// The `__*ForTests` re-exports are internal test seams — underscore-prefix
+// marks them as private. No production caller should reference them.
+
+describe("Phase 14 Wave 2 — backend aside subsystem module-scope state", () => {
+  it("asideState is a Map (module-scope, per CONTEXT.md § Backend per-connection state lock)", () => {
+    expect(__asideStateForTests).toBeInstanceOf(Map);
+  });
+
+  it("activeViewers is a Map (module-scope, per CONTEXT.md § Dismiss / cross-tab broadcast)", () => {
+    expect(__activeViewersForTests).toBeInstanceOf(Map);
+  });
+
+  it("sessionKey builds a `${hostId}::${tmuxSession}` composite key", () => {
+    expect(__sessionKeyForTests(7, "identity-session")).toBe("7::identity-session");
+    expect(__sessionKeyForTests(1, "a")).toBe("1::a");
+  });
+
+  it("sessionKey survives colons inside the tmux session name (they land in the value half)", () => {
+    // The frontend already sanitizes tmux session names to tmux-safe (alphanumeric
+    // + dash + underscore), so colons should never appear in practice; but if they
+    // did, the composite key would still be deterministic and unique per (hostId,
+    // tmuxSession) pair — collisions would require the SAME hostId AND the SAME
+    // exact string after the ::. Not a security concern; just a correctness spot-check.
+    expect(__sessionKeyForTests(7, "a:b")).toBe("7::a:b");
+  });
+});
+
+describe("Phase 14 Wave 2 — broadcastAsideDismissed atomic BOTH-STEPS rule", () => {
+  // Minimal WebSocket stub — mimics the fields broadcastAsideDismissed reads.
+  // We only need `readyState` (must equal ws.OPEN sentinel = 1) and `send`.
+  const OPEN = 1;
+
+  function makeStubWs() {
+    const sent: string[] = [];
+    return {
+      readyState: OPEN,
+      send: (frame: string) => sent.push(frame),
+      _sent: sent,
+    };
+  }
+
+  it("iterates activeViewers.get(key) peers, sending aside_dismissed to each", () => {
+    // Setup: two peer WSes registered for the same session key.
+    const wsA = makeStubWs();
+    const wsB = makeStubWs();
+    const key = __sessionKeyForTests(42, "test-session-broadcast-1");
+    __activeViewersForTests.set(
+      key,
+      new Set<unknown>([wsA, wsB]) as Set<import("ws").WebSocket>,
+    );
+    __asideStateForTests.set(
+      wsA as unknown as import("ws").WebSocket,
+      { armed: false, displayed: true },
+    );
+    __asideStateForTests.set(
+      wsB as unknown as import("ws").WebSocket,
+      { armed: false, displayed: true },
+    );
+
+    __broadcastAsideDismissedForTests(key);
+
+    // Step (a): both peers received the dismiss frame.
+    expect(wsA._sent).toHaveLength(1);
+    expect(wsB._sent).toHaveLength(1);
+    expect(JSON.parse(wsA._sent[0])).toEqual({ type: "aside_dismissed" });
+    expect(JSON.parse(wsB._sent[0])).toEqual({ type: "aside_dismissed" });
+
+    // Step (b): both peers' asideState.displayed flipped to false — MANDATORY
+    // per CONTEXT.md § Backend per-connection state. Without this, the peer's
+    // overlap-ignore gate stays stuck on displayed:true and ASIDE-08 silently
+    // breaks across tabs.
+    expect(
+      __asideStateForTests.get(wsA as unknown as import("ws").WebSocket)?.displayed,
+    ).toBe(false);
+    expect(
+      __asideStateForTests.get(wsB as unknown as import("ws").WebSocket)?.displayed,
+    ).toBe(false);
+
+    // Cleanup so this test doesn't leak state into others.
+    __activeViewersForTests.delete(key);
+    __asideStateForTests.delete(wsA as unknown as import("ws").WebSocket);
+    __asideStateForTests.delete(wsB as unknown as import("ws").WebSocket);
+  });
+
+  it("is a no-op when the sessionKey has no peers registered", () => {
+    // Uses a fresh key that no test set up.
+    __broadcastAsideDismissedForTests(__sessionKeyForTests(999, "no-peers-here"));
+    // No throw = pass. No state to inspect.
+    expect(true).toBe(true);
+  });
+
+  it("skips peers whose readyState is not OPEN (does not send, does not flip)", () => {
+    const wsClosed = { readyState: 3 /* CLOSED */, _sent: [] as string[], send(f: string) { this._sent.push(f); } };
+    const wsOpen = makeStubWs();
+    const key = __sessionKeyForTests(43, "test-session-broadcast-2");
+    __activeViewersForTests.set(
+      key,
+      new Set<unknown>([wsClosed, wsOpen]) as Set<import("ws").WebSocket>,
+    );
+    __asideStateForTests.set(
+      wsClosed as unknown as import("ws").WebSocket,
+      { armed: false, displayed: true },
+    );
+    __asideStateForTests.set(
+      wsOpen as unknown as import("ws").WebSocket,
+      { armed: false, displayed: true },
+    );
+
+    __broadcastAsideDismissedForTests(key);
+
+    // Closed peer got nothing.
+    expect(wsClosed._sent).toHaveLength(0);
+    // Open peer got the frame.
+    expect(wsOpen._sent).toHaveLength(1);
+    // Open peer's displayed flipped; closed peer's did NOT (readyState guard
+    // short-circuits before the state flip — matches the plan spec's "if
+    // readyState !== OPEN continue" branch position).
+    expect(
+      __asideStateForTests.get(wsClosed as unknown as import("ws").WebSocket)?.displayed,
+    ).toBe(true);
+    expect(
+      __asideStateForTests.get(wsOpen as unknown as import("ws").WebSocket)?.displayed,
+    ).toBe(false);
+
+    __activeViewersForTests.delete(key);
+    __asideStateForTests.delete(wsClosed as unknown as import("ws").WebSocket);
+    __asideStateForTests.delete(wsOpen as unknown as import("ws").WebSocket);
   });
 });
 
