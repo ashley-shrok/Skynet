@@ -390,7 +390,9 @@ describe("ComposeBox — Phase 9 layout", () => {
 
   it("Phase 9 Layout: aux button group renders in a row that precedes the Send button's row", () => {
     render(<ComposeBox {...baseProps()} />);
-    const thumbsUp = screen.getByLabelText(/send 'yes'/i);
+    // Patch #14-04 test-fix: aria-label was renamed to "Send 'let's go'"
+    // (see ComposeBox.tsx around L1245); the regex needed refreshing.
+    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
     // Patch #129: selector updated per Test 7 rationale. The new inside-
     // textarea Send button lives in Row 2's textarea wrapper (line ~1250);
     // Row 1's aux-group (ThumbsUp) still precedes it in DOM order — the
@@ -449,7 +451,9 @@ describe("ComposeBox — Phase 9 layout", () => {
         })}
       />,
     );
-    const thumbsUp = screen.getByLabelText(/send 'yes'/i);
+    // Patch #14-04 test-fix: aria-label was renamed to "Send 'let's go'"
+    // (see ComposeBox.tsx around L1245); the regex needed refreshing.
+    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
     const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
     expect(row1).not.toBeNull();
     expect(row1!.className).toContain("min-h-8");
