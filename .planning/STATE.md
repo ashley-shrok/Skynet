@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-26T18:43:32.870Z"
+last_updated: "2026-07-26T18:57:13.937Z"
 last_activity: 2026-07-26
 progress:
   total_phases: 15
   completed_phases: 9
   total_plans: 59
-  completed_plans: 53
+  completed_plans: 54
   percent: 60
 ---
 
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 14 (plain-language-translation-asides) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-07-26
 
-Progress: [██████████] 95%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Progress: [██████████] 95%
 | Phase 14 P01 | 15min | 2 tasks | 2 files |
 | Phase 14 P02 | 13min | 2 tasks | 5 files |
 | Phase 14 P03 | 14min | 3 tasks | 6 files |
+| Phase 14 P04 | 7min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 14 Plan 03: handleAsideDismiss is two-step atomic — optimistic setAsideText(null) BEFORE WS-send + WS-send {type:'aside_dismissed', hostId, tmuxSession}; backend IGNORES msg.hostId/msg.tmuxSession for send-keys routing per T-14-02-01; idempotent on peer aside_dismissed re-receive
 - [Phase ?]: Phase 14 Plan 03: ComposeBoxProps interface extension (asideActive + onAsideDismiss) landed in Wave 3 per plan-checker W3 (interface-first split-wave ordering); ComposeBox body remains untouched (three negative-grep gates confirm); Wave 4 implements only body consumption
 - [Phase ?]: Phase 14 Plan 03: ChatMessage / ImageBubble / PlanPendingBubble / WipBubble bytes UNCHANGED — only PrettyView.tsx (+152 additive) and ComposeBox.tsx (+32 interface-only) modified; Ashley's pretty-view chat surface LOCKED invariant preserved
+- [Phase ?]: Phase 14 Plan 04: ComposeBox body morph consumes Wave 3 asideActive + onAsideDismiss props; 4 aux buttons extend disabled predicate with asideActive === true (reset/paperclip/thumbs-up/queue); interrupt button EXCLUDED per its pre-existing safety-valve invariant
+- [Phase ?]: Phase 14 Plan 04: Send button morph uses same-element-conditional-attribute pattern (SAME button element, branched attributes) NOT sibling render — preserves DOM identity across morph transition per PATTERNS.md L186-234
+- [Phase ?]: Phase 14 Plan 04: Textarea disabled predicate DELIBERATELY NOT extended with asideActive — partial draft preserved during aside window per CONTEXT.md ComposeBox morph lock; source-level enforced via negative-grep, runtime enforced via Task 1 Test 6
+- [Phase ?]: Phase 14 Plan 04: Absorbed 2 pre-existing ComposeBox.test.tsx failures per deferred-items.md 'Wave 4 is the natural touchpoint' — stale aria-label regex refresh in commit 49bc643; ComposeBox.test.tsx 20/20 pass, full pretty-view suite 134/134
 
 ### Pending Todos
 
@@ -192,6 +197,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T18:42:28.342Z
+Last session: 2026-07-26T18:56:30.225Z
 Stopped at: Phase 10 Wave 5 complete — Phase 10 (pretty-conversations visual-language rework) is now code-complete-pending-deploy on `feat/tab-title-from-tmux`, batched with #123-#127 stack pending Ashley's morning greenlight. Wave 5 shipped 3 docs deliverables + 1 SUMMARY + STATE.md update in one atomic commit: (1) `10-BUILD-VERIFY-LOG.md` — tsc-clean, vitest 499/503 (4 pre-existing ComposeBox failures unchanged from Wave 4, documented in deferred-items.md), `npm run build` succeeds in 13.60s, AppShell bundle delta vs Phase 7 baseline +5,288 bytes for the new pretty-conversations component tree; (2) `10-UAT-CHECKLIST.md` — 19 non-negotiable items across Desktop (7) + Mobile iPhone (8) + Cross-viewport regression (4) + 3 polish items + failure route-back table + post-UAT deploy runbook (updated for the post-2026-07-21 no-deadman regime per user directive); (3) `10-PATCHES-MD-ENTRY.md` — paste-ready patch #128 draft in Tina's multi-commit-under-one-pin format (patches #104/#105 precedent) covering all 16 Wave 1-4 commits + Wave 5 SHA fill-in placeholder. Phase 10 landed 15 waves-worth of code across 5 waves: Wave 1 (foundation — PrettyConversationRow + PinAction + tokens, 12/12 tests), Wave 2 (PrettyConversationsPanel, 15/15 tests), Wave 3 (AppShell cutover + persistent top-left chevron toggle + narrow-window thin-strip retired — fixes Ashley's small-window sidebar-affordance regression), Wave 4 (3 retired sidebar files deleted, F3-diag fully retired, Test 1 pruned), Wave 5 (this docs commit). Ready state: Ashley walks the UAT checklist post-deploy on desktop + iPhone; if PASS, paste the patches-md draft into ~/.claude/identities/tina/skynet-patches.md at ordinal #128 (bump count from ONE HUNDRED TWENTY-SEVEN → ONE HUNDRED TWENTY-EIGHT), commit the pin, `/close pretty-conversations-panel-redesign`. Follow-up bookkeeping unchanged: 4 pre-existing ComposeBox test failures (patch #121 stale Send-button refs + patch #124 stale ThumbsUp aria-label refs) still awaiting a Phase 11 test-hygiene sweep OR companion quick task.
 Resume file: None

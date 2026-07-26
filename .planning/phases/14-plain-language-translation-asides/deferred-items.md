@@ -22,3 +22,11 @@ file and can absorb the fix.
 
 **Not fixed here** per executor scope-boundary rule (only auto-fix issues
 DIRECTLY caused by the current task's changes).
+
+**RESOLVED 2026-07-26 during Wave 4 execution:** absorbed into commit
+`49bc643` (`fix(14-04): update stale ComposeBox test aria-label regex —
+'send yes' → 'send let's go'`). Both failing tests used
+`getByLabelText(/send 'yes'/i)` but the actual button aria-label is
+"Send 'let's go'" (see ComposeBox.tsx around L1245). Regex refreshed
+in-place; ComposeBox.test.tsx now 20/20 pass, full pretty-view suite
+134/134. Zero behavior change to production ComposeBox.tsx.
