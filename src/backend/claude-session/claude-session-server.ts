@@ -2054,7 +2054,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
           }
 
           // Stable: same output as last capture, marker present.
-          sshLogger.info("aside poll diag: stable-extracting", { len: output.length });
+          sshLogger.info("aside poll diag: stable-extracting", {
+            len: output.length,
+            outputTail: output.slice(-400),
+          });
           const text = extractBtwAnswer(output, ASIDE_END_MARKER);
           if (text === null) {
             // Degenerate — marker + no /btw echo. Disarm; swallow.
@@ -2066,26 +2069,34 @@ wss.on("connection", async (ws: WebSocket, req) => {
             return;
           }
 
-          // Completion guard (Ashley 2026-07-26 UAT). The stability check
-          // (`lastStableCapture !== output`) alone false-positives when
-          // Claude Code's spinner sits byte-identical across a 300ms poll
-          // window — animation lull or spinner frames refreshing slower
-          // than 2Hz. Extracted-glyph enumeration was fragile (Claude
-          // cycles through ~10 dingbat asterisks: ✻ ✢ ✳ …).
+          // Still-working guards (Ashley 2026-07-26 UAT, iterating).
+          // The stability check (`lastStableCapture !== output`) alone
+          // false-positives when Claude Code's spinner sits byte-
+          // identical across a 300ms poll window. Two independent
+          // signals, either triggers a "still working" reset — belt
+          // AND suspenders because the /btw overlay layout evolves
+          // across Claude Code versions:
           //
-          // Instead detect the DONE signal positively: Claude Code shows
-          // `f to fork` in the /btw overlay footer ONLY when the answer
-          // is complete. Absent → still working, reset stability and
-          // keep polling. Present → real answer, safe to extract + emit.
-          // Do NOT disarm — the /btw is still valid, we're just waiting.
+          //   1. NEGATIVE: extracted text ends in horizontal ellipsis `…`.
+          //      Every Claude spinner variant is `<glyph> <Verb>…` — the
+          //      universal suffix. Real /btw answers end with normal
+          //      punctuation. Rejects `✻ Answering…`, `✢ Answering…`,
+          //      `✶ Answering…`, `✳ Cerebrating…`, etc. — no glyph
+          //      enumeration needed.
+          //   2. POSITIVE: raw pane output must contain `f to fork`.
+          //      Ashley's UAT-derived done signal — /btw overlay footer
+          //      shows `f to fork` when answer is complete. If wrong on
+          //      this iteration (raw dump will confirm), the ellipsis
+          //      check above still catches it.
           //
-          // Notes on other candidate signals (ruled out):
-          //   - `esc to close`: shown in BOTH working and done states.
-          //   - `esc to interrupt`: not present in the compact /btw
-          //      overlay layout at all in Claude Code v2.1.150+.
-          if (!/f to fork/i.test(output)) {
-            sshLogger.info("aside poll diag: no 'f to fork' → still working", {
+          // Reset lastStableCapture so the NEXT real-quiescence pair of
+          // polls re-establishes stability on the finished answer.
+          // Do NOT disarm — the /btw is still valid.
+          if (/…\s*$/.test(text) || !/f to fork/i.test(output)) {
+            sshLogger.info("aside poll diag: still-working → reset stability", {
               textPreview: text.slice(0, 80),
+              endsWithEllipsis: /…\s*$/.test(text),
+              hasFToFork: /f to fork/i.test(output),
             });
             lastStableCapture = null;
             hadMarkerLastCapture = true;
