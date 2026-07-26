@@ -2068,20 +2068,35 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
           // Still-working guard (2026-07-26). The stability check
           // (`lastStableCapture !== output`) only compares two consecutive
-          // 300ms polls. If Claude Code's spinner (`✻ Answering…`,
-          // `✻ Cerebrating…`, etc.) happens to be byte-identical across
-          // a single 300ms window — animation lull, network stall, or
-          // the spinner refresh rate lower than 2Hz — the poller
-          // false-positive "stable" and extracts the spinner text as
-          // the answer (Ashley UAT 2026-07-26: got a bubble with just
-          // `"✻ Answering…"`). Guard: reject any extract still
-          // containing Claude's working indicators. Reset lastStableCapture
-          // so the NEXT real-quiescence pair of polls re-establishes
-          // stability on the finished answer. Do NOT disarm — the /btw
-          // is still valid, we're just waiting for Claude to finish.
-          if (/✻|esc to interrupt/i.test(text)) {
+          // 300ms polls. If Claude Code's spinner happens to be byte-
+          // identical across a single 300ms window — animation lull,
+          // network stall, or the spinner refresh rate lower than 2Hz
+          // — the poller false-positive "stable" and extracts the
+          // spinner text as the answer. Ashley UAT 2026-07-26 hit this
+          // twice: first with `"✻ Answering…"` (U+273B), then after
+          // a fix targeting only `✻` with `"✢ Answering…"` (U+2722).
+          // Claude Code cycles through the whole dingbat-asterisk block.
+          // Guard three overlapping signals, each independent:
+          //   1. Any char in the dingbat asterisks/stars block
+          //      (U+2722-U+274F: ✢✣...❄❅❆❇❈❉❊❋❌❍❎❏) — Claude's
+          //      spinner frames. Real answers do not use these glyphs.
+          //   2. `esc to interrupt` — Claude Code's status line, always
+          //      visible while working. Case-insensitive safety net.
+          //   3. Text ending in horizontal ellipsis `…` (U+2026) — the
+          //      universal spinner-verb suffix (`Answering…`,
+          //      `Cerebrating…`, etc.). Real /btw answers end with a
+          //      period, question mark, or normal punctuation.
+          // Reset lastStableCapture so the NEXT real-quiescence pair
+          // of polls re-establishes stability on the finished answer.
+          // Do NOT disarm — the /btw is still valid, we're just
+          // waiting for Claude to finish.
+          if (
+            /[✢-❏]/.test(text) ||
+            /esc to interrupt/i.test(text) ||
+            /…\s*$/.test(text)
+          ) {
             sshLogger.info("aside poll diag: still-working → reset stability", {
-              textPreview: text.slice(0, 60),
+              textPreview: text.slice(0, 80),
             });
             lastStableCapture = null;
             hadMarkerLastCapture = true;
