@@ -277,7 +277,17 @@ export function extractBtwAnswer(
 //   `armed`: /btw has been injected on this WS, poller should scrape.
 //   `displayed`: an aside is currently rendered on this WS (own render OR
 //                broadcast render from another tab's arm on the same session).
-const asideState = new Map<
+//
+// Phase 14 Plan 05 Task 1: `export` added so Wave 5's integration test
+// suite can inspect the source-of-truth Map directly (`import { asideState }`)
+// to assert cross-tab peer-state-flip coherence — the atomic BOTH-STEPS
+// rule from CONTEXT.md § Backend per-connection state LOCK. This is a
+// legitimate observation seam, NOT a test-only export: the Map IS the
+// source of truth per the CONTEXT lock, and observing it is the same
+// posture as any other exported module constant. The pre-existing
+// `__asideStateForTests` alias (below) is preserved for backward
+// compatibility with Wave 2's structural tests.
+export const asideState = new Map<
   import("ws").WebSocket,
   { armed: boolean; displayed: boolean }
 >();
