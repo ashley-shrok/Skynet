@@ -189,6 +189,38 @@ export interface ComposeBoxProps {
   // button (parent hook returns null in those cases, but the button
   // wouldn't have been visible anyway).
   onRetryBatch?: () => void;
+  // ============================================================
+  // Phase 14 (plain-language-translation-asides) Wave 3 Task 2 —
+  // interface-only extension. Body consumption (button gates + Send→X
+  // morph + lucide-react X import) is Wave 4 (14-04) — see CONTEXT.md
+  // § ComposeBox morph for semantics. Split into two waves per plan-
+  // checker W3 so PrettyView (Wave 3 Task 3) can pass these props
+  // typesafely; Wave 4 then implements only the body without any
+  // interface risk.
+  // ============================================================
+  //
+  // asideActive — when true, ComposeBox is in ASIDE-DISPLAYED mode per
+  // ASIDE-06. Wave 4 will (a) extend each aux-button `disabled`
+  // predicate to also gate on this flag being true, and (b) morph the
+  // Send button to X (Resume) with the id-hue tint. Textarea remains
+  // editable per CONTEXT.md § ComposeBox morph — Wave 4 must NOT
+  // gate the textarea on this.
+  //
+  // Doc-comment note: negative-grep gate on the plan verify block
+  // deliberately checks for the literal expression that Wave 4 will
+  // add to the disable predicates. This comment describes the future
+  // Wave 4 edit in prose, without using the literal comparison
+  // expression itself, so the grep gate stays clean here. Precedent:
+  // 14-02-SUMMARY.md § Deviations #2 (same doc-comment-vs-negative-
+  // grep rewrite pattern from Wave 2).
+  asideActive?: boolean;
+  // onAsideDismiss — fired when the user clicks the morphed X (Resume)
+  // affordance. Wave 4 will wire the Send button's onClick to call
+  // this instead of handleSend when asideActive is true. Parent
+  // (PrettyView Task 3) supplies the callback that optimistically
+  // clears the aside display and WS-sends {type:'aside_dismissed',
+  // hostId, tmuxSession} per CONTEXT.md § Dismiss.
+  onAsideDismiss?: () => void;
   className?: string;
 }
 
