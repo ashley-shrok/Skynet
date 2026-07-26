@@ -191,6 +191,68 @@ async function sendEscapeToBtw(
   }
 }
 
+/**
+ * extractBtwAnswer — pure string function that extracts the /btw answer
+ * text from a raw tmux capture-pane output snapshot.
+ *
+ * Input:
+ *   paneOutput: raw multi-line output from `tmux capture-pane -p -S -200`
+ *   marker:     the end-of-answer substring (typically ASIDE_END_MARKER,
+ *               i.e. "Esc to close")
+ *
+ * Behavior contract (validated by claude-session-server.aside.test.ts
+ * cases A-E; per 14-01-PLAN.md Task 2 <behavior>):
+ *
+ *   A. marker absent            → null   (answer still streaming)
+ *   B. single-line answer       → the trimmed text between /btw echo + marker
+ *   C. multi-line with scrollback → last-occurrence anchors on BOTH the marker
+ *      AND the /btw echo pick the CURRENT invocation, not any prior BTW echo
+ *      still visible in scrollback (ASIDE-04 scrollback-recovery requirement)
+ *   D. marker present but no /btw echo → null (malformed; do not emit garbage
+ *      to the frontend — Wave 3 renders this string into React and we do not
+ *      want a false-positive aside from parsing noise)
+ *   E. marker + /btw echo + zero lines between → "" (degenerate valid case;
+ *      Wave 2's poll-stability guard filters these — the extractor itself
+ *      does not judge)
+ *
+ * The `/^\s*(>\s*)?\/btw\b/` regex allows for tmux prompt prefixes like
+ * `> ` that Claude Code renders before the echoed slash-command. The `\b`
+ * word-boundary prevents matching random lines that happen to contain
+ * `/btw` as a substring (e.g. a URL or a file path).
+ */
+export function extractBtwAnswer(
+  paneOutput: string,
+  marker: string,
+): string | null {
+  const lines = paneOutput.split("\n");
+
+  // (2) Find the LAST index containing the marker substring.
+  let endIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes(marker)) {
+      endIdx = i;
+      break;
+    }
+  }
+  if (endIdx === -1) return null; // CASE A
+
+  // (3) Find the LAST index BEFORE endIdx that matches the /btw echo pattern.
+  //     Allow optional tmux prompt prefix (e.g. `> `).
+  const btwEchoRe = /^\s*(>\s*)?\/btw\b/;
+  let startIdx = -1;
+  for (let i = endIdx - 1; i >= 0; i--) {
+    if (btwEchoRe.test(lines[i])) {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx === -1) return null; // CASE D
+
+  // (5) Slice between the two anchors (exclusive of both), join, trim.
+  //     May return "" for CASE E (valid degenerate).
+  return lines.slice(startIdx + 1, endIdx).join("\n").trim();
+}
+
 // Wave 2 (14-02) will consume injectBtw + sendEscapeToBtw. Silence
 // unused-symbol warnings until then via a void reference in a no-op
 // compile-time constant — this keeps the primitives named + testable
