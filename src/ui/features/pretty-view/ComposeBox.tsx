@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Hourglass, Paperclip, RefreshCw, RotateCcw, Square, ThumbsUp } from "lucide-react";
+import { Hourglass, Paperclip, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -1453,17 +1453,34 @@ export function ComposeBox({
             handleSend() at line ~652 (attachment branching, D-50
             newline collapse, COMPOSE-04 clear-on-success — nothing
             duplicated). */}
+        {/* Phase 14 Wave 4 (Task 2): SAME BUTTON, branched attributes.
+            When asideActive=true the button morphs to a Resume affordance —
+            X icon + identity-hue color + onClick fires onAsideDismiss?.()
+            instead of handleSend(). Per PATTERNS.md L186-234, we morph in
+            place (same <button> element) so DOM identity is preserved
+            across the morph transition — focus, keyboard tab order, and
+            parent-CSS selectors don't blink. Do NOT split into two sibling
+            buttons; do NOT wrap in a conditional-render component. */}
         <button
           type="button"
-          onClick={() => { if (!sendDisabled) handleSend(); }}
-          disabled={sendDisabled}
-          aria-label="Send"
-          title="Send"
+          onClick={() => {
+            if (asideActive) { onAsideDismiss?.(); return; }
+            if (!sendDisabled) handleSend();
+          }}
+          disabled={asideActive ? false : sendDisabled}
+          aria-label={asideActive ? "Resume" : "Send"}
+          title={asideActive ? "Resume" : "Send"}
           className={cn(
             "absolute right-1 bottom-0.5",
             "p-2",
-            "text-[rgba(240,235,224,0.3)]",
-            "hover:text-[rgba(240,235,224,0.9)]",
+            // Phase 14 Wave 4 (Task 2): identity-hue color when morphed so
+            // the X visually distinguishes from Send (Ashley 2026-07-26:
+            // "Style change to visually distinguish from send" per
+            // CONTEXT.md § ComposeBox morph). All other positional /
+            // transition classes preserved.
+            asideActive
+              ? "text-[hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-id-hue),95%,82%,1)]"
+              : "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
             "disabled:text-[rgba(240,235,224,0.15)]",
             "disabled:cursor-not-allowed",
             "transition-[color,transform] duration-120",
@@ -1471,20 +1488,29 @@ export function ComposeBox({
             "cursor-pointer",
           )}
         >
-          {/* Raw inline SVG — verbatim from Ashley's DevTools console
-              snippet 2026-07-23. Single path (paper-plane silhouette
-              pointing up-and-right), pure fill, NO stroke, NO fold
-              line. Do NOT swap for lucide's SendHorizontal — that's a
-              different icon (patch #130 write-up). */}
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-          </svg>
+          {asideActive ? (
+            /* Phase 14 Wave 4 (Task 2): lucide X sized to match the
+                paper-plane's 24×24 slot. strokeWidth=2.25 keeps the
+                mark visually heavy enough at 24px to read as a
+                dismiss glyph without overpowering the neon aside
+                bubble above. */
+            <X className="size-6" strokeWidth={2.25} aria-hidden="true" />
+          ) : (
+            /* Raw inline SVG — verbatim from Ashley's DevTools console
+                snippet 2026-07-23. Single path (paper-plane silhouette
+                pointing up-and-right), pure fill, NO stroke, NO fold
+                line. Do NOT swap for lucide's SendHorizontal — that's a
+                different icon (patch #130 write-up). */
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+            </svg>
+          )}
         </button>
         </div>
       </div>
