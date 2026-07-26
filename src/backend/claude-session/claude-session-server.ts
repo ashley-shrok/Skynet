@@ -153,9 +153,22 @@ async function injectBtw(
   tmuxSession: string,
 ): Promise<void> {
   try {
+    // Patch #152 (2026-07-26): Send BTW_PROMPT text and the Enter keystroke
+    // as TWO separate tmux send-keys invocations with a 200ms gap. In one
+    // call, Claude Code v2.1.150's Ink-based REPL treats the ~300-char
+    // BTW_PROMPT burst as a paste and absorbs the trailing Enter into the
+    // paste buffer — /btw overlay never opens. Two calls + delay lets the
+    // paste buffer flush before Enter arrives as a distinct keystroke.
+    // See ~/.claude/identities/tina/bounties/aside-btw-enter-not-submitting/
+    // for the live reproduction + fix verification against v2.1.150.
     await execCommand(
       conn,
-      `tmux send-keys -t ${shellQuote(tmuxSession)} ${shellQuote(BTW_PROMPT)} Enter`,
+      `tmux send-keys -t ${shellQuote(tmuxSession)} ${shellQuote(BTW_PROMPT)}`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await execCommand(
+      conn,
+      `tmux send-keys -t ${shellQuote(tmuxSession)} Enter`,
     );
   } catch (err) {
     sshLogger.info("aside injectBtw failed", {
@@ -165,6 +178,11 @@ async function injectBtw(
     });
   }
 }
+
+// Test-only re-export of injectBtw. Same underscore-prefix convention as
+// __asideShellQuoteForTests — internal seam so the vitest suite can assert
+// the two-call shape locked by Patch #152. NOT for production callers.
+export const __injectBtwForTests = injectBtw;
 
 /**
  * sendEscapeToBtw — send Escape into the identity's tmux pane to close the

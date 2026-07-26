@@ -353,19 +353,21 @@ describe("Phase 14 Patch #152 — injectBtw two-call shape (Claude Code v2.1.150
     const cmd1 = vi.mocked(execCommand).mock.calls[0][1] as string;
     const cmd2 = vi.mocked(execCommand).mock.calls[1][1] as string;
 
-    // Call #1: contains send-keys, the shellQuote-wrapped tmux target, and BTW_PROMPT.
-    // Must NOT contain the trailing " Enter" token.
+    // Call #1: contains send-keys, the shellQuote-wrapped tmux target, and
+    // the shellQuote-wrapped BTW_PROMPT payload. Must NOT end with " Enter".
+    // Note: BTW_PROMPT is shell-quoted by injectBtw, so we compare against
+    // the quoted form via __asideShellQuoteForTests (same function, same output).
     expect(cmd1).toContain("send-keys");
     expect(cmd1).toContain("-t 'test-session'");
-    expect(cmd1).toContain(BTW_PROMPT);
+    expect(cmd1).toContain(__asideShellQuoteForTests(BTW_PROMPT));
     expect(cmd1).not.toMatch(/\sEnter\s*$/);
 
     // Call #2: contains send-keys and the shellQuote-wrapped tmux target.
-    // Must end with " Enter" and must NOT contain BTW_PROMPT.
+    // Must end with " Enter" and must NOT contain BTW_PROMPT (even in quoted form).
     expect(cmd2).toContain("send-keys");
     expect(cmd2).toContain("-t 'test-session'");
     expect(cmd2).toMatch(/\sEnter\s*$/);
-    expect(cmd2).not.toContain(BTW_PROMPT);
+    expect(cmd2).not.toContain(__asideShellQuoteForTests(BTW_PROMPT));
   });
 
   it("Test 2: 200ms delay is enforced between call #1 and call #2 (fake-timers gate)", async () => {
