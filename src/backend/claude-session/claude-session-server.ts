@@ -2066,36 +2066,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
             return;
           }
 
-          // Still-working guard (2026-07-26). The stability check
-          // (`lastStableCapture !== output`) only compares two consecutive
-          // 300ms polls. If Claude Code's spinner happens to be byte-
-          // identical across a single 300ms window — animation lull,
-          // network stall, or the spinner refresh rate lower than 2Hz
-          // — the poller false-positive "stable" and extracts the
-          // spinner text as the answer. Ashley UAT 2026-07-26 hit this
-          // twice: first with `"✻ Answering…"` (U+273B), then after
-          // a fix targeting only `✻` with `"✢ Answering…"` (U+2722).
-          // Claude Code cycles through the whole dingbat-asterisk block.
-          // Guard three overlapping signals, each independent:
-          //   1. Any char in the dingbat asterisks/stars block
-          //      (U+2722-U+274F: ✢✣...❄❅❆❇❈❉❊❋❌❍❎❏) — Claude's
-          //      spinner frames. Real answers do not use these glyphs.
-          //   2. `esc to interrupt` — Claude Code's status line, always
-          //      visible while working. Case-insensitive safety net.
-          //   3. Text ending in horizontal ellipsis `…` (U+2026) — the
-          //      universal spinner-verb suffix (`Answering…`,
-          //      `Cerebrating…`, etc.). Real /btw answers end with a
-          //      period, question mark, or normal punctuation.
-          // Reset lastStableCapture so the NEXT real-quiescence pair
-          // of polls re-establishes stability on the finished answer.
-          // Do NOT disarm — the /btw is still valid, we're just
-          // waiting for Claude to finish.
-          if (
-            /[✢-❏]/.test(text) ||
-            /esc to interrupt/i.test(text) ||
-            /…\s*$/.test(text)
-          ) {
-            sshLogger.info("aside poll diag: still-working → reset stability", {
+          // Completion guard (Ashley 2026-07-26 UAT). The stability check
+          // (`lastStableCapture !== output`) alone false-positives when
+          // Claude Code's spinner sits byte-identical across a 300ms poll
+          // window — animation lull or spinner frames refreshing slower
+          // than 2Hz. Extracted-glyph enumeration was fragile (Claude
+          // cycles through ~10 dingbat asterisks: ✻ ✢ ✳ …).
+          //
+          // Instead detect the DONE signal positively: Claude Code shows
+          // `f to fork` in the /btw overlay footer ONLY when the answer
+          // is complete. Absent → still working, reset stability and
+          // keep polling. Present → real answer, safe to extract + emit.
+          // Do NOT disarm — the /btw is still valid, we're just waiting.
+          //
+          // Notes on other candidate signals (ruled out):
+          //   - `esc to close`: shown in BOTH working and done states.
+          //   - `esc to interrupt`: not present in the compact /btw
+          //      overlay layout at all in Claude Code v2.1.150+.
+          if (!/f to fork/i.test(output)) {
+            sshLogger.info("aside poll diag: no 'f to fork' → still working", {
               textPreview: text.slice(0, 80),
             });
             lastStableCapture = null;
