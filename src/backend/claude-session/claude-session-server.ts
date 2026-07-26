@@ -2069,34 +2069,31 @@ wss.on("connection", async (ws: WebSocket, req) => {
             return;
           }
 
-          // Still-working guards (Ashley 2026-07-26 UAT, iterating).
+          // Still-working guard (Ashley 2026-07-26 UAT, iterating).
           // The stability check (`lastStableCapture !== output`) alone
           // false-positives when Claude Code's spinner sits byte-
-          // identical across a 300ms poll window. Two independent
-          // signals, either triggers a "still working" reset — belt
-          // AND suspenders because the /btw overlay layout evolves
-          // across Claude Code versions:
+          // identical across a 300ms poll window.
           //
-          //   1. NEGATIVE: extracted text ends in horizontal ellipsis `…`.
-          //      Every Claude spinner variant is `<glyph> <Verb>…` — the
-          //      universal suffix. Real /btw answers end with normal
-          //      punctuation. Rejects `✻ Answering…`, `✢ Answering…`,
-          //      `✶ Answering…`, `✳ Cerebrating…`, etc. — no glyph
-          //      enumeration needed.
-          //   2. POSITIVE: raw pane output must contain `f to fork`.
-          //      Ashley's UAT-derived done signal — /btw overlay footer
-          //      shows `f to fork` when answer is complete. If wrong on
-          //      this iteration (raw dump will confirm), the ellipsis
-          //      check above still catches it.
+          // Guard: reject any extract ending in horizontal ellipsis `…`
+          // (U+2026). Every Claude spinner variant is `<glyph> <Verb>…`
+          // — universal suffix regardless of the ~10 dingbat asterisks
+          // Claude cycles through (✻ ✢ ✶ ✳ etc.). Real /btw answers
+          // end with normal punctuation.
+          //
+          // Ruled-out alternatives:
+          //   - `esc to close`: shown in BOTH working and done states.
+          //   - `esc to interrupt`: not present in the compact /btw
+          //      overlay layout in Claude Code v2.1.150+.
+          //   - `f to fork` in raw pane: false-positive from scrollback
+          //      containing prior completed overlays (capture-pane -S -200
+          //      includes 200 lines of scrollback).
           //
           // Reset lastStableCapture so the NEXT real-quiescence pair of
           // polls re-establishes stability on the finished answer.
           // Do NOT disarm — the /btw is still valid.
-          if (/…\s*$/.test(text) || !/f to fork/i.test(output)) {
+          if (/…\s*$/.test(text)) {
             sshLogger.info("aside poll diag: still-working → reset stability", {
               textPreview: text.slice(0, 80),
-              endsWithEllipsis: /…\s*$/.test(text),
-              hasFToFork: /f to fork/i.test(output),
             });
             lastStableCapture = null;
             hadMarkerLastCapture = true;
