@@ -517,7 +517,7 @@ Plans:
   6. When a pretty-view tab is closed while its aside is still displayed, the tmux BTW overlay stays open on the identity's tmux (no cleanup); when any pretty-view for that same session subsequently mounts (any tab, same or new browser session), the backend pane-probes the tmux and re-renders the aside in the same displayed state if the overlay is still open
   7. The feature works in production without regressing any existing pretty-view, ComposeBox, terminal, RDP, VNC, message-queue, identity, session-list, upload, or fleet-discovery behavior — all existing pretty-view WS event contracts remain backward-compatible, and no aside-related backend state persists across restarts (backend rediscovers by pane-probing on next event)
 
-**Plans:** 2/6 plans executed
+**Plans:** 3/6 plans executed
 
 **Wave 1**
 
@@ -529,7 +529,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 — consumes WS types)*
 
-- [ ] 14-03-PLAN.md — Frontend AsideBubble component + PrettyView mount + asideText state + WS handlers + fresh-pane reset + ComposeBox prop plumbing stub (ASIDE-05, ASIDE-09)
+- [x] 14-03-PLAN.md — Frontend AsideBubble component + PrettyView mount + asideText state + WS handlers + fresh-pane reset + ComposeBox prop plumbing stub (ASIDE-05, ASIDE-09)
 
 **Wave 4** *(blocked on Wave 3 — consumes asideActive + onAsideDismiss props)*
 

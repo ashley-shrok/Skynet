@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-26T18:22:36.662Z"
+last_updated: "2026-07-26T18:43:32.870Z"
 last_activity: 2026-07-26
 progress:
   total_phases: 15
   completed_phases: 9
   total_plans: 59
-  completed_plans: 52
+  completed_plans: 53
   percent: 60
 ---
 
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 14 (plain-language-translation-asides) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-07-26
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [█████████░] 93%
 | Phase 10 P05 | 5min | 3 tasks | 4 files (3 docs created + 1 SUMMARY + STATE.md updated) |
 | Phase 14 P01 | 15min | 2 tasks | 2 files |
 | Phase 14 P02 | 13min | 2 tasks | 5 files |
+| Phase 14 P03 | 14min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,13 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 14 Plan 02: broadcastAsideDismissed atomic BOTH-STEPS — one function that (a) sends dismiss frame to each peer AND (b) flips each peer's asideState.displayed=false; partial-update races impossible by construction
 - [Phase ?]: Phase 14 Plan 02: T-14-02-01 mitigation — aside_dismissed dispatch IGNORES client-supplied msg.hostId/msg.tmuxSession for send-keys routing; uses connection-scoped currentHostId/currentTmuxSession only (forecloses client spoofing dismiss for a session it doesn't own)
 - [Phase ?]: Phase 14 Plan 02: Connect-time re-attach probe runs INDEPENDENT of activeViewers.size (per plan-checker W7); emits aside_ready to THIS client only (no peer broadcast on probe to avoid double-fire races)
+- [Phase ?]: Phase 14 Plan 03: AsideBubble is a NEW sibling of ChatMessage/ImageBubble/PlanPendingBubble/WipBubble — copies class strings VERBATIM from ChatMessage L124 rather than importing; stands alone
+- [Phase ?]: Phase 14 Plan 03: AsideBubble aesthetic locked per CONTEXT.md § Rendering + aside-visual-snippet.js (10px opaque hue border + three-layer neon glow at 12/32/64px alphas 0.7/0.5/0.3); prop-driven glow multiplier and borderWidthPx are seams for future dial-back
+- [Phase ?]: Phase 14 Plan 03: PrettyView emits {type:'aside_arm'} on isIdle:false→true when pvIdentity != null && wsRef.OPEN — SOLE trigger source per CONTEXT.md § Trigger LOCK 2026-07-26 (frontend-arm architecture); backend does NOT observe terminal WSS idle frame; identity gating happens frontend-side per ASIDE-02
+- [Phase ?]: Phase 14 Plan 03: prevIsIdleRef initialized to CURRENT isIdle prop — mount-with-idle-already-true does NOT arm on first paint; only REAL prev===false && isIdle===true transitions arm (excludes prev===undefined initial mount and prev===null unknown-loading state)
+- [Phase ?]: Phase 14 Plan 03: handleAsideDismiss is two-step atomic — optimistic setAsideText(null) BEFORE WS-send + WS-send {type:'aside_dismissed', hostId, tmuxSession}; backend IGNORES msg.hostId/msg.tmuxSession for send-keys routing per T-14-02-01; idempotent on peer aside_dismissed re-receive
+- [Phase ?]: Phase 14 Plan 03: ComposeBoxProps interface extension (asideActive + onAsideDismiss) landed in Wave 3 per plan-checker W3 (interface-first split-wave ordering); ComposeBox body remains untouched (three negative-grep gates confirm); Wave 4 implements only body consumption
+- [Phase ?]: Phase 14 Plan 03: ChatMessage / ImageBubble / PlanPendingBubble / WipBubble bytes UNCHANGED — only PrettyView.tsx (+152 additive) and ComposeBox.tsx (+32 interface-only) modified; Ashley's pretty-view chat surface LOCKED invariant preserved
 
 ### Pending Todos
 
@@ -184,6 +192,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T18:21:57.825Z
+Last session: 2026-07-26T18:42:28.342Z
 Stopped at: Phase 10 Wave 5 complete — Phase 10 (pretty-conversations visual-language rework) is now code-complete-pending-deploy on `feat/tab-title-from-tmux`, batched with #123-#127 stack pending Ashley's morning greenlight. Wave 5 shipped 3 docs deliverables + 1 SUMMARY + STATE.md update in one atomic commit: (1) `10-BUILD-VERIFY-LOG.md` — tsc-clean, vitest 499/503 (4 pre-existing ComposeBox failures unchanged from Wave 4, documented in deferred-items.md), `npm run build` succeeds in 13.60s, AppShell bundle delta vs Phase 7 baseline +5,288 bytes for the new pretty-conversations component tree; (2) `10-UAT-CHECKLIST.md` — 19 non-negotiable items across Desktop (7) + Mobile iPhone (8) + Cross-viewport regression (4) + 3 polish items + failure route-back table + post-UAT deploy runbook (updated for the post-2026-07-21 no-deadman regime per user directive); (3) `10-PATCHES-MD-ENTRY.md` — paste-ready patch #128 draft in Tina's multi-commit-under-one-pin format (patches #104/#105 precedent) covering all 16 Wave 1-4 commits + Wave 5 SHA fill-in placeholder. Phase 10 landed 15 waves-worth of code across 5 waves: Wave 1 (foundation — PrettyConversationRow + PinAction + tokens, 12/12 tests), Wave 2 (PrettyConversationsPanel, 15/15 tests), Wave 3 (AppShell cutover + persistent top-left chevron toggle + narrow-window thin-strip retired — fixes Ashley's small-window sidebar-affordance regression), Wave 4 (3 retired sidebar files deleted, F3-diag fully retired, Test 1 pruned), Wave 5 (this docs commit). Ready state: Ashley walks the UAT checklist post-deploy on desktop + iPhone; if PASS, paste the patches-md draft into ~/.claude/identities/tina/skynet-patches.md at ordinal #128 (bump count from ONE HUNDRED TWENTY-SEVEN → ONE HUNDRED TWENTY-EIGHT), commit the pin, `/close pretty-conversations-panel-redesign`. Follow-up bookkeeping unchanged: 4 pre-existing ComposeBox test failures (patch #121 stale Send-button refs + patch #124 stale ThumbsUp aria-label refs) still awaiting a Phase 11 test-hygiene sweep OR companion quick task.
 Resume file: None
