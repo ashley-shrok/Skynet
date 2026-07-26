@@ -310,6 +310,21 @@ export function PrettyView({
   // creating a dismiss→arm→dismiss loop. 8s covers the ~4-5s
   // dismiss→settle→isIdle=true path with safety margin.
   const dismissCooldownUntilRef = useRef<number>(0);
+
+  // Phase 14 followup (Ashley 2026-07-26): full aside-surface reset for
+  // session-changeover paths. Extends clearAsidePending with the two
+  // pieces the pending-only clear misses — the displayed asideText and
+  // the 8s dismissCooldownUntilRef. Called from both changeover paths
+  // (paneKey change and session_changed WS event) so a new pane or
+  // recycled session starts with a genuinely blank aside surface. Safe
+  // even if the new pane's tmux has a live BTW overlay: the backend's
+  // connect-time re-attach probe (ASIDE-09) re-emits aside_ready.
+  const clearAsideState = useCallback(() => {
+    setAsideText(null);
+    clearAsidePending();
+    dismissCooldownUntilRef.current = 0;
+  }, [clearAsidePending]);
+
   const handleAsideDismiss = useCallback(() => {
     setAsideText(null);
     // Phase 14 quick-task 260726-vbd: clear the pending flag and 60s timer
@@ -475,18 +490,11 @@ export function PrettyView({
       setPlanPending(null);
       setIsHolding(false);
       setShowOverlay(false);
-      // Phase 14 Wave 3: fresh-pane mount must clear any aside carried
-      // over from the prior pane. The backend's connect-time re-attach
-      // probe (ASIDE-09) will re-emit `aside_ready` if the NEW pane's
-      // tmux still has an open BTW overlay — so this reset is safe.
-      setAsideText(null);
-      // Phase 14 quick-task 260726-vbd: also clear asidePending + timer on
-      // pane navigation — a new pane has no in-flight aside.
-      if (asidePendingTimerRef.current !== null) {
-        clearTimeout(asidePendingTimerRef.current);
-        asidePendingTimerRef.current = null;
-      }
-      setAsidePending(false);
+      // Phase 14 followup: full aside-surface reset for fresh-pane mount.
+      // Clears displayed asideText + pending flag + 60s timer + 8s dismiss
+      // cooldown. Backend's connect-time re-attach probe (ASIDE-09) re-emits
+      // aside_ready if the NEW pane's tmux still has an open BTW overlay.
+      clearAsideState();
       reconnectAttemptsRef.current = 0;
       paneKeyRef.current = paneKey;
     }
@@ -664,9 +672,12 @@ export function PrettyView({
           // this success, error state must not persist.
           setHoldingTimeoutError(false);
           setStatus("streaming");
-          // Phase 14 quick-task 260726-vbd: fresh pane starts with no
-          // in-flight aside — clear the pending flag and 60s timer.
-          clearAsidePending();
+          // Phase 14 followup: full aside-surface reset — a recycled
+          // session can't carry a live BTW overlay from the OLD session,
+          // and any residual 8s dismiss cooldown is irrelevant across the
+          // recycle. Backend re-attach probe re-emits aside_ready if the
+          // new session somehow has one.
+          clearAsideState();
           // Diagnostic: parsed.newSessionFile is available if a future console
           // log is wanted; do not add ambient debug logging in this patch.
           break;

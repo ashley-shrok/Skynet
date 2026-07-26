@@ -276,4 +276,29 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
       expect(container.querySelector('[role="note"]')).toBeNull();
     });
   });
+
+  it("Test 6: session_changed WS frame clears displayed asideText", async () => {
+    // Phase 14 followup (Ashley 2026-07-26): a session recycle in the SAME
+    // pane must drop any displayed aside from the OLD session — otherwise
+    // stale aside UI lingers attached to a fresh session until the next
+    // aside_ready arrives (or forever if none does).
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    fireWsMessage(ws, { type: "aside_ready", text: "aside on old session" });
+    await waitFor(() => {
+      expect(container.querySelector('[role="note"]')).toBeTruthy();
+    });
+
+    fireWsMessage(ws, {
+      type: "session_changed",
+      newSessionFile: "/tmp/new.jsonl",
+    });
+    await waitFor(() => {
+      expect(container.querySelector('[role="note"]')).toBeNull();
+    });
+  });
 });
