@@ -8,6 +8,13 @@ import {
   __activeViewersForTests,
   __sessionKeyForTests,
   __broadcastAsideDismissedForTests,
+  // Phase 14 Plan 05 Task 1: asideState is exported directly (not just via
+  // the __asideStateForTests alias) so Wave 5's cross-tab state-coherence
+  // integration tests can observe the source-of-truth Map without a helper.
+  // Per CONTEXT.md § Backend per-connection state LOCK — the Map IS the
+  // source of truth; observing it is a legitimate integration seam, not a
+  // test-only export.
+  asideState,
 } from "./claude-session-server.js";
 
 // Phase 14 Plan 01 Task 1 — RED-gate tests for the Wave 1 primitives.
@@ -288,3 +295,17 @@ describe("Phase 14 Wave 2 — broadcastAsideDismissed atomic BOTH-STEPS rule", (
   });
 });
 
+// Phase 14 Plan 05 Task 1 — asideState is exported directly (RED-gate test).
+//
+// The Wave 5 integration test suite needs to `import { asideState } from
+// "../claude-session-server"` to inspect cross-tab peer-state-flip coherence
+// (the atomic BOTH-STEPS rule from CONTEXT.md § Backend per-connection state).
+// Adding `export` to the const declaration (or a named-export getter) is the
+// minimal source change; this assertion locks the export shape so a future
+// refactor that removes it fails loudly.
+describe("Phase 14 Plan 05 Task 1 — asideState is a named export", () => {
+  it("asideState is the SAME Map instance as __asideStateForTests (single source of truth)", () => {
+    expect(asideState).toBe(__asideStateForTests);
+    expect(asideState).toBeInstanceOf(Map);
+  });
+});
