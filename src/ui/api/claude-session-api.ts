@@ -119,6 +119,30 @@ export type SessionChangedEvent = {
   newSessionFile: string;
 };
 
+// Phase 14 (plain-language-translation-asides) Wave 2 — new WS wire types.
+//
+// aside_ready — server -> client. Backend has extracted a /btw answer from
+// the tmux BTW overlay (per CONTEXT.md § Extraction: two consecutive stable
+// poll reads containing ASIDE_END_MARKER) and is delivering it to this
+// client for AsideBubble render. Refs: ASIDE-05 (aside surfaces post-turn)
+// + ASIDE-09 (tab-close / re-attach recovery emits this to the mounting
+// client immediately after connect-time pane probe finds an already-open
+// BTW overlay).
+export type AsideReadyEvent = {
+  type: "aside_ready";
+  text: string; // extracted /btw answer text; may span multiple lines
+};
+
+// aside_dismissed — server -> client. Backend observed the BTW overlay
+// disappearing (either from a client-initiated Escape, or from any other
+// cause — Ashley SSH-attaching and pressing Escape herself, tmux death,
+// etc.). Broadcast to ALL clients subscribed to this session's WS stream
+// for cross-tab dismiss coherence. Refs: ASIDE-07 (dismiss via Resume X) +
+// ASIDE-11 (cross-tab dismiss coherence).
+export type AsideDismissedEvent = {
+  type: "aside_dismissed";
+};
+
 export type TailErrorEvent = {
   type: "tail_error";
   message: string;
@@ -142,6 +166,8 @@ export type ClaudeSessionServerEvent =
   | PlanPendingEvent
   | SessionHoldingEvent
   | SessionChangedEvent
+  | AsideReadyEvent
+  | AsideDismissedEvent
   | TailErrorEvent
   | ErrorEvent
   | IdentityBountiesEvent
@@ -152,6 +178,35 @@ export type ClaudeSessionServerEvent =
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
+  hostId: number;
+  tmuxSession: string;
+};
+
+// Phase 14 Wave 2 — client -> server payloads for the aside subsystem.
+//
+// AsideArmPayload — client -> server. Sent by PrettyView on the
+// `isIdle:false -> true` transition when `pvIdentity !== null` (per
+// CONTEXT.md § Trigger — locked 2026-07-26). This is the SOLE trigger
+// source for the backend's /btw injection: the backend does NOT observe
+// the terminal WSS's `type:"idle"` signal (the two WSSes live on separate
+// ports with no shared state). The frontend gates identity BEFORE
+// emitting; the backend accepts any aside_arm for a connected pretty-view
+// WS without checking identity. No payload beyond the type tag — the
+// backend derives hostId + tmuxSession from the connection's own captured
+// state (set during connectToPane). Ref: ASIDE-01.
+export type AsideArmPayload = {
+  type: "aside_arm";
+};
+
+// AsideDismissedPayload — client -> server. Sent when user clicks the X
+// (Resume) affordance on the ComposeBox. hostId + tmuxSession are
+// informational for cross-tab-broadcast targeting; per T-14-02-01
+// mitigation, the backend does NOT trust these fields for send-keys
+// routing — it uses the connection's own captured currentHostId /
+// currentTmuxSession (set at connectToPane discovery, validated against
+// the pane's actual SSH context). Ref: ASIDE-07.
+export type AsideDismissedPayload = {
+  type: "aside_dismissed";
   hostId: number;
   tmuxSession: string;
 };
