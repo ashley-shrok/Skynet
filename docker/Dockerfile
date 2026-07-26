@@ -9,8 +9,11 @@ COPY .npmrc ./
 COPY vendor ./vendor
 
 COPY scripts/patch-guacamole-lite.cjs ./scripts/
+COPY scripts/patch-app-builder-lib.cjs ./scripts/
+COPY scripts/patch-better-sqlite3.cjs ./scripts/
+COPY scripts/patch-nan.cjs ./scripts/
 
-RUN npm ci --ignore-scripts && \
+RUN --mount=type=cache,target=/root/.npm npm ci && \
     node scripts/patch-guacamole-lite.cjs && \
     npm cache clean --force
 
@@ -31,8 +34,6 @@ WORKDIR /app
 
 COPY . .
 
-RUN npm rebuild better-sqlite3
-
 RUN npm run build:backend
 
 # Stage 4: Production dependencies only
@@ -46,10 +47,12 @@ COPY .npmrc ./
 COPY vendor ./vendor
 
 COPY scripts/patch-guacamole-lite.cjs ./scripts/
+COPY scripts/patch-app-builder-lib.cjs ./scripts/
+COPY scripts/patch-better-sqlite3.cjs ./scripts/
+COPY scripts/patch-nan.cjs ./scripts/
 
-RUN npm ci --omit=dev --ignore-scripts && \
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev && \
     node scripts/patch-guacamole-lite.cjs && \
-    npm rebuild better-sqlite3 bcryptjs ssh2 && \
     npm cache clean --force
 
 # Stage 5: Final optimized image
