@@ -1357,3 +1357,54 @@ describe("conversation-store (patch #137): module-init hydrates activeSet from s
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Patch #150 C — URL-restore multi-tab glow (store-level contract).
+// Ashley's followup-3 UAT (2026-07-24): a URL that captured 2 (or more)
+// active sessions restored with .active-set glow on ONLY the first restored
+// tab. Root cause: AppShell's persisted-restore branch hardcoded
+// `selectConversationDeferred(restoredTabs[0].id)` → only the first id ever
+// reached the addToActiveSet path (via pending-flush → selectedId → Pretty
+// ConversationsPanel effect). Task 3 fix iterates ALL restoredTabs, calling
+// addToActiveSet per tab (see the #150 C-investigate comment block in
+// AppShell.tsx for the full trace).
+//
+// This test is the store-level regression guard for the fix: mirror what
+// the fixed AppShell does (per-tab addToActiveSet) and assert that BOTH
+// ids land in activeSet. Expected to PASS trivially (the store contract is
+// sound; the bug lived in AppShell not the store) — if it starts failing,
+// the store-level assumption underneath the C-investigate mechanism has
+// changed and the AppShell fix + the C-investigate comment must both be
+// revisited.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (patch #150 C): two-URL-tab restore glows both restored tabs", () => {
+  it("per-tab addToActiveSet after updateOpenTabs lights BOTH tabs in activeSet", () => {
+    const hostA = makeHost("hA", "alpha");
+    const tabA = makeTab("restored-a", "terminal", hostA);
+    const tabB = makeTab("restored-b", "terminal", hostA);
+
+    // Mirror the fixed AppShell persisted-restore sequence:
+    //   setTabs([...prev, tabA, tabB]) → React commit → updateOpenTabs
+    //   setActiveTabId(tabA.id) → mirror
+    //   for each restoredTab: addToActiveSet(t.id)   ← THE FIX
+    //   selectConversationDeferred(tabA.id) → flushes into selectedId
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabA, tabB]);
+      // The fix: addToActiveSet per restored tab so ALL glow, not just [0].
+      addToActiveSet("restored-a");
+      addToActiveSet("restored-b");
+      // Retained for focus/selectedId behavior on the first tab only.
+      selectConversationDeferred("restored-a");
+    });
+
+    const { result } = renderHook(() => useActiveSet());
+    // BOTH restored tabs are in activeSet — the load-bearing assertion.
+    expect(result.current.has("restored-a")).toBe(true);
+    expect(result.current.has("restored-b")).toBe(true);
+    expect(result.current.size).toBeGreaterThanOrEqual(2);
+
+    // Selection landed on the first (focus contract preserved).
+    expect(__getSnapshotForTest().selectedId).toBe("restored-a");
+  });
+});
+

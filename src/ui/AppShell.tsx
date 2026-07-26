@@ -57,6 +57,7 @@ import {
   updateHostsFlat,
   useSelectedConversationId,
   selectConversationDeferred,
+  addToActiveSet,
 } from "@/state/conversation-store";
 import { getSessionList } from "@/api/sessions-api";
 import {
@@ -882,6 +883,21 @@ export function AppShell({
                 });
                 setActiveTabId(restoredTabs[0].id);
                 selectConversationDeferred(restoredTabs[0].id);
+                // patch #150 C fix (Ashley followup-3 UAT 2026-07-24):
+                // give EVERY restored tab a glow, not just restoredTabs[0].
+                // Pre-#150 C the single selectConversationDeferred above
+                // only propagated to activeSet for the first tab (via
+                // pending-flush → selectedId → PrettyConversationsPanel
+                // effect at L162-164 — see the C-investigate block above
+                // for the full mechanism trace). addToActiveSet is
+                // idempotent and does NOT disturb selectedId, so it's the
+                // right primitive: it produces the glow for every restored
+                // tab while keeping the "first restored tab is focused"
+                // contract (setActiveTabId + selectConversationDeferred
+                // above) intact. Regression guard: store-level test
+                // "two-URL-tab restore glows both restored tabs" in
+                // conversation-store.test.ts.
+                for (const t of restoredTabs) addToActiveSet(t.id);
               }
               // Restored tabs are in the tab bar, not in background records
             }
