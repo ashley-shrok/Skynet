@@ -821,6 +821,57 @@ export function AppShell({
                 });
               }
 
+              // ── patch #150 C investigate (Ashley UAT 2026-07-24) ──
+              // Verdict: SAME_BUG. Ashley's two symptoms — (a) only ONE
+              // restored tab glowed with .active-set, and (b) the un-glowed
+              // tab "did NOT auto-load its content, had to wait" — collapse
+              // to a single root cause here: only `restoredTabs[0]` is
+              // routed through any store-side signal.
+              //
+              // Mechanism traced end-to-end:
+              //   1. `selectConversationDeferred(restoredTabs[0].id)` here
+              //      parks id in `pendingSelectId` (openTabs is still empty
+              //      at this synchronous call — setTabs above is batched).
+              //   2. React commit → useEffect at L427 → `updateOpenTabs(tabs)`
+              //      → the pending-flush at conversation-store.ts:530-533
+              //      sets `state.selectedId = restoredTabs[0].id`. NOTE: the
+              //      flush path does NOT call `addToActiveSet` — only the
+              //      selectedId slot moves.
+              //   3. PrettyConversationsPanel.tsx:162-164 useEffect fires on
+              //      `selectedId` change → `addToActiveSet(selectedId)` →
+              //      restoredTabs[0] glows. Every OTHER restoredTabs entry
+              //      is invisible to this whole chain: no pendingSelectId
+              //      write, no selectedId flip, no addToActiveSet.
+              //
+              // Content-load path (why the un-glowed tab also "didn't load"):
+              // every tab in `tabs` mounts via the createPortal loop below
+              // (~L1598-1626) regardless of selection, BUT Terminal.tsx's
+              // WebSocket-connect effect at L2800-2831 is gated on `isVisible`
+              // = `!inPane && tab.id === effectiveSelectedTabId`. Only the
+              // focused tab is `isVisible=true`, so only its restoredSessionId
+              // reconnects at mount. This is CORRECT behavior — we don't want
+              // to prefetch N WebSocket handshakes at restore. When Ashley
+              // clicks the un-glowed row, `selectConversation` fires (Pretty
+              // ConversationsPanel L208), addToActiveSet gives glow + mirror
+              // effect L510-519 sets activeTabId → effectiveSelectedTabId
+              // flips → isVisible=true → connect fires. That IS the load.
+              // The "had to wait" perception is WebSocket handshake latency,
+              // not a distinct bug.
+              //
+              // Fix (patch #150 C below): call `addToActiveSet(t.id)` for
+              // EVERY restoredTab so all glow at mount, PLUS keep the single
+              // `selectConversationDeferred(restoredTabs[0].id)` for focus/
+              // selectedId. We deliberately do NOT loop selectConversation
+              // Deferred per tab: pendingSelectId is last-write-wins so it
+              // would only ever flush the FINAL restored id, and calling
+              // selectConversation directly per tab (for tabs already in
+              // openTabs) would move selectedId to the last one, fighting
+              // the retained setActiveTabId(restoredTabs[0].id). addToActive
+              // Set is the right primitive because it's idempotent per-id
+              // and produces the glow without disturbing selection.
+              //
+              // Consequence: NO #150 D commit needed. Task 4 skipped.
+              // ─────────────────────────────────────────────────────────
               if (restoredTabs.length > 0) {
                 setTabs((prev) => {
                   const existingIds = new Set(prev.map((t) => t.id));
