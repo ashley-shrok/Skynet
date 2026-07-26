@@ -81,6 +81,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 import { openClaudeSessionSocket } from "@/api/claude-session-api";
+import { useSessionIdentity } from "@/features/terminal/session-hue";
 import { PrettyView } from "./PrettyView";
 
 // ── Patch #148 test helpers ────────────────────────────────────────────────
@@ -412,5 +413,327 @@ describe("PrettyView — patch #148 WebSocket auto-reconnect", () => {
     // Assert "Connection closed" is NOT present in the DOM.
     // (The inactive branch renders its own string via the status==="inactive" JSX.)
     expect(container.textContent).not.toContain('Connection closed');
+  });
+});
+
+// ── Phase 14 Wave 5: aside integration ─────────────────────────────────────
+//
+// End-to-end integration coverage under the LOCKED architecture (frontend-arm
+// per CONTEXT.md § Trigger LOCK 2026-07-26 + module-scope backend state per
+// § Backend per-connection state LOCK). Extends PrettyView.aside.test.tsx
+// (which covered Wave 3 wiring at the render layer) with coverage that
+// exercises the full render + ComposeBox morph + WS-outbound dismiss cycle
+// on the assembled Wave 3 + Wave 4 stack.
+//
+// Test A: aside_arm emission on isIdle:false→true transition (per-turn,
+//         with a negative sub-case proving pvIdentity=null suppresses).
+// Test B: aside_ready frame mounts <AsideBubble role="note"> AND morphs
+//         ComposeBox — Send button becomes "Resume", aux buttons disabled,
+//         textarea remains editable (per CONTEXT.md § ComposeBox morph).
+// Test C: clicking "Resume" fires WS-outbound {type:"aside_dismissed",...}
+//         AND optimistically clears the AsideBubble.
+// Test D: inbound aside_dismissed is idempotent on already-cleared state.
+// Test E: fresh-pane mount clears asideText to null (paneKey change).
+//
+// WS-outbound spy: mockWs.send is a vi.fn() on the WsStub, so we filter
+// its call list by JSON-parsing each arg to check `type`. Same pattern as
+// PrettyView.aside.test.tsx Test 3.
+describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph)", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    // Default: anonymous session. Test A (identity sub-case) overrides.
+    vi.mocked(useSessionIdentity).mockReturnValue({
+      identity: null,
+      identityHue: null,
+    } as ReturnType<typeof useSessionIdentity>);
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // Helper — filter a mock.calls array of ws.send() invocations for the first
+  // frame whose parsed JSON has the given `type`.
+  function findSentFrame(
+    ws: WsStub,
+    type: string,
+    fromIndex = 0,
+  ): unknown | undefined {
+    const calls = ws.send.mock.calls.slice(fromIndex);
+    for (const [raw] of calls) {
+      try {
+        const parsed = JSON.parse(raw as string);
+        if (parsed && parsed.type === type) return parsed;
+      } catch {
+        /* ignore non-JSON */
+      }
+    }
+    return undefined;
+  }
+
+  it("Test A: isIdle:false→true on identity-attached session sends {type:\"aside_arm\"} on WS (repeats per turn; identity gate suppresses)", async () => {
+    // Sub-case 1 — identity attached → arm fires; second transition fires
+    // a SECOND arm (per-turn, not one-shot).
+    vi.mocked(useSessionIdentity).mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    } as ReturnType<typeof useSessionIdentity>);
+
+    const { rerender, unmount } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isIdle={false}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    const beforeFirst = ws.send.mock.calls.length;
+
+    // First false→true transition (completed turn #1).
+    rerender(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={true} />,
+    );
+    await waitFor(() => {
+      expect(findSentFrame(ws, "aside_arm", beforeFirst)).toBeTruthy();
+    });
+    const beforeSecond = ws.send.mock.calls.length;
+
+    // Reset isIdle to false, then back to true — should fire a SECOND arm.
+    rerender(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={false} />,
+    );
+    rerender(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={true} />,
+    );
+    await waitFor(() => {
+      expect(findSentFrame(ws, "aside_arm", beforeSecond)).toBeTruthy();
+    });
+
+    unmount();
+
+    // Sub-case 2 — anonymous session (pvIdentity === null): NO arm fires
+    // on the isIdle transition. Identity gating happens frontend-side
+    // per CONTEXT.md § Trigger LOCK.
+    vi.mocked(useSessionIdentity).mockReturnValue({
+      identity: null,
+      identityHue: null,
+    } as ReturnType<typeof useSessionIdentity>);
+    const { rerender: rerender2 } = render(
+      <PrettyView
+        hostId={2}
+        tmuxSession="anon"
+        onSend={() => true}
+        isIdle={false}
+      />,
+    );
+    const ws2 = getCurrentWs();
+    flipToStreaming(ws2);
+    const beforeAnon = ws2.send.mock.calls.length;
+
+    rerender2(
+      <PrettyView hostId={2} tmuxSession="anon" onSend={() => true} isIdle={true} />,
+    );
+    // Give the effect a chance to run.
+    await new Promise((r) => setTimeout(r, 40));
+    expect(findSentFrame(ws2, "aside_arm", beforeAnon)).toBeUndefined();
+  });
+
+  it("Test B: inbound aside_ready mounts AsideBubble (role=\"note\") AND morphs ComposeBox (Send→Resume, aux disabled, textarea editable)", async () => {
+    // Identity attached so ComposeBox mounts with the identity color scheme.
+    vi.mocked(useSessionIdentity).mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    } as ReturnType<typeof useSessionIdentity>);
+
+    const { container, queryByRole, getByRole } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    // Pre-condition: Send button present, no aside note yet, no Resume button.
+    await waitFor(() => {
+      expect(getByRole("button", { name: "Send" })).toBeTruthy();
+    });
+    expect(queryByRole("note")).toBeNull();
+    expect(queryByRole("button", { name: "Resume" })).toBeNull();
+
+    // Dispatch aside_ready inbound frame.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "aside_ready",
+            text: "the agent is refactoring the auth flow",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      // AsideBubble mounted.
+      const note = container.querySelector('[role="note"]');
+      expect(note).toBeTruthy();
+      expect(note?.textContent).toContain("the agent is refactoring the auth flow");
+      // ComposeBox morphed: Send is gone, Resume is present.
+      expect(queryByRole("button", { name: "Send" })).toBeNull();
+      expect(getByRole("button", { name: "Resume" })).toBeTruthy();
+    });
+
+    // Aux button disabled — pick the reset button (canonical aux gate; other
+    // aux buttons follow the same pattern per Wave 4 Task 1).
+    const resetBtn = container.querySelector(
+      'button[aria-label*="/id reset" i]',
+    ) as HTMLButtonElement | null;
+    expect(resetBtn).toBeTruthy();
+    expect(resetBtn!.disabled).toBe(true);
+
+    // Textarea remains editable — per CONTEXT.md § ComposeBox morph verbatim.
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    expect(textarea).toBeTruthy();
+    expect(textarea!.disabled).toBe(false);
+  });
+
+  it("Test C: clicking \"Resume\" fires WS-outbound {type:\"aside_dismissed\",...} AND optimistically clears the AsideBubble", async () => {
+    vi.mocked(useSessionIdentity).mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    } as ReturnType<typeof useSessionIdentity>);
+
+    const { container, queryByRole, getByRole } = render(
+      <PrettyView hostId={42} tmuxSession="tina@main" onSend={() => true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    // Display aside first.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "aside_ready", text: "hello aside" }),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(container.querySelector('[role="note"]')).toBeTruthy();
+      expect(getByRole("button", { name: "Resume" })).toBeTruthy();
+    });
+    const beforeDismiss = ws.send.mock.calls.length;
+
+    // Click Resume.
+    act(() => {
+      fireEvent.click(getByRole("button", { name: "Resume" }));
+    });
+
+    // WS-outbound aside_dismissed frame captured.
+    const outbound = findSentFrame(ws, "aside_dismissed", beforeDismiss) as
+      | { type: string; hostId: number; tmuxSession: string }
+      | undefined;
+    expect(outbound).toBeTruthy();
+    expect(outbound!.hostId).toBe(42);
+    expect(outbound!.tmuxSession).toBe("tina@main");
+
+    // Optimistic clear: role="note" gone; Send restored; Resume gone.
+    await waitFor(() => {
+      expect(container.querySelector('[role="note"]')).toBeNull();
+      expect(getByRole("button", { name: "Send" })).toBeTruthy();
+      expect(queryByRole("button", { name: "Resume" })).toBeNull();
+    });
+  });
+
+  it("Test D: inbound aside_dismissed WS frame is idempotent on already-cleared state (no crash, no state change)", async () => {
+    vi.mocked(useSessionIdentity).mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    } as ReturnType<typeof useSessionIdentity>);
+
+    const { container, queryByRole } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    // Mount an aside, then dismiss it via inbound frame.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "aside_ready", text: "hello" }),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(container.querySelector('[role="note"]')).toBeTruthy();
+    });
+
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "aside_dismissed" }),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(container.querySelector('[role="note"]')).toBeNull();
+    });
+
+    // Fire a SECOND aside_dismissed — no crash, DOM unchanged.
+    expect(() => {
+      act(() => {
+        ws.onmessage?.(
+          new MessageEvent("message", {
+            data: JSON.stringify({ type: "aside_dismissed" }),
+          }),
+        );
+      });
+    }).not.toThrow();
+    expect(container.querySelector('[role="note"]')).toBeNull();
+    // Send remains present (no morph flicker).
+    expect(queryByRole("button", { name: "Resume" })).toBeNull();
+  });
+
+  it("Test E: fresh-pane mount (hostId/tmuxSession change) resets asideText to null before any WS frame arrives on the new pane", async () => {
+    vi.mocked(useSessionIdentity).mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    } as ReturnType<typeof useSessionIdentity>);
+
+    const { container, rerender } = render(
+      <PrettyView hostId={1} tmuxSession="pane-A" onSend={() => true} />,
+    );
+    const wsA = getCurrentWs();
+    flipToStreaming(wsA);
+
+    act(() => {
+      wsA.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "aside_ready", text: "aside on pane A" }),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(container.querySelector('[role="note"]')).toBeTruthy();
+    });
+
+    // Switch to a fresh pane.
+    rerender(
+      <PrettyView hostId={2} tmuxSession="pane-B" onSend={() => true} />,
+    );
+
+    // Fresh-pane reset should have cleared asideText BEFORE the new pane's WS
+    // stream emits any frame. Assert role="note" gone even without dispatching
+    // a new inbound aside_dismissed frame from the new pane's WS.
+    await waitFor(() => {
+      expect(container.querySelector('[role="note"]')).toBeNull();
+    });
   });
 });
