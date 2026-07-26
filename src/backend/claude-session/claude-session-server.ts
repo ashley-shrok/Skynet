@@ -253,12 +253,94 @@ export function extractBtwAnswer(
   return lines.slice(startIdx + 1, endIdx).join("\n").trim();
 }
 
-// Wave 2 (14-02) will consume injectBtw + sendEscapeToBtw. Silence
-// unused-symbol warnings until then via a void reference in a no-op
-// compile-time constant — this keeps the primitives named + testable
-// without perturbing the runtime footprint.
-void injectBtw;
-void sendEscapeToBtw;
+// Phase 14 Wave 2 (14-02) — Aside subsystem module-scope state + helpers.
+//
+// Non-negotiable architecture (per CONTEXT.md § Trigger + § Backend per-
+// connection state locks, 2026-07-26):
+//
+//   * asideState MUST live at MODULE SCOPE, not inside wss.on("connection").
+//     Cross-tab dismiss coherence (ASIDE-11) requires broadcastAsideDismissed
+//     to flip peer WSes' `displayed` flags — closure-scoped `let` variables
+//     would leave stale gates on peer connections and silently break the v1
+//     overlap policy (ASIDE-08) across tabs.
+//
+//   * The SOLE trigger source is the client's `aside_arm` WS message. The
+//     backend does NOT observe the terminal WSS idle-signal frame
+//     (that runs on port 30002 in terminal.ts, a separate closure with no
+//     shared state). Identity gating happens frontend-side.
+//
+//   * No aside store beyond these two ephemeral Maps — the tmux BTW overlay
+//     is source of truth (ASIDE-10). Both Maps are keyed by live WS
+//     connections / session identity and are dropped on disconnect.
+//
+// `asideState` — per-WS overlap-ignore gate flags.
+//   `armed`: /btw has been injected on this WS, poller should scrape.
+//   `displayed`: an aside is currently rendered on this WS (own render OR
+//                broadcast render from another tab's arm on the same session).
+const asideState = new Map<
+  import("ws").WebSocket,
+  { armed: boolean; displayed: boolean }
+>();
+
+// `activeViewers` — fan-out registry keyed by `${hostId}::${tmuxSession}`.
+// Set on connectToPane discovery success; peer entry removed on ws.close.
+const activeViewers = new Map<string, Set<import("ws").WebSocket>>();
+
+// ASIDE_POLL_INTERVAL_MS — extraction poll cadence (per CONTEXT.md
+// § Extraction: ~200-400ms; picked 300ms as the mid-point, matching the
+// house-style grouping with other polling-interval constants like
+// HARNESS_TASKS_INTERVAL_MS.
+const ASIDE_POLL_INTERVAL_MS = 300;
+
+// sessionKey — build the `${hostId}::${tmuxSession}` composite key used
+// as the activeViewers Map's index. Delimiter `::` avoids collision with
+// tmux-safe session names (frontend restricts to alphanumeric + dash +
+// underscore, so `::` never appears inside the session name half).
+function sessionKey(hostId: number, tmuxSession: string): string {
+  return `${hostId}::${tmuxSession}`;
+}
+
+// broadcastAsideDismissed — atomic fan-out for the dismiss signal.
+// LOAD-BEARING per CONTEXT.md § Backend per-connection state (2026-07-26 lock):
+// MUST perform BOTH steps for every OPEN peer in activeViewers.get(key):
+//   (a) send `{type:"aside_dismissed"}` frame to peer's client
+//   (b) flip `asideState.get(peer).displayed = false` — resets the peer's
+//       overlap-ignore gate so it can arm on the next isIdle transition.
+// Missing step (b) silently breaks the v1 overlap policy (ASIDE-08) across
+// tabs — the peer stays stuck on `displayed:true` forever.
+function broadcastAsideDismissed(key: string): void {
+  const peers = activeViewers.get(key);
+  if (!peers) return;
+  const frame = JSON.stringify({ type: "aside_dismissed" });
+  for (const peer of peers) {
+    // WebSocket.OPEN = 1 (from the "ws" package). Use the numeric sentinel
+    // rather than the class constant to avoid coupling this helper to a
+    // direct WebSocketServer import here (the class is imported at file top).
+    if (peer.readyState !== WebSocket.OPEN) continue;
+    // (a) Send the dismiss frame to the peer's client.
+    try {
+      peer.send(frame);
+    } catch {
+      /* peer may be mid-close — swallow, matching the sibling send-guards
+         throughout this file */
+    }
+    // (b) MANDATORY per CONTEXT.md § Backend per-connection state:
+    // flip the peer's `displayed` flag so its overlap-ignore gate resets
+    // and the peer can arm on next turn's isIdle transition.
+    const peerState = asideState.get(peer);
+    if (peerState) peerState.displayed = false;
+  }
+}
+
+// Test-only re-exports — internal test seams. Underscore prefix marks them
+// as private; NO production caller should reference these. Enables the
+// vitest suite to assert the module-scope Map identities + the atomic
+// BOTH-STEPS rule of broadcastAsideDismissed without spinning up a full
+// WebSocketServer.
+export const __asideStateForTests = asideState;
+export const __activeViewersForTests = activeViewers;
+export const __sessionKeyForTests = sessionKey;
+export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 
 const wss = new WebSocketServer({ port: 30011 });
 
@@ -333,10 +415,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
     sessionId,
   });
 
+  // Phase 14 Wave 2: initialize this WS's overlap-ignore state in the
+  // module-scope asideState Map (per CONTEXT.md § Backend per-connection
+  // state lock 2026-07-26). Cleaned up in ws.on("close") below.
+  asideState.set(ws, { armed: false, displayed: false });
+
   let sshConn: SSHClientType | null = null;
   let tailHandle: TailHandle | null = null;
   let contextPctTimer: NodeJS.Timeout | null = null;
   let contextPctInFlight = false;
+  // Phase 14 Wave 2: per-connection aside extraction bookkeeping. These
+  // are per-connection (not cross-tab-shared) so closure-scope is correct.
+  // Only `armed`/`displayed` MUST live in module-scope asideState — per
+  // CONTEXT.md § Backend per-connection state lock.
+  let asideExtractionTimer: NodeJS.Timeout | null = null;
+  let asideExtractionInFlight = false;
+  let lastStableCapture: string | null = null;
+  let hadMarkerLastCapture = false;
   let harnessTasksTimer: NodeJS.Timeout | null = null;
   let harnessTasksInFlight = false;
   let harnessTasksLastSerialized: string | null = null;
@@ -431,6 +526,38 @@ wss.on("connection", async (ws: WebSocket, req) => {
     if (discoveryRepollTimer) {
       clearInterval(discoveryRepollTimer);
       discoveryRepollTimer = null;
+    }
+    // Phase 14 Wave 2: extraction poller lifecycle is tied to the pane —
+    // teardownPane fires on connectToPane rebind and (via ws.on("close"))
+    // on disconnect. activeViewers Set membership is torn down in
+    // ws.on("close") only (not here) because a pane-switch keeps the WS
+    // itself alive; the fan-out registry is per-WS, not per-pane.
+    if (asideExtractionTimer) {
+      clearInterval(asideExtractionTimer);
+      asideExtractionTimer = null;
+    }
+    asideExtractionInFlight = false;
+    lastStableCapture = null;
+    hadMarkerLastCapture = false;
+    // Reset per-WS aside gates on pane rebind — the fresh pane has no
+    // aside in flight yet. asideState entry itself stays (module-scope,
+    // lifetime = WS connection); we just clear the flags.
+    const st = asideState.get(ws);
+    if (st) {
+      st.armed = false;
+      st.displayed = false;
+    }
+    // Phase 14 Wave 2: on pane rebind, remove this WS from any prior
+    // pane's fan-out registry so a subsequent broadcast doesn't spuriously
+    // dismiss on the new pane. The current-pane registration happens
+    // freshly in the connectToPane handler below (after discovery success).
+    if (currentHostId != null && currentTmuxSession != null) {
+      const priorKey = sessionKey(currentHostId, currentTmuxSession);
+      const priorPeers = activeViewers.get(priorKey);
+      if (priorPeers) {
+        priorPeers.delete(ws);
+        if (priorPeers.size === 0) activeViewers.delete(priorKey);
+      }
     }
     harnessTasksLastSerialized = null;
     pendingPlans.clear();
@@ -1127,6 +1254,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
     clearInterval(wsPingInterval);
     stopped = true;
     teardownPane();
+    // Phase 14 Wave 2: WS lifetime ended — drop this WS from all module-
+    // scope aside state. teardownPane already unregistered this WS from
+    // activeViewers[currentSessionKey] (via the per-pane branch), but we
+    // defensively iterate here in case any prior state escaped that path
+    // (e.g. a bug in a future patch). Cheap: activeViewers is small.
+    asideState.delete(ws);
+    for (const [key, peers] of activeViewers) {
+      if (peers.delete(ws) && peers.size === 0) {
+        activeViewers.delete(key);
+      }
+    }
     sshLogger.info("Claude session WebSocket disconnected", {
       operation: "claude_session_ws_disconnect",
       userId,
@@ -1487,6 +1625,59 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
+    // Phase 14 Wave 2: aside_arm — the SOLE trigger source per CONTEXT.md
+    // § Trigger lock (2026-07-26). Frontend PrettyView WS-sends this on
+    // the `isIdle:false -> true` transition when `pvIdentity !== null`.
+    // The backend does NOT gate identity (delegated to the frontend) and
+    // does NOT observe the terminal WSS's idle-signal frame (that runs
+    // on port 30002 in a separate closure with no shared state). If a WS
+    // sends aside_arm, backend arms — trust boundary is frontend-owned.
+    //
+    // v1 overlap policy (ASIDE-08): if this WS's state has `armed` OR
+    // `displayed` set, the incoming aside_arm is a no-op — no re-inject
+    // of /btw while an aside is armed OR displayed. Bounds the tmux
+    // send-keys rate to ONE /btw per aside-cycle-completion per WS.
+    if (msg.type === "aside_arm") {
+      const state = asideState.get(ws);
+      if (!state) return; // defensive — asideState.set(ws) fires at connect init
+      if (state.armed || state.displayed) return; // overlap-ignore gate
+      if (!sshConn || !currentTmuxSession) return; // no pane bound yet
+      state.armed = true;
+      lastStableCapture = null;
+      hadMarkerLastCapture = false;
+      // injectBtw log-and-swallows internally; do NOT roll back state.armed
+      // on failure — the poller's disarm-on-emit path handles the "no
+      // answer arrived" case, and a stuck armed flag clears on next
+      // dismiss cycle. Keeps the dispatch simple.
+      await injectBtw(sshConn, currentTmuxSession);
+      return;
+    }
+
+    // Phase 14 Wave 2: aside_dismissed — client clicked the X (Resume)
+    // affordance on ComposeBox. Send Escape into the pane's tmux to close
+    // the BTW overlay, then broadcast the dismiss to all peer WSes on the
+    // same session so cross-tab tabs also clear their aside display.
+    //
+    // Per T-14-02-01 mitigation: we IGNORE msg.hostId / msg.tmuxSession
+    // for send-keys routing. The connection's own captured
+    // currentHostId / currentTmuxSession is the trusted source (set at
+    // connectToPane discovery success). Client-supplied fields cannot
+    // spoof a dismiss for a session the client doesn't own.
+    //
+    // Do NOT set asideState.get(ws).armed = false here — the poller's
+    // marker-disappearance path (or the extract-and-emit path) owns that.
+    // broadcastAsideDismissed flips this ws's `displayed=false` (since
+    // this ws IS in its own activeViewers set) and all peers' atomically.
+    if (msg.type === "aside_dismissed") {
+      if (sshConn && currentTmuxSession) {
+        await sendEscapeToBtw(sshConn, currentTmuxSession);
+      }
+      if (currentHostId != null && currentTmuxSession != null) {
+        broadcastAsideDismissed(sessionKey(currentHostId, currentTmuxSession));
+      }
+      return;
+    }
+
     if (msg.type !== "connectToPane") {
       ws.send(
         JSON.stringify({
@@ -1696,6 +1887,180 @@ wss.on("connection", async (ws: WebSocket, req) => {
           contextPctInFlight = false;
         });
     }, CONTEXT_PCT_INTERVAL_MS);
+
+    // Phase 14 Wave 2: aside subsystem — register this WS in the fan-out
+    // registry, run the connect-time re-attach probe, and arm the
+    // extraction poller. All three pieces reuse the pane's existing sshConn
+    // (established above during connectToPane discovery); no new SSH
+    // subsystem, no new port. Per CONTEXT.md § canonical_refs.
+    //
+    // Runs REGARDLESS of activeViewers.get(key).size — each connection
+    // independently discovers overlay presence via capture-pane on mount
+    // (per plan-checker W7 clarification). No "wait for another viewer"
+    // gate.
+    const asideKey = sessionKey(currentHostId, currentTmuxSession);
+    if (!activeViewers.has(asideKey)) activeViewers.set(asideKey, new Set());
+    activeViewers.get(asideKey)!.add(ws);
+
+    // Connect-time re-attach probe (ASIDE-09): one-shot capture-pane on
+    // mount. If the BTW overlay is already open (Ashley closed a prior tab
+    // without dismissing, or her SSH session left a /btw hanging), emit
+    // aside_ready to THIS client so the aside re-renders in-place, and
+    // flip THIS ws's asideState.displayed = true so the overlap-ignore
+    // gate blocks new aside_arms from firing until dismiss.
+    //
+    // Do NOT broadcast to peers on this probe — other tabs either already
+    // have it displayed (their own state carries it) or their own connect-
+    // time probes will fire independently. Broadcasting here would race
+    // against peers' initial state and could double-fire aside_ready.
+    (async () => {
+      // Snapshot sshConn + currentTmuxSession — teardownPane may fire while
+      // this promise is in flight (fast connectToPane rebind), nulling the
+      // closure vars. Snapshot at kick-off preserves the correct target
+      // for this probe attempt.
+      const probeConn = sshConn;
+      const probeSession = currentTmuxSession;
+      if (!probeConn || !probeSession) return;
+      try {
+        const probeOutput = await execCommand(
+          probeConn,
+          `tmux capture-pane -p -S -200 -t ${shellQuote(probeSession)}`,
+        );
+        if (stopped || ws.readyState !== WebSocket.OPEN) return;
+        if (!probeOutput.includes(ASIDE_END_MARKER)) return;
+        const text = extractBtwAnswer(probeOutput, ASIDE_END_MARKER);
+        if (text === null || text === "") return;
+        try {
+          ws.send(JSON.stringify({ type: "aside_ready", text }));
+        } catch {
+          /* ws may be mid-close */
+        }
+        const st = asideState.get(ws);
+        if (st) st.displayed = true;
+        // Set hadMarkerLastCapture so the subsequent poll's marker-
+        // disappearance detection works from mount forward (if Ashley
+        // Escape-closes the overlay via SSH, we want to broadcast dismiss).
+        hadMarkerLastCapture = true;
+      } catch {
+        /* Silent — probe failure is not fatal; a later aside_arm will
+           re-trigger the normal inject + poll cycle. */
+      }
+    })();
+
+    // Extraction poller (ASIDE-04) — one setInterval per WS connection,
+    // gated on `asideState.get(ws)?.armed`. When disarmed, the poll body
+    // early-returns without capturing (idle-cheap; only armed connections
+    // do exec calls). Same setInterval + execCommand + inFlight + silent-
+    // catch posture as the context-pct poller above (per PATTERNS.md
+    // L303-370). Uses scrollback (-S -200) to catch multi-line answers
+    // exceeding the visible pane per CONTEXT.md § Extraction.
+    const asideCaptureCmd =
+      `tmux capture-pane -p -S -200 -t ${shellQuote(currentTmuxSession)}`;
+    asideExtractionTimer = setInterval(() => {
+      if (stopped || ws.readyState !== WebSocket.OPEN) return;
+      if (!sshConn) return;
+      if (asideExtractionInFlight) return; // guard against slow SSH pileups
+      const st = asideState.get(ws);
+      if (!st?.armed) return; // gate — only poll when armed
+      asideExtractionInFlight = true;
+      const connSnapshot = sshConn;
+      execCommand(connSnapshot, asideCaptureCmd)
+        .then((output) => {
+          if (stopped || ws.readyState !== WebSocket.OPEN) return;
+          const markerPresent = output.includes(ASIDE_END_MARKER);
+
+          // Marker-disappearance detection FIRST — cross-tab coherence
+          // when Ashley externally Escapes via SSH, or tmux dies. If we
+          // saw the marker last poll and it's gone now AND this ws has
+          // displayed=true, the overlay closed externally. broadcast
+          // dismiss to all peers (flips this ws AND peers' displayed
+          // flags per the atomic BOTH-STEPS rule) and reset stability.
+          if (
+            hadMarkerLastCapture &&
+            !markerPresent &&
+            asideState.get(ws)?.displayed === true &&
+            currentHostId != null &&
+            currentTmuxSession != null
+          ) {
+            broadcastAsideDismissed(
+              sessionKey(currentHostId, currentTmuxSession),
+            );
+            lastStableCapture = null;
+            hadMarkerLastCapture = false;
+            return;
+          }
+
+          if (!markerPresent) {
+            // Still streaming, or nothing to see. Update flag; wait.
+            hadMarkerLastCapture = false;
+            return;
+          }
+
+          // markerPresent === true from here on.
+          if (lastStableCapture !== output) {
+            // First capture with the marker, OR a later capture that has
+            // still-changing content (agent finalizing the answer). Store
+            // and wait for stability on the next poll.
+            lastStableCapture = output;
+            hadMarkerLastCapture = true;
+            return;
+          }
+
+          // Stable: same output as last capture, marker present.
+          const text = extractBtwAnswer(output, ASIDE_END_MARKER);
+          if (text === null) {
+            // Degenerate — marker + no /btw echo. Disarm; swallow.
+            const s = asideState.get(ws);
+            if (s) s.armed = false;
+            lastStableCapture = null;
+            hadMarkerLastCapture = true; // overlay still displayed on pane
+            return;
+          }
+
+          // Emit aside_ready to THIS ws AND every peer in the fan-out
+          // registry. For each recipient (including self), flip
+          // asideState.displayed = true so the overlap-ignore gate
+          // blocks further aside_arm re-injection until dismiss.
+          const frame = JSON.stringify({ type: "aside_ready", text });
+          const key =
+            currentHostId != null && currentTmuxSession != null
+              ? sessionKey(currentHostId, currentTmuxSession)
+              : null;
+          const peers = key ? activeViewers.get(key) : undefined;
+          const recipients = peers ?? new Set<import("ws").WebSocket>([ws]);
+          // Fallback single-recipient set covers the pathological case
+          // where the pane's connectToPane hadn't yet registered this ws
+          // in activeViewers (shouldn't happen — registration is
+          // synchronous above the poller — but defensive).
+          for (const recipient of recipients) {
+            if (recipient.readyState !== WebSocket.OPEN) continue;
+            try {
+              recipient.send(frame);
+            } catch {
+              /* recipient may be mid-close */
+            }
+            const recState = asideState.get(recipient);
+            if (recState) recState.displayed = true;
+          }
+
+          // Disarm THIS ws only — peers arm/disarm on their own
+          // aside_arm messages independently.
+          const s = asideState.get(ws);
+          if (s) s.armed = false;
+          lastStableCapture = null;
+          // hadMarkerLastCapture stays true — the overlay IS still
+          // displayed on the pane; marker-disappearance detection
+          // above needs this to fire when Ashley externally Escapes.
+          hadMarkerLastCapture = true;
+        })
+        .catch(() => {
+          /* Silent on scrape failure — matches the context-pct poller
+             posture. A miss on one tick is fine; next tick tries again. */
+        })
+        .finally(() => {
+          asideExtractionInFlight = false;
+        });
+    }, ASIDE_POLL_INTERVAL_MS);
 
     // Harness-tasks poller: read Claude Code's on-disk task queue (populated
     // by TaskCreate + /queue) and emit it to the client on change. Storage
