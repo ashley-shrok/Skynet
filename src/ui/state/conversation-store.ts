@@ -106,7 +106,11 @@ const CONVERSATION_TAB_TYPES = new Set<TabType>([
 
 // Patch #137: sessionStorage key for the activeSet persistence layer. Value is
 // a JSON array of conversation ids; sessionStorage semantics = per-tab, dies
-// on tab close. See hydrateActiveSetFromStorage() + addToActiveSet() below.
+// on tab close. See hydrateActiveSetFromStorage() + addToActiveSet() +
+// removeFromActiveSet() below. quick-260727-gm3 introduced remove semantics
+// (Ashley 2026-07-27 deactivate action) — the pre-gm3 lock ("no remove API by
+// design") was intentionally lifted; the set now grows AND shrinks within a
+// session, but still dies on tab close.
 const ACTIVE_SET_STORAGE_KEY = "pv-conv-active-set";
 
 // Patch #137: rehydrate the activeSet from sessionStorage on module load.
@@ -158,8 +162,10 @@ type State = {
   hostsFlat: Map<number, Host>;
   // Patch #137: sessionStorage-backed set of conversation ids Ashley has
   // selected in this browser-tab session. Persisted under key
-  // "pv-conv-active-set" as a JSON array. Rehydrated on module load; grows
-  // only (no remove API); dies on tab close (sessionStorage semantics).
+  // "pv-conv-active-set" as a JSON array. Rehydrated on module load;
+  // add + remove APIs (quick-260727-gm3 added removeFromActiveSet as the
+  // pure reverse of tap-ambient-to-activate); dies on tab close
+  // (sessionStorage semantics).
   // Feeds PrettyConversationRow's ambient-recession branch (rows NOT in
   // the set visually recede) and the ready-for-attention dot render
   // condition (dot renders iff inActiveSet && isWorking===false).
@@ -713,6 +719,34 @@ export function addToActiveSet(id: string): void {
     }
   } catch {
     // Silent — do not block state update on storage failure.
+  }
+  state = { ...state, activeSet: nextActiveSet };
+  notify();
+}
+
+// quick-260727-gm3: activeSet reverse-mutator. Idempotent no-op when the id is
+// absent (avoids gratuitous sessionStorage writes on repeat deactivate clicks).
+// Silent try/catch on sessionStorage so SSR/JSDOM/quota-exceeded errors never
+// crash the UI thread — an in-memory update still fires and notify() still
+// runs so the UI stays functional for the current session even if persistence
+// fails. Deliberately does NOT touch state.selectedId — deactivation is
+// orthogonal to selection at the store layer; the panel wires closeTab
+// separately (see PrettyConversationsPanel.handleRowDeactivate + AppShell's
+// onDeactivateRow → closeTab bridge). Ashley 2026-07-27: agent keeps running
+// under the hood; tapping the row again reactivates it.
+export function removeFromActiveSet(id: string): void {
+  if (!state.activeSet.has(id)) return;
+  const nextActiveSet = new Set(state.activeSet);
+  nextActiveSet.delete(id);
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(
+        ACTIVE_SET_STORAGE_KEY,
+        JSON.stringify([...nextActiveSet]),
+      );
+    }
+  } catch {
+    // Silent — mirrors addToActiveSet's storage-failure policy.
   }
   state = { ...state, activeSet: nextActiveSet };
   notify();

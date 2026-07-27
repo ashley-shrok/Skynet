@@ -12,6 +12,7 @@ import {
   unpinConversation,
   togglePinConversation,
   addToActiveSet,
+  removeFromActiveSet,
   useConversations,
   useSelectedConversationId,
   usePinnedIds,
@@ -66,9 +67,11 @@ beforeEach(() => {
   // (already hydrated at module-init time) can be reset from an empty
   // persistence layer. JSDOM provides sessionStorage; no mocking needed.
   // Then explicitly reset the module-scoped activeSet via
-  // __resetActiveSetForTest so a prior test's addToActiveSet writes don't
-  // leak forward (the store has no removeFromActiveSet API by design —
-  // Patch #137 §3: the set only grows within a session).
+  // __resetActiveSetForTest so a prior test's addToActiveSet /
+  // removeFromActiveSet writes don't leak forward. quick-260727-gm3
+  // introduced removeFromActiveSet as the pure reverse of addToActiveSet
+  // — the set now grows AND shrinks within a session, but still dies on
+  // tab close (sessionStorage semantics unchanged).
   sessionStorage.clear();
   __resetActiveSetForTest();
   updateOpenTabs([]);
@@ -1077,6 +1080,109 @@ describe("conversation-store (Patch #149 B+C): Test 30e — openTab pinned + act
     // Strict dedup: NOT in grouped
     const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
     expect(allGroupedIds).not.toContain("t1");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 30f-30i (quick-260727-gm3): removeFromActiveSet contract
+// ─────────────────────────────────────────────────────────────────────────────
+// Ashley 2026-07-27 preview lockdown: deactivate is the pure reverse of the
+// tap-ambient-to-activate flow. Store semantics MUST mirror addToActiveSet:
+//   - idempotent no-op when the id is not in the set (no notify, no write)
+//   - real removal produces a NEW Set reference, writes sessionStorage, notifies
+//   - selectedId is orthogonal (deactivation does NOT deselect at the store
+//     layer — the panel wires closeTab separately)
+//   - silent try/catch on sessionStorage (unchanged from addToActiveSet)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store (quick-260727-gm3): Test 30f — removeFromActiveSet no-op on absent id", () => {
+  it("removeFromActiveSet(id) is a silent no-op when the id is not in the set", () => {
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    // Sanity: activeSet is empty (reset in beforeEach)
+    expect(__getSnapshotForTest().activeSet.length).toBe(0);
+
+    // Call removeFromActiveSet on an id NOT in the set — must not fire notify
+    act(() => removeFromActiveSet("id-not-in-set"));
+
+    expect(cb).toHaveBeenCalledTimes(0);
+    // Set reference stays untouched (no gratuitous new Set on no-op)
+    expect(__getSnapshotForTest().activeSet.length).toBe(0);
+
+    unsub();
+  });
+});
+
+describe("conversation-store (quick-260727-gm3): Test 30g — removeFromActiveSet removes, writes storage, notifies", () => {
+  it("removeFromActiveSet(id) on a present id removes it, writes sessionStorage, and fires notify once", () => {
+    act(() => addToActiveSet("t1"));
+
+    // Sanity — the add landed
+    const snapBefore = __getSnapshotForTest();
+    // pinnedIds is the ReadonlySet snapshot; activeSet is derived rows — we
+    // assert via the sessionStorage write below AND via the state's
+    // pinnedIds proxy pattern here by checking useActiveSet reads.
+    expect(sessionStorage.getItem("pv-conv-active-set")).toBe(
+      JSON.stringify(["t1"]),
+    );
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    act(() => removeFromActiveSet("t1"));
+
+    // Exactly one notify from the real removal
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    // sessionStorage now reflects the empty set
+    expect(sessionStorage.getItem("pv-conv-active-set")).toBe(
+      JSON.stringify([]),
+    );
+
+    unsub();
+    // silence unused var
+    void snapBefore;
+  });
+});
+
+describe("conversation-store (quick-260727-gm3): Test 30h — round-trip add → remove → add", () => {
+  it("addToActiveSet(x) → removeFromActiveSet(x) leaves the set empty; a subsequent addToActiveSet(x) re-adds", () => {
+    // Prime with an add, then remove.
+    act(() => addToActiveSet("t1"));
+    act(() => removeFromActiveSet("t1"));
+    expect(sessionStorage.getItem("pv-conv-active-set")).toBe(
+      JSON.stringify([]),
+    );
+
+    // Second add succeeds (proves the set actually shrunk and no stale
+    // state prevents re-adding the same id).
+    act(() => addToActiveSet("t1"));
+    expect(sessionStorage.getItem("pv-conv-active-set")).toBe(
+      JSON.stringify(["t1"]),
+    );
+  });
+});
+
+describe("conversation-store (quick-260727-gm3): Test 30i — removeFromActiveSet leaves selectedId untouched", () => {
+  it("removeFromActiveSet(id) does NOT clear state.selectedId even when the removed id was selected", () => {
+    const hostA = makeHost("hA", "hostA");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("t1", "terminal", hostA, "s1", "t1-label")]);
+      selectConversation("t1");
+    });
+
+    // Sanity: selectedId is t1 (also added to active-set via selectConversation)
+    const { result: selected } = renderHook(() => useSelectedConversationId());
+    expect(selected.current).toBe("t1");
+
+    act(() => removeFromActiveSet("t1"));
+
+    // Deactivation is orthogonal to selection at the store layer — the
+    // panel wires closeTab separately; the store MUST NOT implicitly
+    // deselect. Ashley 2026-07-27: agent keeps running under the hood.
+    expect(selected.current).toBe("t1");
   });
 });
 

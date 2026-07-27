@@ -18,8 +18,13 @@
  *  1) swipe-strip absolute-position right anchor
  *  2) swipe state-machine dx clamp (translateX max negative = -PC_SWIPE_REVEAL)
  *  3) closed-state transform reset (row settles at translateX(0) or translateX(-PC_SWIPE_REVEAL))
+ *
+ *  quick-260727-gm3 (Ashley 2026-07-27): widened 88 → 132 so the strip fits
+ *  two side-by-side tap targets (PinAction + DeactivateAction) with
+ *  comfortable margins. All three call sites above pick up the new value
+ *  automatically via the shared import — no per-site edits required.
  */
-export const PC_SWIPE_REVEAL = 88;
+export const PC_SWIPE_REVEAL = 132;
 
 /** dx threshold (px) past which a swipe-left snaps the row open on touchEnd.
  *  Used by:

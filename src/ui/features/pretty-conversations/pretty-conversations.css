@@ -581,3 +581,98 @@
 .pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within) .pv-pin-action {
   display: none;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DEACTIVATE ACTION — quick-260727-gm3 (Ashley 2026-07-27 preview lockdown).
+   Subtle red-tinted X glyph mirroring the pin's palette-driven treatment —
+   NOT a red circle background; bare icon + hue-drop-shadow, red tuned to
+   hue=4 red-orange to sit adjacent to the pin's identity-hue without
+   clashing. Deactivate is the pure reverse of tap-ambient-to-activate:
+   click closes the tab AND removes the id from activeSet; the row recedes
+   to ambient. Agent keeps running under the hood.
+
+   Visibility rules (mirrors the pin block above but gated on `.active-set`
+   instead of `.pinned`, since Deactivate is orthogonal to pin state — a
+   pinned row that is in the active-set still shows the Deactivate glyph):
+     - Desktop hover-reveal: hidden until row is hovered/focus-within
+       (`.pv-row.pv-row--desktop.active-set:not(:hover):not(:focus-within)`).
+     - Ambient safety net: defense-in-depth guard so ambient rows NEVER
+       render the glyph even if a row-level render regresses.
+     - RDP safety net: same shape as the pin RDP guard.
+   Mobile visibility owned by the swipe strip (row-level render); no CSS
+   hide rule for mobile.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-deactivate-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: hsla(4, 65%, 68%, 0.85);
+  filter: drop-shadow(0 0 4px hsla(4, 75%, 60%, 0.45));
+  transition: filter 120ms ease, color 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pv-deactivate-action svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
+.pv-deactivate-action:hover {
+  color: hsla(4, 75%, 78%, 1);
+  filter: drop-shadow(0 0 6px hsla(4, 75%, 60%, 0.65));
+}
+
+.pv-deactivate-action:focus-visible {
+  outline: 2px solid hsla(4, 65%, 60%, 0.6);
+  outline-offset: 2px;
+}
+
+/* Mobile hit-target: bigger tap area (~32px) with a slightly larger glyph
+   so the affordance stays comfortable inside the widened 132px swipe strip
+   alongside PinAction. Same shape as `.pv-pin-action[data-size="mobile"]`. */
+.pv-deactivate-action[data-size="mobile"] {
+  width: 32px;
+  height: 32px;
+}
+
+.pv-deactivate-action[data-size="mobile"] svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Desktop hover-reveal: hidden entirely on active-set rows unless the row
+   is hovered OR any descendant is keyboard-focused (mirrors pin's hide-
+   on-unpinned rule but gated on `.active-set`, and drops the opacity-1
+   transition into a companion rule below). */
+.pv-row.pv-row--desktop.active-set:not(:hover):not(:focus-within) .pv-deactivate-action {
+  display: none;
+}
+
+.pv-row.pv-row--desktop.active-set:not(:hover) .pv-meta [data-testid="deactivate-action"] {
+  opacity: 0;
+}
+
+.pv-row.pv-row--desktop .pv-meta [data-testid="deactivate-action"] {
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
+
+/* Ambient safety net (defense-in-depth: the row-level render should never
+   emit DeactivateAction on ambient rows, but declare the guard so any
+   regression stays invisible). */
+.pv-row.pv-row--desktop:not(.active-set) .pv-deactivate-action {
+  display: none;
+}
+
+/* RDP safety net: same shape as `.pv-row.rdp .pv-pin-action` above. */
+.pv-row.rdp .pv-deactivate-action {
+  display: none;
+}

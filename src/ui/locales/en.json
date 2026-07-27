@@ -140,6 +140,7 @@
       "empty": "No active conversations",
       "pin": "Pin",
       "unpin": "Unpin",
+      "deactivate": "Deactivate",
       "backToList": "Back to conversations"
     },
     "newSession": "New session",
