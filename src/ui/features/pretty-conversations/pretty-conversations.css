@@ -677,7 +677,7 @@
   display: none;
 }
 
-/* Quick 260727-tb1: per-row on-deck bounty count badge. Small pill inside
+/* Quick 260727-tb1: per-row pinned bounty count badge. Small pill inside
    .pv-meta (before the ready-dot). Hue tinting inherits from the .pv-row
    parent's `--pv-hue` custom property per the palette-authority rule; the
    `--color-pv-fg` foreground token comes from the same inheritance chain.

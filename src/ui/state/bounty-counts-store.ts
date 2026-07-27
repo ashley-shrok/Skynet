@@ -1,6 +1,6 @@
 // ─── Bounty-counts store (quick 260727-tb1) ──────────────────────────────────
 //
-// Module-scoped store powering the per-row on-deck bounty badge in
+// Module-scoped store powering the per-row pinned bounty badge in
 // pretty-conversations. Uses useSyncExternalStore per Task 2 spec (matches
 // the pattern in src/ui/state/session-working-store.ts and
 // src/ui/state/conversation-store.ts — the fork rolls its own; no zustand /
@@ -62,7 +62,7 @@ function compositeKey(identityKey: string, hostId: number | null): string {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Subscribe to the on-deck bounty count for a single (identityKey, hostId)
+ * Subscribe to the pinned bounty count for a single (identityKey, hostId)
  * pair. Returns `undefined` when identityKey is null OR when no refresh has
  * yet landed for that composite key.
  */
@@ -111,8 +111,8 @@ export async function refreshBountyCounts(
       continue; // preserve last-known
     }
     const key = compositeKey(c.identityKey, c.hostId);
-    if (next.get(key) !== c.onDeckCount) {
-      next.set(key, c.onDeckCount);
+    if (next.get(key) !== c.pinnedCount) {
+      next.set(key, c.pinnedCount);
       mutated = true;
     }
   }

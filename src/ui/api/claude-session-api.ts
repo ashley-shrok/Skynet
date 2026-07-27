@@ -362,20 +362,20 @@ export type IdentityBountyPriorityUpdatedEvent = {
   error?: string;
 };
 
-// ─── Quick 260727-tb1: batched on-deck bounty count ─────────────────────────
+// ─── Quick 260727-tb1: batched pinned bounty count ──────────────────────────
 //
 // Piggybacks on the patch #92 identity-artifact reader to power the per-row
 // bounty badge in pretty-conversations. ONE WS request carrying every visible
 // identity's (identityKey, hostId), ONE response with per-target counts.
 // Response uses Promise.allSettled server-side so one dead SSH host cannot
-// block the batch — dead-host entries carry {onDeckCount: 0, error: string}
+// block the batch — dead-host entries carry {pinnedCount: 0, error: string}
 // while other targets still return live counts.
 //
 //   client -> server:
 //     { type: "identity:count-bounties", targets: [{identityKey, hostId}, ...] }
 //
 //   server -> client:
-//     { type: "identity:bounty-counts", counts: [{identityKey, hostId, onDeckCount, error?}, ...] }
+//     { type: "identity:bounty-counts", counts: [{identityKey, hostId, pinnedCount, error?}, ...] }
 //
 // hostId=null means "read from skynet-ec2 local bind-mount" (patch #92 D-4).
 
@@ -392,7 +392,7 @@ export type IdentityCountBountiesPayload = {
 export type BountyCountResult = {
   identityKey: string;
   hostId: number | null;
-  onDeckCount: number;
+  pinnedCount: number;
   error?: string;
 };
 
@@ -402,7 +402,7 @@ export type IdentityBountyCountsEvent = {
 };
 
 /**
- * Fire a one-shot batched on-deck bounty count request. Opens its own WS,
+ * Fire a one-shot batched pinned bounty count request. Opens its own WS,
  * sends one identity:count-bounties frame on open, resolves on the first
  * matching identity:bounty-counts response, then closes the socket. Follows
  * the same one-shot request/response pattern IdentityModal uses for

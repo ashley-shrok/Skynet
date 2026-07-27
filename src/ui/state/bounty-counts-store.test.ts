@@ -1,7 +1,7 @@
 // ─── bounty-counts-store — Vitest coverage (quick 260727-tb1 Task 2) ─────────
 //
 // Exercises the module-scoped useSyncExternalStore store that backs the per-
-// row on-deck bounty badge in pretty-conversations. The store owns:
+// row pinned bounty badge in pretty-conversations. The store owns:
 //   - useBountyCount(identityKey, hostId) selector (undefined pre-fetch)
 //   - refreshBountyCounts(targets) one-shot fetch that applies to the map
 //   - startBountyCountPoller(getTargets, intervalMs) with 60s + window.focus
@@ -32,7 +32,7 @@ type CountsResponse = {
   counts: Array<{
     identityKey: string;
     hostId: number | null;
-    onDeckCount: number;
+    pinnedCount: number;
     error?: string;
   }>;
 };
@@ -42,10 +42,10 @@ function response(
 ): CountsResponse {
   return {
     type: "identity:bounty-counts",
-    counts: entries.map(([identityKey, hostId, onDeckCount, error]) => ({
+    counts: entries.map(([identityKey, hostId, pinnedCount, error]) => ({
       identityKey,
       hostId,
-      onDeckCount,
+      pinnedCount,
       ...(error ? { error } : {}),
     })),
   };

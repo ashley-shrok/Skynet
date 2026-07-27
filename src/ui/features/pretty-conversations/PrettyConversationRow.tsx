@@ -146,7 +146,7 @@ export function PrettyConversationRow({
   const hue: number | null = identity?.colorHue ?? null;
   const isRdp = row.rdpHostRow === true;
 
-  // Quick 260727-tb1: per-row on-deck bounty count for the .pv-meta badge.
+  // Quick 260727-tb1: per-row pinned bounty count for the .pv-meta badge.
   // useBountyCount(null, ...) short-circuits to undefined, so non-identity
   // rows carry no subscription cost. Host.id is a string in the fork's
   // ui-types; we convert with parseInt (same shape AppShell uses at
@@ -154,7 +154,7 @@ export function PrettyConversationRow({
   // poller lands a refresh; the badge component renders null for
   // undefined AND 0 (Key design decision #7).
   const rowHostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
-  const onDeckCount = useBountyCount(
+  const pinnedCount = useBountyCount(
     identity?.identityKey ?? null,
     Number.isFinite(rowHostIdNum) ? rowHostIdNum : null,
   );
@@ -496,7 +496,7 @@ export function PrettyConversationRow({
             />
           )}
 
-          {/* Quick 260727-tb1: per-row on-deck bounty count badge. Renders
+          {/* Quick 260727-tb1: per-row pinned bounty count badge. Renders
               INSIDE .pv-meta immediately BEFORE the ready-dot (final left-
               to-right order: [deactivate] [pin] [bounty-badge] [ready-dot]).
               The badge component itself returns null when count is
@@ -504,10 +504,10 @@ export function PrettyConversationRow({
               so nothing else guards visibility here — non-identity rows
               short-circuit inside useBountyCount above. Coexists with the
               ready-dot: a row that is BOTH in-active-set-and-idle AND has
-              on-deck bounties shows BOTH indicators side by side per
+              pinned bounties shows BOTH indicators side by side per
               spec verification #4. Hue tinting inherits from .pv-row's
               --pv-hue via the .pv-bounty-badge CSS rule. */}
-          <PrettyBountyCountBadge count={onDeckCount} />
+          <PrettyBountyCountBadge count={pinnedCount} />
 
           {/* Ready-dot — signals "engaged AND agent idle, ready for
               Ashley's next input." Rendered iff inActiveSet &&

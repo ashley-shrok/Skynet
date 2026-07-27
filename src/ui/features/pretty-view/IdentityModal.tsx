@@ -16,7 +16,7 @@ import {
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
 // Quick 260727-tb1: piggyback path — when Ashley reprioritizes a bounty via
-// the modal, invalidate the panel's cached on-deck count for this identity
+// the modal, invalidate the panel's cached pinned count for this identity
 // so the .pv-bounty-badge refreshes immediately instead of waiting for the
 // next 60s poll. The spec (Key design decision #5) calls for wiring this
 // off the identity:bounty-priority-updated response; the modal is the
@@ -84,7 +84,7 @@ const PRIORITY_WEIGHT: Record<string, number> = {
 
 // Patch #109: below the in_progress fence we no longer partition by status.
 // Ashley: "I want to know priority-wise more than I want to know whether
-// having another section that's just on deck" — so on_deck +
+// having another section that's just pinned" — so pinned +
 // waiting_on_someone_else + anything else that's not in_progress + not
 // done/dropped collapse into a single flat priority-sorted list under the
 // header-less "rest" region. in_progress keeps its own header (fence) at top.
@@ -308,7 +308,7 @@ export function IdentityModal({
   }, [open, identity.identityKey, hostId, refetchKey]);
 
   // Patch #109: two-partition split — in_progress fence + flat priority-
-  // sorted rest — replaces the older status-grouped (in_progress / on_deck /
+  // sorted rest — replaces the older status-grouped (in_progress / pinned /
   // waiting_on_someone_else / other) render. done/dropped-in-place still
   // buckets into `other` so they don't visually blend with open work.
   const grouped = useMemo(() => {
@@ -327,7 +327,7 @@ export function IdentityModal({
       if (b.status === "in_progress") {
         groups.in_progress.push(b);
       } else {
-        // on_deck, waiting_on_someone_else, or any other open status →
+        // pinned, waiting_on_someone_else, or any other open status →
         // all collapse into the flat priority-sorted rest region.
         groups.rest.push(b);
       }
@@ -415,7 +415,7 @@ export function IdentityModal({
     setArchivedBounties(res.archivedBounties);
     // Quick 260727-tb1: immediate-refresh piggyback. A priority change may
     // co-occur with a status change (or be a leading indicator of one), so
-    // we invalidate the panel's cached on-deck count for this identity
+    // we invalidate the panel's cached pinned count for this identity
     // rather than wait up to 60s for the next poll. Fire-and-forget — the
     // store's error path already logs; the modal's own UI state is
     // authoritatively driven by res.bounties above.

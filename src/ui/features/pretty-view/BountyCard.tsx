@@ -21,7 +21,7 @@ import { BOUNTY_PRIORITY_VALUES, type Bounty, type BountyPriority } from "@/api/
 const STATUS_CLASSES: Record<string, string> = {
   in_progress:
     "bg-emerald-500/25 text-emerald-200 border border-emerald-500/40",
-  on_deck: "bg-amber-500/25 text-amber-200 border border-amber-500/40",
+  pinned: "bg-amber-500/25 text-amber-200 border border-amber-500/40",
   waiting_on_someone_else:
     "bg-violet-500/25 text-violet-200 border border-violet-500/40",
   done: "bg-slate-500/25 text-slate-300 border border-slate-500/40",
@@ -31,7 +31,7 @@ const STATUS_CLASSES: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   in_progress: "In Progress",
-  on_deck: "On Deck",
+  pinned: "Pinned",
   waiting_on_someone_else: "Waiting",
   done: "Done",
   dropped: "Dropped",

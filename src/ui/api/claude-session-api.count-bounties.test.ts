@@ -80,8 +80,8 @@ describe("countIdentityBounties one-shot helper", () => {
     const responsePayload = {
       type: "identity:bounty-counts",
       counts: [
-        { identityKey: "tina", hostId: null, onDeckCount: 3 },
-        { identityKey: "moxie", hostId: 42, onDeckCount: 0, error: "boom" },
+        { identityKey: "tina", hostId: null, pinnedCount: 3 },
+        { identityKey: "moxie", hostId: 42, pinnedCount: 0, error: "boom" },
       ],
     };
     lastSocket!.onmessage?.call(
@@ -121,13 +121,13 @@ describe("countIdentityBounties one-shot helper", () => {
       new MessageEvent("message", {
         data: JSON.stringify({
           type: "identity:bounty-counts",
-          counts: [{ identityKey: "tina", hostId: null, onDeckCount: 1 }],
+          counts: [{ identityKey: "tina", hostId: null, pinnedCount: 1 }],
         }),
       }),
     );
 
     const resolved = await promise;
     expect(resolved.counts).toHaveLength(1);
-    expect(resolved.counts[0].onDeckCount).toBe(1);
+    expect(resolved.counts[0].pinnedCount).toBe(1);
   });
 });

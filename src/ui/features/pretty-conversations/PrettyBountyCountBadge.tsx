@@ -1,7 +1,7 @@
 // ─── PrettyBountyCountBadge (quick 260727-tb1 Task 3) ────────────────────────
 //
 // Stateless pill component inside .pv-meta showing the count of non-archived,
-// on_deck-status bounties for the row's identity. Falsy count (undefined OR 0)
+// pinned-status bounties for the row's identity. Falsy count (undefined OR 0)
 // renders NULL — absence is the correct signal (Key design decision #7 in the
 // approved spec). All hue tinting comes from the `.pv-row` parent's `--pv-hue`
 // custom property inheritance (palette-authority rule); the badge does not
