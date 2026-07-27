@@ -1,0 +1,275 @@
+/**
+ * useVoiceRecording — state machine hook for voice recording + STT transcription.
+ *
+ * Owns:
+ *   - State machine: idle → recording → transcribing → idle
+ *   - MediaRecorder lifecycle (getUserMedia, start, stop, cleanup)
+ *   - Fetch to POST /voice/transcribe with FormData `file` field
+ *   - Transcript-to-text glue rule (single space if currentText does not end in whitespace)
+ *
+ * Does NOT own:
+ *   - The textarea value (caller manages and passes currentText to endAppend/endSend)
+ *   - The send action (endSend returns transcript+glued so caller can invoke send)
+ *   - Persistence (blob is transient; only transcript enters the textarea)
+ *
+ * CRITICAL iOS Safari constraint (D-16-02, Nelly warning):
+ *   `start()` is a PLAIN FUNCTION (NOT async). Its first non-conditional statement
+ *   is `navigator.mediaDevices.getUserMedia({ audio: true })`. Any `await` before
+ *   getUserMedia queues a microtask that iOS Safari uses to detect the call is not
+ *   from a direct user gesture, silently killing the mic permission prompt.
+ *   The hook's `start` calls getUserMedia as its first action, then wires `.then/.catch`
+ *   to handle the resolved stream.
+ *
+ * Return shape:
+ *   {
+ *     state: "idle" | "recording" | "transcribing"
+ *     errorMessage: string | null
+ *     start: () => void                                       — call from tap handler (no await)
+ *     cancel: () => Promise<void>                             — drops blob, transitions to idle
+ *     endAppend: (currentText: string) => Promise<{transcript: string, glued: string} | null>
+ *     endSend: (currentText: string) => Promise<{transcript: string, glued: string} | null>
+ *   }
+ *
+ * endAppend and endSend both return Promise<{transcript, glued} | null>.
+ *   - On success: { transcript: "<STT text>", glued: "<currentText + glue + transcript>" }
+ *   - On STT error or fetch failure: null (errorMessage is set on the hook)
+ * The caller decides what to do with glued: endAppend → set textarea value;
+ * endSend → set textarea value AND call the existing send handler.
+ */
+
+import { useRef, useState } from "react";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const TRANSCRIBE_URL = "/voice/transcribe";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type VoiceRecordingState = "idle" | "recording" | "transcribing";
+
+export interface VoiceRecordingResult {
+  transcript: string;
+  glued: string;
+}
+
+export interface UseVoiceRecordingReturn {
+  state: VoiceRecordingState;
+  errorMessage: string | null;
+  start: () => void;
+  cancel: () => Promise<void>;
+  endAppend: (currentText: string) => Promise<VoiceRecordingResult | null>;
+  endSend: (currentText: string) => Promise<VoiceRecordingResult | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
+export function useVoiceRecording(): UseVoiceRecordingReturn {
+  const [state, setState] = useState<VoiceRecordingState>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Refs hold the mutable recorder state so they survive re-renders without
+  // causing additional renders (mirrors the prototype's module-level locals).
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  // ---------------------------------------------------------------------------
+  // Internal: stopRecording — wraps recorder.stop() and resolves on onstop.
+  // Returns the assembled Blob, or null if no recorder is active.
+  // ---------------------------------------------------------------------------
+
+  function stopRecording(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      const recorder = recorderRef.current;
+      if (!recorder) {
+        resolve(null);
+        return;
+      }
+      recorder.onstop = () => {
+        const type = recorder.mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        chunksRef.current = [];
+        // Stop all stream tracks and clear refs.
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
+        recorderRef.current = null;
+        resolve(blob);
+      };
+      recorder.stop();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal: transcribeBlob — POSTs blob to /voice/transcribe, returns text.
+  // Returns null on error (also sets errorMessage).
+  // ---------------------------------------------------------------------------
+
+  async function transcribeBlob(blob: Blob): Promise<string | null> {
+    // Pick filename extension from blob.type (mirrors prototype ext-picking logic).
+    const ext = blob.type.includes("webm")
+      ? "webm"
+      : blob.type.includes("mp4")
+        ? "mp4"
+        : blob.type.includes("wav")
+          ? "wav"
+          : "bin";
+
+    const fd = new FormData();
+    fd.append("file", blob, `clip.${ext}`);
+
+    let res: Response;
+    try {
+      res = await fetch(TRANSCRIBE_URL, { method: "POST", body: fd });
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "fetch error";
+      setErrorMessage(`STT error: ${msg}`);
+      return null;
+    }
+
+    if (!res.ok) {
+      setErrorMessage(`STT error: ${res.status}`);
+      return null;
+    }
+
+    try {
+      const json = (await res.json()) as { text?: string };
+      return json.text ?? "";
+    } catch {
+      setErrorMessage("STT error: invalid response");
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal: applyGlue — applies the single-space glue rule.
+  // "if (cur && !/\s$/.test(cur)) glue = ' '"
+  // ---------------------------------------------------------------------------
+
+  function applyGlue(currentText: string, transcript: string): string {
+    const glue = currentText && !/\s$/.test(currentText) ? " " : "";
+    return currentText + glue + transcript;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
+  /**
+   * start() — initiates recording.
+   *
+   * MUST be a plain function (NOT async). Its FIRST non-conditional statement
+   * is navigator.mediaDevices.getUserMedia({ audio: true }) — called
+   * synchronously inside the user-gesture handler so iOS Safari presents
+   * the mic permission prompt (D-16-02 lock, Nelly warning 2026-07-27).
+   *
+   * No-op if state !== "idle" (gate against rapid-tap, T-16-10).
+   */
+  function start(): void {
+    if (state !== "idle") return;
+
+    // ⚠️ MUST be the first non-conditional statement — NO await before this.
+    // iOS Safari requires getUserMedia to be called synchronously in the tap
+    // handler. Any microtask (await) before this line kills the permission prompt.
+    const streamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+
+    streamPromise
+      .then((stream) => {
+        streamRef.current = stream;
+        chunksRef.current = [];
+
+        const recorder = new MediaRecorder(stream);
+        recorderRef.current = recorder;
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data);
+        };
+
+        recorder.start();
+        setState("recording");
+        setErrorMessage(null);
+      })
+      .catch((err: Error) => {
+        // Surface mic-denied state — matches prototype's error string.
+        setErrorMessage(`mic denied: ${err.name || "error"}`);
+        // State stays "idle".
+      });
+  }
+
+  /**
+   * cancel() — stops recording, discards blob, returns to idle.
+   * No-op if state !== "recording".
+   */
+  async function cancel(): Promise<void> {
+    if (state !== "recording") return;
+    await stopRecording();
+    // Blob is discarded — no fetch.
+    setState("idle");
+  }
+
+  /**
+   * endAppend(currentText) — stops recording, transcribes, returns {transcript, glued}.
+   * Caller sets textarea.value = glued.
+   * Returns null on STT error (errorMessage is set).
+   * No-op if state !== "recording".
+   */
+  async function endAppend(
+    currentText: string,
+  ): Promise<VoiceRecordingResult | null> {
+    if (state !== "recording") return null;
+
+    const blob = await stopRecording();
+    setState("transcribing");
+
+    if (!blob) {
+      setState("idle");
+      return null;
+    }
+
+    const transcript = await transcribeBlob(blob);
+    setState("idle");
+
+    if (transcript === null) return null;
+
+    const glued = applyGlue(currentText, transcript);
+    return { transcript, glued };
+  }
+
+  /**
+   * endSend(currentText) — stops recording, transcribes, returns {transcript, glued}.
+   * Caller sets textarea.value = glued AND calls the existing send handler.
+   * Returns null on STT error (errorMessage is set).
+   * No-op if state !== "recording".
+   */
+  async function endSend(
+    currentText: string,
+  ): Promise<VoiceRecordingResult | null> {
+    if (state !== "recording") return null;
+
+    const blob = await stopRecording();
+    setState("transcribing");
+
+    if (!blob) {
+      setState("idle");
+      return null;
+    }
+
+    const transcript = await transcribeBlob(blob);
+    setState("idle");
+
+    if (transcript === null) return null;
+
+    const glued = applyGlue(currentText, transcript);
+    return { transcript, glued };
+  }
+
+  return { state, errorMessage, start, cancel, endAppend, endSend };
+}
