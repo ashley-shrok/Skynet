@@ -128,6 +128,17 @@ export const BTW_PROMPT =
 // kumquat-test verification (CONTEXT.md § Mechanism).
 export const ASIDE_END_MARKER = "Esc to close";
 
+// BTW_CLEAR_HISTORY_KEY — key sent into the tmux pane before Escape to
+// clear Claude Code's in-overlay /btw history before dismissing the
+// overlay. Rationale: /btw history within a Claude Code session poisons
+// subsequent aside answers (the model self-references prior "please
+// explain" turns from earlier asides). Sending this key first gives every
+// new aside a clean slate. Lowercase `x` per the overlay's clear-history
+// keybinding (Ashley 2026-07-27). If UAT reveals a different key (e.g.
+// `c`, `Ctrl+L`), change this constant only — the two-keystroke shape
+// stays the same.
+export const BTW_CLEAR_HISTORY_KEY = "x";
+
 // Local shellQuote — byte-identical to src/backend/ssh/terminal.ts L123.
 // Kept local (not cross-module import) to preserve terminal.ts's
 // "no new deps, no new modules" comment above L122. If a future refactor
@@ -185,29 +196,67 @@ async function injectBtw(
 export const __injectBtwForTests = injectBtw;
 
 /**
- * sendEscapeToBtw — send Escape into the identity's tmux pane to close the
- * BTW overlay cleanly (kumquat-test finding: Escape returns the pane to the
- * normal compose prompt with the main conversation intact). `Escape` is an
- * unquoted tmux send-keys key name — same shape as `Enter` / `C-c` in
- * terminal.ts L574 + L760.
+ * dismissBtw — close the /btw overlay via a TWO-keystroke sequence into the
+ * identity's tmux pane. Replaces the previous single-Escape dismiss so that
+ * the /btw overlay's in-session history is cleared BEFORE the overlay
+ * closes; without this, prior aside answers within the same Claude Code
+ * session poison subsequent asides (the model self-references earlier
+ * "please explain" turns from the same overlay history buffer).
+ *
+ * Sequence:
+ *   1. tmux send-keys BTW_CLEAR_HISTORY_KEY (`x`) — clear /btw history.
+ *   2. Wait 100ms (see gap rationale below).
+ *   3. tmux send-keys Escape — close the /btw overlay.
+ *
+ * The 100ms gap mirrors the SHAPE of patch #152's injectBtw two-call
+ * workaround but uses a shorter delay: dismiss is a pair of single-key
+ * presses, not the ~300-char BTW_PROMPT paste that needs Ink's paste
+ * buffer to flush. 100ms is enough for tmux to deliver the first keystroke
+ * to the overlay before the second is queued.
+ *
+ * The WS frame shape (`{type:'aside_dismissed', hostId, tmuxSession}`) and
+ * the frontend dismiss handler are UNCHANGED — only the backend tmux
+ * keystroke sequence differs from the prior single-Escape dispatch. Both
+ * send-keys calls are wrapped in a single try/catch (log-and-swallow) so a
+ * failed dismiss is not fatal; the pane's Escape recovery is best-effort.
+ *
+ * Both send-keys payloads use shellQuote for the tmux target (house-style
+ * parity with terminal.ts L574 + L760). Escape is an unquoted tmux
+ * send-keys key name — same shape as `Enter` / `C-c` in terminal.ts.
  */
-async function sendEscapeToBtw(
+async function dismissBtw(
   conn: SSHClientType,
   tmuxSession: string,
 ): Promise<void> {
   try {
+    // Step 1: clear /btw history via BTW_CLEAR_HISTORY_KEY before Escape.
+    await execCommand(
+      conn,
+      `tmux send-keys -t ${shellQuote(tmuxSession)} ${shellQuote(BTW_CLEAR_HISTORY_KEY)}`,
+    );
+    // Step 2: 100ms gap so tmux delivers the clear-history key to the
+    // overlay before Escape is queued. Shorter than injectBtw's 200ms —
+    // no paste-buffer flush needed for a single-key press.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Step 3: send Escape to close the (now history-cleared) /btw overlay.
     await execCommand(
       conn,
       `tmux send-keys -t ${shellQuote(tmuxSession)} Escape`,
     );
   } catch (err) {
-    sshLogger.info("aside sendEscapeToBtw failed", {
-      operation: "aside_dismiss_escape",
+    sshLogger.info("aside dismissBtw failed", {
+      operation: "aside_dismiss",
       tmuxSession,
       err,
     });
   }
 }
+
+// Test-only re-export of dismissBtw. Same underscore-prefix convention as
+// __injectBtwForTests — internal seam so the vitest suite can assert the
+// two-call shape locked by the quick 260727-lbr change. NOT for production
+// callers.
+export const __dismissBtwForTests = dismissBtw;
 
 /**
  * extractBtwAnswer — pure string function that extracts the /btw answer
@@ -1702,7 +1751,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // this ws IS in its own activeViewers set) and all peers' atomically.
     if (msg.type === "aside_dismissed") {
       if (sshConn && currentTmuxSession) {
-        await sendEscapeToBtw(sshConn, currentTmuxSession);
+        await dismissBtw(sshConn, currentTmuxSession);
       }
       if (currentHostId != null && currentTmuxSession != null) {
         broadcastAsideDismissed(sessionKey(currentHostId, currentTmuxSession));

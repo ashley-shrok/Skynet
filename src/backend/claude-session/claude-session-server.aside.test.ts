@@ -17,6 +17,9 @@ import {
   asideState,
   // Phase 14 Patch #152 Task 1: test seam for injectBtw two-call shape.
   __injectBtwForTests,
+  // Phase 14 quick 260727-lbr: dismissBtw two-keystroke shape (clear-history + Escape).
+  BTW_CLEAR_HISTORY_KEY,
+  __dismissBtwForTests,
 } from "./claude-session-server.js";
 
 // Phase 14 Patch #152 — vi.mock for tmux-helper execCommand.
@@ -413,5 +416,110 @@ describe("Phase 14 Patch #152 — injectBtw two-call shape (Claude Code v2.1.150
 
     // Must resolve without throwing.
     await expect(__injectBtwForTests(fakeConn, "test-session")).resolves.toBeUndefined();
+  });
+});
+
+// Phase 14 quick 260727-lbr — dismissBtw two-keystroke shape (clear-history + Escape).
+//
+// Locks the two-call contract for aside dismiss: instead of a single Escape
+// keystroke, dismissBtw sends BTW_CLEAR_HISTORY_KEY (`x`) into the /btw
+// overlay FIRST to clear Claude Code's in-overlay history, waits 100ms
+// (mirrors the patch #152 injectBtw paste-mode workaround shape), then
+// sends Escape to close the overlay. Without the clear-history keystroke,
+// prior aside answers within the same Claude Code session poison
+// subsequent asides (the model self-references earlier "please explain"
+// turns from the same overlay history buffer).
+//
+// The 100ms gap is intentionally SHORTER than injectBtw's 200ms — dismiss
+// is a pair of single-key presses, not a ~300-char paste, so we don't need
+// the paste-buffer flush headroom. Reference the injectBtw pattern for
+// shape; do NOT copy the 200ms number.
+//
+// The clear-history key is a compile-time constant (BTW_CLEAR_HISTORY_KEY)
+// so a wrong-key UAT is a one-line fix — flip the constant, ship, done.
+// Test 4 locks the current value ("x") so a rename to `c` or `Ctrl+L`
+// fails loud and forces a deliberate re-decision.
+
+describe("Phase 14 quick 260727-lbr — dismissBtw two-keystroke shape (clear-history + Escape)", () => {
+  // Stub SSHClientType — execCommand is mocked at module level, so conn is never accessed.
+  const fakeConn = {} as unknown as Parameters<typeof __dismissBtwForTests>[0];
+
+  afterEach(() => {
+    vi.mocked(execCommand).mockReset();
+    vi.useRealTimers();
+  });
+
+  it("Test 1: execCommand called exactly twice — call #1 sends BTW_CLEAR_HISTORY_KEY (no Escape), call #2 sends Escape (no clear-history key)", async () => {
+    vi.mocked(execCommand).mockResolvedValue("");
+
+    await __dismissBtwForTests(fakeConn, "test-session");
+
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(2);
+
+    const cmd1 = vi.mocked(execCommand).mock.calls[0][1] as string;
+    const cmd2 = vi.mocked(execCommand).mock.calls[1][1] as string;
+
+    // Call #1: contains send-keys, the shellQuote-wrapped tmux target, and
+    // the shellQuote-wrapped BTW_CLEAR_HISTORY_KEY payload. Must NOT end
+    // with " Escape" (that's call #2's job).
+    expect(cmd1).toContain("send-keys");
+    expect(cmd1).toContain("-t 'test-session'");
+    expect(cmd1).toContain(__asideShellQuoteForTests(BTW_CLEAR_HISTORY_KEY));
+    expect(cmd1).not.toMatch(/\sEscape\s*$/);
+
+    // Call #2: contains send-keys and the shellQuote-wrapped tmux target.
+    // Must end with " Escape" and must NOT contain the shellQuote-wrapped
+    // BTW_CLEAR_HISTORY_KEY payload (that was call #1).
+    expect(cmd2).toContain("send-keys");
+    expect(cmd2).toContain("-t 'test-session'");
+    expect(cmd2).toMatch(/\sEscape\s*$/);
+    expect(cmd2).not.toContain(__asideShellQuoteForTests(BTW_CLEAR_HISTORY_KEY));
+  });
+
+  it("Test 2: 100ms delay is enforced between call #1 and call #2 (fake-timers gate)", async () => {
+    vi.useFakeTimers();
+    vi.mocked(execCommand).mockResolvedValue("");
+
+    // Kick off without awaiting so we can interleave timer ticks.
+    const promise = __dismissBtwForTests(fakeConn, "test-session");
+
+    // Allow microtasks to flush so call #1 completes.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Advance to 99ms — setTimeout has not yet fired.
+    await vi.advanceTimersByTimeAsync(99);
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+
+    // Advance by 1 more ms (total 100ms) — setTimeout fires, call #2 executes.
+    await vi.advanceTimersByTimeAsync(1);
+    // Allow microtasks triggered by the timer to flush.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(2);
+
+    // Await the overall promise to clean up.
+    await promise;
+  });
+
+  it("Test 3A: log-and-swallow preserved when call #1 throws (function resolves, does not rethrow)", async () => {
+    vi.mocked(execCommand).mockRejectedValue(new Error("ssh channel error"));
+
+    // Must resolve without throwing — outer try/catch swallows it.
+    await expect(__dismissBtwForTests(fakeConn, "test-session")).resolves.toBeUndefined();
+  });
+
+  it("Test 3B: log-and-swallow preserved when call #2 throws (clear-history key sent, Escape fails, still resolves)", async () => {
+    vi.mocked(execCommand)
+      .mockResolvedValueOnce("")          // call #1 succeeds
+      .mockRejectedValueOnce(new Error("escape key error")); // call #2 throws
+
+    // Must resolve without throwing.
+    await expect(__dismissBtwForTests(fakeConn, "test-session")).resolves.toBeUndefined();
+  });
+
+  it("Test 4: BTW_CLEAR_HISTORY_KEY === 'x' (locks the constant so a rename to `c` or `Ctrl+L` fails loud and forces deliberate re-decision)", () => {
+    expect(BTW_CLEAR_HISTORY_KEY).toBe("x");
   });
 });
