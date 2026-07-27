@@ -221,7 +221,14 @@ export function AppShell({
     OpenTabRecord[]
   >([]);
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Patch #153: desktop sidebar is open by default on load. Gated on
+  // viewport width (768 = useIsMobile breakpoint) so narrow/mobile
+  // start closed and the mobile-flow list-view takes over — avoids
+  // an open→close flicker from the L256 mobile-auto-close effect.
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth >= 768;
+  });
   // Phase 11 Plan 03: railView state RETIRED (rail is gone; pretty-conversations
   // is the only sidebar-panel content). profileDropdownOpen also retired —
   // it was an AppRail-only state per Plan 01 Section E item 2.
