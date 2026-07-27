@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Hourglass, Paperclip, RefreshCw, RotateCcw, Square, Terminal, ThumbsUp, X } from "lucide-react";
+import { Hourglass, Lightbulb, Paperclip, RefreshCw, RotateCcw, Square, Terminal, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -1395,6 +1395,33 @@ export function ComposeBox({
             )}
           >
             <ThumbsUp className="size-4" />
+          </Button>
+          {/* Patch #152: Lightbulb "explain" quick-reply — mirrors the
+              ThumbsUp pattern (same warm-neutral Glass treatment, same
+              disable rule) but its payload is a canned /explain prompt
+              asking for a concise re-explanation of the turns since
+              Ashley's last message. Semantically distinct: ThumbsUp is
+              "proceed", this is "make it legible for me". */}
+          <Button
+            size="icon-sm"
+            variant="outline"
+            onClick={() => handleQuickSend("/explain concisely whatever's gone on since my last message (and ONLY since my last message) without using code symbols, in a conceptual model style. Not a metaphor and don't recast it as an extended analogy.")}
+            disabled={canSend === false || asideActive === true}
+            aria-label="Ask for a concise re-explanation"
+            title="Ask for a concise re-explanation"
+            className={cn(
+              "rounded-md cursor-pointer",
+              "border-white/10",
+              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
+              "text-[#e8e4d8]",
+              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
+              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
+              "hover:border-[rgba(255,240,215,0.22)]",
+              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+              "max-md:size-14 [&_svg]:max-md:size-6",
+            )}
+          >
+            <Lightbulb className="size-4" />
           </Button>
           {/* Patch #84: Queue button — arms a single-slot "send when
               session goes idle" queue. Rests warm-neutral (matches
