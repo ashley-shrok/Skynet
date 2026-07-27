@@ -972,7 +972,7 @@ export function ComposeBox({
             onClick={onRetryBatch}
             aria-label="Retry upload"
             title="Retry failed upload"
-            className="gap-1 text-xs"
+            className="gap-1 text-xs max-md:h-12 max-md:px-4 [&_svg]:max-md:size-6"
           >
             <RefreshCw className="size-3" />
             Retry upload
@@ -1001,7 +1001,7 @@ export function ComposeBox({
           used to double as the height proxy, which prevented desktop
           from opting into the paperclip without also inheriting the
           chunky 44px row. */}
-      <div className={cn("flex items-center gap-2", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>
+      <div className={cn("flex items-center gap-2", isTouchDevice ? "min-h-[44px]" : "min-h-8", "max-md:min-h-16")}>
         {/* Patch #83: cohesive segmented-well meter with integrated reset
             cell (one instrument). The well ALWAYS mounts (segments show
             dim when contextPct is null so the row geometry never jitters
@@ -1016,7 +1016,7 @@ export function ComposeBox({
             CSS vars `--seg-count` and `--meter-width` expose tuning via
             DevTools without a rebuild. */}
         <div
-          className="h-7 w-[var(--meter-width)] rounded-md flex flex-row p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
+          className="h-7 max-md:h-14 w-[var(--meter-width)] rounded-md flex flex-row p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
           style={{"--seg-count": SEG_COUNT, "--meter-width": "160px"} as React.CSSProperties}
           role="meter"
           aria-label="Context window"
@@ -1040,7 +1040,7 @@ export function ComposeBox({
             aria-label="Send with /id reset prefix"
             title="Send with /id reset prefix"
             className={cn(
-              "h-full w-6 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
+              "h-full w-6 max-md:w-12 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
               "transition-[background,box-shadow,color] duration-[180ms]",
               "disabled:opacity-40 disabled:cursor-not-allowed",
               isPulsing
@@ -1061,7 +1061,7 @@ export function ComposeBox({
                   ],
             )}
           >
-            <RotateCcw className="size-3.5" />
+            <RotateCcw className="size-3.5 max-md:size-7" />
           </button>
           <div className="w-px mx-[3px] h-full bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
           {/* Segments: flex-row so index 0 renders at the LEFT of the
@@ -1201,6 +1201,7 @@ export function ComposeBox({
                 "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
                 "hover:border-[rgba(255,240,215,0.22)]",
                 "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+                "max-md:size-14 [&_svg]:max-md:size-6",
               )}
             >
               <Terminal className="size-4" />
@@ -1231,6 +1232,7 @@ export function ComposeBox({
                 "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
                 "hover:border-[rgba(255,240,215,0.22)]",
                 "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+                "max-md:size-14 [&_svg]:max-md:size-6",
               )}
             >
               <Paperclip className="size-4" />
@@ -1260,6 +1262,7 @@ export function ComposeBox({
                 "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
                 "hover:border-[rgba(255,240,215,0.22)]",
                 "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+                "max-md:size-14 [&_svg]:max-md:size-6",
               )}
             >
               <Square className="size-4" />
@@ -1289,6 +1292,7 @@ export function ComposeBox({
               "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
               "hover:border-[rgba(255,240,215,0.22)]",
               "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+              "max-md:size-14 [&_svg]:max-md:size-6",
             )}
           >
             <ThumbsUp className="size-4" />
@@ -1338,6 +1342,7 @@ export function ComposeBox({
                     "hover:border-[rgba(255,240,215,0.22)]",
                     "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
                   ],
+              "max-md:size-14 [&_svg]:max-md:size-6",
             )}
           >
             <Hourglass className="size-4" />
@@ -1394,7 +1399,7 @@ export function ComposeBox({
             // wraps a `dark:*` variant → specificity 0-2-0 → plain
             // `min-h-8` at 0-1-0 loses without `!`). One-line rest;
             // auto-grow to 6 rows still works via the useLayoutEffect above (patch #135).
-            "min-h-8!",
+            "min-h-8! max-md:min-h-16!",
             // `!` (Tailwind v4 important suffix) is required on the bg
             // arbitrary class: the shadcn `Textarea` wrapper's base
             // className carries `dark:bg-input/30` (see
@@ -1426,7 +1431,7 @@ export function ComposeBox({
             // `px-4` so tailwind-merge's later-wins dedupe keeps the
             // 40px right padding while the 16px left padding survives.
             // No `!` needed — no dark: variant conflict on padding.
-            "pr-10",
+            "pr-10 max-md:pr-14",
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
             "transition-[box-shadow,border-color] duration-200",
@@ -1506,7 +1511,7 @@ export function ComposeBox({
           title={asideActive ? "Resume" : "Send"}
           className={cn(
             "absolute right-1 bottom-0.5",
-            "p-2",
+            "p-2 max-md:p-3",
             // Phase 14 Wave 4 (Task 2): identity-hue color when morphed so
             // the X visually distinguishes from Send (Ashley 2026-07-26:
             // "Style change to visually distinguish from send" per
@@ -1528,7 +1533,7 @@ export function ComposeBox({
                 mark visually heavy enough at 24px to read as a
                 dismiss glyph without overpowering the neon aside
                 bubble above. */
-            <X className="size-6" strokeWidth={2.25} aria-hidden="true" />
+            <X className="size-6 max-md:size-10" strokeWidth={2.25} aria-hidden="true" />
           ) : (
             /* Raw inline SVG — verbatim from Ashley's DevTools console
                 snippet 2026-07-23. Single path (paper-plane silhouette
@@ -1541,6 +1546,7 @@ export function ComposeBox({
               viewBox="0 0 24 24"
               fill="currentColor"
               aria-hidden="true"
+              className="max-md:w-10 max-md:h-10"
             >
               <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
             </svg>
