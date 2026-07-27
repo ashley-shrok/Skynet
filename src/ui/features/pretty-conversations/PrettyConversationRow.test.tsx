@@ -805,3 +805,101 @@ describe("PrettyConversationRow: Phase 13 ambient recession (class toggle)", () 
     expect(rawStyle).not.toContain("--pv-hue");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 19 (A/B/C) — [quick-260727-f9v] subtitleMode="identityTitle" prop
+// ─────────────────────────────────────────────────────────────────────────────
+// New in quick-260727-f9v: the row accepts `subtitleMode?: "hostname" |
+// "identityTitle"` (default "hostname" — full backward compat). When the
+// panel is rendering a non-RDP, non-active-set, non-pinned host-grouped
+// section, it also renders a per-host divider chip above those rows and
+// wants the row sublabel to read as "which identity is this" (identity.title
+// falling back to identity.displayName) rather than repeating the hostname
+// the chip already announces. To avoid duplicating the Server glyph the
+// chip carries, the row also DROPS its own Server glyph when subtitleMode
+// is "identityTitle" AND an identity resolved.
+//
+// Terminal safety net (per Tina's patch #149 lesson — "known limitation,
+// inert ≠ inert"): if subtitleMode="identityTitle" but the row's identity
+// does NOT resolve, the render MUST fall back verbatim to the previous
+// behavior (hostname text + Server icon). Test C is the load-bearing guard
+// for that fallback — do NOT weaken or skip it.
+
+describe("PrettyConversationRow: subtitleMode='identityTitle' (quick-260727-f9v)", () => {
+  it("Test 19A: subtitleMode='identityTitle' + identity.title set → sublabel is title, NO Server icon in .pv-host", () => {
+    currentIdentity = {
+      ...makeIdentity(45, "nelly"),
+      title: "Ashley Ops",
+    };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        subtitleMode="identityTitle"
+      />,
+    );
+    const pvHost = container.querySelector(".pv-host") as HTMLElement | null;
+    expect(pvHost).toBeTruthy();
+    // Sublabel text is exactly the identity.title.
+    expect(pvHost!.textContent?.trim()).toBe("Ashley Ops");
+    // The Server icon (rendered by lucide as an svg with width=11 height=11
+    // inside `.pv-host`) MUST NOT be present when identityTitle mode resolves.
+    expect(pvHost!.querySelector('svg[width="11"]')).toBeNull();
+    // Defense-in-depth: no svg at all inside .pv-host in the identityTitle-
+    // resolved render path.
+    expect(pvHost!.querySelector("svg")).toBeNull();
+  });
+
+  it("Test 19B: subtitleMode='identityTitle' + identity.title null → sublabel is displayName, NO Server icon", () => {
+    currentIdentity = makeIdentity(90, "ashley"); // makeIdentity sets title: null
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "ashley" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        subtitleMode="identityTitle"
+      />,
+    );
+    const pvHost = container.querySelector(".pv-host") as HTMLElement | null;
+    expect(pvHost).toBeTruthy();
+    // Fallback: identity.title is null → displayName ("ashley") is used.
+    expect(pvHost!.textContent?.trim()).toBe("ashley");
+    expect(pvHost!.querySelector("svg")).toBeNull();
+  });
+
+  it("Test 19C: subtitleMode='identityTitle' + NO identity resolved → verbatim fallback (hostname text + Server icon)", () => {
+    // currentIdentity is null (reset in beforeEach) — useIdentities().byKey
+    // will not resolve. The safety-net terminal branch MUST render the
+    // previous behavior verbatim so unresolved-identity rows in host groups
+    // do NOT ship with sublabel "" or "undefined" on Ashley's next click.
+    // This is the guard against Tina's patch #149 lesson recurring here.
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({
+          host: makeHost({ name: "hostA" }),
+          targetTmuxSession: "unresolved-session",
+        })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        subtitleMode="identityTitle"
+      />,
+    );
+    const pvHost = container.querySelector(".pv-host") as HTMLElement | null;
+    expect(pvHost).toBeTruthy();
+    // Sublabel text falls back to the hostname (row.host.name).
+    expect(pvHost!.textContent?.trim()).toBe("hostA");
+    // The Server icon IS present in the fallback path (verbatim previous
+    // behavior — width=11 height=11 marker from the existing render).
+    expect(pvHost!.querySelector('svg[width="11"]')).toBeTruthy();
+  });
+});

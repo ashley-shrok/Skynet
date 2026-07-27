@@ -87,6 +87,7 @@ export function PrettyConversationRow({
   forceClosed,
   isWorking = null,
   inActiveSet = false,
+  subtitleMode = "hostname",
 }: {
   row: ConversationRowShape;
   selected: boolean;
@@ -108,6 +109,22 @@ export function PrettyConversationRow({
   // out of the set recede to the ambient values (per prototype v4).
   // RDP rows are exempt from ambient recession regardless of this flag.
   inActiveSet?: boolean;
+  // quick-260727-f9v: sublabel render mode.
+  //   "hostname"      → default; sublabel renders hostname + Server icon
+  //                     (verbatim pre-f9v behavior, backward-compatible).
+  //   "identityTitle" → sublabel renders identity.title (falling back to
+  //                     identity.displayName when title is null), and the
+  //                     Server icon is DROPPED (the per-host divider chip
+  //                     rendered by the panel above the group already
+  //                     carries the Server glyph, so duplicating it here
+  //                     would be noisy). If no identity resolves, the
+  //                     row falls back verbatim to "hostname" mode as a
+  //                     terminal safety net — see the render block below
+  //                     and Tina's patch #149 lesson in the plan.
+  //
+  // Only passed by the panel at the non-RDP grouped render site. Active-
+  // set, pinned, and RDP render sites omit the prop → default "hostname".
+  subtitleMode?: "hostname" | "identityTitle";
 }) {
   // ─── Identity resolution ───────────────────────────────────────────────────
   // Same shape as ConversationRow.tsx lines 41-47 (production baseline).
@@ -359,13 +376,39 @@ export function PrettyConversationRow({
           )}
         </div>
 
-        {/* Body: label + host secondary line */}
+        {/* Body: label + host secondary line.
+            quick-260727-f9v: sublabel render is now subtitleMode-driven.
+            Fallback chain (both explicit and self-documenting per Tina's
+            patch #149 lesson — "known limitation, inert ≠ inert"):
+              1. subtitleMode === "identityTitle" AND identity resolved
+                 → render `identity.title ?? identity.displayName`, NO Server icon
+                 (the per-host divider chip above the group already carries
+                 the Server glyph; duplicating here would be noisy).
+              2. subtitleMode === "identityTitle" AND identity is null
+                 → fall through to the verbatim previous behavior — the
+                 terminal safety net that guarantees rows never ship with
+                 sublabel "" or "undefined".
+              3. subtitleMode === "hostname" (default)
+                 → verbatim previous behavior: Server icon + row.host.name.
+            The outer `{row.host && …}` guard stays intact — rows without a
+            host render nothing here in both modes (final safety net; no host
+            = no sublabel line = no possibility of stringifying undefined). */}
         <div className="pv-body">
           <span className="pv-label">{row.label}</span>
           {row.host && (
             <span className="pv-host">
-              <Server aria-hidden="true" width={11} height={11} />
-              <span>{row.host.name}</span>
+              {subtitleMode === "identityTitle" && identity ? (
+                // Path 1: identity-title mode with a resolved identity.
+                // Drop the Server icon (the group's divider chip carries it).
+                <span>{identity.title ?? identity.displayName}</span>
+              ) : (
+                // Path 2 (identityTitle + no identity) and Path 3 (hostname
+                // mode): verbatim previous render — Server icon + hostname.
+                <>
+                  <Server aria-hidden="true" width={11} height={11} />
+                  <span>{row.host.name}</span>
+                </>
+              )}
             </span>
           )}
         </div>
