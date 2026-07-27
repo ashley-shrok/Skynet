@@ -157,6 +157,12 @@ vi.mock("@/state/conversation-store", () => ({
   togglePinConversation: (id: string) => togglePinConversationSpy(id),
   addToActiveSet: (id: string) => addToActiveSetSpy(id),
   removeFromActiveSet: (id: string) => removeFromActiveSetSpy(id),
+  // quick-260727-s8g: Panel imports fleetRowId to construct the fleet-
+  // synthetic id shape in handleRowDeactivate's sibling purge. Mock returns
+  // the real helper's format verbatim so Test 20F's toHaveBeenNthCalledWith
+  // assertion can match against "fleet::HOSTID::SESSIONNAME".
+  fleetRowId: (hostId: number, sessionName: string) =>
+    `fleet::${hostId}::${sessionName}`,
   // Phase 15 (Wave 3): the panel's new mount-effect calls this after
   // getPinnedIds resolves. Spy so the integration test can assert the
   // fetch → hydrate wiring.
@@ -818,6 +824,99 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     // click handler never runs.
     expect(selectConversationSpy).not.toHaveBeenCalled();
     expect(onConversationSelected).not.toHaveBeenCalled();
+  });
+
+  // quick-260727-s8g: locks in the id-shape-mismatch fix. handleRowDeactivate
+  // now purges BOTH the openTab id (row.id) AND the fleet-synthetic id
+  // (fleet::HOSTID::SESSIONNAME) when the row carries host + targetTmuxSession
+  // — otherwise the fleet id gets orphaned in state.activeSet and Tier 1
+  // re-promotes the row on the next computeSnapshot.
+  it("Test 20F: clicking deactivate-action on a fleet-derived active-set row purges BOTH id shapes — removeFromActiveSet(row.id) AND removeFromActiveSet(fleet::hostId::sessionName)", () => {
+    const hostThenasty = makeHost("3", "thenasty");
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({
+          id: "active-1",
+          label: "shrok",
+          host: hostThenasty,
+          targetTmuxSession: "shrok",
+        }),
+      ],
+      pinned: [],
+      grouped: [],
+    });
+    mockActiveSet = new Set<string>(["active-1", "fleet::3::shrok"]);
+
+    const onDeactivateRow = vi.fn();
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+    const rowEl = container.querySelector(
+      '[data-conversation-id="active-1"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const deactivate = rowEl!.querySelector(
+      '[data-testid="deactivate-action"]',
+    ) as HTMLElement | null;
+    expect(deactivate).toBeTruthy();
+
+    removeFromActiveSetSpy.mockClear();
+
+    fireEvent.click(deactivate!);
+
+    // BOTH id shapes purged — openTab id first, fleet-synthetic id second.
+    expect(removeFromActiveSetSpy).toHaveBeenCalledTimes(2);
+    expect(removeFromActiveSetSpy).toHaveBeenNthCalledWith(1, "active-1");
+    expect(removeFromActiveSetSpy).toHaveBeenNthCalledWith(2, "fleet::3::shrok");
+    expect(onDeactivateRow).toHaveBeenCalledTimes(1);
+    expect(onDeactivateRow.mock.calls[0][0].id).toBe("active-1");
+  });
+
+  // quick-260727-s8g: guard branch — row without targetTmuxSession skips the
+  // fleet-id sibling purge so we never construct a bogus `fleet::N::` string.
+  // (MockRow.host is `Host | undefined`, not nullable; using
+  // targetTmuxSession=null exercises the same short-circuit branch of the
+  // `if (row.host && row.targetTmuxSession)` guard.)
+  it("Test 20G: clicking deactivate-action on a row with no targetTmuxSession skips the fleet-id sibling purge — removeFromActiveSet called exactly once with row.id, no crash", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({
+          id: "active-2",
+          label: "orphan",
+          host: hostA,
+          targetTmuxSession: null,
+        }),
+      ],
+      pinned: [],
+      grouped: [],
+    });
+    mockActiveSet = new Set<string>(["active-2"]);
+
+    const onDeactivateRow = vi.fn();
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+    const rowEl = container.querySelector(
+      '[data-conversation-id="active-2"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const deactivate = rowEl!.querySelector(
+      '[data-testid="deactivate-action"]',
+    ) as HTMLElement | null;
+    expect(deactivate).toBeTruthy();
+
+    removeFromActiveSetSpy.mockClear();
+
+    fireEvent.click(deactivate!);
+
+    expect(removeFromActiveSetSpy).toHaveBeenCalledTimes(1);
+    expect(removeFromActiveSetSpy).toHaveBeenCalledWith("active-2");
+    // No fleet-id call — the guard skipped it.
+    for (const call of removeFromActiveSetSpy.mock.calls) {
+      expect(String(call[0])).not.toContain("fleet::");
+    }
+    expect(onDeactivateRow).toHaveBeenCalledTimes(1);
   });
 });
 
