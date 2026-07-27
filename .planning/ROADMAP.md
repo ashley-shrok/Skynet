@@ -577,3 +577,13 @@ Plans:
 - Wave 1: 15-01 (backend — schema + endpoint + tests; no dependencies)
 - Wave 2: 15-02 (frontend store; depends on 15-01 for endpoint to exist)
 - Wave 3: 15-03 (frontend panel wire-up + human-verify; depends on 15-02 for hydratePinnedIdsFromServer + getPinnedIds to exist)
+
+### Phase 16: Voice input in ComposeBox — mic button + tap-to-record + STT via Skynet backend proxy to tailnet faster-whisper
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 15
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 16 to break down)
