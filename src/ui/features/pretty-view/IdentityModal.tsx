@@ -44,6 +44,8 @@ import {
   type IdentityBountyPriorityUpdatedEvent,
   type IdentityUpdateBountyStatusPayload,
   type IdentityBountyStatusUpdatedEvent,
+  type IdentityArchiveBountyPayload,
+  type IdentityBountyArchivedEvent,
   type Wakeup,
 } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
@@ -453,6 +455,29 @@ export function IdentityModal({
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
+  // Quick 260727-wd0: byte-shape mirror of updateBountyStatus for the
+  // archive write surface. Payload has NO status field — server decides
+  // internally (flip live→done or preserve terminal). Same fresh-list
+  // response pattern; also invalidates the pinned count because archiving
+  // a pinned live bounty deterministically drops the count by 1.
+  async function archiveBounty(bountySlug: string): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityArchiveBountyPayload = {
+      type: "identity:archive-bounty",
+      identityKey: identity.identityKey,
+      hostId,
+      bountySlug,
+    };
+    const res = await sendIdentityMutation<
+      IdentityArchiveBountyPayload,
+      IdentityBountyArchivedEvent
+    >(payload, "identity:bounty-archived");
+    if (res.error) throw new Error(res.error);
+    setBounties(res.bounties);
+    setArchivedBounties(res.archivedBounties);
+    void invalidateBountyCount(identity.identityKey, hostId);
+  }
+
   const sortedArchive = useMemo(
     () => [...archivedBounties].sort((a, b) =>
       (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
@@ -724,6 +749,15 @@ export function IdentityModal({
                             // Threaded for ALL three partitions including
                             // "other".
                             onStatusChange={(s) => updateBountyStatus(b.slug, s)}
+                            // Quick 260727-wd0: Archive button threaded for
+                            // ALL THREE OPEN partitions (in_progress / rest
+                            // / other) — a single addition here covers all
+                            // three because they share this BountyCard render.
+                            // Deliberately NOT passed to sortedArchive.map
+                            // below (locked semantics rule #3: cards already
+                            // under archive/ don't get the button; unarchive
+                            // is a separate follow-up).
+                            onArchive={() => archiveBounty(b.slug)}
                           />
                         ))}
                       </div>
@@ -753,6 +787,10 @@ export function IdentityModal({
                               // Priority row stays hidden per patch #154's
                               // gate on `onPriorityChange &&`).
                               onStatusChange={(s) => updateBountyStatus(b.slug, s)}
+                              /* Quick 260727-wd0: NO onArchive here — cards
+                                 already under archive/ do not get an Archive
+                                 button (locked semantics rule #3; unarchive
+                                 is a separate follow-up). */
                             />
                           ))}
                         </div>

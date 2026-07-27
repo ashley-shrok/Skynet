@@ -177,7 +177,8 @@ export type ClaudeSessionServerEvent =
   | IdentityHandoffEvent
   | IdentityWakeupUpdatedEvent
   | IdentityBountyPriorityUpdatedEvent
-  | IdentityBountyStatusUpdatedEvent;
+  | IdentityBountyStatusUpdatedEvent
+  | IdentityBountyArchivedEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
@@ -391,6 +392,25 @@ export type IdentityUpdateBountyStatusPayload = {
 };
 export type IdentityBountyStatusUpdatedEvent = {
   type: "identity:bounty-status-updated";
+  bounties: Bounty[];
+  archivedBounties: Bounty[];
+  error?: string;
+};
+
+// Quick 260727-wd0: archive is a one-way write surface. Server decides the
+// new status internally (flip live→done, preserve done/dropped) — payload
+// has no client-supplied status field. Same one-shot request / fresh-list
+// response convention; the writer atomically patches bounty.json in place
+// at the CURRENT path, then mv's bounties/<slug>/ under bounties/archive/
+// <slug>/ (mkdir -p archive/ if absent). See PLAN's locked semantics.
+export type IdentityArchiveBountyPayload = {
+  type: "identity:archive-bounty";
+  identityKey: string;
+  hostId: number;
+  bountySlug: string;
+};
+export type IdentityBountyArchivedEvent = {
+  type: "identity:bounty-archived";
   bounties: Bounty[];
   archivedBounties: Bounty[];
   error?: string;

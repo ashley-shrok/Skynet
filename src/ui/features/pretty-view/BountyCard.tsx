@@ -212,6 +212,7 @@ export function BountyCard({
   archived = false,
   onPriorityChange,
   onStatusChange,
+  onArchive,
 }: {
   bounty: Bounty;
   hue: number;
@@ -225,6 +226,10 @@ export function BountyCard({
    *  this SHOULD be supplied for ALL bounties including terminal
    *  (done/dropped) and archived — status is the resurrect surface. */
   onStatusChange?: (status: BountyStatus) => Promise<void>;
+  /** Quick 260727-wd0: when supplied, expanded body renders an Archive
+   *  button below the Priority row. Only supplied for OPEN cards; archived
+   *  cards do NOT get the button (unarchive is a follow-up quick). */
+  onArchive?: () => Promise<void>;
 }) {
   const [premiseExpanded, setPremiseExpanded] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -232,6 +237,8 @@ export function BountyCard({
   const [priorityError, setPriorityError] = useState<string | null>(null);
   const [savingStatus, setSavingStatus] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [savingArchive, setSavingArchive] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const isLongPremise = bounty.premise.length > 400;
 
   async function handlePriorityChange(next: BountyPriority) {
@@ -257,6 +264,19 @@ export function BountyCard({
       setStatusError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingStatus(false);
+    }
+  }
+
+  async function handleArchive() {
+    if (!onArchive) return;
+    setArchiveError(null);
+    setSavingArchive(true);
+    try {
+      await onArchive();
+    } catch (e) {
+      setArchiveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingArchive(false);
     }
   }
 
@@ -377,6 +397,33 @@ export function BountyCard({
               {priorityError && (
                 <div className="text-xs text-rose-300 whitespace-pre-wrap">
                   {priorityError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick 260727-wd0: Archive button — sibling of v0b's inline
+              status editor on the archive axis. Live-status bounties get
+              flipped to done + moved to bounties/archive/; terminal-status
+              bounties (done/dropped) are moved as-is (status preserved).
+              Only rendered when the parent supplies onArchive — deliberately
+              withheld for cards already under the Archive accordion. */}
+          {onArchive && (
+            <div className="flex flex-col gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] self-start"
+                aria-label={`Archive bounty: ${bounty.title}`}
+                disabled={savingArchive}
+                onClick={() => void handleArchive()}
+              >
+                {savingArchive ? "Archiving…" : "Archive"}
+              </Button>
+              {archiveError && (
+                <div className="text-xs text-rose-300 whitespace-pre-wrap">
+                  {archiveError}
                 </div>
               )}
             </div>

@@ -325,6 +325,12 @@ export const BOUNTY_STATUS_VALUES = [
 ] as const;
 export type BountyStatus = (typeof BOUNTY_STATUS_VALUES)[number];
 
+// Quick 260727-wd0: terminal-status set — archive preserves these, flips
+// everything else to done. Kept adjacent to BOUNTY_STATUS_VALUES so the two
+// sets stay visually paired (any future addition to the status enum should
+// prompt an explicit decision about terminal membership here).
+export const TERMINAL_BOUNTY_STATUSES = ["done", "dropped"] as const;
+
 /** Slug regex for wakeup filenames and bounty folder names — kebab/snake,
  *  1-80 chars. Enforced before we ever touch the filesystem so a hostile
  *  slug can't traverse into `..` or otherwise escape the identity dir. */
@@ -843,7 +849,142 @@ export async function writeIdentityBountyStatus(
 }
 
 // ---------------------------------------------------------------------------
-// 9. readIdentityPinnedBountyCount — count of non-archived pinned bounties
+// 9. archiveIdentityBounty — patch bounty.json status (flip or preserve),
+//    tmp+rename at CURRENT path, mkdir -p bounties/archive/, then mv
+//    bounties/<slug>/ → bounties/archive/<slug>/
+// ---------------------------------------------------------------------------
+//
+// Quick 260727-wd0: sibling of writeIdentityBountyStatus on the archive axis.
+// Semantics locked by Ashley (see PLAN.md § Semantics):
+//
+//   1. LIVE-status bounty (status ∈ {pinned, in_progress,
+//      waiting_on_someone_else}) — atomically: (a) status → "done",
+//      (b) updated_at → nowIso, (c) append `<ISO> archived via identity
+//      modal (status flipped from <prev> to done)` to timeline[], (d)
+//      tmp+rename write at the CURRENT (open) path, (e) mkdir -p
+//      bounties/archive/ if absent, (f) mv bounties/<slug>/ →
+//      bounties/archive/<slug>/.
+//   2. TERMINAL-status bounty (status ∈ {done, dropped}) still sitting
+//      in bounties/ — steps (b), (c) with `<prev> preserved` line, (d),
+//      (e), (f). No status flip (preserves `dropped` from being
+//      clobbered to `done`).
+//   3. Unparseable bounty.json → throw a clear `please repair before
+//      archiving` error BEFORE any mutation is attempted. No tmp file,
+//      no mkdir, no mv. Disk state is byte-for-byte identical.
+//
+// Sequencing is load-bearing per Nelly's fleet audit (fleet-archived-
+// bounty-storage-audit): the tmp+rename JSON patch happens FIRST at the
+// current path so a mid-crash can never leave a truncated bounty.json in
+// the archive/ tree. mkdir -p is idempotent. fs.rename on same-filesystem
+// directories is POSIX-atomic — either the folder is at bounties/<slug>/
+// (crash before rename) or at bounties/archive/<slug>/ (crash after) but
+// never half-in-both. On rename failure (e.g. ENOTEMPTY from a slug
+// collision under archive/), the error propagates; handler surfaces it
+// to the modal; the JSON patch at the OLD path is already durable so a
+// retry is safe (timeline gains a duplicate entry — acceptable, better
+// than half-moved).
+
+export async function archiveIdentityBounty(
+  conn: SSHClientType | null,
+  identityKey: string,
+  bountySlug: string,
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  if (conn === null) {
+    const root = getLocalIdentitiesRoot();
+    const bountyDir = path.join(root, identityKey, "bounties", bountySlug);
+    const filePath = path.join(bountyDir, "bounty.json");
+    const archiveParentDir = path.join(root, identityKey, "bounties", "archive");
+    const archiveDestDir = path.join(archiveParentDir, bountySlug);
+
+    const raw = await fs.readFile(filePath, "utf-8");
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new Error(
+        `please repair before archiving: bounty.json at ${filePath} is unparseable`,
+      );
+    }
+
+    const prevStatus =
+      typeof parsed.status === "string" ? parsed.status : "unknown";
+    const isTerminal = (TERMINAL_BOUNTY_STATUSES as readonly string[]).includes(
+      prevStatus,
+    );
+    const nextStatus = isTerminal ? prevStatus : "done";
+    const timelineLine = isTerminal
+      ? `${nowIso} archived via identity modal (status ${prevStatus} preserved)`
+      : `${nowIso} archived via identity modal (status flipped from ${prevStatus} to done)`;
+
+    parsed.status = nextStatus;
+    parsed.updated_at = nowIso;
+    const tl = Array.isArray(parsed.timeline) ? [...parsed.timeline] : [];
+    tl.push(timelineLine);
+    parsed.timeline = tl;
+
+    const next = JSON.stringify(parsed, null, 2) + "\n";
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, next, "utf-8");
+    await fs.rename(tmpPath, filePath);
+
+    // mkdir -p bounties/archive/ (fresh-mkdir case for the 4 fleet
+    // identities that don't have this dir yet, per Nelly's audit).
+    await fs.mkdir(archiveParentDir, { recursive: true });
+
+    // POSIX rename — atomic on same filesystem. Throws ENOTEMPTY/EEXIST
+    // if archiveDestDir exists non-empty (slug collision → fail loud).
+    await fs.rename(bountyDir, archiveDestDir);
+    return;
+  }
+
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+  // Remote branch: python3 script mirrors the local branch step-for-step.
+  // updated_at is generated in-python (utcnow) so the timestamp reflects
+  // the box's own clock (matches patch #154 / v0b's remote convention).
+  // On parse failure sys.exit surfaces via execWithTimeout's error
+  // propagation. On rename failure (dest exists non-empty), Python's
+  // OSError propagates as a non-zero exit — handler surfaces the traceback.
+  const script =
+    'import json,os,sys,datetime\n' +
+    'p=sys.argv[1]\n' +
+    'bounty_dir=os.path.dirname(p)\n' +
+    'bounties_dir=os.path.dirname(bounty_dir)\n' +
+    'archive_parent=os.path.join(bounties_dir,"archive")\n' +
+    'archive_dest=os.path.join(archive_parent,os.path.basename(bounty_dir))\n' +
+    'try:\n' +
+    '  with open(p,"r") as f: d=json.load(f)\n' +
+    'except Exception:\n' +
+    '  sys.exit("please repair before archiving: bounty.json at "+p+" is unparseable")\n' +
+    'prev=d.get("status","unknown")\n' +
+    'is_terminal=prev in ("done","dropped")\n' +
+    'nxt=prev if is_terminal else "done"\n' +
+    'now=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")\n' +
+    'd["status"]=nxt\n' +
+    'd["updated_at"]=now\n' +
+    'tl=d.get("timeline") or []\n' +
+    'if not isinstance(tl,list): tl=[]\n' +
+    'if is_terminal:\n' +
+    '  tl.append(now+" archived via identity modal (status "+prev+" preserved)")\n' +
+    'else:\n' +
+    '  tl.append(now+" archived via identity modal (status flipped from "+prev+" to done)")\n' +
+    'd["timeline"]=tl\n' +
+    'tmp=p+".tmp"\n' +
+    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    'os.rename(tmp,p)\n' +
+    'os.makedirs(archive_parent,exist_ok=True)\n' +
+    'os.rename(bounty_dir,archive_dest)\n';
+  const cmd =
+    `python3 -c ${shellEscape(script)} ` +
+    `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
+  await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
+// 10. readIdentityPinnedBountyCount — count of non-archived pinned bounties
 // ---------------------------------------------------------------------------
 //
 // Quick 260727-tb1: cheap counter used by the per-row bounty badge in the
