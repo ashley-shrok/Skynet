@@ -39,7 +39,7 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessagesSquare, Monitor, Pencil, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -48,6 +48,7 @@ import {
   useSelectedConversationId,
   usePinnedIds,
   useActiveSet,
+  useFleetSessionsLoaded,
   selectConversation,
   addToActiveSet,
   removeFromActiveSet,
@@ -171,6 +172,17 @@ export function PrettyConversationsPanel({
   // hit a stable ReadonlySet reference (Set identity flips only on real
   // additions; consumers get a memoized reference across no-ops).
   const activeSet = useActiveSet();
+  // quick-260727-kbw: fleet-loaded gate for the mount hydration effect
+  // below (see §(d) in the block comment above the effect). Subscribes
+  // via useSyncExternalStore; a false→true flip in the store bumps
+  // snapshotVersion → this hook returns true on the next render → the
+  // mount effect's [fleetSessionsLoaded] dep triggers the body to run.
+  const fleetSessionsLoaded = useFleetSessionsLoaded();
+  // quick-260727-kbw: guards against re-hydration across renders even if
+  // the flag were to flip back-and-forth (defense-in-depth per bug spec —
+  // Ashley confirmed the store flag stays true after first flip, but a
+  // ref-based dedupe costs nothing and closes the invariant regardless).
+  const hydratedRef = useRef(false);
 
   // Patch #144 Fix (d): every selectedId change enrolls the id in the
   // active set — not just click-driven selection via handleRowSelect.
@@ -201,7 +213,19 @@ export function PrettyConversationsPanel({
   //       StrictMode double-mount in dev + real navigate-away in production —
   //       a stale resolve from an unmounted effect early-returns before
   //       touching store state (T-15-13 + T-15-14 mitigations).
+  //   (d) quick-260727-kbw fleet-loaded gate — the fetch-then-hydrate IIFE is
+  //       deferred until useFleetSessionsLoaded() returns true so that the
+  //       first background updateOpenTabs after hydration has a populated
+  //       fleetPinKeepSet (from state.fleetSessions) and does NOT nuke
+  //       freshly-hydrated fleet pins via the pruner at conversation-store.ts
+  //       L540-547. hydratedRef guards defense-in-depth against a hypothetical
+  //       false→true→false→true flip (Ashley confirmed the flag stays true
+  //       after first flip, but the ref costs nothing). Depends on
+  //       [fleetSessionsLoaded] not [] so the body reruns when the flag flips.
   useEffect(() => {
+    if (!fleetSessionsLoaded) return;
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
     let cancelled = false;
     (async () => {
       try {
@@ -215,7 +239,7 @@ export function PrettyConversationsPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fleetSessionsLoaded]);
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);

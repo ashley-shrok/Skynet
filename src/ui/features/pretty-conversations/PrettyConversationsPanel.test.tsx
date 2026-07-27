@@ -124,6 +124,17 @@ const hydratePinnedIdsFromServerSpy = vi.fn();
 // pattern above at L96-L104. beforeEach resets it to an empty Set.
 let mockActiveSet: ReadonlySet<string> = new Set<string>();
 
+// quick-260727-kbw: mutable mock fleet-loaded flag so Test 22 can flip the
+// gate on/off between rerenders. Mirrors mockActiveSet's pattern above.
+// beforeEach resets to false so pre-kbw tests observe the "not yet loaded"
+// state — this is the CORRECT behavior for the panel post-kbw: mount without
+// updateFleetSessions() first means the fetch-then-hydrate IIFE does NOT
+// fire, matching how AppShell's fleet-fetch mount effect precedes the panel
+// mount in production. Tests that want the old behavior (getPinnedIds fires
+// immediately on mount) must explicitly set mockFleetSessionsLoaded = true
+// before render — see Test 21 which was updated to opt in.
+let mockFleetSessionsLoaded = false;
+
 vi.mock("@/state/conversation-store", () => ({
   useConversations: () => ({
     activeSet: snapshot.activeSet,
@@ -138,6 +149,10 @@ vi.mock("@/state/conversation-store", () => ({
   // mutable readback via mockActiveSet so Tests 20A/20C/20D can assert
   // the row-level DeactivateAction gate on inActiveSet.
   useActiveSet: () => mockActiveSet,
+  // quick-260727-kbw: fleet-loaded gate consumed by the panel's mount effect.
+  // Backed by mockFleetSessionsLoaded so Test 22 can flip it on/off between
+  // rerenders to exercise the gate.
+  useFleetSessionsLoaded: () => mockFleetSessionsLoaded,
   selectConversation: (id: string | null) => selectConversationSpy(id),
   togglePinConversation: (id: string) => togglePinConversationSpy(id),
   addToActiveSet: (id: string) => addToActiveSetSpy(id),
@@ -235,6 +250,11 @@ beforeEach(async () => {
   // (default ambient rendering path — matches pre-gm3 mock behavior for
   // the 15+ existing tests that never touched it).
   mockActiveSet = new Set<string>();
+  // quick-260727-kbw: reset the fleet-loaded gate to false so the mount
+  // effect's fetch does NOT fire by default — matches the load-order
+  // invariant post-kbw. Tests that need the mount fetch (Test 21 and
+  // Test 22's second render) opt in explicitly.
+  mockFleetSessionsLoaded = false;
   // Phase 15 (Wave 3): re-arm the getPinnedIds mock's default resolve value.
   // vi.clearAllMocks() above wipes the resolved value along with call
   // history; restore the "empty array" default so pre-Wave-3 tests continue
@@ -1265,6 +1285,13 @@ describe("PrettyConversationsPanel: patch #144 activeSet on selectedId", () => {
 
 describe("PrettyConversationsPanel (Phase 15): server-hydration on mount", () => {
   it("Test 21 (Phase 15 Wave 3): mount fires getPinnedIds() then hydratePinnedIdsFromServer(ids) with the resolved array", async () => {
+    // quick-260727-kbw: opt in to the fleet-loaded gate so the mount effect
+    // fires. Pre-kbw this test relied on the empty-deps effect firing on
+    // every mount; post-kbw the effect gates on fleetSessionsLoaded=true
+    // (mirrors the production ordering where AppShell's fleet-fetch effect
+    // populates state.fleetSessions before the panel's hydrate effect runs).
+    mockFleetSessionsLoaded = true;
+
     // Fixture: two ids that are legally-pinnable in this test setup. Content
     // doesn't need to match anything the snapshot renders — the assertion is
     // on the fetch → hydrate wiring, not on the rendered pinned tier.
@@ -1300,5 +1327,82 @@ describe("PrettyConversationsPanel (Phase 15): server-hydration on mount", () =>
       expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
     });
     expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(fixtureIds);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 22 — quick-260727-kbw: mount hydration gated on fleetSessionsLoaded
+// ─────────────────────────────────────────────────────────────────────────────
+// The Wave-3 mount effect empty-deps at L204-218 (pre-kbw) fired the
+// getPinnedIds fetch in a microtask while state.fleetSessions was still empty;
+// the next routine updateOpenTabs pruned the freshly-hydrated fleet pin
+// because fleetPinKeepSet was built from an empty state.fleetSessions.
+//
+// Post-kbw: the effect gates on useFleetSessionsLoaded() === true AND uses a
+// hydratedRef to prevent double-fetch across re-renders (defense-in-depth per
+// bug spec).
+//
+// This test locks the ordering itself. The store-level regression assertion —
+// that IF the ordering holds, the pin survives the pruner — lives in
+// conversation-store.test.ts.
+
+describe("PrettyConversationsPanel (quick-260727-kbw): mount hydration gated on fleetSessionsLoaded", () => {
+  it("Test 22 (quick-260727-kbw): mount does NOT call getPinnedIds while fleetSessionsLoaded=false; DOES call once after it flips to true; stays once across further re-renders (hydratedRef dedupe)", async () => {
+    const fixtureIds = ["fleet::7::aqua"];
+    const { getPinnedIds } = await import("@/api/user-preferences-api");
+    vi.mocked(getPinnedIds).mockResolvedValueOnce(fixtureIds);
+
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [makeConversationRow({ id: "t-A", label: "session-A", host: hostA })],
+        },
+      ],
+    });
+
+    // beforeEach sets mockFleetSessionsLoaded = false. Render — the gate is
+    // closed, so the mount effect body should early-return before calling
+    // getPinnedIds.
+    const { rerender } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Pre-flip assertion: fetch NOT called. Await a microtask so any deferred
+    // effect body would have had a chance to fire.
+    await Promise.resolve();
+    expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(0);
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
+
+    // Flip the gate open, rerender — the mount effect's dep is
+    // [fleetSessionsLoaded] so the body reruns and fires the fetch this time.
+    mockFleetSessionsLoaded = true;
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Post-flip: fetch called exactly once. Await the resolve microtask for
+    // the hydrate to land.
+    await waitFor(() => {
+      expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(fixtureIds);
+
+    // Third render: gate stays open, hydratedRef should hold. Fetch count
+    // MUST NOT bump — this is the ref-based dedupe guard.
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Give any deferred work a chance to fire before asserting it didn't.
+    await Promise.resolve();
+    expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(1);
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
   });
 });
