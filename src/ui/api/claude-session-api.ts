@@ -361,3 +361,98 @@ export type IdentityBountyPriorityUpdatedEvent = {
   archivedBounties: Bounty[];
   error?: string;
 };
+
+// ─── Quick 260727-tb1: batched on-deck bounty count ─────────────────────────
+//
+// Piggybacks on the patch #92 identity-artifact reader to power the per-row
+// bounty badge in pretty-conversations. ONE WS request carrying every visible
+// identity's (identityKey, hostId), ONE response with per-target counts.
+// Response uses Promise.allSettled server-side so one dead SSH host cannot
+// block the batch — dead-host entries carry {onDeckCount: 0, error: string}
+// while other targets still return live counts.
+//
+//   client -> server:
+//     { type: "identity:count-bounties", targets: [{identityKey, hostId}, ...] }
+//
+//   server -> client:
+//     { type: "identity:bounty-counts", counts: [{identityKey, hostId, onDeckCount, error?}, ...] }
+//
+// hostId=null means "read from skynet-ec2 local bind-mount" (patch #92 D-4).
+
+export type BountyCountTarget = {
+  identityKey: string;
+  hostId: number | null;
+};
+
+export type IdentityCountBountiesPayload = {
+  type: "identity:count-bounties";
+  targets: BountyCountTarget[];
+};
+
+export type BountyCountResult = {
+  identityKey: string;
+  hostId: number | null;
+  onDeckCount: number;
+  error?: string;
+};
+
+export type IdentityBountyCountsEvent = {
+  type: "identity:bounty-counts";
+  counts: BountyCountResult[];
+};
+
+/**
+ * Fire a one-shot batched on-deck bounty count request. Opens its own WS,
+ * sends one identity:count-bounties frame on open, resolves on the first
+ * matching identity:bounty-counts response, then closes the socket. Follows
+ * the same one-shot request/response pattern IdentityModal uses for
+ * identity:list-bounties.
+ *
+ * Rejects on onerror / onclose-before-response with "Connection failed" so
+ * callers can distinguish transport failures from per-target errors (the
+ * latter surface in individual counts[i].error fields).
+ */
+export function countIdentityBounties(
+  targets: BountyCountTarget[],
+): Promise<IdentityBountyCountsEvent> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: IdentityCountBountiesPayload = {
+        type: "identity:count-bounties",
+        targets,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "identity:bounty-counts") return; // ignore unrelated frames
+        responded = true;
+        resolve(raw as IdentityBountyCountsEvent);
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+      } catch {
+        /* ignore parse errors — wait for a valid frame */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
