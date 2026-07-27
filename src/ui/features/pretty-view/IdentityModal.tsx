@@ -27,6 +27,7 @@ import {
   openClaudeSessionSocket,
   type Bounty,
   type BountyPriority,
+  type BountyStatus,
   type IdentityBountiesEvent,
   type IdentityListBountiesPayload,
   type IdentityGetIdentityFilePayload,
@@ -41,6 +42,8 @@ import {
   type IdentityWakeupUpdatedEvent,
   type IdentityUpdateBountyPriorityPayload,
   type IdentityBountyPriorityUpdatedEvent,
+  type IdentityUpdateBountyStatusPayload,
+  type IdentityBountyStatusUpdatedEvent,
   type Wakeup,
 } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
@@ -422,6 +425,34 @@ export function IdentityModal({
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
+  // Quick 260727-v0b: byte-shape mirror of updateBountyPriority for the
+  // parallel status write surface. Same one-shot request / fresh-list
+  // response pattern; also invalidates the panel's cached pinned count —
+  // even MORE strongly justified than the priority case, because a status
+  // flip to/from `pinned` DIRECTLY changes the pinned count (the priority
+  // path's invalidation was speculative; this one is deterministic).
+  async function updateBountyStatus(
+    bountySlug: string,
+    status: BountyStatus,
+  ): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateBountyStatusPayload = {
+      type: "identity:update-bounty-status",
+      identityKey: identity.identityKey,
+      hostId,
+      bountySlug,
+      status,
+    };
+    const res = await sendIdentityMutation<
+      IdentityUpdateBountyStatusPayload,
+      IdentityBountyStatusUpdatedEvent
+    >(payload, "identity:bounty-status-updated");
+    if (res.error) throw new Error(res.error);
+    setBounties(res.bounties);
+    setArchivedBounties(res.archivedBounties);
+    void invalidateBountyCount(identity.identityKey, hostId);
+  }
+
   const sortedArchive = useMemo(
     () => [...archivedBounties].sort((a, b) =>
       (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
@@ -686,6 +717,13 @@ export function IdentityModal({
                                 ? undefined
                                 : (p) => updateBountyPriority(b.slug, p)
                             }
+                            // Quick 260727-v0b: DELIBERATELY different from
+                            // priority above — status IS meaningful on
+                            // done/dropped bounties (resurrect: click
+                            // "pinned" to pull them back into working set).
+                            // Threaded for ALL three partitions including
+                            // "other".
+                            onStatusChange={(s) => updateBountyStatus(b.slug, s)}
                           />
                         ))}
                       </div>
@@ -708,6 +746,13 @@ export function IdentityModal({
                               bounty={b}
                               hue={hue}
                               archived
+                              // Quick 260727-v0b: onStatusChange threaded for
+                              // archived bounties too — that IS the resurrect
+                              // flow. Deliberately NO onPriorityChange (still
+                              // meaningless for archived bounties, so the
+                              // Priority row stays hidden per patch #154's
+                              // gate on `onPriorityChange &&`).
+                              onStatusChange={(s) => updateBountyStatus(b.slug, s)}
                             />
                           ))}
                         </div>

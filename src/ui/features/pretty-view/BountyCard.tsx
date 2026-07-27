@@ -3,7 +3,13 @@ import { Flame, ChevronsUp, ChevronUp, Minus, ChevronDown, Circle } from "lucide
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/checkbox";
 import { Button } from "@/components/button";
-import { BOUNTY_PRIORITY_VALUES, type Bounty, type BountyPriority } from "@/api/claude-session-api";
+import {
+  BOUNTY_PRIORITY_VALUES,
+  BOUNTY_STATUS_VALUES,
+  type Bounty,
+  type BountyPriority,
+  type BountyStatus,
+} from "@/api/claude-session-api";
 
 // Patch #87: per-bounty card for the IdentityModal Bounties tab.
 //
@@ -131,11 +137,81 @@ function PriorityRow({
   );
 }
 
+// Quick 260727-v0b: inline STATUS editor row — mirrors PriorityRow above
+// but with a treatment tweak per Ashley's ask: status has no glyph (just
+// the label), and each INACTIVE pill uses its own STATUS_CLASSES color
+// for fill/border/text (rather than the common muted border PriorityRow
+// uses). The ACTIVE pill still gets the "pressed white ring" treatment
+// so it reads as selected against the colored inactive row. Editable for
+// ALL bounties including archived — that's the resurrect flow (click
+// "pinned" on a done/dropped/archived card to pull it back into working
+// set). Read-only branch (no onChange) is a safety net; the caller in
+// IdentityModal supplies onChange at every render site.
+function StatusRow({
+  status,
+  onChange,
+  saving,
+}: {
+  status: string;
+  onChange?: (s: BountyStatus) => void;
+  saving?: boolean;
+}) {
+  if (!onChange) {
+    // Read-only display — matches the header row's status pill shape.
+    const cls =
+      STATUS_CLASSES[status] ??
+      "bg-slate-500/20 text-slate-200 border border-slate-500/30";
+    const label = STATUS_LABELS[status] ?? status;
+    return (
+      <span
+        className={cn(
+          "px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide inline-flex w-fit",
+          cls,
+        )}
+      >
+        {label}
+      </span>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {BOUNTY_STATUS_VALUES.map((s) => {
+        const active = s === status;
+        const inactiveCls =
+          STATUS_CLASSES[s] ??
+          "bg-slate-500/20 text-slate-200 border border-slate-500/30";
+        return (
+          <button
+            key={s}
+            type="button"
+            onClick={() => !active && onChange(s)}
+            disabled={saving || active}
+            title={`Set status: ${STATUS_LABELS[s] ?? s}`}
+            aria-label={`Set status: ${STATUS_LABELS[s] ?? s}`}
+            aria-pressed={active}
+            className={cn(
+              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] uppercase tracking-wide border transition-colors",
+              active
+                ? "border-white/40 bg-white/10 text-[#f0ebe0] cursor-default"
+                : cn(inactiveCls, "cursor-pointer hover:brightness-110"),
+              saving && !active && "opacity-50 cursor-wait",
+            )}
+          >
+            <span className="sr-only">Set status:</span>
+            <span>{STATUS_LABELS[s] ?? s}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function BountyCard({
   bounty,
   hue,
   archived = false,
   onPriorityChange,
+  onStatusChange,
 }: {
   bounty: Bounty;
   hue: number;
@@ -144,11 +220,18 @@ export function BountyCard({
    *  editor and dispatches this callback on click. Omit (e.g. for archived
    *  cards) to render the static PriorityIcon display only. */
   onPriorityChange?: (priority: BountyPriority) => Promise<void>;
+  /** Quick 260727-v0b: when supplied, expanded row renders an inline
+   *  status editor above the priority editor. Unlike onPriorityChange,
+   *  this SHOULD be supplied for ALL bounties including terminal
+   *  (done/dropped) and archived — status is the resurrect surface. */
+  onStatusChange?: (status: BountyStatus) => Promise<void>;
 }) {
   const [premiseExpanded, setPremiseExpanded] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [savingPriority, setSavingPriority] = useState(false);
   const [priorityError, setPriorityError] = useState<string | null>(null);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const isLongPremise = bounty.premise.length > 400;
 
   async function handlePriorityChange(next: BountyPriority) {
@@ -161,6 +244,19 @@ export function BountyCard({
       setPriorityError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingPriority(false);
+    }
+  }
+
+  async function handleStatusChange(next: BountyStatus) {
+    if (!onStatusChange) return;
+    setStatusError(null);
+    setSavingStatus(true);
+    try {
+      await onStatusChange(next);
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingStatus(false);
     }
   }
 
@@ -242,6 +338,29 @@ export function BountyCard({
 
       {expanded && (
         <>
+          {/* Quick 260727-v0b: inline status editor mirroring patch #154
+              priority editor. Placed ABOVE Priority per Ashley's ask —
+              status change is the higher-frequency edit (includes the
+              resurrect flow: click "pinned" on a done/dropped/archived
+              bounty to pull it back into working set). */}
+          {onStatusChange && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                Status
+              </span>
+              <StatusRow
+                status={bounty.status}
+                onChange={handleStatusChange}
+                saving={savingStatus}
+              />
+              {statusError && (
+                <div className="text-xs text-rose-300 whitespace-pre-wrap">
+                  {statusError}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Patch #154: inline priority editor. Sits above the premise so
               it's the first thing in the expanded body — matches the
               frequency Ashley re-prioritizes vs. reads the premise. */}

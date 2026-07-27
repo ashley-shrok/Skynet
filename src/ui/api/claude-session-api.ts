@@ -176,7 +176,8 @@ export type ClaudeSessionServerEvent =
   | IdentityWakeupsEvent
   | IdentityHandoffEvent
   | IdentityWakeupUpdatedEvent
-  | IdentityBountyPriorityUpdatedEvent;
+  | IdentityBountyPriorityUpdatedEvent
+  | IdentityBountyStatusUpdatedEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
@@ -334,6 +335,20 @@ export const BOUNTY_PRIORITY_VALUES = [
 ] as const;
 export type BountyPriority = (typeof BOUNTY_PRIORITY_VALUES)[number];
 
+// Quick 260727-v0b: allowed status set for bounty-status updates. Mirrors
+// BOUNTY_PRIORITY_VALUES's shape — a const tuple + derived union — so the
+// StatusRow editor and the WS validation guard reference the same source.
+// Order here is the order pills render in BountyCard (pinned first per
+// Ashley's ask; done/dropped last since they're the terminal states).
+export const BOUNTY_STATUS_VALUES = [
+  "pinned",
+  "in_progress",
+  "waiting_on_someone_else",
+  "done",
+  "dropped",
+] as const;
+export type BountyStatus = (typeof BOUNTY_STATUS_VALUES)[number];
+
 export type IdentityUpdateWakeupPayload = {
   type: "identity:update-wakeup";
   identityKey: string;
@@ -357,6 +372,25 @@ export type IdentityUpdateBountyPriorityPayload = {
 };
 export type IdentityBountyPriorityUpdatedEvent = {
   type: "identity:bounty-priority-updated";
+  bounties: Bounty[];
+  archivedBounties: Bounty[];
+  error?: string;
+};
+
+// Quick 260727-v0b: byte-shape mirror of the priority payload/event pair
+// above, for the parallel `status` write surface. Same one-shot request /
+// fresh-list response convention — server patches bounty.json in place
+// (folder NOT moved even when transitioning to/from done/dropped) and
+// returns both bounty lists so the modal atomically re-renders.
+export type IdentityUpdateBountyStatusPayload = {
+  type: "identity:update-bounty-status";
+  identityKey: string;
+  hostId: number;
+  bountySlug: string;
+  status: BountyStatus;
+};
+export type IdentityBountyStatusUpdatedEvent = {
+  type: "identity:bounty-status-updated";
   bounties: Bounty[];
   archivedBounties: Bounty[];
   error?: string;

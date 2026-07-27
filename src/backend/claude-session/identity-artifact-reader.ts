@@ -309,6 +309,22 @@ export const BOUNTY_PRIORITY_VALUES = [
 ] as const;
 export type BountyPriority = (typeof BOUNTY_PRIORITY_VALUES)[number];
 
+// Quick 260727-v0b: allowed status set for bounty-status updates. Defined
+// locally (mirrors how BOUNTY_PRIORITY_VALUES is defined above) rather
+// than imported from the UI api module, to keep the backend writer
+// self-contained. The UI-side BOUNTY_STATUS_VALUES in claude-session-api.ts
+// is the wire-side counterpart; both must stay in sync (same 5 values, same
+// order — no compile-time cross-check because the module boundary crosses
+// bundling contexts).
+export const BOUNTY_STATUS_VALUES = [
+  "pinned",
+  "in_progress",
+  "waiting_on_someone_else",
+  "done",
+  "dropped",
+] as const;
+export type BountyStatus = (typeof BOUNTY_STATUS_VALUES)[number];
+
 /** Slug regex for wakeup filenames and bounty folder names — kebab/snake,
  *  1-80 chars. Enforced before we ever touch the filesystem so a hostile
  *  slug can't traverse into `..` or otherwise escape the identity dir. */
@@ -755,7 +771,79 @@ export async function writeIdentityBountyPriority(
 }
 
 // ---------------------------------------------------------------------------
-// 8. readIdentityPinnedBountyCount — count of non-archived pinned bounties
+// 8. writeIdentityBountyStatus — patch bounty.json's status field
+// ---------------------------------------------------------------------------
+//
+// Quick 260727-v0b: byte-shape mirror of writeIdentityBountyPriority for the
+// `status` field. Updates status + bumps updated_at + appends a one-line
+// timeline entry ("status set to <new> via identity modal"). Patches
+// bounty.json IN PLACE — bounties/<slug>/bounty.json is edited whether the
+// new status is done/dropped or anything else. Folder-move between
+// bounties/<slug>/ and bounties/archive/<slug>/ is DELIBERATELY out of
+// scope (the id skill handles archive population on its own cadence; Ashley
+// wants the resurrect flow — click "pinned" on a done/dropped/archived
+// bounty — to be a pure JSON patch, not a rename).
+
+export async function writeIdentityBountyStatus(
+  conn: SSHClientType | null,
+  identityKey: string,
+  bountySlug: string,
+  status: BountyStatus,
+): Promise<void> {
+  if (!(BOUNTY_STATUS_VALUES as readonly string[]).includes(status)) {
+    throw new Error("invalid status");
+  }
+
+  const nowIso = new Date().toISOString();
+  const timelineLine = `${nowIso} status set to ${status} via identity modal`;
+
+  if (conn === null) {
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, "bounties", bountySlug, "bounty.json");
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    parsed.status = status;
+    parsed.updated_at = nowIso;
+    const tl = Array.isArray(parsed.timeline) ? [...parsed.timeline] : [];
+    tl.push(timelineLine);
+    parsed.timeline = tl;
+    const next = JSON.stringify(parsed, null, 2) + "\n";
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, next, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+  // Remote branch: python3 script takes the status via stdin JSON;
+  // updated_at is generated in-python from time.time() so the timestamp
+  // reflects the box's own clock (matches patch #154's priority writer).
+  const script =
+    'import json,os,sys,datetime\n' +
+    'p=sys.argv[1]\n' +
+    'u=json.loads(sys.stdin.read())\n' +
+    'with open(p,"r") as f: d=json.load(f)\n' +
+    'd["status"]=u["status"]\n' +
+    'now=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")\n' +
+    'd["updated_at"]=now\n' +
+    'tl=d.get("timeline") or []\n' +
+    'if not isinstance(tl,list): tl=[]\n' +
+    'tl.append(now+" status set to "+u["status"]+" via identity modal")\n' +
+    'd["timeline"]=tl\n' +
+    'tmp=p+".tmp"\n' +
+    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    'os.rename(tmp,p)\n';
+  const payload = JSON.stringify({ status }).replace(/'/g, "'\\''");
+  const cmd =
+    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
+    `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
+  await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
+// 9. readIdentityPinnedBountyCount — count of non-archived pinned bounties
 // ---------------------------------------------------------------------------
 //
 // Quick 260727-tb1: cheap counter used by the per-row bounty badge in the
