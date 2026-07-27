@@ -753,3 +753,96 @@ export async function writeIdentityBountyPriority(
     `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
+
+// ---------------------------------------------------------------------------
+// 8. readIdentityOnDeckBountyCount — count of non-archived on_deck bounties
+// ---------------------------------------------------------------------------
+//
+// Quick 260727-tb1: cheap counter used by the per-row bounty badge in the
+// pretty-conversations panel. Piggybacks on the readIdentityBounties layout
+// convention (bounties/<slug>/bounty.json, with an archive/ subdir that must
+// be skipped). Returns an integer.
+//
+// Local branch: fs.readdir the bounties dir, skip "archive", read each
+// entry's bounty.json, count where parsed.status === "on_deck". Per-file
+// parse errors are swallowed as "not on_deck" — a single poisoned file
+// must not fail the whole count.
+//
+// Remote branch: python3 one-liner over SSH — grep on the raw JSON is
+// fragile (pretty-printed vs single-line vs whitespace variants), so we
+// json.load + status.get + count in-process on the far end and print an
+// integer to stdout. python3 is universally present on identity boxes
+// (the wakeup scheduler itself is python3).
+
+export async function readIdentityOnDeckBountyCount(
+  conn: SSHClientType | null,
+  identityKey: string,
+): Promise<number> {
+  // Validation guard — reuse the same regex readIdentityBounties uses via
+  // the server-side IDENTITY_KEY_RE. Path traversal is the concrete threat.
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+
+  if (conn === null) {
+    // LOCAL branch
+    const root = getLocalIdentitiesRoot();
+    const baseDir = path.join(root, identityKey, "bounties");
+
+    let entries: string[];
+    try {
+      entries = (await fs.readdir(baseDir)).filter((e) => e !== "archive");
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return 0;
+      }
+      throw err;
+    }
+
+    let count = 0;
+    for (const entry of entries) {
+      const filePath = path.join(baseDir, entry, "bounty.json");
+      try {
+        const raw = await fs.readFile(filePath, "utf-8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        if (parsed.status === "on_deck") count += 1;
+      } catch {
+        // Per-file parse/read error → count as "not on_deck" (do NOT throw).
+      }
+    }
+    return count;
+  }
+
+  // REMOTE branch — one round-trip; python3 emits a single integer to stdout.
+  // The identityKey is validated above; the remote path interpolation is
+  // safe because the regex forbids shell-special characters.
+  const script =
+    "import os,json,sys\n" +
+    "r=os.path.expanduser(sys.argv[1])\n" +
+    "n=0\n" +
+    "try:\n" +
+    "  ents=os.listdir(r)\n" +
+    "except FileNotFoundError:\n" +
+    "  print(0); sys.exit(0)\n" +
+    "for d in ents:\n" +
+    '  if d=="archive": continue\n' +
+    '  p=os.path.join(r,d,"bounty.json")\n' +
+    "  try:\n" +
+    "    with open(p) as f: j=json.load(f)\n" +
+    '    if j.get("status")=="on_deck": n+=1\n' +
+    "  except Exception: pass\n" +
+    "print(n)\n";
+  const cmd =
+    `python3 -c ${shellEscape(script)} ` +
+    `"$HOME/.claude/identities/${identityKey}/bounties"`;
+  const stdout = await execWithTimeout(conn, cmd);
+  const n = parseInt(stdout.trim(), 10);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`remote on-deck count returned non-integer: ${stdout}`);
+  }
+  return n;
+}
