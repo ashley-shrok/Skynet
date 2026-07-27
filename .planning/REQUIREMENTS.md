@@ -172,6 +172,17 @@ Deferred to future patches. Each add earns its way in as its own separate design
 - [x] **ASIDE-10**: The backend maintains NO separate aside store (no database row, no in-memory key-value cache, no persistence layer). The tmux BTW overlay itself is the sole source of truth for "is there an aside for this session and what does it say" — the backend is a pure translator that reads the pane, emits events, and forwards dismiss commands. Backend restarts recover state by re-probing panes on next relevant event.
 - [x] **ASIDE-11**: When an aside is dismissed in one browser tab, any other browser tab currently viewing the same session's pretty-view also clears its aside display (cross-tab coherence). Achieved via the backend broadcasting an aside-dismissed event on the session's WebSocket stream to every subscribed client.
 
+### Pinned Conversations — Server-Side Persistence (Phase 15)
+
+- [ ] **PIN-01**: Pinned conversation IDs survive tab close, browser close, hard-refresh, and PWA close on iPhone. Pins are NOT tab-scoped state — closing the last active tab does not erase them.
+- [ ] **PIN-02**: Pinned conversation IDs sync across all of Ashley's devices (desktop ↔ iPhone) via server-side storage keyed to her authenticated user account. Pinning on desktop appears on iPhone (within one poll / next mount), and vice versa.
+- [ ] **PIN-03**: A pin or unpin action from the frontend writes the mutation to the server immediately (no debounce, no batching). The optimistic in-memory update happens synchronously; the server write is fire-and-verify.
+- [ ] **PIN-04**: On PrettyConversationsPanel mount (and on identity/auth changes), the client fetches the current server-side pinnedIds set and reconciles it into the local Zustand store, replacing any stale in-memory value. First-render behavior does not depend on any prior sessionStorage/localStorage cache — the server is authoritative.
+- [ ] **PIN-05**: If the server is unreachable when a pin/unpin fires, the UI still updates optimistically; the pending mutation retries on the next successful sync cycle (mount, network recovery, or the next pin/unpin). A failure never leaves the UI stuck in a pre-mutation state.
+- [ ] **PIN-06**: Server-side storage tolerates orphaned pinnedIds (host removed, session name no longer present in fleetSessions) without erroring. Client-side snapshot iteration already skips ids without a matching row source per patch #149 A — no server-side garbage collection required in v1.
+- [ ] **PIN-07**: The pin endpoint is per-user, authenticated via the existing Skynet identity auth (cookie jar / JWT). Unauthenticated requests get 401. No fleet-wide impact — one user's pins are invisible to any other user (though today's Skynet is single-tenant, the endpoint contract must not assume that).
+- [ ] **PIN-08**: Client fetch + write paths defensively guard against the multipart/form-data silent-200 no-op learned from patch #77 — if the chosen endpoint shape is multipart, a GET-verify follows every PUT to prove the write stuck; if the shape is JSON, the response body echoes the persisted state for optimistic reconciliation.
+
 ## Out of Scope
 
 Explicit exclusions. Documented to prevent scope creep.
@@ -276,11 +287,20 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SHAPE-06 | Phase 13 | Pending |
 | SHAPE-07 | Phase 13 | Pending |
 
+| PIN-01 | Phase 15 | Pending |
+| PIN-02 | Phase 15 | Pending |
+| PIN-03 | Phase 15 | Pending |
+| PIN-04 | Phase 15 | Pending |
+| PIN-05 | Phase 15 | Pending |
+| PIN-06 | Phase 15 | Pending |
+| PIN-07 | Phase 15 | Pending |
+| PIN-08 | Phase 15 | Pending |
+
 **Coverage:**
-- v1 requirements: 76 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12)
-- Mapped to phases: 76 ✓
+- v1 requirements: 84 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12, 8 pending Phase 15)
+- Mapped to phases: 84 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-23 — added PURGE-06..10 for Phase 12 (Skynet transformation — purge dead frontend surfaces, second slice: sidebar panel files + dashboard subtree + tab bar chrome + shortcut editor UI + dead locale strings)*
+*Last updated: 2026-07-27 — added PIN-01..08 for Phase 15 (pinned conversations, server-side account-wide persistence — followup-2 to patch #149; fixes pins dying on tab/PWA close and adds desktop ↔ iPhone sync)*

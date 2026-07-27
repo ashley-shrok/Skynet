@@ -546,3 +546,34 @@ Plans:
 **Bounty:** `plain-language-translation-asides` (under `~/.claude/identities/tina/bounties/plain-language-translation-asides/`). Design session with Ashley 2026-07-26 captured verbatim in the bounty's `timeline[]`. Visual aesthetic locked via the `aside-visual-snippet.js` DevTools prototype in the same folder (defaults: 10px solid border, glow=1.0, three-layer 12/32/64px outer glow in the identity hue). Bounty closes when Ashley UATs the feature across at least 3 fleet-identity sessions in her active window with per-turn asides firing + dismissing correctly.
 
 **Deploy discipline:** This feature is the bundle-mate for the queued #150 A + C deploy — Ashley 2026-07-26 verbatim: "there's no point in deploying until we get it in." So the deploy sequence when this phase completes is: bundle #150 A + C + this feature's patches together in one deploy event, standard pre-warn (HTTP2_PROTOCOL_ERROR on first hard-refresh, close+reopen tab). Rebase risk MEDIUM — additive on fork-local infrastructure only.
+
+### Phase 15: Pinned conversations — server-side account-wide persistence
+
+**Goal**: Ashley's pinned conversation IDs live on the server (in the `skynet-data` SQLite) keyed to her authenticated user account instead of in Zustand memory only — so pins survive tab close, browser close, hard-refresh, and PWA close on iPhone, AND sync desktop ↔ iPhone in near-real-time. Fixes the bug she hit 2026-07-27 ("pins are not working; they last only until I close the app"). Followup-2 to patch #149 A/B/C, which shipped three-tier sort + fleet-aware pruner but left pinnedIds in-memory only.
+**Mode:** execute
+**Depends on**: Phase 7 (Fleet-native conversation list — pins were introduced here, `pinConversation`/`unpinConversation` live in `conversation-store.ts`), Phase 10 (Pretty-Conversations visual-language rework — pin action UI lives in `PinAction.tsx`)
+**Requirements**: PIN-01, PIN-02, PIN-03, PIN-04, PIN-05, PIN-06, PIN-07, PIN-08
+**Success Criteria** (what must be TRUE):
+
+  1. Pin any conversation on desktop, close the browser completely, reopen, and the pin is still there — verified end-to-end against production, not just against a running dev server. Same round-trip works from the iOS PWA (close the PWA fully, reopen, pin persists).
+  2. Pin any conversation on desktop, and within one poll/next mount on iPhone (or vice versa) the pin appears on the other device without user action — no page reload required beyond the natural mount cycle.
+  3. Every pin/unpin click writes to the server immediately; no batching, no debounce. The UI update is optimistic and synchronous; the server write is asynchronous but verified before the next fetch trusts the round-trip.
+  4. If the server is unreachable (network drop, Skynet restart mid-click), the pin still updates in the UI and the mutation retries on the next sync opportunity. A pin action never leaves the UI stuck.
+  5. The endpoint is per-user, authenticated via the existing Skynet identity auth (cookie jar / JWT), and returns 401 to unauthenticated requests. One user's pins are invisible to any other user.
+  6. Verification includes a GET-verify after every PUT during the client's initial rollout window to prove writes stuck — required to avoid the patch #77 silent-200 no-op trap on any multipart-shape endpoint.
+
+**Plans:** 3 plans (backend endpoint + schema; store integration + write path; panel mount + read/hydrate path with human-verify checkpoint)
+
+Plans:
+- [ ] 15-01-PLAN.md — Backend: extend /user-preferences with pinnedConversationIds JSON column + endpoint + direct-handler tests (PIN-01, PIN-02, PIN-06, PIN-07, PIN-08)
+- [ ] 15-02-PLAN.md — Frontend store: pins-api client + pinConversation/unpinConversation server-write augmentation + hydratePinnedIdsFromServer setter + tests 30j-30o (PIN-03, PIN-05, PIN-08)
+- [ ] 15-03-PLAN.md — Frontend panel: PrettyConversationsPanel mount-effect fetch + one integration test + human-verify end-to-end round-trip checkpoint (PIN-01, PIN-02, PIN-04, PIN-05)
+
+**Design decisions locked in planning (internally coherent per plan-checker requirement):**
+- Storage shape: Option B — JSON column `pinned_conversation_ids TEXT` on existing `user_preferences` table (safe additive migration via existing `addColumnIfNotExists` helper at src/backend/database/db/index.ts:670-674; set-size is 1; no per-pin metadata needed)
+- Endpoint shape: Option A — extend `/user-preferences` GET+PUT (ZERO nginx changes — existing `location ~ ^/user-preferences(/.*)?$` block at nginx.conf:258 + nginx-https.conf:265 already routes; JSON body, response-echoes-persisted-state avoids PIN-08 multipart trap)
+
+**Wave structure:**
+- Wave 1: 15-01 (backend — schema + endpoint + tests; no dependencies)
+- Wave 2: 15-02 (frontend store; depends on 15-01 for endpoint to exist)
+- Wave 3: 15-03 (frontend panel wire-up + human-verify; depends on 15-02 for hydratePinnedIdsFromServer + getPinnedIds to exist)
