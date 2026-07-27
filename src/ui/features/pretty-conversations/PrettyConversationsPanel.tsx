@@ -52,10 +52,12 @@ import {
   addToActiveSet,
   removeFromActiveSet,
   togglePinConversation,
+  hydratePinnedIdsFromServer,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 import { useSessionWorking } from "@/state/session-working-store";
 import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
+import { getPinnedIds } from "@/api/user-preferences-api";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
@@ -182,6 +184,38 @@ export function PrettyConversationsPanel({
   useEffect(() => {
     if (selectedId) addToActiveSet(selectedId);
   }, [selectedId]);
+
+  // Phase 15 (Wave 3): mount-fetch for server-authoritative pinnedIds.
+  //   (a) First-render UX is "empty pinned tier hydrates on fetch-complete"
+  //       per 15-CONTEXT.md § "No sessionStorage/localStorage fallback layer"
+  //       — the panel renders immediately with an empty pinned tier and the
+  //       fetch resolves in a microtask. Sibling of the L182-184 addToActiveSet
+  //       effect (patch #144 Fix d), NOT a modification of it.
+  //   (b) Silent try/catch on failure — state.pinnedIds stays as-is (empty on
+  //       first mount, whatever's in memory on subsequent mounts). The natural
+  //       retry cadence is the next pin/unpin click (which fires a PUT with
+  //       the current in-memory set) OR the next remount (which fires a fresh
+  //       GET). Matches 15-CONTEXT.md § Deferred: "No offline queue / durable
+  //       client-side retry beyond next-sync".
+  //   (c) Cancel-token guards against post-unmount hydrate for React 18
+  //       StrictMode double-mount in dev + real navigate-away in production —
+  //       a stale resolve from an unmounted effect early-returns before
+  //       touching store state (T-15-13 + T-15-14 mitigations).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const ids = await getPinnedIds();
+        if (cancelled) return;
+        hydratePinnedIdsFromServer(ids);
+      } catch {
+        // Silent — pinnedIds stays as-is; next remount refetches.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);

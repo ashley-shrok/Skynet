@@ -26,7 +26,7 @@
 // real derivation. This mirrors the plan's decision (Task 2 §action).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
@@ -113,6 +113,10 @@ const addToActiveSetSpy = vi.fn();
 // Test 20E can assert the panel's deactivate handler routes through the
 // store mutator exactly once per click.
 const removeFromActiveSetSpy = vi.fn();
+// Phase 15 (Wave 3): spy on the store's server-hydration setter so the new
+// integration test can assert the panel's mount effect flows fetched ids
+// through hydratePinnedIdsFromServer after getPinnedIds resolves.
+const hydratePinnedIdsFromServerSpy = vi.fn();
 
 // quick-260727-gm3: mutable mock active-set so Tests 20A/20C/20D can
 // override which ids the panel + row layer sees as "in the active set"
@@ -138,6 +142,22 @@ vi.mock("@/state/conversation-store", () => ({
   togglePinConversation: (id: string) => togglePinConversationSpy(id),
   addToActiveSet: (id: string) => addToActiveSetSpy(id),
   removeFromActiveSet: (id: string) => removeFromActiveSetSpy(id),
+  // Phase 15 (Wave 3): the panel's new mount-effect calls this after
+  // getPinnedIds resolves. Spy so the integration test can assert the
+  // fetch → hydrate wiring.
+  hydratePinnedIdsFromServer: (ids: string[]) =>
+    hydratePinnedIdsFromServerSpy(ids),
+}));
+
+// Phase 15 (Wave 3): mock @/api/user-preferences-api so the panel's mount
+// effect resolves getPinnedIds against a controlled fixture. Default returns
+// an empty array — matches the pre-Wave-3 observable behavior of the panel
+// (no pins hydrated) so the 25+ pre-existing tests remain unaffected. The
+// mount effect fires on EVERY render (empty deps → once per mount), so this
+// mock's mere presence ensures no real HTTP layer is touched.
+vi.mock("@/api/user-preferences-api", () => ({
+  getPinnedIds: vi.fn().mockResolvedValue([]),
+  putPinnedIds: vi.fn().mockResolvedValue([]),
 }));
 
 // Patch #137: PrettyConversationsPanel calls useSessionWorking(sessionKey)
@@ -202,7 +222,7 @@ const ONE_HOST_TREE: HostFolder = {
   children: [makeHost("h1", "hostA")],
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   setSnapshot({
     activeSet: [],
@@ -215,6 +235,12 @@ beforeEach(() => {
   // (default ambient rendering path — matches pre-gm3 mock behavior for
   // the 15+ existing tests that never touched it).
   mockActiveSet = new Set<string>();
+  // Phase 15 (Wave 3): re-arm the getPinnedIds mock's default resolve value.
+  // vi.clearAllMocks() above wipes the resolved value along with call
+  // history; restore the "empty array" default so pre-Wave-3 tests continue
+  // to observe the panel with an empty pinned tier post-mount-fetch.
+  const { getPinnedIds } = await import("@/api/user-preferences-api");
+  vi.mocked(getPinnedIds).mockResolvedValue([]);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1220,5 +1246,59 @@ describe("PrettyConversationsPanel: patch #144 activeSet on selectedId", () => {
     setSnapshot({ pinned: [], grouped: [], selectedId: null });
     render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
     expect(addToActiveSetSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Phase 15 (Wave 3) — server-hydration on mount (PIN-04 integration)
+// ─────────────────────────────────────────────────────────────
+//
+// Asserts the mount-fetch-hydrate round-trip end-to-end at the panel level:
+//   1. On mount, getPinnedIds() is called exactly once (empty-deps effect).
+//   2. Once getPinnedIds resolves with a fixture array, the panel calls
+//      hydratePinnedIdsFromServer(ids) with that exact array — the store's
+//      pinnedIds then reflects server state.
+//
+// This is PIN-04's architectural assertion of "server is authoritative +
+// every mount fetches fresh." Cross-device confirmation (PIN-02) is the
+// human-verify checkpoint Step 3; this test locks the plumbing.
+
+describe("PrettyConversationsPanel (Phase 15): server-hydration on mount", () => {
+  it("Test 21 (Phase 15 Wave 3): mount fires getPinnedIds() then hydratePinnedIdsFromServer(ids) with the resolved array", async () => {
+    // Fixture: two ids that are legally-pinnable in this test setup. Content
+    // doesn't need to match anything the snapshot renders — the assertion is
+    // on the fetch → hydrate wiring, not on the rendered pinned tier.
+    const fixtureIds = ["fleet::1::work", "t-A"];
+    const { getPinnedIds } = await import("@/api/user-preferences-api");
+    vi.mocked(getPinnedIds).mockResolvedValueOnce(fixtureIds);
+
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [makeConversationRow({ id: "t-A", label: "session-A", host: hostA })],
+        },
+      ],
+    });
+
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // getPinnedIds fires synchronously on mount (empty-deps effect kicks off
+    // the async IIFE). Assert the call count before waiting on the hydrate.
+    expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(1);
+
+    // Wait for the resolve microtask to land the hydrate call. The panel's
+    // mount effect's IIFE awaits getPinnedIds → hydratePinnedIdsFromServer
+    // is called in the resolve branch (guarded by !cancelled).
+    await waitFor(() => {
+      expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(fixtureIds);
   });
 });
