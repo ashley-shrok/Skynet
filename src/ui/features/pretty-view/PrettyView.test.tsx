@@ -479,7 +479,13 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     return undefined;
   }
 
-  it("Test A: isIdle:false→true on identity-attached session sends {type:\"aside_arm\"} on WS (repeats per turn; identity gate suppresses)", async () => {
+  // Test A SKIPPED 2026-07-27 (Ashley): automatic aside-arm emit disabled at
+  // the source via AUTO_ASIDE_ARM_ENABLED=false in PrettyView.tsx. This test
+  // covers both the positive emit (identity attached) AND the anonymous
+  // suppression via its Sub-case 2 — both are inert while the flag is off.
+  // Re-enable with the flag when a new trigger mechanism lands. Tests B/C/D/E
+  // cover the render + morph + dismiss surface, which is unchanged.
+  it.skip("Test A: isIdle:false→true on identity-attached session sends {type:\"aside_arm\"} on WS (repeats per turn; identity gate suppresses)", async () => {
     // Sub-case 1 — identity attached → arm fires; second transition fires
     // a SECOND arm (per-turn, not one-shot).
     vi.mocked(useSessionIdentity).mockReturnValue({

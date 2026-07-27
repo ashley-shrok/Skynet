@@ -47,6 +47,15 @@ import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 // foregrounds the PWA tab — so her next tap always gets a live connection.
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+// Ashley 2026-07-27: automatic aside triggering DISABLED. The Phase 14
+// isIdle-transition auto-fire of {type:"aside_arm"} was burning session
+// tokens without delivering value; Ashley plans to switch to a different
+// trigger mechanism. The aside subsystem itself (backend arm handler,
+// poller, extract, dismiss, frontend AsideBubble render on aside_ready)
+// stays wired — only the automatic frontend emit is off. Flip to `true`
+// to restore the original Phase 14 behavior.
+const AUTO_ASIDE_ARM_ENABLED = false;
+
 // Minimal read-only pretty view for a live Claude Code session.
 //
 // Opens a WebSocket to the claude-session bridge (Plan 01-02), sends
@@ -898,6 +907,15 @@ export function PrettyView({
   // prevIsIdleRef.current update happens BEFORE the guard so consecutive
   // renders with the same value are correctly detected as "no transition."
   useEffect(() => {
+    // Ashley 2026-07-27: kill switch for the Phase 14 auto-aside trigger.
+    // Update the ref so isIdle keeps being tracked (avoids a spurious
+    // "fresh false→true transition" on re-enable), then bail before the
+    // emit. See the AUTO_ASIDE_ARM_ENABLED declaration for the full
+    // disable rationale.
+    if (!AUTO_ASIDE_ARM_ENABLED) {
+      prevIsIdleRef.current = isIdle;
+      return;
+    }
     const prev = prevIsIdleRef.current;
     prevIsIdleRef.current = isIdle;
     if (prev === false && isIdle === true && pvIdentity != null) {

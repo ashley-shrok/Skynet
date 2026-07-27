@@ -175,7 +175,13 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
     });
   });
 
-  it("Test 3: isIdle:false→true transition on IDENTITY-attached session sends {type:'aside_arm'} on WS", async () => {
+  // Tests 3, 4, 7, 8, 9 SKIPPED 2026-07-27 (Ashley): the automatic aside-arm
+  // emit is disabled at the source via AUTO_ASIDE_ARM_ENABLED=false in
+  // PrettyView.tsx. These tests all exercise the isIdle-transition emit
+  // contract and are inert while the flag is off. Re-enable together with
+  // the flag when a new trigger mechanism lands. Tests 1/2/5/6 stay live
+  // — they exercise the render/session-change surface, which is unchanged.
+  it.skip("Test 3: isIdle:false→true transition on IDENTITY-attached session sends {type:'aside_arm'} on WS", async () => {
     // Override useSessionIdentity to return a non-null identity for this test.
     useSessionIdentityMock.mockReturnValue({
       identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
@@ -219,7 +225,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
     });
   });
 
-  it("Test 4: isIdle:false→true transition on ANONYMOUS session (pvIdentity null) does NOT send aside_arm", async () => {
+  it.skip("Test 4: isIdle:false→true transition on ANONYMOUS session (pvIdentity null) does NOT send aside_arm", async () => {
     // Default mock returns identity: null → anonymous session.
     const { rerender } = render(
       <PrettyView
@@ -302,7 +308,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
     });
   });
 
-  it("Test 7: isIdle transition does NOT emit aside_arm when last user turn was /id command", async () => {
+  it.skip("Test 7: isIdle transition does NOT emit aside_arm when last user turn was /id command", async () => {
     // Phase 14 followup (Ashley 2026-07-27): /id save, /id reset, /id <name>
     // don't need plain-language recaps — suppress the aside for them.
     useSessionIdentityMock.mockReturnValue({
@@ -353,7 +359,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
     expect(armSend).toBeUndefined();
   });
 
-  it("Test 8: /id turn followed by a real user turn does NOT suppress — only the LAST user turn matters", async () => {
+  it.skip("Test 8: /id turn followed by a real user turn does NOT suppress — only the LAST user turn matters", async () => {
     useSessionIdentityMock.mockReturnValue({
       identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
       identityHue: 200,
@@ -415,7 +421,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
     });
   });
 
-  it("Test 9: isIdle transition does NOT emit aside_arm when last user turn was harness slash-UI /id XML-wrapper form", async () => {
+  it.skip("Test 9: isIdle transition does NOT emit aside_arm when last user turn was harness slash-UI /id XML-wrapper form", async () => {
     // UAT amendment E41 (Ashley 2026-07-27): Ashley's PRIMARY /id invocation
     // path is the harness slash-UI, which lands in JSONL as XML-wrapper form
     // (<command-name>/id</command-name>...) rather than raw "/id save" text.
