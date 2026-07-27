@@ -9,6 +9,9 @@ import {
   putComposeDraft,
 } from "@/api/compose-drafts-api";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
+import { useVoiceRecording } from "./useVoiceRecording";
+import { MicButton } from "./MicButton";
+import { RecordingControls } from "./RecordingControls";
 
 // Compose-and-send box for the pretty view.
 //
@@ -34,6 +37,23 @@ import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChip
 //    safety; mirrors MessageQueueDrawer's established behavior).
 //
 // 6. Draft body persistence (patch #57).
+//
+// Phase 16 (voice input, plan 03): Mic button lives in the SAME slot as the
+// send button (D-16-01). Visibility rule (computed as `showMicButton`):
+//   voice.state === "idle" && text.trim() === "" && !asideActive && !queueArmed && !hasAttachments
+// In every other idle scenario the existing send/X-for-Resume button renders.
+// While `voice.state === "recording"`, RecordingControls own the slot.
+// While `voice.state === "transcribing"`, the existing send button renders disabled.
+//
+// handleSend accepts an optional `overridePayload?: string` (D-16-05): when
+// provided, it is used as the send payload instead of the current `text` state.
+// This lets voice.endSend pass the glued transcript synchronously without
+// fighting React's async setState batching. ALL handleSend behavior (attachment
+// branching, D-50 newline collapse, COMPOSE-04 hard-lock) still applies.
+//
+// Sync-getUserMedia constraint (D-16-02): the hook's `start()` is a plain
+// function that calls getUserMedia as its FIRST statement — ComposeBox simply
+// passes `voice.start` directly to MicButton's onClick so no await is inserted.
 //
 //    Body is autosaved to the server on every keystroke via a 400ms
 //    debounced PUT /compose-drafts, mirroring MessageQueueDrawer's
@@ -287,6 +307,10 @@ export function ComposeBox({
     },
     [onAttachFiles],
   );
+
+  // Phase 16 — voice recording state machine. Owns MediaRecorder lifecycle,
+  // fetch to /voice/transcribe, and transcript-to-text glue rule.
+  const voice = useVoiceRecording();
 
   // Phase 05 — derived state for the Send-routing decision + Retry button.
   const hasAttachments = (stagedAttachments?.length ?? 0) > 0;
@@ -711,7 +735,12 @@ export function ComposeBox({
     setQueuedText(trimmed);
   }
 
-  function handleSend() {
+  // overridePayload: Phase 16 D-16-05 — voice.endSend passes the glued
+  // transcript here so it reaches the send path synchronously, bypassing
+  // React's async setState batching on text. When present it is used in place
+  // of the current `text` state. All other handleSend logic (attachment
+  // branching, D-50 newline collapse, COMPOSE-04 hard-lock) still applies.
+  function handleSend(overridePayload?: string) {
     // Patch #84: immediate action wins — cancel any armed queue silently
     // and proceed with the direct send. No error UI on the dropped queue.
     if (queuedText !== null) {
@@ -722,7 +751,9 @@ export function ComposeBox({
       setQueuedText(null);
     }
 
-    const trimmed = text.trim();
+    // D-16-05: use override payload if provided (voice send path), otherwise
+    // derive from current text state (normal typed-send path).
+    const trimmed = overridePayload !== undefined ? overridePayload.trim() : text.trim();
 
     // Phase 05 — attachment path: Send routes to onSendWithAttachments
     // whenever at least one attachment is staged. Empty caption is
@@ -762,6 +793,40 @@ export function ComposeBox({
       // Do NOT clear the persisted draft either — failed send should
       // leave the composition intact server-side too.
     }
+  }
+
+  // Phase 16: voice handler callbacks — wired to RecordingControls's onCancel /
+  // onAppend / onSend props. Each delegates to voice.* and handles the result.
+
+  function handleVoiceCancel() {
+    // Drop the audio clip and return to idle — no textarea change, no fetch.
+    void voice.cancel();
+  }
+
+  async function handleVoiceAppend() {
+    // Stop recording, transcribe, append the result to the current textarea
+    // value. Does NOT call handleSend — send is left to the user.
+    const result = await voice.endAppend(text);
+    if (result) {
+      setText(result.glued);
+      scheduleAutosave(result.glued);
+    }
+    // On null result: voice.errorMessage is set by the hook; no textarea change.
+  }
+
+  async function handleVoiceSend() {
+    // Stop recording, transcribe, then send through the SAME handleSend path
+    // (D-16-05). Pass result.glued as overridePayload so the payload is correct
+    // even though setText(result.glued) is async.
+    const result = await voice.endSend(text);
+    if (result) {
+      setText(result.glued);
+      scheduleAutosave(result.glued);
+      // D-16-05: route through the SAME handleSend — attachment branching,
+      // D-50 newline collapse, COMPOSE-04 hard-lock all still apply.
+      handleSend(result.glued);
+    }
+    // On null result: voice.errorMessage is set by the hook; no send.
   }
 
   // Reset-send: mirrors handleSend (clears textarea on success, surfaces
@@ -888,6 +953,40 @@ export function ComposeBox({
   const queueArmed = queuedText !== null;
   const queueDisabled =
     canSend === false || (queuedText === null && text.trim() === "");
+
+  // Phase 16: send-button slot visibility gates.
+  //
+  // showMicButton: mic replaces the send button ONLY when all conditions hold:
+  //   - navigator.mediaDevices is available (browser supports getUserMedia; also
+  //     serves as the JSDOM guard so existing tests that don't mock mediaDevices
+  //     still see the Send button — those tests exercise the non-voice path)
+  //   - voice is idle (not recording, not transcribing)
+  //   - textarea is blank (whitespace-only counts as empty)
+  //   - aside-morph is NOT active (X-for-Resume owns the slot when true)
+  //   - queue is NOT armed (pending-overlay owns the slot when armed)
+  //   - no attachments staged (send-with-attachment path owns the slot)
+  // In every other idle scenario the existing send/X-for-Resume button renders.
+  //
+  // showRecordingControls: while recording, the three-button controls own the slot.
+  //   MicButton and send button are both hidden.
+  //
+  // showTranscribingSend: during the STT round-trip, the existing send button
+  //   renders disabled so rapid-tap cannot double-fire (T-16-16 mitigation).
+  const showMicButton =
+    typeof navigator !== "undefined" &&
+    navigator.mediaDevices != null &&
+    voice.state === "idle" &&
+    text.trim().length === 0 &&
+    !asideActive &&
+    !queueArmed &&
+    !hasAttachments;
+  const showRecordingControls = voice.state === "recording";
+  const showTranscribingSend = voice.state === "transcribing";
+
+  // Phase 16: merge voice.errorMessage into the existing displayError. The error
+  // display block renders only one message at a time; voice errors are transient
+  // (cleared when recording starts again), so they coexist safely with compose errors.
+  const displayError = errorMessage ?? voice.errorMessage;
 
   // Patch #129: inside-textarea Send button disabled predicate. Locked with
   // Ashley 2026-07-23 (console-iterated visual). Truth table:
@@ -1492,70 +1591,97 @@ export function ComposeBox({
             handleSend() at line ~652 (attachment branching, D-50
             newline collapse, COMPOSE-04 clear-on-success — nothing
             duplicated). */}
-        {/* Phase 14 Wave 4 (Task 2): SAME BUTTON, branched attributes.
-            When asideActive=true the button morphs to a Resume affordance —
-            X icon + identity-hue color + onClick fires onAsideDismiss?.()
-            instead of handleSend(). Per PATTERNS.md L186-234, we morph in
-            place (same <button> element) so DOM identity is preserved
-            across the morph transition — focus, keyboard tab order, and
-            parent-CSS selectors don't blink. Do NOT split into two sibling
-            buttons; do NOT wrap in a conditional-render component. */}
-        <button
-          type="button"
-          onClick={() => {
-            if (asideActive) { onAsideDismiss?.(); return; }
-            if (!sendDisabled) handleSend();
-          }}
-          disabled={asideActive ? false : sendDisabled}
-          aria-label={asideActive ? "Resume" : "Send"}
-          title={asideActive ? "Resume" : "Send"}
-          className={cn(
-            "absolute right-1 bottom-0.5",
-            "p-2 max-md:p-3",
-            // Phase 14 Wave 4 (Task 2): identity-hue color when morphed so
-            // the X visually distinguishes from Send (Ashley 2026-07-26:
-            // "Style change to visually distinguish from send" per
-            // CONTEXT.md § ComposeBox morph). All other positional /
-            // transition classes preserved.
-            asideActive
-              ? "text-[hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-id-hue),95%,82%,1)]"
-              : "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-            "disabled:text-[rgba(240,235,224,0.15)]",
-            "disabled:cursor-not-allowed",
-            "transition-[color,transform] duration-120",
-            "active:scale-95",
-            "cursor-pointer",
-          )}
-        >
-          {asideActive ? (
-            /* Phase 14 Wave 4 (Task 2): lucide X sized to match the
-                paper-plane's 24×24 slot. strokeWidth=2.25 keeps the
-                mark visually heavy enough at 24px to read as a
-                dismiss glyph without overpowering the neon aside
-                bubble above. */
-            <X className="size-6 max-md:size-10" strokeWidth={2.25} aria-hidden="true" />
-          ) : (
-            /* Raw inline SVG — verbatim from Ashley's DevTools console
-                snippet 2026-07-23. Single path (paper-plane silhouette
-                pointing up-and-right), pure fill, NO stroke, NO fold
-                line. Do NOT swap for lucide's SendHorizontal — that's a
-                different icon (patch #130 write-up). */
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden="true"
-              className="max-md:w-10 max-md:h-10"
-            >
-              <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-            </svg>
-          )}
-        </button>
+        {/* Phase 16: send-button slot — conditional rendering based on voice state.
+            The slot hosts exactly ONE of: RecordingControls (while recording),
+            MicButton (idle + empty text + not morphed/queued/attached), or
+            the existing Send/X-for-Resume button (all other cases). Only one
+            renders at a time — do NOT render multiple simultaneously. */}
+        {showRecordingControls ? (
+          /* Phase 16: while recording, the three-button controls OWN the slot.
+             RecordingControls is absolutely positioned at right-1 bottom-0.5
+             (same anchor as MicButton) and handles its own flex layout.
+             D-16-06: no timer, no waveform, no level meter here. */
+          <RecordingControls
+            onCancel={handleVoiceCancel}
+            onAppend={() => { void handleVoiceAppend(); }}
+            onSend={() => { void handleVoiceSend(); }}
+          />
+        ) : showMicButton ? (
+          /* Phase 16: idle + empty text + not morphed/queued/attached →
+             render the mic button. voice.start() is passed directly (NOT
+             wrapped in async) so the first statement inside is the
+             synchronous getUserMedia call (D-16-02 iOS Safari constraint). */
+          <MicButton onClick={voice.start} title="Record voice" />
+        ) : (
+          /* Phase 14 Wave 4 (Task 2): SAME BUTTON, branched attributes.
+             When asideActive=true the button morphs to a Resume affordance —
+             X icon + identity-hue color + onClick fires onAsideDismiss?.()
+             instead of handleSend(). Per PATTERNS.md L186-234, we morph in
+             place (same <button> element) so DOM identity is preserved
+             across the morph transition — focus, keyboard tab order, and
+             parent-CSS selectors don't blink. Do NOT split into two sibling
+             buttons; do NOT wrap in a conditional-render component.
+             Phase 16: showTranscribingSend=true adds disabled={true} during
+             the STT round-trip so rapid-tap cannot double-fire (T-16-16). */
+          <button
+            type="button"
+            onClick={() => {
+              if (asideActive) { onAsideDismiss?.(); return; }
+              if (!sendDisabled) handleSend();
+            }}
+            disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
+            aria-label={asideActive ? "Resume" : "Send"}
+            title={asideActive ? "Resume" : "Send"}
+            className={cn(
+              "absolute right-1 bottom-0.5",
+              "p-2 max-md:p-3",
+              // Phase 14 Wave 4 (Task 2): identity-hue color when morphed so
+              // the X visually distinguishes from Send (Ashley 2026-07-26:
+              // "Style change to visually distinguish from send" per
+              // CONTEXT.md § ComposeBox morph). All other positional /
+              // transition classes preserved.
+              asideActive
+                ? "text-[hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-id-hue),95%,82%,1)]"
+                : "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+              "disabled:text-[rgba(240,235,224,0.15)]",
+              "disabled:cursor-not-allowed",
+              "transition-[color,transform] duration-120",
+              "active:scale-95",
+              "cursor-pointer",
+            )}
+          >
+            {asideActive ? (
+              /* Phase 14 Wave 4 (Task 2): lucide X sized to match the
+                  paper-plane's 24×24 slot. strokeWidth=2.25 keeps the
+                  mark visually heavy enough at 24px to read as a
+                  dismiss glyph without overpowering the neon aside
+                  bubble above. */
+              <X className="size-6 max-md:size-10" strokeWidth={2.25} aria-hidden="true" />
+            ) : (
+              /* Raw inline SVG — verbatim from Ashley's DevTools console
+                  snippet 2026-07-23. Single path (paper-plane silhouette
+                  pointing up-and-right), pure fill, NO stroke, NO fold
+                  line. Do NOT swap for lucide's SendHorizontal — that's a
+                  different icon (patch #130 write-up). */
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+                className="max-md:w-10 max-md:h-10"
+              >
+                <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+              </svg>
+            )}
+          </button>
+        )}
         </div>
       </div>
-      {errorMessage && (
-        <div className="text-xs text-[color:var(--color-pv-code-fg)]">{errorMessage}</div>
+      {/* Phase 16: displayError merges errorMessage (compose errors) and
+          voice.errorMessage (STT / mic-denied errors) — first non-null wins. */}
+      {displayError && (
+        <div className="text-xs text-[color:var(--color-pv-code-fg)]">{displayError}</div>
       )}
     </div>
   );
