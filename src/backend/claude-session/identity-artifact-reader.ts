@@ -402,7 +402,7 @@ export async function readIdentityWakeups(
       const instruction =
         typeof parsed.instruction === "string" ? parsed.instruction : "";
       const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-      wakeups.push({ name, enabled, scheduleHuman, instruction });
+      wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
     } catch (err) {
       sshLogger.error(
         "identity-artifact-reader: failed to parse remote wakeup JSON",
