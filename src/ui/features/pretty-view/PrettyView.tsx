@@ -892,6 +892,24 @@ export function PrettyView({
       // user-initiated dismiss (Escape into tmux → pane activity →
       // isIdle bounce). See dismissCooldownUntilRef declaration.
       if (Date.now() < dismissCooldownUntilRef.current) return;
+      // Phase 14 followup (Ashley 2026-07-27): skip aside arm when the
+      // user's most recent turn was an /id command. /id save, /id reset,
+      // /id <name> are identity-plumbing operations whose completion
+      // ("Saved: history +2 …", "I'm Tina. …") doesn't benefit from a
+      // plain-language recap. Trailing space matters — matches `/id save`
+      // but not `/identity` / `/idle` / bare `/id`. Walks backwards past
+      // any assistant echoes so we're comparing against the last SUBMITTED
+      // turn, not whatever landed last. Covers both ComposeBox submits
+      // and SSH-attached direct-tmux submits (both round-trip through
+      // JSONL — user turn is written before the assistant response
+      // streams, so it's always in messages[] well before isIdle=true).
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.type === "message" && m.role === "user") {
+          if (m.content.trimStart().startsWith("/id ")) return;
+          break;
+        }
+      }
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
@@ -901,7 +919,7 @@ export function PrettyView({
         }
       }
     }
-  }, [isIdle, pvIdentity]);
+  }, [isIdle, pvIdentity, messages]);
 
   // Phase 14 quick-task 260726-vbd: unmount cleanup for the 60s safety timer.
   // Ensures an asidePendingTimerRef pending during component unmount does not

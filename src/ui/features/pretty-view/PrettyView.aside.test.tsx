@@ -301,4 +301,117 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
       expect(container.querySelector('[role="note"]')).toBeNull();
     });
   });
+
+  it("Test 7: isIdle transition does NOT emit aside_arm when last user turn was /id command", async () => {
+    // Phase 14 followup (Ashley 2026-07-27): /id save, /id reset, /id <name>
+    // don't need plain-language recaps — suppress the aside for them.
+    useSessionIdentityMock.mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    });
+
+    const { rerender } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isIdle={false}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    // User's last submission was an /id command (rendered as a user turn).
+    fireWsMessage(ws, {
+      type: "message",
+      role: "user",
+      content: "/id save",
+      eventId: "u1",
+      ts: Date.now(),
+    });
+    const sendCountBefore = ws.send.mock.calls.length;
+
+    // Transition isIdle: false → true — arm-emitter fires but MUST short-circuit.
+    rerender(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isIdle={true}
+      />,
+    );
+
+    await new Promise((r) => setTimeout(r, 40));
+    const newCalls = ws.send.mock.calls.slice(sendCountBefore);
+    const armSend = newCalls.find(([data]) => {
+      try {
+        return JSON.parse(data as string).type === "aside_arm";
+      } catch {
+        return false;
+      }
+    });
+    expect(armSend).toBeUndefined();
+  });
+
+  it("Test 8: /id turn followed by a real user turn does NOT suppress — only the LAST user turn matters", async () => {
+    useSessionIdentityMock.mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    });
+
+    const { rerender } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isIdle={false}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    fireWsMessage(ws, {
+      type: "message",
+      role: "user",
+      content: "/id save",
+      eventId: "u1",
+      ts: Date.now(),
+    });
+    fireWsMessage(ws, {
+      type: "message",
+      role: "assistant",
+      content: "Saved: history +2, handoff rewritten.",
+      eventId: "a1",
+      ts: Date.now(),
+    });
+    fireWsMessage(ws, {
+      type: "message",
+      role: "user",
+      content: "help me understand this diff",
+      eventId: "u2",
+      ts: Date.now(),
+    });
+    const sendCountBefore = ws.send.mock.calls.length;
+
+    rerender(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isIdle={true}
+      />,
+    );
+
+    await waitFor(() => {
+      const newCalls = ws.send.mock.calls.slice(sendCountBefore);
+      const armSend = newCalls.find(([data]) => {
+        try {
+          return JSON.parse(data as string).type === "aside_arm";
+        } catch {
+          return false;
+        }
+      });
+      expect(armSend).toBeTruthy();
+    });
+  });
 });
