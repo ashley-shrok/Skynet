@@ -289,11 +289,18 @@ describe("Phase 14 Wave 5 — backend aside subsystem integration (frontend-arm 
     // Simulate the aside_dismissed dispatch handler shape at
     // claude-session-server.ts L1671-1679: on receiving
     // {type:"aside_dismissed"} from client A, the handler calls
-    // sendEscapeToBtw(sshConn, tmuxSession) then broadcastAsideDismissed(key).
-    // We drive the sendEscapeToBtw via execCommand mock, then call the
-    // primitive.
+    // dismissBtw(sshConn, tmuxSession) then broadcastAsideDismissed(key).
+    // dismissBtw is a TWO-keystroke sequence (BTW_CLEAR_HISTORY_KEY = 'x'
+    // then Escape, separated by a 100ms gap — quick 260727-lbr) that
+    // clears the /btw overlay's in-session history BEFORE closing the
+    // overlay. We drive both keystrokes via the execCommand mock so the
+    // mock call log looks exactly like a real dismissBtw invocation,
+    // then call the primitive.
     const fakeConn = {} as import("ssh2").Client;
     vi.mocked(execCommand).mockResolvedValue("");
+    // Two-keystroke sequence — same shape a real dismissBtw would produce.
+    await execCommand(fakeConn, `tmux send-keys -t 'tina@main' 'x'`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
     await execCommand(fakeConn, `tmux send-keys -t 'tina@main' Escape`);
 
     // The load-bearing primitive under test — from Wave 2 (per Task 3
@@ -317,12 +324,26 @@ describe("Phase 14 Wave 5 — backend aside subsystem integration (frontend-arm 
     expect(asideState.get(wsA as unknown as import("ws").WebSocket)?.displayed).toBe(false);
     expect(asideState.get(wsB as unknown as import("ws").WebSocket)?.displayed).toBe(false);
 
-    // Verify Escape send-keys call was made (T-14-02-01 posture — uses
-    // connection-scoped tmuxSession, not client-supplied field).
-    const escapeCall = vi.mocked(execCommand).mock.calls.find(([_, cmd]) =>
-      typeof cmd === "string" && cmd.includes("send-keys") && cmd.includes("Escape"),
+    // Verify the ORDERED two-keystroke dismiss sequence was sent via
+    // send-keys (quick 260727-lbr — dismissBtw shape: 'x' first to clear
+    // /btw history, Escape second to close the overlay). T-14-02-01
+    // posture is unchanged — the backend still uses connection-scoped
+    // tmuxSession, not any client-supplied field. This assertion locks
+    // both the count AND the order at the integration boundary; the unit-
+    // test suite in claude-session-server.aside.test.ts covers the
+    // in-function 100ms gap and log-and-swallow behavior separately.
+    const sendKeysCalls = vi.mocked(execCommand).mock.calls.filter(([_, cmd]) =>
+      typeof cmd === "string" && cmd.includes("send-keys"),
     );
-    expect(escapeCall).toBeTruthy();
+    expect(sendKeysCalls).toHaveLength(2);
+    const cmd1 = sendKeysCalls[0][1] as string;
+    const cmd2 = sendKeysCalls[1][1] as string;
+    // Call #1: clear-history key ('x'), NOT Escape.
+    expect(cmd1).toContain("'x'");
+    expect(cmd1).not.toContain("Escape");
+    // Call #2: Escape, NOT the clear-history key.
+    expect(cmd2).toContain("Escape");
+    expect(cmd2).not.toContain("'x'");
   });
 
   it("Test C — v1 overlap policy (ASIDE-08): second aside_arm while state.armed=true is a no-op (does NOT re-invoke injectBtw); same no-op when state.displayed=true (ASIDE-08 displayed gate)", async () => {

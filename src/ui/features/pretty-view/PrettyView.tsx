@@ -228,7 +228,7 @@ export function PrettyView({
   // phase (from /btw submit through aside_ready arrival, typically a
   // few seconds to ~1 min) unblocked — Ashley can accidentally send
   // unrelated input that collides with Claude Code's in-flight /btw
-  // handling. The same single-Escape-primitive (sendEscapeToBtw) works
+  // handling. The same single-Escape-primitive (dismissBtw) works
   // to cancel an in-flight /btw OR clear a displayed aside, so a single
   // button + handler suffices. Only the "when is aside active?" predicate
   // needs to widen.
@@ -302,7 +302,7 @@ export function PrettyView({
   //   1. Optimistic clear of asideText so the AsideBubble unmounts
   //      immediately (no visible latency waiting for the WS round-trip).
   //   2. WS-send {type:'aside_dismissed', hostId, tmuxSession} — Wave 2
-  //      backend receives this, sendEscapeToBtw's into tmux, then
+  //      backend receives this, dismissBtw's into tmux, then
   //      broadcastAsideDismissed fans out to peer tabs on the same
   //      sessionKey (cross-tab dismiss coherence per ASIDE-11).
   // Idempotent: if the WS is closed or the send throws, the optimistic
@@ -630,7 +630,7 @@ export function PrettyView({
           // Phase 14 Wave 3: backend observed the BTW overlay
           // disappearing — either from THIS client's earlier X-click
           // (handleAsideDismiss sent aside_dismissed, backend
-          // sendEscapeToBtw'd, poller saw marker vanish and broadcast
+          // dismissBtw'd, poller saw marker vanish and broadcast
           // dismissed) OR from any other cause (Ashley SSH-attached
           // and pressed Escape herself, tmux died, peer tab dismissed).
           // Idempotent: if THIS client already optimistically cleared
