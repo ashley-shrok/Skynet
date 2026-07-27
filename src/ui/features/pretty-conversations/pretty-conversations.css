@@ -676,3 +676,27 @@
 .pv-row.rdp .pv-deactivate-action {
   display: none;
 }
+
+/* Quick 260727-tb1: per-row on-deck bounty count badge. Small pill inside
+   .pv-meta (before the ready-dot). Hue tinting inherits from the .pv-row
+   parent's `--pv-hue` custom property per the palette-authority rule; the
+   `--color-pv-fg` foreground token comes from the same inheritance chain.
+   PrettyBountyCountBadge.tsx returns null when count is falsy, so this
+   selector never matches for count=undefined or count=0 rows (no empty
+   pill leaks into the DOM). */
+.pv-bounty-badge {
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--color-pv-fg);
+  background: hsla(var(--pv-hue), 45%, 30%, 0.6);
+  border: 1px solid hsla(var(--pv-hue), 55%, 55%, 0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}

@@ -58,6 +58,9 @@ import {
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 import { useSessionWorking } from "@/state/session-working-store";
+import { useIdentities } from "@/state/identities-store";
+import { startBountyCountPoller } from "@/state/bounty-counts-store";
+import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
 import { getPinnedIds } from "@/api/user-preferences-api";
 import type { Host, HostFolder } from "@/types/ui-types";
@@ -169,6 +172,11 @@ export function PrettyConversationsPanel({
   const { activeSet: activeSetRows, pinned, grouped } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
+  // Quick 260727-tb1: identity map for the bounty-count poller's getTargets
+  // callback. Same hook the row uses to resolve identity — subscribing at
+  // the panel level lets the poller enumerate every visible row's identity
+  // without a second per-row identities-store subscription.
+  const { byKey: identitiesByKey } = useIdentities();
   // Patch #137: hoisted once so all row-level activeSet.has(row.id) reads
   // hit a stable ReadonlySet reference (Set identity flips only on real
   // additions; consumers get a memoized reference across no-ops).
@@ -241,6 +249,66 @@ export function PrettyConversationsPanel({
       cancelled = true;
     };
   }, [fleetSessionsLoaded]);
+
+  // Quick 260727-tb1: bounty-count poller mount. getTargets walks the CURRENT
+  // union of activeSet + pinned + grouped rows (via refs bumped on every
+  // render — the poller must NOT close over a mount-time snapshot), filters
+  // to rows whose sessionMatchKey resolves to a known identity, and returns
+  // the deduped {identityKey, hostId} list. startBountyCountPoller fires an
+  // initial fetch, sets a 60s setInterval, and adds a window.focus listener
+  // that fires an extra refresh. The returned stop-fn is invoked on unmount.
+  // Non-identity rows are filtered here so useBountyCount inside those rows
+  // stays subscribed to `undefined` (short-circuit path). Dedup by composite
+  // key protects the batch from a single identity appearing across multiple
+  // panel sections (e.g. in both pinned AND active-set).
+  const activeSetRowsRef = useRef(activeSetRows);
+  const pinnedRef = useRef(pinned);
+  const groupedRef = useRef(grouped);
+  const identitiesByKeyRef = useRef(identitiesByKey);
+  activeSetRowsRef.current = activeSetRows;
+  pinnedRef.current = pinned;
+  groupedRef.current = grouped;
+  identitiesByKeyRef.current = identitiesByKey;
+
+  useEffect(() => {
+    const getTargets = () => {
+      const idsSeen = new Set<string>();
+      const targets: Array<{ identityKey: string; hostId: number | null }> = [];
+      const collect = (row: ConversationRowShape) => {
+        const matchKey = sessionMatchKey(row.targetTmuxSession);
+        if (!matchKey) return;
+        const ident = identitiesByKeyRef.current.get(matchKey);
+        if (!ident) return;
+        const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
+        const hostId = Number.isFinite(hostIdNum) ? hostIdNum : null;
+        const composite = `${ident.identityKey}:${hostId ?? "local"}`;
+        if (idsSeen.has(composite)) return;
+        idsSeen.add(composite);
+        targets.push({ identityKey: ident.identityKey, hostId });
+      };
+      for (const row of activeSetRowsRef.current) collect(row);
+      for (const row of pinnedRef.current) collect(row);
+      for (const group of groupedRef.current) {
+        for (const row of group.rows) collect(row);
+      }
+      return targets;
+    };
+    const stop = startBountyCountPoller(getTargets, 60_000);
+    return stop;
+  }, []);
+
+  // Quick 260727-tb1: identity:bounty-priority-updated piggyback (Key design
+  // decision #5). The actual invalidateIdentity(identityKey, hostId) call is
+  // wired at src/ui/features/pretty-view/IdentityModal.tsx inside the
+  // sendIdentityMutation success path for the "identity:update-bounty-priority"
+  // request — that's where the response arrives and where identityKey +
+  // hostId are already in scope. Placing the wiring in the panel would
+  // require inventing a shared identity:* WS subscription bus (none exists
+  // — every identity:* request today is one-shot per WebSocket, closed
+  // after receipt). The modal path is functionally equivalent for the
+  // user story ("Ashley reprioritizes → badge refreshes immediately")
+  // and avoids the architectural expansion. Search invalidateIdentity /
+  // identity:bounty-priority-updated to find the wire site.
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);

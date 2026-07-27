@@ -15,6 +15,14 @@ import {
 } from "@/components/accordion";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
+// Quick 260727-tb1: piggyback path — when Ashley reprioritizes a bounty via
+// the modal, invalidate the panel's cached on-deck count for this identity
+// so the .pv-bounty-badge refreshes immediately instead of waiting for the
+// next 60s poll. The spec (Key design decision #5) calls for wiring this
+// off the identity:bounty-priority-updated response; the modal is the
+// natural placement because it owns both identityKey + hostId + the WS
+// response callback (there is no shared identity:* listener elsewhere).
+import { invalidateIdentity as invalidateBountyCount } from "@/state/bounty-counts-store";
 import {
   openClaudeSessionSocket,
   type Bounty,
@@ -405,6 +413,13 @@ export function IdentityModal({
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
     setArchivedBounties(res.archivedBounties);
+    // Quick 260727-tb1: immediate-refresh piggyback. A priority change may
+    // co-occur with a status change (or be a leading indicator of one), so
+    // we invalidate the panel's cached on-deck count for this identity
+    // rather than wait up to 60s for the next poll. Fire-and-forget — the
+    // store's error path already logs; the modal's own UI state is
+    // authoritatively driven by res.bounties above.
+    void invalidateBountyCount(identity.identityKey, hostId);
   }
 
   const sortedArchive = useMemo(
