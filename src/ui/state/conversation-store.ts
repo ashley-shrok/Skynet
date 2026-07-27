@@ -153,6 +153,15 @@ type State = {
   // (Phase 6 baseline). Combined with openTabs via the union+dedup logic
   // inside computeSnapshot().
   fleetSessions: FleetSession[];
+  // quick-260727-kbw: has updateFleetSessions been called at least once this
+  // session? Starts false; flips true on the first call (empty [] counts as
+  // loaded). Consumed by PrettyConversationsPanel's mount-effect gate for the
+  // getPinnedIds fetch — see PrettyConversationsPanel.tsx §Phase 15 (Wave 3)
+  // mount effect §(d). Closes the load-order race where hydratePinnedIds-
+  // FromServer landed a fleet pin BEFORE updateFleetSessions populated
+  // state.fleetSessions, causing the next updateOpenTabs to nuke the pin
+  // via an empty fleetPinKeepSet.
+  fleetSessionsLoaded: boolean;
   // Plan 07-01 (TG-14): flat hostId → Host lookup so the click-a-detached-row
   // handler can resolve a fleet row (identified by numeric hostId +
   // sessionName) to a Host object openTab requires. Populated by AppShell's
@@ -179,6 +188,7 @@ let state: State = {
   pinnedIds: new Set<string>(),
   selectedId: null,
   fleetSessions: [],
+  fleetSessionsLoaded: false,
   hostsFlat: new Map<number, Host>(),
   activeSet: hydrateActiveSetFromStorage(),
 };
@@ -609,12 +619,15 @@ export function updateOpenTabs(tabs: Tab[]): void {
 // Test 27 asserts both the ref-equal no-op and the different-ref-same-
 // content DOES-fire semantics.
 export function updateFleetSessions(sessions: FleetSession[]): void {
-  if (sessions === state.fleetSessions) return; // reference-equal no-op
-  // Length + shallow per-element ref check — catches the case where the
-  // caller re-emits the same array elements in a new array literal (very
-  // rare in practice — AppShell hands us a fresh array from an axios
-  // response — but the guard mirrors updateOpenTabs for consistency).
-  if (sessions.length === state.fleetSessions.length) {
+  // quick-260727-kbw: compute shallow no-op WITHOUT early-return — the
+  // fleetSessionsLoaded flag transition (false→true) can force a notify()
+  // even when the sessions array itself is a shallow no-op. The first call
+  // to updateFleetSessions ALWAYS transitions the flag (starts false), so
+  // the very first call must always notify() even if the caller happens to
+  // pass an empty [] or a same-content array.
+  const sessionsRefEqual = sessions === state.fleetSessions;
+  let sessionsShallowEqual = sessionsRefEqual;
+  if (!sessionsRefEqual && sessions.length === state.fleetSessions.length) {
     let allSame = true;
     for (let i = 0; i < sessions.length; i++) {
       if (sessions[i] !== state.fleetSessions[i]) {
@@ -622,9 +635,24 @@ export function updateFleetSessions(sessions: FleetSession[]): void {
         break;
       }
     }
-    if (allSame) return; // shallow no-op — do not bump snapshotVersion
+    if (allSame) sessionsShallowEqual = true;
   }
-  state = { ...state, fleetSessions: sessions };
+  const needsFlagFlip = !state.fleetSessionsLoaded;
+
+  // Full no-op path: sessions are a shallow no-op AND the flag is already
+  // true. Nothing has changed — do NOT bump snapshotVersion.
+  if (sessionsShallowEqual && !needsFlagFlip) return;
+
+  // Real mutation. Reuse the current sessions ref when the incoming array
+  // is a shallow no-op (avoids gratuitously bumping downstream reference
+  // equality checks on state.fleetSessions consumers). Always set the flag
+  // to true — this is unconditional per quick-260727-kbw.
+  const nextSessions = sessionsShallowEqual ? state.fleetSessions : sessions;
+  state = {
+    ...state,
+    fleetSessions: nextSessions,
+    fleetSessionsLoaded: true,
+  };
   notify();
 }
 
@@ -855,6 +883,27 @@ export function usePinnedIds(): ReadonlySet<string> {
   );
 }
 
+// quick-260727-kbw: fleet-loaded gate for the panel's mount-effect
+// getPinnedIds fetch. The panel MUST NOT hydrate pinnedIds until
+// state.fleetSessions has been populated at least once — otherwise the
+// next background updateOpenTabs fires the pinnedIds pruner with an empty
+// fleetPinKeepSet (built from state.fleetSessions inside updateOpenTabs)
+// and nukes freshly-hydrated fleet pins. Primitive boolean is Object.is-
+// safe; no memoization needed. Panel subscribes via useSyncExternalStore
+// so the false→true flip triggers a re-render → mount effect body runs
+// → hydration fetch begins. See PrettyConversationsPanel.tsx §(d) for
+// the mirrored comment on the panel side.
+function getFleetSessionsLoadedSnapshot(): boolean {
+  return state.fleetSessionsLoaded;
+}
+export function useFleetSessionsLoaded(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    getFleetSessionsLoadedSnapshot,
+    getFleetSessionsLoadedSnapshot,
+  );
+}
+
 // Patch #137: activeSet subscription. Mirrors usePinnedIds semantics — a new
 // Set reference on every real mutation (see addToActiveSet), same reference
 // across no-ops (idempotent second addToActiveSet(id) returns early without
@@ -916,6 +965,17 @@ export function __resetActiveSetForTest(): void {
 // pinConversation / unpinConversation writes don't leak forward.
 export function __resetPinnedIdsForTest(): void {
   state = { ...state, pinnedIds: new Set<string>() };
+  notify();
+}
+
+// quick-260727-kbw: reset the module-scoped fleetSessionsLoaded flag to
+// false + fleetSessions to []. Used by conversation-store.test.ts to
+// exercise the false→true flip semantics of updateFleetSessions() from
+// a known-clean starting point (beforeEach in that file otherwise fires
+// updateFleetSessions([]) which — post-fix — flips the flag true, so
+// tests that need to observe the flip subscribe AFTER this reset).
+export function __resetFleetSessionsForTest(): void {
+  state = { ...state, fleetSessions: [], fleetSessionsLoaded: false };
   notify();
 }
 

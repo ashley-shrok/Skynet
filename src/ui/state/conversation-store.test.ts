@@ -27,12 +27,14 @@ import {
   useSelectedConversationId,
   usePinnedIds,
   useActiveSet,
+  useFleetSessionsLoaded,
   __subscribeForTest,
   __getSnapshotForTest,
   __getPendingSelectIdForTest,
   __getFleetOnlyRowsForTest,
   __resetActiveSetForTest,
   __resetPinnedIdsForTest,
+  __resetFleetSessionsForTest,
   type FleetSession,
 } from "./conversation-store.js";
 import * as UserPreferencesApi from "@/api/user-preferences-api";
@@ -1722,3 +1724,144 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260727-kbw: fleetSessionsLoaded flag + useFleetSessionsLoaded hook
+// ─────────────────────────────────────────────────────────────────────────────
+// Locks the load-order gate the panel mount effect depends on. Sequence:
+//   - flag starts false at t=0
+//   - updateFleetSessions() flips it true unconditionally, including empty []
+//   - the false→true flip MUST fire notify() even if the sessions array is
+//     a shallow no-op (that's the whole point — panel subscribers need to
+//     learn "load complete" via subscribe(), not via getSnapshot() polling)
+//   - subsequent same-ref calls with the flag already true stay full no-ops
+//   - the hook re-renders on the flip
+describe("fleetSessionsLoaded flag + useFleetSessionsLoaded hook (quick-260727-kbw)", () => {
+  it("fleetSessionsLoaded starts false at t=0 (after __resetFleetSessionsForTest)", () => {
+    // Explicit reset to observe the pre-flip state. beforeEach fires
+    // updateFleetSessions([]) which — post-fix — flips the flag true; the
+    // reset helper restores the module-init state so this test can see the
+    // false starting point directly.
+    act(() => __resetFleetSessionsForTest());
+    const { result } = renderHook(() => useFleetSessionsLoaded());
+    expect(result.current).toBe(false);
+  });
+
+  it("updateFleetSessions with a non-empty array flips fleetSessionsLoaded to true and fires notify() once", () => {
+    act(() => __resetFleetSessionsForTest());
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    const sessions: FleetSession[] = [
+      { hostId: 7, hostName: "hostA", sessionName: "aqua", created: 100 },
+    ];
+    act(() => updateFleetSessions(sessions));
+
+    const { result } = renderHook(() => useFleetSessionsLoaded());
+    expect(result.current).toBe(true);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    unsub();
+  });
+
+  it("updateFleetSessions with an empty [] array ALSO flips fleetSessionsLoaded to true and fires notify() once (critical: empty counts as loaded)", () => {
+    act(() => __resetFleetSessionsForTest());
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    // The load-bearing assertion: an empty [] dispatch with the flag currently
+    // false must still fire notify() because the flag transition is a real
+    // state change. Post-fix, updateFleetSessions([]) is NOT a no-op when the
+    // flag was false — the sessions-array short-circuit is bypassed by the
+    // needsFlagFlip predicate.
+    act(() => updateFleetSessions([]));
+
+    const { result } = renderHook(() => useFleetSessionsLoaded());
+    expect(result.current).toBe(true);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    unsub();
+  });
+
+  it("second updateFleetSessions call with the SAME ref array does NOT fire notify() (flag already true, sessions array ref-equal)", () => {
+    const sessions: FleetSession[] = [
+      { hostId: 7, hostName: "hostA", sessionName: "aqua", created: 100 },
+    ];
+    // Prime: first call transitions flag false→true AND lands the array.
+    act(() => __resetFleetSessionsForTest());
+    act(() => updateFleetSessions(sessions));
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    // Same-ref dispatch twice — flag is already true, array is ref-equal.
+    // Both dispatches MUST be full no-ops. Total notify()s from these two
+    // dispatches: exactly 0.
+    updateFleetSessions(sessions);
+    updateFleetSessions(sessions);
+    expect(cb).toHaveBeenCalledTimes(0);
+
+    unsub();
+  });
+
+  it("subsequent updateFleetSessions([]) after flag already true is a full no-op (no notify)", () => {
+    // The no-op path proof: sessions are shallow-equal (both empty) AND the
+    // flag is already true. Must NOT bump snapshotVersion. beforeEach already
+    // fired updateFleetSessions([]) so the flag is true here.
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    act(() => updateFleetSessions([]));
+    expect(cb).toHaveBeenCalledTimes(0);
+
+    unsub();
+  });
+
+  it("useFleetSessionsLoaded re-renders when the flag flips false→true", () => {
+    act(() => __resetFleetSessionsForTest());
+
+    const { result } = renderHook(() => useFleetSessionsLoaded());
+    expect(result.current).toBe(false);
+
+    act(() => updateFleetSessions([]));
+    expect(result.current).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260727-kbw: regression — fleet pin survives updateOpenTabs pruner
+// when hydrated after fleet load
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-fix, if hydrate happened before updateFleetSessions, the updateOpenTabs
+// pruner would nuke the pin because fleetPinKeepSet would have been empty.
+// Post-fix, once the panel gates on fleetSessionsLoaded, hydrate ALWAYS runs
+// after fleet load — this test locks the store-level invariant that IF the
+// ordering is correct (fleet first, then hydrate), the pin survives an
+// empty-tabs re-emission.
+describe("regression: fleet pin survives updateOpenTabs pruner when hydrated after fleet load (quick-260727-kbw)", () => {
+  it("fleet::7::aqua survives updateOpenTabs([]) when hydrated after updateFleetSessions", () => {
+    // Step 1: fleet loads first (mirrors the fixed panel ordering)
+    act(() =>
+      updateFleetSessions([
+        { hostId: 7, hostName: "hostA", sessionName: "aqua", created: 100 },
+      ]),
+    );
+
+    // Step 2: hydrate the fleet pin from the server
+    act(() => hydratePinnedIdsFromServer(["fleet::7::aqua"]));
+
+    // Sanity check: the pin landed in state.pinnedIds
+    let snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.has("fleet::7::aqua")).toBe(true);
+
+    // Step 3: routine empty tab-list re-emission (the pruner branch under
+    // pinnedIds.size > 0 fires, builds fleetPinKeepSet from state.fleetSessions,
+    // and MUST keep fleet::7::aqua because it's in the fleet keep-set)
+    act(() => updateOpenTabs([]));
+
+    // The load-bearing assertion: fleet::7::aqua is STILL pinned.
+    snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.has("fleet::7::aqua")).toBe(true);
+  });
+});
