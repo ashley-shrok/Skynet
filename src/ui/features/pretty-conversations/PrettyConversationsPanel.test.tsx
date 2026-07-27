@@ -109,6 +109,16 @@ const togglePinConversationSpy = vi.fn();
 // into a spy so Tests 16/17 below can verify the panel's useEffect on
 // [selectedId] enrolls the id in the active set.
 const addToActiveSetSpy = vi.fn();
+// quick-260727-gm3: removeFromActiveSet spy — mirrors addToActiveSet spy so
+// Test 20E can assert the panel's deactivate handler routes through the
+// store mutator exactly once per click.
+const removeFromActiveSetSpy = vi.fn();
+
+// quick-260727-gm3: mutable mock active-set so Tests 20A/20C/20D can
+// override which ids the panel + row layer sees as "in the active set"
+// per-test without unmocking the module. Mirrors the snapshot-mutation
+// pattern above at L96-L104. beforeEach resets it to an empty Set.
+let mockActiveSet: ReadonlySet<string> = new Set<string>();
 
 vi.mock("@/state/conversation-store", () => ({
   useConversations: () => ({
@@ -119,15 +129,15 @@ vi.mock("@/state/conversation-store", () => ({
   useSelectedConversationId: () => snapshot.selectedId,
   usePinnedIds: () => snapshot.pinnedIds,
   // Patch #137: PrettyConversationsPanel now subscribes to useActiveSet
-  // to drive per-row ambient recession + ready-dot visibility. Mock
-  // returns an empty ReadonlySet (no rows in the active-set) so this
-  // test file continues to exercise the ambient rendering path — none
-  // of the tests below assert dot presence or bubble intensity, so
-  // this is behaviorally invisible to them.
-  useActiveSet: () => new Set<string>(),
+  // to drive per-row ambient recession + ready-dot visibility. quick-
+  // 260727-gm3 converted the previously-empty-Set mock into a per-test
+  // mutable readback via mockActiveSet so Tests 20A/20C/20D can assert
+  // the row-level DeactivateAction gate on inActiveSet.
+  useActiveSet: () => mockActiveSet,
   selectConversation: (id: string | null) => selectConversationSpy(id),
   togglePinConversation: (id: string) => togglePinConversationSpy(id),
   addToActiveSet: (id: string) => addToActiveSetSpy(id),
+  removeFromActiveSet: (id: string) => removeFromActiveSetSpy(id),
 }));
 
 // Patch #137: PrettyConversationsPanel calls useSessionWorking(sessionKey)
@@ -201,6 +211,10 @@ beforeEach(() => {
     selectedId: null,
     pinnedIds: new Set(),
   });
+  // quick-260727-gm3: reset the per-test active-set override to empty
+  // (default ambient rendering path — matches pre-gm3 mock behavior for
+  // the 15+ existing tests that never touched it).
+  mockActiveSet = new Set<string>();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,7 +225,7 @@ describe("PrettyConversationsPanel: empty state", () => {
   it("Test 1: renders idle glass card and NO PrettyConversationRow when list is empty", () => {
     setSnapshot({ pinned: [], grouped: [] });
     const { container, queryByText, queryAllByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" />,
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Empty-state text is present
@@ -255,7 +269,7 @@ describe("PrettyConversationsPanel: active-set group above pinned (Patch #149 B+
       grouped: [],
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
     const activeGroup = container.querySelector(
       '[data-active-set-group="true"]',
@@ -296,7 +310,7 @@ describe("PrettyConversationsPanel: active-set group above pinned (Patch #149 B+
       grouped: [],
     });
 
-    const { queryByTestId } = render(<PrettyConversationsPanel variant="desktop" />);
+    const { queryByTestId } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
     // Empty-state card should NOT render when activeSet has rows
     expect(queryByTestId("pretty-conversations-empty")).toBeNull();
   });
@@ -328,7 +342,7 @@ describe("PrettyConversationsPanel: pinned-first ordering", () => {
       pinnedIds: new Set(["a", "b"]),
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
     const rowNodes = Array.from(
       container.querySelectorAll("[data-conversation-id]"),
     ) as HTMLElement[];
@@ -365,7 +379,7 @@ describe("PrettyConversationsPanel: no 'Pinned' section header + per-host divide
       pinnedIds: new Set(["a"]),
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
     // Preserved assertion — no standalone "Pinned" section header.
     const walk = (
@@ -430,7 +444,7 @@ describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", 
       ],
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
     const chips = Array.from(
       container.querySelectorAll('[data-testid="host-divider"]'),
@@ -470,7 +484,7 @@ describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", 
       pinnedIds: new Set(["pinned-1"]),
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
     // Exactly one host-divider — only above the grouped host section.
     const chips = Array.from(
@@ -524,7 +538,7 @@ describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", 
       ],
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
     // Both chips render side-by-side, one for each group type.
     const hostChips = container.querySelectorAll('[data-testid="host-divider"]');
@@ -535,6 +549,229 @@ describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", 
     // empty hostName and should never surface as a chip label).
     expect((hostChips[0] as HTMLElement).getAttribute("data-host-id")).toBe("h1");
     expect((hostChips[0] as HTMLElement).textContent).toMatch(/hostA/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 20A / 20B / 20C / 20D / 20E — [quick-260727-gm3] deactivate action
+// ─────────────────────────────────────────────────────────────────────────────
+// Ashley 2026-07-27 deactivate-preview.js console snippet: rows in the active-
+// set (non-RDP) grow a red-tinted X glyph. Click closes the tab AND removes
+// the id from activeSet; the row recedes to ambient. Row-level render:
+//   - Desktop active-set non-RDP → DeactivateAction inside .pv-meta, BEFORE
+//     PinAction in DOM order (leftmost meta child among pin/deactivate/dot).
+//     CSS handles hover-reveal (gated on .active-set).
+//   - Desktop ambient / RDP → NOT rendered.
+//   - Mobile active-set non-RDP → both PinAction AND DeactivateAction inside
+//     the widened 132px swipe strip.
+//   - Mobile ambient → ONLY PinAction (no deactivate).
+//   - Mobile RDP → no swipe strip at all (pre-existing contract).
+
+describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () => {
+  it("Test 20A: desktop active-set non-RDP row renders deactivate-action inside .pv-meta, BEFORE pin-action in DOM order", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
+      ],
+      pinned: [],
+      grouped: [],
+    });
+    // The row is in the panel's `activeSetRows` (structural tier 1) AND the
+    // useActiveSet ReadonlySet (drives the row's inActiveSet prop) — both
+    // are required to hit the "render DeactivateAction on this row" branch.
+    mockActiveSet = new Set<string>(["active-1"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="active-1"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+
+    // Deactivate action present + inside .pv-meta.
+    const meta = rowEl!.querySelector(".pv-meta") as HTMLElement | null;
+    expect(meta).toBeTruthy();
+    const deactivate = meta!.querySelector(
+      '[data-testid="deactivate-action"]',
+    ) as HTMLElement | null;
+    expect(deactivate).toBeTruthy();
+
+    // Pin action also present in .pv-meta (pin is not gated on active-set;
+    // it's gated on !isRdp only). Deactivate MUST precede pin in DOM order —
+    // Ashley's preview snippet: X on the LEFT of the pin in the meta column.
+    const pin = meta!.querySelector(
+      '[data-testid="pin-action"]',
+    ) as HTMLElement | null;
+    expect(pin).toBeTruthy();
+    // Node.DOCUMENT_POSITION_FOLLOWING = 4 — deactivate precedes pin.
+    expect(deactivate!.compareDocumentPosition(pin!) & 4).toBe(4);
+  });
+
+  it("Test 20B: desktop ambient (non-active-set) row renders NO deactivate-action", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({ id: "ambient-1", label: "ambient", host: hostA }),
+          ],
+        },
+      ],
+    });
+    // useActiveSet stays empty — the row is ambient at the inActiveSet gate.
+    // mockActiveSet reset to empty in beforeEach.
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="ambient-1"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    // The row exists but the DeactivateAction MUST NOT be in its DOM tree.
+    expect(rowEl!.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(0);
+    // Belt-and-suspenders — no deactivate-action anywhere in the panel.
+    expect(container.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(0);
+  });
+
+  it("Test 20C: desktop RDP row renders NO deactivate-action EVEN when the RDP row's id is in the active-set", () => {
+    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "__rdp__",
+          hostName: "",
+          rows: [
+            makeConversationRow({
+              id: "rdp-host::h2",
+              label: "GIGAASHLEYPC",
+              host: rdpHost,
+              rdpHostRow: true,
+              targetTmuxSession: null,
+            }),
+          ],
+        },
+      ],
+    });
+    // Belt-and-suspenders: even if useActiveSet reports the RDP id as
+    // active, the row-level render MUST suppress the deactivate glyph
+    // because isRdp is true.
+    mockActiveSet = new Set<string>(["rdp-host::h2"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="rdp-host::h2"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    expect(rowEl!.getAttribute("data-rdp-host-row")).toBe("true");
+    expect(rowEl!.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(0);
+  });
+
+  it("Test 20D: mobile active-set non-RDP swipe strip contains BOTH pin-action AND deactivate-action; ambient mobile strip has ONLY pin-action", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({ id: "m-active", label: "mobile-active", host: hostA }),
+      ],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({ id: "m-ambient", label: "mobile-ambient", host: hostA }),
+          ],
+        },
+      ],
+    });
+    mockActiveSet = new Set<string>(["m-active"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+
+    const activeRow = container.querySelector(
+      '[data-conversation-id="m-active"]',
+    ) as HTMLElement | null;
+    const ambientRow = container.querySelector(
+      '[data-conversation-id="m-ambient"]',
+    ) as HTMLElement | null;
+    expect(activeRow).toBeTruthy();
+    expect(ambientRow).toBeTruthy();
+
+    // Active row strip → both pin AND deactivate.
+    expect(activeRow!.querySelectorAll('[data-testid="pin-action"]').length).toBe(1);
+    expect(activeRow!.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(1);
+
+    // Ambient row strip → only pin, no deactivate.
+    expect(ambientRow!.querySelectorAll('[data-testid="pin-action"]').length).toBe(1);
+    expect(ambientRow!.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(0);
+  });
+
+  it("Test 20E: clicking deactivate-action calls removeFromActiveSet(row.id) + onDeactivateRow(row) exactly once each; row-body onSelect (selectConversation / onConversationSelected) is NOT called", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
+      ],
+      pinned: [],
+      grouped: [],
+    });
+    mockActiveSet = new Set<string>(["active-1"]);
+
+    const onDeactivateRow = vi.fn();
+    const onConversationSelected = vi.fn();
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={onDeactivateRow}
+        onConversationSelected={onConversationSelected}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="active-1"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const deactivate = rowEl!.querySelector(
+      '[data-testid="deactivate-action"]',
+    ) as HTMLElement | null;
+    expect(deactivate).toBeTruthy();
+
+    // Clear the addToActiveSetSpy's mount-time invocation from the panel's
+    // useEffect on [selectedId]; we care only about the click-driven calls
+    // to removeFromActiveSet + onDeactivateRow below.
+    removeFromActiveSetSpy.mockClear();
+    selectConversationSpy.mockClear();
+    onConversationSelected.mockClear();
+
+    fireEvent.click(deactivate!);
+
+    // Panel-level composition: removeFromActiveSet(row.id) + onDeactivateRow(row).
+    expect(removeFromActiveSetSpy).toHaveBeenCalledTimes(1);
+    expect(removeFromActiveSetSpy).toHaveBeenCalledWith("active-1");
+    expect(onDeactivateRow).toHaveBeenCalledTimes(1);
+    expect(onDeactivateRow.mock.calls[0][0].id).toBe("active-1");
+
+    // Row-body onSelect (row-click path) MUST NOT fire — the row owns
+    // stopPropagation on the DeactivateAction button click, so the row-body
+    // click handler never runs.
+    expect(selectConversationSpy).not.toHaveBeenCalled();
+    expect(onConversationSelected).not.toHaveBeenCalled();
   });
 });
 
@@ -574,7 +811,7 @@ describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
     });
 
     const { container, queryByText } = render(
-      <PrettyConversationsPanel variant="desktop" />,
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Divider chip present
@@ -610,6 +847,7 @@ describe("PrettyConversationsPanel: header pencil opens dialog", () => {
         variant="desktop"
         hostTree={ONE_HOST_TREE}
         onCreateSession={vi.fn()}
+        onDeactivateRow={() => {}}
       />,
     );
 
@@ -638,7 +876,7 @@ describe("PrettyConversationsPanel: header pencil opens dialog", () => {
 describe("PrettyConversationsPanel: pencil gate", () => {
   it("Test 6: pencil button is absent when onCreateSession is undefined", () => {
     const { queryByRole } = render(
-      <PrettyConversationsPanel variant="desktop" />,
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
     expect(queryByRole("button", { name: /new session/i })).toBeNull();
   });
@@ -651,7 +889,7 @@ describe("PrettyConversationsPanel: pencil gate", () => {
 describe("PrettyConversationsPanel: desktop header title", () => {
   it('Test 7: desktop variant renders "Conversations" title text with pv-panel-header + pv-title class treatment (Phase 13 lift-from-mock)', () => {
     const { container, queryByText } = render(
-      <PrettyConversationsPanel variant="desktop" />,
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
     // Exact-word match with case insensitivity to avoid picking up longer
     // strings that happen to contain "conversations".
@@ -688,6 +926,7 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
         variant="mobile"
         hostTree={ONE_HOST_TREE}
         onCreateSession={vi.fn()}
+        onDeactivateRow={() => {}}
       />,
     );
     // Title text renders on mobile now (same as desktop).
@@ -716,7 +955,7 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
 describe("PrettyConversationsPanel: desktop gear removed (patch #133)", () => {
   it("Test 9: desktop variant does NOT render the gear button (patch #133 removed shadcn DropdownMenu gear entirely)", () => {
     const { queryByRole } = render(
-      <PrettyConversationsPanel variant="desktop" />,
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
     // Post-patch-#133: gear DropdownMenu removed entirely; no button with a
     // settings-matching aria-label should exist in either variant.
@@ -731,7 +970,7 @@ describe("PrettyConversationsPanel: desktop gear removed (patch #133)", () => {
 describe("PrettyConversationsPanel: mobile gear removed (patch #133)", () => {
   it("Test 10: mobile variant does NOT render the gear button (patch #133 removed shadcn DropdownMenu gear entirely)", () => {
     const { queryByRole } = render(
-      <PrettyConversationsPanel variant="mobile" />,
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
     );
     expect(queryByRole("button", { name: /settings/i })).toBeNull();
   });
@@ -768,6 +1007,7 @@ describe("PrettyConversationsPanel: row-click routing (RDP)", () => {
         variant="desktop"
         onRdpRowClick={onRdpRowClick}
         onDetachedRowClick={onDetachedRowClick}
+        onDeactivateRow={() => {}}
       />,
     );
 
@@ -811,6 +1051,7 @@ describe("PrettyConversationsPanel: row-click routing (fleet-only)", () => {
         variant="desktop"
         onDetachedRowClick={onDetachedRowClick}
         onRdpRowClick={onRdpRowClick}
+        onDeactivateRow={() => {}}
       />,
     );
 
@@ -845,7 +1086,7 @@ describe("PrettyConversationsPanel: row-click routing (plain)", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" />,
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const wrapper = container.querySelector(
@@ -914,6 +1155,7 @@ describe("PrettyConversationsPanel: onConversationSelected after every branch", 
         onConversationSelected={onConversationSelected}
         onDetachedRowClick={onDetachedRowClick}
         onRdpRowClick={onRdpRowClick}
+        onDeactivateRow={() => {}}
       />,
     );
 
@@ -969,14 +1211,14 @@ describe("PrettyConversationsPanel: patch #144 activeSet on selectedId", () => {
       ],
       selectedId: "row-restored",
     });
-    render(<PrettyConversationsPanel variant="desktop" />);
+    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
     // The useEffect fires on mount because selectedId is non-null.
     expect(addToActiveSetSpy).toHaveBeenCalledWith("row-restored");
   });
 
   it("Test 17 (patch #144 d): null selectedId does NOT call addToActiveSet", () => {
     setSnapshot({ pinned: [], grouped: [], selectedId: null });
-    render(<PrettyConversationsPanel variant="desktop" />);
+    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
     expect(addToActiveSetSpy).not.toHaveBeenCalled();
   });
 });

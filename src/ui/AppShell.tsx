@@ -1387,6 +1387,16 @@ export function AppShell({
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
           }}
+          onDeactivateRow={(row) => {
+            // quick-260727-gm3: deactivate is a tab-close variant.
+            // Reuse the existing closeTab function verbatim — it already
+            // routes to doCloseTab and handles the confirm-tab-close
+            // toast branch. That behavior is preserved for deactivate
+            // clicks too (deactivate === "close this tab"; the store-
+            // level activeSet removal is composed by the panel's
+            // handleRowDeactivate before this callback fires).
+            closeTab(row.id);
+          }}
         />
       </div>
     </div>

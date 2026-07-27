@@ -63,6 +63,7 @@ import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 
 import { PinAction } from "./PinAction";
+import { DeactivateAction } from "./DeactivateAction";
 import {
   PC_SWIPE_ANGLE_TOLERANCE,
   PC_SWIPE_REVEAL,
@@ -83,6 +84,7 @@ export function PrettyConversationRow({
   variant,
   onSelect,
   onTogglePin,
+  onDeactivate,
   onSwipeOpenChange,
   forceClosed,
   isWorking = null,
@@ -95,6 +97,14 @@ export function PrettyConversationRow({
   variant: "mobile" | "desktop";
   onSelect: () => void;
   onTogglePin: () => void;
+  // quick-260727-gm3: fired when Ashley clicks the red-tinted X inside
+  // .pv-meta (desktop) OR the swipe strip (mobile). MUST be provided by
+  // the panel whenever inActiveSet === true && !isRdp — otherwise the
+  // click is a no-op at the row level (the button still renders + fires
+  // its own click, but forwards to a missing callback). See
+  // PrettyConversationsPanel.handleRowDeactivate for the store-mutation
+  // + tab-close composition.
+  onDeactivate?: () => void;
   onSwipeOpenChange?: (open: boolean) => void;
   forceClosed?: boolean;
   // Patch #137: WS-published working state for the row's (host, tmux)
@@ -257,6 +267,18 @@ export function PrettyConversationRow({
     [onTogglePin],
   );
 
+  // quick-260727-gm3: deactivate click (both variants). Same stopPropagation
+  // discipline as onPinClick — the row's click handler must not fire when
+  // the X is pressed. Forwards to the panel's handler (which pairs
+  // removeFromActiveSet + closeTab) if provided; otherwise silent no-op.
+  const onDeactivateClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      if (onDeactivate) onDeactivate();
+    },
+    [onDeactivate],
+  );
+
   // ─── Class composition ────────────────────────────────────────────────────
   // Every state variant is a CSS class toggle; the CSS file (pretty-
   // conversations.css) handles all visual response. `isAmbient` is derived
@@ -322,10 +344,16 @@ export function PrettyConversationRow({
     >
       {/* Mobile swipe-reveal strip. Absolutely positioned behind the row body
           so the row-body transform reveals it. Only rendered for mobile
-          variant AND non-RDP rows (T-Test-34: RDP rows can't be pinned). */}
+          variant AND non-RDP rows (T-Test-34: RDP rows can't be pinned).
+          quick-260727-gm3: strip widened to 132px (tokens.ts) and now hosts
+          BOTH PinAction AND DeactivateAction side-by-side when the row is
+          in the active-set. Order: PinAction FIRST (left), DeactivateAction
+          SECOND (right) — matches Ashley's preview: pin on left, X on right
+          when the strip is revealed from the right edge. Ambient (non-
+          active-set) mobile rows expose only PinAction (no deactivate). */}
       {isMobile && !isRdp && (
         <div
-          className="absolute top-0 right-0 bottom-0 flex items-center justify-center z-0"
+          className="absolute top-0 right-0 bottom-0 flex items-center justify-center gap-3 z-0"
           style={{ width: `${PC_SWIPE_REVEAL}px` }}
           aria-hidden={!effectiveOpen}
         >
@@ -335,6 +363,13 @@ export function PrettyConversationRow({
             size="mobile"
             onClick={onPinClick}
           />
+          {inActiveSet && (
+            <DeactivateAction
+              hue={hue}
+              size="mobile"
+              onClick={onDeactivateClick}
+            />
+          )}
         </div>
       )}
 
@@ -423,6 +458,20 @@ export function PrettyConversationRow({
             pretty-conversations.css. Mobile PinAction lives in the swipe
             strip (above); RDP rows skip PinAction entirely. */}
         <div className="pv-meta">
+          {/* quick-260727-gm3: DeactivateAction renders BEFORE PinAction in
+              DOM order on desktop active-set non-RDP rows — Ashley's
+              preview snippet lays the X to the LEFT of the pin in the
+              meta column. Hover-reveal is CSS-driven (gated on
+              `.active-set`) via .pv-deactivate-action rules in
+              pretty-conversations.css. Ambient + RDP + mobile paths
+              skip this render entirely. */}
+          {!isMobile && !isRdp && inActiveSet && (
+            <DeactivateAction
+              hue={hue}
+              size="desktop"
+              onClick={onDeactivateClick}
+            />
+          )}
           {!isMobile && !isRdp && (
             <PinAction
               hue={hue}

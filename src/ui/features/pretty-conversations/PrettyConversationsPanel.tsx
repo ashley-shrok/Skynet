@@ -50,6 +50,7 @@ import {
   useActiveSet,
   selectConversation,
   addToActiveSet,
+  removeFromActiveSet,
   togglePinConversation,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
@@ -83,6 +84,11 @@ function PrettyConversationRowLive(props: {
   variant: "mobile" | "desktop";
   onSelect: () => void;
   onTogglePin: () => void;
+  // quick-260727-gm3: forwarded verbatim to PrettyConversationRow. Only
+  // wired at render sites where the row can be in the active-set (active-
+  // set group, pinned group, non-RDP grouped block). RDP sentinel omits
+  // it because RDP rows never emit onDeactivate at the row level.
+  onDeactivate?: () => void;
   onSwipeOpenChange?: (open: boolean) => void;
   forceClosed?: boolean;
   inActiveSet: boolean;
@@ -110,6 +116,7 @@ export function PrettyConversationsPanel({
   onCreateSession,
   onDetachedRowClick,
   onRdpRowClick,
+  onDeactivateRow,
   sidebarToggleOverlaps = false,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
@@ -139,6 +146,15 @@ export function PrettyConversationsPanel({
   // ConversationsPanel. When omitted, RDP rows fall through to
   // selectConversation (silent-no-op at the store level).
   onRdpRowClick?: (row: ConversationRowShape) => void;
+  // quick-260727-gm3: fired when Ashley clicks the red-tinted X on an
+  // active-set non-RDP row. AppShell wires this to closeTab(row.id) so
+  // the deactivate action reuses the existing tab-close plumbing verbatim
+  // (including the confirm-tab-close toast branch). Required — the panel
+  // composes removeFromActiveSet(row.id) + onDeactivateRow(row) at the
+  // handleRowDeactivate call site; making the prop required forces every
+  // caller (production AppShell + tests) to explicitly wire the tab-close
+  // side. Test files that don't care pass `onDeactivateRow={() => {}}`.
+  onDeactivateRow: (row: ConversationRowShape) => void;
   // Patch #142 (Fix 5): when the desktop sidebar is open, the fixed
   // top-left chevron overlaps the "Conversations" title. This prop adds
   // padding-left clearance via data-sidebar-toggle-overlaps attribute +
@@ -211,6 +227,23 @@ export function PrettyConversationsPanel({
     }
     selectConversation(row.id);
     onConversationSelected?.(row.id);
+  };
+
+  // quick-260727-gm3: pure reverse of handleRowSelect — removes the id from
+  // the activeSet (row visually recedes to ambient) AND fires
+  // onDeactivateRow so AppShell can closeTab(row.id). Deliberately paired at
+  // the panel level (not the row) so the row stays a dumb consumer of a
+  // single callback and the panel owns the "store mutation + tab close"
+  // composition — same architectural shape as handleRowSelect +
+  // selectConversation + onConversationSelected.
+  //
+  // Order matters: removeFromActiveSet FIRST so the store update lands
+  // before closeTab kicks off any UI transition. Both operations are
+  // synchronous store mutations at the boundary; the flip order is a
+  // defense-in-depth choice, not a correctness requirement.
+  const handleRowDeactivate = (row: ConversationRowShape) => {
+    removeFromActiveSet(row.id);
+    onDeactivateRow(row);
   };
 
   // Coordinator callback wired into every mobile row. When a row reports
@@ -335,6 +368,7 @@ export function PrettyConversationsPanel({
                   variant={variant}
                   onSelect={() => handleRowSelect(row)}
                   onTogglePin={() => togglePinConversation(row.id)}
+                  onDeactivate={() => handleRowDeactivate(row)}
                   onSwipeOpenChange={
                     isMobileVariant
                       ? (open) => handleSwipeOpenChange(row.id, open)
@@ -366,6 +400,7 @@ export function PrettyConversationsPanel({
                   variant={variant}
                   onSelect={() => handleRowSelect(row)}
                   onTogglePin={() => togglePinConversation(row.id)}
+                  onDeactivate={() => handleRowDeactivate(row)}
                   onSwipeOpenChange={
                     isMobileVariant
                       ? (open) => handleSwipeOpenChange(row.id, open)
@@ -467,6 +502,7 @@ export function PrettyConversationsPanel({
                       variant={variant}
                       onSelect={() => handleRowSelect(row)}
                       onTogglePin={() => togglePinConversation(row.id)}
+                      onDeactivate={() => handleRowDeactivate(row)}
                       onSwipeOpenChange={
                         isMobileVariant
                           ? (open) => handleSwipeOpenChange(row.id, open)
