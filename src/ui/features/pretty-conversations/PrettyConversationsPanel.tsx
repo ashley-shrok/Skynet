@@ -52,6 +52,7 @@ import {
   selectConversation,
   addToActiveSet,
   removeFromActiveSet,
+  fleetRowId,
   togglePinConversation,
   hydratePinnedIdsFromServer,
   type ConversationRow as ConversationRowShape,
@@ -299,8 +300,26 @@ export function PrettyConversationsPanel({
   // before closeTab kicks off any UI transition. Both operations are
   // synchronous store mutations at the boundary; the flip order is a
   // defense-in-depth choice, not a correctness requirement.
+  //
+  // quick-260727-s8g: purge BOTH id shapes. Rationale — activeSet may hold
+  // BOTH `row.id` (openTab id shape, e.g. `tab-xxx`) AND the fleet-synthetic
+  // id shape (`fleet::HOSTID::SESSIONNAME`) when the row was reached via
+  // ambient-fleet-row tap: handleRowSelect adds the fleet id, then AppShell
+  // opens a tab whose different id shape gets added by the selectedId
+  // useEffect. If we only purge `row.id`, the next computeSnapshot un-
+  // suppresses the fleet-synthetic entry (openTab is gone) and Tier 1 re-
+  // promotes the row with `.active-set` glow because activeSet still has the
+  // fleet id. Same class of id-shape-mismatch bug as the queued #149
+  // followup-1 pin-nuke (scoped to pinnedIds), separately queued. The
+  // guard skips the fleet-id purge for rows without host or
+  // targetTmuxSession so we never construct a bogus `fleet::null::` string.
+  // removeFromActiveSet is idempotent so calling it with an id that's not
+  // present is a safe no-op.
   const handleRowDeactivate = (row: ConversationRowShape) => {
     removeFromActiveSet(row.id);
+    if (row.host && row.targetTmuxSession) {
+      removeFromActiveSet(fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession));
+    }
     onDeactivateRow(row);
   };
 

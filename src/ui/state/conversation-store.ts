@@ -276,7 +276,7 @@ function dedupKey(hostIdStr: string, sessionName: string): string {
 // INTERNAL only. Kept as a small helper so the AppShell click handler and
 // the row-shape assertions in tests read from a single source of truth if
 // they need to.
-function fleetRowId(hostId: number, sessionName: string): string {
+export function fleetRowId(hostId: number, sessionName: string): string {
   return `fleet::${hostId}::${sessionName}`;
 }
 
