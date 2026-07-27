@@ -1,6 +1,6 @@
-// ─── identity-artifact-reader — readIdentityOnDeckBountyCount (quick 260727-tb1) ─
+// ─── identity-artifact-reader — readIdentityPinnedBountyCount (quick 260727-tb1) ─
 //
-// RED-gate coverage for the new local-branch on-deck bounty counter that Task 1
+// RED-gate coverage for the new local-branch pinned bounty counter that Task 1
 // of the per-row bounty badge quick task adds. The remote branch is exercised
 // end-to-end through the WS handler's per-target error-isolation test in
 // claude-session-server.count-bounties.test.ts — mocking ssh2 here would just
@@ -16,7 +16,7 @@ import os from "os";
 import path from "path";
 import fs from "fs/promises";
 
-import { readIdentityOnDeckBountyCount } from "./identity-artifact-reader.js";
+import { readIdentityPinnedBountyCount } from "./identity-artifact-reader.js";
 
 let tmpRoot: string;
 const KEY = "tina";
@@ -46,42 +46,42 @@ afterEach(async () => {
   await fs.rm(tmpRoot, { recursive: true, force: true });
 });
 
-describe("readIdentityOnDeckBountyCount — local branch", () => {
+describe("readIdentityPinnedBountyCount — local branch", () => {
   it("returns 0 when the bounties dir does not exist", async () => {
-    const n = await readIdentityOnDeckBountyCount(null, KEY);
+    const n = await readIdentityPinnedBountyCount(null, KEY);
     expect(n).toBe(0);
   });
 
-  it("counts on_deck bounties, skipping archived + non-on_deck + malformed", async () => {
-    await writeBounty("bounty-a", "on_deck");
-    await writeBounty("bounty-b", "on_deck");
+  it("counts pinned bounties, skipping archived + non-pinned + malformed", async () => {
+    await writeBounty("bounty-a", "pinned");
+    await writeBounty("bounty-b", "pinned");
     await writeBounty("bounty-c", "in_progress");
     await writeBounty("bounty-d", "done");
-    await writeBounty("bounty-e", "on_deck", { malformed: true });
+    await writeBounty("bounty-e", "pinned", { malformed: true });
     // Archive contents must be ignored regardless of status.
-    await writeBounty("archived-1", "on_deck", { archived: true });
-    await writeBounty("archived-2", "on_deck", { archived: true });
+    await writeBounty("archived-1", "pinned", { archived: true });
+    await writeBounty("archived-2", "pinned", { archived: true });
 
-    const n = await readIdentityOnDeckBountyCount(null, KEY);
+    const n = await readIdentityPinnedBountyCount(null, KEY);
     expect(n).toBe(2);
   });
 
-  it("returns 0 when no bounties are on_deck", async () => {
+  it("returns 0 when no bounties are pinned", async () => {
     await writeBounty("only-one", "in_progress");
-    const n = await readIdentityOnDeckBountyCount(null, KEY);
+    const n = await readIdentityPinnedBountyCount(null, KEY);
     expect(n).toBe(0);
   });
 
   it("swallows a single malformed bounty.json without failing the whole call", async () => {
-    await writeBounty("good", "on_deck");
-    await writeBounty("bad", "on_deck", { malformed: true });
-    const n = await readIdentityOnDeckBountyCount(null, KEY);
+    await writeBounty("good", "pinned");
+    await writeBounty("bad", "pinned", { malformed: true });
+    const n = await readIdentityPinnedBountyCount(null, KEY);
     expect(n).toBe(1);
   });
 
   it("rejects an invalid identity key (defense against path traversal)", async () => {
     await expect(
-      readIdentityOnDeckBountyCount(null, "../etc"),
+      readIdentityPinnedBountyCount(null, "../etc"),
     ).rejects.toThrow();
   });
 });

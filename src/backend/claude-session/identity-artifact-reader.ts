@@ -755,7 +755,7 @@ export async function writeIdentityBountyPriority(
 }
 
 // ---------------------------------------------------------------------------
-// 8. readIdentityOnDeckBountyCount — count of non-archived on_deck bounties
+// 8. readIdentityPinnedBountyCount — count of non-archived pinned bounties
 // ---------------------------------------------------------------------------
 //
 // Quick 260727-tb1: cheap counter used by the per-row bounty badge in the
@@ -764,8 +764,8 @@ export async function writeIdentityBountyPriority(
 // be skipped). Returns an integer.
 //
 // Local branch: fs.readdir the bounties dir, skip "archive", read each
-// entry's bounty.json, count where parsed.status === "on_deck". Per-file
-// parse errors are swallowed as "not on_deck" — a single poisoned file
+// entry's bounty.json, count where parsed.status === "pinned". Per-file
+// parse errors are swallowed as "not pinned" — a single poisoned file
 // must not fail the whole count.
 //
 // Remote branch: python3 one-liner over SSH — grep on the raw JSON is
@@ -774,7 +774,7 @@ export async function writeIdentityBountyPriority(
 // integer to stdout. python3 is universally present on identity boxes
 // (the wakeup scheduler itself is python3).
 
-export async function readIdentityOnDeckBountyCount(
+export async function readIdentityPinnedBountyCount(
   conn: SSHClientType | null,
   identityKey: string,
 ): Promise<number> {
@@ -809,9 +809,9 @@ export async function readIdentityOnDeckBountyCount(
       try {
         const raw = await fs.readFile(filePath, "utf-8");
         const parsed = JSON.parse(raw) as Record<string, unknown>;
-        if (parsed.status === "on_deck") count += 1;
+        if (parsed.status === "pinned") count += 1;
       } catch {
-        // Per-file parse/read error → count as "not on_deck" (do NOT throw).
+        // Per-file parse/read error → count as "not pinned" (do NOT throw).
       }
     }
     return count;
@@ -833,7 +833,7 @@ export async function readIdentityOnDeckBountyCount(
     '  p=os.path.join(r,d,"bounty.json")\n' +
     "  try:\n" +
     "    with open(p) as f: j=json.load(f)\n" +
-    '    if j.get("status")=="on_deck": n+=1\n' +
+    '    if j.get("status")=="pinned": n+=1\n' +
     "  except Exception: pass\n" +
     "print(n)\n";
   const cmd =
@@ -842,7 +842,7 @@ export async function readIdentityOnDeckBountyCount(
   const stdout = await execWithTimeout(conn, cmd);
   const n = parseInt(stdout.trim(), 10);
   if (!Number.isFinite(n) || n < 0) {
-    throw new Error(`remote on-deck count returned non-integer: ${stdout}`);
+    throw new Error(`remote pinned count returned non-integer: ${stdout}`);
   }
   return n;
 }

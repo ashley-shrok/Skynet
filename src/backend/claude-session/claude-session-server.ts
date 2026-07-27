@@ -20,7 +20,7 @@ import {
   readIdentityWakeups,
   readIdentityHandoff,
   readIdentityBounties,
-  readIdentityOnDeckBountyCount,
+  readIdentityPinnedBountyCount,
   writeIdentityWakeupUpdate,
   writeIdentityBountyPriority,
   type BountyPriority,
@@ -34,7 +34,7 @@ import {
  *   client -> server:
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
  *     { type: "identity:list-bounties", identityKey: string, hostId?: number }    // patch #87/#92: fetch identity bounties; hostId routes to pane's box (omit = local bind-mount)
- *     { type: "identity:count-bounties", targets: Array<{ identityKey: string; hostId: number | null }> } // quick 260727-tb1: batched on-deck bounty counter for the per-row badge (one WS request per poll)
+ *     { type: "identity:count-bounties", targets: Array<{ identityKey: string; hostId: number | null }> } // quick 260727-tb1: batched pinned bounty counter for the per-row badge (one WS request per poll)
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
  *     { type: "identity:get-history", identityKey: string, hostId?: number }       // patch #17g/#92: fetch history.md
@@ -61,7 +61,7 @@ import {
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
  *     { type: "identity:bounties", bounties, archivedBounties, error? } // patch #87: response to identity:list-bounties (one-shot; WS closed by client after receipt)
- *     { type: "identity:bounty-counts", counts: Array<{ identityKey, hostId, onDeckCount, error? }> } // quick 260727-tb1: response to identity:count-bounties (one-shot; WS closed by client after receipt)
+ *     { type: "identity:bounty-counts", counts: Array<{ identityKey, hostId, pinnedCount, error? }> } // quick 260727-tb1: response to identity:count-bounties (one-shot; WS closed by client after receipt)
  *     // patch #17g: identity artifact responses (one-shot; WS closed by client after receipt):
  *     { type: "identity:identity-file", markdown: string, error?: string } // patch #17g: response to identity:get-identity-file
  *     { type: "identity:history", entries: string[], error?: string }       // patch #17g: response to identity:get-history
@@ -441,7 +441,7 @@ export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 // vitest suite can drive it without a real WebSocketServer. Wire shape:
 //
 //   in:  { type: "identity:count-bounties", targets: [{identityKey, hostId}, ...] }
-//   out: { type: "identity:bounty-counts", counts:  [{identityKey, hostId, onDeckCount, error?}, ...] }
+//   out: { type: "identity:bounty-counts", counts:  [{identityKey, hostId, pinnedCount, error?}, ...] }
 //
 // Semantics:
 //   - hostId=null OR hostId in IDENTITIES_LOCAL_HOST_IDS → local (bind-mount) branch.
@@ -450,13 +450,13 @@ export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 //     single conn, close via try/finally.
 //   - Every per-target read is wrapped in Promise.allSettled so one dead
 //     SSH host cannot block the batch.
-//   - Rejected reads → {onDeckCount: 0, error: String(reason)}.
+//   - Rejected reads → {pinnedCount: 0, error: String(reason)}.
 
 type CountBountiesTarget = { identityKey: string; hostId: number | null };
 type CountBountiesResult = {
   identityKey: string;
   hostId: number | null;
-  onDeckCount: number;
+  pinnedCount: number;
   error?: string;
 };
 
@@ -466,7 +466,7 @@ async function readOneTarget(
 ): Promise<number> {
   // The reader itself validates identityKey; forwarding invalid keys is fine
   // — the rejection lands in the per-target error field via allSettled.
-  return readIdentityOnDeckBountyCount(conn, identityKey);
+  return readIdentityPinnedBountyCount(conn, identityKey);
 }
 
 export async function handleIdentityCountBounties(
@@ -529,13 +529,13 @@ export async function handleIdentityCountBounties(
               return {
                 identityKey: t.identityKey,
                 hostId: t.hostId,
-                onDeckCount: s.value,
+                pinnedCount: s.value,
               };
             }
             return {
               identityKey: t.identityKey,
               hostId: t.hostId,
-              onDeckCount: 0,
+              pinnedCount: 0,
               error: String((s.reason as Error)?.message ?? s.reason),
             };
           });
@@ -552,7 +552,7 @@ export async function handleIdentityCountBounties(
               return bucket.map((t) => ({
                 identityKey: t.identityKey,
                 hostId: t.hostId,
-                onDeckCount: 0,
+                pinnedCount: 0,
                 error: "host not found",
               }));
             }
@@ -569,13 +569,13 @@ export async function handleIdentityCountBounties(
                 return {
                   identityKey: t.identityKey,
                   hostId: t.hostId,
-                  onDeckCount: s.value,
+                  pinnedCount: s.value,
                 };
               }
               return {
                 identityKey: t.identityKey,
                 hostId: t.hostId,
-                onDeckCount: 0,
+                pinnedCount: 0,
                 error: String((s.reason as Error)?.message ?? s.reason),
               };
             });
@@ -585,7 +585,7 @@ export async function handleIdentityCountBounties(
             return bucket.map((t) => ({
               identityKey: t.identityKey,
               hostId: t.hostId,
-              onDeckCount: 0,
+              pinnedCount: 0,
               error: msgStr,
             }));
           } finally {
@@ -1672,10 +1672,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Quick 260727-tb1: identity:count-bounties — batched on-deck bounty
+    // Quick 260727-tb1: identity:count-bounties — batched pinned bounty
     // counter powering the per-row bounty badge in pretty-conversations.
     // ONE WS request carrying [{identityKey, hostId}, ...]; ONE response
-    // carrying [{identityKey, hostId, onDeckCount, error?}, ...].
+    // carrying [{identityKey, hostId, pinnedCount, error?}, ...].
     //
     // Design decisions the tests lock in:
     //   1. Targets are grouped by hostId. Local group (hostId=null OR in
@@ -1686,7 +1686,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     //      through that single conn; conn.end() runs in try/finally.
     //   3. Every per-target read is wrapped in Promise.allSettled — one
     //      slow or dead SSH host does not block the batch.
-    //   4. Rejected reads surface as {onDeckCount:0, error:string};
+    //   4. Rejected reads surface as {pinnedCount:0, error:string};
     //      successful reads omit the error field. Zero-with-error keeps
     //      the wire shape uniform.
     if (msg.type === "identity:count-bounties") {

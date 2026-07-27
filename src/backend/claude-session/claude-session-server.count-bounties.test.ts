@@ -4,7 +4,7 @@
 // non-local hostId (via connectOneShot), runs all identities on that host
 // through it, and wraps every read in Promise.allSettled so one slow/dead
 // host does not block the batch. Response is a single identity:bounty-counts
-// message carrying { identityKey, hostId, onDeckCount, error? } per target.
+// message carrying { identityKey, hostId, pinnedCount, error? } per target.
 //
 // We drive the handler directly via an exported test seam
 // (`__handleIdentityCountBountiesForTests`) rather than spinning up a real
@@ -15,7 +15,7 @@
 //   - ssh-one-shot.js → mocked connectOneShot returns a sentinel "conn" per
 //     call so we can count opens per hostId.
 //   - host-resolver.js → resolveHostById returns a stub host object.
-//   - identity-artifact-reader.js → readIdentityOnDeckBountyCount is spied so
+//   - identity-artifact-reader.js → readIdentityPinnedBountyCount is spied so
 //     we can inject counts + rejections per (conn, identityKey).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -32,13 +32,13 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
   >();
   return {
     ...actual,
-    readIdentityOnDeckBountyCount: vi.fn(),
+    readIdentityPinnedBountyCount: vi.fn(),
   };
 });
 
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
-import { readIdentityOnDeckBountyCount } from "./identity-artifact-reader.js";
+import { readIdentityPinnedBountyCount } from "./identity-artifact-reader.js";
 import { __handleIdentityCountBountiesForTests } from "./claude-session-server.js";
 
 type CountsMsg = {
@@ -46,7 +46,7 @@ type CountsMsg = {
   counts: Array<{
     identityKey: string;
     hostId: number | null;
-    onDeckCount: number;
+    pinnedCount: number;
     error?: string;
   }>;
 };
@@ -67,7 +67,7 @@ beforeEach(() => {
   wsStub.send.mockClear();
   vi.mocked(connectOneShot).mockReset();
   vi.mocked(resolveHostById).mockReset();
-  vi.mocked(readIdentityOnDeckBountyCount).mockReset();
+  vi.mocked(readIdentityPinnedBountyCount).mockReset();
 });
 
 afterEach(() => {
@@ -84,11 +84,11 @@ describe("identity:count-bounties handler — batched per-target read", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual({ type: "identity:bounty-counts", counts: [] });
     expect(connectOneShot).not.toHaveBeenCalled();
-    expect(readIdentityOnDeckBountyCount).not.toHaveBeenCalled();
+    expect(readIdentityPinnedBountyCount).not.toHaveBeenCalled();
   });
 
   it("local-only batch (hostId=null) does not open any SSH connection", async () => {
-    vi.mocked(readIdentityOnDeckBountyCount).mockImplementation(
+    vi.mocked(readIdentityPinnedBountyCount).mockImplementation(
       async (_conn, identityKey) => (identityKey === "tina" ? 3 : 0),
     );
 
@@ -107,8 +107,8 @@ describe("identity:count-bounties handler — batched per-target read", () => {
     expect(connectOneShot).not.toHaveBeenCalled();
     expect(sent).toHaveLength(1);
     expect(sent[0].counts).toEqual([
-      { identityKey: "tina", hostId: null, onDeckCount: 3 },
-      { identityKey: "other", hostId: null, onDeckCount: 0 },
+      { identityKey: "tina", hostId: null, pinnedCount: 3 },
+      { identityKey: "other", hostId: null, pinnedCount: 0 },
     ]);
   });
 
@@ -119,7 +119,7 @@ describe("identity:count-bounties handler — batched per-target read", () => {
       username: "ubuntu",
     } as never);
     vi.mocked(connectOneShot).mockResolvedValue(fakeConn as never);
-    vi.mocked(readIdentityOnDeckBountyCount).mockResolvedValue(1);
+    vi.mocked(readIdentityPinnedBountyCount).mockResolvedValue(1);
 
     const targets = ["a", "b", "c", "d", "e"].map((k) => ({
       identityKey: k,
@@ -135,7 +135,7 @@ describe("identity:count-bounties handler — batched per-target read", () => {
     // Exactly one connectOneShot for the whole hostId=42 group.
     expect(connectOneShot).toHaveBeenCalledTimes(1);
     // All five reads received the SAME conn (proves reuse).
-    const calls = vi.mocked(readIdentityOnDeckBountyCount).mock.calls;
+    const calls = vi.mocked(readIdentityPinnedBountyCount).mock.calls;
     expect(calls).toHaveLength(5);
     for (const call of calls) {
       expect(call[0]).toBe(fakeConn);
@@ -145,13 +145,13 @@ describe("identity:count-bounties handler — batched per-target read", () => {
 
     expect(sent[0].counts).toHaveLength(5);
     for (const c of sent[0].counts) {
-      expect(c.onDeckCount).toBe(1);
+      expect(c.pinnedCount).toBe(1);
       expect(c.error).toBeUndefined();
     }
   });
 
   it("per-target error isolation: one rejected read does not fail the batch (Promise.allSettled)", async () => {
-    vi.mocked(readIdentityOnDeckBountyCount).mockImplementation(
+    vi.mocked(readIdentityPinnedBountyCount).mockImplementation(
       async (_conn, identityKey) => {
         if (identityKey === "boom") throw new Error("simulated dead ssh");
         return 7;
@@ -174,16 +174,16 @@ describe("identity:count-bounties handler — batched per-target read", () => {
     expect(sent).toHaveLength(1);
     const byKey = new Map(sent[0].counts.map((c) => [c.identityKey, c]));
     expect(byKey.get("healthy")).toMatchObject({
-      onDeckCount: 7,
+      pinnedCount: 7,
       hostId: null,
     });
     expect(byKey.get("also-healthy")).toMatchObject({
-      onDeckCount: 7,
+      pinnedCount: 7,
       hostId: null,
     });
     const bad = byKey.get("boom");
     expect(bad).toBeDefined();
-    expect(bad!.onDeckCount).toBe(0);
+    expect(bad!.pinnedCount).toBe(0);
     expect(bad!.error).toContain("simulated dead ssh");
   });
 
@@ -200,7 +200,7 @@ describe("identity:count-bounties handler — batched per-target read", () => {
     vi.mocked(connectOneShot)
       .mockResolvedValueOnce(connA as never)
       .mockResolvedValueOnce(connB as never);
-    vi.mocked(readIdentityOnDeckBountyCount).mockResolvedValue(2);
+    vi.mocked(readIdentityPinnedBountyCount).mockResolvedValue(2);
 
     await __handleIdentityCountBountiesForTests(
       wsStub as unknown as import("ws").WebSocket,
@@ -221,7 +221,7 @@ describe("identity:count-bounties handler — batched per-target read", () => {
     expect(connB.end).toHaveBeenCalledTimes(1);
     expect(sent[0].counts).toHaveLength(4);
     for (const c of sent[0].counts) {
-      expect(c.onDeckCount).toBe(2);
+      expect(c.pinnedCount).toBe(2);
     }
   });
 
@@ -230,7 +230,7 @@ describe("identity:count-bounties handler — batched per-target read", () => {
     // accept valid ones. Proves the handler propagates per-target
     // rejection through the response.error field via Promise.allSettled
     // rather than 500-ing the whole batch.
-    vi.mocked(readIdentityOnDeckBountyCount).mockImplementation(
+    vi.mocked(readIdentityPinnedBountyCount).mockImplementation(
       async (_conn, identityKey) => {
         if (!/^[a-z0-9_-]{1,64}$/.test(identityKey)) {
           throw new Error("invalid identityKey");
@@ -253,10 +253,10 @@ describe("identity:count-bounties handler — batched per-target read", () => {
 
     expect(sent).toHaveLength(1);
     const byKey = new Map(sent[0].counts.map((c) => [c.identityKey, c]));
-    expect(byKey.get("tina")).toMatchObject({ onDeckCount: 5, hostId: null });
+    expect(byKey.get("tina")).toMatchObject({ pinnedCount: 5, hostId: null });
     const bad = byKey.get("../etc");
     expect(bad).toBeDefined();
-    expect(bad!.onDeckCount).toBe(0);
+    expect(bad!.pinnedCount).toBe(0);
     expect(bad!.error).toContain("invalid identityKey");
   });
 });
