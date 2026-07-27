@@ -12,6 +12,7 @@ import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { RobustClipboardProvider } from "@/lib/clipboard-provider";
+import { isIosPwa } from "@/lib/is-ios-pwa";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useTranslation } from "react-i18next";
@@ -327,6 +328,17 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       return () => {};
     }, [hostConfig.id]);
 
+    // Patch #156: hard-gate this effect on isIosPwa(). On Chrome desktop /
+    // Android / non-PWA Safari, WebSockets actually stay alive across tab
+    // switches, and force-reconnecting them on visibility=visible races the
+    // server's session-attachment path — the old WS's queued ws.on("close")
+    // detachWs can arrive AFTER the new WS attaches, causing destroySession
+    // to fire and the new socket to receive `disconnected`, surfacing the
+    // Reconnect/Close overlay. The patch #143 v2 rationale below is still
+    // accurate for the iOS-PWA case — the OS silently kills WSes during
+    // backgrounding and readyState lies on resume — so we keep that
+    // behavior intact when isIosPwa() is true and no-op everywhere else.
+    //
     // Patch #143 v2: iOS PWA backgrounding fix — cancel scheduled reconnects
     // when the tab is hidden (throttled iOS tab burns the 8-attempt budget)
     // and UNCONDITIONALLY reset + reconnect on foreground. The v1
@@ -342,6 +354,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // manual Reconnect via the overlay at lines ~3014-3049 — that affordance
     // is intentional and unchanged.
     useEffect(() => {
+      if (!isIosPwa()) return;
       const handleVisibilityChange = () => {
         if (document.hidden) {
           if (reconnectTimeoutRef.current !== null) {

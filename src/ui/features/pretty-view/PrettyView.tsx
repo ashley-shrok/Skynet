@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isIosPwa } from "@/lib/is-ios-pwa";
 import { Button } from "@/components/button";
 import {
   openClaudeSessionSocket,
@@ -779,6 +780,15 @@ export function PrettyView({
   }, [hostId, tmuxSession, retryKey]);
 
   // Patch #148: visibilitychange handler — the direct Ashley iOS PWA fix.
+  // Patch #156 hard-gates this effect on isIosPwa() because on Chrome desktop
+  // / Android / non-PWA Safari, WebSockets survive tab-switches and
+  // force-reconnect creates a session-attachment race that surfaces the
+  // Reconnect/Close overlay (the old WS's ws.on("close") detachWs can arrive
+  // AFTER the new WS attaches, causing destroySession to fire and the new
+  // socket to receive `disconnected`). On non-iOS-PWA browsers this early
+  // return means no listener is registered and cleanup is a no-op — exactly
+  // what we want, because those browsers don't need the workaround at all.
+  //
   // When the user foregrounds the PWA tab after backgrounding:
   //   - If status is "inactive", no-op (server-authoritative terminal state).
   //   - If WS is already OPEN (readyState 1), no-op (still connected).
@@ -791,6 +801,7 @@ export function PrettyView({
   // deps: [] — mount-once; reads only refs, no reactive state dependencies.
   // Do NOT add retryKey to deps — that would re-register listeners on every retry.
   useEffect(() => {
+    if (!isIosPwa()) return;
     const handleVisibilityChange = () => {
       if (document.hidden) {
         // Tab hidden: cancel any pending reconnect timer.

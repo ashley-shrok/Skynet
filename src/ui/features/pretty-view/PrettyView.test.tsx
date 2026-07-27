@@ -135,6 +135,40 @@ function fireVisibilityChange(hidden: boolean): void {
   });
 }
 
+// ── Patch #156 test helpers ────────────────────────────────────────────────
+// The visibilitychange useEffect in PrettyView is now hard-gated on
+// isIosPwa() (see src/ui/lib/is-ios-pwa.ts). The existing patch #148 tests
+// below need the environment to LOOK LIKE iOS PWA (navigator.standalone=true
+// AND iPhone UA) for the duration of each test so the handler actually
+// attaches. These helpers install and restore that surface on demand.
+// jsdom's default is a desktop-ish UA with no standalone flag, which is what
+// the new "non-iOS-PWA no-op" test relies on for its baseline.
+const IPHONE_UA_FOR_TESTS =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+let __originalUaForIosPwa: string | null = null;
+function enableIosPwa(): void {
+  __originalUaForIosPwa = navigator.userAgent;
+  Object.defineProperty(navigator, 'userAgent', {
+    value: IPHONE_UA_FOR_TESTS,
+    configurable: true,
+  });
+  Object.defineProperty(navigator, 'standalone', {
+    value: true,
+    configurable: true,
+    writable: true,
+  });
+}
+function restoreIosPwa(): void {
+  if (__originalUaForIosPwa !== null) {
+    Object.defineProperty(navigator, 'userAgent', {
+      value: __originalUaForIosPwa,
+      configurable: true,
+    });
+    __originalUaForIosPwa = null;
+  }
+  delete (navigator as { standalone?: boolean }).standalone;
+}
+
 // Helper — mount PrettyView with onSend so ComposeBox mounts once
 // streaming is established.
 function mountPV() {
@@ -267,6 +301,12 @@ describe("PrettyView — patch #148 WebSocket auto-reconnect", () => {
     wsStubs.length = 0;
     // Restore document.hidden to default (not hidden) before each test.
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    // Patch #156: opt this whole describe block into iOS-PWA mode so the
+    // visibilitychange useEffect (now gated on isIosPwa()) attaches its
+    // listener. Without this, Test C would no-op and stub 7 would never
+    // be created. The Patch #156 non-iOS-PWA no-op test lives in its own
+    // describe block below that deliberately does NOT enable iOS-PWA.
+    enableIosPwa();
     // Stub ResizeObserver — jsdom doesn't implement it.
     // Must be a function/class (not arrow fn) so `new ResizeObserver(...)` works.
     resizeObserverStub = vi.fn(function () {
@@ -276,6 +316,7 @@ describe("PrettyView — patch #148 WebSocket auto-reconnect", () => {
   });
 
   afterEach(() => {
+    restoreIosPwa();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -413,6 +454,64 @@ describe("PrettyView — patch #148 WebSocket auto-reconnect", () => {
     // Assert "Connection closed" is NOT present in the DOM.
     // (The inactive branch renders its own string via the status==="inactive" JSX.)
     expect(container.textContent).not.toContain('Connection closed');
+  });
+});
+
+// ── Patch #156: iOS-PWA gate on the patch #148 visibilitychange handler ───
+//
+// Deliberately does NOT call enableIosPwa() — jsdom's default UA is a Node
+// build (no /iP(hone|ad|od)/ match) and there is no navigator.standalone, so
+// isIosPwa() returns false. Under that condition the visibilitychange
+// useEffect must early-return and register no listener at all, so firing
+// visibility events must NOT create additional WS stubs.
+describe("PrettyView — patch #156 non-iOS-PWA visibilitychange no-op", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    wsStubs.length = 0;
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    // NO enableIosPwa() here — this is the whole point of the test.
+    // Belt-and-braces: ensure no stale standalone flag from a sibling test
+    // survived (afterEach in the #148 block calls restoreIosPwa, but be
+    // explicit in case describe ordering shifts).
+    delete (navigator as { standalone?: boolean }).standalone;
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("Patch #156: non-iOS-PWA (Chrome desktop) — visibilitychange handler is not attached and does not trigger reconnect", () => {
+    // Sanity: jsdom's default environment is NOT iOS PWA.
+    expect((navigator as { standalone?: boolean }).standalone).toBeUndefined();
+    expect(/iP(hone|ad|od)/.test(navigator.userAgent)).toBe(false);
+
+    mountPV();
+    // After mount, the WS-setup useEffect has created the initial WS stub.
+    // We do NOT flip to streaming — the visibilitychange handler doesn't
+    // gate on status for the non-iOS-PWA test; the whole point is that the
+    // handler is not registered so status doesn't matter.
+    const baseline = wsStubs.length;
+    expect(baseline).toBe(1);
+
+    // Fire hidden→visible cycle. On iOS PWA this would bump retryKey and
+    // create a fresh stub; on non-iOS-PWA it must be a no-op (no listener
+    // attached, so document.dispatchEvent finds nothing).
+    fireVisibilityChange(true);
+    fireVisibilityChange(false);
+    // Give React a chance to flush any (hypothetical) scheduled effect work.
+    advance(0);
+
+    // No new WS stub — retryKey did not bump because the useEffect early-returned.
+    expect(wsStubs.length).toBe(baseline);
   });
 });
 
