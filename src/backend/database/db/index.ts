@@ -672,6 +672,7 @@ const migrateSchema = () => {
   addColumnIfNotExists("user_preferences", "font_size", "TEXT");
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
+  addColumnIfNotExists("user_preferences", "pinned_conversation_ids", "TEXT");
 
   addColumnIfNotExists("user_open_tabs", "target_tmux_session", "TEXT");
 

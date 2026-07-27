@@ -743,6 +743,7 @@ export const userPreferences = sqliteTable("user_preferences", {
   fontSize: text("font_size"),
   accentColor: text("accent_color"),
   language: text("language"),
+  pinnedConversationIds: text("pinned_conversation_ids"),
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
