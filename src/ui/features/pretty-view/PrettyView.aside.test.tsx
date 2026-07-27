@@ -414,4 +414,60 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
       expect(armSend).toBeTruthy();
     });
   });
+
+  it("Test 9: isIdle transition does NOT emit aside_arm when last user turn was harness slash-UI /id XML-wrapper form", async () => {
+    // UAT amendment E41 (Ashley 2026-07-27): Ashley's PRIMARY /id invocation
+    // path is the harness slash-UI, which lands in JSONL as XML-wrapper form
+    // (<command-name>/id</command-name>...) rather than raw "/id save" text.
+    // Phase 14's initial suppression missed this path; extending isIdCommand
+    // to cover both forms.
+    useSessionIdentityMock.mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    });
+
+    const { rerender } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isIdle={false}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    // User's last submission was an /id command via harness slash-UI
+    // (pretty-view slash-UI emits this XML-wrapper form into JSONL, not raw text).
+    fireWsMessage(ws, {
+      type: "message",
+      role: "user",
+      content:
+        "<command-message>id</command-message><command-name>/id</command-name><command-args>tina</command-args>",
+      eventId: "u1",
+      ts: Date.now(),
+    });
+    const sendCountBefore = ws.send.mock.calls.length;
+
+    // Transition isIdle: false → true — arm-emitter fires but MUST short-circuit.
+    rerender(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isIdle={true}
+      />,
+    );
+
+    await new Promise((r) => setTimeout(r, 40));
+    const newCalls = ws.send.mock.calls.slice(sendCountBefore);
+    const armSend = newCalls.find(([data]) => {
+      try {
+        return JSON.parse(data as string).type === "aside_arm";
+      } catch {
+        return false;
+      }
+    });
+    expect(armSend).toBeUndefined();
+  });
 });

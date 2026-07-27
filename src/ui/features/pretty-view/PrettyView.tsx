@@ -134,6 +134,19 @@ function appendDedup(
   return [...prev, next];
 }
 
+// Phase 14 followup + UAT amendment E41 (Ashley 2026-07-27): recognize both
+// invocation forms of the /id command. (a) SSH-typed raw form: literal
+// "/id " prefix (trailing space excludes /identity / /idle / bare /id).
+// (b) Harness slash-UI form: pretty-view's slash-UI emits the command as
+// literal XML tags into JSONL (<command-name>/id</command-name>...), NOT
+// as raw text. The .includes check is safe — that XML tag string is not
+// a legal substring of any prose user turn; it only appears when the
+// harness itself constructs the wrapper. Module-local by design (no
+// export, no shared-utils hoist) per Phase 14 no-new-shared-utils posture.
+const isIdCommand = (content: string): boolean =>
+  content.trimStart().startsWith("/id ") ||
+  content.includes("<command-name>/id</command-name>");
+
 export function PrettyView({
   hostId,
   tmuxSession,
@@ -903,10 +916,13 @@ export function PrettyView({
       // and SSH-attached direct-tmux submits (both round-trip through
       // JSONL — user turn is written before the assistant response
       // streams, so it's always in messages[] well before isIdle=true).
+      // UAT amendment E41 (Ashley 2026-07-27): isIdCommand also matches
+      // the harness slash-UI XML-wrapper form (<command-name>/id</command-name>)
+      // — Ashley's PRIMARY /id invocation path from pretty-view slash-UI.
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];
         if (m.type === "message" && m.role === "user") {
-          if (m.content.trimStart().startsWith("/id ")) return;
+          if (isIdCommand(m.content)) return;
           break;
         }
       }
