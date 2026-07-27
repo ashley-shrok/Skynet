@@ -286,7 +286,33 @@ export async function readIdentityHistory(
 // 3. readIdentityWakeups — <key>/wakeups/*.json
 // ---------------------------------------------------------------------------
 
-type Wakeup = { name: string; enabled: boolean; scheduleHuman: string; instruction: string };
+// Patch #154: expose `slug` (filename stem, addressability for updates) and
+// raw `schedule` (unknown, so the modal's editor can render + edit it
+// without a wire-side re-humanization round-trip). Existing fields stay
+// so the read shape is a superset.
+type Wakeup = {
+  slug: string;
+  name: string;
+  enabled: boolean;
+  scheduleHuman: string;
+  schedule: unknown;
+  instruction: string;
+};
+
+// Patch #154: allowed priority set for bounty-priority updates.
+export const BOUNTY_PRIORITY_VALUES = [
+  "urgent",
+  "high",
+  "medium",
+  "low",
+  "unprioritized",
+] as const;
+export type BountyPriority = (typeof BOUNTY_PRIORITY_VALUES)[number];
+
+/** Slug regex for wakeup filenames and bounty folder names — kebab/snake,
+ *  1-80 chars. Enforced before we ever touch the filesystem so a hostile
+ *  slug can't traverse into `..` or otherwise escape the identity dir. */
+export const IDENTITY_SLUG_RE = /^[a-z0-9_-]{1,80}$/i;
 
 /** Result shape for wakeups reads. Matches the wire shape "identity:wakeups". */
 export async function readIdentityWakeups(
@@ -324,7 +350,7 @@ export async function readIdentityWakeups(
         const instruction =
           typeof parsed.instruction === "string" ? parsed.instruction : "";
         const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-        wakeups.push({ name, enabled, scheduleHuman, instruction });
+        wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
       } catch (err) {
         sshLogger.error(
           "identity-artifact-reader: failed to parse local wakeup JSON",
@@ -573,4 +599,157 @@ export async function readIdentityBounties(
   const archivedBounties = parseDelimited(archiveStdout, identityKey, true);
 
   return { bounties, archivedBounties };
+}
+
+// ---------------------------------------------------------------------------
+// 6. writeIdentityWakeupUpdate — patch a single wakeup spec file
+// ---------------------------------------------------------------------------
+//
+// Patch #154: first write path on identity artifacts. Merges `enabled` and/or
+// `schedule` into ~/.claude/identities/<key>/wakeups/<slug>.json. The wakeup
+// scheduler reloads specs every ~30s (see id skill § Scheduled wake-ups), so
+// the change takes effect within one poll — no scheduler restart.
+//
+// Local branch: JS reads → mutates → writes with 2-space indent.
+// Remote branch: python3 one-liner reads → mutates → writes (jq is not
+// universally installed on identity boxes; python3 IS, because the scheduler
+// itself is python3). The one-liner writes to a temp file and moves into
+// place so a mid-write kill can't leave a truncated JSON file.
+
+export type WakeupUpdate = { enabled?: boolean; schedule?: unknown };
+
+/** Merge `updates` into wakeups/<wakeupSlug>.json. Caller validates slug
+ *  against IDENTITY_SLUG_RE before invoking. Throws on filesystem/parse errors
+ *  or if the spec file doesn't exist. */
+export async function writeIdentityWakeupUpdate(
+  conn: SSHClientType | null,
+  identityKey: string,
+  wakeupSlug: string,
+  updates: WakeupUpdate,
+): Promise<void> {
+  // Basic schema guard — refuse a schedule payload that isn't an object with a
+  // recognized `type`. We deliberately don't lock down further (the scheduler
+  // owns the schema; a new schedule type Nelly adds shouldn't require an
+  // atomic co-deploy of Skynet).
+  if (updates.schedule !== undefined) {
+    if (typeof updates.schedule !== "object" || updates.schedule === null) {
+      throw new Error("schedule must be an object");
+    }
+    const t = (updates.schedule as Record<string, unknown>).type;
+    if (typeof t !== "string" || t.length === 0) {
+      throw new Error("schedule.type must be a non-empty string");
+    }
+  }
+  if (updates.enabled !== undefined && typeof updates.enabled !== "boolean") {
+    throw new Error("enabled must be a boolean");
+  }
+
+  if (conn === null) {
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, "wakeups", wakeupSlug + ".json");
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (updates.enabled !== undefined) parsed.enabled = updates.enabled;
+    if (updates.schedule !== undefined) parsed.schedule = updates.schedule;
+    const next = JSON.stringify(parsed, null, 2) + "\n";
+    // Atomic-ish write: temp file + rename (fs.writeFile is not atomic on
+    // its own; a mid-write crash can leave a truncated file). Same guard the
+    // remote branch uses.
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, next, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  // REMOTE branch: python3 reads the file, applies updates from stdin, writes
+  // via tmp+rename. `updates` is JSON-encoded and piped in — no shell escaping
+  // concerns for the payload itself.
+  // We validate slug shape here as a second belt on top of the caller's check;
+  // the slug is interpolated into a shell path so this matters.
+  if (!IDENTITY_SLUG_RE.test(wakeupSlug)) {
+    throw new Error("invalid wakeup slug");
+  }
+  const script =
+    'import json,os,sys\n' +
+    'p=sys.argv[1]\n' +
+    'u=json.loads(sys.stdin.read())\n' +
+    'with open(p,"r") as f: d=json.load(f)\n' +
+    'for k,v in u.items(): d[k]=v\n' +
+    'tmp=p+".tmp"\n' +
+    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    'os.rename(tmp,p)\n';
+  const payload = JSON.stringify(updates).replace(/'/g, "'\\''");
+  const cmd =
+    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
+    `"$HOME/.claude/identities/${identityKey}/wakeups/${wakeupSlug}.json"`;
+  await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
+// 7. writeIdentityBountyPriority — patch bounty.json's priority field
+// ---------------------------------------------------------------------------
+//
+// Patch #154: updates priority + bumps updated_at + appends a one-line
+// timeline entry so the priority change is visible in the timeline surface.
+// Searches the OPEN bounties dir first (bounties/<slug>/bounty.json), then
+// bounces off if not found — archived bounties are terminal (done/dropped)
+// and their priority is not a useful edit surface, so we deliberately don't
+// touch bounties/archive/*.
+
+export async function writeIdentityBountyPriority(
+  conn: SSHClientType | null,
+  identityKey: string,
+  bountySlug: string,
+  priority: BountyPriority,
+): Promise<void> {
+  if (!BOUNTY_PRIORITY_VALUES.includes(priority)) {
+    throw new Error("invalid priority");
+  }
+
+  const nowIso = new Date().toISOString();
+  const timelineLine = `${nowIso} priority set to ${priority} via identity modal`;
+
+  if (conn === null) {
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, "bounties", bountySlug, "bounty.json");
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    parsed.priority = priority;
+    parsed.updated_at = nowIso;
+    const tl = Array.isArray(parsed.timeline) ? [...parsed.timeline] : [];
+    tl.push(timelineLine);
+    parsed.timeline = tl;
+    const next = JSON.stringify(parsed, null, 2) + "\n";
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, next, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+  // Remote branch: python3 script takes the priority + timelineLine via stdin
+  // JSON; updated_at is generated in-python from time.time() so the timestamp
+  // reflects the box's own clock (matches the id skill's ISO-Z convention).
+  const script =
+    'import json,os,sys,datetime\n' +
+    'p=sys.argv[1]\n' +
+    'u=json.loads(sys.stdin.read())\n' +
+    'with open(p,"r") as f: d=json.load(f)\n' +
+    'd["priority"]=u["priority"]\n' +
+    'now=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")\n' +
+    'd["updated_at"]=now\n' +
+    'tl=d.get("timeline") or []\n' +
+    'if not isinstance(tl,list): tl=[]\n' +
+    'tl.append(now+" priority set to "+u["priority"]+" via identity modal")\n' +
+    'd["timeline"]=tl\n' +
+    'tmp=p+".tmp"\n' +
+    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    'os.rename(tmp,p)\n';
+  const payload = JSON.stringify({ priority }).replace(/'/g, "'\\''");
+  const cmd =
+    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
+    `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
+  await execWithTimeout(conn, cmd);
 }

@@ -18,6 +18,7 @@ import { Button } from "@/components/button";
 import {
   openClaudeSessionSocket,
   type Bounty,
+  type BountyPriority,
   type IdentityBountiesEvent,
   type IdentityListBountiesPayload,
   type IdentityGetIdentityFilePayload,
@@ -28,6 +29,10 @@ import {
   type IdentityWakeupsEvent,
   type IdentityGetHandoffPayload,
   type IdentityHandoffEvent,
+  type IdentityUpdateWakeupPayload,
+  type IdentityWakeupUpdatedEvent,
+  type IdentityUpdateBountyPriorityPayload,
+  type IdentityBountyPriorityUpdatedEvent,
   type Wakeup,
 } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
@@ -328,6 +333,80 @@ export function IdentityModal({
     return groups;
   }, [bounties]);
 
+  // Patch #154: one-shot mutation helper. Opens a WS, sends the mutation,
+  // resolves with the fresh list from the server response. Mirrors the
+  // openOneShot read helper's shape but returns a Promise so the caller
+  // (per-card save button) can await + surface errors inline.
+  function sendIdentityMutation<Req, Res extends { error?: string; type: string }>(
+    request: Req,
+    expectedType: string,
+  ): Promise<Res> {
+    return new Promise<Res>((resolve, reject) => {
+      const sock = openClaudeSessionSocket();
+      let settled = false;
+      const finish = (val: Res | Error) => {
+        if (settled) return;
+        settled = true;
+        try { sock.close(); } catch { /* ignore */ }
+        if (val instanceof Error) reject(val);
+        else resolve(val);
+      };
+      sock.onopen = () => {
+        try { sock.send(JSON.stringify(request)); } catch (e) { finish(e instanceof Error ? e : new Error(String(e))); }
+      };
+      sock.onmessage = (event: MessageEvent<string>) => {
+        try {
+          const raw = JSON.parse(event.data) as { type?: string };
+          if (raw.type !== expectedType) return;
+          finish(raw as Res);
+        } catch { /* ignore */ }
+      };
+      sock.onerror = () => finish(new Error("Connection failed"));
+      sock.onclose = () => finish(new Error("Connection closed before response"));
+    });
+  }
+
+  async function updateWakeup(
+    wakeupSlug: string,
+    updates: { enabled?: boolean; schedule?: unknown },
+  ): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateWakeupPayload = {
+      type: "identity:update-wakeup",
+      identityKey: identity.identityKey,
+      hostId,
+      wakeupSlug,
+      updates,
+    };
+    const res = await sendIdentityMutation<IdentityUpdateWakeupPayload, IdentityWakeupUpdatedEvent>(
+      payload,
+      "identity:wakeup-updated",
+    );
+    if (res.error) throw new Error(res.error);
+    setWakeupsState({ status: "ready", data: res.wakeups });
+  }
+
+  async function updateBountyPriority(
+    bountySlug: string,
+    priority: BountyPriority,
+  ): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateBountyPriorityPayload = {
+      type: "identity:update-bounty-priority",
+      identityKey: identity.identityKey,
+      hostId,
+      bountySlug,
+      priority,
+    };
+    const res = await sendIdentityMutation<
+      IdentityUpdateBountyPriorityPayload,
+      IdentityBountyPriorityUpdatedEvent
+    >(payload, "identity:bounty-priority-updated");
+    if (res.error) throw new Error(res.error);
+    setBounties(res.bounties);
+    setArchivedBounties(res.archivedBounties);
+  }
+
   const sortedArchive = useMemo(
     () => [...archivedBounties].sort((a, b) =>
       (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
@@ -579,7 +658,20 @@ export function IdentityModal({
                       )}
                       <div className="flex flex-col gap-3">
                         {group.map((b) => (
-                          <BountyCard key={b.id} bounty={b} hue={hue} />
+                          <BountyCard
+                            key={b.id}
+                            bounty={b}
+                            hue={hue}
+                            // Patch #154: "other" bucket = done/dropped in the
+                            // open dir; priority is meaningless for terminal
+                            // bounties, so we deliberately don't pass an
+                            // onPriorityChange handler for that partition.
+                            onPriorityChange={
+                              statusKey === "other"
+                                ? undefined
+                                : (p) => updateBountyPriority(b.slug, p)
+                            }
+                          />
                         ))}
                       </div>
                     </div>
@@ -625,7 +717,7 @@ export function IdentityModal({
             value="wakeups"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            <WakeupsTab state={wakeupsState} hue={hue} />
+            <WakeupsTab state={wakeupsState} hue={hue} onUpdate={updateWakeup} />
           </TabsContent>
 
           {/* Handoff tab — patch #17g: handoff.md as markdown */}

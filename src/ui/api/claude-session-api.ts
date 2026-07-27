@@ -174,7 +174,9 @@ export type ClaudeSessionServerEvent =
   | IdentityIdentityFileEvent
   | IdentityHistoryEvent
   | IdentityWakeupsEvent
-  | IdentityHandoffEvent;
+  | IdentityHandoffEvent
+  | IdentityWakeupUpdatedEvent
+  | IdentityBountyPriorityUpdatedEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
@@ -290,7 +292,18 @@ export type IdentityGetHistoryPayload = {
 };
 export type IdentityHistoryEvent = { type: "identity:history"; entries: string[]; error?: string };
 
-export type Wakeup = { name: string; enabled: boolean; scheduleHuman: string; instruction: string };
+// Patch #154: Wakeup gains `slug` (filename stem — the address the update
+// path uses) and raw `schedule` (unknown — so the modal renders + edits it
+// without a wire-side re-humanization round-trip). Existing consumers get
+// a superset; nothing they read went away.
+export type Wakeup = {
+  slug: string;
+  name: string;
+  enabled: boolean;
+  scheduleHuman: string;
+  schedule: unknown;
+  instruction: string;
+};
 export type IdentityListWakeupsPayload = {
   type: "identity:list-wakeups";
   identityKey: string;
@@ -306,3 +319,45 @@ export type IdentityGetHandoffPayload = {
   hostId: number;
 };
 export type IdentityHandoffEvent = { type: "identity:handoff"; markdown: string; error?: string };
+
+// Patch #154: identity mutation wire types. Both are one-shot request/response
+// like the read handlers — client opens a WS, sends the update, receives the
+// FRESH list, closes. Fresh-list-in-response saves a follow-up read round-trip
+// and gives the modal an atomic swap.
+
+export const BOUNTY_PRIORITY_VALUES = [
+  "urgent",
+  "high",
+  "medium",
+  "low",
+  "unprioritized",
+] as const;
+export type BountyPriority = (typeof BOUNTY_PRIORITY_VALUES)[number];
+
+export type IdentityUpdateWakeupPayload = {
+  type: "identity:update-wakeup";
+  identityKey: string;
+  hostId: number;
+  /** filename stem of wakeups/<slug>.json — regex-validated on the server. */
+  wakeupSlug: string;
+  updates: { enabled?: boolean; schedule?: unknown };
+};
+export type IdentityWakeupUpdatedEvent = {
+  type: "identity:wakeup-updated";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+export type IdentityUpdateBountyPriorityPayload = {
+  type: "identity:update-bounty-priority";
+  identityKey: string;
+  hostId: number;
+  bountySlug: string;
+  priority: BountyPriority;
+};
+export type IdentityBountyPriorityUpdatedEvent = {
+  type: "identity:bounty-priority-updated";
+  bounties: Bounty[];
+  archivedBounties: Bounty[];
+  error?: string;
+};

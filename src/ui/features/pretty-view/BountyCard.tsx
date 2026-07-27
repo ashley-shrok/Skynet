@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Flame, ChevronsUp, ChevronUp, Minus, ChevronDown } from "lucide-react";
+import { Flame, ChevronsUp, ChevronUp, Minus, ChevronDown, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/checkbox";
 import { Button } from "@/components/button";
-import type { Bounty } from "@/api/claude-session-api";
+import { BOUNTY_PRIORITY_VALUES, type Bounty, type BountyPriority } from "@/api/claude-session-api";
 
 // Patch #87: per-bounty card for the IdentityModal Bounties tab.
 //
@@ -67,23 +67,102 @@ function PriorityIcon({ priority }: { priority: string }) {
           <Minus className="h-3.5 w-3.5 text-slate-400" />
         </>
       );
+    case "unprioritized":
+      return (
+        <>
+          <span className="sr-only">priority: unprioritized</span>
+          <Circle className="h-3.5 w-3.5 text-slate-500" />
+        </>
+      );
     default:
       return null;
   }
+}
+
+// Patch #154: expanded-row priority editor. Renders the 5 valid priorities
+// as a click-to-set inline row (no dropdown chrome — matches the modal's
+// glass-token minimalist treatment) that fires onPriorityChange with the
+// picked value. Disabled while a save is in flight. Falls back to a static
+// PriorityIcon display when no onChange is supplied (archived cards).
+function PriorityRow({
+  priority,
+  onChange,
+  saving,
+}: {
+  priority: string;
+  onChange?: (p: BountyPriority) => void;
+  saving?: boolean;
+}) {
+  if (!onChange) {
+    return (
+      <span className="flex items-center gap-1 text-xs text-[var(--color-pv-fg-muted)]">
+        <PriorityIcon priority={priority} />
+        <span className="capitalize">{priority}</span>
+      </span>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {BOUNTY_PRIORITY_VALUES.map((p) => {
+        const active = p === priority;
+        return (
+          <button
+            key={p}
+            type="button"
+            onClick={() => !active && onChange(p)}
+            disabled={saving || active}
+            title={`Set priority: ${p}`}
+            aria-label={`Set priority: ${p}`}
+            aria-pressed={active}
+            className={cn(
+              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] uppercase tracking-wide border transition-colors cursor-pointer",
+              active
+                ? "border-white/40 bg-white/10 text-[#f0ebe0] cursor-default"
+                : "border-white/10 text-[var(--color-pv-fg-muted)] hover:border-white/25 hover:text-[#e8e4d8]",
+              saving && !active && "opacity-50 cursor-wait",
+            )}
+          >
+            <PriorityIcon priority={p} />
+            <span>{p === "unprioritized" ? "none" : p}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export function BountyCard({
   bounty,
   hue,
   archived = false,
+  onPriorityChange,
 }: {
   bounty: Bounty;
   hue: number;
   archived?: boolean;
+  /** Patch #154: when supplied, expanded row renders an inline priority
+   *  editor and dispatches this callback on click. Omit (e.g. for archived
+   *  cards) to render the static PriorityIcon display only. */
+  onPriorityChange?: (priority: BountyPriority) => Promise<void>;
 }) {
   const [premiseExpanded, setPremiseExpanded] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [savingPriority, setSavingPriority] = useState(false);
+  const [priorityError, setPriorityError] = useState<string | null>(null);
   const isLongPremise = bounty.premise.length > 400;
+
+  async function handlePriorityChange(next: BountyPriority) {
+    if (!onPriorityChange) return;
+    setPriorityError(null);
+    setSavingPriority(true);
+    try {
+      await onPriorityChange(next);
+    } catch (e) {
+      setPriorityError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingPriority(false);
+    }
+  }
 
   const statusClass =
     STATUS_CLASSES[bounty.status] ??
@@ -163,6 +242,27 @@ export function BountyCard({
 
       {expanded && (
         <>
+          {/* Patch #154: inline priority editor. Sits above the premise so
+              it's the first thing in the expanded body — matches the
+              frequency Ashley re-prioritizes vs. reads the premise. */}
+          {onPriorityChange && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                Priority
+              </span>
+              <PriorityRow
+                priority={bounty.priority}
+                onChange={handlePriorityChange}
+                saving={savingPriority}
+              />
+              {priorityError && (
+                <div className="text-xs text-rose-300 whitespace-pre-wrap">
+                  {priorityError}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Premise block */}
           {bounty.premise && (
             <div>
