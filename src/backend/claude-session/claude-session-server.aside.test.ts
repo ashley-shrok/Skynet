@@ -47,7 +47,7 @@ describe("Phase 14 aside primitives — module-scope constants", () => {
     // Do NOT paraphrase, do NOT tune, do NOT add framing (CONTEXT.md § Specifics).
     // The em-dash MUST be U+2014, not U+2013 or a hyphen-minus.
     expect(BTW_PROMPT).toBe(
-      "/btw Re-explain concisely whatever's currently going on to me — just this turn, not a session recap — without using code symbols, in a conceptual model style. Not a metaphor — explain the actual thing, don't recast it as an extended analogy.",
+      "/btw Re-explain concisely whatever's currently going on to me since my last message without using code symbols, in a conceptual model style. Not a metaphor — explain the actual thing, don't recast it as an extended analogy.",
     );
   });
 
