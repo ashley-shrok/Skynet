@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
+// Phase 15: mock the api-client the store now calls on pin/unpin. MUST come
+// BEFORE the imports of the store so vitest's hoisted vi.mock intercepts the
+// module-graph edge. The store's `import { putPinnedIds } from "@/api/user-
+// preferences-api"` resolves to this factory during test runs.
+vi.mock("@/api/user-preferences-api", () => ({
+  getPinnedIds: vi.fn().mockResolvedValue([]),
+  putPinnedIds: vi.fn().mockResolvedValue([]),
+}));
+
 import {
   updateHostTree,
   updateOpenTabs,
@@ -11,6 +20,7 @@ import {
   pinConversation,
   unpinConversation,
   togglePinConversation,
+  hydratePinnedIdsFromServer,
   addToActiveSet,
   removeFromActiveSet,
   useConversations,
@@ -22,8 +32,10 @@ import {
   __getPendingSelectIdForTest,
   __getFleetOnlyRowsForTest,
   __resetActiveSetForTest,
+  __resetPinnedIdsForTest,
   type FleetSession,
 } from "./conversation-store.js";
+import * as UserPreferencesApi from "@/api/user-preferences-api";
 import type { Tab, Host, HostFolder } from "@/types/ui-types";
 
 // ─── Test fixtures ────────────────────────────────────────────────────────────
@@ -74,6 +86,12 @@ beforeEach(() => {
   // tab close (sessionStorage semantics unchanged).
   sessionStorage.clear();
   __resetActiveSetForTest();
+  // Phase 15: reset the pinnedIds slice so a prior test's pinConversation
+  // writes don't leak forward, AND clear the mocked putPinnedIds spy so
+  // per-test toHaveBeenCalledTimes assertions start from zero.
+  __resetPinnedIdsForTest();
+  vi.mocked(UserPreferencesApi.putPinnedIds).mockClear();
+  vi.mocked(UserPreferencesApi.getPinnedIds).mockClear();
   updateOpenTabs([]);
   selectConversation(null);
   updateHostTree(null);
@@ -1511,6 +1529,196 @@ describe("conversation-store (patch #150 C): two-URL-tab restore glows both rest
 
     // Selection landed on the first (focus contract preserved).
     expect(__getSnapshotForTest().selectedId).toBe("restored-a");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 30j-30p (Phase 15): pinnedIds ↔ server persistence
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () => {
+  // Test 30j — pin fires PUT with the new post-mutation set (PIN-03).
+  it("30j: pinConversation(id) adds id to pinnedIds AND fires putPinnedIds with the post-mutation set", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
+    });
+
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    putSpy.mockClear(); // isolate from any updateOpenTabs-driven noise
+
+    act(() => pinConversation("t-A"));
+
+    // In-memory mutation happened
+    const snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.has("t-A")).toBe(true);
+
+    // Server write fired exactly once with the post-mutation set.
+    // ordering guard: put must receive the post-mutation set (["t-A"]),
+    // NOT the pre-mutation set ([]) — a future refactor that swaps the
+    // compute-then-put ordering (putting stale state.pinnedIds instead
+    // of nextPinnedIds) would silently drift pins on the server. The
+    // assertion below MUST equal ["t-A"], not [].
+    expect(putSpy).toHaveBeenCalledTimes(1);
+    expect(putSpy).toHaveBeenCalledWith(["t-A"]);
+  });
+
+  // Test 30k — unpin fires PUT with the reduced set (PIN-03).
+  it("30k: unpinConversation(id) removes id from pinnedIds AND fires putPinnedIds with the reduced set", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
+    });
+
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+
+    // Pin first, then clear the spy so we count only the unpin write.
+    act(() => pinConversation("t-A"));
+    putSpy.mockClear();
+
+    act(() => unpinConversation("t-A"));
+
+    const snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.has("t-A")).toBe(false);
+
+    // Server write fired once with the reduced (empty) set.
+    expect(putSpy).toHaveBeenCalledTimes(1);
+    expect(putSpy).toHaveBeenCalledWith([]);
+  });
+
+  // Test 30l — idempotent no-op: pin on already-pinned id does NOT fire PUT.
+  it("30l: pinConversation(id) on an already-pinned id does NOT fire putPinnedIds (idempotent)", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
+    });
+
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+
+    // First pin fires the write; clear the spy to isolate the second call.
+    act(() => pinConversation("t-A"));
+    putSpy.mockClear();
+
+    // Second pin on the same id — early-return before the network call.
+    act(() => pinConversation("t-A"));
+
+    expect(putSpy).toHaveBeenCalledTimes(0);
+  });
+
+  // Test 30m — hydrate replaces stale in-memory pins with server-authoritative set (PIN-04 partial).
+  it("30m: hydratePinnedIdsFromServer(ids) replaces state.pinnedIds and drops stale in-memory pins", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([
+        makeTab("t-A", "terminal", hostA),
+        makeTab("t-B", "terminal", hostA),
+      ]);
+    });
+
+    // Seed two in-memory pins.
+    act(() => {
+      pinConversation("t-A");
+      pinConversation("t-B");
+    });
+
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    putSpy.mockClear();
+
+    // Hydrate with a completely different set — the two prior pins must be
+    // dropped and replaced with only "fresh-1".
+    act(() => hydratePinnedIdsFromServer(["fresh-1"]));
+
+    const snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.size).toBe(1);
+    expect(snap.pinnedIds.has("fresh-1")).toBe(true);
+    expect(snap.pinnedIds.has("t-A")).toBe(false);
+    expect(snap.pinnedIds.has("t-B")).toBe(false);
+
+    // Hydrate is a pure setter — NO write-back to server.
+    expect(putSpy).toHaveBeenCalledTimes(0);
+  });
+
+  // Test 30n — server error does not roll back the optimistic pin (PIN-05).
+  it("30n: putPinnedIds rejection does NOT roll back the optimistic pin (retry-on-next-sync)", async () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
+    });
+
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    putSpy.mockRejectedValueOnce(new Error("network"));
+
+    act(() => pinConversation("t-A"));
+
+    // Flush the microtask queue so the rejected promise settles before we assert.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const snap = __getSnapshotForTest();
+    // PIN-05 locked semantics: optimistic pin stays even though write failed.
+    expect(snap.pinnedIds.has("t-A")).toBe(true);
+  });
+
+  // Test 30o — same-content hydrate does not bump snapshotVersion.
+  it("30o: hydratePinnedIdsFromServer with identical content does NOT bump notify() (same-content guard)", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("t-A", "terminal", hostA)]);
+    });
+
+    act(() => pinConversation("t-A"));
+
+    // Subscribe a spy so we can count notify() calls across a same-content hydrate.
+    const notifySpy = vi.fn();
+    const unsubscribe = __subscribeForTest(notifySpy);
+
+    // Hydrate with content identical to current state.pinnedIds ({"t-A"}).
+    act(() => hydratePinnedIdsFromServer(["t-A"]));
+
+    // Same-content guard: notify() must NOT have fired.
+    expect(notifySpy).toHaveBeenCalledTimes(0);
+
+    unsubscribe();
+  });
+
+  // Test 30p — SC6 rollout scaffold: echo-mismatch fires console.warn.
+  // Runs against the REAL putPinnedIds (bypasses the module mock via
+  // vi.importActual) and stubs authApi.put at the axios layer so the real
+  // comparison logic executes. Both `sent` and `echoed` keys must be
+  // present on the warn payload — this is the JSON-endpoint substrate
+  // the SC6 rollout window relies on to detect silent-drop regressions.
+  it("30p: putPinnedIds console.warn's with [pin-persistence] server echo mismatch when server echoes a differing array", async () => {
+    const [{ putPinnedIds: realPutPinnedIds }, { authApi }] = await Promise.all([
+      vi.importActual<typeof import("@/api/user-preferences-api")>(
+        "@/api/user-preferences-api",
+      ),
+      import("@/main-axios"),
+    ]);
+
+    const putSpy = vi
+      .spyOn(authApi, "put")
+      .mockResolvedValueOnce({
+        data: { pinnedConversationIds: ["b", "a"] },
+      });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await realPutPinnedIds(["a", "b"]);
+
+    // Server echo is authoritative — putPinnedIds returns what the server sent.
+    expect(result).toEqual(["b", "a"]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[pin-persistence] server echo mismatch",
+      expect.objectContaining({ sent: ["a", "b"], echoed: ["b", "a"] }),
+    );
+
+    warnSpy.mockRestore();
+    putSpy.mockRestore();
   });
 });
 

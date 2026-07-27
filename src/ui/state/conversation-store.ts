@@ -31,6 +31,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
+import { putPinnedIds } from "@/api/user-preferences-api";
 
 // ─── Public derived types ────────────────────────────────────────────────────
 
@@ -764,6 +765,15 @@ export function pinConversation(id: string): void {
   // row source, so no render damage.
   const nextPinnedIds = new Set(state.pinnedIds);
   nextPinnedIds.add(id);
+  // Phase 15: fire-and-forget server write. Failures leave the optimistic
+  // pin in place; the next pin/unpin OR next panel mount reconciles from
+  // server. Mirrors addToActiveSet's silent-catch pattern at L713-722.
+  try {
+    void putPinnedIds([...nextPinnedIds]);
+  } catch {
+    // Silent — do not block state update on network failure.
+    // Optimistic update stands; retry on next mount or next pin/unpin.
+  }
   state = { ...state, pinnedIds: nextPinnedIds };
   notify();
 }
@@ -772,6 +782,15 @@ export function unpinConversation(id: string): void {
   if (!state.pinnedIds.has(id)) return; // not pinned — no-op
   const nextPinnedIds = new Set(state.pinnedIds);
   nextPinnedIds.delete(id);
+  // Phase 15: fire-and-forget server write. Failures leave the optimistic
+  // unpin in place; the next pin/unpin OR next panel mount reconciles from
+  // server. Mirrors addToActiveSet's silent-catch pattern at L713-722.
+  try {
+    void putPinnedIds([...nextPinnedIds]);
+  } catch {
+    // Silent — do not block state update on network failure.
+    // Optimistic update stands; retry on next mount or next pin/unpin.
+  }
   state = { ...state, pinnedIds: nextPinnedIds };
   notify();
 }
@@ -779,6 +798,28 @@ export function unpinConversation(id: string): void {
 export function togglePinConversation(id: string): void {
   if (state.pinnedIds.has(id)) unpinConversation(id);
   else pinConversation(id);
+}
+
+// Phase 15: server-authoritative reconciliation. Called by PrettyConversations
+// Panel's mount effect after a successful GET /user-preferences fetch.
+// Replaces state.pinnedIds with the fetched set; drops any stale in-memory pins
+// the server doesn't know about. Same-content guard mirrors updateFleetSessions
+// at L611-625 — skip notify() when the incoming set matches the current set to
+// avoid gratuitous re-renders on identical refetches.
+export function hydratePinnedIdsFromServer(ids: string[]): void {
+  const nextPinnedIds = new Set(ids);
+  if (nextPinnedIds.size === state.pinnedIds.size) {
+    let allSame = true;
+    for (const id of nextPinnedIds) {
+      if (!state.pinnedIds.has(id)) {
+        allSame = false;
+        break;
+      }
+    }
+    if (allSame) return;
+  }
+  state = { ...state, pinnedIds: nextPinnedIds };
+  notify();
 }
 
 // ─── React hooks ─────────────────────────────────────────────────────────────
@@ -867,6 +908,14 @@ export function __getPendingSelectIdForTest(): string | null {
 // __resetActiveSetForTest to re-hydrate from the seeded storage.
 export function __resetActiveSetForTest(): void {
   state = { ...state, activeSet: hydrateActiveSetFromStorage() };
+  notify();
+}
+
+// Phase 15: reset the module-scoped pinnedIds set to empty. Used by
+// conversation-store.test.ts's beforeEach so a prior test's
+// pinConversation / unpinConversation writes don't leak forward.
+export function __resetPinnedIdsForTest(): void {
+  state = { ...state, pinnedIds: new Set<string>() };
   notify();
 }
 
