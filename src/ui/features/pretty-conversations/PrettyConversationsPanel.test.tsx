@@ -341,8 +341,15 @@ describe("PrettyConversationsPanel: pinned-first ordering", () => {
 // Test 3 — No "Pinned" section header; no per-host semibold header
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: no section headers", () => {
-  it('Test 3: does NOT render a "Pinned" section header or a per-host semibold header', () => {
+describe("PrettyConversationsPanel: no 'Pinned' section header + per-host divider chip (quick-260727-f9v Test 3 rewrite)", () => {
+  it('Test 3 (post-f9v): does NOT render a "Pinned" section header; DOES render a per-host divider chip above the non-RDP grouped section', () => {
+    // Contract change (quick-260727-f9v): the OLD Test 3 asserted "hostA
+    // does not appear outside a row" (i.e. no per-host header of any form).
+    // That "flat, no per-host header" lock is intentionally reversed here
+    // — non-RDP host groups now DO carry a divider chip above them
+    // (Server glyph + uppercase hostname label + gradient rule filler),
+    // mirroring the RDP chip's treatment. The pinned-glyph-only rule for
+    // pinned rows still stands: NO standalone "Pinned" section header.
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       pinned: [makeConversationRow({ id: "a", label: "alpha", host: hostA })],
@@ -360,15 +367,7 @@ describe("PrettyConversationsPanel: no section headers", () => {
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" />);
 
-    // No standalone "Pinned" section header rendered. The pin GLYPH on
-    // each row (a Wave 1 concern that surfaces as `data-pinned="true"`
-    // + a lucide Pin svg + PinAction aria-label "Pin/Unpin") is the ONLY
-    // marker. This test checks for a discrete header ELEMENT whose direct
-    // text is "Pinned" — NOT a raw HTML substring, which would incorrectly
-    // catch row-level pin affordances.
-    //
-    // Walk every element in the container; assert none has its own direct
-    // text (excluding descendant text) that reads as a "Pinned" header.
+    // Preserved assertion — no standalone "Pinned" section header.
     const walk = (
       node: HTMLElement,
       cb: (el: HTMLElement) => void,
@@ -387,43 +386,155 @@ describe("PrettyConversationsPanel: no section headers", () => {
     });
     expect(sawPinnedHeader).toBe(false);
 
-    // No per-host semibold header rendered — the row's secondary line
-    // renders host.name inside the row itself, but no standalone group
-    // header. Assert the host name "hostA" only appears inside a row body
-    // (as row-secondary-line text) and NOT as a group header (which would
-    // appear OUTSIDE any [data-conversation-id] element).
-    const rowNodes = Array.from(
-      container.querySelectorAll("[data-conversation-id]"),
-    ) as HTMLElement[];
-    const rowIds = new Set(
-      rowNodes.map((n) => n.getAttribute("data-conversation-id") ?? ""),
-    );
-    expect(rowIds.has("a")).toBe(true);
-    expect(rowIds.has("c")).toBe(true);
-    // "hostA" text appears inside each row's secondary line — but we
-    // assert there's no ancestor node CARRYING hostA text that ISN'T
-    // itself a data-conversation-id row wrapper. Reuses the walk helper
-    // declared above for the "Pinned" header check.
-    let sawHostAOutsideRow = false;
-    walk(container, (el) => {
-      const directText = Array.from(el.childNodes)
-        .filter((n) => n.nodeType === 3)
-        .map((n) => n.textContent ?? "")
-        .join("");
-      if (!/^\s*hostA\s*$/.test(directText)) return;
-      // Element has "hostA" as its own direct text — check ancestry.
-      let n: HTMLElement | null = el;
-      let inRow = false;
-      while (n) {
-        if (n.hasAttribute("data-conversation-id")) {
-          inRow = true;
-          break;
-        }
-        n = n.parentElement;
-      }
-      if (!inRow) sawHostAOutsideRow = true;
+    // NEW (f9v): the panel now renders a per-host divider chip above the
+    // hostA non-RDP grouped section. The chip carries data-testid="host-
+    // divider" AND data-host-id="h1" AND its label text is "hostA".
+    const hostChip = container.querySelector(
+      '[data-testid="host-divider"]',
+    ) as HTMLElement | null;
+    expect(hostChip).toBeTruthy();
+    expect(hostChip!.getAttribute("data-host-id")).toBe("h1");
+    expect(hostChip!.textContent).toMatch(/hostA/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 19A / 19B / 19C — [quick-260727-f9v] per-host divider chip rules
+// ─────────────────────────────────────────────────────────────────────────────
+// The panel renders a per-host divider chip above each non-RDP, non-active-
+// set, non-pinned host group. The chip mirrors the existing RDP chip's
+// treatment (Server glyph + uppercase hostname label + gradient rule).
+// Active-set and pinned groups continue to render NO chip above them.
+// The RDP sentinel keeps its existing "Remote desktop" chip unchanged
+// (apart from the /50→/85 brightness bump, which is visually invisible to
+// these DOM-shape tests).
+
+describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", () => {
+  it("Test 19A: two non-RDP host groups → two host-divider chips, each with its hostName + Server icon", () => {
+    const hostA = makeHost("h1", "hostA");
+    const hostB = makeHost("h2", "hostB");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [makeConversationRow({ id: "c1", label: "s1", host: hostA })],
+        },
+        {
+          hostId: "h2",
+          hostName: "hostB",
+          rows: [makeConversationRow({ id: "c2", label: "s2", host: hostB })],
+        },
+      ],
     });
-    expect(sawHostAOutsideRow).toBe(false);
+
+    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+
+    const chips = Array.from(
+      container.querySelectorAll('[data-testid="host-divider"]'),
+    ) as HTMLElement[];
+    expect(chips.length).toBe(2);
+
+    // One chip per host, labeled with its hostName. Test C's guard on
+    // the load-bearing detail: each chip contains an svg (the Server
+    // glyph) so the visual grouping affordance is present.
+    const byId = new Map(
+      chips.map((c) => [c.getAttribute("data-host-id"), c]),
+    );
+    expect(byId.get("h1")).toBeTruthy();
+    expect(byId.get("h2")).toBeTruthy();
+    expect(byId.get("h1")!.textContent).toMatch(/hostA/);
+    expect(byId.get("h2")!.textContent).toMatch(/hostB/);
+    expect(byId.get("h1")!.querySelector("svg")).toBeTruthy();
+    expect(byId.get("h2")!.querySelector("svg")).toBeTruthy();
+  });
+
+  it("Test 19B: active-set + pinned + one non-RDP group → exactly ONE host-divider (only above the grouped host, NOT above active-set / pinned)", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
+      ],
+      pinned: [
+        makeConversationRow({ id: "pinned-1", label: "pinned-session", host: hostA }),
+      ],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [makeConversationRow({ id: "c1", label: "charlie", host: hostA })],
+        },
+      ],
+      pinnedIds: new Set(["pinned-1"]),
+    });
+
+    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+
+    // Exactly one host-divider — only above the grouped host section.
+    const chips = Array.from(
+      container.querySelectorAll('[data-testid="host-divider"]'),
+    ) as HTMLElement[];
+    expect(chips.length).toBe(1);
+    expect(chips[0].getAttribute("data-host-id")).toBe("h1");
+
+    // Active-set and pinned wrappers exist as structural preconditions,
+    // and NEITHER has a `host-divider` as an immediately-preceding
+    // sibling (i.e. a chip does not render ABOVE those groups).
+    const activeGroup = container.querySelector(
+      '[data-active-set-group="true"]',
+    ) as HTMLElement | null;
+    const pinnedGroup = container.querySelector(
+      '[data-pinned-group="true"]',
+    ) as HTMLElement | null;
+    expect(activeGroup).toBeTruthy();
+    expect(pinnedGroup).toBeTruthy();
+    // Neither's previousElementSibling is a chip.
+    const activePrev = activeGroup!.previousElementSibling as HTMLElement | null;
+    const pinnedPrev = pinnedGroup!.previousElementSibling as HTMLElement | null;
+    expect(activePrev?.getAttribute("data-testid")).not.toBe("host-divider");
+    expect(pinnedPrev?.getAttribute("data-testid")).not.toBe("host-divider");
+  });
+
+  it("Test 19C: non-RDP host group + __rdp__ sentinel group → BOTH host-divider AND rdp-divider render (new chip does NOT replace / duplicate the RDP chip)", () => {
+    const hostA = makeHost("h1", "hostA");
+    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    setSnapshot({
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [makeConversationRow({ id: "c1", label: "s1", host: hostA })],
+        },
+        {
+          hostId: "__rdp__",
+          hostName: "",
+          rows: [
+            makeConversationRow({
+              id: "r1",
+              label: "GIGAASHLEYPC",
+              host: rdpHost,
+              rdpHostRow: true,
+              targetTmuxSession: null,
+            }),
+          ],
+        },
+      ],
+    });
+
+    const { container } = render(<PrettyConversationsPanel variant="desktop" />);
+
+    // Both chips render side-by-side, one for each group type.
+    const hostChips = container.querySelectorAll('[data-testid="host-divider"]');
+    const rdpChips = container.querySelectorAll('[data-testid="rdp-divider"]');
+    expect(hostChips.length).toBe(1);
+    expect(rdpChips.length).toBe(1);
+    // The host chip labels hostA (NOT the __rdp__ sentinel, which has
+    // empty hostName and should never surface as a chip label).
+    expect((hostChips[0] as HTMLElement).getAttribute("data-host-id")).toBe("h1");
+    expect((hostChips[0] as HTMLElement).textContent).toMatch(/hostA/);
   });
 });
 

@@ -40,7 +40,7 @@
 // retired in Wave 4 and NOT ported forward here.
 
 import { useEffect, useState } from "react";
-import { MessagesSquare, Monitor, Pencil } from "lucide-react";
+import { MessagesSquare, Monitor, Pencil, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -87,6 +87,10 @@ function PrettyConversationRowLive(props: {
   forceClosed?: boolean;
   inActiveSet: boolean;
   sessionKey: string | null;
+  // quick-260727-f9v: pass-through for the row's sublabel render mode.
+  // Only the non-RDP grouped render site sets this to "identityTitle"; all
+  // other render sites omit the prop → row defaults to "hostname".
+  subtitleMode?: "hostname" | "identityTitle";
 }) {
   const { sessionKey, inActiveSet, ...rowProps } = props;
   const isWorking = useSessionWorking(sessionKey);
@@ -393,11 +397,14 @@ export function PrettyConversationsPanel({
                       className="flex items-center gap-2 px-4 pt-3 pb-1.5"
                       data-testid="rdp-divider"
                     >
+                      {/* quick-260727-f9v: brightness bumped from /50 → /85
+                          on BOTH icon and label so this chip reads at the
+                          same weight as the new per-host chips below. */}
                       <Monitor
-                        className="size-3 text-[#5c6070]/50 shrink-0"
+                        className="size-3 text-[#5c6070]/85 shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/50 shrink-0">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
                         {rdpSectionLabel}
                       </span>
                       <span
@@ -421,10 +428,36 @@ export function PrettyConversationsPanel({
                   </div>
                 );
               }
-              // Regular host group — FLAT, no per-host semibold header
-              // (Ashley/prototype lock). Just emit the rows.
+              // Regular host group — quick-260727-f9v: the earlier
+              // "FLAT per Ashley/prototype lock" was intentionally
+              // reversed. Each non-RDP host group now renders a divider
+              // chip above its rows (mirrors the RDP chip's treatment,
+              // Server glyph + uppercase hostName + gradient rule), AND
+              // the rows within receive `subtitleMode="identityTitle"`
+              // so the sublabel reads as identity.title (falling back to
+              // identity.displayName; further fallback to hostname+Server
+              // icon when no identity resolves — the row's built-in
+              // safety net). Active-set + pinned + RDP render sites are
+              // UNTOUCHED (they omit subtitleMode → default "hostname").
               return (
                 <div key={group.hostId} className="pv-panel-group">
+                  <div
+                    className="flex items-center gap-2 px-4 pt-3 pb-1.5"
+                    data-testid="host-divider"
+                    data-host-id={group.hostId}
+                  >
+                    <Server
+                      className="size-3 text-[#5c6070]/85 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                      {group.hostName}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                    />
+                  </div>
                   {group.rows.map((row) => (
                     <PrettyConversationRowLive
                       key={row.id}
@@ -442,6 +475,7 @@ export function PrettyConversationsPanel({
                       forceClosed={forceClosedFor(row.id)}
                       inActiveSet={activeSet.has(row.id)}
                       sessionKey={sessionWorkingKey(row)}
+                      subtitleMode="identityTitle"
                     />
                   ))}
                 </div>
