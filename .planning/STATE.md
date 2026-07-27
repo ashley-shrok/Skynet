@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-07-26T20:47:45.097Z"
-last_activity: 2026-07-26
+status: verifying
+last_updated: "2026-07-27T13:50:57.474Z"
+last_activity: 2026-07-27
 progress:
-  total_phases: 15
+  total_phases: 16
   completed_phases: 10
-  total_plans: 59
-  completed_plans: 56
-  percent: 67
+  total_plans: 62
+  completed_plans: 58
+  percent: 63
 ---
 
 # Project State
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 14 (plain-language-translation-asides) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
-Last activity: 2026-07-27 - Completed quick task 260727-gm3: Wire deactivate-conversation action (mobile swipe strip + desktop hover-reveal) on active-set rows only (Ashley-greenlit visual via console preview; folds into `skynet-transformation` master bounty)
+Status: Phase complete — ready for verification
+Last activity: 2026-07-27
 
 Progress: [██████████] 98%
 
@@ -68,6 +68,7 @@ Progress: [██████████] 98%
 | Phase 14 P03 | 14min | 3 tasks | 6 files |
 | Phase 14 P04 | 7min | 2 tasks | 3 files |
 | Phase 14 P05 | 9min | 3 tasks | 4 files |
+| Phase 15 P02 | 1200 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 14 Plan 05: asideState exported as named symbol from claude-session-server.ts (Option A over getter Option B) — legitimate observation seam per CONTEXT.md § Backend per-connection state LOCK; the Map IS the source of truth
 - [Phase ?]: Phase 14 Plan 05: backend integration tests use dispatch-shape mirroring (apply same state mutations WS handler applies + invoke load-bearing primitive) instead of wss.emit('connection') — full lifecycle would require 7 dependency mocks with zero incremental coverage
 - [Phase ?]: Phase 14 Plan 05: Test B + Test E EXPLICITLY assert BOTH steps of atomic broadcastAsideDismissed rule (dismiss frame reaches peers AND asideState.get(peer).displayed flips) — without step (b) ASIDE-08 silently breaks across tabs
+- [Phase ?]: Phase 15 Wave 2: Variant B store mutator locked (try/catch around void putPinnedIds([...nextPinnedIds]) BEFORE state mutation; mirrors addToActiveSet:713-722)
+- [Phase ?]: Phase 15 Wave 2: SC6 rollout scaffold — putPinnedIds console.warn's on server-echo mismatch (JSON-endpoint equivalent of patch #77 GET-verify)
+- [Phase ?]: Phase 15 Wave 2: Test 30p uses vi.importActual to bypass module mock for real-putPinnedIds coverage
 
 ### Pending Todos
 
@@ -209,6 +213,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T20:47:45.044Z
-Stopped at: Completed 14-05-PLAN.md
+Last session: 2026-07-27T13:50:49.163Z
+Stopped at: Completed 15-02-PLAN.md
 Resume file: None

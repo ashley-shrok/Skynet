@@ -562,11 +562,11 @@ Plans:
   5. The endpoint is per-user, authenticated via the existing Skynet identity auth (cookie jar / JWT), and returns 401 to unauthenticated requests. One user's pins are invisible to any other user.
   6. Verification includes a GET-verify after every PUT during the client's initial rollout window to prove writes stuck — required to avoid the patch #77 silent-200 no-op trap on any multipart-shape endpoint.
 
-**Plans:** 3 plans (backend endpoint + schema; store integration + write path; panel mount + read/hydrate path with human-verify checkpoint)
+**Plans:** 2/3 plans executed
 
 Plans:
-- [ ] 15-01-PLAN.md — Backend: extend /user-preferences with pinnedConversationIds JSON column + endpoint + direct-handler tests (PIN-01, PIN-02, PIN-06, PIN-07, PIN-08)
-- [ ] 15-02-PLAN.md — Frontend store: pins-api client + pinConversation/unpinConversation server-write augmentation + hydratePinnedIdsFromServer setter + tests 30j-30o (PIN-03, PIN-05, PIN-08)
+- [x] 15-01-PLAN.md — Backend: extend /user-preferences with pinnedConversationIds JSON column + endpoint + direct-handler tests (PIN-01, PIN-02, PIN-06, PIN-07, PIN-08)
+- [x] 15-02-PLAN.md — Frontend store: pins-api client + pinConversation/unpinConversation server-write augmentation + hydratePinnedIdsFromServer setter + tests 30j-30o (PIN-03, PIN-05, PIN-08)
 - [ ] 15-03-PLAN.md — Frontend panel: PrettyConversationsPanel mount-effect fetch + one integration test + human-verify end-to-end round-trip checkpoint (PIN-01, PIN-02, PIN-04, PIN-05)
 
 **Design decisions locked in planning (internally coherent per plan-checker requirement):**

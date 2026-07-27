@@ -176,12 +176,12 @@ Deferred to future patches. Each add earns its way in as its own separate design
 
 - [ ] **PIN-01**: Pinned conversation IDs survive tab close, browser close, hard-refresh, and PWA close on iPhone. Pins are NOT tab-scoped state — closing the last active tab does not erase them.
 - [ ] **PIN-02**: Pinned conversation IDs sync across all of Ashley's devices (desktop ↔ iPhone) via server-side storage keyed to her authenticated user account. Pinning on desktop appears on iPhone (within one poll / next mount), and vice versa.
-- [ ] **PIN-03**: A pin or unpin action from the frontend writes the mutation to the server immediately (no debounce, no batching). The optimistic in-memory update happens synchronously; the server write is fire-and-verify.
-- [ ] **PIN-04**: On PrettyConversationsPanel mount (and on identity/auth changes), the client fetches the current server-side pinnedIds set and reconciles it into the local Zustand store, replacing any stale in-memory value. First-render behavior does not depend on any prior sessionStorage/localStorage cache — the server is authoritative.
-- [ ] **PIN-05**: If the server is unreachable when a pin/unpin fires, the UI still updates optimistically; the pending mutation retries on the next successful sync cycle (mount, network recovery, or the next pin/unpin). A failure never leaves the UI stuck in a pre-mutation state.
+- [x] **PIN-03**: A pin or unpin action from the frontend writes the mutation to the server immediately (no debounce, no batching). The optimistic in-memory update happens synchronously; the server write is fire-and-verify.
+- [x] **PIN-04**: On PrettyConversationsPanel mount (and on identity/auth changes), the client fetches the current server-side pinnedIds set and reconciles it into the local Zustand store, replacing any stale in-memory value. First-render behavior does not depend on any prior sessionStorage/localStorage cache — the server is authoritative.
+- [x] **PIN-05**: If the server is unreachable when a pin/unpin fires, the UI still updates optimistically; the pending mutation retries on the next successful sync cycle (mount, network recovery, or the next pin/unpin). A failure never leaves the UI stuck in a pre-mutation state.
 - [ ] **PIN-06**: Server-side storage tolerates orphaned pinnedIds (host removed, session name no longer present in fleetSessions) without erroring. Client-side snapshot iteration already skips ids without a matching row source per patch #149 A — no server-side garbage collection required in v1.
 - [ ] **PIN-07**: The pin endpoint is per-user, authenticated via the existing Skynet identity auth (cookie jar / JWT). Unauthenticated requests get 401. No fleet-wide impact — one user's pins are invisible to any other user (though today's Skynet is single-tenant, the endpoint contract must not assume that).
-- [ ] **PIN-08**: Client fetch + write paths defensively guard against the multipart/form-data silent-200 no-op learned from patch #77 — if the chosen endpoint shape is multipart, a GET-verify follows every PUT to prove the write stuck; if the shape is JSON, the response body echoes the persisted state for optimistic reconciliation.
+- [x] **PIN-08**: Client fetch + write paths defensively guard against the multipart/form-data silent-200 no-op learned from patch #77 — if the chosen endpoint shape is multipart, a GET-verify follows every PUT to prove the write stuck; if the shape is JSON, the response body echoes the persisted state for optimistic reconciliation.
 
 ## Out of Scope
 
@@ -289,12 +289,12 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | PIN-01 | Phase 15 | Pending |
 | PIN-02 | Phase 15 | Pending |
-| PIN-03 | Phase 15 | Pending |
-| PIN-04 | Phase 15 | Pending |
-| PIN-05 | Phase 15 | Pending |
+| PIN-03 | Phase 15 | Complete |
+| PIN-04 | Phase 15 | Complete |
+| PIN-05 | Phase 15 | Complete |
 | PIN-06 | Phase 15 | Pending |
 | PIN-07 | Phase 15 | Pending |
-| PIN-08 | Phase 15 | Pending |
+| PIN-08 | Phase 15 | Complete |
 
 **Coverage:**
 - v1 requirements: 84 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12, 8 pending Phase 15)
