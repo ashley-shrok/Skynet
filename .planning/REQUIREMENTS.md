@@ -185,11 +185,11 @@ Deferred to future patches. Each add earns its way in as its own separate design
 
 ### Pretty-view Relay Bubbles — Skynet Integration (Phase 17)
 
-- [ ] **RELAYBUB-01**: A tool-use turn whose Bash command line contains all three of `curl` + `-X PUT` + URL shape `rooms/{roomId}/send/m.room.message/{txnId}` is detected as an OUTBOUND relay send and rendered as a right-aligned blue relay bubble showing recipient room + best-effort extracted message body. Prose/comment false-positive commands (e.g. `cat > bounty.json <<JSON ... send/m.room.message ...`, `grep -n 'send/m.room.message'`) are correctly rejected because they lack the `curl` + `-X PUT` conjunction in real invocation form.
-- [ ] **RELAYBUB-02**: A `type=user` turn whose `origin.kind=task-notification` AND whose body matches the recv.sh line regex `[room X] [@sender:server] (event $Y): BODY` is detected as an INBOUND relay receive and rendered as a left-aligned orange relay bubble showing sender mxid + room + body. Non-relay task-notifications (wakeup fires, scheduled self-checks) correctly render as neutral (not as inbound bubbles).
+- [x] **RELAYBUB-01**: A tool-use turn whose Bash command line contains all three of `curl` + `-X PUT` + URL shape `rooms/{roomId}/send/m.room.message/{txnId}` is detected as an OUTBOUND relay send and rendered as a right-aligned blue relay bubble showing recipient room + best-effort extracted message body. Prose/comment false-positive commands (e.g. `cat > bounty.json <<JSON ... send/m.room.message ...`, `grep -n 'send/m.room.message'`) are correctly rejected because they lack the `curl` + `-X PUT` conjunction in real invocation form.
+- [x] **RELAYBUB-02**: A `type=user` turn whose `origin.kind=task-notification` AND whose body matches the recv.sh line regex `[room X] [@sender:server] (event $Y): BODY` is detected as an INBOUND relay receive and rendered as a left-aligned orange relay bubble showing sender mxid + room + body. Non-relay task-notifications (wakeup fires, scheduled self-checks) correctly render as neutral (not as inbound bubbles).
 - [ ] **RELAYBUB-03**: Inbound bubble sender mxid (`@name:server`) is resolved to the corresponding local identity where possible (via the existing identity registry), and the bubble carries that identity's stored `colorHue` — same hue-chain treatment as normal agent bubbles. Unresolved mxids fall back to a neutral grey hue with the raw mxid visible.
 - [x] **RELAYBUB-04**: When recv.sh wrote the inbound body to a file (file-pointer format), pretty-view fetches the pointed-to file and renders the full body inline; the pointer line is shown as a header/preview. Fetch failure falls back to showing the pointer line + a fetch-failed indicator (not a silent drop).
-- [ ] **RELAYBUB-05**: Body extraction is best-effort — variants that defeat static parsing (shell-var interpolation like `$body`, `--data-raw`, heredoc-nested payloads) render the bubble with a ⚠ warning and the raw command line, rather than dropping the detection entirely. Detection remains bulletproof — the two heuristic conjunctions are the ONLY truth signal.
+- [x] **RELAYBUB-05**: Body extraction is best-effort — variants that defeat static parsing (shell-var interpolation like `$body`, `--data-raw`, heredoc-nested payloads) render the bubble with a ⚠ warning and the raw command line, rather than dropping the detection entirely. Detection remains bulletproof — the two heuristic conjunctions are the ONLY truth signal.
 - [ ] **RELAYBUB-06**: All existing pretty-view functionality is preserved end-to-end — plain-text send/receive, WipBubble, PlanPendingBubble, tool-use rendering (for non-relay curl commands), IdentityBadge, ComposeBox, session-changeover behavior, keyboard chords. Zero regression to non-relay turn rendering.
 
 ## Out of Scope
@@ -305,11 +305,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PIN-07 | Phase 15 | Pending |
 | PIN-08 | Phase 15 | Complete |
 
-| RELAYBUB-01 | Phase 17 | Pending |
-| RELAYBUB-02 | Phase 17 | Pending |
+| RELAYBUB-01 | Phase 17 | Complete |
+| RELAYBUB-02 | Phase 17 | Complete |
 | RELAYBUB-03 | Phase 17 | Pending |
 | RELAYBUB-04 | Phase 17 | Complete |
-| RELAYBUB-05 | Phase 17 | Pending |
+| RELAYBUB-05 | Phase 17 | Complete |
 | RELAYBUB-06 | Phase 17 | Pending |
 
 **Coverage:**
