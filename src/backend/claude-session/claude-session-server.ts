@@ -25,6 +25,7 @@ import {
   writeIdentityWakeupUpdate,
   writeIdentityBountyPriority,
   writeIdentityBountyStatus,
+  writeIdentityBountyPinned,
   archiveIdentityBounty,
   type BountyPriority,
   type BountyStatus,
@@ -48,6 +49,7 @@ import {
  *     { type: "identity:update-wakeup", identityKey: string, hostId?: number, wakeupSlug: string, updates: { enabled?: boolean, schedule?: object } } // patch #154: patch wakeups/<slug>.json
  *     { type: "identity:update-bounty-priority", identityKey: string, hostId?: number, bountySlug: string, priority: "urgent"|"high"|"medium"|"low"|"unprioritized" } // patch #154: patch bounties/<slug>/bounty.json
  *     { type: "identity:update-bounty-status", identityKey: string, hostId?: number, bountySlug: string, status: "in_progress"|"waiting_on_someone_else"|"done"|"dropped" } // quick 260727-v0b / patch #168: patch bounties/<slug>/bounty.json status field. Allowed values: in_progress, waiting_on_someone_else, done, dropped. "pinned" removed from enum (now an independent boolean field). Folder NOT moved even for done/dropped — supports Ashley's resurrect flow via a pure JSON patch.
+ *     { type: "identity:update-bounty-pinned", identityKey: string, hostId?: number, bountySlug: string, pinned: boolean } // quick 260728-sqk / patch #172: patch bounties/<slug>/bounty.json pinned field. `pinned` is an independent boolean orthogonal to status per fleet migration #168. Byte-shape mirror of update-bounty-status — flips the boolean, bumps updated_at, appends timeline line, folder untouched.
  *     { type: "identity:archive-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260727-wd0: server decides new status internally (flip live→done or preserve terminal), then mv bounties/<slug>/ under bounties/archive/<slug>/ (mkdir -p archive/ if absent). No client-supplied status field.
  *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
  *     // reads from the local bind-mount (IDENTITIES_HOST_DIR); otherwise SSHes to the pane's host.
@@ -77,6 +79,7 @@ import {
  *     { type: "identity:wakeup-updated", wakeups: Wakeup[], error?: string }  // patch #154: response to identity:update-wakeup (includes refreshed list)
  *     { type: "identity:bounty-priority-updated", bounties, archivedBounties, error?: string } // patch #154: response to identity:update-bounty-priority (includes refreshed lists)
  *     { type: "identity:bounty-status-updated", bounties, archivedBounties, error?: string } // quick 260727-v0b: response to identity:update-bounty-status (includes refreshed lists)
+ *     { type: "identity:bounty-pinned-updated", bounties, archivedBounties, error?: string } // quick 260728-sqk / patch #172: response to identity:update-bounty-pinned (includes refreshed lists — normalizeBounty carries `pinned:boolean` on every bounty)
  *     { type: "identity:bounty-archived", bounties, archivedBounties, error?: string } // quick 260727-wd0: response to identity:archive-bounty (includes refreshed lists — bounty moved from `bounties` list to `archivedBounties` list)
  *
  * Image frames carry inline base64 payloads: each `images[]` element is
@@ -2150,6 +2153,82 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Quick 260728-sqk / patch #172: identity:update-bounty-pinned —
+    // byte-shape mirror of the status handler above for the `pinned` boolean
+    // field. Post-Nelly-fleet-migration (#168, 2026-07-28), `pinned` is an
+    // independent boolean orthogonal to lifecycle `status`. Server patches
+    // bounty.json IN PLACE (folder NOT moved) and returns the fresh bounty
+    // lists so the modal can atomically re-render. Editable for ALL bounties
+    // including archived — unpinning an archived pinned bounty stays legal
+    // and re-pinning is the resurrect signal on the pinned axis.
+    if (msg.type === "identity:update-bounty-pinned") {
+      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown; pinned?: unknown };
+      const rawKey = raw.identityKey;
+      const rawSlug = raw.bountySlug;
+      const rawPinned = raw.pinned;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        return;
+      }
+      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        return;
+      }
+      if (typeof rawPinned !== "boolean") {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid pinned" })); } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const bountySlug = rawSlug;
+      const pinned = rawPinned;
+      const rawHostId = raw.hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      try {
+        let bounties: unknown[];
+        let archivedBounties: unknown[];
+        if (useLocal) {
+          await writeIdentityBountyPinned(null, identityKey, bountySlug, pinned);
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          sshLogger.info("identity:update-bounty-pinned", {
+            operation: "identity_update_bounty_pinned",
+            userId, identityKey, bountySlug, pinned, hostId: hostIdNum, useLocal: true,
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            await writeIdentityBountyPinned(conn, identityKey, bountySlug, pinned);
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            sshLogger.info("identity:update-bounty-pinned", {
+              operation: "identity_update_bounty_pinned",
+              userId, identityKey, bountySlug, pinned, hostId: hostIdNum, useLocal: false,
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties, archivedBounties })); } catch { /* ignore */ }
+      } catch (err) {
+        sshLogger.error(
+          "identity:update-bounty-pinned unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_update_bounty_pinned_error", userId, identityKey, bountySlug, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
         } catch { /* ignore */ }
       }
       return;

@@ -190,6 +190,11 @@ function normalizeBounty(parsed: Record<string, unknown>, fallbackId: string): u
     updated_at: typeof parsed.updated_at === "string" ? parsed.updated_at : "",
     timeline: Array.isArray(parsed.timeline) ? parsed.timeline : [],
     todos: Array.isArray(parsed.todos) ? parsed.todos : [],
+    // Patch #172 / quick 260728-sqk: independent boolean field (fleet
+    // migration #168 by Nelly, 2026-07-28). Orthogonal to lifecycle
+    // `status`; defaulted to false when absent from bounty.json so both
+    // open and archive payloads always carry the flag to the frontend.
+    pinned: typeof parsed.pinned === "boolean" ? parsed.pinned : false,
   };
 }
 
@@ -845,6 +850,79 @@ export async function writeIdentityBountyStatus(
     'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
     'os.rename(tmp,p)\n';
   const payload = JSON.stringify({ status }).replace(/'/g, "'\\''");
+  const cmd =
+    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
+    `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
+  await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
+// 8b. writeIdentityBountyPinned — patch bounty.json's pinned field
+// ---------------------------------------------------------------------------
+//
+// Quick 260728-sqk / patch #172: byte-shape mirror of writeIdentityBountyStatus
+// for the `pinned` boolean field. Post-Nelly-fleet-migration (#168,
+// 2026-07-28), `pinned` is an independent boolean orthogonal to lifecycle
+// `status`. This writer flips the boolean, bumps updated_at, and appends
+// a "pinned set to <bool> via identity modal" timeline line. Folder is
+// deliberately untouched (no rename, no archive dir created) — mirrors the
+// status writer's resurrect-safe pattern.
+
+export async function writeIdentityBountyPinned(
+  conn: SSHClientType | null,
+  identityKey: string,
+  bountySlug: string,
+  pinned: boolean,
+): Promise<void> {
+  if (typeof pinned !== "boolean") {
+    throw new Error("invalid pinned");
+  }
+
+  const nowIso = new Date().toISOString();
+  const timelineLine = `${nowIso} pinned set to ${pinned} via identity modal`;
+
+  if (conn === null) {
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, "bounties", bountySlug, "bounty.json");
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    parsed.pinned = pinned;
+    parsed.updated_at = nowIso;
+    const tl = Array.isArray(parsed.timeline) ? [...parsed.timeline] : [];
+    tl.push(timelineLine);
+    parsed.timeline = tl;
+    const next = JSON.stringify(parsed, null, 2) + "\n";
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, next, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+  // Remote branch: python3 script takes the pinned bool via stdin JSON;
+  // updated_at is generated in-python from utcnow() so the timestamp
+  // reflects the box's own clock (matches patch #154's priority writer
+  // and #v0b's status writer). The timeline line uses str(u["pinned"]).lower()
+  // so remote emits JS-style "true"/"false" tokens matching what the wire
+  // panel shows.
+  const script =
+    'import json,os,sys,datetime\n' +
+    'p=sys.argv[1]\n' +
+    'u=json.loads(sys.stdin.read())\n' +
+    'with open(p,"r") as f: d=json.load(f)\n' +
+    'd["pinned"]=u["pinned"]\n' +
+    'now=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")\n' +
+    'd["updated_at"]=now\n' +
+    'tl=d.get("timeline") or []\n' +
+    'if not isinstance(tl,list): tl=[]\n' +
+    'tl.append(now+" pinned set to "+str(u["pinned"]).lower()+" via identity modal")\n' +
+    'd["timeline"]=tl\n' +
+    'tmp=p+".tmp"\n' +
+    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    'os.rename(tmp,p)\n';
+  const payload = JSON.stringify({ pinned }).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
     `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
