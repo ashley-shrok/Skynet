@@ -7,16 +7,19 @@
 // writer's python3 script byte-for-byte modulo the field name, so we don't
 // spin up an ssh2 mock here.
 //
-// The three cases target the invariants Ashley called out explicitly:
-//   1. Round-trip: status is persisted, updated_at gets a fresh ISO Z
-//      stamp, and the timeline gains a "status set to <new> via identity
-//      modal" line.
-//   2. Guard: invalid status values reject with "invalid status" — the
-//      handler's belt-and-braces on top of the WS-layer validation.
+// Patch #168 update: "pinned" is no longer a valid status value (it was
+// migrated to an independent boolean field by Nelly's fleet-wide schema
+// change). The tests below:
+//   1. Round-trip: valid status (in_progress) is persisted correctly.
+//   2. Guard: invalid status values ("bogus", "pinned") reject with
+//      "invalid status" — the handler's belt-and-braces on top of the
+//      WS-layer validation.
 //   3. Folder-untouched: writing done/dropped does NOT create or rename
 //      any sibling directory (bounties/archive is out of scope for this
 //      quick — Ashley's separate concern). This is the load-bearing
 //      guarantee for the resurrect flow.
+//   4. All four remaining valid statuses are accepted (in_progress,
+//      waiting_on_someone_else, done, dropped).
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import os from "os";
@@ -67,7 +70,7 @@ afterEach(async () => {
 describe("writeIdentityBountyStatus (local branch)", () => {
   it("round-trips status + bumps updated_at + appends timeline line", async () => {
     const filePath = await seedBounty();
-    await writeIdentityBountyStatus(null, KEY, SLUG, "pinned");
+    await writeIdentityBountyStatus(null, KEY, SLUG, "waiting_on_someone_else");
 
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as {
@@ -76,7 +79,7 @@ describe("writeIdentityBountyStatus (local branch)", () => {
       timeline: string[];
     };
 
-    expect(parsed.status).toBe("pinned");
+    expect(parsed.status).toBe("waiting_on_someone_else");
 
     // updated_at must be freshened — not the seed value, and parseable as a date.
     expect(parsed.updated_at).not.toBe(SEED_BOUNTY.updated_at);
@@ -86,7 +89,7 @@ describe("writeIdentityBountyStatus (local branch)", () => {
     // Timeline: seed entry preserved + one new line appended.
     expect(parsed.timeline).toHaveLength(2);
     expect(parsed.timeline[0]).toBe("seed");
-    expect(parsed.timeline[1]).toMatch(/status set to pinned via identity modal$/);
+    expect(parsed.timeline[1]).toMatch(/status set to waiting_on_someone_else via identity modal$/);
   });
 
   it("rejects an unknown status with 'invalid status'", async () => {
@@ -99,6 +102,51 @@ describe("writeIdentityBountyStatus (local branch)", () => {
         "bogus" as unknown as BountyStatus,
       ),
     ).rejects.toThrow(/invalid status/);
+  });
+
+  it("rejects status:'pinned' with 'invalid status' (pinned is now a boolean field, not a status enum value)", async () => {
+    await seedBounty();
+    await expect(
+      writeIdentityBountyStatus(
+        null,
+        KEY,
+        SLUG,
+        "pinned" as unknown as BountyStatus,
+      ),
+    ).rejects.toThrow(/invalid status/);
+  });
+
+  it("accepts all four valid lifecycle statuses: in_progress, waiting_on_someone_else, done, dropped", async () => {
+    const validStatuses: BountyStatus[] = [
+      "in_progress",
+      "waiting_on_someone_else",
+      "done",
+      "dropped",
+    ];
+
+    for (const status of validStatuses) {
+      // Re-seed a fresh bounty for each status so the writes are independent.
+      const bountyDir = path.join(tmpRoot, KEY, "bounties", `slug-${status}`);
+      await fs.mkdir(bountyDir, { recursive: true });
+      await fs.writeFile(
+        path.join(bountyDir, "bounty.json"),
+        JSON.stringify({ ...SEED_BOUNTY, id: `slug-${status}` }, null, 2),
+        "utf-8",
+      );
+
+      // Must not throw.
+      await expect(
+        writeIdentityBountyStatus(null, KEY, `slug-${status}`, status),
+      ).resolves.not.toThrow();
+
+      // Verify the status was written.
+      const raw = await fs.readFile(
+        path.join(bountyDir, "bounty.json"),
+        "utf-8",
+      );
+      const parsed = JSON.parse(raw) as { status: string };
+      expect(parsed.status).toBe(status);
+    }
   });
 
   it("does not create or rename any sibling folder (folder untouched even for done)", async () => {

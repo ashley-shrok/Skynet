@@ -10,6 +10,10 @@
 // directory tree instead of a stub. The tree matches what the tina bind-mount
 // looks like: identityHostDir/<key>/bounties/<slug>/bounty.json, with an
 // archive/ directory that must be skipped.
+//
+// Patch #168 schema update: `pinned` is now an independent boolean field
+// orthogonal to the lifecycle `status` field. Fixtures use `pinned:boolean`
+// instead of `status:"pinned"`. The counter checks `parsed.pinned === true`.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import os from "os";
@@ -23,8 +27,12 @@ const KEY = "tina";
 
 async function writeBounty(
   slug: string,
-  status: string,
-  opts: { archived?: boolean; malformed?: boolean } = {},
+  opts: {
+    status?: string;
+    pinned?: boolean;
+    archived?: boolean;
+    malformed?: boolean;
+  } = {},
 ): Promise<void> {
   const base = opts.archived
     ? path.join(tmpRoot, KEY, "bounties", "archive", slug)
@@ -32,7 +40,11 @@ async function writeBounty(
   await fs.mkdir(base, { recursive: true });
   const contents = opts.malformed
     ? "{ not valid json"
-    : JSON.stringify({ id: slug, status });
+    : JSON.stringify({
+        id: slug,
+        status: opts.status ?? "in_progress",
+        pinned: opts.pinned ?? false,
+      });
   await fs.writeFile(path.join(base, "bounty.json"), contents, "utf-8");
 }
 
@@ -52,29 +64,54 @@ describe("readIdentityPinnedBountyCount — local branch", () => {
     expect(n).toBe(0);
   });
 
-  it("counts pinned bounties, skipping archived + non-pinned + malformed", async () => {
-    await writeBounty("bounty-a", "pinned");
-    await writeBounty("bounty-b", "pinned");
-    await writeBounty("bounty-c", "in_progress");
-    await writeBounty("bounty-d", "done");
-    await writeBounty("bounty-e", "pinned", { malformed: true });
-    // Archive contents must be ignored regardless of status.
-    await writeBounty("archived-1", "pinned", { archived: true });
-    await writeBounty("archived-2", "pinned", { archived: true });
+  it("counts bounties with pinned:true, skipping archived + non-pinned + malformed", async () => {
+    // pinned:true with various lifecycle statuses — all should count
+    await writeBounty("bounty-a", { status: "in_progress", pinned: true });
+    await writeBounty("bounty-b", { status: "in_progress", pinned: true });
+    // not pinned — must NOT be counted
+    await writeBounty("bounty-c", { status: "in_progress", pinned: false });
+    await writeBounty("bounty-d", { status: "done", pinned: false });
+    // malformed JSON — parse error swallowed, counted as "not pinned"
+    await writeBounty("bounty-e", { malformed: true });
+    // archived entries must be ignored regardless of pinned state
+    await writeBounty("archived-1", { status: "in_progress", pinned: true, archived: true });
+    await writeBounty("archived-2", { status: "in_progress", pinned: true, archived: true });
 
     const n = await readIdentityPinnedBountyCount(null, KEY);
     expect(n).toBe(2);
   });
 
-  it("returns 0 when no bounties are pinned", async () => {
-    await writeBounty("only-one", "in_progress");
+  it("orthogonality: done-status bounty with pinned:true IS counted (pinned is independent of lifecycle)", async () => {
+    // pinned is orthogonal to status — a done bounty can still be pinned
+    await writeBounty("done-but-pinned", { status: "done", pinned: true });
+    await writeBounty("in-progress-not-pinned", { status: "in_progress", pinned: false });
+
+    const n = await readIdentityPinnedBountyCount(null, KEY);
+    expect(n).toBe(1);
+  });
+
+  it("returns 0 when no bounties have pinned:true", async () => {
+    await writeBounty("only-one", { status: "in_progress", pinned: false });
+    const n = await readIdentityPinnedBountyCount(null, KEY);
+    expect(n).toBe(0);
+  });
+
+  it("returns 0 when pinned field is absent (treated as not pinned)", async () => {
+    // Bounty JSON with no `pinned` key — should NOT be counted
+    const base = path.join(tmpRoot, KEY, "bounties", "no-pinned-field");
+    await fs.mkdir(base, { recursive: true });
+    await fs.writeFile(
+      path.join(base, "bounty.json"),
+      JSON.stringify({ id: "no-pinned-field", status: "in_progress" }),
+      "utf-8",
+    );
     const n = await readIdentityPinnedBountyCount(null, KEY);
     expect(n).toBe(0);
   });
 
   it("swallows a single malformed bounty.json without failing the whole call", async () => {
-    await writeBounty("good", "pinned");
-    await writeBounty("bad", "pinned", { malformed: true });
+    await writeBounty("good", { status: "in_progress", pinned: true });
+    await writeBounty("bad", { malformed: true });
     const n = await readIdentityPinnedBountyCount(null, KEY);
     expect(n).toBe(1);
   });

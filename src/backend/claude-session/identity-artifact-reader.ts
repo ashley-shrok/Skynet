@@ -313,11 +313,14 @@ export type BountyPriority = (typeof BOUNTY_PRIORITY_VALUES)[number];
 // locally (mirrors how BOUNTY_PRIORITY_VALUES is defined above) rather
 // than imported from the UI api module, to keep the backend writer
 // self-contained. The UI-side BOUNTY_STATUS_VALUES in claude-session-api.ts
-// is the wire-side counterpart; both must stay in sync (same 5 values, same
+// is the wire-side counterpart; both must stay in sync (same 4 values, same
 // order — no compile-time cross-check because the module boundary crosses
 // bundling contexts).
+//
+// Patch #168: "pinned" removed from the status enum. `pinned` is now an
+// independent boolean field orthogonal to lifecycle status (fleet migration
+// by Nelly 2026-07-28). Writes attempting status:"pinned" are rejected here.
 export const BOUNTY_STATUS_VALUES = [
-  "pinned",
   "in_progress",
   "waiting_on_someone_else",
   "done",
@@ -992,16 +995,22 @@ export async function archiveIdentityBounty(
 // convention (bounties/<slug>/bounty.json, with an archive/ subdir that must
 // be skipped). Returns an integer.
 //
+// Schema note (patch #168): `pinned` is now an independent boolean field
+// orthogonal to the lifecycle `status` field. Every previously-pinned bounty
+// is now `status:"in_progress" + pinned:true` after Nelly's fleet-wide
+// migration. The counter reads `parsed.pinned === true` — NOT
+// `parsed.status === "pinned"` (that value no longer exists in the enum).
+//
 // Local branch: fs.readdir the bounties dir, skip "archive", read each
-// entry's bounty.json, count where parsed.status === "pinned". Per-file
+// entry's bounty.json, count where parsed.pinned === true. Per-file
 // parse errors are swallowed as "not pinned" — a single poisoned file
 // must not fail the whole count.
 //
 // Remote branch: python3 one-liner over SSH — grep on the raw JSON is
 // fragile (pretty-printed vs single-line vs whitespace variants), so we
-// json.load + status.get + count in-process on the far end and print an
-// integer to stdout. python3 is universally present on identity boxes
-// (the wakeup scheduler itself is python3).
+// json.load + check the `pinned` boolean field in-process on the far end
+// and print an integer to stdout. python3 is universally present on identity
+// boxes (the wakeup scheduler itself is python3).
 
 export async function readIdentityPinnedBountyCount(
   conn: SSHClientType | null,
@@ -1038,7 +1047,7 @@ export async function readIdentityPinnedBountyCount(
       try {
         const raw = await fs.readFile(filePath, "utf-8");
         const parsed = JSON.parse(raw) as Record<string, unknown>;
-        if (parsed.status === "pinned") count += 1;
+        if (parsed.pinned === true) count += 1;
       } catch {
         // Per-file parse/read error → count as "not pinned" (do NOT throw).
       }
@@ -1062,7 +1071,7 @@ export async function readIdentityPinnedBountyCount(
     '  p=os.path.join(r,d,"bounty.json")\n' +
     "  try:\n" +
     "    with open(p) as f: j=json.load(f)\n" +
-    '    if j.get("status")=="pinned": n+=1\n' +
+    '    if j.get("pinned") is True: n+=1\n' +
     "  except Exception: pass\n" +
     "print(n)\n";
   const cmd =
