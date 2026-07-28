@@ -1148,7 +1148,7 @@ export function PrettyView({
         (status === "connecting" && messages.length > 0)) && (
         <div
           ref={scrollRef}
-          className="flex-1 min-h-0 overflow-y-auto px-4 py-3"
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-3"
         >
           {/* Inner content wrapper: the ResizeObserver in useAutoScroll
               watches THIS element for content-size changes (new messages,
@@ -1220,10 +1220,9 @@ export function PrettyView({
                   "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.85),rgba(60,50,32,0.9))]",
                   "hover:border-[rgba(255,240,215,0.22)]",
                   "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,210,0.22),_0_0_20px_rgba(255,240,215,0.16)]",
-                  "max-md:size-28",
                 )}
               >
-                <ArrowDown className="size-4 max-md:size-14" />
+                <ArrowDown className="size-4" />
               </Button>
             </div>
           )}

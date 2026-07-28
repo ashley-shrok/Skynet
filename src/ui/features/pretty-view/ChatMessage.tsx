@@ -81,7 +81,7 @@ export function ChatMessage({
       <div
         className={cn(
           // Phase 4 Glass: raised-object bubble treatment.
-          "max-w-[85%] break-words text-sm leading-relaxed",
+          "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)] px-[18px] py-[14px]",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",

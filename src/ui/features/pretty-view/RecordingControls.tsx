@@ -42,9 +42,9 @@ export function RecordingControls({
         onClick={onCancel}
         aria-label="Cancel recording"
         title="Cancel recording"
-        className="p-2 max-md:p-3 text-[hsla(0,72%,72%,0.85)] hover:text-[hsla(0,80%,82%,1)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
+        className="p-2 text-[hsla(0,72%,72%,0.85)] hover:text-[hsla(0,80%,82%,1)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
       >
-        <X className="size-6 max-md:size-10" strokeWidth={2.25} aria-hidden="true" />
+        <X className="size-6" strokeWidth={2.25} aria-hidden="true" />
       </button>
 
       {/* Append — neutral warm off-white */}
@@ -53,9 +53,9 @@ export function RecordingControls({
         onClick={onAppend}
         aria-label="Append transcript"
         title="Append transcript"
-        className="p-2 max-md:p-3 text-[rgba(240,235,224,0.6)] hover:text-[rgba(240,235,224,0.95)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
+        className="p-2 text-[rgba(240,235,224,0.6)] hover:text-[rgba(240,235,224,0.95)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
       >
-        <ArrowDownToLine className="size-6 max-md:size-10" aria-hidden="true" />
+        <ArrowDownToLine className="size-6" aria-hidden="true" />
       </button>
 
       {/* Send — coral-tinted per pv-coral accent (--color-pv-code-fg = #ffb896) */}
@@ -64,9 +64,9 @@ export function RecordingControls({
         onClick={onSend}
         aria-label="Send transcript"
         title="Send transcript"
-        className="p-2 max-md:p-3 text-[color:var(--color-pv-code-fg)] hover:text-[hsla(19,100%,80%,1)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
+        className="p-2 text-[color:var(--color-pv-code-fg)] hover:text-[hsla(19,100%,80%,1)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
       >
-        <Send className="size-6 max-md:size-10" aria-hidden="true" />
+        <Send className="size-6" aria-hidden="true" />
       </button>
     </div>
   );

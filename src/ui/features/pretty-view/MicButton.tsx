@@ -4,7 +4,7 @@
 // This component renders a single bare-glyph button using the same structural
 // template as the ComposeBox send button (ComposeBox.tsx:1503-1554):
 //   - absolute right-1 bottom-0.5 positioning (parent provides relative container)
-//   - p-2 / max-md:p-3 hit target
+//   - p-2 hit target (mobile scale handled globally via html font-size bump — patch #163)
 //   - warm off-white text with hover and disabled states
 //   - transition-[color,transform] + active:scale-95
 //
@@ -32,7 +32,7 @@ export function MicButton({ onClick, disabled, title }: MicButtonProps) {
       title={title || "Record voice"}
       className={cn(
         "absolute right-1 bottom-0.5",
-        "p-2 max-md:p-3",
+        "p-2",
         "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
         "disabled:text-[rgba(240,235,224,0.15)]",
         "disabled:cursor-not-allowed",
@@ -41,7 +41,7 @@ export function MicButton({ onClick, disabled, title }: MicButtonProps) {
         "cursor-pointer",
       )}
     >
-      <Mic className="size-6 max-md:size-10" aria-hidden="true" />
+      <Mic className="size-6" aria-hidden="true" />
     </button>
   );
 }
