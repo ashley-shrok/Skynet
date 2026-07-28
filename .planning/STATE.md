@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-07-28T11:58:45.279Z"
-last_activity: "2026-07-28 - Completed quick task 260728-0uo: Surgical mobile .prose-sm font bump for Telegram parity (@media max-width:768px bumps .prose-sm to 1.3125rem/1.55 !important; ChatMessage, HandoffTab, AsideBubble, IdentityFileTab all pick it up; composebox + layout untouched)"
+last_updated: "2026-07-28T18:22:46.492Z"
+last_activity: 2026-07-28
 progress:
-  total_phases: 17
+  total_phases: 18
   completed_phases: 12
-  total_plans: 66
-  completed_plans: 63
-  percent: 71
+  total_plans: 70
+  completed_plans: 64
+  percent: 67
 ---
 
 # Project State
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 16 (voice-input-in-composebox-mic-button-tap-to-record-stt-via-s) — EXECUTING
 Plan: 4 of 4
 Status: Phase complete — ready for verification
-Last activity: 2026-07-28 - Completed quick task 260728-m5h: Skynet schema-catchup for Nelly's pinned-status migration + mobile pinned-badge bigger (backend counter -> parsed.pinned===true, allowed-status enum 5->4, pill row 5->4, .pv-bounty-badge mobile bump ~1.6x, tests updated, patch #168 doc entry inline)
+Last activity: 2026-07-28
 
-Progress: [██████████] 100%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -228,6 +228,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-28T11:58:45.258Z
+Last session: 2026-07-28T18:22:46.450Z
 Stopped at: Completed 15-02-PLAN.md
 Resume file: None

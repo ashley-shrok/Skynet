@@ -620,10 +620,10 @@ Plans:
 
 **Bounty tracker:** `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/` (through-line remains open — prototype milestone done, integration is the actual product goal per learned preference 2026-07-28).
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 - [ ] 17-01-PLAN.md — Backend session-file-parser + WS wire types for relay detection (RELAYBUB-01, RELAYBUB-02, RELAYBUB-05)
-- [ ] 17-02-PLAN.md — Backend SSRF-safe /relay-pointer HTTP proxy on main Express backend (port 30001) + BOTH nginx configs updated for long-inbound file-pointer fetch (RELAYBUB-04)
+- [x] 17-02-PLAN.md — Backend SSRF-safe /relay-pointer HTTP proxy on main Express backend (port 30001) + BOTH nginx configs updated for long-inbound file-pointer fetch (RELAYBUB-04)
 - [ ] 17-03-PLAN.md — Frontend RelayOutboundBubble + RelayInboundBubble + mxid resolver + file-pointer fetcher + PrettyView dispatch wiring (RELAYBUB-01, RELAYBUB-02, RELAYBUB-03, RELAYBUB-04, RELAYBUB-05, RELAYBUB-06)
 - [ ] 17-04-PLAN.md — Deploy checkpoint: build-verify + Ashley UAT checklist for RELAYBUB-01..06 + patches-md entry draft (all RELAYBUB-01..06)
