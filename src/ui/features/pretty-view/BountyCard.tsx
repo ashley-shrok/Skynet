@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Flame, ChevronsUp, ChevronUp, Minus, ChevronDown, Circle } from "lucide-react";
+import { Flame, ChevronsUp, ChevronUp, Minus, ChevronDown, Circle, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/checkbox";
 import { Button } from "@/components/button";
@@ -28,6 +28,8 @@ import {
 // it is now an independent boolean field, not a status enum value.
 // The per-row pin glyph (PrettyConversationRow + bounty badge) handles
 // the pinned indicator separately.
+// Patch #172: pin-toggle handled by the header-row star (not a status pill) —
+// see onPinnedChange prop.
 const STATUS_CLASSES: Record<string, string> = {
   in_progress:
     "bg-emerald-500/25 text-emerald-200 border border-emerald-500/40",
@@ -216,6 +218,7 @@ export function BountyCard({
   archived = false,
   onPriorityChange,
   onStatusChange,
+  onPinnedChange,
   onArchive,
 }: {
   bounty: Bounty;
@@ -230,6 +233,11 @@ export function BountyCard({
    *  this SHOULD be supplied for ALL bounties including terminal
    *  (done/dropped) and archived — status is the resurrect surface. */
   onStatusChange?: (status: BountyStatus) => Promise<void>;
+  /** Quick 260728-sqk / patch #172: when supplied, header row renders a
+   *  pin-toggle star; click fires this callback with the flipped boolean.
+   *  Supplied for ALL bounties including archived (unpin an archived pinned
+   *  bounty stays legal, re-pin is the resurrect signal on the pinned axis). */
+  onPinnedChange?: (pinned: boolean) => Promise<void>;
   /** Quick 260727-wd0: when supplied, expanded body renders an Archive
    *  button below the Priority row. Only supplied for OPEN cards; archived
    *  cards do NOT get the button (unarchive is a follow-up quick). */
@@ -241,6 +249,8 @@ export function BountyCard({
   const [priorityError, setPriorityError] = useState<string | null>(null);
   const [savingStatus, setSavingStatus] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [savingPinned, setSavingPinned] = useState(false);
+  const [pinnedError, setPinnedError] = useState<string | null>(null);
   const [savingArchive, setSavingArchive] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const isLongPremise = bounty.premise.length > 400;
@@ -268,6 +278,23 @@ export function BountyCard({
       setStatusError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingStatus(false);
+    }
+  }
+
+  // Quick 260728-sqk / patch #172: header-row star toggle handler.
+  // Mirrors handleStatusChange — flip the boolean, surface backend errors
+  // inline, reset saving flag in finally so the star re-enables even on
+  // failure.
+  async function handlePinnedChange(next: boolean) {
+    if (!onPinnedChange) return;
+    setPinnedError(null);
+    setSavingPinned(true);
+    try {
+      await onPinnedChange(next);
+    } catch (e) {
+      setPinnedError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingPinned(false);
     }
   }
 
@@ -347,6 +374,32 @@ export function BountyCard({
         >
           {statusLabel}
         </span>
+        {/* Quick 260728-sqk / patch #172: pin toggle star. Lives in the
+            meta cluster next to the status pill so it visually reads as
+            "part of the header signals". stopPropagation prevents the
+            disclosure toggle from firing on click. Disabled when no
+            onPinnedChange is supplied (defensive — currently threaded
+            everywhere, but the prop is optional). */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void handlePinnedChange(!bounty.pinned);
+          }}
+          disabled={!onPinnedChange || savingPinned}
+          aria-label={bounty.pinned ? "Unpin bounty" : "Pin bounty"}
+          aria-pressed={bounty.pinned}
+          title={bounty.pinned ? "Unpin bounty" : "Pin bounty"}
+          className="shrink-0 rounded p-0.5 transition-colors cursor-pointer hover:brightness-125 disabled:opacity-60 disabled:cursor-default"
+        >
+          <Star
+            className={cn(
+              "h-3.5 w-3.5",
+              bounty.pinned ? "text-amber-300" : "text-[#a89a80]",
+            )}
+            fill={bounty.pinned ? "currentColor" : "none"}
+          />
+        </button>
         {bounty.priority && bounty.priority !== "unprioritized" && (
           <span className="shrink-0 flex items-center">
             <PriorityIcon priority={bounty.priority} />

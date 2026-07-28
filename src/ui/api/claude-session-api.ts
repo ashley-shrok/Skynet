@@ -211,6 +211,7 @@ export type ClaudeSessionServerEvent =
   | IdentityWakeupUpdatedEvent
   | IdentityBountyPriorityUpdatedEvent
   | IdentityBountyStatusUpdatedEvent
+  | IdentityBountyPinnedUpdatedEvent
   | IdentityBountyArchivedEvent
   // Phase 17 relay events — handlers added in plan 17-03; PrettyView's
   // non-exhaustive switch silently ignores these until then.
@@ -276,6 +277,10 @@ export type Bounty = {
   premise: string;
   status: string;
   priority: string;
+  /** Patch #168 / #172: independent of status; true if pinned. Backend
+   *  normalizeBounty defaults to false when the field is absent from
+   *  bounty.json. Flipped via identity:update-bounty-pinned WS write. */
+  pinned: boolean;
   keywords: string[];
   requested_by: string | null;
   created_at: string;
@@ -430,6 +435,26 @@ export type IdentityUpdateBountyStatusPayload = {
 };
 export type IdentityBountyStatusUpdatedEvent = {
   type: "identity:bounty-status-updated";
+  bounties: Bounty[];
+  archivedBounties: Bounty[];
+  error?: string;
+};
+
+// Quick 260728-sqk / patch #172: byte-shape mirror of the status payload
+// above for the parallel `pinned` write surface. `pinned` is an independent
+// boolean orthogonal to lifecycle `status` (fleet schema post-#168 by Nelly
+// 2026-07-28). Same one-shot request / fresh-list response convention —
+// server patches bounty.json in place (folder NOT moved) and returns both
+// bounty lists so the modal atomically re-renders.
+export type IdentityUpdateBountyPinnedPayload = {
+  type: "identity:update-bounty-pinned";
+  identityKey: string;
+  hostId: number;
+  bountySlug: string;
+  pinned: boolean;
+};
+export type IdentityBountyPinnedUpdatedEvent = {
+  type: "identity:bounty-pinned-updated";
   bounties: Bounty[];
   archivedBounties: Bounty[];
   error?: string;
