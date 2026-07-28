@@ -44,6 +44,8 @@ import {
   type IdentityBountyPriorityUpdatedEvent,
   type IdentityUpdateBountyStatusPayload,
   type IdentityBountyStatusUpdatedEvent,
+  type IdentityUpdateBountyPinnedPayload,
+  type IdentityBountyPinnedUpdatedEvent,
   type IdentityArchiveBountyPayload,
   type IdentityBountyArchivedEvent,
   type Wakeup,
@@ -87,18 +89,17 @@ const PRIORITY_WEIGHT: Record<string, number> = {
   unprioritized: 4,
 };
 
-// Patch #109: below the in_progress fence we no longer partition by status.
-// Ashley: "I want to know priority-wise more than I want to know whether
-// having another section that's just pinned" — so pinned +
-// waiting_on_someone_else + anything else that's not in_progress + not
-// done/dropped collapse into a single flat priority-sorted list under the
-// header-less "rest" region. in_progress keeps its own header (fence) at top.
-// done/dropped-in-place bounties (status=done or status=dropped in the open
-// dir, not yet moved to bounties/archive/) still get their own quiet "Other"
-// section so recently-closed work doesn't visually blend into open work.
-const OPEN_STATUS_ORDER = ["in_progress", "rest", "other"];
+// Patch #172: `pinned` is now an independent boolean field. Pinned bounties
+// get their own top group (`pinned`) rendered above the in_progress fence
+// regardless of status. Below that, in_progress keeps its fence; `rest`
+// still collapses waiting_on_someone_else + anything else that's not
+// in_progress + not done/dropped into one flat priority-sorted region (no
+// header). done/dropped-in-place bounties still bucket to `other` with a
+// quiet header so recently-closed work doesn't blend into open work.
+const OPEN_STATUS_ORDER = ["pinned", "in_progress", "rest", "other"];
 
 const GROUP_LABELS: Record<string, string> = {
+  pinned: "Pinned", // patch #172: pinned-boolean global top group
   in_progress: "In Progress",
   rest: "", // patch #109: no header for the flat priority-sorted region
   other: "Other",
@@ -312,17 +313,26 @@ export function IdentityModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, identity.identityKey, hostId, refetchKey]);
 
-  // Patch #109: two-partition split — in_progress fence + flat priority-
-  // sorted rest — replaces the older status-grouped (in_progress / pinned /
-  // waiting_on_someone_else / other) render. done/dropped-in-place still
-  // buckets into `other` so they don't visually blend with open work.
+  // Patch #172: pinned-first partition. `pinned` is now an independent
+  // boolean field (fleet migration #168), so ANY bounty with pinned===true
+  // wins the top group regardless of its `status` value. Below the pinned
+  // group, patch #109's semantics still apply: in_progress fence + flat
+  // priority-sorted rest + done/dropped-in-place → `other`. The pinned
+  // check runs BEFORE the isArchived check so a pinned done/dropped bounty
+  // still sits in Pinned (Ashley's requested behavior — pinning is the
+  // "keep this visible" signal orthogonal to lifecycle).
   const grouped = useMemo(() => {
     const groups: Record<string, Bounty[]> = {
+      pinned: [],
       in_progress: [],
       rest: [],
       other: [],
     };
     for (const b of bounties) {
+      if (b.pinned === true) {
+        groups.pinned.push(b);
+        continue;
+      }
       const isArchived = b.status === "done" || b.status === "dropped";
       if (isArchived) {
         // done/dropped in open dir: treat as archived-in-place (D-09).
@@ -332,14 +342,15 @@ export function IdentityModal({
       if (b.status === "in_progress") {
         groups.in_progress.push(b);
       } else {
-        // pinned, waiting_on_someone_else, or any other open status →
+        // waiting_on_someone_else, or any other open non-pinned status →
         // all collapse into the flat priority-sorted rest region.
         groups.rest.push(b);
       }
     }
     // Sort every partition by priority asc, updated_at desc (same
     // sortBounties helper — the CHANGE is at the partition layer, not the
-    // in-partition sort).
+    // in-partition sort). This preserves within-group priority ordering
+    // for the new pinned group too.
     for (const key of Object.keys(groups)) {
       groups[key] = sortBounties(groups[key]);
     }
@@ -449,6 +460,33 @@ export function IdentityModal({
       IdentityUpdateBountyStatusPayload,
       IdentityBountyStatusUpdatedEvent
     >(payload, "identity:bounty-status-updated");
+    if (res.error) throw new Error(res.error);
+    setBounties(res.bounties);
+    setArchivedBounties(res.archivedBounties);
+    void invalidateBountyCount(identity.identityKey, hostId);
+  }
+
+  // Quick 260728-sqk / patch #172: byte-shape mirror of updateBountyStatus
+  // for the parallel `pinned` write surface. `pinned` is an independent
+  // boolean orthogonal to lifecycle status; toggling directly changes the
+  // panel's cached pinned count so invalidateBountyCount is deterministic
+  // (unlike the priority case which was speculative).
+  async function updateBountyPinned(
+    bountySlug: string,
+    pinned: boolean,
+  ): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateBountyPinnedPayload = {
+      type: "identity:update-bounty-pinned",
+      identityKey: identity.identityKey,
+      hostId,
+      bountySlug,
+      pinned,
+    };
+    const res = await sendIdentityMutation<
+      IdentityUpdateBountyPinnedPayload,
+      IdentityBountyPinnedUpdatedEvent
+    >(payload, "identity:bounty-pinned-updated");
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
     setArchivedBounties(res.archivedBounties);
@@ -749,6 +787,12 @@ export function IdentityModal({
                             // Threaded for ALL three partitions including
                             // "other".
                             onStatusChange={(s) => updateBountyStatus(b.slug, s)}
+                            // Quick 260728-sqk / patch #172: pin toggle
+                            // threaded for ALL FOUR partitions (pinned /
+                            // in_progress / rest / other). Pinning a
+                            // done-in-place bounty is a legal resurrect
+                            // signal on the pinned axis same as status.
+                            onPinnedChange={(next) => updateBountyPinned(b.slug, next)}
                             // Quick 260727-wd0: Archive button threaded for
                             // ALL THREE OPEN partitions (in_progress / rest
                             // / other) — a single addition here covers all
@@ -787,6 +831,12 @@ export function IdentityModal({
                               // Priority row stays hidden per patch #154's
                               // gate on `onPriorityChange &&`).
                               onStatusChange={(s) => updateBountyStatus(b.slug, s)}
+                              // Quick 260728-sqk / patch #172: pin toggle
+                              // threaded for archived bounties too — unpinning
+                              // an archived pinned bounty stays legal, and
+                              // re-pinning is the resurrect signal on the
+                              // pinned axis (same rationale as onStatusChange).
+                              onPinnedChange={(next) => updateBountyPinned(b.slug, next)}
                               /* Quick 260727-wd0: NO onArchive here — cards
                                  already under archive/ do not get an Archive
                                  button (locked semantics rule #3; unarchive
