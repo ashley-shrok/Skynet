@@ -304,6 +304,27 @@ html.fs-xl {
   font-size: 18px;
 }
 
+/* Mobile reading-surface bump — Ashley 2026-07-28 confirmed via `?fonttune=1`
+ * live tuner on the deployed app that html=24 (which cascades .prose-sm to
+ * 21px) matches Telegram iOS body text visually. The html-level bump grew
+ * composebox buttons too much, so this is surgical: only .prose-sm gets
+ * bumped, leaving layout at its normal size. Covers ChatMessage, HandoffTab,
+ * AsideBubble, IdentityFileTab — every prose-sm reading surface.
+ * `!important` is required because @tailwindcss/typography's .prose-sm
+ * font-size selector has 0-1-0 specificity — same as the media query rule —
+ * but plugin CSS injects at plugin-registration time and can appear after
+ * this rule in the compiled output; !important is the belt-and-suspenders
+ * cascade guarantee (same lesson as patch #81 shadcn dark: variant fix).
+ * Line-height 1.55 is tighter than prose-sm's default 1.714 (which at 21px
+ * = 36px per line — vertically loose). 1.55 keeps line-boxes ~32.5px, denser
+ * and closer to Telegram's message density. */
+@media (max-width: 768px) {
+  .prose-sm {
+    font-size: 1.3125rem !important;
+    line-height: 1.55 !important;
+  }
+}
+
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
