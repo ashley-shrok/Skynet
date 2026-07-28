@@ -62,26 +62,33 @@ export async function discoverClaudeSession(
   // all descendants valid, then emits the first pid with comm='claude'. pane_pid
   // itself is included as a candidate (no `pid[i] != root` guard) so the backcompat
   // case where tmux IS directly running claude still works.
+  // NB: JS `+` concatenation joins these strings on ONE line — awk statements
+  // MUST be terminated with `;`, not just closing braces or line breaks. The
+  // initial ship of this patch shipped without separators, which awk parsed as
+  // one broken line and silently returned empty for every session ("no active
+  // Claude session" fleet-wide). Do not remove any `;` below — each one is
+  // load-bearing at the boundary between what would otherwise be two adjacent
+  // statements collapsed onto the same line.
   const walkScript =
     `PID=${panePid}; ps -eo pid=,ppid=,comm= 2>/dev/null | awk -v root="$PID" '` +
-    `BEGIN { valid[root] = 1 }` +
-    `{ pid[NR] = $1; ppid[NR] = $2; comm[NR] = $3; n = NR }` +
-    `END {` +
-    `  changed = 1` +
-    `  while (changed) {` +
-    `    changed = 0` +
-    `    for (i = 1; i <= n; i++) {` +
-    `      if (!valid[pid[i]] && valid[ppid[i]]) {` +
-    `        valid[pid[i]] = 1` +
-    `        changed = 1` +
-    `      }` +
-    `    }` +
-    `  }` +
-    `  for (i = 1; i <= n; i++) {` +
-    `    if (valid[pid[i]] && comm[i] == "claude") {` +
-    `      print pid[i]; exit` +
-    `    }` +
-    `  }` +
+    `BEGIN { valid[root] = 1 } ` +
+    `{ pid[NR] = $1; ppid[NR] = $2; comm[NR] = $3; n = NR } ` +
+    `END { ` +
+    `  changed = 1; ` +
+    `  while (changed) { ` +
+    `    changed = 0; ` +
+    `    for (i = 1; i <= n; i++) { ` +
+    `      if (!valid[pid[i]] && valid[ppid[i]]) { ` +
+    `        valid[pid[i]] = 1; ` +
+    `        changed = 1; ` +
+    `      } ` +
+    `    } ` +
+    `  } ` +
+    `  for (i = 1; i <= n; i++) { ` +
+    `    if (valid[pid[i]] && comm[i] == "claude") { ` +
+    `      print pid[i]; exit; ` +
+    `    } ` +
+    `  } ` +
     `}'`;
 
   let walkOutput: string;
