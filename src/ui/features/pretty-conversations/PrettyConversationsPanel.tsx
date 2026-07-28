@@ -355,9 +355,13 @@ export function PrettyConversationsPanel({
   // with bounties), the whole "Remote desktop" section disappears from the
   // list, matching Ashley's directive that filter applies "to the entire
   // conversation list."
-  const displayedActiveSetRows = filterPinnedOnly
-    ? activeSetRows.filter(hasPinnedForRow)
-    : activeSetRows;
+  //
+  // Exception (Ashley 2026-07-28): the active-set tier is exempt from the
+  // filter — active sessions always show through, regardless of pinned-bounty
+  // count. Conversation-store's tier partition guarantees active-set rows
+  // never appear in the pinned or grouped tiers, so this exemption doesn't
+  // leak: pinned-only conversations (not in active-set) still get filtered.
+  const displayedActiveSetRows = activeSetRows;
   const displayedPinned = filterPinnedOnly
     ? pinned.filter(hasPinnedForRow)
     : pinned;

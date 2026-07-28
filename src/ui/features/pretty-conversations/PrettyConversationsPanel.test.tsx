@@ -1719,4 +1719,68 @@ describe("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
     );
     expect(hostBDivider).toBeTruthy();
   });
+
+  it("Test 28: filter=on always shows active-set rows regardless of pinned-bounty count", () => {
+    // Ashley 2026-07-28: pinned-bounty filter exempts the active-set tier.
+    // Active session with 0 pinned bounties (nelly) must remain visible when
+    // the filter is on; a pinned-tier row with 0 pinned bounties (nelly, in
+    // the pinned tier this time) still gets filtered out — the exemption is
+    // scoped to the active-set tier, not "any row whose identity is active."
+    const host1 = makeHost("1", "hostA");
+    mockIdentitiesByKey = new Map([
+      ["nelly-session", { identityKey: "nelly" }],
+      ["tina-session", { identityKey: "tina" }],
+    ]);
+    mockBountyCounts = new Map([
+      ["nelly:1", 0],
+      ["tina:1", 3],
+    ]);
+    setSnapshot({
+      activeSet: [
+        makeConversationRow({
+          id: "nelly-active",
+          targetTmuxSession: "nelly-session",
+          host: host1,
+        }),
+      ],
+      pinned: [
+        makeConversationRow({
+          id: "nelly-pinned",
+          targetTmuxSession: "nelly-session",
+          host: host1,
+        }),
+      ],
+      grouped: [
+        {
+          hostId: "1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({
+              id: "tina-grouped",
+              targetTmuxSession: "tina-session",
+              host: host1,
+            }),
+          ],
+        },
+      ],
+    });
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Flip filter on.
+    fireEvent.click(getByTestId("pv-filter-pinned-bounties"));
+    // Active-set row shows despite nelly having 0 pinned bounties.
+    expect(
+      container.querySelector('[data-conversation-id="nelly-active"]'),
+    ).toBeTruthy();
+    // Pinned-tier row with 0 pinned bounties is still filtered out —
+    // exemption is tier-scoped, not identity-scoped.
+    expect(
+      container.querySelector('[data-conversation-id="nelly-pinned"]'),
+    ).toBeFalsy();
+    // Grouped row with pins stays visible (unchanged behavior).
+    expect(
+      container.querySelector('[data-conversation-id="tina-grouped"]'),
+    ).toBeTruthy();
+  });
 });
