@@ -24,10 +24,13 @@ import {
 // Priority indicator uses lucide glyphs only — no text glyph, bare icon (D-14 note on
 // bare-glyph-for-indicator pattern from patch #72).
 
+// Patch #168: "pinned" removed from STATUS_CLASSES and STATUS_LABELS —
+// it is now an independent boolean field, not a status enum value.
+// The per-row pin glyph (PrettyConversationRow + bounty badge) handles
+// the pinned indicator separately.
 const STATUS_CLASSES: Record<string, string> = {
   in_progress:
     "bg-emerald-500/25 text-emerald-200 border border-emerald-500/40",
-  pinned: "bg-amber-500/25 text-amber-200 border border-amber-500/40",
   waiting_on_someone_else:
     "bg-violet-500/25 text-violet-200 border border-violet-500/40",
   done: "bg-slate-500/25 text-slate-300 border border-slate-500/40",
@@ -37,7 +40,6 @@ const STATUS_CLASSES: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   in_progress: "In Progress",
-  pinned: "Pinned",
   waiting_on_someone_else: "Waiting",
   done: "Done",
   dropped: "Dropped",
@@ -143,10 +145,12 @@ function PriorityRow({
 // for fill/border/text (rather than the common muted border PriorityRow
 // uses). The ACTIVE pill still gets the "pressed white ring" treatment
 // so it reads as selected against the colored inactive row. Editable for
-// ALL bounties including archived — that's the resurrect flow (click
-// "pinned" on a done/dropped/archived card to pull it back into working
-// set). Read-only branch (no onChange) is a safety net; the caller in
-// IdentityModal supplies onChange at every render site.
+// ALL bounties including archived. Read-only branch (no onChange) is a
+// safety net; the caller in IdentityModal supplies onChange at every
+// render site.
+// Patch #168: shows 4 options (in_progress / waiting_on_someone_else /
+// done / dropped). "pinned" removed — it is now a boolean field shown via
+// the per-row pin glyph, not a lifecycle status option.
 function StatusRow({
   status,
   onChange,
@@ -360,9 +364,9 @@ export function BountyCard({
         <>
           {/* Quick 260727-v0b: inline status editor mirroring patch #154
               priority editor. Placed ABOVE Priority per Ashley's ask —
-              status change is the higher-frequency edit (includes the
-              resurrect flow: click "pinned" on a done/dropped/archived
-              bounty to pull it back into working set). */}
+              status change is the higher-frequency edit. Patch #168:
+              shows 4 options (in_progress / waiting_on_someone_else /
+              done / dropped); "pinned" removed from the status enum. */}
           {onStatusChange && (
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">

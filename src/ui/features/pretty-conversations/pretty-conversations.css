@@ -759,3 +759,19 @@
   justify-content: center;
   flex: 0 0 auto;
 }
+
+/* Patch #168 (Ashley's companion ask 2026-07-28): bump .pv-bounty-badge on
+   mobile PWA viewports. At max-md (≤767.98px), the badge scales to ~1.6x
+   the desktop values so it reads clearly alongside the em-scaled rows
+   (patch #165 bumped html font-size to 24px on mobile). Desktop dimensions
+   above remain unchanged. No !important needed — .pv-bounty-badge is
+   fork-owned CSS with no shadcn ancestor competing for specificity. */
+@media (max-width: 767.98px) {
+  .pv-bounty-badge {
+    min-width: 28px;
+    height: 26px;
+    padding: 0 8px;
+    font-size: 16px;
+    line-height: 26px;
+  }
+}

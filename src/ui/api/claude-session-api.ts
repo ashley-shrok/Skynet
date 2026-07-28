@@ -339,10 +339,11 @@ export type BountyPriority = (typeof BOUNTY_PRIORITY_VALUES)[number];
 // Quick 260727-v0b: allowed status set for bounty-status updates. Mirrors
 // BOUNTY_PRIORITY_VALUES's shape — a const tuple + derived union — so the
 // StatusRow editor and the WS validation guard reference the same source.
-// Order here is the order pills render in BountyCard (pinned first per
-// Ashley's ask; done/dropped last since they're the terminal states).
+// Order here is the order pills render in BountyCard (done/dropped last
+// since they're the terminal states).
+// Patch #168: "pinned" removed — it is now an independent boolean field
+// orthogonal to the lifecycle status (fleet schema migration 2026-07-28).
 export const BOUNTY_STATUS_VALUES = [
-  "pinned",
   "in_progress",
   "waiting_on_someone_else",
   "done",
