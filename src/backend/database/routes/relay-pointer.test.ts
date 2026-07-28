@@ -6,11 +6,13 @@
  *
  * SSH primitives are mocked via vi.mock() so no real SSH connection is made.
  *
- * Coverage (11 tests):
- *   Test 1  : whitelist accept — /tmp/relay-msg-abc123.txt matches WHITELIST_REGEX
- *   Test 2  : whitelist reject dot-dot — /tmp/relay-msg-../../etc/passwd rejected
- *   Test 3  : whitelist reject non-tmp — /etc/passwd rejected
- *   Test 4  : whitelist reject wrong suffix — /tmp/relay-msg-abc.sh rejected
+ * Coverage (13 tests):
+ *   Test 1  : whitelist accept — identity-dir path shape accepted (Ashley's reproducer path)
+ *   Test 2  : whitelist reject dot-dot — /home/ubuntu/.claude/identities/../../etc/passwd rejected
+ *   Test 3  : whitelist reject non-identity — /etc/passwd and /home/ubuntu/other/file.txt rejected
+ *   Test 4  : whitelist reject wrong suffix — identity-dir path with .sh suffix rejected
+ *   Test 4b : whitelist reject uppercase user — /home/UBUNTU/.claude/identities/... rejected
+ *   Test 4c : whitelist reject path traversal in identity name
  *   Test 5  : unauthorized host — resolveHostById returns null → 403 unauthorized_host
  *   Test 6  : file not found — execCommand returns "__RELAY_EXIT_1" → 404 file_not_found
  *   Test 7  : happy path — returns 200 with stripped body
@@ -154,29 +156,43 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("GET /relay-pointer", () => {
-  it("Test 1: whitelist accept — /tmp/relay-msg-abc123.txt matches WHITELIST_REGEX", () => {
-    expect(WHITELIST_REGEX.test("/tmp/relay-msg-abc123.txt")).toBe(true);
-    expect(WHITELIST_REGEX.test("/tmp/relay-msg-ABC-123_hello.world.txt")).toBe(true);
+  it("Test 1: whitelist accept — identity-dir path shape accepted (Ashley's reproducer path)", () => {
+    // Ashley's exact reproducer path from recv.sh — MUST match
+    expect(WHITELIST_REGEX.test("/home/ubuntu/.claude/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt")).toBe(true);
+    // Alternate user + identity name
+    expect(WHITELIST_REGEX.test("/home/thenasty/.claude/identities/tina/relay-state/messages/AbCdEf-_1234.txt")).toBe(true);
   });
 
-  it("Test 2: whitelist reject dot-dot — /tmp/relay-msg-../../etc/passwd rejected", () => {
-    // The dot-dot introduces `/` which is not in [A-Za-z0-9._-] after the fixed prefix
-    expect(WHITELIST_REGEX.test("/tmp/relay-msg-../../etc/passwd")).toBe(false);
+  it("Test 2: whitelist reject dot-dot — /home/ubuntu/.claude/identities/../../etc/passwd rejected", () => {
+    // Path traversal via .. in the identity path segment — rejected
+    expect(WHITELIST_REGEX.test("/home/ubuntu/.claude/identities/../../etc/passwd")).toBe(false);
   });
 
-  it("Test 3: whitelist reject non-tmp — /etc/passwd rejected", () => {
+  it("Test 3: whitelist reject non-identity — /etc/passwd and non-identity paths rejected", () => {
     expect(WHITELIST_REGEX.test("/etc/passwd")).toBe(false);
+    // Missing identities/... segment
+    expect(WHITELIST_REGEX.test("/home/ubuntu/other/file.txt")).toBe(false);
   });
 
-  it("Test 4: whitelist reject wrong suffix — /tmp/relay-msg-abc.sh rejected", () => {
-    expect(WHITELIST_REGEX.test("/tmp/relay-msg-abc.sh")).toBe(false);
+  it("Test 4: whitelist reject wrong suffix — identity-dir path with .sh suffix rejected", () => {
+    expect(WHITELIST_REGEX.test("/home/ubuntu/.claude/identities/tina/relay-state/messages/abc.sh")).toBe(false);
+  });
+
+  it("Test 4b: whitelist reject uppercase user — /home/UBUNTU/.claude/identities/... rejected", () => {
+    // POSIX-safe lowercase enforced; uppercase username rejected
+    expect(WHITELIST_REGEX.test("/home/UBUNTU/.claude/identities/tina/relay-state/messages/abc.txt")).toBe(false);
+  });
+
+  it("Test 4c: whitelist reject path traversal in identity name", () => {
+    // Traversal via .. in the identity name component
+    expect(WHITELIST_REGEX.test("/home/ubuntu/.claude/identities/../evil/relay-state/messages/abc.txt")).toBe(false);
   });
 
   it("Test 5: unauthorized host — resolveHostById returns null → throws UNAUTHORIZED_HOST", async () => {
     (resolveHostById as Mock).mockResolvedValue(null);
 
     await expect(
-      readRelayPointerFile(42, "user-1", "/tmp/relay-msg-abc.txt"),
+      readRelayPointerFile(42, "user-1", "/home/ubuntu/.claude/identities/tina/relay-state/messages/abc.txt"),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED_HOST" });
   });
 
@@ -185,7 +201,7 @@ describe("GET /relay-pointer", () => {
     (execCommand as Mock).mockResolvedValue("__RELAY_EXIT_1");
 
     await expect(
-      readRelayPointerFile(1, "user-1", "/tmp/relay-msg-abc.txt"),
+      readRelayPointerFile(1, "user-1", "/home/ubuntu/.claude/identities/tina/relay-state/messages/abc.txt"),
     ).rejects.toMatchObject({ code: "FILE_NOT_FOUND" });
   });
 
@@ -194,7 +210,7 @@ describe("GET /relay-pointer", () => {
     // Input shape after execCommand.trim(): "hello relay body\n__RELAY_EXIT_0"
     (execCommand as Mock).mockResolvedValue("hello relay body\n__RELAY_EXIT_0");
 
-    const body = await readRelayPointerFile(1, "user-1", "/tmp/relay-msg-abc.txt");
+    const body = await readRelayPointerFile(1, "user-1", "/home/ubuntu/.claude/identities/tina/relay-state/messages/abc.txt");
     expect(body).toBe("hello relay body");
   });
 
@@ -206,12 +222,12 @@ describe("GET /relay-pointer", () => {
     (execCommand as Mock).mockResolvedValue(bigBody + "\n__RELAY_EXIT_0");
 
     await expect(
-      readRelayPointerFile(1, "user-1", "/tmp/relay-msg-abc.txt"),
+      readRelayPointerFile(1, "user-1", "/home/ubuntu/.claude/identities/tina/relay-state/messages/abc.txt"),
     ).rejects.toMatchObject({ code: "FILE_TOO_LARGE" });
   });
 
   it("Test 9: missing hostId → 400 invalid_params", async () => {
-    const req = makeReq({ path: "/tmp/relay-msg-abc.txt" }); // no hostId
+    const req = makeReq({ path: "/home/ubuntu/.claude/identities/tina/relay-state/messages/abc.txt" }); // no hostId
     const res = makeRes();
 
     // Drive the handler directly through the router layer
@@ -233,7 +249,7 @@ describe("GET /relay-pointer", () => {
   });
 
   it("Test 10: non-integer hostId ('abc') → 400 invalid_params", async () => {
-    const req = makeReq({ hostId: "abc", path: "/tmp/relay-msg-abc.txt" });
+    const req = makeReq({ hostId: "abc", path: "/home/ubuntu/.claude/identities/tina/relay-state/messages/abc.txt" });
     const res = makeRes();
 
     const layer = (router as unknown as { stack: Array<{ route: { stack: Array<{ handle: (req: Request, res: Response, next: () => void) => void }> } }> }).stack.find((l) => l.route);
@@ -254,7 +270,7 @@ describe("GET /relay-pointer", () => {
     // Form A: execCommand already trimmed (current behavior — resolve(stdout.trim()) at L45)
     // "body\n__RELAY_EXIT_0" — the trailing \n was stripped by trim(), sentinel has no leading \n
     (execCommand as Mock).mockResolvedValue("body\n__RELAY_EXIT_0");
-    const bodyA = await readRelayPointerFile(1, "user-1", "/tmp/relay-msg-abc.txt");
+    const bodyA = await readRelayPointerFile(1, "user-1", "/home/ubuntu/.claude/identities/tina/relay-state/messages/abc.txt");
 
     // Form B: defensive — what if a future execCommand change stops trimming?
     // "body\n__RELAY_EXIT_0\n" — sentinel has a trailing \n

@@ -3,7 +3,9 @@
  *
  * Fetches a long-inbound relay body file from the pane's remote host via SSH.
  * Gated by:
- *   1. WHITELIST_REGEX — path must match /tmp/relay-msg-[A-Za-z0-9._-]+.txt exactly (SSRF gate)
+ *   1. WHITELIST_REGEX — path must match ~/.claude/identities/<id>/relay-state/messages/<eventid>.txt
+ *      exactly (SSRF gate, T-17-02-01). Updated 2026-07-28 (UAT Bug 2 fix): now uses the
+ *      actual recv.sh identity-dir output path shape (prev. form used a /tmp path).
  *   2. resolveHostById(hostId, userId) — per-user host ownership (elevation-of-privilege gate)
  *   3. head -c bounded remote read — server-side truncation at SSH exec channel so backend RAM
  *      is bounded by construction (CLAUDE.md "Ashley never loses access to her fleet" constraint)
@@ -26,11 +28,18 @@ const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
 /**
- * SSRF whitelist: only /tmp/relay-msg-[A-Za-z0-9._-]+.txt paths are allowed.
- * Character class rejects `/`, `..`, shell metacharacters. Anchored `^...$` prevents prefix bypass.
- * T-17-02-01 mitigation.
+ * SSRF whitelist: only identity-dir relay message paths are allowed.
+ * Shape: /home/<user>/.claude/identities/<id>/relay-state/messages/<eventid>.txt
+ * Character classes:
+ *   - user and identity name: [a-z0-9_-] (POSIX-safe lowercase, rejects uppercase, dot, slash)
+ *   - event-id: [A-Za-z0-9_-] (Matrix event ids are base64url-like; dot excluded intentionally
+ *     since recv.sh event ids never contain dot, and dropping dot strengthens the whitelist)
+ * Rejects `..`, `/` inside name components, shell metacharacters. Anchored `^...$` prevents bypass.
+ * T-17-02-01 mitigation. Updated 2026-07-28 (UAT Bug 2 fix): swapped to actual recv.sh
+ * identity-dir output path shape (POSIX-safe lowercase user + identity name).
  */
-export const WHITELIST_REGEX = /^\/tmp\/relay-msg-[A-Za-z0-9._-]+\.txt$/;
+export const WHITELIST_REGEX =
+  /^\/home\/[a-z0-9_-]+\/\.claude\/identities\/[a-z0-9_-]+\/relay-state\/messages\/[A-Za-z0-9_-]+\.txt$/;
 
 /**
  * Server-side read cap: 512 KB.

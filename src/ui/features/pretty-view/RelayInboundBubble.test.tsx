@@ -3,14 +3,19 @@
  *
  * Tests: RELAYBUB-02 (inbound bubble render matrix):
  *   (1) inline body — no fetch triggered
- *   (2) file-pointer body — fetch called; on 200 body inlined
+ *   (2) file-pointer body — fetch called; on 200 body inlined (identity-dir path shape)
  *   (3) fetch 404 — fetch-failed indicator visible
  *   (4) sender resolves to identity → avatar-dot carries colorHue
  *   (5) sender unresolved → neutral grey fallback + raw mxid displayed
+ *   (6) detectFilePointer matches recv.sh preview line format with em-dash boundaries
+ *
+ * Updated 2026-07-28 (UAT Bug 2 fix): file-pointer paths updated to
+ * ~/.claude/identities/<id>/relay-state/messages/<eventid>.txt shape.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
+import { detectFilePointer } from "./relay-pointer-detect";
 
 // Mock useIdentities so tests don't hit the real module store.
 vi.mock("@/state/identities-store", () => ({
@@ -74,8 +79,9 @@ describe("RelayInboundBubble", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("Test 2: file-pointer body → fetch called with /relay-pointer?hostId=...&path=... on 200, body inlined", async () => {
+  it("Test 2: file-pointer body → fetch called with /relay-pointer?hostId=...&path=... on 200, body inlined (identity-dir path shape)", async () => {
     const fetchedBody = "This is the full relay message body from file.";
+    const identityPath = "/home/ubuntu/.claude/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt";
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -86,7 +92,7 @@ describe("RelayInboundBubble", () => {
       <RelayInboundBubble
         room="!roomAlias:server.tld"
         sender="@tina:matrix.example.com"
-        body="body written to /tmp/relay-msg-abc123.txt"
+        body={`body written to ${identityPath}`}
         hostId={42}
       />,
     );
@@ -98,7 +104,7 @@ describe("RelayInboundBubble", () => {
     const [url, opts] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toContain("/relay-pointer?");
     expect(url).toContain("hostId=42");
-    expect(url).toContain(encodeURIComponent("/tmp/relay-msg-abc123.txt"));
+    expect(url).toContain(encodeURIComponent(identityPath));
     expect(opts?.credentials).toBe("include");
 
     // Fetched body is inlined
@@ -118,7 +124,7 @@ describe("RelayInboundBubble", () => {
       <RelayInboundBubble
         room="!roomAlias:server.tld"
         sender="@tina:matrix.example.com"
-        body="/tmp/relay-msg-xyz.txt"
+        body="/home/ubuntu/.claude/identities/tina/relay-state/messages/abc-xyz.txt"
         hostId={7}
       />,
     );
@@ -182,5 +188,19 @@ describe("RelayInboundBubble", () => {
     expect(avatarDot).not.toBeNull();
     const avatarColor = (avatarDot as HTMLElement).getAttribute("data-avatar-color") ?? "";
     expect(avatarColor).toBe("hsl(210, 8%, 50%)");
+  });
+
+  it("Test 6: detectFilePointer matches recv.sh preview line format with em-dash boundaries", () => {
+    // The exact reproducer string from Ashley's UAT (2026-07-28).
+    // recv.sh preview line format: "[long message, N chars — full text at <path> — Read it] «...»"
+    // The path is bounded by " — " (ASCII space + em-dash + ASCII space) on both sides.
+    // JS \s matches the ASCII space adjacent to the em-dash, so the existing \s boundaries work.
+    const reproStr =
+      "[long message, 1960 chars — full text at /home/ubuntu/.claude/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt — Read it] «Huge. Signal received before I invested…»";
+    const result = detectFilePointer(reproStr);
+    expect(result).not.toBeNull();
+    expect(result?.pointerPath).toBe(
+      "/home/ubuntu/.claude/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt",
+    );
   });
 });
