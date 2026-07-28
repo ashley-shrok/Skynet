@@ -15,10 +15,33 @@
  * `toolUseResult.file.base64` convenience path) are now surfaced as a
  * `kind:"image"` variant. Non-image tool_results still drop.
  *
+ * Phase 17 (RELAYBUB-01, RELAYBUB-02, RELAYBUB-05) adds two more variants:
+ * `kind:"relay_outbound"` for Claude Bash turns that are a real Matrix
+ * relay send (curl + -X PUT + URL shape conjunction), and
+ * `kind:"relay_inbound"` for task-notification user turns whose body
+ * matches the recv.sh event-line format. Detection is ported byte-for-byte
+ * from prototype.html (2026-07-28, 6/6 acceptance battery). See
+ * detectRelayOutbound / detectRelayInbound exports below.
+ *
  * Informational-only prior art (NOT a dependency): github.com/delexw/claude-code-trace
  * has already worked out the file format; we reimplement here because the
  * scope is narrower than what the library does.
  */
+
+// ---------------------------------------------------------------------------
+// Phase 17 relay detection regexes — ported byte-for-byte from
+// prototype.html § detectOutbound (2026-07-28 6/6 acceptance) — do not loosen
+// ---------------------------------------------------------------------------
+
+// OUTBOUND: all three must hit for a Bash tool_use to be a real Matrix send.
+// Rejects grep, heredoc, and comment false-positives (acceptance cases 2+3).
+const OUTBOUND_CURL_RE = /\bcurl\b/;
+const OUTBOUND_PUT_RE = /-X\s+PUT\b/;
+const OUTBOUND_URL_RE = /rooms\/[^\/\s'"]+\/send\/m\.room\.message\/[^\/\s'"`]+/;
+
+// INBOUND: recv.sh event-line format emitted via Monitor task-notification.
+// Strict variant (INBOUND_REGEX_STRICT from prototype.html line 227).
+const INBOUND_REGEX = /\[room\s+(\S+)\]\s*\[(\@\S+)\]\s*\(event\s+(\S+)\):\s*([\s\S]*?)(?:<\/event>|$)/;
 
 export type ConversationalMessage = {
   kind: "message";
@@ -43,9 +66,47 @@ export type ImageMessage = {
   ts: number;
 };
 
+// Phase 17 — relay event variants (RELAYBUB-01 outbound, RELAYBUB-02 inbound)
+//
+// wire eventId = outer JSONL uuid (same chain as ConversationalMessage.eventId)
+// matrixEventId = the $EVENT_ID from the recv.sh line (distinct field to
+// avoid collision with the JSONL uuid above).
+//
+// extractError is populated when detection succeeds but body-extraction fails
+// (shell-var interpolation, --data-raw, etc.) — frontend renders a ⚠ bubble
+// rather than dropping the detection entirely (RELAYBUB-05).
+//
+// Security note (T-17-01-02, accepted): rawCommand contains the full Bash
+// command including any curl args (may include bearer tokens if the agent
+// inlined them). This is the same disclosure surface the tmux pane already
+// presents — pretty view is a rendering of what is already in the session
+// file. No new attack surface beyond what the existing session viewer shows.
+export type RelayOutboundMessage = {
+  kind: "relay_outbound";
+  room: string | null;
+  body: string | null;
+  extractError: string | null;
+  rawCommand: string;
+  eventId: string;
+  ts: number;
+};
+
+export type RelayInboundMessage = {
+  kind: "relay_inbound";
+  room: string;
+  sender: string;
+  matrixEventId: string;
+  body: string;
+  raw: string;
+  eventId: string;
+  ts: number;
+};
+
 export type ParsedLine =
   | ConversationalMessage
   | ImageMessage
+  | RelayOutboundMessage
+  | RelayInboundMessage
   | { kind: "skip"; why: string }
   | { kind: "malformed" };
 
@@ -68,6 +129,139 @@ function extractText(content: unknown): string {
     return parts.join("");
   }
   return "";
+}
+
+/**
+ * Detect whether a parsed JSONL turn is a real Matrix relay outbound send.
+ *
+ * Returns a descriptor if the turn is type=assistant with a Bash tool_use
+ * whose command satisfies ALL THREE of:
+ *   1. contains /\bcurl\b/
+ *   2. contains /-X\s+PUT\b/
+ *   3. contains the rooms/.../send/m.room.message/... URL shape
+ *
+ * The three-way conjunction is the validated detection truth signal from the
+ * prototype (2026-07-28, 6/6 acceptance). Loosening to any single-condition
+ * variant was explicitly rejected (false-positive grep + heredoc cases).
+ *
+ * Body extraction uses best-effort single/double-quoted -d arg parsing.
+ * On failure, body=null and extractError is set so the frontend can render
+ * a ⚠ fallback instead of silently dropping the detection (RELAYBUB-05).
+ */
+export function detectRelayOutbound(
+  obj: Record<string, unknown>,
+): {
+  room: string | null;
+  body: string | null;
+  extractError: string | null;
+  rawCommand: string;
+} | null {
+  if (obj.type !== "assistant") return null;
+  const msg = obj.message;
+  if (!msg || typeof msg !== "object") return null;
+  const content = (msg as Record<string, unknown>).content;
+  if (!Array.isArray(content)) return null;
+  for (const block of content as unknown[]) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as Record<string, unknown>;
+    if (b.type !== "tool_use") continue;
+    if (b.name !== "Bash") continue;
+    const input = b.input;
+    if (!input || typeof input !== "object") continue;
+    const cmd = (input as Record<string, unknown>).command;
+    if (typeof cmd !== "string") continue;
+    // All three regexes must match — ported byte-for-byte from prototype.html
+    // § detectOutbound (2026-07-28 6/6 acceptance) — do not loosen
+    if (!OUTBOUND_URL_RE.test(cmd)) continue;
+    if (!OUTBOUND_CURL_RE.test(cmd)) continue;
+    if (!OUTBOUND_PUT_RE.test(cmd)) continue;
+    // Room extraction
+    const roomMatch = cmd.match(/rooms\/([^/\s'"]+)\/send\/m\.room\.message/);
+    const room = roomMatch ? roomMatch[1] : null;
+    // Body extraction — single-quoted -d arg first, then double-quoted.
+    // --data-raw and shell-variable forms intentionally fail gracefully.
+    const dSingle = cmd.match(/-d\s+'(\{[\s\S]*?\})'/);
+    const dDouble = cmd.match(/-d\s+"(\{[\s\S]*?\})"/);
+    const dArg = dSingle?.[1] ?? dDouble?.[1] ?? null;
+    let body: string | null = null;
+    let extractError: string | null = null;
+    if (dArg) {
+      try {
+        const j = JSON.parse(dArg) as Record<string, unknown>;
+        body = typeof j?.body === "string" ? j.body : null;
+      } catch {
+        extractError = "JSON parse failed on -d payload";
+      }
+    } else {
+      extractError = "no -d single/double quoted arg found";
+    }
+    return { room, body, extractError, rawCommand: cmd };
+  }
+  return null;
+}
+
+/**
+ * Detect whether a parsed JSONL turn is a Matrix relay inbound notification.
+ *
+ * Returns a descriptor if the turn is type=user with origin.kind=
+ * "task-notification" AND the text content matches the recv.sh event-line
+ * format: `[room X] [@sender:server] (event $Y): BODY</event>`.
+ *
+ * Non-matching task-notifications (plain wakeup fires, etc.) return null so
+ * the existing harness_wrapper skip path continues to apply for them.
+ */
+export function detectRelayInbound(
+  obj: Record<string, unknown>,
+): {
+  room: string;
+  sender: string;
+  matrixEventId: string;
+  body: string;
+  raw: string;
+} | null {
+  if (obj.type !== "user") return null;
+  const origin = obj.origin;
+  if (!origin || typeof origin !== "object") return null;
+  if ((origin as Record<string, unknown>).kind !== "task-notification")
+    return null;
+  // Extract text content — mirrors extractText but also handles plain string
+  // at message.content level (task-notification turns often use string form).
+  const msg = obj.message;
+  if (!msg || typeof msg !== "object") return null;
+  const msgContent = (msg as Record<string, unknown>).content;
+  let raw: string;
+  if (typeof msgContent === "string") {
+    raw = msgContent;
+  } else if (Array.isArray(msgContent)) {
+    raw = (msgContent as unknown[])
+      .map((x) => {
+        if (typeof x === "string") return x;
+        if (x && typeof x === "object") {
+          const xo = x as Record<string, unknown>;
+          return typeof xo.text === "string" ? xo.text : "";
+        }
+        return "";
+      })
+      .join("\n");
+  } else {
+    return null;
+  }
+  // Strip surrounding task-notification wrapper tags so the regex matches
+  // the bare recv.sh event line inside the wrapper body.
+  const stripped = raw
+    .replace(/<task-notification>/g, "")
+    .replace(/<\/task-notification>/g, "")
+    .trim();
+  const m = stripped.match(INBOUND_REGEX);
+  if (!m) return null;
+  const [, room, sender, matrixEventId, bodyRaw] = m;
+  return {
+    room,
+    sender,
+    matrixEventId,
+    body: (bodyRaw ?? "").trim(),
+    raw,
+  };
 }
 
 /**
@@ -205,8 +399,79 @@ export function parseSessionLine(line: string): ParsedLine {
     return { kind: "skip", why: "meta" };
   }
 
+  // Phase 17 — relay inbound detection (RELAYBUB-02).
+  // Run BEFORE the harness_wrapper skip so task-notification turns that
+  // carry a recv.sh event line are surfaced as relay_inbound rather than
+  // dropped. Non-matching task-notifications fall through to the existing
+  // harness_wrapper skip path unchanged.
+  if (isUser) {
+    const inbound = detectRelayInbound(obj);
+    if (inbound !== null) {
+      // Build eventId + ts here (mirrors the chain below).
+      const uuid = obj.uuid;
+      const messageId = obj.messageId;
+      const eventIdR =
+        typeof uuid === "string" && uuid.length > 0
+          ? uuid
+          : typeof messageId === "string" && messageId.length > 0
+            ? messageId
+            : fallbackEventId();
+      const rawTsR = obj.timestamp;
+      let tsR = Date.now();
+      if (typeof rawTsR === "string") {
+        const parsedR = Date.parse(rawTsR);
+        if (Number.isFinite(parsedR)) tsR = parsedR;
+      }
+      return {
+        kind: "relay_inbound",
+        room: inbound.room,
+        sender: inbound.sender,
+        matrixEventId: inbound.matrixEventId,
+        body: inbound.body,
+        raw: inbound.raw,
+        eventId: eventIdR,
+        ts: tsR,
+      };
+    }
+  }
+
   const msg = obj.message as Record<string, unknown> | null | undefined;
   if (msg == null) return { kind: "skip", why: "no_message" };
+
+  // Phase 17 — relay outbound detection (RELAYBUB-01).
+  // Run for assistant turns BEFORE extractText + content-based extraction.
+  // When the turn is a real Matrix relay send (curl + -X PUT + URL shape
+  // conjunction), we return relay_outbound and do NOT fall through to
+  // kind:"message". The 3-way conjunction is the validated truth signal
+  // from the prototype — do not loosen (T-17-01-01 mitigate).
+  if (isAssistant) {
+    const outbound = detectRelayOutbound(obj);
+    if (outbound !== null) {
+      const uuid = obj.uuid;
+      const messageId = obj.messageId;
+      const eventIdO =
+        typeof uuid === "string" && uuid.length > 0
+          ? uuid
+          : typeof messageId === "string" && messageId.length > 0
+            ? messageId
+            : fallbackEventId();
+      const rawTsO = obj.timestamp;
+      let tsO = Date.now();
+      if (typeof rawTsO === "string") {
+        const parsedO = Date.parse(rawTsO);
+        if (Number.isFinite(parsedO)) tsO = parsedO;
+      }
+      return {
+        kind: "relay_outbound",
+        room: outbound.room,
+        body: outbound.body,
+        extractError: outbound.extractError,
+        rawCommand: outbound.rawCommand,
+        eventId: eventIdO,
+        ts: tsO,
+      };
+    }
+  }
 
   const content = extractText(msg.content);
   const imageRefs = extractImageRefs(obj);

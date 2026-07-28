@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseSessionLine } from "./session-file-parser.js";
+import {
+  parseSessionLine,
+  detectRelayOutbound,
+  detectRelayInbound,
+} from "./session-file-parser.js";
 
 // Test scaffolding: each test constructs a synthetic JSONL turn as a JS
 // literal, JSON.stringify's it, passes to parseSessionLine, and asserts
@@ -470,5 +474,168 @@ describe("parseSessionLine — harness_wrapper filter (patch #97)", () => {
     if (parsed.kind !== "image") throw new Error("unreachable");
     expect(parsed.images).toHaveLength(1);
     expect(parsed.images[0].data).toBe("HHH");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 17 relay detection tests — RELAYBUB-01, RELAYBUB-02, RELAYBUB-05
+//
+// Test corpus mirrors the 6/6 acceptance battery Ashley walked through on
+// 2026-07-28 with the prototype.html detectors. Ported byte-for-byte —
+// do not weaken the detection or loosen the false-positive gates.
+// ---------------------------------------------------------------------------
+
+describe("parseSessionLine — relay detection (Phase 17 / RELAYBUB-01, RELAYBUB-02, RELAYBUB-05)", () => {
+  // Helper: build a synthetic assistant Bash tool_use turn.
+  function assistantBashTurn(
+    command: string,
+    uuidVal = "relay-out-1",
+    ts = "2026-07-28T15:30:00.000Z",
+  ): string {
+    return line({
+      type: "assistant",
+      uuid: uuidVal,
+      timestamp: ts,
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            name: "Bash",
+            id: "toolu_relay_1",
+            input: { command },
+          },
+        ],
+      },
+    });
+  }
+
+  // Helper: build a synthetic user task-notification turn.
+  function taskNotificationTurn(
+    content: string,
+    uuidVal = "relay-in-1",
+    ts = "2026-07-28T15:31:00.000Z",
+  ): string {
+    return line({
+      type: "user",
+      uuid: uuidVal,
+      timestamp: ts,
+      origin: { kind: "task-notification" },
+      message: { content },
+    });
+  }
+
+  it("Test 1: outbound-happy-path — real Matrix relay send emits kind:relay_outbound", () => {
+    const cmd =
+      "curl -X PUT https://matrix.org/_matrix/client/r0/rooms/!ROOMID:server/send/m.room.message/TXNID -d '{\"body\":\"hello\",\"msgtype\":\"m.text\"}'";
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).toBe("relay_outbound");
+    if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
+    expect(parsed.room).toBe("!ROOMID:server");
+    expect(parsed.body).toBe("hello");
+    expect(parsed.extractError).toBeNull();
+    expect(parsed.rawCommand).toBe(cmd);
+    expect(parsed.eventId).toBe("relay-out-1");
+  });
+
+  it("Test 2: outbound-false-positive-heredoc — cat heredoc mentioning path returns kind:message NOT relay_outbound", () => {
+    // prototype acceptance case #1: cat > bounty.json <<JSON ... send/m.room.message ... JSON
+    // lacks curl + -X PUT → must not fire outbound detector
+    const cmd =
+      "cat > bounty.json <<JSON\n{\"premise\":\"send/m.room.message to relay\"}\nJSON";
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    // The Bash tool_use has no text content — assistant turns with ONLY tool_use
+    // (no text block) have empty extractText output, so they skip on empty_content.
+    // The key assertion is that it is NOT relay_outbound.
+    expect(parsed.kind).not.toBe("relay_outbound");
+  });
+
+  it("Test 3: outbound-false-positive-grep — grep mentioning path returns kind:message NOT relay_outbound", () => {
+    // prototype acceptance case #2: grep -n 'send/m.room.message' # PUT it in the plan
+    // no /\bcurl\b/ → rejected by OUTBOUND_CURL_RE
+    const cmd = "grep -n 'send/m.room.message' README.md # PUT it in the plan";
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).not.toBe("relay_outbound");
+  });
+
+  it("Test 4: outbound-extract-fail-shellvar — shell-var -d arg: detection fires, extraction fails gracefully", () => {
+    const cmd =
+      "curl -X PUT https://matrix.org/_matrix/client/r0/rooms/!R:srv/send/m.room.message/T -d $body";
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).toBe("relay_outbound");
+    if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
+    expect(parsed.body).toBeNull();
+    expect(parsed.extractError).toBe("no -d single/double quoted arg found");
+    expect(parsed.rawCommand).toBe(cmd);
+  });
+
+  it("Test 5: outbound-extract-fail-dataraw — --data-raw variant: detection fires, extraction fails gracefully", () => {
+    const cmd =
+      "curl -X PUT https://matrix.org/_matrix/client/r0/rooms/!R:srv/send/m.room.message/T --data-raw '{\"body\":\"x\"}'";
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).toBe("relay_outbound");
+    if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
+    // --data-raw does not match /-d\s+'/  so extraction falls to error path
+    expect(parsed.body).toBeNull();
+    expect(parsed.extractError).toBe("no -d single/double quoted arg found");
+    expect(parsed.rawCommand).toBe(cmd);
+  });
+
+  it("Test 6: inbound-happy-path — recv.sh event line emits kind:relay_inbound", () => {
+    const body = "banana banana banana";
+    const content = `<task-notification>[room !ROOMID:server] [@ashley:server] (event $EVID): ${body}</event></task-notification>`;
+    const parsed = parseSessionLine(taskNotificationTurn(content));
+    expect(parsed.kind).toBe("relay_inbound");
+    if (parsed.kind !== "relay_inbound") throw new Error("unreachable");
+    expect(parsed.room).toBe("!ROOMID:server");
+    expect(parsed.sender).toBe("@ashley:server");
+    expect(parsed.matrixEventId).toBe("$EVID");
+    expect(parsed.body).toBe(body);
+    expect(parsed.eventId).toBe("relay-in-1");
+  });
+
+  it("Test 7: inbound-false-positive-wakeup — plain wakeup fire still returns kind:skip why:harness_wrapper", () => {
+    // task-notification body that does NOT match the recv.sh [room X] prefix
+    const content =
+      "<task-notification>WAKE UP! The agent is waiting for input.</task-notification>";
+    const parsed = parseSessionLine(taskNotificationTurn(content));
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("harness_wrapper");
+  });
+
+  it("Test 8: regression — plain assistant text turn still returns kind:message", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "assistant",
+        uuid: "reg-asst-1",
+        timestamp: "2026-07-28T15:40:00.000Z",
+        message: {
+          content: [{ type: "text", text: "Here is my plan." }],
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("assistant");
+    expect(parsed.content).toBe("Here is my plan.");
+    expect(parsed.eventId).toBe("reg-asst-1");
+  });
+
+  it("Test 9: regression — plain user text turn still returns kind:message", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "reg-user-1",
+        timestamp: "2026-07-28T15:41:00.000Z",
+        message: {
+          content: "What is the status?",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("user");
+    expect(parsed.content).toBe("What is the status?");
+    expect(parsed.eventId).toBe("reg-user-1");
   });
 });
