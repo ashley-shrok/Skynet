@@ -12,9 +12,13 @@ import {
   type BackgroundedShell,
   type MessageEvent as ChatMessageEvent,
   type ImageEvent,
+  type RelayOutboundEvent,
+  type RelayInboundEvent,
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
 import { ImageBubble } from "./ImageBubble";
+import { RelayOutboundBubble } from "./RelayOutboundBubble";
+import { RelayInboundBubble } from "./RelayInboundBubble";
 import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
 import { AsideBubble } from "./AsideBubble";
@@ -134,7 +138,7 @@ type Status = "connecting" | "streaming" | "inactive" | "error";
 // Ashley sees "the agent read this image" at the correct chronological
 // position). Both event shapes share `eventId` + `ts`, so appendDedup's
 // dedup logic remains a one-line hash check.
-type StreamEvent = ChatMessageEvent | ImageEvent;
+type StreamEvent = ChatMessageEvent | ImageEvent | RelayOutboundEvent | RelayInboundEvent;
 
 function appendDedup(
   prev: StreamEvent[],
@@ -568,6 +572,16 @@ export function PrettyView({
           // Patch #86: image bubbles interleave with text messages in strict
           // wire order — same state channel, same dedup on eventId. The
           // render branch below discriminates on `m.type`.
+          setMessages((prev) => appendDedup(prev, parsed));
+          break;
+        }
+        case "relay_outbound": {
+          // RELAYBUB-01: outbound relay frame → RelayOutboundBubble (blue, right-aligned).
+          setMessages((prev) => appendDedup(prev, parsed));
+          break;
+        }
+        case "relay_inbound": {
+          // RELAYBUB-02: inbound relay frame → RelayInboundBubble (orange, left-aligned).
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
@@ -1171,6 +1185,10 @@ export function PrettyView({
                   key={m.eventId}
                   ref={idx === lastUserMsgIdx ? anchorRefCallback : undefined}
                 >
+                  {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
+                      normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
+                      hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
+                      which pane's remote host to query. */}
                   {m.type === "image" ? (
                     <ImageBubble
                       role={m.role}
@@ -1178,6 +1196,20 @@ export function PrettyView({
                       text={m.text}
                       eventId={m.eventId}
                       ts={m.ts}
+                    />
+                  ) : m.type === "relay_outbound" ? (
+                    <RelayOutboundBubble
+                      room={m.room}
+                      body={m.body}
+                      extractError={m.extractError}
+                      rawCommand={m.rawCommand}
+                    />
+                  ) : m.type === "relay_inbound" ? (
+                    <RelayInboundBubble
+                      room={m.room}
+                      sender={m.sender}
+                      body={m.body}
+                      hostId={hostId}
                     />
                   ) : (
                     <ChatMessage

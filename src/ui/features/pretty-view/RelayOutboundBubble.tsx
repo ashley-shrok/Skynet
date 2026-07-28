@@ -47,7 +47,10 @@ export function RelayOutboundBubble({
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
           // Cool blue glass background — SPACED rgba per UI-SPEC byte-shape lock.
           // Tailwind arbitrary-value syntax: underscores inside [...] render as
-          // spaces in the emitted CSS → output is rgba(64, 96, 160, 0.28).
+          // spaces in the emitted CSS → target value is rgba(64, 96, 160, 0.28).
+          // Note: Tailwind v4 (Lightning CSS) normalises rgba() to hex in the
+          // emitted bundle; the source value here satisfies the source-level grep gate.
+          // See 17-03-SUMMARY.md § Deviations for the emitted-CSS deviation note.
           "bg-[rgba(64,_96,_160,_0.28)]",
           // Rim border (glass highlight).
           "border border-[rgba(96,_128,_200,_0.42)]",
