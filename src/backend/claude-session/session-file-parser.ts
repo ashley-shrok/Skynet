@@ -72,9 +72,15 @@ export type ImageMessage = {
 // matrixEventId = the $EVENT_ID from the recv.sh line (distinct field to
 // avoid collision with the JSONL uuid above).
 //
-// extractError is populated when detection succeeds but body-extraction fails
-// (shell-var interpolation, --data-raw, etc.) — frontend renders a ⚠ bubble
-// rather than dropping the detection entirely (RELAYBUB-05).
+// Option D (Ashley 2026-07-28): body extraction deleted from outbound detection.
+// rawCommand IS the body — rendered faithfully as a mono block (scrollable).
+// Fleet-standard sends use `curl -d "$(jq -n --arg b "$MSG" ...)"` forms that
+// literal-JSON extraction cannot succeed on; faithful record of what happened
+// beats a guessed body. No body/extractError fields on the wire type.
+//
+// Follow-up bounty (out of scope for this fix, 2026-07-28): opportunistic
+// body-var grep (MSG=/BODY=/TEXT= shell variable extraction) could provide a
+// "nice-to-have preview above command" — deferred per Ashley's explicit decision.
 //
 // Security note (T-17-01-02, accepted): rawCommand contains the full Bash
 // command including any curl args (may include bearer tokens if the agent
@@ -84,8 +90,6 @@ export type ImageMessage = {
 export type RelayOutboundMessage = {
   kind: "relay_outbound";
   room: string | null;
-  body: string | null;
-  extractError: string | null;
   rawCommand: string;
   eventId: string;
   ts: number;
@@ -144,16 +148,20 @@ function extractText(content: unknown): string {
  * prototype (2026-07-28, 6/6 acceptance). Loosening to any single-condition
  * variant was explicitly rejected (false-positive grep + heredoc cases).
  *
- * Body extraction uses best-effort single/double-quoted -d arg parsing.
- * On failure, body=null and extractError is set so the frontend can render
- * a ⚠ fallback instead of silently dropping the detection (RELAYBUB-05).
+ * Option D (Ashley 2026-07-28): body extraction removed entirely.
+ * rawCommand is the faithful record of what the agent did — the bubble
+ * renders it as a scrollable mono block. Fleet-standard sends use
+ * `curl -d "$(jq -n --arg b "$MSG" ...)"` forms that literal-JSON
+ * extraction cannot succeed on; faithful record > guessed body.
+ *
+ * Follow-up bounty (out of scope): opportunistic body-var grep
+ * (MSG=/BODY=/TEXT= shell variable extraction) as "nice-to-have preview
+ * above command" — deferred per Ashley's explicit decision 2026-07-28.
  */
 export function detectRelayOutbound(
   obj: Record<string, unknown>,
 ): {
   room: string | null;
-  body: string | null;
-  extractError: string | null;
   rawCommand: string;
 } | null {
   if (obj.type !== "assistant") return null;
@@ -178,24 +186,7 @@ export function detectRelayOutbound(
     // Room extraction
     const roomMatch = cmd.match(/rooms\/([^/\s'"]+)\/send\/m\.room\.message/);
     const room = roomMatch ? roomMatch[1] : null;
-    // Body extraction — single-quoted -d arg first, then double-quoted.
-    // --data-raw and shell-variable forms intentionally fail gracefully.
-    const dSingle = cmd.match(/-d\s+'(\{[\s\S]*?\})'/);
-    const dDouble = cmd.match(/-d\s+"(\{[\s\S]*?\})"/);
-    const dArg = dSingle?.[1] ?? dDouble?.[1] ?? null;
-    let body: string | null = null;
-    let extractError: string | null = null;
-    if (dArg) {
-      try {
-        const j = JSON.parse(dArg) as Record<string, unknown>;
-        body = typeof j?.body === "string" ? j.body : null;
-      } catch {
-        extractError = "JSON parse failed on -d payload";
-      }
-    } else {
-      extractError = "no -d single/double quoted arg found";
-    }
-    return { room, body, extractError, rawCommand: cmd };
+    return { room, rawCommand: cmd };
   }
   return null;
 }
@@ -464,8 +455,6 @@ export function parseSessionLine(line: string): ParsedLine {
       return {
         kind: "relay_outbound",
         room: outbound.room,
-        body: outbound.body,
-        extractError: outbound.extractError,
         rawCommand: outbound.rawCommand,
         eventId: eventIdO,
         ts: tsO,

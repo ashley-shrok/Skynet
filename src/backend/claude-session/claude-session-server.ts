@@ -1247,9 +1247,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
         break;
       case "relay_outbound":
         // Phase 17 (RELAYBUB-01): a Bash tool_use confirmed as a real Matrix
-        // relay send (curl + -X PUT + URL shape conjunction). Wire shape exposes
-        // room, body, extractError (⚠ fallback when extraction fails, e.g. shell
-        // variable or --data-raw), and rawCommand for the expand-raw panel.
+        // relay send (curl + -X PUT + URL shape conjunction). Wire shape is a
+        // faithful command record — rawCommand IS the body (Option D, Ashley
+        // 2026-07-28). No body extraction, no ⚠ fallback. The bubble renders
+        // rawCommand as a scrollable mono block.
         // Dedup: eventId = outer JSONL uuid — appendDedup handles it identically
         // to message/image turns (no special-casing needed downstream).
         try {
@@ -1257,8 +1258,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
             JSON.stringify({
               type: "relay_outbound",
               room: parsed.room,
-              body: parsed.body,
-              extractError: parsed.extractError,
               rawCommand: parsed.rawCommand,
               eventId: parsed.eventId,
               ts: parsed.ts,

@@ -531,8 +531,6 @@ describe("parseSessionLine — relay detection (Phase 17 / RELAYBUB-01, RELAYBUB
     expect(parsed.kind).toBe("relay_outbound");
     if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
     expect(parsed.room).toBe("!ROOMID:server");
-    expect(parsed.body).toBe("hello");
-    expect(parsed.extractError).toBeNull();
     expect(parsed.rawCommand).toBe(cmd);
     expect(parsed.eventId).toBe("relay-out-1");
   });
@@ -557,26 +555,23 @@ describe("parseSessionLine — relay detection (Phase 17 / RELAYBUB-01, RELAYBUB
     expect(parsed.kind).not.toBe("relay_outbound");
   });
 
-  it("Test 4: outbound-extract-fail-shellvar — shell-var -d arg: detection fires, extraction fails gracefully", () => {
+  it("Test 4: outbound-shellvar — shell-var -d arg still emits relay_outbound with rawCommand", () => {
     const cmd =
       "curl -X PUT https://matrix.org/_matrix/client/r0/rooms/!R:srv/send/m.room.message/T -d $body";
     const parsed = parseSessionLine(assistantBashTurn(cmd));
     expect(parsed.kind).toBe("relay_outbound");
     if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
-    expect(parsed.body).toBeNull();
-    expect(parsed.extractError).toBe("no -d single/double quoted arg found");
+    expect(parsed.room).toBe("!R:srv");
     expect(parsed.rawCommand).toBe(cmd);
   });
 
-  it("Test 5: outbound-extract-fail-dataraw — --data-raw variant: detection fires, extraction fails gracefully", () => {
+  it("Test 5: outbound-dataraw — --data-raw variant still emits relay_outbound with rawCommand", () => {
     const cmd =
       "curl -X PUT https://matrix.org/_matrix/client/r0/rooms/!R:srv/send/m.room.message/T --data-raw '{\"body\":\"x\"}'";
     const parsed = parseSessionLine(assistantBashTurn(cmd));
     expect(parsed.kind).toBe("relay_outbound");
     if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
-    // --data-raw does not match /-d\s+'/  so extraction falls to error path
-    expect(parsed.body).toBeNull();
-    expect(parsed.extractError).toBe("no -d single/double quoted arg found");
+    expect(parsed.room).toBe("!R:srv");
     expect(parsed.rawCommand).toBe(cmd);
   });
 

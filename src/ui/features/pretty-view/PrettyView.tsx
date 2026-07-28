@@ -1200,8 +1200,6 @@ export function PrettyView({
                   ) : m.type === "relay_outbound" ? (
                     <RelayOutboundBubble
                       room={m.room}
-                      body={m.body}
-                      extractError={m.extractError}
                       rawCommand={m.rawCommand}
                     />
                   ) : m.type === "relay_inbound" ? (

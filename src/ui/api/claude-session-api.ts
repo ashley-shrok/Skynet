@@ -124,10 +124,10 @@ export type SessionChangedEvent = {
 // RelayOutboundEvent: emitted when the backend parser detects a Bash tool_use
 // that is a real Matrix relay send (curl + -X PUT + rooms/X/send/m.room.message/Y
 // conjunction). Field notes:
-//   body:         extracted from -d '...' arg; null on extraction failure.
-//   extractError: set on failure so the frontend renders a ⚠ fallback.
-//   rawCommand:   full Bash command (may contain curl bearer tokens —
-//                 accepted disclosure, same surface as the tmux pane; T-17-01-02).
+//   rawCommand:   IS the body (Option D, Ashley 2026-07-28) — rendered faithfully
+//                 as a scrollable mono block. Full Bash command; may contain curl
+//                 bearer tokens (accepted disclosure, same surface as tmux pane;
+//                 T-17-01-02). No body extraction, no extractError field.
 //
 // RelayInboundEvent: emitted when a task-notification user turn matches
 // the recv.sh event-line format [room X] [@sender] (event $Y): BODY.
@@ -136,8 +136,6 @@ export type SessionChangedEvent = {
 export type RelayOutboundEvent = {
   type: "relay_outbound";
   room: string | null;
-  body: string | null;
-  extractError: string | null;
   rawCommand: string;
   eventId: string;
   ts: number;

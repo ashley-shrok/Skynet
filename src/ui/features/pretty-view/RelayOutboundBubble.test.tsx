@@ -2,73 +2,77 @@
  * Phase 17 Plan 03 — RelayOutboundBubble unit tests.
  *
  * Tests: RELAYBUB-01 (outbound bubble render matrix).
+ * Updated 2026-07-28 (UAT Bug 1 fix): extractor deleted, rawCommand is always
+ * the bubble body (Option D per Ashley). extractError/showSource state removed.
  */
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
 
 describe("RelayOutboundBubble", () => {
-  it("Test 1: happy path with body populated → renders body text, no ⚠, correct justify-end wrapper", () => {
+  it("Test 1: renders room-id header + rawCommand in mono block", () => {
+    const cmd = "curl -X PUT https://matrix.org/_matrix/client/r0/rooms/!roomAlias:server.tld/send/m.room.message/txn -d '{\"body\":\"hello\"}'";
     render(
       <RelayOutboundBubble
         room="!roomAlias:server.tld"
-        body="Hey @ashley, the deploy is green."
-        extractError={null}
-        rawCommand="curl -X PUT ..."
+        rawCommand={cmd}
       />,
     );
 
-    // Body text is visible
-    expect(screen.getByText(/Hey @ashley, the deploy is green/)).toBeTruthy();
+    // rawCommand text is visible
+    expect(screen.getByText(cmd)).toBeTruthy();
 
-    // No warning line
-    expect(screen.queryByText(/extraction failed/i)).toBeNull();
+    // Header contains room
+    expect(screen.getByText(/relay send.*roomAlias/)).toBeTruthy();
 
     // Wrapper must be flex justify-end (right-aligned)
     const wrapper = document.querySelector(".justify-end");
     expect(wrapper).not.toBeNull();
   });
 
-  it("Test 2: extractError populated + body null → renders ⚠ line + show source button; clicking button reveals rawCommand", () => {
-    const raw = "curl -X PUT https://matrix.example.com/rooms/!x:s/send/m.room.message/txid --data \"$body\"";
+  it("Test 2: long command with newlines preserves them via whitespace-pre", () => {
+    const cmd = "curl \\\n  -X PUT \\\n  https://matrix.org/rooms/!x:s/send/m.room.message/T";
     render(
       <RelayOutboundBubble
-        room="!roomAlias:server.tld"
-        body={null}
-        extractError="shell variable interpolation"
-        rawCommand={raw}
+        room="!x:s"
+        rawCommand={cmd}
       />,
     );
 
-    // Warning line is rendered
-    expect(screen.getByText(/extraction failed/i)).toBeTruthy();
-    expect(screen.getByText(/shell variable interpolation/i)).toBeTruthy();
+    // The pre/mono container should have whitespace-pre class
+    const preEl = document.querySelector(".whitespace-pre");
+    expect(preEl).not.toBeNull();
 
-    // Raw command is NOT visible initially (collapsed)
-    expect(screen.queryByText(raw)).toBeNull();
-
-    // Click "show source" to expand
-    const btn = screen.getByRole("button", { name: /show source/i });
-    expect(btn).toBeTruthy();
-    fireEvent.click(btn);
-
-    // Raw command is now visible
-    expect(screen.getByText(raw)).toBeTruthy();
-
-    // Button text flips to "hide source"
-    expect(screen.getByRole("button", { name: /hide source/i })).toBeTruthy();
+    // The command text is rendered — use custom matcher because getByText normalises whitespace
+    // but our pre element preserves the raw string including \n characters.
+    const preWithCmd = screen.getByText((_content, el) => {
+      return el?.tagName === "PRE" && el.textContent === cmd;
+    });
+    expect(preWithCmd).toBeTruthy();
   });
 
   it("Test 3: room null → header shows '→ unknown room'", () => {
     render(
       <RelayOutboundBubble
         room={null}
-        body="hello"
-        extractError={null}
-        rawCommand=""
+        rawCommand="curl -X PUT ..."
       />,
     );
 
     expect(screen.getByText(/unknown room/i)).toBeTruthy();
+  });
+
+  it("Test 4: very long single-line command has overflow-x-auto class on container", () => {
+    const longCmd = "curl " + "x".repeat(500);
+    render(
+      <RelayOutboundBubble
+        room="!r:s"
+        rawCommand={longCmd}
+      />,
+    );
+
+    // Structural assertion: overflow-x-auto must be present (layout enforcement)
+    const overflowEl = document.querySelector(".overflow-x-auto");
+    expect(overflowEl).not.toBeNull();
   });
 });

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { RelayOutboundEvent } from "@/api/claude-session-api";
 
@@ -18,23 +17,23 @@ import type { RelayOutboundEvent } from "@/api/claude-session-api";
 // RELAYBUB-01: outbound bubble right-aligned (flex justify-end wrapper).
 // RELAYBUB-06: does NOT import IdentityBadge, ChatMessage, ComposeBox (locked).
 //
-// Security (T-17-03-01): body + rawCommand rendered via React children
-// ({body} in JSX), NOT dangerouslySetInnerHTML. React auto-escapes all
-// HTML/JS so relay body content is treated as literal text.
+// Option D (Ashley 2026-07-28): rawCommand IS the body. The bubble always
+// renders rawCommand as a scrollable mono block — no extraction failure path,
+// no ⚠ fallback, no showSource toggle. Faithful record of what happened.
+//
+// Security (T-17-03-01): rawCommand rendered via React children
+// ({rawCommand} in JSX), NOT dangerouslySetInnerHTML. React auto-escapes all
+// HTML/JS so command content is treated as literal text.
 
 export type RelayOutboundBubbleProps = Pick<
   RelayOutboundEvent,
-  "room" | "body" | "extractError" | "rawCommand"
+  "room" | "rawCommand"
 >;
 
 export function RelayOutboundBubble({
   room,
-  body,
-  extractError,
   rawCommand,
 }: RelayOutboundBubbleProps) {
-  const [showSource, setShowSource] = useState(false);
-
   return (
     <div className="flex justify-end">
       <div
@@ -69,40 +68,17 @@ export function RelayOutboundBubble({
           ▸ relay send → {room ?? "unknown room"}
         </div>
 
-        {/* Body or extraction-failure ⚠ path */}
+        {/* rawCommand as always-visible scrollable mono block */}
         {/* Security: rendered as React children (never dangerouslySetInnerHTML) — T-17-03-01 */}
-        {extractError !== null ? (
-          <>
-            <div className="text-[color:var(--color-pv-code-fg)] text-xs">
-              ⚠ extraction failed — {extractError}
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowSource((v) => !v)}
-              className={cn(
-                "mt-1 text-[10px] text-[rgba(220,_225,_245,_0.45)]",
-                "hover:text-[rgba(220,_225,_245,_0.75)]",
-                "cursor-pointer bg-transparent border-none p-0",
-                "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-              )}
-            >
-              {showSource ? "hide source" : "show source"}
-            </button>
-            {showSource && (
-              <div
-                className={cn(
-                  "mt-1 text-xs whitespace-pre-wrap [overflow-wrap:anywhere]",
-                  "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-                  "bg-black/40 rounded p-2",
-                )}
-              >
-                {rawCommand}
-              </div>
-            )}
-          </>
-        ) : body !== null ? (
-          <div className="whitespace-pre-wrap">{body}</div>
-        ) : null}
+        <pre
+          className={cn(
+            "whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
+            "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+            "bg-black/40 rounded p-2 text-xs",
+          )}
+        >
+          {rawCommand}
+        </pre>
 
         {/* Footer — "via curl" attribution matching prototype byte-shape */}
         <div
