@@ -39,8 +39,8 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
-import { useEffect, useRef, useState } from "react";
-import { MessagesSquare, Monitor, Pencil, Server } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Filter, MessagesSquare, Monitor, Pencil, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -59,7 +59,11 @@ import {
 } from "@/state/conversation-store";
 import { useSessionWorking } from "@/state/session-working-store";
 import { useIdentities } from "@/state/identities-store";
-import { startBountyCountPoller } from "@/state/bounty-counts-store";
+import {
+  bountyCountsCompositeKey,
+  startBountyCountPoller,
+  useAllBountyCounts,
+} from "@/state/bounty-counts-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
 import { getPinnedIds } from "@/api/user-preferences-api";
@@ -313,6 +317,56 @@ export function PrettyConversationsPanel({
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
 
+  // Patch #167: pinned-bounty filter toggle (header funnel button). Local
+  // state only — NOT persisted (Ashley 2026-07-28: "no remembering filter
+  // state"). Each fresh panel mount starts with filter off.
+  const [filterPinnedOnly, setFilterPinnedOnly] = useState(false);
+
+  // Patch #167: subscribes to the full bounty-counts map so the filter
+  // re-runs when the 60s poller lands a new count OR when the IdentityModal
+  // fires invalidateIdentity() post-priority-change. Same store the row-level
+  // badge subscribes to via useBountyCount — this is a whole-map read that
+  // powers the panel-level filter helper below.
+  const bountyCounts = useAllBountyCounts();
+
+  // Patch #167: "does this row's identity have at least one pinned bounty?"
+  // Semantics match the row-level PrettyBountyCountBadge exactly: host-scoped
+  // (`(identityKey, hostId)`), status=pinned only (backend already narrows),
+  // rows without a resolvable identity → false (filtered out when filter is
+  // on). Wrapped in useMemo so the helper identity is stable across renders
+  // that don't change identitiesByKey or the counts snapshot.
+  const hasPinnedForRow = useMemo(() => {
+    return (row: ConversationRowShape): boolean => {
+      const matchKey = sessionMatchKey(row.targetTmuxSession);
+      if (!matchKey) return false;
+      const ident = identitiesByKey.get(matchKey);
+      if (!ident) return false;
+      const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
+      const hostId = Number.isFinite(hostIdNum) ? hostIdNum : null;
+      const key = bountyCountsCompositeKey(ident.identityKey, hostId);
+      return (bountyCounts.get(key) ?? 0) > 0;
+    };
+  }, [identitiesByKey, bountyCounts]);
+
+  // Patch #167: apply the filter to each render collection when active.
+  // Groups with 0 rows post-filter are dropped so we don't render empty
+  // host-divider chips. RDP-sentinel group is filtered the same way; if all
+  // RDP rows fall out (they typically will — RDP rows don't map to identities
+  // with bounties), the whole "Remote desktop" section disappears from the
+  // list, matching Ashley's directive that filter applies "to the entire
+  // conversation list."
+  const displayedActiveSetRows = filterPinnedOnly
+    ? activeSetRows.filter(hasPinnedForRow)
+    : activeSetRows;
+  const displayedPinned = filterPinnedOnly
+    ? pinned.filter(hasPinnedForRow)
+    : pinned;
+  const displayedGrouped = filterPinnedOnly
+    ? grouped
+        .map((g) => ({ ...g, rows: g.rows.filter(hasPinnedForRow) }))
+        .filter((g) => g.rows.length > 0)
+    : grouped;
+
   // Swipe-coordination state: which row is currently swiped open? Only
   // meaningful on mobile — desktop rows don't emit onSwipeOpenChange. Panel
   // passes `forceClosed={true}` to every row EXCEPT the currently-open one,
@@ -322,7 +376,13 @@ export function PrettyConversationsPanel({
     null,
   );
 
-  const isEmpty = activeSetRows.length === 0 && pinned.length === 0 && grouped.length === 0;
+  // Patch #167: isEmpty is now computed against the DISPLAYED collections so
+  // the empty-state card renders when the filter is on and nothing matches.
+  // Pre-#167 shape was activeSetRows/pinned/grouped directly (unfiltered).
+  const isEmpty =
+    displayedActiveSetRows.length === 0 &&
+    displayedPinned.length === 0 &&
+    displayedGrouped.length === 0;
 
   const showPencilButton = typeof onCreateSession === "function";
   const isMobileVariant = variant === "mobile";
@@ -429,6 +489,17 @@ export function PrettyConversationsPanel({
   const emptyLabel = t("nav.conversations.empty", {
     defaultValue: "No conversations yet",
   });
+  // Patch #167: filter-specific empty label — shown when filterPinnedOnly is
+  // true AND every row was filtered out. Distinct from the base "no
+  // conversations yet" so Ashley knows it's a filter result, not a truly
+  // empty list.
+  const emptyFilterLabel = t("nav.conversations.emptyPinnedFilter", {
+    defaultValue: "No conversations with pinned bounties",
+  });
+  const filterLabel = t("nav.conversations.filterPinnedBounties", {
+    defaultValue: "Filter by pinned bounties",
+  });
+  const activeEmptyLabel = filterPinnedOnly ? emptyFilterLabel : emptyLabel;
 
   return (
     <div
@@ -454,17 +525,37 @@ export function PrettyConversationsPanel({
             Prior handoff note "deliberately left off per Phase 10 design"
             was wrong per Ashley 2026-07-24. */}
         <span className="pv-title">{headerLabel}</span>
-        {showPencilButton && (
+        <div className="pv-header-actions">
+          {/* Patch #167: pinned-bounty filter toggle. Same chrome/size as
+              .pv-pencil so the two buttons align visually; active state
+              (data-active="true") swaps to a warm-cream tinted bg + brighter
+              icon color. aria-pressed follows the toggle so screen readers
+              announce the filter state. Rendered unconditionally — the filter
+              is orthogonal to the new-session gate. */}
           <button
             type="button"
-            onClick={() => setNewSessionDialogOpen(true)}
-            aria-label={newSessionLabel}
-            title={newSessionLabel}
-            className="pv-pencil"
+            onClick={() => setFilterPinnedOnly((v) => !v)}
+            aria-label={filterLabel}
+            aria-pressed={filterPinnedOnly}
+            title={filterLabel}
+            className="pv-filter"
+            data-active={filterPinnedOnly ? "true" : "false"}
+            data-testid="pv-filter-pinned-bounties"
           >
-            <Pencil />
+            <Filter />
           </button>
-        )}
+          {showPencilButton && (
+            <button
+              type="button"
+              onClick={() => setNewSessionDialogOpen(true)}
+              aria-label={newSessionLabel}
+              title={newSessionLabel}
+              className="pv-pencil"
+            >
+              <Pencil />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Scroll region: safe-area padding lives on outer container (patch #131)
@@ -479,7 +570,7 @@ export function PrettyConversationsPanel({
           <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-6 py-10">
             <div
               role="status"
-              aria-label={emptyLabel}
+              aria-label={activeEmptyLabel}
               data-testid="pretty-conversations-empty"
               className={
                 "flex items-center gap-2 text-sm text-[#dfe3ee] " +
@@ -495,7 +586,7 @@ export function PrettyConversationsPanel({
                 className="size-4 shrink-0 text-[#dfe3ee]/80"
                 aria-hidden="true"
               />
-              <span>{emptyLabel}</span>
+              <span>{activeEmptyLabel}</span>
             </div>
           </div>
         ) : (
@@ -504,7 +595,7 @@ export function PrettyConversationsPanel({
                 Rows here get pinned={pinnedIds.has(row.id)} so a row that IS pinned
                 AND active still shows the pin glyph. */}
             <div className="pv-panel-group" data-active-set-group="true">
-              {activeSetRows.map((row) => (
+              {displayedActiveSetRows.map((row) => (
                 <PrettyConversationRowLive
                   key={row.id}
                   row={row}
@@ -536,7 +627,7 @@ export function PrettyConversationsPanel({
                 `pv-panel-group` wrapper as the grouped sections so intra-
                 group row gap (8px) is uniform with between-group gap. */}
             <div className="pv-panel-group" data-pinned-group="true">
-              {pinned.map((row) => (
+              {displayedPinned.map((row) => (
                 <PrettyConversationRowLive
                   key={row.id}
                   row={row}
@@ -560,7 +651,7 @@ export function PrettyConversationsPanel({
             {/* Grouped rows — FLAT per Ashley/prototype lock: no per-host
                 semibold header. The `__rdp__` sentinel group renders a
                 subtle "Remote desktop" divider chip above its rows.  */}
-            {grouped.map((group) => {
+            {displayedGrouped.map((group) => {
               if (group.hostId === "__rdp__") {
                 return (
                   <div

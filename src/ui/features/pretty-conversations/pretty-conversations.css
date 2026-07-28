@@ -116,6 +116,60 @@
   stroke-width: 2;
 }
 
+/* Patch #167 — pv-header-actions wraps the filter + pencil so both align
+ * flush-right regardless of how many buttons the header renders. Small gap
+ * keeps them visually distinct without crowding the pv-title. */
+.pv-panel-header .pv-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Patch #167 — pinned-bounty filter toggle. Base chrome mirrors .pv-pencil
+ * so the two buttons share size + hover treatment; the active state
+ * (data-active="true") swaps to a warm-cream tinted background + bright
+ * icon color so Ashley can see at a glance that the list is filtered.
+ * Palette draws from --color-pv-fg / --color-pv-fg-muted (see palette
+ * authority note in tina.md). */
+.pv-panel-header .pv-filter {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-pv-fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pv-panel-header .pv-filter:hover {
+  background: rgba(220, 225, 245, 0.06);
+  border-color: var(--color-pv-border-quiet);
+  color: var(--color-pv-fg);
+}
+
+.pv-panel-header .pv-filter[data-active="true"] {
+  background: rgba(255, 220, 170, 0.14);
+  border-color: rgba(255, 220, 170, 0.28);
+  color: rgba(255, 232, 200, 1);
+}
+
+.pv-panel-header .pv-filter[data-active="true"]:hover {
+  background: rgba(255, 220, 170, 0.2);
+  border-color: rgba(255, 220, 170, 0.38);
+}
+
+.pv-panel-header .pv-filter svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
 .pv-panel-scroll {
   flex: 1;
   overflow-y: auto;

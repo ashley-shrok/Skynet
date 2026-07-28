@@ -78,6 +78,31 @@ export function useBountyCount(
 }
 
 /**
+ * Subscribe to the FULL counts map. Used by PrettyConversationsPanel to filter
+ * the whole conversation list to just rows whose identity has at least one
+ * pinned bounty (patch #167). Keeps the row-level useBountyCount subscription
+ * intact for the per-row badge; this is a separate subscription that pulls the
+ * whole snapshot for the panel-level filter helper. Composite key format
+ * matches compositeKey() above: `${identityKey}:${hostId ?? "local"}`.
+ */
+export function useAllBountyCounts(): ReadonlyMap<string, number> {
+  const getSnapshot = (): ReadonlyMap<string, number> => state.counts;
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * Format the (identityKey, hostId) composite key exactly as the store stores
+ * it. Exported so panel-level filter helpers can look up the count without
+ * re-implementing the key format (and drifting out of sync with the store).
+ */
+export function bountyCountsCompositeKey(
+  identityKey: string,
+  hostId: number | null,
+): string {
+  return compositeKey(identityKey, hostId);
+}
+
+/**
  * Fire ONE identity:count-bounties WS request carrying all targets. Applies
  * successful counts to the internal map and notifies subscribers.
  *

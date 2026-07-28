@@ -44,13 +44,41 @@ vi.mock("@/features/terminal/session-hue", () => ({
     name ? name.toLowerCase() : null,
 }));
 
+// Patch #167: mutable identitiesByKey mock so filter tests can seed
+// identities that resolve for specific rows. Existing tests use the default
+// (empty Map) — beforeEach resets it — so their behavior is unchanged.
+let mockIdentitiesByKey: Map<string, { identityKey: string }> = new Map();
+
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
-    byKey: new Map(),
+    byKey: mockIdentitiesByKey,
     identities: [],
     loaded: true,
     refresh: async () => {},
   }),
+}));
+
+// Patch #167: mock bounty-counts-store so filter tests can seed a
+// (composite-key → count) map without touching the real WS-backed poller.
+// - useAllBountyCounts() reads mockBountyCounts (mutable per-test).
+// - startBountyCountPoller returns a no-op stop-fn.
+// - bountyCountsCompositeKey mirrors the store's real format so panel-side
+//   key construction stays in sync with the mock.
+// Existing tests didn't mock this module and worked because the real
+// poller short-circuits on empty targets (identitiesByKey was empty). With
+// the mock in place, all tests share this deterministic shape.
+let mockBountyCounts: ReadonlyMap<string, number> = new Map();
+
+vi.mock("@/state/bounty-counts-store", () => ({
+  useBountyCount: (identityKey: string | null, hostId: number | null) => {
+    if (identityKey === null) return undefined;
+    const key = `${identityKey}:${hostId ?? "local"}`;
+    return mockBountyCounts.get(key);
+  },
+  useAllBountyCounts: () => mockBountyCounts,
+  bountyCountsCompositeKey: (identityKey: string, hostId: number | null) =>
+    `${identityKey}:${hostId ?? "local"}`,
+  startBountyCountPoller: () => () => {},
 }));
 
 vi.mock("@/hooks/use-is-touch-device", () => ({
@@ -267,6 +295,11 @@ beforeEach(async () => {
   // to observe the panel with an empty pinned tier post-mount-fetch.
   const { getPinnedIds } = await import("@/api/user-preferences-api");
   vi.mocked(getPinnedIds).mockResolvedValue([]);
+  // Patch #167: reset identities + bounty counts mocks to empty defaults so
+  // pre-#167 tests observe the unfiltered baseline. Filter tests populate
+  // both explicitly before render.
+  mockIdentitiesByKey = new Map();
+  mockBountyCounts = new Map();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1503,5 +1536,187 @@ describe("PrettyConversationsPanel (quick-260727-kbw): mount hydration gated on 
     await Promise.resolve();
     expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(1);
     expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Patch #167 — pinned-bounty filter
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
+  it("Test 23: filter button renders with data-active=false + aria-pressed=false by default", () => {
+    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
+    const { getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const btn = getByTestId("pv-filter-pinned-bounties");
+    expect(btn.getAttribute("data-active")).toBe("false");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("Test 24: clicking the filter button flips data-active + aria-pressed to true", () => {
+    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
+    const { getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const btn = getByTestId("pv-filter-pinned-bounties");
+    fireEvent.click(btn);
+    expect(btn.getAttribute("data-active")).toBe("true");
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(btn);
+    expect(btn.getAttribute("data-active")).toBe("false");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("Test 25: filter=off shows all rows; filter=on hides rows whose identity has 0 pinned bounties", () => {
+    // Two grouped rows, both under identities that resolve. Only "tina" has
+    // any pinned bounties; "nelly" has 0. Filter=off shows both, filter=on
+    // shows only the tina row.
+    const host1 = makeHost("1", "hostA");
+    mockIdentitiesByKey = new Map([
+      ["tina-session", { identityKey: "tina" }],
+      ["nelly-session", { identityKey: "nelly" }],
+    ]);
+    // Composite key format matches the store's real one:
+    // `${identityKey}:${hostId ?? "local"}`. Host id 1 → "tina:1".
+    mockBountyCounts = new Map([
+      ["tina:1", 3],
+      ["nelly:1", 0],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({
+              id: "tina-row",
+              targetTmuxSession: "tina-session",
+              host: host1,
+            }),
+            makeConversationRow({
+              id: "nelly-row",
+              targetTmuxSession: "nelly-session",
+              host: host1,
+            }),
+          ],
+        },
+      ],
+    });
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Filter off: both rows visible.
+    expect(
+      container.querySelector('[data-conversation-id="tina-row"]'),
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-conversation-id="nelly-row"]'),
+    ).toBeTruthy();
+    // Flip filter on.
+    fireEvent.click(getByTestId("pv-filter-pinned-bounties"));
+    // Filter on: only tina-row remains; nelly-row filtered out.
+    expect(
+      container.querySelector('[data-conversation-id="tina-row"]'),
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-conversation-id="nelly-row"]'),
+    ).toBeFalsy();
+  });
+
+  it("Test 26: filter=on with no matching rows renders the filter-specific empty state", () => {
+    // One row with no pinned bounties; identity resolves but count is 0.
+    const host1 = makeHost("1", "hostA");
+    mockIdentitiesByKey = new Map([
+      ["nelly-session", { identityKey: "nelly" }],
+    ]);
+    mockBountyCounts = new Map([["nelly:1", 0]]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({
+              id: "nelly-row",
+              targetTmuxSession: "nelly-session",
+              host: host1,
+            }),
+          ],
+        },
+      ],
+    });
+    const { queryByTestId, getByTestId, getByText } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Filter off: no empty state.
+    expect(queryByTestId("pretty-conversations-empty")).toBeFalsy();
+    // Flip filter on.
+    fireEvent.click(getByTestId("pv-filter-pinned-bounties"));
+    // Filter on with 0 matches: empty state renders with the filter label.
+    expect(queryByTestId("pretty-conversations-empty")).toBeTruthy();
+    expect(getByText("No conversations with pinned bounties")).toBeTruthy();
+  });
+
+  it("Test 27: filter=on drops groups whose rows are ALL filtered out (no orphan host-divider chip)", () => {
+    // Two groups: hostA (one nelly row, 0 pins) and hostB (one tina row, 3
+    // pins). With filter on, hostA disappears entirely — no divider chip left
+    // over.
+    const hostA = makeHost("1", "hostA");
+    const hostB = makeHost("2", "hostB");
+    mockIdentitiesByKey = new Map([
+      ["tina-session", { identityKey: "tina" }],
+      ["nelly-session", { identityKey: "nelly" }],
+    ]);
+    mockBountyCounts = new Map([
+      ["tina:2", 3],
+      ["nelly:1", 0],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({
+              id: "nelly-row",
+              targetTmuxSession: "nelly-session",
+              host: hostA,
+            }),
+          ],
+        },
+        {
+          hostId: "2",
+          hostName: "hostB",
+          rows: [
+            makeConversationRow({
+              id: "tina-row",
+              targetTmuxSession: "tina-session",
+              host: hostB,
+            }),
+          ],
+        },
+      ],
+    });
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    fireEvent.click(getByTestId("pv-filter-pinned-bounties"));
+    // hostA's divider should be gone (its only row was filtered out).
+    const hostADivider = container.querySelector(
+      '[data-testid="host-divider"][data-host-id="1"]',
+    );
+    expect(hostADivider).toBeFalsy();
+    // hostB's divider stays.
+    const hostBDivider = container.querySelector(
+      '[data-testid="host-divider"][data-host-id="2"]',
+    );
+    expect(hostBDivider).toBeTruthy();
   });
 });
