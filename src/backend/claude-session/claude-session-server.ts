@@ -1202,46 +1202,96 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
 
     const parsed = parseSessionLine(line);
-    // Silent drop on kind === "skip" and kind === "malformed" — this
-    // is the RENDER-01 hard-lock enforcement point. `message` and
-    // `image` are mutually exclusive per parseSessionLine's contract
-    // (a single line returns exactly one kind), so the two branches
-    // below never both fire for the same line.
-    if (parsed.kind === "message") {
-      try {
-        ws.send(
-          JSON.stringify({
-            type: "message",
-            role: parsed.role,
-            content: parsed.content,
-            eventId: parsed.eventId,
-            ts: parsed.ts,
-          }),
-        );
-      } catch {
-        /* ws may be mid-close; drop */
-      }
-    }
-    if (parsed.kind === "image") {
-      // Patch #86: images that survived the parser's dedup + role
-      // derivation. Wire shape mirrors the parser's ImageMessage 1:1;
-      // frontend adds the `data:${mediaType};base64,` URI prefix when
-      // building the <img src>. Same try/catch-empty guard as the
-      // text-message branch above.
-      try {
-        ws.send(
-          JSON.stringify({
-            type: "image",
-            role: parsed.role,
-            images: parsed.images,
-            text: parsed.text,
-            eventId: parsed.eventId,
-            ts: parsed.ts,
-          }),
-        );
-      } catch {
-        /* ws may be mid-close; drop */
-      }
+    // Discriminator switch on parsed.kind — RENDER-01 hard-lock enforcement.
+    // kind:"skip" and kind:"malformed" are silently dropped. Each emitting
+    // branch sends exactly one WS frame per parsed turn; the switch guarantees
+    // mutual exclusivity (only one case fires per line).
+    //
+    // Phase 17 (RELAYBUB-01, RELAYBUB-02) adds two new cases without touching
+    // the existing "message"/"image" branches or skip/malformed semantics.
+    switch (parsed.kind) {
+      case "message":
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "message",
+              role: parsed.role,
+              content: parsed.content,
+              eventId: parsed.eventId,
+              ts: parsed.ts,
+            }),
+          );
+        } catch {
+          /* ws may be mid-close; drop */
+        }
+        break;
+      case "image":
+        // Patch #86: images that survived the parser's dedup + role
+        // derivation. Wire shape mirrors the parser's ImageMessage 1:1;
+        // frontend adds the `data:${mediaType};base64,` URI prefix when
+        // building the <img src>.
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "image",
+              role: parsed.role,
+              images: parsed.images,
+              text: parsed.text,
+              eventId: parsed.eventId,
+              ts: parsed.ts,
+            }),
+          );
+        } catch {
+          /* ws may be mid-close; drop */
+        }
+        break;
+      case "relay_outbound":
+        // Phase 17 (RELAYBUB-01): a Bash tool_use confirmed as a real Matrix
+        // relay send (curl + -X PUT + URL shape conjunction). Wire shape exposes
+        // room, body, extractError (⚠ fallback when extraction fails, e.g. shell
+        // variable or --data-raw), and rawCommand for the expand-raw panel.
+        // Dedup: eventId = outer JSONL uuid — appendDedup handles it identically
+        // to message/image turns (no special-casing needed downstream).
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "relay_outbound",
+              room: parsed.room,
+              body: parsed.body,
+              extractError: parsed.extractError,
+              rawCommand: parsed.rawCommand,
+              eventId: parsed.eventId,
+              ts: parsed.ts,
+            }),
+          );
+        } catch {
+          /* ws may be mid-close; drop */
+        }
+        break;
+      case "relay_inbound":
+        // Phase 17 (RELAYBUB-02): a task-notification user turn whose body
+        // matches the recv.sh event-line format [room X] [@sender] (event $Y):
+        // BODY. matrixEventId is the Matrix $event_id from the recv.sh line
+        // (distinct from the outer JSONL uuid in eventId). raw is preserved for
+        // the expand-raw panel in plan 17-03.
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "relay_inbound",
+              room: parsed.room,
+              sender: parsed.sender,
+              matrixEventId: parsed.matrixEventId,
+              body: parsed.body,
+              raw: parsed.raw,
+              eventId: parsed.eventId,
+              ts: parsed.ts,
+            }),
+          );
+        } catch {
+          /* ws may be mid-close; drop */
+        }
+        break;
+      // kind:"skip" and kind:"malformed" — silent drop (RENDER-01 lock)
     }
   };
 

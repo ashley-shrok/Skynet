@@ -119,6 +119,41 @@ export type SessionChangedEvent = {
   newSessionFile: string;
 };
 
+// Phase 17 (RELAYBUB-01, RELAYBUB-02) — relay event wire types.
+//
+// RelayOutboundEvent: emitted when the backend parser detects a Bash tool_use
+// that is a real Matrix relay send (curl + -X PUT + rooms/X/send/m.room.message/Y
+// conjunction). Field notes:
+//   body:         extracted from -d '...' arg; null on extraction failure.
+//   extractError: set on failure so the frontend renders a ⚠ fallback.
+//   rawCommand:   full Bash command (may contain curl bearer tokens —
+//                 accepted disclosure, same surface as the tmux pane; T-17-01-02).
+//
+// RelayInboundEvent: emitted when a task-notification user turn matches
+// the recv.sh event-line format [room X] [@sender] (event $Y): BODY.
+//   matrixEventId: the $event_id from the recv.sh line (distinct from
+//                  the outer JSONL eventId which is the JSONL uuid).
+export type RelayOutboundEvent = {
+  type: "relay_outbound";
+  room: string | null;
+  body: string | null;
+  extractError: string | null;
+  rawCommand: string;
+  eventId: string;
+  ts: number;
+};
+
+export type RelayInboundEvent = {
+  type: "relay_inbound";
+  room: string;
+  sender: string;
+  matrixEventId: string;
+  body: string;
+  raw: string;
+  eventId: string;
+  ts: number;
+};
+
 // Phase 14 (plain-language-translation-asides) Wave 2 — new WS wire types.
 //
 // aside_ready — server -> client. Backend has extracted a /btw answer from
@@ -178,7 +213,11 @@ export type ClaudeSessionServerEvent =
   | IdentityWakeupUpdatedEvent
   | IdentityBountyPriorityUpdatedEvent
   | IdentityBountyStatusUpdatedEvent
-  | IdentityBountyArchivedEvent;
+  | IdentityBountyArchivedEvent
+  // Phase 17 relay events — handlers added in plan 17-03; PrettyView's
+  // non-exhaustive switch silently ignores these until then.
+  | RelayOutboundEvent
+  | RelayInboundEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
