@@ -183,6 +183,15 @@ Deferred to future patches. Each add earns its way in as its own separate design
 - [ ] **PIN-07**: The pin endpoint is per-user, authenticated via the existing Skynet identity auth (cookie jar / JWT). Unauthenticated requests get 401. No fleet-wide impact — one user's pins are invisible to any other user (though today's Skynet is single-tenant, the endpoint contract must not assume that).
 - [x] **PIN-08**: Client fetch + write paths defensively guard against the multipart/form-data silent-200 no-op learned from patch #77 — if the chosen endpoint shape is multipart, a GET-verify follows every PUT to prove the write stuck; if the shape is JSON, the response body echoes the persisted state for optimistic reconciliation.
 
+### Pretty-view Relay Bubbles — Skynet Integration (Phase 17)
+
+- [ ] **RELAYBUB-01**: A tool-use turn whose Bash command line contains all three of `curl` + `-X PUT` + URL shape `rooms/{roomId}/send/m.room.message/{txnId}` is detected as an OUTBOUND relay send and rendered as a right-aligned blue relay bubble showing recipient room + best-effort extracted message body. Prose/comment false-positive commands (e.g. `cat > bounty.json <<JSON ... send/m.room.message ...`, `grep -n 'send/m.room.message'`) are correctly rejected because they lack the `curl` + `-X PUT` conjunction in real invocation form.
+- [ ] **RELAYBUB-02**: A `type=user` turn whose `origin.kind=task-notification` AND whose body matches the recv.sh line regex `[room X] [@sender:server] (event $Y): BODY` is detected as an INBOUND relay receive and rendered as a left-aligned orange relay bubble showing sender mxid + room + body. Non-relay task-notifications (wakeup fires, scheduled self-checks) correctly render as neutral (not as inbound bubbles).
+- [ ] **RELAYBUB-03**: Inbound bubble sender mxid (`@name:server`) is resolved to the corresponding local identity where possible (via the existing identity registry), and the bubble carries that identity's stored `colorHue` — same hue-chain treatment as normal agent bubbles. Unresolved mxids fall back to a neutral grey hue with the raw mxid visible.
+- [ ] **RELAYBUB-04**: When recv.sh wrote the inbound body to a file (file-pointer format), pretty-view fetches the pointed-to file and renders the full body inline; the pointer line is shown as a header/preview. Fetch failure falls back to showing the pointer line + a fetch-failed indicator (not a silent drop).
+- [ ] **RELAYBUB-05**: Body extraction is best-effort — variants that defeat static parsing (shell-var interpolation like `$body`, `--data-raw`, heredoc-nested payloads) render the bubble with a ⚠ warning and the raw command line, rather than dropping the detection entirely. Detection remains bulletproof — the two heuristic conjunctions are the ONLY truth signal.
+- [ ] **RELAYBUB-06**: All existing pretty-view functionality is preserved end-to-end — plain-text send/receive, WipBubble, PlanPendingBubble, tool-use rendering (for non-relay curl commands), IdentityBadge, ComposeBox, session-changeover behavior, keyboard chords. Zero regression to non-relay turn rendering.
+
 ## Out of Scope
 
 Explicit exclusions. Documented to prevent scope creep.
@@ -296,11 +305,18 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PIN-07 | Phase 15 | Pending |
 | PIN-08 | Phase 15 | Complete |
 
+| RELAYBUB-01 | Phase 17 | Pending |
+| RELAYBUB-02 | Phase 17 | Pending |
+| RELAYBUB-03 | Phase 17 | Pending |
+| RELAYBUB-04 | Phase 17 | Pending |
+| RELAYBUB-05 | Phase 17 | Pending |
+| RELAYBUB-06 | Phase 17 | Pending |
+
 **Coverage:**
-- v1 requirements: 84 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12, 8 pending Phase 15)
-- Mapped to phases: 84 ✓
+- v1 requirements: 90 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12, 8 pending Phase 15, 6 pending Phase 17)
+- Mapped to phases: 90 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
-*Last updated: 2026-07-27 — added PIN-01..08 for Phase 15 (pinned conversations, server-side account-wide persistence — followup-2 to patch #149; fixes pins dying on tab/PWA close and adds desktop ↔ iPhone sync)*
+*Last updated: 2026-07-28 — added RELAYBUB-01..06 for Phase 17 (pretty-view relay bubbles — Skynet integration; port validated prototype detectors + bubble rendering into src/ui/features/pretty-view/ as a message-turn extension)*

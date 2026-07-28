@@ -587,3 +587,40 @@ Plans:
 
 Plans:
 - [x] TBD (run /gsd-plan-phase 16 to break down) (completed 2026-07-27)
+
+### Phase 17: Pretty-view relay bubbles — Skynet integration
+
+**Goal:** Fleet Matrix relay send/receive (outbound relay PUTs by tina/other agents + inbound task-notification wakes surfaced by recv.sh) renders as distinct message bubbles in-flow in pretty-view, next to normal conversation turns — so fleet coordination shows up visually in the chat instead of hiding inside opaque `Bash: curl ...` tool-use blobs. Detectors validated in prototype (bounty `pretty-view-relay-bubble-prototype`, 6/6 acceptance battery 2026-07-28); this phase ports the detectors + rendering into `src/ui/features/pretty-view/` and adds an mxid→identity resolver so bubbles carry the sender's colorHue.
+
+**Requirements**: RELAYBUB-01, RELAYBUB-02, RELAYBUB-03, RELAYBUB-04, RELAYBUB-05, RELAYBUB-06
+
+**Depends on:** Phase 2 (pretty-view infra — bubbles, ChatMessage, message-turn extension mechanism)
+
+**Success Criteria** (what must be TRUE):
+
+  1. A tool-use turn whose Bash command line contains all three of `curl` + `-X PUT` + URL shape `rooms/{roomId}/send/m.room.message/{txnId}` is detected as an OUTBOUND relay send and rendered as a right-aligned blue relay bubble showing the recipient room + best-effort extracted message body. Two false positives from the prototype battery (a `cat > bounty.json <<JSON` mentioning the substring in prose, a `grep -n 'send/m.room.message'` command) are correctly rejected.
+  2. A `type=user` turn whose `origin.kind=task-notification` AND whose body matches the recv.sh line regex `[room X] [@sender:server] (event $Y): BODY` is detected as an INBOUND relay receive and rendered as a left-aligned orange relay bubble showing the sender mxid + room + body. Non-relay task-notifications (wakeup fires, scheduled self-checks) correctly render as neutral, not as inbound bubbles.
+  3. Inbound bubble sender mxid (`@name:server`) is resolved to the corresponding local identity where possible (e.g. `@tina:...` → tina), and the bubble carries that identity's stored `colorHue` — same treatment as normal agent-bubble hue chains. Unresolved mxids fall back to a neutral grey hue with the raw mxid visible.
+  4. When recv.sh wrote the inbound body to a file (file-pointer format — recognizable by the presence of a filesystem path in the body), pretty-view fetches the pointed-to file and renders the full body inline; the pointer line is shown as a header/preview. Fetch failure falls back to showing the pointer line + a fetch-failed indicator.
+  5. Body extraction is best-effort — variants that defeat static parsing (shell-var interpolation like `$body`, `--data-raw`, heredoc-nested payloads) render the bubble with a ⚠ warning and the raw command line, rather than dropping the detection entirely. Detection remains bulletproof — the two heuristic conjunctions are the ONLY truth signal.
+  6. All existing pretty-view functionality is preserved end-to-end — plain-text send/receive, WipBubble, PlanPendingBubble, tool-use rendering (for non-relay curl commands), IdentityBadge, ComposeBox, session-changeover behavior, keyboard chords. Zero regression to non-relay turn rendering.
+
+**Design source-of-truth (LOCKED, 2026-07-28):**
+- Prototype: `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html` (served at http://100.99.149.8:8899/relay-bubble-prototype.html, 6/6 acceptance battery passed with Ashley)
+- Detector JS in prototype.html — port verbatim; the two conjunctions ARE the contract
+- Bubble class-toggle recipe in prototype.html — port verbatim (outbound-blue right, inbound-orange left)
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+- Detection is the two conjunctions, unchanged. Do NOT loosen (bare-substring on any of the three tokens was rejected in prototype validation for producing false positives on prose/comments).
+- Extraction failure MUST render a warned bubble, not a dropped detection — silent-loss of a detected relay turn is worse than an ugly-but-clear ⚠ display.
+- Scope stays in `src/ui/features/pretty-view/` as a message-turn extension. No changes to the pretty-view chat surface interior beyond adding the new bubble variants + detection layer + mxid resolver + file-pointer fetcher.
+- mxid→identity resolution reuses the existing identity registry / colorHue mechanism the IdentityBadge and agent-bubble hue chains already use — don't invent a parallel palette.
+
+**Rebase risk:** MEDIUM — purely additive to fork-local pretty-view; no upstream Skynet surfaces touched.
+
+**Bounty tracker:** `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/` (through-line remains open — prototype milestone done, integration is the actual product goal per learned preference 2026-07-28).
+
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 17 to break down)
