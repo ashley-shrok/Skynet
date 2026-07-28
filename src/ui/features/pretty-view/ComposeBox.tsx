@@ -1300,6 +1300,10 @@ export function ComposeBox({
                 "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
                 "hover:border-[rgba(255,240,215,0.22)]",
                 "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+                // #165: mobile-only size bump — 72px button + 36px icon at
+                // html=24 (matches the 3em pv-row--mobile avatar for visual
+                // consistency in the "chat surface primary chrome" group).
+                "max-md:size-12 [&_svg]:max-md:size-6",
               )}
             >
               <Terminal className="size-4" />
@@ -1330,6 +1334,10 @@ export function ComposeBox({
                 "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
                 "hover:border-[rgba(255,240,215,0.22)]",
                 "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+                // #165: mobile-only size bump — 72px button + 36px icon at
+                // html=24 (matches the 3em pv-row--mobile avatar for visual
+                // consistency in the "chat surface primary chrome" group).
+                "max-md:size-12 [&_svg]:max-md:size-6",
               )}
             >
               <Paperclip className="size-4" />
@@ -1359,6 +1367,10 @@ export function ComposeBox({
                 "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
                 "hover:border-[rgba(255,240,215,0.22)]",
                 "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+                // #165: mobile-only size bump — 72px button + 36px icon at
+                // html=24 (matches the 3em pv-row--mobile avatar for visual
+                // consistency in the "chat surface primary chrome" group).
+                "max-md:size-12 [&_svg]:max-md:size-6",
               )}
             >
               <Square className="size-4" />
@@ -1388,6 +1400,9 @@ export function ComposeBox({
               "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
               "hover:border-[rgba(255,240,215,0.22)]",
               "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+              // #165: mobile-only size bump (see explanation on the other
+              // buttons above).
+              "max-md:size-12 [&_svg]:max-md:size-6",
             )}
           >
             <ThumbsUp className="size-4" />
@@ -1414,6 +1429,9 @@ export function ComposeBox({
               "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
               "hover:border-[rgba(255,240,215,0.22)]",
               "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+              // #165: mobile-only size bump (see explanation on the other
+              // buttons above).
+              "max-md:size-12 [&_svg]:max-md:size-6",
             )}
           >
             <Lightbulb className="size-4" />
@@ -1462,6 +1480,8 @@ export function ComposeBox({
                     "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]!",
                     "hover:border-[rgba(255,240,215,0.22)]",
                     "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+                    // #165: mobile-only size bump (see explanation above).
+                    "max-md:size-12 [&_svg]:max-md:size-6",
                   ],
             )}
           >

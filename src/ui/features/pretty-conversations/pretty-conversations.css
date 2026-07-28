@@ -439,24 +439,29 @@
    preserve density on both viewports post-migration.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* Patch #165: mobile row sizing converted from hardcoded px to em so it
+ * scales with the html=24px mobile bump from #163/#164. All original px
+ * values divided by 16 (desktop baseline) to get em multipliers — at
+ * html=24 on mobile, everything scales 1.5x to match Telegram row density;
+ * on desktop the desktop selector below wins so nothing changes there. */
 .pv-row--mobile {
-  min-height: 72px;
-  padding: 12px 16px;
-  gap: 12px;
+  min-height: 4.5em;    /* was 72px */
+  padding: 0.75em 1em;  /* was 12px 16px */
+  gap: 0.75em;          /* was 12px */
 }
 
 .pv-row--mobile .pv-avatar {
-  width: 48px;
-  height: 48px;
-  font-size: 18px;
+  width: 3em;              /* was 48px */
+  height: 3em;
+  font-size: 1.125em;      /* was 18px */
 }
 
 .pv-row--mobile .pv-body .pv-label {
-  font-size: 15.5px;
+  font-size: 0.97em;       /* was 15.5px (15.5/16) */
 }
 
 .pv-row--mobile .pv-body .pv-host {
-  font-size: 12.5px;
+  font-size: 0.78em;       /* was 12.5px (12.5/16) */
 }
 
 .pv-row--desktop {
