@@ -1,5 +1,9 @@
 import type { Client } from "ssh2";
-import { execCommand, queryPanePid } from "../ssh/tmux-helper.js";
+import {
+  execCommand,
+  queryPaneCurrentCommand,
+  queryPanePid,
+} from "../ssh/tmux-helper.js";
 
 const DISCOVERY_EXEC_TIMEOUT_MS = 3000;
 
@@ -20,103 +24,44 @@ export type ClaudeSessionDiscoveryResult =
  * via the existing SSH exec channel. Returns an active result with pid +
  * absolute file path, or an inactive result classifying why not.
  *
- * Why use a descendant-tree walk instead of pane_current_command:
- * AWS Kiro CLI (bounty: kiro-cli-wrapper-defeats-claude-detection) wraps the
- * shell it launches with a pty wrapper named `kiro-cli-term`. The wrapper sets
- * argv[0]='bash' on the child shell, so tmux's pane_current_command reads
- * 'bash' — the previous strict `=== "claude"` check returned inactive/not_claude
- * even though claude was running as a grandchild of pane_pid:
- *   pane_pid → kiro-cli-term → bash --login → claude
- * All 5 thenasty identities (beatrice, nelly, shrok, vicky, yolanda) were
- * affected. The walk handles wrappers of any depth without hardcoding wrapper
- * names (Kiro today, whatever tomorrow).
- *
- * Flow:
- *   1. queryPanePid → pane_pid (null → no_tmux_session)
- *   2. Walk pane_pid descendants via `ps -eo pid=,ppid=,comm=` + awk BFS;
- *      first pid with comm='claude' is the effective claude PID. Walk includes
- *      pane_pid itself as a candidate (backcompat: pane IS claude directly).
- *      No match → not_claude. Timeout/error → exec_error.
- *   3. CWD/JSONL discovery script runs with the claude PID. Derives the
- *      ~/.claude/projects/<slug>/*.jsonl session file by readlink /proc/<pid>/cwd
- *      + slug transform + ls -t. Empty output → no_open_session_file.
- *      Active result carries the claude PID (more useful for downstream logging
- *      than pane_pid was).
- *
- * Note on `pid_unavailable` reason: it is kept in the type union for backcompat
- * with any log-scraping downstream but is no longer emitted. Missing pane_pid
- * now returns no_tmux_session (same semantic: no usable tmux session/pane).
+ * Why walk the pane's descendants + self: Claude Code sometimes buffers session
+ * file writes through a child process — the JSONL fd lives on a child, not the
+ * top-level `claude` PID that tmux reports as pane_current_command. So we
+ * readlink /proc/<p>/fd/* for the pane PID AND each direct child, and pick the
+ * first match under ~/.claude/projects/*.jsonl. `head -n 1` intentionally picks
+ * the first hit: if a pane somehow hosts multiple claude sessions with multiple
+ * open JSONLs, later plans can revisit — v1 discovery is one file per pane.
  */
 export async function discoverClaudeSession(
   conn: Client,
   sessionName: string,
 ): Promise<ClaudeSessionDiscoveryResult> {
-  // Step 1: get pane_pid as the walk root
-  const panePid = await queryPanePid(conn, sessionName);
-  if (panePid === null || panePid <= 0) {
+  // Step 1: pane foreground command
+  const currentCommand = await queryPaneCurrentCommand(conn, sessionName);
+  if (currentCommand === null) {
     return { status: "inactive", reason: "no_tmux_session" };
   }
 
-  // Step 2: walk pane_pid's descendant tree to find the first pid with comm='claude'.
-  // The awk pass marks pane_pid as valid (BEGIN), then does fixed-point BFS to mark
-  // all descendants valid, then emits the first pid with comm='claude'. pane_pid
-  // itself is included as a candidate (no `pid[i] != root` guard) so the backcompat
-  // case where tmux IS directly running claude still works.
-  const walkScript =
-    `PID=${panePid}; ps -eo pid=,ppid=,comm= 2>/dev/null | awk -v root="$PID" '` +
-    `BEGIN { valid[root] = 1 }` +
-    `{ pid[NR] = $1; ppid[NR] = $2; comm[NR] = $3; n = NR }` +
-    `END {` +
-    `  changed = 1` +
-    `  while (changed) {` +
-    `    changed = 0` +
-    `    for (i = 1; i <= n; i++) {` +
-    `      if (!valid[pid[i]] && valid[ppid[i]]) {` +
-    `        valid[pid[i]] = 1` +
-    `        changed = 1` +
-    `      }` +
-    `    }` +
-    `  }` +
-    `  for (i = 1; i <= n; i++) {` +
-    `    if (valid[pid[i]] && comm[i] == "claude") {` +
-    `      print pid[i]; exit` +
-    `    }` +
-    `  }` +
-    `}'`;
-
-  let walkOutput: string;
-  try {
-    const raced = await Promise.race([
-      execCommand(conn, walkScript),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(new Error(`walk timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
-          DISCOVERY_EXEC_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-    walkOutput = raced.trim();
-  } catch {
-    return { status: "inactive", reason: "exec_error" };
-  }
-
-  // Step 3: no claude anywhere in the descendant tree
-  if (walkOutput === "") {
+  // Step 2: literal "claude" match, matching patch #13's identity-check style.
+  // No substring, no "claude-code", no wrapper scripts — deliberately narrow.
+  const trimmedCommand = currentCommand.trim();
+  const isClaude = trimmedCommand === "claude";
+  if (!isClaude) {
     return { status: "inactive", reason: "not_claude" };
   }
 
-  // Step 4: parse the walk output as the claude PID
-  const claudePid = parseInt(walkOutput, 10);
-  if (Number.isNaN(claudePid) || claudePid <= 0) {
-    return { status: "inactive", reason: "exec_error" };
+  // Step 3: pane PID
+  const pid = await queryPanePid(conn, sessionName);
+  if (pid === null || pid <= 0) {
+    return { status: "inactive", reason: "pid_unavailable" };
   }
 
-  // Step 5: derive the session file from the claude process's CWD, then pick the
+  // Step 4: derive the session file from the pane's Claude CWD, then pick the
   // newest matching .jsonl. Claude Code does NOT keep the JSONL fd open across
-  // the process lifetime — it opens, appends, closes per event.
+  // the process lifetime — it opens, appends, closes per event. The initial
+  // fd-walk approach silently found nothing on every pane. Instead:
   //
-  //   1. Read /proc/<claude pid>/cwd (fall back to the first child if the parent
+  //   1. Read /proc/<pane pid>/cwd (fall back to the first child if the parent
   //      proc doesn't expose it — some launchers exec the real claude in a
   //      child that owns the cwd).
   //   2. Slugify the CWD to a project-dir name: replace every `/` and `.` with
@@ -131,7 +76,7 @@ export async function discoverClaudeSession(
   // If neither the parent nor a child pid exposes /proc/*/cwd, or the slug
   // dir has no .jsonl files, return inactive.
   const discoveryScript =
-    `PID=${claudePid}; ` +
+    `PID=${pid}; ` +
     `CWD=$(readlink -f /proc/$PID/cwd 2>/dev/null); ` +
     `if [ -z "$CWD" ]; then ` +
     `  KID=$(pgrep -P $PID | head -n 1); ` +
@@ -162,5 +107,5 @@ export async function discoverClaudeSession(
     return { status: "inactive", reason: "no_open_session_file" };
   }
 
-  return { status: "active", pid: claudePid, sessionFile };
+  return { status: "active", pid, sessionFile };
 }
