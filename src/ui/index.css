@@ -403,3 +403,39 @@ html.fs-xl {
   z-index: 100;
   background: hsla(var(--session-hue, 50), 75%, 52%, 0.18);
 }
+
+/* Patch #181 — composebox button press feedback (A-variant, ?btnfx=1 tuner
+ * pick). Every <button> inside .pv-composebox transitions its scale +
+ * background + box-shadow on the `.pv-btn-pressed` class, which is added
+ * by a delegated pointerdown listener in ComposeBox.tsx for a fixed 250ms
+ * window regardless of tap length. Motivation: pretty-view buttons like
+ * ThumbsUp ("let's go") produce message bubbles asynchronously — the
+ * session-side accept latency is out of our control, so Ashley needs an
+ * immediate local ack that her tap registered. Uses the standalone
+ * `scale:` property (not `transform: scale()`) so it composes
+ * independently of shadcn Button's baseline `active:translate-y-px` and
+ * doesn't override any existing `transform` on the button. */
+.pv-composebox button {
+  transition:
+    scale 90ms ease,
+    background-color 200ms ease,
+    box-shadow 200ms ease;
+  transform-origin: center center;
+}
+
+.pv-composebox button.pv-btn-pressed {
+  scale: 0.92;
+  background: hsla(38, 55%, 70%, 0.28);
+  box-shadow:
+    0 0 12px hsla(38, 65%, 65%, 0.55),
+    inset 0 0 0 1px hsla(38, 60%, 75%, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv-composebox button {
+    transition: background-color 200ms ease, box-shadow 200ms ease;
+  }
+  .pv-composebox button.pv-btn-pressed {
+    scale: 1;
+  }
+}

@@ -318,6 +318,7 @@ export function ComposeBox({
   const [text, setText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composeRootRef = useRef<HTMLDivElement>(null);
   // Patch #135: cache of the 6-row height cap (px), computed once on mount
   // from getComputedStyle(el).lineHeight × 6. Null until first useLayoutEffect
   // pass consults the DOM. 144px fallback (24 × 6) covers the JSDOM `normal`
@@ -365,6 +366,37 @@ export function ComposeBox({
       clearDrainTimers();
     };
   }, [clearDrainTimers]);
+
+  // Patch #181: press feedback on every composebox button. Delegated
+  // pointerdown on the compose root adds `.pv-btn-pressed` to whatever
+  // <button> was tapped for a fixed 250ms window, regardless of how long
+  // the tap is held or when :active drops. Rationale: pretty-view buttons
+  // like ThumbsUp ("let's go") produce message bubbles asynchronously —
+  // the underlying session decides when the message lands — so Ashley
+  // needs an immediate local ack that her tap registered. The `:active`
+  // pseudo-class alone drops the moment the finger releases (very short
+  // on mobile), so we drive the styling from a JS-added class with a
+  // fixed decay window. Skip disabled buttons — no action fired, no
+  // reason to flash.
+  useEffect(() => {
+    const root = composeRootRef.current;
+    if (!root) return;
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || typeof target.closest !== "function") return;
+      const btn = target.closest("button") as HTMLButtonElement | null;
+      if (!btn || !root.contains(btn)) return;
+      if (btn.disabled) return;
+      btn.classList.add("pv-btn-pressed");
+      window.setTimeout(() => {
+        btn.classList.remove("pv-btn-pressed");
+      }, 250);
+    };
+    root.addEventListener("pointerdown", onDown, true);
+    return () => {
+      root.removeEventListener("pointerdown", onDown, true);
+    };
+  }, []);
 
   // Patch #57 persistence refs.
   // dirtyBodyRef: null = no pending save; string (including "") = the
@@ -1022,7 +1054,13 @@ export function ComposeBox({
   //   Error text — conditional, below Row 2.
   return (
     <div
+      ref={composeRootRef}
       className={cn(
+        // Patch #181: identifies the compose root for the delegated
+        // pointerdown listener (see the useEffect above) that adds a
+        // 250ms `.pv-btn-pressed` window to any button tapped inside.
+        // CSS styles live in src/ui/index.css.
+        "pv-composebox",
         // Phase 4 Glass: QUIET compose surround (VISUAL-06) — still no
         // card, no border, no hard separator; compose does NOT compete
         // with the chat above for attention. But the previous
