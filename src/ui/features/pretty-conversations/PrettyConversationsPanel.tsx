@@ -610,7 +610,13 @@ export function PrettyConversationsPanel({
           <>
             {/* Patch #149 B+C: active-set rows overtake pinned per Ashley 2026-07-24.
                 Rows here get pinned={pinnedIds.has(row.id)} so a row that IS pinned
-                AND active still shows the pin glyph. */}
+                AND active still shows the pin glyph.
+                Patch #195 (Ashley 2026-07-29): sublabel switched to
+                subtitleMode="identityTitle" — active-set rows now match pinned
+                + host-grouped in reading identity.title (fallback identity.
+                displayName, terminal fallback hostname). Closes the scope gap
+                left by quick-260727-f9v + #184 that only switched pinned +
+                grouped and left the active-set default at "hostname". */}
             <div className="pv-panel-group" data-active-set-group="true">
               {displayedActiveSetRows.map((row) => (
                 <PrettyConversationRowLive
@@ -630,6 +636,7 @@ export function PrettyConversationsPanel({
                   forceClosed={forceClosedFor(row.id)}
                   inActiveSet={activeSet.has(row.id)}
                   sessionKey={sessionWorkingKey(row)}
+                  subtitleMode="identityTitle"
                 />
               ))}
             </div>
