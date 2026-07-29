@@ -625,15 +625,16 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DESKTOP PIN HOVER-REVEAL — for UNpinned desktop rows, the pin-action button
-   is hidden by default and revealed on row hover. Pinned rows always show it
-   (via `.pv-row:not(.pinned)` selector). Mobile rows use the swipe-strip
-   mechanism (owned by the React component) instead.
+   DESKTOP PIN HOVER-REVEAL — the pin-action button is hidden on desktop rows
+   by default and revealed on row hover, for BOTH pinned and unpinned rows.
+   Pinned state is signalled by position (pinned rows sort to the top of the
+   panel), not by a persistently-visible pin glyph. Mobile rows use the
+   swipe-strip mechanism (owned by the React component) instead.
 
    The pin-action button is queryable in tests via [data-testid="pin-action"].
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.pv-row.pv-row--desktop:not(.pinned):not(:hover) .pv-meta [data-testid="pin-action"] {
+.pv-row.pv-row--desktop:not(:hover) .pv-meta [data-testid="pin-action"] {
   opacity: 0;
 }
 
@@ -717,13 +718,14 @@
   filter: none;
 }
 
-/* Hide-on-unpinned rule (SHAPE-03 mock invariant). On UNpinned desktop rows,
-   the pin-action button is hidden entirely unless the row is hovered OR any
-   descendant is keyboard-focused (allows pin-via-keyboard-nav). Pinned rows
-   always show the pin — that's how the mock signals pinned state. Mobile
-   rows use the swipe-strip mechanism for reveal so this rule is scoped to
+/* Hide-until-hover rule. On desktop rows (BOTH pinned and unpinned), the
+   pin-action button is hidden entirely unless the row is hovered OR any
+   descendant is keyboard-focused (allows pin-via-keyboard-nav). Pinned
+   state is signalled by position (pinned rows sort to the top of the
+   panel), so no persistent pin glyph is needed to convey it. Mobile rows
+   use the swipe-strip mechanism for reveal so this rule is scoped to
    desktop only. */
-.pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within) .pv-pin-action {
+.pv-row.pv-row--desktop:not(:hover):not(:focus-within) .pv-pin-action {
   display: none;
 }
 
