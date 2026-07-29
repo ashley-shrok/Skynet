@@ -500,7 +500,7 @@ export function BountyCard({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="text-xs text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] self-start"
+                className="text-xs text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] self-start cursor-pointer"
                 aria-label={`Archive bounty: ${bounty.title}`}
                 disabled={savingArchive}
                 onClick={() => void handleArchive()}
@@ -526,7 +526,7 @@ export function BountyCard({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="text-xs text-rose-400 hover:text-rose-300 border-rose-400/40 hover:border-rose-400/60 self-start"
+                className="text-xs text-rose-400 hover:text-rose-300 border-rose-400/40 hover:border-rose-400/60 self-start cursor-pointer"
                 aria-label={`Delete bounty: ${bounty.title}`}
                 disabled={savingDelete}
                 onClick={() => void handleDelete()}
