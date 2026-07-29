@@ -3,14 +3,20 @@
 // Three behaviors tested per WEEKLY-METER-05:
 //   Test A: renders two rows (5h + Week) with correct usage-fill widths from a mock response
 //   Test B: elapsed% math — given resets_at = now + 3600 for 5h window (18000s),
-//           elapsed% = (18000 - 3600) / 18000 * 100 = 80% (±1% for clock drift)
+//           elapsed% = (18000 - 3600) / 18000 * 100 = 80% (±1% for clock drift).
+//           The elapsed% is expressed as the tick's `left` position, not a
+//           fill width, since the 2026-07-29 B lock-in swapped the bottom
+//           elapsed-fill for a single tick marker.
 //   Test C: on fetch failure, does not throw:
 //     (C1) first-load failure → aria-busy empty container
 //     (C2) subsequent failure → retains previously-rendered values
 //
 // Numeric percentage text removed 2026-07-29 (bounty
-// `remove-percentages-on-5h-weekly-meters`); assertions now check the
-// usage-fill bar widths instead of the pct span text.
+// `remove-percentages-on-5h-weekly-meters`).
+// Dual-race split-bar retired 2026-07-29 (B lock-in from the tune-meter picker):
+// no more `.pv-usage-meter-fill-elapsed` (elapsed is now a tick), no more
+// `.pv-usage-meter-divider` (no midpoint split). Test A now asserts the
+// tick's presence + Test B parses the tick's `left` instead of a fill width.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
@@ -98,9 +104,10 @@ describe("WeeklyUsageMeter: render with mock response", () => {
     expect((usageFills[0] as HTMLElement).style.width).toBe("45.6%");
     expect((usageFills[1] as HTMLElement).style.width).toBe("30.2%");
 
-    // Divider hairlines present
-    const dividers = container.querySelectorAll(".pv-usage-meter-divider");
-    expect(dividers.length).toBe(2);
+    // Elapsed ticks present (one per row) — replaces the former
+    // .pv-usage-meter-fill-elapsed + .pv-usage-meter-divider pair per B lock-in
+    const ticks = container.querySelectorAll(".pv-usage-meter-tick");
+    expect(ticks.length).toBe(2);
   });
 });
 
@@ -124,22 +131,20 @@ describe("WeeklyUsageMeter: elapsed% math", () => {
     const { container } = render(<WeeklyUsageMeter />);
 
     await waitFor(() => {
-      const fills = container.querySelectorAll(".pv-usage-meter-fill-elapsed");
-      expect(fills.length).toBe(2);
+      const ticks = container.querySelectorAll(".pv-usage-meter-tick");
+      expect(ticks.length).toBe(2);
     });
 
-    const elapsedFills = container.querySelectorAll(
-      ".pv-usage-meter-fill-elapsed",
-    );
-    // Parse the 5h elapsed fill width (first fill)
-    const widthStr = (elapsedFills[0] as HTMLElement).style.width;
-    const widthPct = parseFloat(widthStr);
+    const ticks = container.querySelectorAll(".pv-usage-meter-tick");
+    // Parse the 5h elapsed-tick `left` position (first tick)
+    const leftStr = (ticks[0] as HTMLElement).style.left;
+    const leftPct = parseFloat(leftStr);
 
     // Expected: (18000 - 3600) / 18000 * 100 = 80%
     // ±1% tolerance for sub-second clock drift between compute-and-render
     const expected = ((FIVE_HOUR_WINDOW_S - 3600) / FIVE_HOUR_WINDOW_S) * 100;
-    expect(widthPct).toBeGreaterThanOrEqual(expected - 1);
-    expect(widthPct).toBeLessThanOrEqual(expected + 1);
+    expect(leftPct).toBeGreaterThanOrEqual(expected - 1);
+    expect(leftPct).toBeLessThanOrEqual(expected + 1);
   });
 });
 

@@ -1,19 +1,14 @@
 // ─── WeeklyUsageMeter ─────────────────────────────────────────────────────────
-// Plan 260729-1vd — WEEKLY-METER-01, WEEKLY-METER-04.
-//
-// Dual-race split-bar meter (F variant) rendered inside .pv-panel-header.
-// Two rows (5h + Week), each showing:
-//   top-half  = warm-coral usage fill  (data.X.used_percentage %)
-//   bottom-half = cool-cyan elapsed-time fill (derived from resets_at)
-//   hairline 1px divider at midpoint (pv-usage-meter-divider)
+// Single-bar fill+tick meter (Ashley 2026-07-29 pick — B variant from the
+// tune-meter picker). Two rows (5h + Week), each showing:
+//   full-height coral usage fill (width = data.X.used_percentage %)
+//   thin cyan tick at the elapsed-time position (left = elapsedPct %)
 // No numeric percentage text — bars alone communicate progress (Ashley
 // 2026-07-29, bounty `remove-percentages-on-5h-weekly-meters`).
 //
 // Polling: fetch('/api/usage') immediately on mount, then every 15s.
 // Failure: silently retains last-known data; never clears state on error.
 // First-load failure: renders aria-busy empty container (layout stable).
-//
-// No legend class (per plan: Ashley explicitly removed it).
 
 import { useEffect, useState } from "react";
 
@@ -78,36 +73,45 @@ export function WeeklyUsageMeter() {
 
   return (
     <div className="pv-usage-meter">
-      {/* 5-hour bar */}
-      <div className="pv-usage-meter-row">
-        <span className="pv-usage-meter-label">5h</span>
-        <div className="pv-usage-meter-bar">
-          <div
-            className="pv-usage-meter-fill-usage"
-            style={{ width: `${data.five_hour.used_percentage}%` }}
-          />
-          <div
-            className="pv-usage-meter-fill-elapsed"
-            style={{ width: `${fiveHourElapsed}%` }}
-          />
-          <div className="pv-usage-meter-divider" />
-        </div>
-      </div>
+      <MeterRow
+        label="5h"
+        usagePct={data.five_hour.used_percentage}
+        elapsedPct={fiveHourElapsed}
+      />
+      <MeterRow
+        label="Week"
+        usagePct={data.seven_day.used_percentage}
+        elapsedPct={sevenDayElapsed}
+      />
+    </div>
+  );
+}
 
-      {/* 7-day (Week) bar */}
-      <div className="pv-usage-meter-row">
-        <span className="pv-usage-meter-label">Week</span>
-        <div className="pv-usage-meter-bar">
-          <div
-            className="pv-usage-meter-fill-usage"
-            style={{ width: `${data.seven_day.used_percentage}%` }}
-          />
-          <div
-            className="pv-usage-meter-fill-elapsed"
-            style={{ width: `${sevenDayElapsed}%` }}
-          />
-          <div className="pv-usage-meter-divider" />
-        </div>
+// ─── MeterRow ─────────────────────────────────────────────────────────────────
+// Renders one row (label + bar). Bar = full-height coral usage fill (width =
+// usagePct%) plus a thin cyan tick at the elapsed-time position (left =
+// elapsedPct%). One bar, two pieces of information.
+function MeterRow({
+  label,
+  usagePct,
+  elapsedPct,
+}: {
+  label: string;
+  usagePct: number;
+  elapsedPct: number;
+}) {
+  return (
+    <div className="pv-usage-meter-row">
+      <span className="pv-usage-meter-label">{label}</span>
+      <div className="pv-usage-meter-bar">
+        <div
+          className="pv-usage-meter-fill-usage"
+          style={{ width: `${usagePct}%` }}
+        />
+        <div
+          className="pv-usage-meter-tick"
+          style={{ left: `${elapsedPct}%` }}
+        />
       </div>
     </div>
   );
