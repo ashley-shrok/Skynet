@@ -70,6 +70,7 @@ import { getPinnedIds } from "@/api/user-preferences-api";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
+import WeeklyUsageMeter from "./WeeklyUsageMeter";
 
 // Patch #137: derive the (hostId:tmuxSessionName) key used by the session-
 // working-store to look up the row's live isWorking state. Rows without a
@@ -525,41 +526,51 @@ export function PrettyConversationsPanel({
             desktop → title (left) + pencil (right)
             mobile  → empty left, pencil only (right)  */}
       <div className="pv-panel-header shrink-0" data-sidebar-toggle-overlaps={sidebarToggleOverlaps ? "true" : "false"}>
-        {/* Patch #144 Fix (f): title renders on BOTH mobile and desktop.
-            Prior handoff note "deliberately left off per Phase 10 design"
-            was wrong per Ashley 2026-07-24. */}
-        <span className="pv-title">{headerLabel}</span>
-        <div className="pv-header-actions">
-          {/* Patch #167: pinned-bounty filter toggle. Same chrome/size as
-              .pv-pencil so the two buttons align visually; active state
-              (data-active="true") swaps to a warm-cream tinted bg + brighter
-              icon color. aria-pressed follows the toggle so screen readers
-              announce the filter state. Rendered unconditionally — the filter
-              is orthogonal to the new-session gate. */}
-          <button
-            type="button"
-            onClick={() => setFilterPinnedOnly((v) => !v)}
-            aria-label={filterLabel}
-            aria-pressed={filterPinnedOnly}
-            title={filterLabel}
-            className="pv-filter"
-            data-active={filterPinnedOnly ? "true" : "false"}
-            data-testid="pv-filter-pinned-bounties"
-          >
-            <Filter />
-          </button>
-          {showPencilButton && (
+        {/* Plan 260729-1vd: .pv-panel-header-row wraps the original title +
+            actions so the header can stack vertically (column) with the
+            WeeklyUsageMeter below. Patch #142 data-sidebar-toggle-overlaps
+            attribute stays on the outer .pv-panel-header (unchanged). */}
+        <div className="pv-panel-header-row">
+          {/* Patch #144 Fix (f): title renders on BOTH mobile and desktop.
+              Prior handoff note "deliberately left off per Phase 10 design"
+              was wrong per Ashley 2026-07-24. */}
+          <span className="pv-title">{headerLabel}</span>
+          <div className="pv-header-actions">
+            {/* Patch #167: pinned-bounty filter toggle. Same chrome/size as
+                .pv-pencil so the two buttons align visually; active state
+                (data-active="true") swaps to a warm-cream tinted bg + brighter
+                icon color. aria-pressed follows the toggle so screen readers
+                announce the filter state. Rendered unconditionally — the filter
+                is orthogonal to the new-session gate. */}
             <button
               type="button"
-              onClick={() => setNewSessionDialogOpen(true)}
-              aria-label={newSessionLabel}
-              title={newSessionLabel}
-              className="pv-pencil"
+              onClick={() => setFilterPinnedOnly((v) => !v)}
+              aria-label={filterLabel}
+              aria-pressed={filterPinnedOnly}
+              title={filterLabel}
+              className="pv-filter"
+              data-active={filterPinnedOnly ? "true" : "false"}
+              data-testid="pv-filter-pinned-bounties"
             >
-              <Pencil />
+              <Filter />
             </button>
-          )}
+            {showPencilButton && (
+              <button
+                type="button"
+                onClick={() => setNewSessionDialogOpen(true)}
+                aria-label={newSessionLabel}
+                title={newSessionLabel}
+                className="pv-pencil"
+              >
+                <Pencil />
+              </button>
+            )}
+          </div>
         </div>
+        {/* Plan 260729-1vd (WEEKLY-METER-01): dual-race split-bar meter.
+            Sibling of .pv-panel-header-row, still INSIDE .pv-panel-header.
+            Polls /api/usage every 15s; gracefully retains last values on failure. */}
+        <WeeklyUsageMeter />
       </div>
 
       {/* Scroll region: safe-area padding lives on outer container (patch #131)
