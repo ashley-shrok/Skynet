@@ -220,6 +220,7 @@ export function BountyCard({
   onStatusChange,
   onPinnedChange,
   onArchive,
+  onDelete,
 }: {
   bounty: Bounty;
   hue: number;
@@ -242,6 +243,12 @@ export function BountyCard({
    *  button below the Priority row. Only supplied for OPEN cards; archived
    *  cards do NOT get the button (unarchive is a follow-up quick). */
   onArchive?: () => Promise<void>;
+  /** Quick 260729-g5r: when supplied, expanded body renders a destructive
+   *  Delete button below the Archive button. Unlike onArchive, onDelete is
+   *  supplied for BOTH open AND archived cards — permanent rm -rf applies
+   *  regardless of location (locked design D-2). The window.confirm() gate
+   *  lives inside handleDelete below. */
+  onDelete?: () => Promise<void>;
 }) {
   const [premiseExpanded, setPremiseExpanded] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -253,6 +260,8 @@ export function BountyCard({
   const [pinnedError, setPinnedError] = useState<string | null>(null);
   const [savingArchive, setSavingArchive] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [savingDelete, setSavingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const isLongPremise = bounty.premise.length > 400;
 
   async function handlePriorityChange(next: BountyPriority) {
@@ -308,6 +317,26 @@ export function BountyCard({
       setArchiveError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingArchive(false);
+    }
+  }
+
+  // Quick 260729-g5r: destructive delete handler. window.confirm() gates
+  // BEFORE any state touch or WS call — Cancel is a no-op (locked D-3).
+  // On OK, byte-shape mirror of handleArchive's try/catch/finally.
+  async function handleDelete() {
+    if (!onDelete) return;
+    const ok = window.confirm(
+      `Delete bounty "${bounty.title}"? This cannot be undone.`,
+    );
+    if (!ok) return;
+    setDeleteError(null);
+    setSavingDelete(true);
+    try {
+      await onDelete();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingDelete(false);
     }
   }
 
@@ -481,6 +510,32 @@ export function BountyCard({
               {archiveError && (
                 <div className="text-xs text-rose-300 whitespace-pre-wrap">
                   {archiveError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick 260729-g5r: Delete button — destructive sibling of
+              Archive above. Gated by window.confirm() inside handleDelete
+              (Cancel is a no-op, locked design D-3). Threaded to BOTH
+              open and archived cards from IdentityModal — appears
+              standalone on archived cards where Archive is withheld. */}
+          {onDelete && (
+            <div className="flex flex-col gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs text-rose-400 hover:text-rose-300 border-rose-400/40 hover:border-rose-400/60 self-start"
+                aria-label={`Delete bounty: ${bounty.title}`}
+                disabled={savingDelete}
+                onClick={() => void handleDelete()}
+              >
+                {savingDelete ? "Deleting…" : "Delete"}
+              </Button>
+              {deleteError && (
+                <div className="text-xs text-rose-300 whitespace-pre-wrap">
+                  {deleteError}
                 </div>
               )}
             </div>
