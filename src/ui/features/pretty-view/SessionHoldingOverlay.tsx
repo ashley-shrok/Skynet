@@ -8,9 +8,19 @@
 // centered card, not a thin pill at the top edge that can be missed.
 //
 // Shape:
-//   * Full-surface scrim (`absolute inset-0`) with backdrop-blur-md +
-//     bg-black/40 dims and blurs everything under it (messages, WIP /
-//     plan bubbles, compose box, ambient panels, jump-to-latest pill).
+//   * Scrim (`absolute inset-0`) with backdrop-blur-md + bg-black/40
+//     dims and blurs everything under it. Quick 260729-j8l narrowed
+//     the geometry: the overlay is now mounted INSIDE PrettyView's
+//     chat-region wrapper (the same wrapper IdentityModal portals
+//     INTO), NOT at data-pv-root. So `absolute inset-0` resolves
+//     against the chat-region — covering messages, WIP / plan
+//     bubbles, ambient panels, and the jump-to-latest pill — while
+//     the ComposeBox (peer sibling below the wrapper) stays
+//     UNCOVERED so Ashley can pre-draft the next message during the
+//     2-15s recycle window. ComposeBox's own `recycleActive` prop
+//     handles disabling every WS-side-effecting control during the
+//     window; textarea autosave (patches #57 / #119) preserves the
+//     draft across the recycle by the existing mechanism.
 //   * `pointer-events-auto` on the scrim catches mouse/keyboard input
 //     that would otherwise flow through to widgets underneath — this
 //     is a UX affordance ("wait, this is unavailable"), not a security
@@ -41,6 +51,15 @@
 //   `showOverlay` state that is delay-armed (~350ms) after `isHolding`
 //   goes true, so genuinely-instant recycles never flash the overlay.
 //   This component itself has no visibility props.
+//
+//   Quick 260729-j8l: the mount point moved from `data-pv-root` into
+//   the chat-region wrapper (`ref={setChatRegionEl}` in PrettyView).
+//   This is a GEOMETRY change — the scrim's `absolute inset-0` now
+//   inherits the chat-region's box, not the whole pretty-view root.
+//   Everything else (z-index, blur, glass card, error variant, motion
+//   channel guardrail) is unchanged. See PrettyView.tsx's mount-site
+//   comment for the "ComposeBox stays uncovered so a next message can
+//   be pre-drafted mid-recycle" rationale.
 //
 // Patch #122 — error variant:
 //   Accepts an optional `error` prop. When true, the card renders the
@@ -78,11 +97,15 @@ export function SessionHoldingOverlay({
           : "Session recycling — pretty view temporarily unavailable"
       }
       className={cn(
-        // Full-surface scrim: absolute inside PrettyView's relative
-        // `data-pv-root`. z-[110] sits above IdentityBadge (z-[101]) but
-        // below app-modal dialogs (z-[500]) — this is a component-local
-        // overlay, not an app-modal event. pointer-events-auto blocks
-        // clicks and typing on everything underneath.
+        // Scrim: `absolute inset-0` inherits the box of whichever
+        // parent PrettyView mounts this into. Quick 260729-j8l moved
+        // the mount from `data-pv-root` into the chat-region wrapper
+        // (the same wrapper IdentityModal portals INTO), so the scrim
+        // now covers messages / tasks / shells only — ComposeBox
+        // stays UNCOVERED. z-[110] sits above IdentityBadge (z-[101])
+        // but below app-modal dialogs (z-[500]) — this is a component-
+        // local overlay, not an app-modal event. pointer-events-auto
+        // blocks clicks and typing on everything the scrim covers.
         "absolute inset-0 z-[110]",
         "flex items-center justify-center",
         "backdrop-blur-md bg-black/40",

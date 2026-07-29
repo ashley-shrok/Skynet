@@ -1103,19 +1103,6 @@ export function PrettyView({
           onClick={() => setIsIdentityModalOpen(true)}
         />
       )}
-      {/* Patch #74: full-surface session-recycle overlay. Absolute-
-          positioned via SessionHoldingOverlay's own `absolute inset-0`,
-          anchored to this root's `relative overflow-hidden`. Mount gate
-          is `showOverlay` (delay-armed by ~350ms after isHolding=true)
-          rather than raw `isHolding` — see the useEffect above for the
-          gate rationale. Sits above IdentityBadge (z-[110] > z-[101])
-          but below app-modal dialogs (z-[500]), which is intentional:
-          session-recycle is component-local state, not an app-modal
-          event. Replaces the previous sticky top-of-scroll banner
-          (retired in patch #74) per Ashley's live 2026-07-19 design
-          read — the old bar was too subtle for how significant the
-          state actually is. */}
-      {showOverlay && <SessionHoldingOverlay error={holdingTimeoutError} />}
       {/* Patch #87: identity bounties modal. Portals to document.body via
           shadcn Dialog so it escapes this root's relative/overflow context.
           Mount guarded by pvIdentity non-null (Modal needs displayName,
@@ -1142,6 +1129,26 @@ export function PrettyView({
         ref={setChatRegionEl}
         className="relative flex-1 min-h-0 flex flex-col"
       >
+      {/* Patch #74 + quick 260729-j8l: session-recycle overlay.
+          Absolute-positioned via SessionHoldingOverlay's own
+          `absolute inset-0`. Quick 260729-j8l moved the mount from
+          data-pv-root into THIS chat-region wrapper (the same wrapper
+          IdentityModal portals INTO for the "modal covers only bubble/
+          tasks/shells" treatment) so the scrim is geometrically
+          constrained to messages/tasks/shells and leaves ComposeBox
+          uncovered. That in turn lets Ashley pre-draft the next
+          message during the 2-15s recycle window — the ComposeBox
+          textarea stays typeable while every WS-side-effecting
+          control (Send, reset cell, paperclip, ThumbsUp, Lightbulb,
+          Queue, Mic) is disabled via ComposeBox's `recycleActive`
+          prop wired below. Mount gate is `showOverlay` (the delay-
+          armed derived value from patch #74's ~350ms gate) so
+          genuinely-instant resets never flash the overlay. Sits
+          above IdentityBadge (z-[110] > z-[101]) but below app-modal
+          dialogs (z-[500]) — component-local, not an app-modal event.
+          Replaces the previous sticky top-of-scroll banner (retired
+          in patch #74) per Ashley's live 2026-07-19 design read. */}
+      {showOverlay && <SessionHoldingOverlay error={holdingTimeoutError} />}
       {status === "connecting" && (
         <div className="p-4 text-sm text-[var(--color-pv-fg-muted)]">
           Connecting…
@@ -1300,6 +1307,14 @@ export function PrettyView({
           onResetClicked={onResetClicked}
           canSend={status === "streaming"}
           isHolding={isHolding}
+          // Quick 260729-j8l: `showOverlay` (delay-armed by ~350ms
+          // per patch #74) gates every WS-side-effecting compose
+          // control off during recycle. Sharing the overlay's own
+          // delay-arm gate means the controls disable at the same
+          // moment the scrim appears, so instant recycles don't
+          // flash a disabled state that the user never sees the
+          // reason for.
+          recycleActive={showOverlay}
           contextPct={contextPct}
           isIdle={isIdle}
           hostId={hostId}

@@ -241,6 +241,32 @@ export interface ComposeBoxProps {
   // clears the aside display and WS-sends {type:'aside_dismissed',
   // hostId, tmuxSession} per CONTEXT.md § Dismiss.
   onAsideDismiss?: () => void;
+  // Quick 260729-j8l: session-recycle-in-flight signal from PrettyView.
+  // When true, every WS-side-effecting compose control is disabled or
+  // hidden (Send button, reset cell, paperclip, ThumbsUp, Lightbulb,
+  // Queue, Mic). Textarea REMAINS typeable so Ashley can pre-draft the
+  // next message during the 2-15s recycle window (autosave path
+  // patches #57/#119 untouched → the draft survives the recycle by the
+  // existing mechanism).
+  //
+  // Why SEPARATE from asideActive: aside MORPHS Send into an X/Resume
+  // affordance (identity-hue X icon, onClick fires onAsideDismiss).
+  // Recycle wants Send to STAY as Send but be DISABLED (no morph, no
+  // dismiss handler — there is nothing to dismiss). Because the Send-
+  // button behavior differs, the two props are kept independent — do
+  // NOT collapse into a combined `interactionsDisabled` flag.
+  //
+  // For the aux buttons (attach, ThumbsUp, Lightbulb, Queue) and Send-
+  // when-not-morphed, the disable EFFECT is identical to asideActive
+  // (just render `disabled=true`), so those predicates OR-in
+  // `|| recycleActive === true` matching the existing
+  // `|| asideActive === true` pattern verbatim.
+  //
+  // Value is `showOverlay` in PrettyView (delay-armed by ~350ms after
+  // `isHolding` flips true, patch #74). Using `showOverlay` not
+  // `isHolding` here matches the overlay's own visibility gate so the
+  // controls disable exactly when the scrim mounts.
+  recycleActive?: boolean;
   // Optional callback for the aux-row Terminal-icon button that toggles
   // pretty-view OFF (falls back to the raw xterm.js). Wires to the same
   // handle.togglePrettyMode() path as the Ctrl+Shift+O shortcut so the
@@ -271,6 +297,7 @@ export function ComposeBox({
   onRetryBatch,
   asideActive,
   onAsideDismiss,
+  recycleActive,
   onTogglePrettyMode,
   className,
 }: ComposeBoxProps) {
@@ -963,6 +990,11 @@ export function ComposeBox({
     // reach us. Defense in depth against any focus-restoration race —
     // swallow all keys silently while armed.
     if (queuedText !== null) return;
+    // Quick 260729-j8l: during session recycle the Send button is
+    // disabled (via sendDisabled below) but the textarea stays typeable
+    // so Ashley can pre-draft the next message. Swallow the Enter-send
+    // path too so a bare Enter can't slip past the disabled button.
+    if (recycleActive) return;
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
@@ -1010,7 +1042,8 @@ export function ComposeBox({
     navigator.mediaDevices != null &&
     voice.state === "idle" &&
     !asideActive &&
-    !queueArmed;
+    !queueArmed &&
+    !recycleActive;
   const showRecordingControls = voice.state === "recording";
   const showTranscribingSend = voice.state === "transcribing";
 
@@ -1034,6 +1067,7 @@ export function ComposeBox({
   //   - text.trim() === "" && !hasAttachments → disabled (nothing to send).
   const sendDisabled =
     queueArmed ||
+    recycleActive === true ||
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
 
@@ -1172,7 +1206,7 @@ export function ComposeBox({
           <button
             type="button"
             onClick={handleResetSend}
-            disabled={canSend === false || asideActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true}
             aria-label="Send with /id reset prefix"
             title="Send with /id reset prefix"
             className={cn(
@@ -1356,7 +1390,7 @@ export function ComposeBox({
               size="icon-sm"
               variant="outline"
               onClick={handleOpenFilePicker}
-              disabled={canSend === false || asideActive === true}
+              disabled={canSend === false || asideActive === true || recycleActive === true}
               aria-label="Attach file"
               title="Attach file"
               className={cn(
@@ -1422,7 +1456,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="outline"
             onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
-            disabled={canSend === false || asideActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true}
             aria-label="Send 'let's go'"
             title="Send 'let's go'"
             className={cn(
@@ -1451,7 +1485,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="outline"
             onClick={() => handleQuickSend("/explain concisely whatever's gone on since my last message (and ONLY since my last message) without using code symbols, in a conceptual model style. Not a metaphor and don't recast it as an extended analogy.")}
-            disabled={canSend === false || asideActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true}
             aria-label="Ask for a concise re-explanation"
             title="Ask for a concise re-explanation"
             className={cn(
@@ -1485,7 +1519,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="outline"
             onClick={handleQueue}
-            disabled={queueDisabled || asideActive === true}
+            disabled={queueDisabled || asideActive === true || recycleActive === true}
             aria-label={
               queueArmed
                 ? "Cancel queued send"
