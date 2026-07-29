@@ -1473,10 +1473,14 @@ export function AppShell({
             bare transparent button that lets the pretty-view surface
             beneath show through.
 
-            Direction: matches desktop.html's semantic — sidebarOpen ===
-            true → chevron rotates 180° (from ← to →, "click to close").
-            Collapsed state = ChevronLeft default orientation (← "click to
-            open"). */}
+            Direction (Ashley 2026-07-29 re-lock): chevron points at the
+            EDGE'S DIRECTION OF MOTION on click. sidebarOpen === true →
+            chevron points ← (default ChevronLeft), meaning "click, the
+            sidebar collapses leftward." sidebarOpen === false → rotate
+            180° so it points → ("click, the sidebar expands rightward").
+            Touch devices don't rotate — the icon is always ← because the
+            touch behavior is "back to conversations" (a leftward-return
+            navigation), not a sidebar toggle. */}
         {/* Patch #134: on touch mobile the persistent-toggle is dual-purpose.
             On desktop it toggles sidebarOpen (unchanged). On touch mobile it
             calls navigateToList() so the same top-left chevron affordance
@@ -1521,7 +1525,7 @@ export function AppShell({
               style={{
                 display: "inline-flex",
                 transform:
-                  !isTouchDevice && sidebarOpen
+                  !isTouchDevice && !sidebarOpen
                     ? "rotate(180deg)"
                     : undefined,
                 transition: "transform 220ms",
