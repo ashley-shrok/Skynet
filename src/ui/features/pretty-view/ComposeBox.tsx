@@ -988,16 +988,17 @@ export function ComposeBox({
 
   // Phase 16: send-button slot visibility gates.
   //
-  // showMicButton: mic replaces the send button ONLY when all conditions hold:
+  // showMicButton: mic CO-RENDERS beside the send button (one 40px hit-target
+  // to its left) when all four conditions hold:
   //   - navigator.mediaDevices is available (browser supports getUserMedia; also
   //     serves as the JSDOM guard so existing tests that don't mock mediaDevices
   //     still see the Send button — those tests exercise the non-voice path)
   //   - voice is idle (not recording, not transcribing)
-  //   - textarea is blank (whitespace-only counts as empty)
   //   - aside-morph is NOT active (X-for-Resume owns the slot when true)
-  //   - queue is NOT armed (pending-overlay owns the slot when armed)
-  //   - no attachments staged (send-with-attachment path owns the slot)
-  // In every other idle scenario the existing send/X-for-Resume button renders.
+  //   - queue is NOT armed (pending-overlay covers the slot when armed)
+  // Text length and attached-file presence NO LONGER gate the mic — Ashley
+  // 260729-3y1: mic must stay reachable regardless of textarea contents so she
+  // never has to clear dirty input just to start voice capture.
   //
   // showRecordingControls: while recording, the three-button controls own the slot.
   //   MicButton and send button are both hidden.
@@ -1008,10 +1009,8 @@ export function ComposeBox({
     typeof navigator !== "undefined" &&
     navigator.mediaDevices != null &&
     voice.state === "idle" &&
-    text.trim().length === 0 &&
     !asideActive &&
-    !queueArmed &&
-    !hasAttachments;
+    !queueArmed;
   const showRecordingControls = voice.state === "recording";
   const showTranscribingSend = voice.state === "transcribing";
 
@@ -1667,89 +1666,108 @@ export function ComposeBox({
             handleSend() at line ~652 (attachment branching, D-50
             newline collapse, COMPOSE-04 clear-on-success — nothing
             duplicated). */}
-        {/* Phase 16: send-button slot — conditional rendering based on voice state.
-            The slot hosts exactly ONE of: RecordingControls (while recording),
-            MicButton (idle + empty text + not morphed/queued/attached), or
-            the existing Send/X-for-Resume button (all other cases). Only one
-            renders at a time — do NOT render multiple simultaneously. */}
+        {/* Phase 16 + quick 260729-3y1: send-button slot — co-render pattern.
+            The slot hosts RecordingControls ALONE while voice.state==="recording";
+            otherwise the Send/X-for-Resume button ALWAYS renders (at right-1
+            bottom-0.5) AND, when showMicButton is true, MicButton ALSO renders
+            in the same slot (at right-11 bottom-0.5 — one 40px hit-target width
+            to the left of Send). Both are absolutely positioned against the same
+            relative parent, so they coexist without collision (40px separation).
+            Ashley 260729-3y1: mic must stay tappable even when the textarea has
+            typed text or attachments staged. */}
         {showRecordingControls ? (
           /* Phase 16: while recording, the three-button controls OWN the slot.
              RecordingControls is absolutely positioned at right-1 bottom-0.5
-             (same anchor as MicButton) and handles its own flex layout.
+             (same anchor as Send) and handles its own flex layout.
              D-16-06: no timer, no waveform, no level meter here. */
           <RecordingControls
             onCancel={handleVoiceCancel}
             onAppend={() => { void handleVoiceAppend(); }}
             onSend={() => { void handleVoiceSend(); }}
           />
-        ) : showMicButton ? (
-          /* Phase 16: idle + empty text + not morphed/queued/attached →
-             render the mic button. voice.start() is passed directly (NOT
-             wrapped in async) so the first statement inside is the
-             synchronous getUserMedia call (D-16-02 iOS Safari constraint). */
-          <MicButton onClick={voice.start} title="Record voice" />
         ) : (
-          /* Phase 14 Wave 4 (Task 2): SAME BUTTON, branched attributes.
-             When asideActive=true the button morphs to a Resume affordance —
-             X icon + identity-hue color + onClick fires onAsideDismiss?.()
-             instead of handleSend(). Per PATTERNS.md L186-234, we morph in
-             place (same <button> element) so DOM identity is preserved
-             across the morph transition — focus, keyboard tab order, and
-             parent-CSS selectors don't blink. Do NOT split into two sibling
-             buttons; do NOT wrap in a conditional-render component.
-             Phase 16: showTranscribingSend=true adds disabled={true} during
-             the STT round-trip so rapid-tap cannot double-fire (T-16-16). */
-          <button
-            type="button"
-            onClick={() => {
-              if (asideActive) { onAsideDismiss?.(); return; }
-              if (!sendDisabled) handleSend();
-            }}
-            disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
-            aria-label={asideActive ? "Resume" : "Send"}
-            title={asideActive ? "Resume" : "Send"}
-            className={cn(
-              "absolute right-1 bottom-0.5",
-              "p-2",
-              // Phase 14 Wave 4 (Task 2): identity-hue color when morphed so
-              // the X visually distinguishes from Send (Ashley 2026-07-26:
-              // "Style change to visually distinguish from send" per
-              // CONTEXT.md § ComposeBox morph). All other positional /
-              // transition classes preserved.
-              asideActive
-                ? "text-[hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-id-hue),95%,82%,1)]"
-                : "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-              "disabled:text-[rgba(240,235,224,0.15)]",
-              "disabled:cursor-not-allowed",
-              "transition-[color,transform] duration-120",
-              "active:scale-95",
-              "cursor-pointer",
+          <>
+            {/* Phase 14 Wave 4 (Task 2): SAME BUTTON, branched attributes.
+                When asideActive=true the button morphs to a Resume affordance —
+                X icon + identity-hue color + onClick fires onAsideDismiss?.()
+                instead of handleSend(). Per PATTERNS.md L186-234, we morph in
+                place (same <button> element) so DOM identity is preserved
+                across the morph transition — focus, keyboard tab order, and
+                parent-CSS selectors don't blink. Do NOT split into two sibling
+                buttons; do NOT wrap in a conditional-render component.
+                Phase 16: showTranscribingSend=true adds disabled={true} during
+                the STT round-trip so rapid-tap cannot double-fire (T-16-16).
+                Patch #181 press-feedback (250ms .pv-btn-pressed class) is
+                driven by the delegated pointerdown listener at the compose
+                root — this button participates by default (no per-button
+                wiring needed). */}
+            <button
+              type="button"
+              onClick={() => {
+                if (asideActive) { onAsideDismiss?.(); return; }
+                if (!sendDisabled) handleSend();
+              }}
+              disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
+              aria-label={asideActive ? "Resume" : "Send"}
+              title={asideActive ? "Resume" : "Send"}
+              className={cn(
+                "absolute right-1 bottom-0.5",
+                "p-2",
+                // Phase 14 Wave 4 (Task 2): identity-hue color when morphed so
+                // the X visually distinguishes from Send (Ashley 2026-07-26:
+                // "Style change to visually distinguish from send" per
+                // CONTEXT.md § ComposeBox morph). All other positional /
+                // transition classes preserved.
+                asideActive
+                  ? "text-[hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-id-hue),95%,82%,1)]"
+                  : "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+                "disabled:text-[rgba(240,235,224,0.15)]",
+                "disabled:cursor-not-allowed",
+                "transition-[color,transform] duration-120",
+                "active:scale-95",
+                "cursor-pointer",
+              )}
+            >
+              {asideActive ? (
+                /* Phase 14 Wave 4 (Task 2): lucide X sized to match the
+                    paper-plane's 24×24 slot. strokeWidth=2.25 keeps the
+                    mark visually heavy enough at 24px to read as a
+                    dismiss glyph without overpowering the neon aside
+                    bubble above. */
+                <X className="size-6" strokeWidth={2.25} aria-hidden="true" />
+              ) : (
+                /* Raw inline SVG — verbatim from Ashley's DevTools console
+                    snippet 2026-07-23. Single path (paper-plane silhouette
+                    pointing up-and-right), pure fill, NO stroke, NO fold
+                    line. Do NOT swap for lucide's SendHorizontal — that's a
+                    different icon (patch #130 write-up). */
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+                </svg>
+              )}
+            </button>
+            {/* Quick 260729-3y1: MicButton co-renders LEFT of Send at
+                right-11 bottom-0.5 (one p-2 hit-target width away from Send's
+                right-1 anchor). voice.start() is passed directly (NOT wrapped
+                in async) so the first statement inside is the synchronous
+                getUserMedia call (D-16-02 iOS Safari constraint). Guards are
+                mediaDevices + voice.state==="idle" + !asideActive + !queueArmed
+                (see the showMicButton predicate above) — text length and
+                attachment presence no longer factor in. */}
+            {showMicButton && (
+              <MicButton
+                onClick={voice.start}
+                title="Record voice"
+                positionClass="right-11 bottom-0.5"
+              />
             )}
-          >
-            {asideActive ? (
-              /* Phase 14 Wave 4 (Task 2): lucide X sized to match the
-                  paper-plane's 24×24 slot. strokeWidth=2.25 keeps the
-                  mark visually heavy enough at 24px to read as a
-                  dismiss glyph without overpowering the neon aside
-                  bubble above. */
-              <X className="size-6" strokeWidth={2.25} aria-hidden="true" />
-            ) : (
-              /* Raw inline SVG — verbatim from Ashley's DevTools console
-                  snippet 2026-07-23. Single path (paper-plane silhouette
-                  pointing up-and-right), pure fill, NO stroke, NO fold
-                  line. Do NOT swap for lucide's SendHorizontal — that's a
-                  different icon (patch #130 write-up). */
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-              </svg>
-            )}
-          </button>
+          </>
         )}
         </div>
       </div>
