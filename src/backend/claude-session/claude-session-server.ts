@@ -8,6 +8,7 @@ import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession } from "./session-file-discovery.js";
 import { parseSessionLine } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+import { parseContextPct } from "./context-pct-parser.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import {
   isLocalHostId,
@@ -2649,9 +2650,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
     //     the SAME line can't win. Mirrors nelly's source-side hardening
     //     in context-watch.py. Last matching line across the 8-line slice
     //     wins (multi-line last-wins semantic preserved).
+    //   * BAR-ANCHORED regex (patch #187 / quick 260729-ig7): the `%`
+    //     must be immediately preceded (with optional whitespace) by a
+    //     Claude Code meter glyph (`[█▉▊▋▌▍▎▏░]\s*NN%`). Closes the
+    //     false-positive where a weekly-limit warning appended to the
+    //     same line ("... 29% ┃ youve used 95% of your weekly limit")
+    //     caused rightmost-wins to return 95 instead of 29. Rightmost
+    //     still wins for the patch #59 milestone-bar case because both
+    //     meters are bar-anchored.
     //   * FALLBACK: bar-glyph pattern (░/█ chars unique to the visual
     //     context bar) with the same per-line rightmost-% rule, for hosts
     //     where "(1M context)" is absent but the visual bar remains.
+    //
+    // Scan logic lives in ./context-pct-parser.ts for testability; this
+    // callback just delegates to parseContextPct(output).
     const CONTEXT_PCT_INTERVAL_MS = 3000;
     // Single-quote wrap for the session name. Tmux session names are
     // validated by the frontend to a tmux-safe subset (alphanumeric,
@@ -2666,26 +2678,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
       execCommand(connSnapshot, captureCmd)
         .then((output) => {
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
-          const lines = output.split("\n").slice(-8);
-          // Per-line scan anchored on `context)`, rightmost NN% wins.
-          let pct: number | null = null;
-          for (const line of lines) {
-            if (!line.includes("context)")) continue;
-            const pcts = [...line.matchAll(/(\d{1,3})%/g)];
-            if (pcts.length === 0) continue;
-            pct = parseInt(pcts[pcts.length - 1][1], 10);
-          }
-          if (pct === null) {
-            // Fallback: bar-glyph anchor, same rightmost-per-line rule.
-            for (const line of lines) {
-              if (!/[░█]/.test(line)) continue;
-              const pcts = [...line.matchAll(/(\d{1,3})%/g)];
-              if (pcts.length === 0) continue;
-              pct = parseInt(pcts[pcts.length - 1][1], 10);
-            }
-          }
-          if (pct === null || !Number.isFinite(pct) || pct < 0 || pct > 100)
-            return;
+          // Delegate to the pure bar-anchored parser (patch #187 /
+          // quick 260729-ig7). Helper already applies the 0-100 range
+          // clamp and returns null for out-of-range or unparseable
+          // inputs — a single null-check replaces the inline
+          // Number.isFinite / < 0 / > 100 chain.
+          const pct = parseContextPct(output);
+          if (pct === null) return;
           try {
             ws.send(JSON.stringify({ type: "context_pct", pct }));
           } catch {
