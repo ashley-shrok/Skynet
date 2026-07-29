@@ -213,6 +213,7 @@ export type ClaudeSessionServerEvent =
   | IdentityBountyStatusUpdatedEvent
   | IdentityBountyPinnedUpdatedEvent
   | IdentityBountyArchivedEvent
+  | IdentityBountyDeletedEvent
   // Phase 17 relay events — handlers added in plan 17-03; PrettyView's
   // non-exhaustive switch silently ignores these until then.
   | RelayOutboundEvent
@@ -474,6 +475,25 @@ export type IdentityArchiveBountyPayload = {
 };
 export type IdentityBountyArchivedEvent = {
   type: "identity:bounty-archived";
+  bounties: Bounty[];
+  archivedBounties: Bounty[];
+  error?: string;
+};
+
+// Quick 260729-g5r: delete is a hard rm -rf of the bounty folder. Applies
+// to BOTH open and archived cards (contrast with archive which only applies
+// to open). Server returns fresh {bounties, archivedBounties} so the modal
+// atomically re-renders and the deleted card unmounts naturally when its
+// slug drops out of both lists. window.confirm() gate lives in BountyCard,
+// not here.
+export type IdentityDeleteBountyPayload = {
+  type: "identity:delete-bounty";
+  identityKey: string;
+  hostId: number;
+  bountySlug: string;
+};
+export type IdentityBountyDeletedEvent = {
+  type: "identity:bounty-deleted";
   bounties: Bounty[];
   archivedBounties: Bounty[];
   error?: string;

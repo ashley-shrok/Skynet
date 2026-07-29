@@ -48,6 +48,8 @@ import {
   type IdentityBountyPinnedUpdatedEvent,
   type IdentityArchiveBountyPayload,
   type IdentityBountyArchivedEvent,
+  type IdentityDeleteBountyPayload,
+  type IdentityBountyDeletedEvent,
   type Wakeup,
 } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
@@ -516,6 +518,29 @@ export function IdentityModal({
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
+  // Quick 260729-g5r: byte-shape mirror of archiveBounty for the delete
+  // write surface. Unlike archive, deleteBounty is threaded to BOTH open
+  // AND archived render sites below — permanent rm -rf applies regardless
+  // of location. window.confirm() gate lives in BountyCard (destructive
+  // UX belongs next to the button, not at the API-call layer).
+  async function deleteBounty(bountySlug: string): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityDeleteBountyPayload = {
+      type: "identity:delete-bounty",
+      identityKey: identity.identityKey,
+      hostId,
+      bountySlug,
+    };
+    const res = await sendIdentityMutation<
+      IdentityDeleteBountyPayload,
+      IdentityBountyDeletedEvent
+    >(payload, "identity:bounty-deleted");
+    if (res.error) throw new Error(res.error);
+    setBounties(res.bounties);
+    setArchivedBounties(res.archivedBounties);
+    void invalidateBountyCount(identity.identityKey, hostId);
+  }
+
   const sortedArchive = useMemo(
     () => [...archivedBounties].sort((a, b) =>
       (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
@@ -802,6 +827,12 @@ export function IdentityModal({
                             // under archive/ don't get the button; unarchive
                             // is a separate follow-up).
                             onArchive={() => archiveBounty(b.slug)}
+                            // Quick 260729-g5r: Delete button threaded for
+                            // ALL THREE OPEN partitions alongside Archive
+                            // above. Unlike Archive, Delete is ALSO threaded
+                            // to sortedArchive.map below — permanent rm -rf
+                            // applies regardless of location (locked D-2).
+                            onDelete={() => deleteBounty(b.slug)}
                           />
                         ))}
                       </div>
@@ -838,9 +869,12 @@ export function IdentityModal({
                               // pinned axis (same rationale as onStatusChange).
                               onPinnedChange={(next) => updateBountyPinned(b.slug, next)}
                               /* Quick 260727-wd0: NO onArchive here — cards
-                                 already under archive/ do not get an Archive
-                                 button (locked semantics rule #3; unarchive
-                                 is a separate follow-up). */
+                                 under archive/ do not get an Archive button
+                                 (unarchive is a separate follow-up).
+                                 Quick 260729-g5r: onDelete IS threaded here
+                                 — permanent delete applies to archived cards
+                                 too (locked design D-2). */
+                              onDelete={() => deleteBounty(b.slug)}
                             />
                           ))}
                         </div>
