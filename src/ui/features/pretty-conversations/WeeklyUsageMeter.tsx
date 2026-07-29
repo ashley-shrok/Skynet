@@ -6,6 +6,8 @@
 //   top-half  = warm-coral usage fill  (data.X.used_percentage %)
 //   bottom-half = cool-cyan elapsed-time fill (derived from resets_at)
 //   hairline 1px divider at midpoint (pv-usage-meter-divider)
+// No numeric percentage text — bars alone communicate progress (Ashley
+// 2026-07-29, bounty `remove-percentages-on-5h-weekly-meters`).
 //
 // Polling: fetch('/api/usage') immediately on mount, then every 15s.
 // Failure: silently retains last-known data; never clears state on error.
@@ -90,9 +92,6 @@ export function WeeklyUsageMeter() {
           />
           <div className="pv-usage-meter-divider" />
         </div>
-        <span className="pv-usage-meter-pct">
-          {Math.round(data.five_hour.used_percentage)}%
-        </span>
       </div>
 
       {/* 7-day (Week) bar */}
@@ -109,9 +108,6 @@ export function WeeklyUsageMeter() {
           />
           <div className="pv-usage-meter-divider" />
         </div>
-        <span className="pv-usage-meter-pct">
-          {Math.round(data.seven_day.used_percentage)}%
-        </span>
       </div>
     </div>
   );

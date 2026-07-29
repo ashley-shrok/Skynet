@@ -250,13 +250,6 @@
   pointer-events: none;
 }
 
-.pv-usage-meter-pct {
-  font: 600 11px/1 inherit;
-  color: #e8e4d8;
-  min-width: 32px;
-  text-align: right;
-}
-
 .pv-panel-scroll {
   flex: 1;
   overflow-y: auto;

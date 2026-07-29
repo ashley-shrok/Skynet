@@ -1,12 +1,16 @@
 // ─── WeeklyUsageMeter — Vitest coverage (plan 260729-1vd Task 4) ──────────────
 //
 // Three behaviors tested per WEEKLY-METER-05:
-//   Test A: renders two rows (5h + Week) with correct usage% from a mock response
+//   Test A: renders two rows (5h + Week) with correct usage-fill widths from a mock response
 //   Test B: elapsed% math — given resets_at = now + 3600 for 5h window (18000s),
 //           elapsed% = (18000 - 3600) / 18000 * 100 = 80% (±1% for clock drift)
 //   Test C: on fetch failure, does not throw:
 //     (C1) first-load failure → aria-busy empty container
 //     (C2) subsequent failure → retains previously-rendered values
+//
+// Numeric percentage text removed 2026-07-29 (bounty
+// `remove-percentages-on-5h-weekly-meters`); assertions now check the
+// usage-fill bar widths instead of the pct span text.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
@@ -63,7 +67,7 @@ afterEach(() => {
 // ─── Test A: renders two rows with correct usage% ────────────────────────────
 
 describe("WeeklyUsageMeter: render with mock response", () => {
-  it("Test A: renders 5h and Week rows with rounded usage% on the right side", async () => {
+  it("Test A: renders 5h and Week rows with usage-fill widths from mock data (no numeric pct text)", async () => {
     const mockData = makeMockResponse({
       fiveHourUsed: 45.6,
       sevenDayUsed: 30.2,
@@ -84,10 +88,9 @@ describe("WeeklyUsageMeter: render with mock response", () => {
     expect(labels[0].textContent).toBe("5h");
     expect(labels[1].textContent).toBe("Week");
 
-    // Percentage text (Math.round applied)
-    const pcts = container.querySelectorAll(".pv-usage-meter-pct");
-    expect(pcts[0].textContent).toBe("46%"); // Math.round(45.6) = 46
-    expect(pcts[1].textContent).toBe("30%"); // Math.round(30.2) = 30
+    // No numeric percentage text — bars alone (bounty
+    // `remove-percentages-on-5h-weekly-meters`)
+    expect(container.querySelectorAll(".pv-usage-meter-pct").length).toBe(0);
 
     // Usage fill widths
     const usageFills = container.querySelectorAll(".pv-usage-meter-fill-usage");
@@ -186,15 +189,16 @@ describe("WeeklyUsageMeter: fetch failure resilience", () => {
 
     const { container } = render(<WeeklyUsageMeter />);
 
-    // Wait for successful first render
+    // Wait for successful first render (usage fills populated)
     await waitFor(() => {
-      const pcts = container.querySelectorAll(".pv-usage-meter-pct");
-      expect(pcts.length).toBe(2);
+      const fills = container.querySelectorAll(".pv-usage-meter-fill-usage");
+      expect(fills.length).toBe(2);
+      expect((fills[0] as HTMLElement).style.width).toBe("60%");
     });
 
-    let pcts = container.querySelectorAll(".pv-usage-meter-pct");
-    expect(pcts[0].textContent).toBe("60%");
-    expect(pcts[1].textContent).toBe("40%");
+    let fills = container.querySelectorAll(".pv-usage-meter-fill-usage");
+    expect((fills[0] as HTMLElement).style.width).toBe("60%");
+    expect((fills[1] as HTMLElement).style.width).toBe("40%");
 
     // Verify: fetch was called once so far
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -211,11 +215,11 @@ describe("WeeklyUsageMeter: fetch failure resilience", () => {
     });
     await secondCallPromise;
 
-    // State has not changed — same percentages visible
-    pcts = container.querySelectorAll(".pv-usage-meter-pct");
-    expect(pcts.length).toBe(2);
-    expect(pcts[0].textContent).toBe("60%");
-    expect(pcts[1].textContent).toBe("40%");
+    // State has not changed — same bar widths visible
+    fills = container.querySelectorAll(".pv-usage-meter-fill-usage");
+    expect(fills.length).toBe(2);
+    expect((fills[0] as HTMLElement).style.width).toBe("60%");
+    expect((fills[1] as HTMLElement).style.width).toBe("40%");
 
     // Component still mounted, no crash
     expect(container.querySelector(".pv-usage-meter")).toBeTruthy();
