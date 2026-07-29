@@ -134,8 +134,9 @@ export function PrettyConversationRow({
   //                     terminal safety net — see the render block below
   //                     and Tina's patch #149 lesson in the plan.
   //
-  // Only passed by the panel at the non-RDP grouped render site. Active-
-  // set, pinned, and RDP render sites omit the prop → default "hostname".
+  // Active-set and RDP render sites omit the prop → default "hostname".
+  // Pinned + grouped render sites both pass "identityTitle" (as of patch
+  // #184 and quick-260727-f9v respectively).
   subtitleMode?: "hostname" | "identityTitle";
 }) {
   // ─── Identity resolution ───────────────────────────────────────────────────

@@ -106,8 +106,10 @@ function PrettyConversationRowLive(props: {
   inActiveSet: boolean;
   sessionKey: string | null;
   // quick-260727-f9v: pass-through for the row's sublabel render mode.
-  // Only the non-RDP grouped render site sets this to "identityTitle"; all
-  // other render sites omit the prop → row defaults to "hostname".
+  // The non-RDP grouped render site AND the pinned render site (as of
+  // patch #184 / quick-260729-gsv) set this to "identityTitle"; the
+  // active-set and RDP render sites omit the prop → row defaults to
+  // "hostname".
   subtitleMode?: "hostname" | "identityTitle";
 }) {
   const { sessionKey, inActiveSet, ...rowProps } = props;
@@ -660,6 +662,7 @@ export function PrettyConversationsPanel({
                   forceClosed={forceClosedFor(row.id)}
                   inActiveSet={activeSet.has(row.id)}
                   sessionKey={sessionWorkingKey(row)}
+                  subtitleMode="identityTitle"
                 />
               ))}
             </div>

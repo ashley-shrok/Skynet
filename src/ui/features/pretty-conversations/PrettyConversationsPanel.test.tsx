@@ -47,7 +47,10 @@ vi.mock("@/features/terminal/session-hue", () => ({
 // Patch #167: mutable identitiesByKey mock so filter tests can seed
 // identities that resolve for specific rows. Existing tests use the default
 // (empty Map) — beforeEach resets it — so their behavior is unchanged.
-let mockIdentitiesByKey: Map<string, { identityKey: string }> = new Map();
+let mockIdentitiesByKey: Map<
+  string,
+  { identityKey: string; title?: string | null; displayName?: string | null }
+> = new Map();
 
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
@@ -1782,5 +1785,82 @@ describe("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
     expect(
       container.querySelector('[data-conversation-id="tina-grouped"]'),
     ).toBeTruthy();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 29 — pinned rows render identity title when identity resolves
+//           (patch #184 / quick-260729-gsv)
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression guard for patch #184: the pinned render site in
+// PrettyConversationsPanel.tsx now passes `subtitleMode="identityTitle"` to
+// PrettyConversationRowLive, matching the grouped block's treatment. When an
+// identity resolves for the pinned row's tmux session, the row's `.pv-host`
+// sublabel MUST render `identity.title ?? identity.displayName` (NOT the
+// hostname + Server icon fallback). Row-level fallback semantics are covered
+// by PrettyConversationRow.test.tsx Tests 19A/B/C — this test proves the
+// panel wires the prop through at the pinned render site specifically.
+
+describe("PrettyConversationsPanel: pinned rows render identity title (patch #184 / quick-260729-gsv)", () => {
+  it("Test 29: pinned row with resolved identity renders identity.title (no Server icon, no hostname)", () => {
+    const hostA = makeHost("h1", "hostA");
+    // Seed the identity for the pinned row's tmux session. The session-hue
+    // mock at lines 42-45 lowercases the tmux session name via
+    // sessionMatchKey, so the map key MUST match that transform.
+    mockIdentitiesByKey = new Map([
+      [
+        "tina-session",
+        {
+          identityKey: "tina",
+          title: "Tina's Laptop",
+          displayName: "tina@laptop",
+        },
+      ],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [
+        makeConversationRow({
+          id: "pinned-1",
+          label: "pinned-session",
+          targetTmuxSession: "tina-session",
+          host: hostA,
+        }),
+      ],
+      grouped: [],
+      pinnedIds: new Set(["pinned-1"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Scope every query to the pinned-group wrapper — future-proofs the
+    // test against unrelated rows leaking into the assertion set.
+    const pinnedGroup = container.querySelector(
+      '[data-pinned-group="true"]',
+    ) as HTMLElement | null;
+    expect(pinnedGroup).toBeTruthy();
+
+    const pinnedRow = pinnedGroup!.querySelector(
+      '[data-conversation-id="pinned-1"]',
+    ) as HTMLElement | null;
+    expect(pinnedRow).toBeTruthy();
+
+    const pvHost = pinnedRow!.querySelector(
+      ".pv-host",
+    ) as HTMLElement | null;
+    expect(pvHost).toBeTruthy();
+
+    // (1) identity.title text renders under the label.
+    expect(pvHost!.textContent).toContain("Tina's Laptop");
+    // (2) The hostname (hostA) does NOT appear in the sublabel — confirms
+    //     the swap from the pre-#184 "Server icon + row.host.name" render.
+    expect(pvHost!.textContent).not.toContain("hostA");
+    // (3) The Server icon (rendered as <svg> inside .pv-host in the
+    //     hostname-mode path) MUST NOT render inside the pinned row's
+    //     .pv-host when identityTitle mode resolves — the pin glyph +
+    //     absence of the icon jointly signal the identity-first treatment.
+    expect(pvHost!.querySelector("svg")).toBeFalsy();
   });
 });
