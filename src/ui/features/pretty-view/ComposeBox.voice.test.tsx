@@ -1,8 +1,9 @@
 // Integration tests for the ComposeBox voice flow (Phase 16, Plan 03).
 //
-// Covers the nine key behaviors:
+// Covers ten key behaviors (post quick 260729-3y1 co-render refactor):
 //   1. MicButton present when text="" + asideActive=false + no attachments
-//   2. MicButton absent when text is non-empty (Send button owns the slot)
+//   2. MicButton present when text is non-empty (co-renders with Send —
+//      swap-in-single-slot pattern replaced by co-render at right-11 bottom-0.5)
 //   3. MicButton absent when asideActive=true (X-for-Resume owns the slot)
 //   4. Tapping MicButton calls navigator.mediaDevices.getUserMedia
 //   5. After getUserMedia + MediaRecorder resolve, RecordingControls appear and MicButton is gone
@@ -10,6 +11,8 @@
 //   7. Tapping Append triggers fetch to /voice/transcribe and updates textarea
 //   8. Tapping Send triggers fetch, then calls onSend prop (D-16-05 same-send-path assertion)
 //   9. When fetch returns HTTP 500, state returns to idle with error visible
+//  10. MicButton and Send both visible — co-render regression guard for the
+//      idle + text-non-empty state (quick 260729-3y1)
 //
 // Setup mirrors ComposeBox.test.tsx exactly:
 //   - vi.mock("@/api/compose-drafts-api") before importing ComposeBox
@@ -145,19 +148,25 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // MicButton renders with aria-label "Record voice" in the slot.
     const micBtn = screen.getByRole("button", { name: "Record voice" });
     expect(micBtn).toBeTruthy();
-    // The Send button must NOT be present in the empty-text state
-    // (the MicButton owns the slot; send comes back once text is typed).
-    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    // Quick 260729-3y1: after the co-render refactor, Send button IS present
+    // in the empty-text state (rendered disabled — nothing to send), because
+    // the slot no longer uses a mutually-exclusive swap. Truth table row:
+    // "idle, empty text | mic shown | Send shown (disabled — nothing to send)".
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
   });
 
-  it("Test 2: MicButton is NOT present when text is non-empty; Send button owns the slot", async () => {
+  it("Test 2: MicButton and Send button BOTH render when text is non-empty (co-render, no swap)", async () => {
+    // Quick 260729-3y1: showMicButton no longer gates on text length; MicButton
+    // co-renders LEFT of Send (at right-11 bottom-0.5) instead of swap-in-
+    // single-slot. Ashley UX rule: mic must stay tappable even with dirty text
+    // so voice capture can start without clearing input first.
     render(<ComposeBox {...baseProps()} />);
     const textarea = screen.getByPlaceholderText(/message/i);
     // Type some text into the textarea.
     fireEvent.change(textarea, { target: { value: "hello" } });
-    // After typing, voice is still idle but text is non-empty → Send renders.
+    // After typing, voice is still idle → BOTH MicButton and Send render.
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Record voice" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
   });
@@ -254,9 +263,12 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // onSend from props was NOT called — append does not send.
     expect(onSend).not.toHaveBeenCalled();
 
-    // State returns to idle — MicButton visible again (text is now "hello world"
-    // so showMicButton=false; but Send button should be present).
+    // State returns to idle — BOTH MicButton and Send are visible after the
+    // append completes. Quick 260729-3y1: MicButton is no longer gated by
+    // text length, so it co-renders alongside Send at right-11 bottom-0.5
+    // even though the textarea now contains "hello world".
     await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
   });
@@ -324,6 +336,22 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     await waitFor(() => {
       const errorEl = screen.queryByText(/STT error/i);
       expect(errorEl).toBeTruthy();
+    });
+  });
+
+  it("Test 10: MicButton and Send both visible in idle + text non-empty (regression guard for co-render slot)", async () => {
+    // Quick 260729-3y1 regression guard: the swap-in-single-slot pattern
+    // (mic OR send depending on text length) was replaced by a co-render
+    // pattern (mic AND send when idle + not morphed/queued). This test
+    // explicitly asserts BOTH buttons resolve via screen.getByRole so a
+    // future regression that reintroduces the mutual-exclusion gate would
+    // fail loudly here.
+    render(<ComposeBox {...baseProps()} />);
+    const textarea = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
   });
 });
