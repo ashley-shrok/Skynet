@@ -65,10 +65,21 @@
 
 .pv-panel-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--color-pv-border-quiet);
+}
+
+/* Patch 260729-1vd: inner row wrapper holding .pv-title + .pv-header-actions
+   (the original single-row header content), replaced by column-stack approach. */
+.pv-panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
 }
 
 /* Patch #142 Fix 5 — chevron clears "Conversations" title when sidebar open
@@ -168,6 +179,82 @@
   width: 18px;
   height: 18px;
   stroke-width: 2;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WEEKLY USAGE METER — plan 260729-1vd, F-variant dual-race split-bar design.
+   Two stacked bars (5h + Week). Top half = warm-coral usage fill; bottom half =
+   cool-cyan elapsed-time fill; 1px dark hairline divides them at midpoint.
+   Values below are LOCKED from the user's live iteration — do NOT re-tune.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-usage-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 0 0;
+}
+
+.pv-usage-meter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pv-usage-meter-label {
+  font: 700 10px/1 inherit;
+  color: #e8e4d8;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-width: 36px;
+}
+
+.pv-usage-meter-bar {
+  flex: 1;
+  position: relative;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.pv-usage-meter-fill-usage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 50%;
+  background: linear-gradient(90deg, hsla(38, 60%, 72%, 0.85), hsla(20, 72%, 66%, 0.95));
+  box-shadow: 0 0 10px hsla(20, 70%, 60%, 0.45);
+  border-radius: 3px 3px 0 0;
+}
+
+.pv-usage-meter-fill-elapsed {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 50%;
+  background: linear-gradient(90deg, hsla(200, 50%, 60%, 0.75), hsla(190, 60%, 62%, 0.85));
+  box-shadow: 0 0 8px hsla(190, 60%, 55%, 0.35);
+  border-radius: 0 0 3px 3px;
+}
+
+.pv-usage-meter-divider {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.25);
+  transform: translateY(-0.5px);
+  pointer-events: none;
+}
+
+.pv-usage-meter-pct {
+  font: 600 11px/1 inherit;
+  color: #e8e4d8;
+  min-width: 32px;
+  text-align: right;
 }
 
 .pv-panel-scroll {
