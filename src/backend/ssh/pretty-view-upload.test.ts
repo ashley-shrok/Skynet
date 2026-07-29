@@ -459,6 +459,128 @@ describe("Test 8: filename collision → suffix", () => {
   });
 });
 
+describe("Test 8b: batch-local collision — two same-named files → distinct finalPaths", () => {
+  it("resolves two identically-named files in one batch to distinct landing paths", async () => {
+    // Empty mock sftp — no pre-existing paths. The collision is purely batch-local.
+    const sftp = makeMockSftp();
+    const ws = makeMockWs();
+    const deps = makeDeps(sftp, ws);
+    const bodyBytes = Buffer.from("x", "utf8");
+
+    await handleUploadStart(
+      deps,
+      startPayload([
+        { tempId: "t1", filename: "image.png", size: bodyBytes.length, mimetype: "image/png" },
+        { tempId: "t2", filename: "image.png", size: bodyBytes.length, mimetype: "image/png" },
+      ]),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    handleUploadChunk(deps, {
+      type: "upload_chunk",
+      messageQueueItemId: "mqid-test",
+      tempId: "t1",
+      offset: 0,
+      bytes: bodyBytes.toString("base64"),
+    });
+    handleUploadChunk(deps, {
+      type: "upload_chunk",
+      messageQueueItemId: "mqid-test",
+      tempId: "t2",
+      offset: 0,
+      bytes: bodyBytes.toString("base64"),
+    });
+
+    await waitFor(ws, (e) => (e as { type?: string }).type === "upload_ready_to_inject");
+
+    // Assert rename was called twice with DISTINCT `to` arguments
+    const renameTos = sftp.rename.mock.calls.map((c: [string, string]) => c[1]);
+    expect(renameTos).toHaveLength(2);
+    expect(new Set(renameTos).size).toBe(2); // distinct
+
+    const expectedBase = "/home/ash/pretty-view-uploads/2026-07-20/143211-image.png";
+    const expectedSuffix = "/home/ash/pretty-view-uploads/2026-07-20/143211-image-2.png";
+    expect(new Set(renameTos)).toEqual(new Set([expectedBase, expectedSuffix]));
+
+    // Assert ready_to_inject has two entries with distinct landingPath values
+    const ready = ws.__sentEvents.find(
+      (e) => (e as { type?: string }).type === "upload_ready_to_inject",
+    ) as { files: Array<{ tempId: string; landingPath: string }> };
+    expect(ready.files).toHaveLength(2);
+    const landingPaths = ready.files.map((f) => f.landingPath);
+    expect(new Set(landingPaths)).toEqual(new Set([expectedBase, expectedSuffix]));
+
+    // Assert both upload_complete events emitted with distinct landingPath values
+    const completes = ws.__sentEvents.filter(
+      (e) => (e as { type?: string }).type === "upload_complete",
+    ) as Array<{ landingPath: string }>;
+    expect(completes).toHaveLength(2);
+    const completeLandingPaths = completes.map((c) => c.landingPath);
+    expect(new Set(completeLandingPaths)).toEqual(new Set([expectedBase, expectedSuffix]));
+  });
+});
+
+describe("Test 8c: batch-local collision — three same-named files → X, X-2, X-3", () => {
+  it("resolves three identically-named files in one batch to X, X-2, X-3 paths", async () => {
+    const sftp = makeMockSftp();
+    const ws = makeMockWs();
+    const deps = makeDeps(sftp, ws);
+    const bodyBytes = Buffer.from("x", "utf8");
+
+    await handleUploadStart(
+      deps,
+      startPayload([
+        { tempId: "t1", filename: "image.png", size: bodyBytes.length, mimetype: "image/png" },
+        { tempId: "t2", filename: "image.png", size: bodyBytes.length, mimetype: "image/png" },
+        { tempId: "t3", filename: "image.png", size: bodyBytes.length, mimetype: "image/png" },
+      ]),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    handleUploadChunk(deps, {
+      type: "upload_chunk",
+      messageQueueItemId: "mqid-test",
+      tempId: "t1",
+      offset: 0,
+      bytes: bodyBytes.toString("base64"),
+    });
+    handleUploadChunk(deps, {
+      type: "upload_chunk",
+      messageQueueItemId: "mqid-test",
+      tempId: "t2",
+      offset: 0,
+      bytes: bodyBytes.toString("base64"),
+    });
+    handleUploadChunk(deps, {
+      type: "upload_chunk",
+      messageQueueItemId: "mqid-test",
+      tempId: "t3",
+      offset: 0,
+      bytes: bodyBytes.toString("base64"),
+    });
+
+    await waitFor(ws, (e) => (e as { type?: string }).type === "upload_ready_to_inject");
+
+    // Assert rename was called three times with DISTINCT `to` args
+    const renameTos = sftp.rename.mock.calls.map((c: [string, string]) => c[1]);
+    expect(renameTos).toHaveLength(3);
+    expect(new Set(renameTos).size).toBe(3); // all distinct
+
+    const expectedBase = "/home/ash/pretty-view-uploads/2026-07-20/143211-image.png";
+    const expected2 = "/home/ash/pretty-view-uploads/2026-07-20/143211-image-2.png";
+    const expected3 = "/home/ash/pretty-view-uploads/2026-07-20/143211-image-3.png";
+    expect(new Set(renameTos)).toEqual(new Set([expectedBase, expected2, expected3]));
+
+    // ready_to_inject lists all three with distinct paths
+    const ready = ws.__sentEvents.find(
+      (e) => (e as { type?: string }).type === "upload_ready_to_inject",
+    ) as { files: Array<{ tempId: string; landingPath: string }> };
+    expect(ready.files).toHaveLength(3);
+    const landingPaths = ready.files.map((f) => f.landingPath);
+    expect(new Set(landingPaths)).toEqual(new Set([expectedBase, expected2, expected3]));
+  });
+});
+
 describe("Test 9: upload_abort — no tempId (batch-wide)", () => {
   it("tears down all in-flight streams and unlinks all temp files", async () => {
     const sftp = makeMockSftp();

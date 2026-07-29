@@ -290,13 +290,14 @@ function suffixCandidate(finalPath: string, n: number): string {
 async function resolveNonCollidingFinal(
   sftp: SftpLike,
   candidate: string,
+  reserved: Set<string>,
 ): Promise<string | null> {
   const first = await sftpStat(sftp, candidate);
-  if (!first.exists) return candidate;
+  if (!first.exists && !reserved.has(candidate)) return candidate;
   for (let n = 2; n <= 10; n++) {
     const c = suffixCandidate(candidate, n);
     const s = await sftpStat(sftp, c);
-    if (!s.exists) return c;
+    if (!s.exists && !reserved.has(c)) return c;
   }
   return null;
 }
@@ -461,11 +462,17 @@ export async function handleUploadStart(
   const hhmmss = boxLocalTime(clock);
   const uploadTimestamp = boxLocalIso(clock);
 
+  // Batch-local reservation set: tracks finalPaths already claimed within
+  // this upload_start call so two same-named files in one batch don't both
+  // resolve to the same candidate (disk-stat returns "not exists" for both
+  // until the first sftpRename completes at chunk completion time).
+  const reservedFinalPaths = new Set<string>();
+
   // Per-file: open the writeStream after resolving collision-free finalPath.
   for (const f of payload.files) {
     const sanitized = sanitizedFilenames[f.tempId];
     const candidate = `${landingDir}/${hhmmss}-${sanitized}`;
-    const finalPath = await resolveNonCollidingFinal(sftp, candidate);
+    const finalPath = await resolveNonCollidingFinal(sftp, candidate, reservedFinalPaths);
     if (!finalPath) {
       emitFailed(
         ws,
@@ -477,6 +484,9 @@ export async function handleUploadStart(
       await teardownBatch(batch);
       return;
     }
+    // Claim this finalPath so subsequent iterations in the same batch don't
+    // resolve to the same path before the first file's sftpRename fires.
+    reservedFinalPaths.add(finalPath);
     // Temp path: hidden + `.partial` suffix; random suffix component
     // prevents pre-planted symlink collision (T-05-02 belt-and-suspenders
     // on top of `flags: 'wx'`).
