@@ -56,6 +56,7 @@ import {
   updateFleetSessions,
   updateHostsFlat,
   useSelectedConversationId,
+  selectConversation,
   selectConversationDeferred,
   addToActiveSet,
 } from "@/state/conversation-store";
@@ -1152,9 +1153,15 @@ export function AppShell({
     terminalRefs.current.delete(id);
     if (id === activeTabId) {
       const remaining = tabs.filter((t) => t.id !== id);
-      setActiveTabId(
-        remaining.length > 0 ? remaining[remaining.length - 1].id : "dashboard",
-      );
+      const nextId =
+        remaining.length > 0 ? remaining[remaining.length - 1].id : "dashboard";
+      setActiveTabId(nextId);
+      // Patch #180: keep selectedConversationId in lockstep with activeTabId
+      // when a close forces the switch. Otherwise `.pv-row.selected` (the
+      // bright ring + glow from patch #175) stays anchored to the dead id
+      // and the survivor gains no visible selection indicator. Dashboard is
+      // not a conversation, so fall back to null (clears the ring entirely).
+      selectConversation(nextId === "dashboard" ? null : nextId);
     }
     setPaneTabIds((prev) => prev.map((p) => (p === id ? null : p)));
     setTabs((prev) => {
