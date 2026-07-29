@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { AlarmClock, ChevronDown, Clock, Handshake, Target, User, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -148,6 +148,26 @@ export function IdentityModal({
   const [activeTab, setActiveTab] = useState("identity");
   // refetchKey increments on Retry to re-trigger the fetch effect.
   const [refetchKey, setRefetchKey] = useState(0);
+
+  // Patch #191 (tuner — THROWAWAY, will be ripped out in #191b when Ashley
+  // picks a winner). URL-param `?identity-nav=list|dropdown|bottombar` swaps
+  // in alternative section-switch surfaces for A/B evaluation of a replacement
+  // for shadcn's TabsList — which (a) aesthetically doesn't match the rest of
+  // Skynet's pretty-view visual language and (b) gets CUT OFF on narrow mobile
+  // viewports (w-auto self-start, no overflow handling). Default (no param) =
+  // current TabsList — nothing regresses.
+  const NAV_SECTIONS = [
+    { value: "identity", label: "Identity", Icon: User },
+    { value: "bounties", label: "Bounties", Icon: Target },
+    { value: "history", label: "History", Icon: Clock },
+    { value: "wakeups", label: "Wakeups", Icon: AlarmClock },
+    { value: "handoff", label: "Handoff", Icon: Handshake },
+  ] as const;
+  const navVariant = useMemo<"list" | "dropdown" | "bottombar" | null>(() => {
+    if (typeof window === "undefined") return null;
+    const p = new URLSearchParams(window.location.search).get("identity-nav");
+    return p === "list" || p === "dropdown" || p === "bottombar" ? p : null;
+  }, []);
 
   // Patch #17g: independent state slots for each new artifact tab.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
@@ -686,11 +706,17 @@ export function IdentityModal({
           </DialogClose>
         </DialogHeader>
 
-        {/* Tabs — patch #17g: Identity / Bounties / History / Wakeups / Handoff */}
+        {/* Tabs — patch #17g: Identity / Bounties / History / Wakeups / Handoff
+            Patch #191 (tuner) wraps this so that ?identity-nav=list|dropdown|bottombar
+            swaps in an alternative section-switch surface. Default (no param) = the
+            original TabsList unchanged. */}
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
-          className="flex-1 flex flex-col min-h-0"
+          className={cn(
+            "flex-1 min-h-0",
+            navVariant === "list" ? "flex flex-row" : "flex flex-col",
+          )}
         >
           {/* Patch #91: tabs polish.
               - TabsList: refined glass surface (was flat bg-black/20 border-white/10).
@@ -704,33 +730,86 @@ export function IdentityModal({
                 that reads as "pressed in" against the well; hover = subtle
                 brighten of the inactive text. Custom size/padding for a
                 cleaner rhythm than shadcn defaults. */}
-          <TabsList
-            className="mx-6 mt-4 shrink-0 w-auto self-start p-1 rounded-lg h-auto"
-            style={{
-              background: "linear-gradient(180deg, rgba(28,30,40,0.55), rgba(18,20,28,0.62))",
-              border: "1px solid rgba(220, 225, 245, 0.12)",
-              boxShadow: "inset 0 1px 0 rgba(220, 225, 245, 0.05), inset 0 2px 8px rgba(0, 0, 0, 0.35)",
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
-            }}
-          >
-            {[
-              { value: "identity", label: "Identity" },
-              { value: "bounties", label: "Bounties" },
-              { value: "history", label: "History" },
-              { value: "wakeups", label: "Wakeups" },
-              { value: "handoff", label: "Handoff" },
-            ].map((t) => (
-              <TabsTrigger
-                key={t.value}
-                value={t.value}
-                className="cursor-pointer px-3.5 py-1.5 text-sm text-[#a89a80] hover:text-[#e8e4d8] data-[state=active]:bg-[rgba(240,235,224,0.08)]! data-[state=active]:text-[#f0ebe0] data-[state=active]:border-[rgba(220,225,245,0.18)]! data-[state=active]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),_0_1px_2px_rgba(0,0,0,0.3)]"
-              >
-                {t.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          {navVariant === null && (
+            <TabsList
+              className="mx-6 mt-4 shrink-0 w-auto self-start p-1 rounded-lg h-auto"
+              style={{
+                background: "linear-gradient(180deg, rgba(28,30,40,0.55), rgba(18,20,28,0.62))",
+                border: "1px solid rgba(220, 225, 245, 0.12)",
+                boxShadow: "inset 0 1px 0 rgba(220, 225, 245, 0.05), inset 0 2px 8px rgba(0, 0, 0, 0.35)",
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
+              }}
+            >
+              {NAV_SECTIONS.map((t) => (
+                <TabsTrigger
+                  key={t.value}
+                  value={t.value}
+                  className="cursor-pointer px-3.5 py-1.5 text-sm text-[#a89a80] hover:text-[#e8e4d8] data-[state=active]:bg-[rgba(240,235,224,0.08)]! data-[state=active]:text-[#f0ebe0] data-[state=active]:border-[rgba(220,225,245,0.18)]! data-[state=active]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),_0_1px_2px_rgba(0,0,0,0.3)]"
+                >
+                  {t.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          )}
 
+          {/* Patch #191 tuner — LIST variant: vertical section list on the left,
+              content in the flex-row right column. Matches the pretty-conversations
+              row aesthetic; mobile-safe by construction. */}
+          {navVariant === "list" && (
+            <div className="shrink-0 w-36 my-4 ml-4 mr-2 flex flex-col gap-1 overflow-y-auto">
+              {NAV_SECTIONS.map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setActiveTab(value)}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-left cursor-pointer transition-colors",
+                    activeTab === value
+                      ? "bg-[rgba(240,235,224,0.09)] text-[#f0ebe0] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),_0_1px_2px_rgba(0,0,0,0.3)]"
+                      : "text-[#a89a80] hover:bg-white/5 hover:text-[#e8e4d8]",
+                  )}
+                >
+                  <Icon size={14} className="shrink-0" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Patch #191 tuner — DROPDOWN variant: pill button in the header slot
+              that toggles a small menu. Native-styled with pretty-view palette. */}
+          {navVariant === "dropdown" && (
+            <div className="mx-6 mt-4 shrink-0 self-start relative">
+              <select
+                value={activeTab}
+                onChange={(e) => setActiveTab(e.target.value)}
+                className="appearance-none cursor-pointer pl-3.5 pr-8 py-1.5 text-sm rounded-lg text-[#e8e4d8] focus:outline-none focus:ring-1 focus:ring-[rgba(220,225,245,0.35)]"
+                style={{
+                  background: "linear-gradient(180deg, rgba(28,30,40,0.55), rgba(18,20,28,0.62))",
+                  border: "1px solid rgba(220, 225, 245, 0.12)",
+                  boxShadow: "inset 0 1px 0 rgba(220, 225, 245, 0.05), inset 0 2px 8px rgba(0, 0, 0, 0.35)",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                }}
+              >
+                {NAV_SECTIONS.map(({ value, label }) => (
+                  <option key={value} value={value} className="bg-[#0a0b12] text-[#e8e4d8]">
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#a89a80]"
+              />
+            </div>
+          )}
+
+          {/* Content column — wrapped in a flex-col div so it composes cleanly
+              with both the vertical-col (default/dropdown/bottombar) and the
+              flex-row (list) parent layouts. */}
+          <div className="flex-1 min-h-0 flex flex-col">
           {/* Identity tab — patch #17g: default tab; renders <key>.md as markdown */}
           <TabsContent
             value="identity"
@@ -909,6 +988,39 @@ export function IdentityModal({
           >
             <HandoffTab state={handoffState} />
           </TabsContent>
+
+          {/* Patch #191 tuner — BOTTOMBAR variant: icon+label strip docked at
+              the bottom of the content column, Telegram-style. Sticky bottom-0
+              keeps it visible as content scrolls. */}
+          {navVariant === "bottombar" && (
+            <div
+              className="shrink-0 flex items-stretch justify-around px-2 py-1 border-t"
+              style={{
+                borderTopColor: "rgba(220, 225, 245, 0.10)",
+                background: "linear-gradient(180deg, rgba(18,20,28,0.62), rgba(28,30,40,0.55))",
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
+              }}
+            >
+              {NAV_SECTIONS.map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setActiveTab(value)}
+                  className={cn(
+                    "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors flex-1",
+                    activeTab === value
+                      ? "text-[#f0ebe0]"
+                      : "text-[#a89a80] hover:text-[#e8e4d8]",
+                  )}
+                >
+                  <Icon size={18} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          </div>
         </Tabs>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
