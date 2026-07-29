@@ -27,6 +27,7 @@ import {
   writeIdentityBountyStatus,
   writeIdentityBountyPinned,
   archiveIdentityBounty,
+  deleteIdentityBounty,
   type BountyPriority,
   type BountyStatus,
 } from "./identity-artifact-reader.js";
@@ -51,6 +52,7 @@ import {
  *     { type: "identity:update-bounty-status", identityKey: string, hostId?: number, bountySlug: string, status: "in_progress"|"waiting_on_someone_else"|"done"|"dropped" } // quick 260727-v0b / patch #168: patch bounties/<slug>/bounty.json status field. Allowed values: in_progress, waiting_on_someone_else, done, dropped. "pinned" removed from enum (now an independent boolean field). Folder NOT moved even for done/dropped — supports Ashley's resurrect flow via a pure JSON patch.
  *     { type: "identity:update-bounty-pinned", identityKey: string, hostId?: number, bountySlug: string, pinned: boolean } // quick 260728-sqk / patch #172: patch bounties/<slug>/bounty.json pinned field. `pinned` is an independent boolean orthogonal to status per fleet migration #168. Byte-shape mirror of update-bounty-status — flips the boolean, bumps updated_at, appends timeline line, folder untouched.
  *     { type: "identity:archive-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260727-wd0: server decides new status internally (flip live→done or preserve terminal), then mv bounties/<slug>/ under bounties/archive/<slug>/ (mkdir -p archive/ if absent). No client-supplied status field.
+ *     { type: "identity:delete-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260729-g5r / patch #183: permanent rm -rf of a bounty folder. Applies to BOTH open (bounties/<slug>/) AND archived (bounties/archive/<slug>/) cards — server rm's both candidate paths with force:true so one call covers both locations. No confirmation gate here; window.confirm() lives in BountyCard.
  *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
  *     // reads from the local bind-mount (IDENTITIES_HOST_DIR); otherwise SSHes to the pane's host.
  *     // Response shapes UNCHANGED — only request payloads gain the optional hostId field.
@@ -81,6 +83,7 @@ import {
  *     { type: "identity:bounty-status-updated", bounties, archivedBounties, error?: string } // quick 260727-v0b: response to identity:update-bounty-status (includes refreshed lists)
  *     { type: "identity:bounty-pinned-updated", bounties, archivedBounties, error?: string } // quick 260728-sqk / patch #172: response to identity:update-bounty-pinned (includes refreshed lists — normalizeBounty carries `pinned:boolean` on every bounty)
  *     { type: "identity:bounty-archived", bounties, archivedBounties, error?: string } // quick 260727-wd0: response to identity:archive-bounty (includes refreshed lists — bounty moved from `bounties` list to `archivedBounties` list)
+ *     { type: "identity:bounty-deleted", bounties, archivedBounties, error?: string } // quick 260729-g5r / patch #183: response to identity:delete-bounty (includes refreshed lists — bounty drops out of BOTH lists since its folder is gone)
  *
  * Image frames carry inline base64 payloads: each `images[]` element is
  * `{ data: string, mediaType: string, toolUseId?: string }` where `data`
@@ -2078,6 +2081,76 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Quick 260729-g5r / patch #183: identity:delete-bounty — byte-shape
+    // mirror of the archive handler above but with rm -rf semantics
+    // (no JSON patch, no timeline entry, no status flip, no folder move).
+    // Applies to BOTH open AND archived cards — the writer rm's both
+    // candidate paths with force:true so one call covers both locations.
+    // Returns fresh {bounties, archivedBounties} so the modal atomically
+    // re-renders and the deleted card unmounts naturally when its slug
+    // drops out of both lists. window.confirm() gate lives in BountyCard.
+    if (msg.type === "identity:delete-bounty") {
+      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown };
+      const rawKey = raw.identityKey;
+      const rawSlug = raw.bountySlug;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        return;
+      }
+      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const bountySlug = rawSlug;
+      const rawHostId = raw.hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      try {
+        let bounties: unknown[];
+        let archivedBounties: unknown[];
+        if (useLocal) {
+          await deleteIdentityBounty(null, identityKey, bountySlug);
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          sshLogger.info("identity:delete-bounty", {
+            operation: "identity_delete_bounty",
+            userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: true,
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            await deleteIdentityBounty(conn, identityKey, bountySlug);
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            sshLogger.info("identity:delete-bounty", {
+              operation: "identity_delete_bounty",
+              userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties, archivedBounties })); } catch { /* ignore */ }
+      } catch (err) {
+        sshLogger.error(
+          "identity:delete-bounty unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_delete_bounty_error", userId, identityKey, bountySlug, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
         } catch { /* ignore */ }
       }
       return;

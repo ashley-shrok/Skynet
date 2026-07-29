@@ -1065,6 +1065,83 @@ export async function archiveIdentityBounty(
 }
 
 // ---------------------------------------------------------------------------
+// 9b. deleteIdentityBounty — quick 260729-g5r
+// ---------------------------------------------------------------------------
+//
+// Permanent-delete (rm -rf) of a bounty folder. Called from the identity
+// modal's Bounties tab via the identity:delete-bounty WS handler. Unlike
+// archive (which flips status + moves the folder under bounties/archive/),
+// delete is a plain filesystem removal — no JSON patch, no timeline entry,
+// no status flip, no tmp-and-rename. The bounty simply ceases to exist.
+//
+// SEMANTICS (locked in PLAN.md § D-1 / D-2):
+//   - Delete applies to BOTH open (bounties/<slug>/) AND archived
+//     (bounties/archive/<slug>/) cards. To cover both card locations with
+//     a single code path, we rm -rf BOTH candidate paths with force:true —
+//     the path that doesn't match the bounty's actual location is a no-op.
+//   - Slug regex guard fires at the TOP of the function (before both the
+//     local and remote branches) so it protects the shell-interpolated
+//     remote path AND the local fs.rm — this fixes the pattern-drift in
+//     archiveIdentityBounty where the guard only fires on the remote
+//     branch (per strict scope we don't retrofit that here — just do it
+//     right in the new function).
+//   - No confirmation gate here — window.confirm() lives in BountyCard
+//     next to the button (destructive UX belongs at the click surface).
+//
+// LOCAL branch: fs.rm(dir, {recursive:true, force:true}) on both candidate
+// paths in sequence. force:true makes the non-matching call idempotent.
+//
+// REMOTE branch: python3 script mirrors the local semantics using
+// shutil.rmtree(..., ignore_errors=True) on both candidate paths.
+
+export async function deleteIdentityBounty(
+  conn: SSHClientType | null,
+  identityKey: string,
+  bountySlug: string,
+): Promise<void> {
+  // Slug guard at the TOP — fires regardless of branch. Fixes the drift
+  // in archiveIdentityBounty where this only ran on the remote branch.
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+
+  if (conn === null) {
+    const root = getLocalIdentitiesRoot();
+    const openDir = path.join(root, identityKey, "bounties", bountySlug);
+    const archivedDir = path.join(
+      root,
+      identityKey,
+      "bounties",
+      "archive",
+      bountySlug,
+    );
+    // force:true makes each call idempotent — the path that doesn't
+    // match the bounty's actual location is a no-op, so a single code
+    // path covers both open + archived cards (locked D-1 semantics).
+    await fs.rm(openDir, { recursive: true, force: true });
+    await fs.rm(archivedDir, { recursive: true, force: true });
+    return;
+  }
+
+  // Remote branch: python3 script mirrors the local branch. identityKey is
+  // regex-validated upstream by IDENTITY_KEY_RE at the handler layer, and
+  // bountySlug is guarded above — direct interpolation of both is safe here
+  // (same convention as the rest of this file — see the note near line 229
+  // about patch #95).
+  const script =
+    'import shutil,os,sys\n' +
+    'base=sys.argv[1]\n' +
+    'slug=sys.argv[2]\n' +
+    'shutil.rmtree(os.path.join(base,slug),ignore_errors=True)\n' +
+    'shutil.rmtree(os.path.join(base,"archive",slug),ignore_errors=True)\n';
+  const cmd =
+    `python3 -c ${shellEscape(script)} ` +
+    `"$HOME/.claude/identities/${identityKey}/bounties" ` +
+    `"${bountySlug}"`;
+  await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
 // 10. readIdentityPinnedBountyCount — count of non-archived pinned bounties
 // ---------------------------------------------------------------------------
 //
