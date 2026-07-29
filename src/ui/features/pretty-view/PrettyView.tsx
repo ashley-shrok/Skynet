@@ -467,8 +467,8 @@ export function PrettyView({
     getBufferedAmount: () => terminalWs?.bufferedAmount ?? 0,
   });
 
-  const { scrollRef, contentRef, anchorRefCallback, scrollToBottomAndFollow, isPinnedToBottom } =
-    useAutoScroll(messages);
+  const { scrollRef, contentRef, scrollToBottomAndFollow, isPinnedToBottom } =
+    useAutoScroll();
 
   // Patch #108: IdentityModal anchors its Radix Portal to this DOM element
   // (the chat-region wrapper below). Callback ref → state so the Portal
@@ -1169,55 +1169,42 @@ export function PrettyView({
               markdown re-layout, Inter font swap). The outer scrollRef div
               is watched separately for viewport-size changes. */}
           <div ref={contentRef} className="flex flex-col gap-[18px]">
-            {(() => {
-              // Find last user-role message index for anchor ref attachment.
-              // Manual reverse loop because ES2022 lib does not include findLastIndex (ES2023).
-              let lastUserMsgIdx = -1;
-              for (let i = messages.length - 1; i >= 0; i--) {
-                const e = messages[i];
-                if (e.type === "message" && (e as { role?: string }).role === "user") {
-                  lastUserMsgIdx = i;
-                  break;
-                }
-              }
-              return messages.map((m, idx) => (
-                <div
-                  key={m.eventId}
-                  ref={idx === lastUserMsgIdx ? anchorRefCallback : undefined}
-                >
-                  {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
-                      normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
-                      hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
-                      which pane's remote host to query. */}
-                  {m.type === "image" ? (
-                    <ImageBubble
-                      role={m.role}
-                      images={m.images}
-                      text={m.text}
-                      eventId={m.eventId}
-                      ts={m.ts}
-                    />
-                  ) : m.type === "relay_outbound" ? (
-                    <RelayOutboundBubble
-                      room={m.room}
-                      rawCommand={m.rawCommand}
-                    />
-                  ) : m.type === "relay_inbound" ? (
-                    <RelayInboundBubble
-                      room={m.room}
-                      sender={m.sender}
-                      body={m.body}
-                      hostId={hostId}
-                    />
-                  ) : (
-                    <ChatMessage
-                      role={m.role}
-                      content={m.content}
-                    />
-                  )}
-                </div>
-              ));
-            })()}
+            {/* Phase-01 scroll contract (patch #185): plain message map — no anchor ref.
+                useAutoScroll follows bottom when pinned; holds position when scrolled up. */}
+            {messages.map((m) => (
+              <div key={m.eventId}>
+                {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
+                    normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
+                    hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
+                    which pane's remote host to query. */}
+                {m.type === "image" ? (
+                  <ImageBubble
+                    role={m.role}
+                    images={m.images}
+                    text={m.text}
+                    eventId={m.eventId}
+                    ts={m.ts}
+                  />
+                ) : m.type === "relay_outbound" ? (
+                  <RelayOutboundBubble
+                    room={m.room}
+                    rawCommand={m.rawCommand}
+                  />
+                ) : m.type === "relay_inbound" ? (
+                  <RelayInboundBubble
+                    room={m.room}
+                    sender={m.sender}
+                    body={m.body}
+                    hostId={hostId}
+                  />
+                ) : (
+                  <ChatMessage
+                    role={m.role}
+                    content={m.content}
+                  />
+                )}
+              </div>
+            ))}
             {(wipActive || backgroundedAgents.length > 0 || backgroundedShells.length > 0) && <WipBubble />}
             {planPending && <PlanPendingBubble />}
             {/* Phase 14 Wave 3: aside bubble mounts as the last child of
@@ -1229,9 +1216,9 @@ export function PrettyView({
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
               to the bottom-right of the visible viewport. Shown only when
-              the user has scrolled up. `scrollToBottomAndFollow` jumps to
-              bottom AND enters user-driving/followBottom=true so subsequent
-              growth stays stuck to the tail (same semantic as GTG). */}
+              the user has scrolled up. `scrollToBottomAndFollow` sets
+              followBottomRef=true and scrolls to scrollHeight (Phase-01
+              contract, patch #185). */}
           {!isPinnedToBottom && messages.length > 0 && (
             <div className="sticky bottom-2 pointer-events-none flex justify-end">
               <Button
