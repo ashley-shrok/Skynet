@@ -424,19 +424,35 @@
   display: none;
 }
 
-/* Ready-for-attention dot (Ashley 2026-07-23 lock).
-   ONE meaning: this row is in the active set AND its agent is idle,
-   so it's ready for the next instruction. Absent = working, or
-   ambient (not-in-set), or both. */
+/* Ready-for-attention indicator (Ashley 2026-07-23 lock; harder-signal pick
+   2026-07-29 — B variant, bigger static disc, no motion).
+   ONE meaning: this row is in the active set AND its agent is idle, so it's
+   ready for the next instruction. Absent = working, or ambient (not-in-set),
+   or both.
+
+   Chosen from the 2026-07-29 tuner (A–F: current-dual-ping / big-static-disc
+   / diamond / chevron / bell / held-throb) after patch #182's dual radar-ping
+   still read as SOFT — Ashley wanted a signal that reads as ready-for-attention
+   the instant her eye lands on the list. B swaps motion for size + contrast:
+   14px hue-cream radial-gradient disc, brighter core, strong hue glow, zero
+   animation. Static loudness wins on glance-perception where a pulse's off-
+   phase read as ambient. Also cheaper (no keyframes running per idle row). */
 .pv-ready-dot {
-  width: 8px;
-  height: 8px;
+  width: 14px;
+  height: 14px;
   border-radius: 999px;
-  background: hsla(var(--pv-hue), 60%, 80%, 1);
+  background:
+    radial-gradient(
+      circle at 35% 30%,
+      hsla(var(--pv-hue), 90%, 95%, 1) 0%,
+      hsla(var(--pv-hue), 70%, 82%, 1) 55%,
+      hsla(var(--pv-hue), 60%, 70%, 1) 100%
+    );
   box-shadow:
-    0 0 10px 0px hsla(var(--pv-hue), 70%, 60%, 0.7),
-    0 0 18px 2px hsla(var(--pv-hue), 70%, 55%, 0.28),
-    inset 0 1px 0 rgba(255, 235, 190, 0.55);
+    0 0 0 1px hsla(var(--pv-hue), 80%, 65%, 0.55),
+    0 0 12px 1px hsla(var(--pv-hue), 80%, 60%, 0.75),
+    0 0 22px 3px hsla(var(--pv-hue), 75%, 55%, 0.35),
+    inset 0 1px 0 rgba(255, 245, 220, 0.7);
   display: none;
   position: relative;
 }
@@ -444,37 +460,6 @@
 /* Shown only when row is in the active set AND NOT currently working */
 .pv-row.active-set:not(.working) .pv-ready-dot {
   display: block;
-}
-
-/* Radar-ping attention grab (Ashley 2026-07-29 dotstyle tuner pick — D variant,
-   dual overlapping rings, 1.0s cycle with 0.5s stagger). Design constraint from
-   the picker session: the dot itself must never become invisible (blink-off
-   creates a perception gap where a glance during the off-phase can't read the
-   state until it fades back in). Solution: dot stays 100% opaque + static; two
-   hue-tinted rings emit outward from it via ::before + ::after pseudo-elements,
-   staggered by half a cycle so at least one ring is always in flight. The dot
-   is `display: none` by default and only becomes visible on
-   `.pv-row.active-set:not(.working)` — pseudo-elements on a display:none host
-   are not generated, so the animation only runs where the dot renders. No CPU
-   burn on hidden dots. */
-@keyframes pv-ready-dot-ping {
-  0%   { transform: scale(1);   opacity: 0.70; }
-  100% { transform: scale(3.6); opacity: 0; }
-}
-
-.pv-ready-dot::before,
-.pv-ready-dot::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 999px;
-  background: hsla(var(--pv-hue), 70%, 60%, 0.55);
-  animation: pv-ready-dot-ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-  pointer-events: none;
-}
-
-.pv-ready-dot::before {
-  animation-delay: 0.5s;
 }
 
 /* .pv-row.working: no visual override at the row level; the working state
