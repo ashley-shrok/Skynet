@@ -3054,7 +3054,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
         {isConnected && identityKey && !isPrettyMode && <IdentityBadge identityKey={identityKey} />}
 
-        {isMobile && isConnected && (
+        {isMobile && isConnected && !isPrettyMode && (
           <Toolbar
             adapter={sshAdapter}
             onStickyChange={(mods) => {
