@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Hourglass, Lightbulb, ListPlus, Paperclip, RefreshCw, RotateCcw, Square, Target, ThumbsUp, X } from "lucide-react";
+import { Hourglass, Lightbulb, ListPlus, Loader2, Paperclip, RefreshCw, RotateCcw, Square, Target, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -1809,16 +1809,24 @@ export function ComposeBox({
                     snippet 2026-07-23. Single path (paper-plane silhouette
                     pointing up-and-right), pure fill, NO stroke, NO fold
                     line. Do NOT swap for lucide's SendHorizontal — that's a
-                    different icon (patch #130 write-up). */
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-                </svg>
+                    different icon (patch #130 write-up).
+                    Quick 260730-lur: when showTranscribingSend === true a
+                    Loader2 spinner replaces the paper-plane for the STT
+                    round-trip duration (in-button feedback that Send-transcript
+                    registered). Idle branch keeps the paper-plane byte-for-byte. */
+                showTranscribingSend ? (
+                  <Loader2 className="size-6 animate-spin" aria-hidden="true" />
+                ) : (
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+                  </svg>
+                )
               )}
             </button>
             {/* Quick 260729-3y1: MicButton co-renders LEFT of Send at

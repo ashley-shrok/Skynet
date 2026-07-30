@@ -354,4 +354,66 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
   });
+
+  it("Test 11: While STT fetch is in flight (voice.state === 'transcribing'), Send button renders a spinning Loader2, no paper-plane, still disabled with aria-label='Send' (quick 260730-lur)", async () => {
+    // Quick 260730-lur: during the 1-3s STT round-trip we render a spinning
+    // Loader2 in the send-button slot so Ashley gets in-button feedback that
+    // her Send-transcript tap registered. Freeze the transcribing state by
+    // stubbing fetch with a never-resolving promise (overrides the beforeEach
+    // default). afterEach's vi.unstubAllGlobals() cleans up.
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+
+    render(<ComposeBox {...baseProps()} />);
+
+    const micBtn = screen.getByRole("button", { name: "Record voice" });
+    fireEvent.click(micBtn);
+
+    // Wait for recording controls.
+    const sendTranscriptBtn = await screen.findByRole("button", { name: "Send transcript" });
+
+    // Push a data chunk so the emitted blob is non-empty (mirrors Test 8).
+    act(() => {
+      const recorder = MockMediaRecorder.instances[0];
+      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
+    });
+
+    fireEvent.click(sendTranscriptBtn);
+
+    // With fetch frozen the hook stays in "transcribing" — RecordingControls
+    // unmount and the disabled Send button re-appears with the spinner in its
+    // icon slot. Wait for the Send button to re-appear.
+    const sendBtn = await waitFor(() => {
+      const btn = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      return btn;
+    });
+
+    // Assert the four properties per plan <behavior>:
+    //   1. Contains a spinning Loader2 (svg.animate-spin).
+    const spinner = sendBtn.querySelector("svg.animate-spin");
+    expect(spinner).not.toBeNull();
+    //   2. Does NOT contain the paper-plane path.
+    const paperPlanePath = sendBtn.querySelector('path[d^="M14.536 21.686"]');
+    expect(paperPlanePath).toBeNull();
+    //   3. Is disabled (asserted above via waitFor).
+    expect(sendBtn.disabled).toBe(true);
+    //   4. Keeps aria-label="Send" (T-16-16 double-fire guard preserved —
+    //      button semantics unchanged, only the icon swaps).
+    expect(sendBtn.getAttribute("aria-label")).toBe("Send");
+  });
+
+  it("Test 12: Idle regression guard — Send button renders the paper-plane inline SVG and NO animate-spin (patch #130 byte-preservation guard, quick 260730-lur)", async () => {
+    // Idle branch (no MicButton click, voice.state === "idle") MUST still
+    // render the verbatim paper-plane inline SVG from Ashley's DevTools console
+    // snippet (patch #130). Proves the spinner is scoped to the transcribing
+    // branch and the paper-plane path is preserved byte-for-byte.
+    render(<ComposeBox {...baseProps()} />);
+    const sendBtn = await screen.findByRole("button", { name: "Send" });
+    // Paper-plane path present.
+    const paperPlanePath = sendBtn.querySelector('path[d^="M14.536 21.686"]');
+    expect(paperPlanePath).not.toBeNull();
+    // No animate-spin inside the send button.
+    const spinner = sendBtn.querySelector("svg.animate-spin");
+    expect(spinner).toBeNull();
+  });
 });
