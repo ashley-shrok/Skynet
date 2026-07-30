@@ -2990,6 +2990,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
           if (changeoverState === "dead") return; // idempotent guard
 
+          // Fix A (2026-07-30): hoist isExecErrorTick flag so BOTH the
+          // inactive branch (which must not arm holding) and the
+          // holdingTicks++ block (which must not burn the timeout budget)
+          // can check the same value without duplicating the predicate.
+          //
+          // exec_error = "we couldn't reliably ask" (SSH-side failure at
+          // any of the four SSH-throw sites: queryPanePid, descendant walk,
+          // PID-file read, JSONL test). Categorically different from the
+          // real-inactive reasons below, which mean "we asked and got a
+          // definitive no":
+          //   • not_claude            — pane has no claude in its tree
+          //   • no_pid_session_file   — claude PID exists but no PID file
+          //   • no_open_session_file  — PID file found but JSONL missing
+          //   • no_tmux_session       — no tmux pane to query at all
+          //   • pid_unavailable       — kept for backcompat; no longer emitted
+          // A transient SSH round-trip failure must NOT arm the overlay.
+          const isExecErrorTick =
+            result.status === "inactive" && result.reason === "exec_error";
+
           if (result.status === "active") {
             if (result.sessionFile !== currentSessionFile) {
               // File moved: recycle OR recover-in-different-cwd.
@@ -3008,10 +3027,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // which lets the timeout progress. Do NOT reset holdingTicks
             // in this same-file branch: reset happens only in
             // transitionToActiveNew.
-          } else {
-            // status === "inactive": no claude in the pane right now.
-            // Bare-shell gap during recycle is expected — do NOT flip to
-            // dead on a single inactive tick. Only flip on holding
+          } else if (!isExecErrorTick) {
+            // status === "inactive" with a REAL inactive reason (not an SSH
+            // failure). Bare-shell gap during recycle is expected — do NOT
+            // flip to dead on a single inactive tick. Only flip on holding
             // timeout. (If we were in `active` and suddenly the pane has
             // no claude AND no /exit was seen, something crashed —
             // transition to holding so the client shows the banner while
@@ -3020,6 +3039,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               transitionToHolding("discovery_diff");
             }
           }
+          // else: isExecErrorTick — SSH-side failure; silent tick.
+          // Do NOT call transitionToHolding (would arm the overlay on a
+          // transient network blip). Fall through to holdingTicks++ guard
+          // below where !isExecErrorTick also prevents budget burn.
 
           // W2 fix from plan-checker: the holdingTicks++ check below fires
           // on EVERY holding tick — including this same-file-active branch
@@ -3030,7 +3053,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
           // stuck same-file result during holding still counts against the
           // timeout, otherwise the pane could sit in "recycling…"
           // indefinitely on a supervisor bug.
-          if (changeoverState === "holding") {
+          //
+          // Fix A (2026-07-30): guard with !isExecErrorTick so transient SSH
+          // failures don't burn the 5-min holding budget on no-signal ticks.
+          if (changeoverState === "holding" && !isExecErrorTick) {
             holdingTicks++;
             if (holdingTicks >= HOLDING_TIMEOUT_TICKS) {
               transitionToDead("holding_timeout");

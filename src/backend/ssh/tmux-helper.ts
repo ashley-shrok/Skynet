@@ -199,26 +199,36 @@ export async function queryPaneCurrentCommand(
 /**
  * Query the PID of the foreground process running in the first pane of a
  * tmux session. Used by claude-session discovery to walk /proc/<pid>/fd
- * for open JSONL session files. Returns null on any failure (session gone,
- * tmux unavailable, non-integer output, etc.) — matches the silent-null
- * posture of queryPaneCurrentCommand so callers can log at the discovery
- * layer where they have richer context.
+ * for open JSONL session files.
+ *
+ * Two-case contract (Fix A, 2026-07-30):
+ *   - Returns null when execCommand succeeds but the output is unparseable
+ *     (empty string, non-integer, or ≤ 0). Callers treat null the same as
+ *     "no tmux session" — a benign, expected signal.
+ *   - THROWS (re-throws execCommand's error) on SSH-side failures so the
+ *     discovery layer can classify these as exec_error rather than
+ *     misreading a transient SSH failure as no_tmux_session. This is the
+ *     critical distinction: "couldn't ask" (throw) vs "asked and got no"
+ *     (null). The discovery layer wraps this call in try/catch and returns
+ *     { status: "inactive", reason: "exec_error" } on throw, which the
+ *     repoll branch treats as a silent tick (no overlay arm).
+ *
+ * Note: queryNewestTmuxSession's catch is left with its null-return posture —
+ * its callers depend on silent-null and do not need the exec_error distinction.
  */
 export async function queryPanePid(
   conn: Client,
   sessionName: string,
 ): Promise<number | null> {
-  try {
-    const output = await execCommand(
-      conn,
-      `tmux display-message -p -t ${shellEscape(sessionName)} '#{pane_pid}' 2>/dev/null`,
-    );
-    const pid = parseInt(output, 10);
-    if (Number.isNaN(pid) || pid <= 0) return null;
-    return pid;
-  } catch {
-    return null;
-  }
+  // Let execCommand throws propagate to the caller (SSH-side failure).
+  // Only swallow the "unparseable output" case by returning null.
+  const output = await execCommand(
+    conn,
+    `tmux display-message -p -t ${shellEscape(sessionName)} '#{pane_pid}' 2>/dev/null`,
+  );
+  const pid = parseInt(output, 10);
+  if (Number.isNaN(pid) || pid <= 0) return null;
+  return pid;
 }
 
 /**

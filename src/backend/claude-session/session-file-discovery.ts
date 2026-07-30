@@ -60,8 +60,26 @@ export async function discoverClaudeSession(
   conn: Client,
   sessionName: string,
 ): Promise<ClaudeSessionDiscoveryResult> {
-  // Step 1: get pane_pid as the walk root
-  const panePid = await queryPanePid(conn, sessionName);
+  // Step 1: get pane_pid as the walk root.
+  //
+  // Fix A (2026-07-30): queryPanePid now THROWS on SSH-side failure (rethrow
+  // contract) and returns null only on unparseable/empty pane_pid output. Wrap
+  // in try/catch here so the entire discovery chain can return exec_error
+  // without exposing the throw to the repoll timer's .then() callback.
+  //
+  // exec_error is the categorical "we couldn't reliably ask" signal covering
+  // all four SSH-throw sites (queryPanePid, descendant walk, PID-file read,
+  // JSONL test). It is distinct from the real-inactive reasons
+  // (not_claude, no_pid_session_file, no_open_session_file, no_tmux_session)
+  // which mean "we asked and got a definitive no." The repoll branch in
+  // claude-session-server.ts switches on reason: exec_error ticks are silent
+  // (no overlay arm, no holdingTicks increment); the others behave as before.
+  let panePid: number | null;
+  try {
+    panePid = await queryPanePid(conn, sessionName);
+  } catch {
+    return { status: "inactive", reason: "exec_error" };
+  }
   if (panePid === null || panePid <= 0) {
     return { status: "inactive", reason: "no_tmux_session" };
   }

@@ -305,4 +305,58 @@ describe("discoverClaudeSession — PID-file-based lookup", () => {
 
     expect(result).toEqual({ status: "inactive", reason: "exec_error" });
   });
+
+  // ── Fix A (2026-07-30): queryPanePid rethrow contract ────────────────────
+  //
+  // These two tests verify the two-case contract introduced by Fix A:
+  //   - THROWS on SSH-side failure → discoverClaudeSession returns exec_error
+  //     (not no_tmux_session — the previous incorrect behavior)
+  //   - Returns null on unparseable output → discoverClaudeSession returns
+  //     no_tmux_session (existing behavior, unchanged)
+  //
+  // The mock shape mirrors the file's existing queryPanePid mock approach
+  // (vi.mocked(queryPanePid).mockRejectedValue / mockResolvedValue).
+
+  // Test 13 (Fix A): queryPanePid throws (SSH-side failure) — execCommand
+  // would have thrown inside queryPanePid; the rethrow propagates to
+  // discoverClaudeSession which catches it and returns exec_error.
+  // Previously, queryPanePid swallowed this and returned null, causing
+  // discoverClaudeSession to return no_tmux_session — misclassifying a
+  // transient SSH failure as a real-inactive signal, which armed the overlay.
+  it("CASE 13 (Fix A): queryPanePid throws (SSH-side failure) — returns inactive/exec_error, NOT no_tmux_session", async () => {
+    // queryPanePid now rethrows on SSH failure; simulate that here.
+    vi.mocked(queryPanePid).mockRejectedValue(
+      new Error("SSH exec channel error — simulated transient failure"),
+    );
+    // execCommand must NOT be called — the throw happens inside queryPanePid
+    // before any walk script runs. If execCommand IS called, the test's
+    // mockImplementation will return "" and the result would be not_claude,
+    // which would fail the assertion below and indicate a regression.
+    vi.mocked(execCommand).mockImplementation(() => {
+      throw new Error("execCommand must not be called when queryPanePid throws");
+    });
+
+    const result = await discoverClaudeSession(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
+    expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
+  });
+
+  // Test 14 (Fix A): queryPanePid returns null (unparseable pane_pid output
+  // — execCommand succeeded but parseInt returned NaN/≤0). This preserves the
+  // existing behavior contract: null → no_tmux_session (NOT exec_error).
+  it("CASE 14 (Fix A): queryPanePid returns null (unparseable pane_pid) — returns inactive/no_tmux_session (existing contract preserved)", async () => {
+    // queryPanePid returns null when execCommand resolves but the output is
+    // non-integer (e.g. empty string or garbage). This is the "resolved but
+    // unparseable" case — distinct from the SSH-throw case above.
+    vi.mocked(queryPanePid).mockResolvedValue(null);
+    vi.mocked(execCommand).mockImplementation(() => {
+      throw new Error("execCommand must not be called when queryPanePid returns null");
+    });
+
+    const result = await discoverClaudeSession(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "no_tmux_session" });
+    expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
+  });
 });
