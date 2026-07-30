@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Hourglass, Lightbulb, Paperclip, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
+import { Hourglass, Lightbulb, ListPlus, Paperclip, RefreshCw, RotateCcw, Square, Target, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -1468,6 +1468,76 @@ export function ComposeBox({
             )}
           >
             <Lightbulb className="size-4" />
+          </Button>
+          {/* Quick 260730-l34 (patch #204): Target = "/bounty" prefix-send
+              button. Fires the CURRENT textarea contents prefixed with
+              "/bounty " via the handleSend(overridePayload) seam at
+              ComposeBox.tsx:795 — so D-50 newline→space collapse,
+              COMPOSE-04 hard-lock (no optimistic bubble), and attachment
+              branching all still apply. Semantically clusters with the
+              Reset (/id reset) cell and the ListPlus (/queue) button
+              below as "prefix-send" affordances — distinct from
+              ThumbsUp/Lightbulb which fire CANNED text independent of
+              the textarea. Warm-neutral Glass treatment mirrors
+              Lightbulb verbatim; VISUAL-08 HARD LOCK — do not restyle. */}
+          <Button
+            size="icon-sm"
+            variant="outline"
+            onClick={() => handleSend("/bounty " + text)}
+            disabled={text.trim() === "" || canSend === false || asideActive === true || recycleActive === true}
+            aria-label="Send with /bounty prefix"
+            title="Send with /bounty prefix"
+            className={cn(
+              "rounded-md cursor-pointer",
+              "border-white/10",
+              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
+              "text-[#e8e4d8]",
+              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
+              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
+              "hover:border-[rgba(255,240,215,0.22)]",
+              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+              // #165: mobile-only size bump (see explanation on the other
+              // buttons above).
+              "max-md:size-12 [&_svg]:max-md:size-6",
+            )}
+          >
+            <Target className="size-4" />
+          </Button>
+          {/* Quick 260730-l34 (patch #204): ListPlus = "/queue" prefix-send
+              button. NAMING COLLISION acknowledgment — the Hourglass
+              button below is ALSO called "queue" internally (patch #84:
+              local queue-until-idle, a client-side single-slot armed
+              send that fires when the session goes idle). This ListPlus
+              /queue is SEMANTICALLY DIFFERENT — it's a fleet-wide
+              agent-side slash-command that files a task in the target
+              agent's harness task list. Disambiguation lives in the
+              distinct icons (ListPlus vs Hourglass) + tooltips ("Send
+              with /queue prefix" vs "Queue send for when session goes
+              idle"). A rename is deliberately OUT OF SCOPE per the task
+              spec; this comment exists so future readers don't
+              collapse them via git-blame recovery. */}
+          <Button
+            size="icon-sm"
+            variant="outline"
+            onClick={() => handleSend("/queue " + text)}
+            disabled={text.trim() === "" || canSend === false || asideActive === true || recycleActive === true}
+            aria-label="Send with /queue prefix"
+            title="Send with /queue prefix"
+            className={cn(
+              "rounded-md cursor-pointer",
+              "border-white/10",
+              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
+              "text-[#e8e4d8]",
+              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
+              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
+              "hover:border-[rgba(255,240,215,0.22)]",
+              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
+              // #165: mobile-only size bump (see explanation on the other
+              // buttons above).
+              "max-md:size-12 [&_svg]:max-md:size-6",
+            )}
+          >
+            <ListPlus className="size-4" />
           </Button>
           {/* Patch #84: Queue button — arms a single-slot "send when
               session goes idle" queue. Rests warm-neutral (matches
