@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 // ─── PrettyConversationContextMenu ────────────────────────────────────────
-// Trial variant (?menu=context, bounty #6): pretty-view-styled right-click
-// menu for conversation rows. Replaces the always-visible desktop Pin +
-// Deactivate icons in the row's meta column so the row surface can be
-// tapped without accidentally hitting those actions while switching
-// between conversations.
+// Pretty-view-styled right-click menu for conversation rows on desktop
+// non-RDP. Replaces the always-visible desktop Pin + Deactivate icons in
+// the row's meta column so the row surface can be tapped without
+// accidentally hitting those actions while switching between
+// conversations.
 //
 // - Portal-mounted to document.body so nothing above it can clip the menu
 //   (pretty-conversations panel + row all set overflow, backgrounds, and
