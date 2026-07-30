@@ -115,6 +115,29 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     expect(screen.getByLabelText(/attach file/i)).toBeTruthy();
   });
 
+  it("Test 4b: paperclip renders INSIDE the textarea wrapper (sibling of Send), not in the Row 1 aux group", () => {
+    render(
+      <ComposeBox
+        {...baseProps({
+          stagedAttachments: [],
+          onRemoveAttachment: vi.fn(),
+          showPaperclip: true,
+          onAttachFiles: vi.fn(),
+        })}
+      />,
+    );
+    const paperclip = screen.getByLabelText(/attach file/i);
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    // Regression guard: paperclip and send must share the same
+    // `.relative.flex-1` textarea wrapper ancestor. If a future
+    // refactor moves paperclip back to Row 1 or into a separate
+    // wrapper, `.closest` returns null OR the ancestor won't
+    // contain the send button — either way this test fails.
+    const wrapper = paperclip.closest(".relative.flex-1");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.contains(sendButton)).toBe(true);
+  });
+
   it("Test 5: paperclip click opens the file picker (native input.click)", () => {
     const onAttachFiles = vi.fn();
     render(
@@ -432,8 +455,13 @@ describe("ComposeBox — Phase 9 layout", () => {
         })}
       />,
     );
-    const paperclip = screen.getByLabelText(/attach file/i);
-    const row1 = closestFlexRowAncestor(paperclip, /flex items-center gap-2/);
+    // Quick 260730-vtk: Paperclip moved OUT of Row 1 into the Row 2
+    // textarea wrapper — so we can no longer use the paperclip as the
+    // Row 1 anchor here. Use ThumbsUp (aria-label "Send 'let's go'")
+    // instead, which still lives in Row 1's aux group — same anchor as
+    // the sibling desktop test just below.
+    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
+    const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
     expect(row1).not.toBeNull();
     expect(row1!.className).toContain("min-h-[44px]");
     expect(row1!.className).not.toContain("min-h-8");

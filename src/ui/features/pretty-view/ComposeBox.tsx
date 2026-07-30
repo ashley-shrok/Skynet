@@ -1335,47 +1335,14 @@ export function ComposeBox({
             NEXT batch of top-row controls will accumulate without
             forcing the meter to shrink. aria-hidden so AT skips it. */}
         <div className="flex-1" aria-hidden="true" />
-        {/* Aux-button group — least-used (paperclip) on the left,
-            most-used (Queue) on the right, mirroring distance-from-
-            meter logic. Converted from flex-col to flex-row for the
-            horizontal Row 1 layout.
+        {/* Aux-button group — Paperclip moved OUT to inside the Row 2
+            textarea (2026-07-30 vtk, mirroring Send on the LEFT); this
+            group now hosts Stop, ThumbsUp, Lightbulb, Target, Queue,
+            Hourglass with most-used (Queue) on the right, mirroring
+            distance-from-meter logic.
             Patch #83 marker: RotateCcw lives in the meter's reset cell.
             Patch #84 marker: Queue button arms the idle-watchdog. */}
         <div className="flex flex-row gap-1">
-          {/* Paperclip attach button (Phase 05 UPLOAD-03). Gated by
-              `showPaperclip` only. Patch #123 decoupled visibility from
-              the touch-device row-height gate so desktop can also opt
-              in — original patch #102 / patch #104 context still applies
-              for the mobile use case (touch devices lack drag-drop and
-              file-shape paste, so the paperclip is their primary attach
-              entry point). Matches ThumbsUp's warm-neutral Glass
-              treatment. */}
-          {showPaperclip && (
-            <Button
-              size="icon-sm"
-              variant="outline"
-              onClick={handleOpenFilePicker}
-              disabled={canSend === false || asideActive === true || recycleActive === true}
-              aria-label="Attach file"
-              title="Attach file"
-              className={cn(
-                "rounded-md cursor-pointer",
-                "border-white/10",
-                "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
-                "text-[#e8e4d8]",
-                "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
-                "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-                "hover:border-[rgba(255,240,215,0.22)]",
-                "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-                // #165: mobile-only size bump — 72px button + 36px icon at
-                // html=24 (matches the 3em pv-row--mobile avatar for visual
-                // consistency in the "chat surface primary chrome" group).
-                "max-md:size-12 [&_svg]:max-md:size-6",
-              )}
-            >
-              <Paperclip className="size-4" />
-            </Button>
-          )}
           {/* Patch #120: Stop button — safety valve for Ctrl-C into the
               attached tmux session. Shares ThumbsUp's warm-neutral Glass
               treatment (VISUAL-08 HARD LOCK — Send remains the sole
@@ -1675,6 +1642,12 @@ export function ComposeBox({
             // 40px right padding while the 16px left padding survives.
             // No `!` needed — no dark: variant conflict on padding.
             "pr-10",
+            // Quick 260730-vtk: mirrors the `pr-10` above on the LEFT
+            // when the inside-textarea Paperclip is present
+            // (showPaperclip=true → 40px hit target at absolute left-1
+            // bottom-0.5 needs matching left padding on the Textarea so
+            // text doesn't underlap the icon).
+            showPaperclip && "pl-10",
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
             "transition-[box-shadow,border-color] duration-200",
@@ -1704,6 +1677,35 @@ export function ComposeBox({
               Queued — waiting for idle
             </span>
           </div>
+        )}
+        {/* Quick 260730-vtk: Paperclip attach button moved from Row 1
+            aux group to here per Ashley 2026-07-30. Mirrors Send's
+            inside-textarea pattern on the LEFT (Send is right-1
+            bottom-0.5; Paperclip is left-1 bottom-0.5). Bare <button>
+            not shadcn Button — same reason as Send (#129 wrapper-
+            specificity trap). aria-label / title / onClick preserved
+            verbatim from the old aux-group Paperclip so Tests 3/4/5
+            keep passing. */}
+        {showPaperclip && (
+          <button
+            type="button"
+            onClick={handleOpenFilePicker}
+            disabled={canSend === false || asideActive === true || recycleActive === true}
+            aria-label="Attach file"
+            title="Attach file"
+            className={cn(
+              "absolute left-1 bottom-0.5",
+              "p-2",
+              "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+              "disabled:text-[rgba(240,235,224,0.15)]",
+              "disabled:cursor-not-allowed",
+              "transition-[color,transform] duration-120",
+              "active:scale-95",
+              "cursor-pointer",
+            )}
+          >
+            <Paperclip className="size-6" />
+          </button>
         )}
         {/* Patch #129 + #130-fix: subtle inside-textarea Send button.
             Bare <button type="button"> (NOT shadcn Button — sidesteps
