@@ -26,7 +26,13 @@
 // real derivation. This mirrors the plan's decision (Task 2 §action).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  fireEvent,
+  waitFor,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
@@ -656,7 +662,7 @@ describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", 
 //   - Mobile RDP → no swipe strip at all (pre-existing contract).
 
 describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () => {
-  it("Test 20A: desktop active-set non-RDP row renders deactivate-action inside .pv-meta, BEFORE pin-action in DOM order", () => {
+  it("Test 20A: desktop active-set non-RDP row → contextmenu opens portal menu carrying BOTH Pin and Deactivate items (post quick-260730-o2m: actions moved out of .pv-meta into the right-click menu; menu order is Pin then Deactivate per source items[].push order)", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [
@@ -667,7 +673,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     });
     // The row is in the panel's `activeSetRows` (structural tier 1) AND the
     // useActiveSet ReadonlySet (drives the row's inActiveSet prop) — both
-    // are required to hit the "render DeactivateAction on this row" branch.
+    // are required to hit the "Deactivate menu item eligible" branch.
     mockActiveSet = new Set<string>(["active-1"]);
 
     const { container } = render(
@@ -679,23 +685,27 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
 
-    // Deactivate action present + inside .pv-meta.
+    // Post quick-260730-o2m: neither PinAction nor DeactivateAction render
+    // in the desktop .pv-meta column. Both actions live in the right-click
+    // context menu (portal-mounted to document.body).
     const meta = rowEl!.querySelector(".pv-meta") as HTMLElement | null;
     expect(meta).toBeTruthy();
-    const deactivate = meta!.querySelector(
-      '[data-testid="deactivate-action"]',
-    ) as HTMLElement | null;
-    expect(deactivate).toBeTruthy();
+    expect(meta!.querySelector('[data-testid="deactivate-action"]')).toBeNull();
+    expect(meta!.querySelector('[data-testid="pin-action"]')).toBeNull();
 
-    // Pin action also present in .pv-meta (pin is not gated on active-set;
-    // it's gated on !isRdp only). Deactivate MUST precede pin in DOM order —
-    // Ashley's preview snippet: X on the LEFT of the pin in the meta column.
-    const pin = meta!.querySelector(
-      '[data-testid="pin-action"]',
-    ) as HTMLElement | null;
-    expect(pin).toBeTruthy();
-    // Node.DOCUMENT_POSITION_FOLLOWING = 4 — deactivate precedes pin.
-    expect(deactivate!.compareDocumentPosition(pin!) & 4).toBe(4);
+    // Dispatch contextmenu on the row body to open the portal menu.
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const pinItem = within(menu).getByRole("menuitem", { name: /pin/i });
+    const deactivateItem = within(menu).getByRole("menuitem", {
+      name: /deactivate/i,
+    });
+    // Menu DOM order: Pin FIRST, Deactivate SECOND — matches the source's
+    // items[].push order in PrettyConversationRow.tsx (Pin unconditionally
+    // pushed first; Deactivate pushed only when inActiveSet && onDeactivate).
+    // Node.DOCUMENT_POSITION_FOLLOWING = 4 — pin precedes deactivate.
+    expect(pinItem.compareDocumentPosition(deactivateItem) & 4).toBe(4);
   });
 
   it("Test 20B: desktop ambient (non-active-set) row renders NO deactivate-action", () => {
@@ -809,7 +819,15 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     expect(ambientRow!.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(0);
   });
 
-  it("Test 20E: clicking deactivate-action calls removeFromActiveSet(row.id) + onDeactivateRow(row) exactly once each; row-body onSelect (selectConversation / onConversationSelected) is NOT called", () => {
+  it("Test 20E: clicking the Deactivate menu item calls removeFromActiveSet(row.id) + onDeactivateRow(row) exactly once each; row-body onSelect (selectConversation / onConversationSelected) is NOT called", () => {
+    // Post quick-260730-o2m: deactivate is reached via right-click context
+    // menu, not the .pv-meta icon. The panel's `handleRowDeactivate`
+    // composition (removeFromActiveSet + onDeactivateRow) still fires
+    // — the menu-item click forwards to the same onDeactivate callback
+    // wired at PrettyConversationRow.tsx items[].push.
+    //
+    // The context menu's item-click handler calls e.stopPropagation(), so
+    // the row-body onSelect path still never runs.
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [
@@ -835,10 +853,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
       '[data-conversation-id="active-1"]',
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
-    const deactivate = rowEl!.querySelector(
-      '[data-testid="deactivate-action"]',
-    ) as HTMLElement | null;
-    expect(deactivate).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
 
     // Clear the addToActiveSetSpy's mount-time invocation from the panel's
     // useEffect on [selectedId]; we care only about the click-driven calls
@@ -847,7 +862,12 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     selectConversationSpy.mockClear();
     onConversationSelected.mockClear();
 
-    fireEvent.click(deactivate!);
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const deactivateItem = within(menu).getByRole("menuitem", {
+      name: /deactivate/i,
+    });
+    fireEvent.click(deactivateItem);
 
     // Panel-level composition: removeFromActiveSet(row.id) + onDeactivateRow(row).
     expect(removeFromActiveSetSpy).toHaveBeenCalledTimes(1);
@@ -855,9 +875,9 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     expect(onDeactivateRow).toHaveBeenCalledTimes(1);
     expect(onDeactivateRow.mock.calls[0][0].id).toBe("active-1");
 
-    // Row-body onSelect (row-click path) MUST NOT fire — the row owns
-    // stopPropagation on the DeactivateAction button click, so the row-body
-    // click handler never runs.
+    // Row-body onSelect (row-click path) MUST NOT fire — the context menu's
+    // item click handler calls e.stopPropagation() BEFORE dispatching the
+    // item.onClick, so the row-body click handler never runs.
     expect(selectConversationSpy).not.toHaveBeenCalled();
     expect(onConversationSelected).not.toHaveBeenCalled();
   });
@@ -867,7 +887,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   // (fleet::HOSTID::SESSIONNAME) when the row carries host + targetTmuxSession
   // — otherwise the fleet id gets orphaned in state.activeSet and Tier 1
   // re-promotes the row on the next computeSnapshot.
-  it("Test 20F: clicking deactivate-action on a fleet-derived active-set row purges BOTH id shapes — removeFromActiveSet(row.id) AND removeFromActiveSet(fleet::hostId::sessionName)", () => {
+  it("Test 20F: clicking the Deactivate menu item on a fleet-derived active-set row purges BOTH id shapes — removeFromActiveSet(row.id) AND removeFromActiveSet(fleet::hostId::sessionName)", () => {
     const hostThenasty = makeHost("3", "thenasty");
     setSnapshot({
       activeSet: [
@@ -891,14 +911,16 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
       '[data-conversation-id="active-1"]',
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
-    const deactivate = rowEl!.querySelector(
-      '[data-testid="deactivate-action"]',
-    ) as HTMLElement | null;
-    expect(deactivate).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
 
     removeFromActiveSetSpy.mockClear();
 
-    fireEvent.click(deactivate!);
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const deactivateItem = within(menu).getByRole("menuitem", {
+      name: /deactivate/i,
+    });
+    fireEvent.click(deactivateItem);
 
     // BOTH id shapes purged — openTab id first, fleet-synthetic id second.
     expect(removeFromActiveSetSpy).toHaveBeenCalledTimes(2);
@@ -913,7 +935,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   // (MockRow.host is `Host | undefined`, not nullable; using
   // targetTmuxSession=null exercises the same short-circuit branch of the
   // `if (row.host && row.targetTmuxSession)` guard.)
-  it("Test 20G: clicking deactivate-action on a row with no targetTmuxSession skips the fleet-id sibling purge — removeFromActiveSet called exactly once with row.id, no crash", () => {
+  it("Test 20G: clicking the Deactivate menu item on a row with no targetTmuxSession skips the fleet-id sibling purge — removeFromActiveSet called exactly once with row.id, no crash", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [
@@ -937,14 +959,16 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
       '[data-conversation-id="active-2"]',
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
-    const deactivate = rowEl!.querySelector(
-      '[data-testid="deactivate-action"]',
-    ) as HTMLElement | null;
-    expect(deactivate).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
 
     removeFromActiveSetSpy.mockClear();
 
-    fireEvent.click(deactivate!);
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const deactivateItem = within(menu).getByRole("menuitem", {
+      name: /deactivate/i,
+    });
+    fireEvent.click(deactivateItem);
 
     expect(removeFromActiveSetSpy).toHaveBeenCalledTimes(1);
     expect(removeFromActiveSetSpy).toHaveBeenCalledWith("active-2");
@@ -986,15 +1010,17 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
       '[data-conversation-id="active-h"]',
     ) as HTMLElement | null;
     expect(rowEl).toBeTruthy();
-    const deactivate = rowEl!.querySelector(
-      '[data-testid="deactivate-action"]',
-    ) as HTMLElement | null;
-    expect(deactivate).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
 
     removeFromActiveSetSpy.mockClear();
     onDeactivateRow.mockClear();
 
-    fireEvent.click(deactivate!);
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const deactivateItem = within(menu).getByRole("menuitem", {
+      name: /deactivate/i,
+    });
+    fireEvent.click(deactivateItem);
 
     // removeFromActiveSet: called twice (row.id + fleet-synthetic id) due to host + targetTmuxSession.
     expect(removeFromActiveSetSpy).toHaveBeenNthCalledWith(1, "active-h");

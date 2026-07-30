@@ -48,12 +48,23 @@
 // real browser. Real-browser UAT (Wave 3 plan 13-04) covers CSS-driven
 // visibility.
 //
+// As of quick-260730-o2m, PinAction + DeactivateAction no longer render in
+// the desktop `.pv-meta` column — those actions moved into the right-click
+// context menu (unconditional on desktop non-RDP rows). Mobile swipe-strip
+// render is unchanged. Tests that previously asserted `[data-testid=
+// "pin-action"]` presence on desktop rows now assert absence + assert the
+// row body carries an `onContextMenu` handler and that dispatching a
+// contextmenu event opens the portal menu (portal-mounted to document.body,
+// so use `screen` / `within` — not `container` — to query it). Test 8 and
+// Test 10 were rewritten; Test 7b augmented with an RDP no-onContextMenu
+// guard; four new tests appended (18c/18d/18e/18f).
+//
 // Fixture pattern lifted from src/ui/sidebar/NewSessionDialog.test.tsx lines
 // 14-35 verbatim: mock react-i18next passthrough, mock session-hue helpers
 // and identities-store to per-test-controllable outputs.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, screen, within } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import type { Host } from "@/types/ui-types";
@@ -420,7 +431,7 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     expect(wrapper.getAttribute("data-rdp-host-row")).toBe("true");
   });
 
-  it("Test 7b: desktop RDP row carries `rdp` class + no PinAction", () => {
+  it("Test 7b: desktop RDP row carries `rdp` class + no PinAction + no onContextMenu wiring", () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
@@ -437,6 +448,12 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     expect(wrapper.querySelector('[data-testid="pin-action"]')).toBeNull();
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     expect(body.className).toContain("rdp");
+    // quick-260730-o2m: the new unconditional context-menu behavior MUST NOT
+    // reach RDP rows. The `!isRdp` guard survives on the row-body
+    // onContextMenu prop, so dispatching a contextmenu event on a desktop
+    // RDP row's body does NOT open a portal menu.
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });
 
@@ -444,8 +461,18 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
 // Test 8 — Desktop pin button e.stopPropagation() — click fires togglePin only
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: pin click stopPropagation", () => {
-  it("Test 8: desktop pin click fires onTogglePin only, not onSelect", () => {
+describe("PrettyConversationRow: desktop context-menu pin path", () => {
+  it("Test 8: desktop non-RDP row wires onContextMenu; contextmenu → Pin item → onTogglePin fires only (not onSelect)", () => {
+    // Post quick-260730-o2m: the always-visible desktop PinAction in .pv-meta
+    // is gone. Pin is reachable via the right-click context menu instead.
+    // The menu is portal-mounted to document.body (see
+    // PrettyConversationContextMenu.tsx createPortal(…, document.body)) so we
+    // query via `screen`, not `container`.
+    //
+    // Note: PrettyConversationContextMenu uses useLayoutEffect for viewport
+    // clamping which reads getBoundingClientRect. jsdom returns zeros for
+    // width/height there, so the clamp is a no-op and the menu renders at
+    // (clientX, clientY) verbatim.
     currentIdentity = makeIdentity(200, "nelly");
     const onSelect = vi.fn();
     const onTogglePin = vi.fn();
@@ -459,11 +486,13 @@ describe("PrettyConversationRow: pin click stopPropagation", () => {
         onTogglePin={onTogglePin}
       />,
     );
-    const pin = container.querySelector(
-      '[data-testid="pin-action"]',
-    ) as HTMLElement | null;
-    expect(pin).toBeTruthy();
-    fireEvent.click(pin!);
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const pinItem = screen.getByRole("menuitem", { name: /pin/i });
+    fireEvent.click(pinItem);
     expect(onTogglePin).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
   });
@@ -504,8 +533,8 @@ describe("PrettyConversationRow: no-identity avatar fallback", () => {
 // Test 10 — Pinned desktop row carries `pinned` class + PinAction in DOM
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: pinned desktop pin visibility", () => {
-  it("Test 10: pinned=true → row carries `pinned` class AND [data-testid=pin-action] in DOM", () => {
+describe("PrettyConversationRow: pinned desktop row → context menu carries `Unpin` label", () => {
+  it("Test 10: pinned=true → row carries `pinned` class AND context menu opens with an `Unpin` menu item", () => {
     currentIdentity = makeIdentity(80, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -521,15 +550,17 @@ describe("PrettyConversationRow: pinned desktop pin visibility", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    // The `pinned` class on the row body is a CSS-driven visual state on
+    // the row itself, not the pin button — the row is still `.pinned`
+    // regardless of where the pin action lives.
     expect(body.className).toContain("pinned");
-    // Regression: the CSS `.pv-row:not(.pinned) .pv-meta [data-testid=pin-action]
-    // { opacity: 0 }` rule handles hide-when-not-pinned; when pinned, the
-    // pin-action element IS in the DOM (jsdom doesn't run CSS pseudo-selectors
-    // but the presence-in-DOM invariant is what matters for the JS contract).
-    const pin = container.querySelector(
-      '[data-testid="pin-action"]',
-    ) as HTMLElement | null;
-    expect(pin).toBeTruthy();
+    // Post quick-260730-o2m: the always-visible desktop PinAction in
+    // .pv-meta is gone; Pin/Unpin lives in the right-click context menu.
+    // The label flips based on `pinned` (see PrettyConversationRow.tsx
+    // items.push({ label: pinned ? "Unpin" : "Pin", … })).
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /unpin/i })).toBeTruthy();
   });
 });
 
@@ -803,6 +834,133 @@ describe("PrettyConversationRow: Phase 13 ambient recession (class toggle)", () 
     // visual leak).
     const rawStyle = body.getAttribute("style") ?? "";
     expect(rawStyle).not.toContain("--pv-hue");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 18c/d/e/f — [quick-260730-o2m] Desktop context-menu-only + mobile
+//                  untouched regression guards
+// ─────────────────────────────────────────────────────────────────────────────
+// Direct regression guards for the strip: the always-visible desktop
+// PinAction + DeactivateAction icons in .pv-meta are gone; both actions live
+// ONLY in the right-click context menu (unconditional on desktop non-RDP) and
+// the mobile swipe strip (untouched). The four tests below lock this:
+//   18c — no PinAction / no DeactivateAction in desktop .pv-meta
+//   18d — desktop contextmenu opens portal menu with Pin + Deactivate items
+//         when inActiveSet AND onDeactivate provided
+//   18e — desktop contextmenu opens portal menu with Pin only when
+//         !inActiveSet
+//   18f — mobile contextmenu is a no-op (no portal menu) AND mobile
+//         swipe-strip PinAction IS present
+
+describe("PrettyConversationRow: quick-260730-o2m context-menu default regression guards", () => {
+  it("Test 18c: desktop non-RDP row has NO PinAction and NO DeactivateAction in .pv-meta (post quick-260730-o2m strip)", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={true}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onDeactivate={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    // Even with pinned=true (would have rendered PinAction pre-strip) AND
+    // inActiveSet=true + onDeactivate (would have rendered DeactivateAction
+    // pre-strip), the desktop .pv-meta column now carries neither icon.
+    expect(container.querySelector('[data-testid="pin-action"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="deactivate-action"]'),
+    ).toBeNull();
+  });
+
+  it("Test 18d: desktop non-RDP row body has onContextMenu; contextmenu opens portal menu with Pin + Deactivate items when inActiveSet + onDeactivate provided", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
+    expect(
+      within(menu).getByRole("menuitem", { name: /deactivate/i }),
+    ).toBeTruthy();
+  });
+
+  it("Test 18e: desktop non-RDP row NOT in active-set opens the context menu with only `Pin` (no `Deactivate`)", () => {
+    // Predicate mirrors PrettyConversationRow.tsx:
+    //   if (inActiveSet && onDeactivate) items.push({ label: "Deactivate", … })
+    // → when inActiveSet is false, Deactivate is filtered out and only Pin
+    // remains.
+    currentIdentity = makeIdentity(210, "nelly");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onDeactivate={vi.fn()}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
+    expect(
+      within(menu).queryByRole("menuitem", { name: /deactivate/i }),
+    ).toBeNull();
+  });
+
+  it("Test 18f: mobile row body does NOT wire onContextMenu (mobile swipe-strip carries the actions instead)", () => {
+    // Mobile-untouched regression guard: dispatching contextmenu on a
+    // mobile row's body does NOT open the portal menu (onContextMenu is
+    // undefined on mobile per !isMobile && !isRdp guard); AND the mobile
+    // swipe-strip PinAction is still present.
+    currentIdentity = makeIdentity(210, "nelly");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    expect(screen.queryByRole("menu")).toBeNull();
+    // Mobile swipe-strip PinAction is present (rendered inside the reveal
+    // strip, unaffected by this strip).
+    expect(
+      container.querySelector('[data-testid="pin-action"]'),
+    ).toBeTruthy();
   });
 });
 
