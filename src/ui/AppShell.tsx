@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Sheet, SheetContent } from "@/components/sheet";
 import { ChevronLeft } from "lucide-react";
-import { useState, useRef, useCallback, useEffect, useMemo, createRef } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, createRef, startTransition } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
@@ -1151,32 +1151,47 @@ export function AppShell({
     }
 
     terminalRefs.current.delete(id);
-    if (id === activeTabId) {
-      const remaining = tabs.filter((t) => t.id !== id);
-      const nextId =
-        remaining.length > 0 ? remaining[remaining.length - 1].id : "dashboard";
-      setActiveTabId(nextId);
-      // Patch #180: keep selectedConversationId in lockstep with activeTabId
-      // when a close forces the switch. Otherwise `.pv-row.selected` (the
-      // bright ring + glow from patch #175) stays anchored to the dead id
-      // and the survivor gains no visible selection indicator. Dashboard is
-      // not a conversation, so fall back to null (clears the ring entirely).
-      selectConversation(nextId === "dashboard" ? null : nextId);
-    }
-    setPaneTabIds((prev) => prev.map((p) => (p === id ? null : p)));
-    setTabs((prev) => {
-      const next = prev.filter((t) => t.id !== id);
-      if (next.length === 0)
-        return [
-          {
-            id: "dashboard",
-            instanceId: "dashboard",
-            type: "dashboard",
-            label: t("nav.conversations.title", { defaultValue: "Conversations" }),
-            openedAt: Date.now(),
-          },
-        ];
-      return next;
+    // Patch #TBD (bounty #5 — deactivate-conversation-instant):
+    // WHY: deactivating an active conversation used to freeze the UI for ~1s because
+    // these four setState calls batched with the Zustand `removeFromActiveSet` from the
+    // caller (handleRowDeactivate) into a single React commit that unmounted the
+    // deactivated PrettyView AND mounted a fresh PrettyView (WS setup + backfill
+    // dispatch + hundreds of message bubbles).
+    // WHAT: startTransition tells React to commit the urgent Zustand active-set removal
+    // first (list paints instantly), then commit this tab switch as a deferred transition
+    // (new pane mounts async without blocking the paint).
+    // TRADE-OFF: for a fraction of a second the right pane may still show the
+    // just-deactivated view while the list updates. Accepted — Ashley isn't waiting on
+    // the session unload, she's waiting on the list to acknowledge her tap.
+    // DO NOT revert to a synchronous batch — this split is the whole point of the block.
+    startTransition(() => {
+      if (id === activeTabId) {
+        const remaining = tabs.filter((t) => t.id !== id);
+        const nextId =
+          remaining.length > 0 ? remaining[remaining.length - 1].id : "dashboard";
+        setActiveTabId(nextId);
+        // Patch #180: keep selectedConversationId in lockstep with activeTabId
+        // when a close forces the switch. Otherwise `.pv-row.selected` (the
+        // bright ring + glow from patch #175) stays anchored to the dead id
+        // and the survivor gains no visible selection indicator. Dashboard is
+        // not a conversation, so fall back to null (clears the ring entirely).
+        selectConversation(nextId === "dashboard" ? null : nextId);
+      }
+      setPaneTabIds((prev) => prev.map((p) => (p === id ? null : p)));
+      setTabs((prev) => {
+        const next = prev.filter((t) => t.id !== id);
+        if (next.length === 0)
+          return [
+            {
+              id: "dashboard",
+              instanceId: "dashboard",
+              type: "dashboard",
+              label: t("nav.conversations.title", { defaultValue: "Conversations" }),
+              openedAt: Date.now(),
+            },
+          ];
+        return next;
+      });
     });
   }
 
