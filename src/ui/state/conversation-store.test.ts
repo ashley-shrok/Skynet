@@ -814,10 +814,10 @@ describe("conversation-store (Plan 07-01): union rendering", () => {
     expect(snap.grouped.length).toBe(1);
     expect(snap.grouped[0].hostId).toBe("1");
     const ids = snap.grouped[0].rows.map((r) => r.id);
-    // openTabs row first (t1 collapses with fleet's "work"), fleet-only row
-    // for "scratch" AFTER (append order)
-    expect(ids).toEqual(["t1", "fleet::1::scratch"]);
-    const scratchRow = snap.grouped[0].rows[1];
+    // Both rows appear; alphabetically sorted by row.label:
+    // "scratch" (fleet::1::scratch) < "terminal:hostA" (t1)
+    expect(ids).toEqual(["fleet::1::scratch", "t1"]);
+    const scratchRow = snap.grouped[0].rows[0];
     expect(
       (scratchRow as unknown as { fleetOnly?: boolean }).fleetOnly,
     ).toBe(true);
@@ -1026,6 +1026,42 @@ describe("conversation-store (Patch #149 B+C): Test 30b — pinned fleet row app
     // Dedup: the row must NOT appear in any grouped[] group
     const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
     expect(allGroupedIds).not.toContain("fleet::1::work");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260730-wfy: pinned tier is alphabetically sorted by row.label
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression guard: computeSnapshot must sort the pinned array in-place by
+// row.label using the compareByLabel comparator after population, regardless
+// of the source order that openTabs and fleetSessions were iterated in.
+// Expected to FAIL against the pre-change store (which would emit
+// ["z", "m", "a", "n"]) and PASS against the post-change store.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (quick-260730-wfy): pinned tier alphabetical ordering", () => {
+  it("pinned tier is alphabetically sorted by row.label regardless of source", () => {
+    const hostA = makeHost("hA", "alpha");
+    // Two openTabs with labels ["z", "m"] in that order
+    const tabZ = makeTab("t-z", "terminal", hostA, null, "z");
+    const tabM = makeTab("t-m", "terminal", hostA, null, "m");
+    // Two fleet sessions with labels ["a", "n"] in that order (sessionName IS the label)
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabZ, tabM]);
+      updateFleetSessions([
+        { hostId: 99, hostName: "alpha", sessionName: "a", created: 100 },
+        { hostId: 99, hostName: "alpha", sessionName: "n", created: 200 },
+      ]);
+      // Mark all four pinned
+      pinConversation("t-z");
+      pinConversation("t-m");
+      pinConversation("fleet::99::a");
+      pinConversation("fleet::99::n");
+    });
+
+    const snap = __getSnapshotForTest();
+    // Post-change: alphabetically sorted by row.label → ["a", "m", "n", "z"]
+    expect(snap.pinned.map((r) => r.label)).toEqual(["a", "m", "n", "z"]);
   });
 });
 
