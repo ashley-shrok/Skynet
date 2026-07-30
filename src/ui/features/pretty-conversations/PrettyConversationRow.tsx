@@ -81,9 +81,9 @@ import {
 // always-visible PinAction + DeactivateAction icons in .pv-meta are
 // suppressed and both actions are moved into a right-click menu — so a
 // mis-tap while switching conversations can't accidentally pin/deactivate.
-// Read ONCE at module load (SCROLL_VARIANT pattern from use-auto-scroll.ts):
-// URL doesn't change without reload, so the const stays stable across
-// renders and there's no hook-order risk from the conditional render.
+// Read ONCE at module load: URL doesn't change without reload, so the const
+// stays stable across renders and there's no hook-order risk from the
+// conditional render.
 function readConvMenuVariant(): "default" | "context" {
   if (typeof window === "undefined") return "default";
   try {

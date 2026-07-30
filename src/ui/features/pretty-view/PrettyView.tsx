@@ -381,10 +381,10 @@ export function PrettyView({
   //
   // Always delegates to onSend(text) and returns its boolean result unchanged —
   // the send itself still needs to fire (that IS what triggers the aside).
-  // Sticky-bottom overhaul (bounty #4): handleComposeSend needs to trigger
-  // forceStickAndJump on send, but useAutoScroll is called later in this
-  // render body. Route through a ref that the useAutoScroll effect wires up
-  // post-mount to avoid a TDZ on the const closure capture.
+  // handleComposeSend needs to trigger forceStickAndJump on send, but
+  // useAutoScroll is called later in this render body. Route through a ref
+  // that we assign post-useAutoScroll-call to avoid a TDZ on the const
+  // closure capture (handleComposeSend is declared here, above the hook call).
   const forceStickAndJumpRef = useRef<() => void>(() => {});
 
   const handleComposeSend = useCallback((text: string): boolean => {
@@ -402,8 +402,7 @@ export function PrettyView({
       }, 60000);
     }
     // A send is the strongest possible "I want to see the reply" signal —
-    // force stick + jump regardless of prior scroll position. No-op in the
-    // default variant (aliases scrollToBottomAndFollow there).
+    // force stick + jump regardless of prior scroll position.
     forceStickAndJumpRef.current();
     return onSend ? onSend(text) : false;
   }, [onSend]);
@@ -470,8 +469,9 @@ export function PrettyView({
     getBufferedAmount: () => terminalWs?.bufferedAmount ?? 0,
   });
 
-  // paneKey is passed so the sticky-bottom variant (?scroll=stick) can reset
-  // to bottom on conversation swap. The default variant ignores it.
+  // paneKey is passed so useAutoScroll can reset to bottom on conversation
+  // swap (fresh conversation load always lands at bottom via a rAF-chain
+  // jump for LOAD_LOCK_MS).
   const paneKey = `${hostId}::${tmuxSession}`;
   const { scrollRef, contentRef, scrollToBottomAndFollow, forceStickAndJump, isPinnedToBottom } =
     useAutoScroll(paneKey);
