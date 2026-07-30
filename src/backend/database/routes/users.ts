@@ -1706,8 +1706,13 @@ router.patch("/registration-allowed", authenticateJWT, async (req, res) => {
     if (typeof allowed !== "boolean") {
       return res.status(400).json({ error: "Invalid value for allowed" });
     }
+    // UPSERT rather than bare UPDATE: on a DB where the init-time seed at
+    // db/index.ts:571-578 never fired (older migration path, or race), a
+    // straight UPDATE affects 0 rows silently and the caller sees a lying 200.
     db.$client
-      .prepare("UPDATE settings SET value = ? WHERE key = 'allow_registration'")
+      .prepare(
+        "INSERT INTO settings (key, value) VALUES ('allow_registration', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
       .run(allowed ? "true" : "false");
     res.json({ allowed });
   } catch (err) {
