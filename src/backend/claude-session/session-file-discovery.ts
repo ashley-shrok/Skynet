@@ -11,6 +11,7 @@ export type ClaudeSessionDiscoveryResult =
         | "no_tmux_session"
         | "not_claude"
         | "pid_unavailable"
+        | "no_pid_session_file"
         | "no_open_session_file"
         | "exec_error";
     };
@@ -37,11 +38,19 @@ export type ClaudeSessionDiscoveryResult =
  *      first pid with comm='claude' is the effective claude PID. Walk includes
  *      pane_pid itself as a candidate (backcompat: pane IS claude directly).
  *      No match → not_claude. Timeout/error → exec_error.
- *   3. CWD/JSONL discovery script runs with the claude PID. Derives the
- *      ~/.claude/projects/<slug>/*.jsonl session file by readlink /proc/<pid>/cwd
- *      + slug transform + ls -t. Empty output → no_open_session_file.
- *      Active result carries the claude PID (more useful for downstream logging
- *      than pane_pid was).
+ *   3. Read $HOME/.claude/sessions/<PID>.json (Claude Code v2.1.150+), parse
+ *      sessionId + cwd, slugify cwd (every `/` and `.` → `-`), construct
+ *      $HOME/.claude/projects/<slug>/<sessionId>.jsonl, verify it exists.
+ *      WHY: the old mtime-based approach picked by mtime and raced between two
+ *      Claude sessions that shared a cwd on the same box — e.g. clicking Aqua
+ *      on Workstation showed Wilma's bubbles (bounty:
+ *      pretty-view-shows-wrong-session-jsonl). PID-file lookup is
+ *      correct-first-time: each agent's PID file records its own sessionId,
+ *      so two agents sharing a cwd can never collide.
+ *      PID-file missing → no_pid_session_file.
+ *      JSON invalid / missing sessionId/cwd → no_pid_session_file.
+ *      sessionId resolved but JSONL not on disk → no_open_session_file.
+ *      Timeout/error → exec_error.
  *
  * Note on `pid_unavailable` reason: it is kept in the type union for backcompat
  * with any log-scraping downstream but is no longer emitted. Missing pane_pid
@@ -119,55 +128,109 @@ export async function discoverClaudeSession(
     return { status: "inactive", reason: "exec_error" };
   }
 
-  // Step 5: derive the session file from the claude process's CWD, then pick the
-  // newest matching .jsonl. Claude Code does NOT keep the JSONL fd open across
-  // the process lifetime — it opens, appends, closes per event.
+  // Step 5: read $HOME/.claude/sessions/<claudePid>.json to get the sessionId and cwd,
+  // then construct the exact JSONL path. This replaces the old mtime-based approach
+  // which raced between two Claude sessions sharing a cwd
+  // (bounty: pretty-view-shows-wrong-session-jsonl).
   //
-  //   1. Read /proc/<claude pid>/cwd (fall back to the first child if the parent
-  //      proc doesn't expose it — some launchers exec the real claude in a
-  //      child that owns the cwd).
-  //   2. Slugify the CWD to a project-dir name: replace every `/` and `.` with
-  //      `-`. So /home/ubuntu/.claude/identities/poppy/... becomes
-  //      -home-ubuntu--claude-identities-poppy-... (the `--` around `.claude`
-  //      is the correct output of the transform, verified on live Claude
-  //      Code layouts).
-  //   3. Pick the newest .jsonl in ~/.claude/projects/<slug>/. If multiple
-  //      claude sessions have run in the same CWD, mtime is the mental-model-
-  //      correct pick (v1 shape: one file per pane, the "current" one).
+  // Failure taxonomy:
+  //   - PID file missing or empty output → no_pid_session_file
+  //   - JSON parse error / missing sessionId or cwd / non-string fields → no_pid_session_file
+  //   - sessionId resolved but JSONL not on disk → no_open_session_file
+  //   - SSH exec throws / times out → exec_error
   //
-  // If neither the parent nor a child pid exposes /proc/*/cwd, or the slug
-  // dir has no .jsonl files, return inactive.
-  const discoveryScript =
+  // LOAD-BEARING: same JS `+` concatenation hazard as the walkScript above — see
+  // walk-script comment above. Every shell statement MUST be terminated with `;`.
+  // Do not remove or rely on newlines inside the template: JS `+` joins these onto
+  // ONE line, and the shell needs explicit statement separators.
+  // See walk-script comment above — same JS-concat hazard applies.
+  const pidFileScript =
     `PID=${claudePid}; ` +
-    `CWD=$(readlink -f /proc/$PID/cwd 2>/dev/null); ` +
-    `if [ -z "$CWD" ]; then ` +
-    `  KID=$(pgrep -P $PID | head -n 1); ` +
-    `  [ -n "$KID" ] && CWD=$(readlink -f /proc/$KID/cwd 2>/dev/null); ` +
-    `fi; ` +
-    `[ -z "$CWD" ] && exit 0; ` +
-    `SLUG=$(printf '%s' "$CWD" | sed 's|[./]|-|g'); ` +
-    `ls -t "$HOME/.claude/projects/$SLUG"/*.jsonl 2>/dev/null | head -n 1`;
+    `F=$HOME/.claude/sessions/$PID.json; ` +
+    `if [ ! -f "$F" ]; then exit 10; fi; ` +
+    `cat "$F"; ` +
+    `printf '\\n---HOME---\\n'; ` +
+    `printf '%s' "$HOME"`;
 
-  let sessionFile: string;
+  let pidFileOutput: string;
   try {
     const raced = await Promise.race([
-      execCommand(conn, discoveryScript),
+      execCommand(conn, pidFileScript),
       new Promise<string>((_, reject) =>
         setTimeout(
           () =>
-            reject(new Error(`discovery timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
+            reject(new Error(`pid-file lookup timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
           DISCOVERY_EXEC_TIMEOUT_MS,
         ),
       ),
     ]);
-    sessionFile = raced.trim();
+    pidFileOutput = raced;
   } catch {
     return { status: "inactive", reason: "exec_error" };
   }
 
-  if (sessionFile === "") {
+  // Check for the delimiter — its absence means the PID file was not found or
+  // the script exited early (exit 10 path above).
+  const delimiterIndex = pidFileOutput.indexOf("---HOME---");
+  if (delimiterIndex === -1) {
+    return { status: "inactive", reason: "no_pid_session_file" };
+  }
+
+  const jsonPart = pidFileOutput.slice(0, delimiterIndex).trim();
+  const homePart = pidFileOutput.slice(delimiterIndex + "---HOME---".length).trim();
+
+  // Parse the PID file JSON and extract sessionId + cwd
+  let sessionId: string;
+  let cwd: string;
+  try {
+    const parsed: unknown = JSON.parse(jsonPart);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as Record<string, unknown>).sessionId !== "string" ||
+      !(parsed as Record<string, unknown>).sessionId ||
+      typeof (parsed as Record<string, unknown>).cwd !== "string" ||
+      !(parsed as Record<string, unknown>).cwd
+    ) {
+      return { status: "inactive", reason: "no_pid_session_file" };
+    }
+    sessionId = (parsed as Record<string, string>).sessionId;
+    cwd = (parsed as Record<string, string>).cwd;
+  } catch {
+    return { status: "inactive", reason: "no_pid_session_file" };
+  }
+
+  // Slugify cwd: replace every `/` and `.` with `-` (matches `sed 's|[./]|-|g'`)
+  const slug = cwd.replace(/[./]/g, "-");
+  const constructedPath = `${homePart}/.claude/projects/${slug}/${sessionId}.jsonl`;
+
+  // Verify the JSONL file exists on disk (second SSH round trip — test -f)
+  // LOAD-BEARING: same JS `+` hazard — see walk-script comment above.
+  const testScript =
+    `if [ -f "${constructedPath}" ]; then ` +
+    `printf '%s' "${constructedPath}"; ` +
+    `fi`;
+
+  let testOutput: string;
+  try {
+    const raced = await Promise.race([
+      execCommand(conn, testScript),
+      new Promise<string>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(new Error(`jsonl-test timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
+          DISCOVERY_EXEC_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+    testOutput = raced.trim();
+  } catch {
+    return { status: "inactive", reason: "exec_error" };
+  }
+
+  if (testOutput === "") {
     return { status: "inactive", reason: "no_open_session_file" };
   }
 
-  return { status: "active", pid: claudePid, sessionFile };
+  return { status: "active", pid: claudePid, sessionFile: testOutput };
 }
