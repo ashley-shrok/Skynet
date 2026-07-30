@@ -114,6 +114,17 @@ export type SessionHoldingEvent = {
   type: "session_holding";
 };
 
+// Fix B (2026-07-30): emitted by the backend when the repoll active-branch
+// sees the SAME sessionFile while changeoverState === "holding" — meaning
+// the overlay was armed by a transient false alarm, not a real recycle.
+// Frontend handler surgically clears isHolding + holdingTimeoutError only;
+// the message stream, contextPct, harnessTasks, backgroundedAgents,
+// plan_pending, and asideText are all preserved verbatim (contrast with
+// session_changed which is a heavy-reset for a real recycle).
+export type SessionHoldingClearedEvent = {
+  type: "session_holding_cleared";
+};
+
 export type SessionChangedEvent = {
   type: "session_changed";
   newSessionFile: string;
@@ -198,6 +209,7 @@ export type ClaudeSessionServerEvent =
   | BackgroundedShellsEvent
   | PlanPendingEvent
   | SessionHoldingEvent
+  | SessionHoldingClearedEvent
   | SessionChangedEvent
   | AsideReadyEvent
   | AsideDismissedEvent

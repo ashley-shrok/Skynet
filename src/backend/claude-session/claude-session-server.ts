@@ -632,6 +632,83 @@ export async function handleIdentityCountBounties(
 // production consumers stay clear of the internal handler.
 export const __handleIdentityCountBountiesForTests = handleIdentityCountBounties;
 
+// ─── Test seam: discovery-repoll tick logic (Fix A + Fix B, quick 260730-sjf) ──
+//
+// The discoveryRepollTimer .then() callback is a per-connection closure over
+// ~8 mutable state variables and 4 helper functions. Spinning up the full
+// WS server + SSH pair just to observe repoll branch behavior is impractical
+// (requires 7+ dependency mocks to reach the connectToPane path). Instead,
+// extract the core decision logic into a module-scope function with injectable
+// deps so vitest can cover the five branch cases without I/O.
+//
+// Production code calls this via the per-connection discoveryRepollTimer
+// .then() body by delegating to it with the closure-bound state refs.
+// Tests instantiate a plain state box + helper stubs and call it directly.
+//
+// This is the same "function seam" pattern as __handleIdentityCountBountiesForTests
+// (which also extracted per-connection handler logic so vitest can drive it
+// without a real WebSocketServer).
+
+/** Mutable state box shared between the per-connection closure and the test seam. */
+export type __RepollStateForTests = {
+  changeoverState: "active" | "holding" | "dead";
+  currentSessionFile: string | null;
+  holdingTicks: number;
+};
+
+/** Helpers injected into the repoll tick logic. */
+export type __RepollHelpersForTests = {
+  transitionToHolding: (reason: "exit_marker" | "discovery_diff") => void;
+  transitionToActiveNew: (newSessionFile: string) => void;
+  transitionFromHoldingToActiveSameFile: () => void;
+  transitionToDead: (reason: string) => void;
+};
+
+/**
+ * Apply one repoll tick's decision logic for a given discovery result.
+ * Mutates `state` in-place (changeoverState, holdingTicks) and calls into
+ * helpers (transitionToHolding / transitionToActiveNew / etc.) as needed.
+ * Mirrors the .then() callback body in discoveryRepollTimer exactly.
+ *
+ * Returns immediately if changeoverState is already "dead" (idempotent guard).
+ *
+ * @param result  - discovery result for this tick
+ * @param state   - mutable per-connection state box (mutated in-place)
+ * @param helpers - injectable transition helpers (stubs in tests, real fns in prod)
+ */
+export function __applyRepollResultForTests(
+  result: import("./session-file-discovery.js").ClaudeSessionDiscoveryResult,
+  state: __RepollStateForTests,
+  helpers: __RepollHelpersForTests,
+): void {
+  if (state.changeoverState === "dead") return;
+
+  const isExecErrorTick =
+    result.status === "inactive" && result.reason === "exec_error";
+
+  if (result.status === "active") {
+    if (result.sessionFile !== state.currentSessionFile) {
+      if (state.changeoverState === "active") {
+        helpers.transitionToHolding("discovery_diff");
+      }
+      helpers.transitionToActiveNew(result.sessionFile);
+    } else if (state.changeoverState === "holding") {
+      helpers.transitionFromHoldingToActiveSameFile();
+    }
+  } else if (!isExecErrorTick) {
+    if (state.changeoverState === "active") {
+      helpers.transitionToHolding("discovery_diff");
+    }
+  }
+
+  if (state.changeoverState === "holding" && !isExecErrorTick) {
+    state.holdingTicks++;
+    if (state.holdingTicks >= HOLDING_TIMEOUT_TICKS) {
+      helpers.transitionToDead("holding_timeout");
+    }
+  }
+}
+
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
@@ -1443,6 +1520,45 @@ wss.on("connection", async (ws: WebSocket, req) => {
       hostId: currentHostId,
       tmuxSession: currentTmuxSession,
       oldSessionFile: currentSessionFile,
+    });
+  };
+
+  // Fix B (2026-07-30): self-clear the holding overlay when the repoll's
+  // active-branch sees the SAME sessionFile while changeoverState === "holding".
+  // This means the overlay was armed by a false alarm (e.g. a transient SSH
+  // blip that slipped through before Fix A, or a brief bare-shell gap that
+  // resolved on the next tick), NOT a real recycle. The same-file result on
+  // an active tick proves claude never actually stopped writing to this file.
+  //
+  // Contrast with transitionToActiveNew (called when sessionFile CHANGED) which
+  // is a heavy-reset for a confirmed real recycle. This helper is surgical:
+  // flip changeoverState back to active, reset holdingTicks, emit
+  // session_holding_cleared. The frontend handler clears only isHolding +
+  // holdingTimeoutError and does NOT touch messages / contextPct / harnessTasks
+  // / backgroundedAgents / plan_pending / asideText — false-alarm recovery
+  // must not discard the conversation the user is looking at.
+  //
+  // Idempotency: if changeoverState is not "holding", this is a no-op. Guards
+  // against double-fire (e.g. from a fast repoll that fires twice before the
+  // first tick's WS send completes).
+  const transitionFromHoldingToActiveSameFile = (): void => {
+    if (changeoverState !== "holding") return;
+    changeoverState = "active";
+    holdingTicks = 0;
+    if (!stopped && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "session_holding_cleared" }));
+      } catch {
+        /* ws may be mid-close */
+      }
+    }
+    sshLogger.info("Claude session self-cleared from holding on same-file recovery", {
+      operation: "claude_session_holding_cleared",
+      userId,
+      sessionId,
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      sessionFile: currentSessionFile,
     });
   };
 
@@ -3018,42 +3134,24 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 transitionToHolding("discovery_diff");
               }
               transitionToActiveNew(result.sessionFile);
+            } else if (changeoverState === "holding") {
+              // Fix B (2026-07-30): same file + still active + we're in holding
+              // → the overlay was a false alarm. Self-clear on this repoll tick.
+              transitionFromHoldingToActiveSameFile();
             }
-            // else: same file, still active — no state change here. If we
-            // were already in `holding` AND the file matches
-            // currentSessionFile, that means our pre-holding file is still
-            // on disk (unusual — supervisor should have rotated it after
-            // /exit). We fall through to the holdingTicks++ block below,
-            // which lets the timeout progress. Do NOT reset holdingTicks
-            // in this same-file branch: reset happens only in
-            // transitionToActiveNew.
+            // else: same file + active + changeoverState === "active"
+            // — nominal steady-state, no state change needed.
           } else if (!isExecErrorTick) {
             // status === "inactive" with a REAL inactive reason (not an SSH
-            // failure). Bare-shell gap during recycle is expected — do NOT
-            // flip to dead on a single inactive tick. Only flip on holding
-            // timeout. (If we were in `active` and suddenly the pane has
-            // no claude AND no /exit was seen, something crashed —
-            // transition to holding so the client shows the banner while
-            // we wait for a recover.)
+            // failure). Bare-shell gap during recycle is expected.
             if (changeoverState === "active") {
               transitionToHolding("discovery_diff");
             }
           }
           // else: isExecErrorTick — SSH-side failure; silent tick.
-          // Do NOT call transitionToHolding (would arm the overlay on a
-          // transient network blip). Fall through to holdingTicks++ guard
-          // below where !isExecErrorTick also prevents budget burn.
+          // Do NOT call transitionToHolding. !isExecErrorTick guard below
+          // also prevents burning the holding budget.
 
-          // W2 fix from plan-checker: the holdingTicks++ check below fires
-          // on EVERY holding tick — including this same-file-active branch
-          // above (where we did NOT reset holdingTicks) and the inactive
-          // branch (which may have just flipped us to holding this tick).
-          // Intentional: if the pre-holding file still exists but no new
-          // file has appeared for HOLDING_TIMEOUT_TICKS, declare dead. A
-          // stuck same-file result during holding still counts against the
-          // timeout, otherwise the pane could sit in "recycling…"
-          // indefinitely on a supervisor bug.
-          //
           // Fix A (2026-07-30): guard with !isExecErrorTick so transient SSH
           // failures don't burn the 5-min holding budget on no-signal ticks.
           if (changeoverState === "holding" && !isExecErrorTick) {

@@ -690,6 +690,19 @@ export function PrettyView({
           setIsHolding(true);
           break;
         }
+        case "session_holding_cleared": {
+          // Fix B (2026-07-30): backend self-cleared holding because the same
+          // sessionFile came back active on the next repoll tick (not a real
+          // recycle — a false-alarm arm from a prior transient). Surgically
+          // clear the two holding flags only. Do NOT touch messages /
+          // contextPct / harnessTasks / backgroundedAgents / plan_pending /
+          // asideText — this contrasts with case "session_changed" which
+          // heavy-resets for a real recycle. Do NOT setStatus — status was
+          // already "streaming" (holding only fires from active/streaming).
+          setIsHolding(false);
+          setHoldingTimeoutError(false);
+          break;
+        }
         case "session_changed": {
           // Phase 3 recycle completed: server has stopped the old tail and
           // started a fresh one on the new sessionFile. Reset ALL per-session

@@ -842,3 +842,153 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     });
   });
 });
+
+// ── Fix B (2026-07-30): session_holding_cleared WS event ─────────────────────
+//
+// Tests: the new `case "session_holding_cleared"` handler in PrettyView's
+// ws.onmessage switch surgically clears isHolding + holdingTimeoutError
+// WITHOUT touching the message stream, contextPct, harnessTasks, etc.
+// Contrast with `session_changed` which is a heavy-reset for a real recycle.
+//
+// Uses fake timers so the 350ms delay-arm for showOverlay is controllable.
+// The overlay mounts on role="status" (SessionHoldingOverlay renders with
+// role="status" per SessionHoldingOverlay.tsx L93).
+
+describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730-sjf)", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    vi.mocked(useSessionIdentity).mockReturnValue({
+      identity: null,
+      identityHue: null,
+    } as ReturnType<typeof useSessionIdentity>);
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // Helper: fire a WS frame on the current WS stub inside act().
+  function fireWsFrame(ws: WsStub, frame: Record<string, unknown>): void {
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', { data: JSON.stringify(frame) }),
+      );
+    });
+  }
+
+  // Helper: flip to streaming then arm holding overlay (advance 400ms past
+  // the 350ms delay so showOverlay becomes true).
+  function armHolding(ws: WsStub): void {
+    // Transition to streaming first.
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'session', sessionFile: '/tmp/test.jsonl' }),
+        }),
+      );
+    });
+    // Arm holding:
+    fireWsFrame(ws, { type: 'session_holding' });
+    // Advance past 350ms delay-arm so showOverlay flips true:
+    act(() => { vi.advanceTimersByTime(400); });
+  }
+
+  it("Test F1: session_holding_cleared while isHolding=true clears the overlay (showOverlay false, role=status absent)", () => {
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} />,
+    );
+    const ws = getCurrentWs();
+    armHolding(ws);
+
+    // Pre-condition: overlay is visible.
+    expect(container.querySelector('[role="status"]')).toBeTruthy();
+
+    // Fire session_holding_cleared:
+    fireWsFrame(ws, { type: 'session_holding_cleared' });
+
+    // Overlay must unmount immediately (isHolding false → showOverlay false
+    // synchronously per the useEffect cleanup path: `if (!isHolding) { setShowOverlay(false); return; }`):
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("Test F2: messages populated BEFORE session_holding_cleared are preserved verbatim after (no heavy-reset)", () => {
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} />,
+    );
+    const ws = getCurrentWs();
+    // Transition to streaming:
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'session', sessionFile: '/tmp/test.jsonl' }),
+        }),
+      );
+    });
+
+    // Send two message frames (user + assistant) to populate the message list:
+    fireWsFrame(ws, {
+      type: 'message', role: 'user', content: 'hello there', eventId: 'ev-1', ts: 1000,
+    });
+    fireWsFrame(ws, {
+      type: 'message', role: 'assistant', content: 'hi back', eventId: 'ev-2', ts: 1001,
+    });
+
+    // Arm holding overlay:
+    fireWsFrame(ws, { type: 'session_holding' });
+    act(() => { vi.advanceTimersByTime(400); });
+
+    // Now fire session_holding_cleared:
+    fireWsFrame(ws, { type: 'session_holding_cleared' });
+
+    // Overlay must be gone:
+    expect(container.querySelector('[role="status"]')).toBeNull();
+
+    // Message content must still be present — session_holding_cleared must NOT
+    // clear the message stream (contrast with session_changed which does):
+    expect(container.textContent).toContain('hello there');
+    expect(container.textContent).toContain('hi back');
+  });
+
+  it("Test F3: contextPct set BEFORE session_holding_cleared is preserved after (no heavy-reset)", () => {
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} />,
+    );
+    const ws = getCurrentWs();
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'session', sessionFile: '/tmp/test.jsonl' }),
+        }),
+      );
+    });
+
+    // Send a contextPct frame so the % badge renders:
+    fireWsFrame(ws, { type: 'context_pct', pct: 42 });
+
+    // Arm holding + clear:
+    fireWsFrame(ws, { type: 'session_holding' });
+    act(() => { vi.advanceTimersByTime(400); });
+    fireWsFrame(ws, { type: 'session_holding_cleared' });
+
+    // Overlay gone:
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    // contextPct value is surfaced via aria-valuenow on the context bar
+    // (ComposeBox renders it with aria-valuenow={contextPct ?? undefined}).
+    // session_holding_cleared must NOT have reset it to null:
+    const ctxBar = container.querySelector('[aria-valuenow="42"]');
+    expect(ctxBar).toBeTruthy();
+  });
+});
