@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Hourglass, Lightbulb, Paperclip, RefreshCw, RotateCcw, Square, Terminal, ThumbsUp, X } from "lucide-react";
+import { Hourglass, Lightbulb, Paperclip, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -267,12 +267,6 @@ export interface ComposeBoxProps {
   // `isHolding` here matches the overlay's own visibility gate so the
   // controls disable exactly when the scrim mounts.
   recycleActive?: boolean;
-  // Optional callback for the aux-row Terminal-icon button that toggles
-  // pretty-view OFF (falls back to the raw xterm.js). Wires to the same
-  // handle.togglePrettyMode() path as the Ctrl+Shift+O shortcut so the
-  // button and the shortcut are byte-identical in behavior. Only renders
-  // when supplied — read-only PrettyView callers stay clean.
-  onTogglePrettyMode?: () => void;
   className?: string;
 }
 
@@ -298,7 +292,6 @@ export function ComposeBox({
   asideActive,
   onAsideDismiss,
   recycleActive,
-  onTogglePrettyMode,
   className,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
@@ -1349,34 +1342,6 @@ export function ComposeBox({
             Patch #83 marker: RotateCcw lives in the meter's reset cell.
             Patch #84 marker: Queue button arms the idle-watchdog. */}
         <div className="flex flex-row gap-1">
-          {/* Toggle-pretty-off button — flips pretty view off, revealing
-              the raw xterm.js underneath (same effect as Ctrl+Shift+O).
-              Not gated on canSend or asideActive: it's a view-mode
-              escape hatch and must stay reachable regardless of send
-              state or aside display. Same warm-neutral Glass treatment
-              as the paperclip/stop cluster. */}
-          {onTogglePrettyMode && (
-            <Button
-              size="icon-sm"
-              variant="outline"
-              onClick={() => onTogglePrettyMode?.()}
-              aria-label="Switch to terminal view (Ctrl+Shift+O)"
-              title="Switch to terminal view (Ctrl+Shift+O)"
-              className={cn(
-                "rounded-md cursor-pointer",
-                "border-white/10",
-                "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
-                "text-[#e8e4d8]",
-                "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
-                "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-                "hover:border-[rgba(255,240,215,0.22)]",
-                "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-                "max-md:hidden",
-              )}
-            >
-              <Terminal className="size-4" />
-            </Button>
-          )}
           {/* Paperclip attach button (Phase 05 UPLOAD-03). Gated by
               `showPaperclip` only. Patch #123 decoupled visibility from
               the touch-device row-height gate so desktop can also opt
