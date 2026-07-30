@@ -1517,8 +1517,11 @@ export function AppShell({
             className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(220,225,245,0.06)] border border-[color:var(--color-pv-border-quiet)] text-[color:var(--color-pv-fg-muted)] hover:bg-[rgba(220,225,245,0.12)] hover:border-[color:var(--color-pv-border-quiet-strong)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer"
             style={{
               top: "max(env(safe-area-inset-top), 8px)",
-              left: "max(env(safe-area-inset-left), 8px)",
+              left: !isTouchDevice && sidebarOpen
+                ? `${(sidebarEditing ? 560 : sidebarWidth) + 8}px`
+                : "max(env(safe-area-inset-left), 8px)",
               zIndex: 30,
+              transition: sidebarDragging ? "none" : "left 0.2s",
             }}
           >
             <span
