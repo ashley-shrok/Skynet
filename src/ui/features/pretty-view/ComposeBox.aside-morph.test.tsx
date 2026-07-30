@@ -124,6 +124,43 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
     const textarea = screen.getByRole("textbox");
     expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
   });
+
+  // Quick 260730-l34 (patch #204): Target (/bounty) and ListPlus (/queue)
+  // prefix-send buttons follow the same aux-row aside-morph disable
+  // contract as ThumbsUp/Hourglass (Tests 4/5 above). NOTE: their disable
+  // predicate ALSO includes `text.trim() === ""`, so we MUST type non-empty
+  // text into the textarea before asserting the asideActive clause —
+  // otherwise the empty-text clause would trivially disable the button and
+  // the test wouldn't prove asideActive is what's flipping it.
+  it("Task 1 Test 7: bounty (/bounty) button becomes disabled when asideActive=true even with text present", () => {
+    render(
+      <ComposeBox
+        {...baseProps({
+          asideActive: true,
+          canSend: true,
+        })}
+      />,
+    );
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    const bountyBtn = screen.getByLabelText(/send with \/bounty prefix/i);
+    expect((bountyBtn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("Task 1 Test 8: queue (/queue) button becomes disabled when asideActive=true even with text present", () => {
+    render(
+      <ComposeBox
+        {...baseProps({
+          asideActive: true,
+          canSend: true,
+        })}
+      />,
+    );
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    const queueBtn = screen.getByLabelText(/send with \/queue prefix/i);
+    expect((queueBtn as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)", () => {

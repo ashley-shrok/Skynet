@@ -503,3 +503,68 @@ describe("ComposeBox — patch #135 auto-grow", () => {
     expect(textarea.style.overflowY).toBe("hidden");
   });
 });
+
+// Quick 260730-l34 (patch #204): Target (/bounty) and ListPlus (/queue)
+// prefix-send buttons in the aux row between Lightbulb and Hourglass.
+// Payload contract: click → handleSend("/bounty <text>") or ("/queue <text>")
+// via the overridePayload seam at ComposeBox.tsx:795. Textarea clears on
+// success (COMPOSE-04 hard-lock). Disabled predicate matches the aux-row
+// pattern PLUS the empty-text guard (text.trim() === "").
+describe("ComposeBox — quick 260730-l34: /bounty and /queue prefix buttons", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Patch #129 test-hygiene fix: localStorage carries compose-draft
+    // between tests otherwise, corrupting the initial-text-empty predicate.
+    localStorage.clear();
+  });
+
+  it("renders Target (bounty) button with aria-label 'Send with /bounty prefix'", () => {
+    render(<ComposeBox {...baseProps({ canSend: true })} />);
+    expect(screen.getByLabelText(/send with \/bounty prefix/i)).toBeTruthy();
+  });
+
+  it("renders ListPlus (queue) button with aria-label 'Send with /queue prefix'", () => {
+    render(<ComposeBox {...baseProps({ canSend: true })} />);
+    expect(screen.getByLabelText(/send with \/queue prefix/i)).toBeTruthy();
+  });
+
+  it("bounty button click with text present calls onSend with '/bounty <text>' payload", () => {
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend, canSend: true })} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.click(screen.getByLabelText(/send with \/bounty prefix/i));
+    expect(onSend).toHaveBeenCalledWith("/bounty hello");
+    // COMPOSE-04 clear-on-success contract.
+    expect(textarea.value).toBe("");
+  });
+
+  it("queue button click with text present calls onSend with '/queue <text>' payload", () => {
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend, canSend: true })} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.click(screen.getByLabelText(/send with \/queue prefix/i));
+    expect(onSend).toHaveBeenCalledWith("/queue hello");
+    // COMPOSE-04 clear-on-success contract.
+    expect(textarea.value).toBe("");
+  });
+
+  it("bounty and queue buttons are disabled when textarea is empty", () => {
+    render(<ComposeBox {...baseProps({ canSend: true })} />);
+    const bountyBtn = screen.getByLabelText(/send with \/bounty prefix/i) as HTMLButtonElement;
+    const queueBtn = screen.getByLabelText(/send with \/queue prefix/i) as HTMLButtonElement;
+    expect(bountyBtn.disabled).toBe(true);
+    expect(queueBtn.disabled).toBe(true);
+  });
+
+  it("bounty and queue buttons become enabled when text is present", () => {
+    render(<ComposeBox {...baseProps({ canSend: true })} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hi" } });
+    const bountyBtn = screen.getByLabelText(/send with \/bounty prefix/i) as HTMLButtonElement;
+    const queueBtn = screen.getByLabelText(/send with \/queue prefix/i) as HTMLButtonElement;
+    expect(bountyBtn.disabled).toBe(false);
+    expect(queueBtn.disabled).toBe(false);
+  });
+});
