@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
+import { CopyableBlock } from "./CopyableBlock";
 
 // Presentational chat bubble for one conversational message.
 //
@@ -175,6 +176,12 @@ export function ChatMessage({
               ),
               p: ({ node, children, ...props }) => (
                 <p {...props}>{splitMarkers(children)}</p>
+              ),
+              pre: ({ node, children, ...props }) => (
+                <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>
+              ),
+              blockquote: ({ node, children, ...props }) => (
+                <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
               ),
             }}
           >

@@ -126,3 +126,44 @@ describe("ChatMessage — sender-side injected-turn detection (Plan 05-03)", () 
     expect(screen.getByLabelText(/quick reply/i)).toBeTruthy();
   });
 });
+
+/**
+ * Quick task 260730-ujq: copy button on code blocks and blockquotes.
+ *
+ * Tests G, H, I verify CopyableBlock wiring in ChatMessage's ReactMarkdown
+ * component overrides. Test J (regression guard) is implicit — the existing
+ * suite above continues to run untouched.
+ */
+describe("ChatMessage — copy button on code blocks and blockquotes (quick 260730-ujq)", () => {
+  it("Test G: fenced code block renders exactly one copy button", () => {
+    render(
+      <ChatMessage
+        role="assistant"
+        content={"here is code:\n\n```\nnpm test\n```\n"}
+      />,
+    );
+    const copyBtns = screen.queryAllByTestId("copyable-block-copy");
+    expect(copyBtns).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /copy/i })).toBeTruthy();
+  });
+
+  it("Test H: blockquote renders exactly one copy button inside a blockquote element", () => {
+    render(
+      <ChatMessage role="assistant" content={"quote:\n\n> hello world\n"} />,
+    );
+    const copyBtns = screen.queryAllByTestId("copyable-block-copy");
+    expect(copyBtns).toHaveLength(1);
+    // The copy button must be a descendant of a <blockquote> element.
+    const bq = document.querySelector("blockquote");
+    expect(bq).not.toBeNull();
+    expect(bq?.querySelector("[data-testid='copyable-block-copy']")).not.toBeNull();
+  });
+
+  it("Test I: plain prose does NOT get a copy button", () => {
+    render(
+      <ChatMessage role="assistant" content="just a plain paragraph." />,
+    );
+    const copyBtns = screen.queryAllByTestId("copyable-block-copy");
+    expect(copyBtns).toHaveLength(0);
+  });
+});
