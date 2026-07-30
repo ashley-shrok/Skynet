@@ -76,30 +76,6 @@ import {
   PC_SWIPE_THRESHOLD,
 } from "./tokens";
 
-// URL-param gate for the desktop right-click context-menu variant
-// (bounty #6, ?menu=context). When active on desktop rows, the
-// always-visible PinAction + DeactivateAction icons in .pv-meta are
-// suppressed and both actions are moved into a right-click menu — so a
-// mis-tap while switching conversations can't accidentally pin/deactivate.
-// Read ONCE at module load: URL doesn't change without reload, so the const
-// stays stable across renders and there's no hook-order risk from the
-// conditional render.
-function readConvMenuVariant(): "default" | "context" {
-  if (typeof window === "undefined") return "default";
-  try {
-    const q = new URLSearchParams(window.location.search).get("menu");
-    if (q === "context") return "context";
-    const h = new URLSearchParams(window.location.hash.replace(/^#/, "")).get(
-      "menu",
-    );
-    if (h === "context") return "context";
-    return "default";
-  } catch {
-    return "default";
-  }
-}
-const CONV_MENU_VARIANT = readConvMenuVariant();
-
 // ─── Prop shape ──────────────────────────────────────────────────────────────
 // `variant` drives the density class (`pv-row--mobile` vs `pv-row--desktop`)
 // AND the swipe wiring gate (mobile-only).
@@ -324,9 +300,8 @@ export function PrettyConversationRow({
     [onDeactivate],
   );
 
-  // Bounty #6 (?menu=context): right-click context menu state. Only used
-  // when CONV_MENU_VARIANT === 'context' AND !isMobile AND !isRdp. Coords
-  // are cursor position at contextmenu time; null = menu closed.
+  // Right-click context menu state for desktop non-RDP rows. Coords are
+  // cursor position at contextmenu time; null = menu closed.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -446,11 +421,7 @@ export function PrettyConversationRow({
         aria-pressed={selected}
         onClick={onBodyClick}
         onKeyDown={onBodyKeyDown}
-        onContextMenu={
-          CONV_MENU_VARIANT === "context" && !isMobile && !isRdp
-            ? onRowContextMenu
-            : undefined
-        }
+        onContextMenu={!isMobile && !isRdp ? onRowContextMenu : undefined}
         onTouchStart={isMobile && !isRdp ? onTouchStart : undefined}
         onTouchMove={isMobile && !isRdp ? onTouchMove : undefined}
         onTouchEnd={isMobile && !isRdp ? onTouchEnd : undefined}
@@ -526,38 +497,6 @@ export function PrettyConversationRow({
             pretty-conversations.css. Mobile PinAction lives in the swipe
             strip (above); RDP rows skip PinAction entirely. */}
         <div className="pv-meta">
-          {/* quick-260727-gm3: DeactivateAction renders BEFORE PinAction in
-              DOM order on desktop active-set non-RDP rows — Ashley's
-              preview snippet lays the X to the LEFT of the pin in the
-              meta column. Hover-reveal is CSS-driven (gated on
-              `.active-set`) via .pv-deactivate-action rules in
-              pretty-conversations.css. Ambient + RDP + mobile paths
-              skip this render entirely. */}
-          {/* Bounty #6 (?menu=context): when the context-menu variant is
-              active, the always-visible desktop Pin + Deactivate icons are
-              suppressed here — both actions move into the right-click menu
-              wired on the row body via onRowContextMenu. Default variant
-              keeps them visible so the URL-param opt-in leaves everyone
-              else's UI untouched. */}
-          {CONV_MENU_VARIANT !== "context" &&
-            !isMobile &&
-            !isRdp &&
-            inActiveSet && (
-              <DeactivateAction
-                hue={hue}
-                size="desktop"
-                onClick={onDeactivateClick}
-              />
-            )}
-          {CONV_MENU_VARIANT !== "context" && !isMobile && !isRdp && (
-            <PinAction
-              hue={hue}
-              pinned={pinned}
-              size="desktop"
-              onClick={onPinClick}
-            />
-          )}
-
           {/* Quick 260727-tb1: per-row pinned bounty count badge. Renders
               INSIDE .pv-meta immediately BEFORE the ready-dot (final left-
               to-right order: [deactivate] [pin] [bounty-badge] [ready-dot]).
@@ -602,13 +541,11 @@ export function PrettyConversationRow({
           )}
         </div>
       </div>
-      {/* Bounty #6 (?menu=context): right-click menu portal. Items filter
-          by the same predicates that gate the (now-hidden) desktop icons:
-          Pin renders for any non-RDP row (matches the always-visible
-          desktop pin condition), Deactivate only when inActiveSet. RDP
-          rows never open the menu (onRowContextMenu is only wired when
-          !isRdp), so items[] can safely assume non-RDP. */}
-      {CONV_MENU_VARIANT === "context" && ctxMenu !== null && !isRdp && (
+      {/* Right-click menu portal. Items filter by row eligibility: Pin
+          renders for any non-RDP row (always available); Deactivate only
+          when inActiveSet. RDP rows never open the menu (onRowContextMenu
+          is not wired when isRdp), so items[] can safely assume non-RDP. */}
+      {ctxMenu !== null && !isRdp && (
         <PrettyConversationContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
