@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 //   - Absolute-positioned via `absolute inset-0`. Layered at `z-[95]` —
 //     below IdentityBadge (z-[101]) so the badge stays clickable if
 //     visible during a hover, above chat content. Kept in a distinct
-//     z-band from the SessionHoldingOverlay (z-[110]) and app-modals
+//     z-band from the SessionHoldingOverlay (z-[99]) and app-modals
 //     (z-[500]) per PrettyView's stacking convention.
 //   - Mounts nothing when both flags are false (no chrome when idle).
 //   - Folder-rejected variant uses a distinct visual treatment (warm

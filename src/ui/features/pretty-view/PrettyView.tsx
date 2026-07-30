@@ -1194,8 +1194,11 @@ export function PrettyView({
           prop wired below. Mount gate is `showOverlay` (the delay-
           armed derived value from patch #74's ~350ms gate) so
           genuinely-instant resets never flash the overlay. Sits
-          above IdentityBadge (z-[110] > z-[101]) but below app-modal
-          dialogs (z-[500]) — component-local, not an app-modal event.
+          BELOW IdentityBadge (z-[99] < z-[101]) so the badge stays
+          visible and clickable during a recycle (Ashley wants the
+          identity affordance reachable mid-recycle — supersedes patch
+          #111 rationale), still below app-modal dialogs (z-[500]) —
+          component-local, not an app-modal event.
           Replaces the previous sticky top-of-scroll banner (retired
           in patch #74) per Ashley's live 2026-07-19 design read. */}
       {showOverlay && <SessionHoldingOverlay error={holdingTimeoutError} />}

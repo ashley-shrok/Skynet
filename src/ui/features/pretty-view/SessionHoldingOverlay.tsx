@@ -102,11 +102,19 @@ export function SessionHoldingOverlay({
         // the mount from `data-pv-root` into the chat-region wrapper
         // (the same wrapper IdentityModal portals INTO), so the scrim
         // now covers messages / tasks / shells only — ComposeBox
-        // stays UNCOVERED. z-[110] sits above IdentityBadge (z-[101])
-        // but below app-modal dialogs (z-[500]) — this is a component-
-        // local overlay, not an app-modal event. pointer-events-auto
-        // blocks clicks and typing on everything the scrim covers.
-        "absolute inset-0 z-[110]",
+        // stays UNCOVERED. z-[99] sits BELOW IdentityBadge (z-[101])
+        // so the badge stays visible AND clickable during a session
+        // recycle — Ashley wants to see who's speaking and open the
+        // identity modal even mid-recycle (supersedes patch #111
+        // rationale; live feedback reversed the prior elevation so the
+        // badge is no longer covered). Still below app-modal dialogs
+        // (z-[500]) — this is a component-local overlay, not an
+        // app-modal event. pointer-events-auto blocks clicks and
+        // typing on everything the scrim covers; IdentityBadge is NOT
+        // covered — it is a sibling in the same stacking context,
+        // sitting above the scrim by z-index, so pointer-events-auto
+        // on the scrim does not affect it.
+        "absolute inset-0 z-[99]",
         "flex items-center justify-center",
         "backdrop-blur-md bg-black/40",
         "[-webkit-backdrop-filter:blur(12px)]",

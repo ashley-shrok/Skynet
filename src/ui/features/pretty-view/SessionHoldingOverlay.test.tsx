@@ -1,8 +1,10 @@
 /**
  * Quick 260729-j8l — SessionHoldingOverlay tests.
+ * Updated quick 260730-v9a — z-index reversed (z-[110] → z-[99]).
  *
- * Pin down three invariants after the mount-point relocation (from
- * data-pv-root into PrettyView's chat-region wrapper):
+ * Pin down four invariants after the mount-point relocation (from
+ * data-pv-root into PrettyView's chat-region wrapper) and z-index
+ * reversal (overlay now sits BELOW IdentityBadge at z-[99]):
  *
  *   A1: scrim geometry contract — the root <div> renders `absolute inset-0`
  *       classes so its box inherits whichever parent PrettyView mounts it
@@ -22,6 +24,12 @@
  *   A3: motion-channel guardrail — STATIC RefreshCcw (patch #74 header
  *       block: "Static glyph = STATE, not WORK"). No animate-spin class
  *       on either variant.
+ *
+ *   A4: z-index below IdentityBadge (z-[101]) — overlay root carries
+ *       `z-[99]`, NOT z-[110] or any value ≥ z-[101]. Supersedes patch
+ *       #111 which had elevated the overlay to z-[110], covering the badge.
+ *       Quick 260730-v9a reversed that: Ashley wants to see who's speaking
+ *       and open the identity modal even mid-recycle.
  */
 
 import { describe, it, expect } from "vitest";
@@ -65,5 +73,18 @@ describe("SessionHoldingOverlay — quick 260729-j8l geometry + variant + motion
     expect(neutral.querySelector(".animate-spin")).toBeNull();
     const { container: err } = render(<SessionHoldingOverlay error={true} />);
     expect(err.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("A4: overlay z-index below IdentityBadge — root carries z-[99], not z-[110] (quick 260730-v9a, supersedes patch #111)", () => {
+    const { container } = render(<SessionHoldingOverlay />);
+    const overlayRoot = container.querySelector('[role="status"]');
+    expect(overlayRoot).not.toBeNull();
+    const cls = overlayRoot?.className ?? "";
+    // z-[99] < z-[101] (IdentityBadge) — badge stays visible + clickable
+    // during a session recycle. If this fails, the overlay was elevated
+    // back to z-[110] (or higher), which would cover the badge again.
+    // Note: `]` is non-word so `\b` won't anchor after it — use a
+    // space/start/end boundary instead.
+    expect(cls).toMatch(/(^| )z-\[99\]( |$)/);
   });
 });
