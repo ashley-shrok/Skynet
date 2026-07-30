@@ -1,20 +1,20 @@
 import { cn } from "@/lib/utils";
 import type { RelayOutboundEvent } from "@/api/claude-session-api";
 
-// Phase 17 Plan 03 — RelayOutboundBubble
+// Phase 17 Plan 03 — RelayOutboundBubble (patch #200: alignment + color parity with ChatMessage)
 //
 // Presentational component for a relay_outbound WS frame: renders a
-// right-aligned blue glass bubble in PrettyView when the backend detects
-// that a Bash tool-use turn is a real Matrix relay send (curl + -X PUT +
-// rooms/.../send/m.room.message/... conjunction — plan 17-01 detection).
+// left-aligned identity-hue gradient bubble in PrettyView when the backend
+// detects that a Bash tool-use turn is a real Matrix relay send (curl +
+// -X PUT + rooms/.../send/m.room.message/... conjunction — plan 17-01).
 //
-// Design source: ~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html
-// Final visual values locked in 17-UI-SPEC.md:
-//   background: rgba(64, 96, 160, 0.28)   cool blue glass
-//   border:     rgba(96, 128, 200, 0.42)  glass rim
-//   text:       #e8e4d8                   warm off-white
+// Colors mirror ChatMessage.tsx's assistant styling so relay-outbound reads
+// as "the agent speaking through Matrix" — same identity-hue as its regular
+// pretty-view reply bubbles, keeping the ▸/via-curl header+footer to
+// preserve the "this went through the Matrix relay" semantic.
 //
-// RELAYBUB-01: outbound bubble right-aligned (flex justify-end wrapper).
+// RELAYBUB-01: outbound bubble left-aligned (flex justify-start wrapper) —
+// matches assistant-side of pretty-view chat convention (patch #200).
 // RELAYBUB-06: does NOT import IdentityBadge, ChatMessage, ComposeBox (locked).
 //
 // Option D (Ashley 2026-07-28): rawCommand IS the body. The bubble always
@@ -35,26 +35,25 @@ export function RelayOutboundBubble({
   rawCommand,
 }: RelayOutboundBubbleProps) {
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-start">
       <div
         className={cn(
           // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)] px-[18px] py-[14px]",
-          // Glass depth treatment (matching ChatMessage baseline).
+          // Glass depth treatment (kept from phase 17 — reads distinct from
+          // ChatMessage's shadow-based bubble while colour-matching it).
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // Cool blue glass background — SPACED rgba per UI-SPEC byte-shape lock.
-          // Tailwind arbitrary-value syntax: underscores inside [...] render as
-          // spaces in the emitted CSS → target value is rgba(64, 96, 160, 0.28).
-          // Note: Tailwind v4 (Lightning CSS) normalises rgba() to hex in the
-          // emitted bundle; the source value here satisfies the source-level grep gate.
-          // See 17-03-SUMMARY.md § Deviations for the emitted-CSS deviation note.
-          "bg-[rgba(64,_96,_160,_0.28)]",
-          // Rim border (glass highlight).
-          "border border-[rgba(96,_128,_200,_0.42)]",
-          // Text colour — warm off-white matching prototype.
-          "text-[#e8e4d8]",
+          // Identity-hue gradient background — mirrors ChatMessage assistant
+          // styling so the relay-outbound reads as "this agent speaking",
+          // tinted by whichever pretty-view identity is currently rendered
+          // (--pv-id-hue is set per-pane by useSessionIdentity).
+          "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
+          // Rim border — identity-hue at ChatMessage assistant strength.
+          "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
+          // Text colour — warm cream matching ChatMessage assistant.
+          "text-[#fbf5e8]",
         )}
       >
         {/* Header: relay send direction + room */}

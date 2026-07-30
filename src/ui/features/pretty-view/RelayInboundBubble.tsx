@@ -5,20 +5,21 @@ import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "./relay-mxid-resolve";
 import { detectFilePointer } from "./relay-pointer-detect";
 
-// Phase 17 Plan 03 — RelayInboundBubble
+// Phase 17 Plan 03 — RelayInboundBubble (patch #200: alignment + color parity with ChatMessage)
 //
 // Presentational component for a relay_inbound WS frame: renders a
-// left-aligned orange glass bubble in PrettyView when the backend detects
-// a task-notification user turn that matches the recv.sh line format
+// right-aligned blue-gray gradient bubble in PrettyView when the backend
+// detects a task-notification user turn that matches the recv.sh line format
 // ([room X] [@sender] (event $Y): BODY — plan 17-01 detection).
 //
-// Design source: ~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html
-// Final visual values locked in 17-UI-SPEC.md:
-//   background: rgba(200, 128, 64, 0.28)  warm orange glass
-//   border:     rgba(220, 148, 80, 0.42)  glass rim
-//   text:       #e8e4d8                   warm off-white
+// Colors mirror ChatMessage.tsx's user (Ashley) styling so relay-inbound
+// reads as "someone speaking TO the agent from outside" — same blue-gray
+// gradient as her regular pretty-view compose-box messages, keeping the
+// avatar-dot + name·room header and via-recv.sh footer to preserve the
+// "this arrived through the Matrix relay" semantic.
 //
-// RELAYBUB-02: inbound bubble left-aligned (flex justify-start wrapper).
+// RELAYBUB-02: inbound bubble right-aligned (flex justify-end wrapper) —
+// matches user-side of pretty-view chat convention (patch #200).
 // RELAYBUB-03: mxid resolved via useIdentities().byKey + resolveMxidToIdentity.
 // RELAYBUB-06: does NOT import IdentityBadge, ChatMessage, ComposeBox (locked).
 //
@@ -104,26 +105,24 @@ export function RelayInboundBubble({
   }, [pointer?.pointerPath, hostId]);
 
   return (
-    <div className="flex justify-start">
+    <div className="flex justify-end">
       <div
         className={cn(
           // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)] px-[18px] py-[14px]",
-          // Glass depth treatment.
+          // Glass depth treatment (kept from phase 17 — reads distinct from
+          // ChatMessage's shadow-based bubble while colour-matching it).
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // Warm orange glass background — SPACED rgba per UI-SPEC byte-shape lock.
-          // Tailwind arbitrary-value: underscores → spaces in emitted CSS.
-          // Target value: rgba(200, 128, 64, 0.28).
-          // Note: Tailwind v4 (Lightning CSS) normalises rgba() to hex in the
-          // emitted bundle; the source value here satisfies the source-level grep gate.
-          // See 17-03-SUMMARY.md § Deviations for the emitted-CSS deviation note.
-          "bg-[rgba(200,_128,_64,_0.28)]",
-          // Rim border.
-          "border border-[rgba(220,_148,_80,_0.42)]",
-          // Text colour — warm off-white.
-          "text-[#e8e4d8]",
+          // Blue-gray gradient background — mirrors ChatMessage user
+          // (Ashley) styling so the relay-inbound reads as "her speaking
+          // through Matrix". Uniform across all pretty-view identities.
+          "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
+          // Rim border — matches ChatMessage user strength.
+          "border border-[rgba(120,140,180,0.2)]",
+          // Text colour — cool off-white matching ChatMessage user.
+          "text-[#dfe3ee]",
         )}
       >
         {/* Header: avatar-dot + resolved displayName + room */}

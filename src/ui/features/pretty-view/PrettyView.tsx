@@ -569,12 +569,12 @@ export function PrettyView({
           break;
         }
         case "relay_outbound": {
-          // RELAYBUB-01: outbound relay frame → RelayOutboundBubble (blue, right-aligned).
+          // RELAYBUB-01: outbound relay frame → RelayOutboundBubble (identity-hue, left-aligned per patch #200).
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
         case "relay_inbound": {
-          // RELAYBUB-02: inbound relay frame → RelayInboundBubble (orange, left-aligned).
+          // RELAYBUB-02: inbound relay frame → RelayInboundBubble (blue-gray, right-aligned per patch #200).
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }

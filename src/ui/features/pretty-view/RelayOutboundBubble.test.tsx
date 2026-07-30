@@ -25,8 +25,8 @@ describe("RelayOutboundBubble", () => {
     // Header contains room
     expect(screen.getByText(/relay send.*roomAlias/)).toBeTruthy();
 
-    // Wrapper must be flex justify-end (right-aligned)
-    const wrapper = document.querySelector(".justify-end");
+    // Wrapper must be flex justify-start (left-aligned per patch #200)
+    const wrapper = document.querySelector(".justify-start");
     expect(wrapper).not.toBeNull();
   });
 
