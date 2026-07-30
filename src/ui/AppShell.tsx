@@ -175,7 +175,7 @@ export function AppShell({
       id: "dashboard",
       instanceId: "dashboard",
       type: "dashboard",
-      label: t("nav.conversations.title", { defaultValue: "Conversations" }),
+      label: "Skynet",
       openedAt: Date.now(),
     },
   ]);
@@ -1186,7 +1186,7 @@ export function AppShell({
               id: "dashboard",
               instanceId: "dashboard",
               type: "dashboard",
-              label: t("nav.conversations.title", { defaultValue: "Conversations" }),
+              label: "Skynet",
               openedAt: Date.now(),
             },
           ];
@@ -1379,7 +1379,7 @@ export function AppShell({
       <div className="flex flex-col flex-1 min-h-0">
         <PrettyConversationsPanel
           variant={isMobile ? "mobile" : "desktop"}
-          sidebarToggleOverlaps={!isMobile && !isTouchDevice && sidebarOpen}
+          sidebarToggleOverlaps={isMobile && !isTouchDevice && sidebarOpen}
           onConversationSelected={
             isTouchDevice ? () => navigateToView() : undefined
           }
@@ -1529,11 +1529,16 @@ export function AppShell({
                   : "Toggle sidebar",
               },
             )}
-            className="fixed flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(220,225,245,0.06)] border border-[color:var(--color-pv-border-quiet)] text-[color:var(--color-pv-fg-muted)] hover:bg-[rgba(220,225,245,0.12)] hover:border-[color:var(--color-pv-border-quiet-strong)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer"
+            className={
+              "fixed flex items-center justify-center w-8 h-8 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer " +
+              (!isTouchDevice && sidebarOpen
+                ? "rounded-r-lg border-y border-r border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-base)] hover:bg-[rgba(220,225,245,0.06)] hover:border-[color:var(--color-pv-border-quiet-strong)]"
+                : "rounded-lg border border-[color:var(--color-pv-border-quiet)] bg-[rgba(220,225,245,0.06)] hover:bg-[rgba(220,225,245,0.12)] hover:border-[color:var(--color-pv-border-quiet-strong)]")
+            }
             style={{
               top: "max(env(safe-area-inset-top), 8px)",
               left: !isTouchDevice && sidebarOpen
-                ? `${(sidebarEditing ? 560 : sidebarWidth) + 8}px`
+                ? `${sidebarEditing ? 560 : sidebarWidth}px`
                 : "max(env(safe-area-inset-left), 8px)",
               zIndex: 30,
               transition: sidebarDragging ? "none" : "left 0.2s",

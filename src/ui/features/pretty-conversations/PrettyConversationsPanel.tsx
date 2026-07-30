@@ -491,9 +491,6 @@ export function PrettyConversationsPanel({
   // regresses).
   const rdpNoopTogglePin = () => {};
 
-  const headerLabel = t("nav.conversations.title", {
-    defaultValue: "Conversations",
-  });
   const newSessionLabel = t("nav.newSession", {
     defaultValue: "New session",
   });
@@ -543,7 +540,23 @@ export function PrettyConversationsPanel({
           {/* Patch #144 Fix (f): title renders on BOTH mobile and desktop.
               Prior handoff note "deliberately left off per Phase 10 design"
               was wrong per Ashley 2026-07-24. */}
-          <span className="pv-title">{headerLabel}</span>
+          <span
+            className="pv-title"
+            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+          >
+            <img
+              src="/apple-touch-icon-192.png"
+              alt=""
+              aria-hidden="true"
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 4,
+                flexShrink: 0,
+              }}
+            />
+            Skynet
+          </span>
           <div className="pv-header-actions">
             {/* Patch #167: pinned-bounty filter toggle. Same chrome/size as
                 .pv-pencil so the two buttons align visually; active state
