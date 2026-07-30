@@ -3,8 +3,11 @@
 //
 // Contract (per Phase 6, Plan 06-01, CONTEXT.md §Decisions §"The list"):
 //   - Flat single-select list of currently-active sessions with a host.
-//   - Order below pins = existing sidebar host-tree order (depth-first). No
-//     new sort rule, no recency shuffle, no alphabetical override.
+//   - Rows within each tier (Tier 1 activeSet, Tier 2 pinned, Tier 3
+//     per-host bucket, Tier 3 RDP sentinel bucket) are sorted alphabetically
+//     by `row.label` using localeCompare(other.label, undefined,
+//     { numeric: true, sensitivity: "base" }). Host ORDER in Tier 3 remains
+//     hostTree walk order.
 //   - Pins float above host-grouped rows. Per-session (not per-host). Session
 //     end removes the row AND clears its pin in the same mutation (T-06-01-01
 //     stale-selection defense also lives here — a selected id no longer in
@@ -280,6 +283,12 @@ export function fleetRowId(hostId: number, sessionName: string): string {
   return `fleet::${hostId}::${sessionName}`;
 }
 
+// Shared alphabetical comparator for all four row-bucket sort sites in
+// computeSnapshot. Locale-aware, case-insensitive, numeric-natural —
+// so "host10" sorts after "host9" and "Alpha" equals "alpha".
+const compareByLabel = (a: ConversationRow, b: ConversationRow): number =>
+  a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
+
 function computeSnapshot(): ConversationList {
   const conversationTabs = state.openTabs.filter(isConversationTab);
 
@@ -350,6 +359,7 @@ function computeSnapshot(): ConversationList {
     activeSetRows.push(row);
     emittedIds.add(row.id);
   }
+  activeSetRows.sort(compareByLabel);
 
   // ── Tier 2 (pinned, not in activeSet): rows in pinnedIds and NOT emitted ────
   // Patch #149 B: previously iterated only conversationTabs; now ALSO iterates
@@ -367,6 +377,7 @@ function computeSnapshot(): ConversationList {
     pinned.push(row);
     emittedIds.add(row.id);
   }
+  pinned.sort(compareByLabel);
 
   // ── Tier 3 (grouped): everything else, bucketed by host ─────────────────────
   // Iterate conversationTabs, bucket non-emitted rows by host id.
@@ -394,6 +405,7 @@ function computeSnapshot(): ConversationList {
     seenHostIds.add(id);
     const rows = byHostId.get(id);
     if (rows && rows.length > 0) {
+      rows.sort(compareByLabel);
       grouped.push({ hostId: id, hostName: name, rows });
     }
   }
@@ -420,6 +432,7 @@ function computeSnapshot(): ConversationList {
       firstRow.host?.name ??
       fleetHostNameFallback.get(hostId) ??
       hostId;
+    rows.sort(compareByLabel);
     grouped.push({ hostId, hostName, rows });
   }
 
@@ -484,6 +497,7 @@ function computeSnapshot(): ConversationList {
       rdpHostRow: true,
     });
   }
+  rdpRows.sort(compareByLabel);
   if (rdpRows.length > 0) {
     grouped.push({ hostId: "__rdp__", hostName: "", rows: rdpRows });
   }
