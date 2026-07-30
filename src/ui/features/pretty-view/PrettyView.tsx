@@ -381,6 +381,12 @@ export function PrettyView({
   //
   // Always delegates to onSend(text) and returns its boolean result unchanged —
   // the send itself still needs to fire (that IS what triggers the aside).
+  // Sticky-bottom overhaul (bounty #4): handleComposeSend needs to trigger
+  // forceStickAndJump on send, but useAutoScroll is called later in this
+  // render body. Route through a ref that the useAutoScroll effect wires up
+  // post-mount to avoid a TDZ on the const closure capture.
+  const forceStickAndJumpRef = useRef<() => void>(() => {});
+
   const handleComposeSend = useCallback((text: string): boolean => {
     const trimmed = text.trim();
     if (trimmed.startsWith('/btw ') || trimmed === '/btw') {
@@ -395,6 +401,10 @@ export function PrettyView({
         setAsidePending(false);
       }, 60000);
     }
+    // A send is the strongest possible "I want to see the reply" signal —
+    // force stick + jump regardless of prior scroll position. No-op in the
+    // default variant (aliases scrollToBottomAndFollow there).
+    forceStickAndJumpRef.current();
     return onSend ? onSend(text) : false;
   }, [onSend]);
 
@@ -460,8 +470,16 @@ export function PrettyView({
     getBufferedAmount: () => terminalWs?.bufferedAmount ?? 0,
   });
 
-  const { scrollRef, contentRef, scrollToBottomAndFollow, isPinnedToBottom } =
-    useAutoScroll();
+  // paneKey is passed so the sticky-bottom variant (?scroll=stick) can reset
+  // to bottom on conversation swap. The default variant ignores it.
+  const paneKey = `${hostId}::${tmuxSession}`;
+  const { scrollRef, contentRef, scrollToBottomAndFollow, forceStickAndJump, isPinnedToBottom } =
+    useAutoScroll(paneKey);
+
+  // Forward the current forceStickAndJump into the ref that handleComposeSend
+  // (declared earlier in this render body) reads. Avoids the TDZ that would
+  // hit if handleComposeSend captured the const directly.
+  forceStickAndJumpRef.current = forceStickAndJump;
 
   // Patch #108: IdentityModal anchors its Radix Portal to this DOM element
   // (the chat-region wrapper below). Callback ref → state so the Portal
@@ -496,7 +514,8 @@ export function PrettyView({
     // On a fresh pane (hostId/tmuxSession changed), reset ALL state and the attempt
     // counter. On a retry re-run (same pane, retryKey bumped), preserve messages/
     // status so the UI does not flash blank while reconnecting.
-    const paneKey = `${hostId}::${tmuxSession}`;
+    // paneKey is computed in the render body (line 465) and passed into useAutoScroll;
+    // reuse the same value here.
     if (paneKey !== paneKeyRef.current) {
       // Fresh pane mount — full reset.
       setMessages([]);
