@@ -954,6 +954,61 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     }
     expect(onDeactivateRow).toHaveBeenCalledTimes(1);
   });
+
+  // Ordering contract for bounty #5 (deactivate-conversation-instant). The urgent
+  // Zustand `removeFromActiveSet` MUST fire before `onDeactivateRow` so React commits
+  // the list update in a separate render pass from the deferred `startTransition`-wrapped
+  // tab switch inside `AppShell.doCloseTab`. Reordering these calls would collapse the
+  // two commits back into one and re-introduce the ~1s freeze.
+  it("Test 20H: handleRowDeactivate fires removeFromActiveSet synchronously before onDeactivateRow — ordering contract for startTransition split in AppShell.doCloseTab (bounty #5)", () => {
+    // Use a numeric string host id so parseInt(host.id, 10) resolves to a valid number,
+    // matching the real fleetRowId(parseInt(row.host.id, 10), ...) call shape in the component.
+    const hostA = makeHost("7", "hostA");
+    const activeRow = makeConversationRow({
+      id: "active-h",
+      label: "ordering-test",
+      host: hostA,
+      targetTmuxSession: "ordering-session",
+    });
+    setSnapshot({
+      activeSet: [activeRow],
+      pinned: [],
+      grouped: [],
+    });
+    mockActiveSet = new Set<string>(["active-h", "fleet::7::ordering-session"]);
+
+    const onDeactivateRow = vi.fn();
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="active-h"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const deactivate = rowEl!.querySelector(
+      '[data-testid="deactivate-action"]',
+    ) as HTMLElement | null;
+    expect(deactivate).toBeTruthy();
+
+    removeFromActiveSetSpy.mockClear();
+    onDeactivateRow.mockClear();
+
+    fireEvent.click(deactivate!);
+
+    // removeFromActiveSet: called twice (row.id + fleet-synthetic id) due to host + targetTmuxSession.
+    expect(removeFromActiveSetSpy).toHaveBeenNthCalledWith(1, "active-h");
+    expect(removeFromActiveSetSpy).toHaveBeenNthCalledWith(2, "fleet::7::ordering-session");
+
+    // onDeactivateRow: called once with the full row.
+    expect(onDeactivateRow).toHaveBeenCalledWith(activeRow);
+
+    // Ordering contract: removeFromActiveSet's first call MUST precede onDeactivateRow.
+    // If this assertion fails, the two commits collapse back into one and the ~1s freeze returns.
+    expect(removeFromActiveSetSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      onDeactivateRow.mock.invocationCallOrder[0],
+    );
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
