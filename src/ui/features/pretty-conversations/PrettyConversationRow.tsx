@@ -94,6 +94,7 @@ export function PrettyConversationRow({
   onSwipeOpenChange,
   forceClosed,
   isWorking = null,
+  isRecycling = false,
   inActiveSet = false,
   subtitleMode = "hostname",
 }: {
@@ -119,6 +120,14 @@ export function PrettyConversationRow({
   // to render; `null` and `true` both suppress. Panel resolves via
   // useSessionWorking(sessionWorkingKey(row)).
   isWorking?: boolean | null;
+  // quick-260730-qbl: true when the row's pretty-view surface is currently
+  // rendering SessionHoldingOverlay (patch #74). Suppresses the ready-dot
+  // regardless of other conditions — a row whose pane is showing the
+  // "session recycling…" overlay is NOT ready for Ashley's next
+  // instruction, so showing the ready-dot would be a false-positive
+  // signal. Panel resolves via useSessionRecycling(sessionWorkingKey(row))
+  // — both stores are keyed identically (`${hostId}:${tmuxSession ?? ""}`).
+  isRecycling?: boolean;
   // Patch #137: whether this row is in Ashley's active-set (any
   // session she has selectConversation-ed in this browser-tab
   // session). Rows in the set keep the full-bubble treatment; rows
@@ -328,6 +337,7 @@ export function PrettyConversationRow({
     selected && "selected",
     inActiveSet && "active-set",
     isWorking === true && "working",
+    isRecycling === true && "recycling",
     pinned && "pinned",
     isAmbient && "ambient",
     isRdp && "rdp",
@@ -512,11 +522,19 @@ export function PrettyConversationRow({
 
           {/* Ready-dot — signals "engaged AND agent idle, ready for
               Ashley's next input." Rendered iff inActiveSet &&
-              isWorking === false. JS gate is strictly narrower than the CSS
-              `.pv-row.active-set:not(.working) .pv-ready-dot { display:
-              block }` rule (JS excludes null and true; CSS only excludes
-              working) — the JS gate is the source of truth and the CSS gate
-              is a defense-in-depth visibility invariant.
+              isWorking === false && !isRecycling. JS gate is strictly
+              narrower than the CSS
+              `.pv-row.active-set:not(.working):not(.recycling) .pv-ready-dot
+              { display: block }` rule (JS excludes null and true; CSS only
+              excludes working + recycling) — the JS gate is the source of
+              truth and the CSS gate is a defense-in-depth visibility
+              invariant.
+
+              The `!isRecycling` conjunct (quick-260730-qbl) suppresses the
+              dot whenever the row's pretty-view surface is currently
+              showing SessionHoldingOverlay (patch #74). The CSS gate at
+              pretty-conversations.css line 463 has been extended in
+              parallel to `:not(.recycling)` for defense-in-depth.
 
               Hue-cream fill + hue outer glow all handled by CSS via
               `.pv-ready-dot` selector; the neutral fallback for hue-null
@@ -525,7 +543,7 @@ export function PrettyConversationRow({
               combination in practice — the panel passes isWorking={null}
               for RDP rows because sessionWorkingKey resolves against a
               null tmux session). */}
-          {inActiveSet && isWorking === false && (
+          {inActiveSet && isWorking === false && !isRecycling && (
             <span
               aria-label="ready"
               data-pv-conv-ready-dot="true"

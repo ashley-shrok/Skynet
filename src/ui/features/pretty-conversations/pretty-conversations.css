@@ -459,8 +459,8 @@
   position: relative;
 }
 
-/* Shown only when row is in the active set AND NOT currently working */
-.pv-row.active-set:not(.working) .pv-ready-dot {
+/* Shown only when row is in the active set AND NOT currently working AND NOT currently recycling */
+.pv-row.active-set:not(.working):not(.recycling) .pv-ready-dot {
   display: block;
 }
 

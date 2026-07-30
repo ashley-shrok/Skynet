@@ -58,6 +58,7 @@ import {
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 import { useSessionWorking } from "@/state/session-working-store";
+import { useSessionRecycling } from "@/state/session-recycling-store";
 import { useIdentities } from "@/state/identities-store";
 import {
   bountyCountsCompositeKey,
@@ -114,10 +115,16 @@ function PrettyConversationRowLive(props: {
 }) {
   const { sessionKey, inActiveSet, ...rowProps } = props;
   const isWorking = useSessionWorking(sessionKey);
+  // quick-260730-qbl: recycling-store consumption. Keyed identically to the
+  // working-store subscription above — both stores share the exact same
+  // `${hostId}:${tmuxSession ?? ""}` shape (PrettyView.tsx and Terminal.tsx
+  // compute the same key; sessionWorkingKey() at line 81-84 produces it here).
+  const isRecycling = useSessionRecycling(sessionKey);
   return (
     <PrettyConversationRow
       {...rowProps}
       isWorking={isWorking}
+      isRecycling={isRecycling === true}
       inActiveSet={inActiveSet}
     />
   );

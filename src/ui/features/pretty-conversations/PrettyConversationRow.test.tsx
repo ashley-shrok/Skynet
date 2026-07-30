@@ -1,5 +1,5 @@
 // ─── PrettyConversationRow — Vitest coverage ─────────────────────────────────
-// 18 (+18b) tests covering the row component after Phase 13 Plan 01
+// 18 (+15b, +18b) tests covering the row component after Phase 13 Plan 01
 // lift-from-mock v4:
 //   1) Desktop selected-row renders with `selected` class + `--pv-hue`
 //      inline custom property (was: inline hsla interpolation)
@@ -35,6 +35,9 @@
 //      gate)
 //  17) [Phase 13] !inActiveSet+isWorking===false renders NO ready-dot (JS
 //      gate)
+// 15b) [quick-260730-qbl] inActiveSet+isWorking===false+isRecycling===true
+//      renders NO ready-dot (JS gate) AND row carries `recycling` class
+//      (CSS defense-in-depth gate)
 //  18) [Phase 13] !inActiveSet && !isRdp row carries `ambient` class
 //  18b) [Phase 13] RDP row is EXEMPT from ambient — carries `rdp` class,
 //      does NOT carry `ambient` class
@@ -773,6 +776,42 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — ambient", ()
       />,
     );
     expect(queryByLabelText("ready")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 15b — [quick-260730-qbl] inActiveSet + isWorking===false +
+//            isRecycling===true renders NO ready-dot AND row carries
+//            `recycling` class (JS + CSS gates verified end-to-end)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: quick-260730-qbl ready-dot suppression — recycling overlay active", () => {
+  it("Test 15b: inActiveSet+isWorking===false+isRecycling===true renders NO ready-dot AND row carries `recycling` class", () => {
+    currentIdentity = makeIdentity(210);
+    const { container, queryByLabelText } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={false}
+        isRecycling={true}
+      />,
+    );
+    // JS gate: `!isRecycling` suppresses the ready-dot span entirely.
+    expect(queryByLabelText("ready")).toBeNull();
+    // CSS defense-in-depth gate: `.pv-row.recycling` class must be present
+    // so the CSS `:not(.recycling)` selector at pretty-conversations.css
+    // line 463 also gates the dot even if a future JS regression were to
+    // restore the span.
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("recycling");
   });
 });
 

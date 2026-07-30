@@ -38,6 +38,7 @@ import {
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
+import { publishSessionRecycling } from "@/state/session-recycling-store";
 
 // Patch #148: mirror Terminal.tsx's proven WebSocket auto-reconnect pattern.
 // When the claude-session bridge WS closes unexpectedly (deploy container
@@ -911,6 +912,30 @@ export function PrettyView({
   useEffect(() => {
     if (!isHolding) setHoldingTimeoutError(false);
   }, [isHolding]);
+
+  // quick-260730-qbl: publish the delay-armed SessionHoldingOverlay-visible
+  // state (patch #74's `showOverlay`) to the session-recycling-store keyed
+  // on `${hostId}:${tmuxSession ?? ""}`. Consumed by
+  // PrettyConversationsPanel's PrettyConversationRowLive to suppress the
+  // patch #137 ready-for-attention dot on this row whenever the overlay is
+  // up — a row whose pretty-view surface is currently recycling is NOT
+  // ready for Ashley's next instruction.
+  //
+  // Publish `showOverlay` VERBATIM — NOT `isHolding` and NOT
+  // `holdingTimeoutError`. Rationale: `showOverlay` is the single
+  // authoritative visibility flag (see the SessionHoldingOverlay mount at
+  // `{showOverlay && <SessionHoldingOverlay ... />}`); `isHolding` can be
+  // true for <350ms without ever surfacing an overlay (patch #74 delay-arm);
+  // `holdingTimeoutError` only switches the overlay's inner copy variant.
+  //
+  // Deliberately NO cleanup — mirrors Terminal.tsx's patch #137 publish
+  // effect (Terminal.tsx:253): preserve last-known state across route
+  // changes so a remount doesn't stall on null waiting for the next
+  // state flip.
+  useEffect(() => {
+    const key = `${hostId}:${tmuxSession ?? ""}`;
+    publishSessionRecycling(key, showOverlay);
+  }, [showOverlay, hostId, tmuxSession]);
 
   // Phase 14 (plain-language-translation-asides) Wave 3 — isIdle-transition
   // arm emitter. This is THE SOLE trigger source for the aside subsystem
