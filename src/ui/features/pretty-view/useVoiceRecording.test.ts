@@ -9,12 +9,14 @@
 //   - navigator.mediaDevices.getUserMedia: vi.fn() stubbed to resolve with
 //     MockStream or reject with a NotAllowedError.
 //   - globalThis.fetch: vi.spyOn stubbed to return a Response-like object.
+//   - globalThis.Audio: vi.fn() stubbed so audio playback calls are captured
+//     without requiring a browser audio context.
 //
 // iOS Safari sync-getUserMedia: Test 2 asserts that after calling start(),
 // getUserMedia was already called BEFORE any await resolves. This verifies
 // the "synchronous first statement" constraint locked in 16-CONTEXT.md.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useVoiceRecording } from "./useVoiceRecording";
 
@@ -55,6 +57,14 @@ class MockMediaRecorder {
   }
 }
 
+/** Module-scope array of Audio mock instances created during a test. */
+let audioInstances: Array<{ src: string; currentTime: number; play: Mock }> = [];
+
+/** Find the Audio mock instance whose src ends with the given suffix. */
+function getAudioBySrc(suffix: string) {
+  return audioInstances.find((inst) => inst.src.endsWith(suffix)) ?? null;
+}
+
 beforeEach(() => {
   MockMediaRecorder.instances = [];
   // Assign stub MediaRecorder to globalThis so new MediaRecorder(stream) works.
@@ -83,6 +93,16 @@ beforeEach(() => {
       json: () => Promise.resolve({ text: "hello world" }),
     }),
   );
+
+  // Stub Audio constructor — capture instances so tests can assert on .play().
+  audioInstances = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).Audio = function AudioMock(this: any, src: string) {
+    this.src = src;
+    this.currentTime = 0;
+    this.play = vi.fn().mockResolvedValue(undefined);
+    audioInstances.push(this);
+  };
 });
 
 afterEach(() => {
@@ -277,5 +297,208 @@ describe("useVoiceRecording", () => {
     });
 
     expect(resB!.glued).toBe("hello world");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Audio feedback tests (Tests A–F)
+  // ---------------------------------------------------------------------------
+
+  it("Test A: start.mp3 plays after MediaRecorder init succeeds (not before)", async () => {
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    const startAudio = getAudioBySrc("start.mp3");
+    expect(startAudio).not.toBeNull();
+    expect(startAudio!.play).toHaveBeenCalledTimes(1);
+
+    // Verify ordering: recorder.start() was called before startAudio.play()
+    const recorder = MockMediaRecorder.instances[0];
+    const recorderStartOrder = recorder.start.mock.invocationCallOrder[0];
+    const audioPlayOrder = startAudio!.play.mock.invocationCallOrder[0];
+    expect(recorderStartOrder).toBeLessThan(audioPlayOrder);
+  });
+
+  it("Test B: start.mp3 does NOT play on getUserMedia rejection (permission-denied path stays silent)", async () => {
+    const notAllowedError = Object.assign(new Error("Permission denied"), {
+      name: "NotAllowedError",
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      value: {
+        mediaDevices: {
+          getUserMedia: vi.fn().mockRejectedValue(notAllowedError),
+        },
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+
+    await waitFor(() => {
+      expect(result.current.errorMessage).toMatch(/mic denied/);
+    });
+
+    const startAudio = getAudioBySrc("start.mp3");
+    // start.mp3 Audio instance may exist (created at hook mount) but play() must NOT have been called
+    if (startAudio) {
+      expect(startAudio.play).not.toHaveBeenCalled();
+    }
+  });
+
+  it("Test C: stop.mp3 plays before STT fetch in endAppend and endSend", async () => {
+    // --- endAppend variant ---
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    await act(async () => {
+      await result.current.endAppend("text");
+    });
+
+    const stopAudio = getAudioBySrc("stop.mp3");
+    expect(stopAudio).not.toBeNull();
+    expect(stopAudio!.play).toHaveBeenCalledTimes(1);
+
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    const stopPlayOrder = stopAudio!.play.mock.invocationCallOrder[0];
+    const fetchCallOrder = fetchMock.mock.invocationCallOrder[0];
+    expect(stopPlayOrder).toBeLessThan(fetchCallOrder);
+
+    // --- endSend variant (fresh hook) ---
+    // Reset audio instances for a clean check
+    audioInstances = [];
+    MockMediaRecorder.instances = [];
+
+    const { result: result2 } = renderHook(() => useVoiceRecording());
+
+    act(() => { result2.current.start(); });
+    await waitFor(() => expect(result2.current.state).toBe("recording"));
+
+    // Reset fetch mock invocation tracking
+    fetchMock.mockClear();
+
+    await act(async () => {
+      await result2.current.endSend("text");
+    });
+
+    const stopAudio2 = getAudioBySrc("stop.mp3");
+    expect(stopAudio2).not.toBeNull();
+    expect(stopAudio2!.play).toHaveBeenCalledTimes(1);
+
+    const stopPlayOrder2 = stopAudio2!.play.mock.invocationCallOrder[0];
+    const fetchCallOrder2 = fetchMock.mock.invocationCallOrder[0];
+    expect(stopPlayOrder2).toBeLessThan(fetchCallOrder2);
+  });
+
+  it("Test D: cancel.mp3 plays before recorder teardown in cancel()", async () => {
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    const recorder = MockMediaRecorder.instances[0];
+
+    await act(async () => {
+      await result.current.cancel();
+    });
+
+    const cancelAudio = getAudioBySrc("cancel.mp3");
+    expect(cancelAudio).not.toBeNull();
+    expect(cancelAudio!.play).toHaveBeenCalledTimes(1);
+
+    // cancelAudio.play() must have been called BEFORE recorder.stop()
+    const cancelPlayOrder = cancelAudio!.play.mock.invocationCallOrder[0];
+    const recorderStopOrder = recorder.stop.mock.invocationCallOrder[0];
+    expect(cancelPlayOrder).toBeLessThan(recorderStopOrder);
+  });
+
+  it("Test E: error.mp3 plays on STT HTTP 500, and on fetch network error", async () => {
+    // --- HTTP 500 variant ---
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: "internal error", status: 500 }),
+      }),
+    );
+
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    await act(async () => {
+      await result.current.endAppend("text");
+    });
+
+    const errorAudio = getAudioBySrc("error.mp3");
+    expect(errorAudio).not.toBeNull();
+    expect(errorAudio!.play).toHaveBeenCalledTimes(1);
+
+    // --- Network error variant (fresh hook) ---
+    audioInstances = [];
+    MockMediaRecorder.instances = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("Network failure")),
+    );
+
+    const { result: result2 } = renderHook(() => useVoiceRecording());
+
+    act(() => { result2.current.start(); });
+    await waitFor(() => expect(result2.current.state).toBe("recording"));
+
+    await act(async () => {
+      await result2.current.endAppend("text");
+    });
+
+    const errorAudio2 = getAudioBySrc("error.mp3");
+    expect(errorAudio2).not.toBeNull();
+    expect(errorAudio2!.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test F: failed .play() Promise does not throw or break the recording flow", async () => {
+    // Make start.mp3's play() reject (e.g., Safari autoplay blocked)
+    // We need to intercept the Audio constructor to inject this behavior.
+    // Reset and reinstall Audio mock with start.mp3 rejecting.
+    audioInstances = [];
+    let startAudioInst: { src: string; currentTime: number; play: Mock } | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).Audio = function AudioMockF(this: any, src: string) {
+      this.src = src;
+      this.currentTime = 0;
+      this.play =
+        typeof src === "string" && src.endsWith("start.mp3")
+          ? vi.fn().mockRejectedValue(new Error("NotAllowedError"))
+          : vi.fn().mockResolvedValue(undefined);
+      audioInstances.push(this);
+      if (typeof src === "string" && src.endsWith("start.mp3")) startAudioInst = this;
+    };
+
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+
+    // State should still transition to recording despite the play() rejection
+    await waitFor(() => {
+      expect(result.current.state).toBe("recording");
+    });
+
+    // play() was attempted (and rejected, but swallowed)
+    expect(startAudioInst).not.toBeNull();
+    expect(startAudioInst!.play).toHaveBeenCalledTimes(1);
+
+    // No unhandled rejection — the hook swallowed it silently.
+    // The fact that we reach this line without the test framework throwing
+    // an unhandled rejection error confirms the .catch() is in place.
+    expect(result.current.state).toBe("recording");
+    expect(result.current.errorMessage).toBeNull();
   });
 });

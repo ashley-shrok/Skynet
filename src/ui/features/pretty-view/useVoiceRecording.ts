@@ -6,6 +6,7 @@
  *   - MediaRecorder lifecycle (getUserMedia, start, stop, cleanup)
  *   - Fetch to POST /voice/transcribe with FormData `file` field
  *   - Transcript-to-text glue rule (single space if currentText does not end in whitespace)
+ *   - Audio feedback: 4 sounds at meaningful state transitions (start/stop/cancel/error)
  *
  * Does NOT own:
  *   - The textarea value (caller manages and passes currentText to endAppend/endSend)
@@ -38,6 +39,10 @@
  */
 
 import { useRef, useState } from "react";
+import startUrl from "../../assets/sounds/mic/start.mp3?url";
+import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
+import cancelUrl from "../../assets/sounds/mic/cancel.mp3?url";
+import errorUrl from "../../assets/sounds/mic/error.mp3?url";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -78,6 +83,28 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  // Audio feedback instances — lazy-initialized once on first render via ref.
+  // Persists across renders so we don't reconstruct Audio objects on every render.
+  const startAudioRef = useRef<HTMLAudioElement | null>(null);
+  const stopAudioRef = useRef<HTMLAudioElement | null>(null);
+  const cancelAudioRef = useRef<HTMLAudioElement | null>(null);
+  const errorAudioRef = useRef<HTMLAudioElement | null>(null);
+  if (!startAudioRef.current) startAudioRef.current = new Audio(startUrl);
+  if (!stopAudioRef.current) stopAudioRef.current = new Audio(stopUrl);
+  if (!cancelAudioRef.current) cancelAudioRef.current = new Audio(cancelUrl);
+  if (!errorAudioRef.current) errorAudioRef.current = new Audio(errorUrl);
+
+  // ---------------------------------------------------------------------------
+  // Internal: playSound — resets currentTime and plays; swallows any rejection.
+  // Audio feedback is UX polish — a failed play() MUST NOT disrupt recording.
+  // ---------------------------------------------------------------------------
+
+  function playSound(audio: HTMLAudioElement | null): void {
+    if (!audio) return;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  }
 
   // ---------------------------------------------------------------------------
   // Internal: stopRecording — wraps recorder.stop() and resolves on onstop.
@@ -131,11 +158,13 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "fetch error";
+      playSound(errorAudioRef.current);
       setErrorMessage(`STT error: ${msg}`);
       return null;
     }
 
     if (!res.ok) {
+      playSound(errorAudioRef.current);
       setErrorMessage(`STT error: ${res.status}`);
       return null;
     }
@@ -144,6 +173,7 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
       const json = (await res.json()) as { text?: string };
       return json.text ?? "";
     } catch {
+      playSound(errorAudioRef.current);
       setErrorMessage("STT error: invalid response");
       return null;
     }
@@ -195,10 +225,13 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
 
         recorder.start();
         setState("recording");
+        playSound(startAudioRef.current);
         setErrorMessage(null);
       })
       .catch((err: Error) => {
         // Surface mic-denied state — matches prototype's error string.
+        // Do NOT play error.mp3 here — permission-denied may happen before any
+        // user gesture on Safari, and the errorMessage signal alone is sufficient.
         setErrorMessage(`mic denied: ${err.name || "error"}`);
         // State stays "idle".
       });
@@ -210,6 +243,7 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
    */
   async function cancel(): Promise<void> {
     if (state !== "recording") return;
+    playSound(cancelAudioRef.current);
     await stopRecording();
     // Blob is discarded — no fetch.
     setState("idle");
@@ -226,6 +260,7 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
   ): Promise<VoiceRecordingResult | null> {
     if (state !== "recording") return null;
 
+    playSound(stopAudioRef.current);
     const blob = await stopRecording();
     setState("transcribing");
 
@@ -238,6 +273,10 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
     setState("idle");
 
     if (transcript === null) return null;
+
+    if (transcript === "") {
+      playSound(errorAudioRef.current);
+    }
 
     const glued = applyGlue(currentText, transcript);
     return { transcript, glued };
@@ -254,6 +293,7 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
   ): Promise<VoiceRecordingResult | null> {
     if (state !== "recording") return null;
 
+    playSound(stopAudioRef.current);
     const blob = await stopRecording();
     setState("transcribing");
 
@@ -266,6 +306,10 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
     setState("idle");
 
     if (transcript === null) return null;
+
+    if (transcript === "") {
+      playSound(errorAudioRef.current);
+    }
 
     const glued = applyGlue(currentText, transcript);
     return { transcript, glued };
