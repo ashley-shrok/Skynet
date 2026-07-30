@@ -103,7 +103,12 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
   function playSound(audio: HTMLAudioElement | null): void {
     if (!audio) return;
     audio.currentTime = 0;
-    audio.play().catch(() => {});
+    // Wrap in Promise.resolve — real browsers return a Promise from play(),
+    // but jsdom's HTMLMediaElement.play() returns undefined, so a bare
+    // .catch() throws in tests that render the full ComposeBox tree without
+    // the Audio mock (fixes 5 pre-existing ComposeBox.voice.test.tsx failures
+    // in #209's ship; see patch #211).
+    Promise.resolve(audio.play()).catch(() => {});
   }
 
   // ---------------------------------------------------------------------------
