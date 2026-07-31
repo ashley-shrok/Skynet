@@ -307,7 +307,7 @@ export type Bounty = {
   // continue to work unchanged.
   source_links: string[];
   deadline: string | null;
-  meeting_questions: { question: string; answered: boolean; answer?: string | null }[];
+  meeting_questions: { text: string; answered: boolean }[];
 };
 
 export type IdentityListBountiesPayload = {
@@ -592,7 +592,7 @@ export type BountyFieldsPatch = {
   keywords?: string[];
   source_links?: string[];
   deadline?: string | null;
-  meeting_questions?: { question: string; answered: boolean; answer?: string | null }[];
+  meeting_questions?: { text: string; answered: boolean }[];
 };
 
 export type IdentityUpdateBountyFieldsPayload = {

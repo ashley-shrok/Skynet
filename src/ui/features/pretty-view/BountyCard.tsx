@@ -1,14 +1,18 @@
-import { useState } from "react";
-import { Flame, ChevronsUp, ChevronUp, Minus, ChevronDown, Circle, Star } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { Flame, ChevronsUp, ChevronUp, Minus, ChevronDown, Circle, Star, Pencil, X, Plus, ChevronUp as ArrowUp, ChevronDown as ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/checkbox";
 import { Button } from "@/components/button";
+import { Input } from "@/components/input";
+import { Textarea } from "@/components/textarea";
+import { Badge } from "@/components/badge";
 import {
   BOUNTY_PRIORITY_VALUES,
   BOUNTY_STATUS_VALUES,
   type Bounty,
   type BountyPriority,
   type BountyStatus,
+  type BountyFieldsPatch,
 } from "@/api/claude-session-api";
 
 // Patch #87: per-bounty card for the IdentityModal Bounties tab.
@@ -18,7 +22,8 @@ import {
 //   hue     — numeric identity hue (0-360), same source as IdentityBadge lg
 //   archived — when true, the whole card is rendered at opacity-70 (de-emphasized)
 //
-// Todos are rendered as DISABLED shadcn Checkboxes (read-only per D-07).
+// Todos are rendered as DISABLED shadcn Checkboxes (read-only per D-07) when
+// onFieldsChange is not supplied. When supplied, todos become an editable list.
 // Premise collapses to 4 lines when > 400 chars; "Show more/less" toggle below.
 // Timeline shows the LAST element of the timeline[] array (D-10).
 // Priority indicator uses lucide glyphs only — no text glyph, bare icon (D-14 note on
@@ -212,6 +217,12 @@ function StatusRow({
   );
 }
 
+// T-18-26: safeHref — rejects javascript: and data: schemes to prevent XSS
+// via anchor href injection. Matches http / https / mailto / relative paths.
+function safeHref(link: string): string {
+  return /^(https?:|mailto:|\/)/i.test(link) ? link : "#";
+}
+
 export function BountyCard({
   bounty,
   hue,
@@ -221,6 +232,7 @@ export function BountyCard({
   onPinnedChange,
   onArchive,
   onDelete,
+  onFieldsChange,
 }: {
   bounty: Bounty;
   hue: number;
@@ -249,6 +261,13 @@ export function BountyCard({
    *  regardless of location (locked design D-2). The window.confirm() gate
    *  lives inside handleDelete below. */
   onDelete?: () => Promise<void>;
+  /** Plan 04/05: when supplied, expanded body renders inline editors for
+   *  title, premise, todos, keywords, source_links, deadline, and
+   *  meeting_questions. Each editor dispatches a partial patch via this
+   *  callback. Threaded for ALL FOUR partitions (in_progress / rest /
+   *  other / archive) since even archived bounties can have fields
+   *  edited (e.g. retrospective meeting_question). */
+  onFieldsChange?: (patch: BountyFieldsPatch) => Promise<void>;
 }) {
   const [premiseExpanded, setPremiseExpanded] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -262,6 +281,60 @@ export function BountyCard({
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [savingDelete, setSavingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // ── Field editor state ────────────────────────────────────────────────────
+
+  // title
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(bounty.title);
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
+
+  // premise
+  const [editingPremise, setEditingPremise] = useState(false);
+  const [premiseDraft, setPremiseDraft] = useState(bounty.premise);
+  const [savingPremise, setSavingPremise] = useState(false);
+  const [premiseError, setPremiseError] = useState<string | null>(null);
+
+  // todos — autosave, no explicit Save/Cancel; debounced for text edits
+  const [todosDraft, setTodosDraft] = useState(bounty.todos);
+  const [savingTodos, setSavingTodos] = useState(false);
+  const [todosError, setTodosError] = useState<string | null>(null);
+  const [newTodoText, setNewTodoText] = useState("");
+  const todosDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // keywords — autosave
+  const [keywordsDraft, setKeywordsDraft] = useState(bounty.keywords);
+  const [savingKeywords, setSavingKeywords] = useState(false);
+  const [keywordsError, setKeywordsError] = useState<string | null>(null);
+  const [newKeyword, setNewKeyword] = useState("");
+
+  // source_links — autosave
+  const [sourceLinksDraft, setSourceLinksDraft] = useState(bounty.source_links);
+  const [savingSourceLinks, setSavingSourceLinks] = useState(false);
+  const [sourceLinksError, setSourceLinksError] = useState<string | null>(null);
+  const [newSourceLink, setNewSourceLink] = useState("");
+  const [newSourceLinkError, setNewSourceLinkError] = useState<string | null>(null);
+
+  // deadline — autosave on change
+  const [savingDeadline, setSavingDeadline] = useState(false);
+  const [deadlineError, setDeadlineError] = useState<string | null>(null);
+
+  // meeting_questions — autosave
+  const [meetingQuestionsDraft, setMeetingQuestionsDraft] = useState(bounty.meeting_questions);
+  const [savingMeetingQuestions, setSavingMeetingQuestions] = useState(false);
+  const [meetingQuestionsError, setMeetingQuestionsError] = useState<string | null>(null);
+  const [newMeetingQuestion, setNewMeetingQuestion] = useState("");
+
+  // ── Generic fields dispatcher ─────────────────────────────────────────────
+
+  async function handleFieldsChange(patch: BountyFieldsPatch): Promise<void> {
+    if (!onFieldsChange) return;
+    await onFieldsChange(patch);
+  }
+
+  // ── Existing edit surface handlers (byte-identical to original) ───────────
+
   const isLongPremise = bounty.premise.length > 400;
 
   async function handlePriorityChange(next: BountyPriority) {
@@ -340,6 +413,335 @@ export function BountyCard({
     }
   }
 
+  // ── Title editor handlers ─────────────────────────────────────────────────
+
+  function startEditTitle() {
+    setTitleDraft(bounty.title);
+    setTitleError(null);
+    setEditingTitle(true);
+  }
+
+  function cancelEditTitle() {
+    if (titleDraft !== bounty.title) {
+      if (!window.confirm("Discard unsaved changes?")) return;
+    }
+    setEditingTitle(false);
+    setTitleDraft(bounty.title);
+    setTitleError(null);
+  }
+
+  async function saveTitle() {
+    const trimmed = titleDraft.trim();
+    if (!trimmed) {
+      setTitleError("Title cannot be empty.");
+      return;
+    }
+    if (trimmed === bounty.title) {
+      setEditingTitle(false);
+      return;
+    }
+    setTitleError(null);
+    setSavingTitle(true);
+    try {
+      await handleFieldsChange({ title: trimmed });
+      setEditingTitle(false);
+    } catch (e) {
+      setTitleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+
+  function onTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") { e.preventDefault(); void saveTitle(); }
+    if (e.key === "Escape") { e.preventDefault(); cancelEditTitle(); }
+  }
+
+  // ── Premise editor handlers ───────────────────────────────────────────────
+
+  function startEditPremise() {
+    setPremiseDraft(bounty.premise);
+    setPremiseError(null);
+    setEditingPremise(true);
+  }
+
+  function cancelEditPremise() {
+    if (premiseDraft !== bounty.premise) {
+      if (!window.confirm("Discard unsaved changes?")) return;
+    }
+    setEditingPremise(false);
+    setPremiseDraft(bounty.premise);
+    setPremiseError(null);
+  }
+
+  async function savePremise() {
+    if (premiseDraft === bounty.premise) {
+      setEditingPremise(false);
+      return;
+    }
+    setPremiseError(null);
+    setSavingPremise(true);
+    try {
+      await handleFieldsChange({ premise: premiseDraft });
+      setEditingPremise(false);
+    } catch (e) {
+      setPremiseError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingPremise(false);
+    }
+  }
+
+  function onPremiseKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Escape") { e.preventDefault(); cancelEditPremise(); }
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void savePremise(); }
+  }
+
+  // ── Todos editor handlers (autosave with debounce for text edits) ─────────
+
+  const flushTodosSave = useCallback(async (nextTodos: typeof todosDraft) => {
+    if (!onFieldsChange) return;
+    setSavingTodos(true);
+    setTodosError(null);
+    try {
+      await onFieldsChange({ todos: nextTodos });
+    } catch (e) {
+      setTodosError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingTodos(false);
+    }
+  }, [onFieldsChange]);
+
+  function saveTodosImmediate(nextTodos: typeof todosDraft) {
+    if (todosDebounceRef.current) clearTimeout(todosDebounceRef.current);
+    void flushTodosSave(nextTodos);
+  }
+
+  function saveTodosDebounced(nextTodos: typeof todosDraft) {
+    if (todosDebounceRef.current) clearTimeout(todosDebounceRef.current);
+    todosDebounceRef.current = setTimeout(() => {
+      void flushTodosSave(nextTodos);
+    }, 400);
+  }
+
+  function handleTodoToggle(idx: number) {
+    const next = todosDraft.map((t, i) =>
+      i === idx ? { ...t, done: !t.done } : t,
+    );
+    setTodosDraft(next);
+    saveTodosImmediate(next);
+  }
+
+  function handleTodoTextChange(idx: number, text: string) {
+    const next = todosDraft.map((t, i) => (i === idx ? { ...t, text } : t));
+    setTodosDraft(next);
+    saveTodosDebounced(next);
+  }
+
+  function handleTodoTextBlur(idx: number) {
+    const t = todosDraft[idx];
+    if (!t) return;
+    if (!t.text.trim()) {
+      if (window.confirm("Remove this todo (text is empty)?")) {
+        const next = todosDraft.filter((_, i) => i !== idx);
+        setTodosDraft(next);
+        saveTodosImmediate(next);
+      } else {
+        // restore from bounty
+        const original = bounty.todos[idx];
+        const next = todosDraft.map((todo, i) =>
+          i === idx ? { ...todo, text: original?.text ?? todo.text } : todo,
+        );
+        setTodosDraft(next);
+      }
+    }
+  }
+
+  function handleTodoRemove(idx: number) {
+    const next = todosDraft.filter((_, i) => i !== idx);
+    setTodosDraft(next);
+    saveTodosImmediate(next);
+  }
+
+  function handleTodoMoveUp(idx: number) {
+    if (idx === 0) return;
+    const next = [...todosDraft];
+    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+    setTodosDraft(next);
+    saveTodosImmediate(next);
+  }
+
+  function handleTodoMoveDown(idx: number) {
+    if (idx === todosDraft.length - 1) return;
+    const next = [...todosDraft];
+    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+    setTodosDraft(next);
+    saveTodosImmediate(next);
+  }
+
+  function handleAddTodo() {
+    const text = newTodoText.trim();
+    if (!text) return;
+    const next = [...todosDraft, { text, done: false }];
+    setTodosDraft(next);
+    setNewTodoText("");
+    saveTodosImmediate(next);
+  }
+
+  function onNewTodoKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") { e.preventDefault(); handleAddTodo(); }
+  }
+
+  // ── Keywords editor handlers (autosave) ───────────────────────────────────
+
+  async function saveKeywords(next: string[]) {
+    if (!onFieldsChange) return;
+    setSavingKeywords(true);
+    setKeywordsError(null);
+    try {
+      await onFieldsChange({ keywords: next });
+    } catch (e) {
+      setKeywordsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingKeywords(false);
+    }
+  }
+
+  function commitKeyword(raw: string) {
+    const trimmed = raw.trim().toLowerCase();
+    if (!trimmed) return;
+    if (keywordsDraft.some((k) => k.toLowerCase() === trimmed)) return; // deduplicated
+    if (keywordsDraft.length >= 20) return; // soft cap
+    const next = [...keywordsDraft, trimmed];
+    setKeywordsDraft(next);
+    setNewKeyword("");
+    void saveKeywords(next);
+  }
+
+  function onNewKeywordKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") { e.preventDefault(); commitKeyword(newKeyword); }
+    if (e.key === ",") { e.preventDefault(); commitKeyword(newKeyword); }
+  }
+
+  function onNewKeywordChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value;
+    // Auto-commit on comma in value
+    if (val.endsWith(",")) {
+      commitKeyword(val.slice(0, -1));
+    } else {
+      setNewKeyword(val);
+    }
+  }
+
+  function handleRemoveKeyword(idx: number) {
+    const next = keywordsDraft.filter((_, i) => i !== idx);
+    setKeywordsDraft(next);
+    void saveKeywords(next);
+  }
+
+  // ── Source links editor handlers (autosave) ───────────────────────────────
+
+  async function saveSourceLinks(next: string[]) {
+    if (!onFieldsChange) return;
+    setSavingSourceLinks(true);
+    setSourceLinksError(null);
+    try {
+      await onFieldsChange({ source_links: next });
+    } catch (e) {
+      setSourceLinksError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingSourceLinks(false);
+    }
+  }
+
+  function commitSourceLink(raw: string) {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    // Validate: must start with http://, https://, or /
+    if (!/^(https?:|\/)/i.test(trimmed)) {
+      setNewSourceLinkError("URL must start with http://, https://, or /");
+      return;
+    }
+    setNewSourceLinkError(null);
+    const next = [...sourceLinksDraft, trimmed];
+    setSourceLinksDraft(next);
+    setNewSourceLink("");
+    void saveSourceLinks(next);
+  }
+
+  function onNewSourceLinkKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") { e.preventDefault(); commitSourceLink(newSourceLink); }
+  }
+
+  function onNewSourceLinkBlur() {
+    if (newSourceLink.trim()) commitSourceLink(newSourceLink);
+  }
+
+  function handleRemoveSourceLink(idx: number) {
+    const next = sourceLinksDraft.filter((_, i) => i !== idx);
+    setSourceLinksDraft(next);
+    void saveSourceLinks(next);
+  }
+
+  // ── Deadline editor handler (autosave on change) ──────────────────────────
+
+  async function handleDeadlineChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value; // "YYYY-MM-DD" or "" when cleared
+    const patch: BountyFieldsPatch = { deadline: val || null };
+    setDeadlineError(null);
+    setSavingDeadline(true);
+    try {
+      await handleFieldsChange(patch);
+    } catch (err) {
+      setDeadlineError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingDeadline(false);
+    }
+  }
+
+  // ── Meeting questions editor handlers (autosave) ──────────────────────────
+
+  async function saveMeetingQuestions(next: typeof meetingQuestionsDraft) {
+    if (!onFieldsChange) return;
+    setSavingMeetingQuestions(true);
+    setMeetingQuestionsError(null);
+    try {
+      await onFieldsChange({ meeting_questions: next });
+    } catch (e) {
+      setMeetingQuestionsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingMeetingQuestions(false);
+    }
+  }
+
+  function handleAddMeetingQuestion() {
+    const text = newMeetingQuestion.trim();
+    if (!text) return;
+    const next = [...meetingQuestionsDraft, { text, answered: false }];
+    setMeetingQuestionsDraft(next);
+    setNewMeetingQuestion("");
+    void saveMeetingQuestions(next);
+  }
+
+  function onNewMeetingQuestionKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") { e.preventDefault(); handleAddMeetingQuestion(); }
+  }
+
+  function handleMeetingQuestionToggleAnswered(idx: number) {
+    const next = meetingQuestionsDraft.map((q, i) =>
+      i === idx ? { ...q, answered: !q.answered } : q,
+    );
+    setMeetingQuestionsDraft(next);
+    void saveMeetingQuestions(next);
+  }
+
+  function handleRemoveMeetingQuestion(idx: number) {
+    const next = meetingQuestionsDraft.filter((_, i) => i !== idx);
+    setMeetingQuestionsDraft(next);
+    void saveMeetingQuestions(next);
+  }
+
+  // ── Render helpers ────────────────────────────────────────────────────────
+
   const statusClass =
     STATUS_CLASSES[bounty.status] ??
     "bg-slate-500/20 text-slate-200 border border-slate-500/30";
@@ -353,6 +755,11 @@ export function BountyCard({
     latestTimeline && latestTimeline.length > 240
       ? latestTimeline.slice(0, 240) + "…"
       : latestTimeline;
+
+  // deadline display value for the <input type="date"> — take YYYY-MM-DD prefix
+  const deadlineValue = bounty.deadline
+    ? bounty.deadline.slice(0, 10)
+    : "";
 
   return (
     <div
@@ -541,55 +948,528 @@ export function BountyCard({
             </div>
           )}
 
-          {/* Premise block */}
-          {bounty.premise && (
-            <div>
-              <div
-                className={cn(
-                  "whitespace-pre-wrap text-sm text-[#e8e4d8]/90 leading-relaxed",
-                  isLongPremise && !premiseExpanded && "line-clamp-4",
+          {/* ── Title editor (Plan 05 / IDMEDIT-04) ──────────────────────── */}
+          {onFieldsChange && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                  Title
+                </span>
+                {!editingTitle && (
+                  <button
+                    type="button"
+                    title="Edit title"
+                    aria-label="Edit title"
+                    onClick={startEditTitle}
+                    className="cursor-pointer text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] p-0.5 rounded"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
                 )}
-              >
-                {bounty.premise}
               </div>
-              {isLongPremise && (
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-xs text-[#a89a80] hover:text-[#e8e4d8]"
-                  onClick={() => setPremiseExpanded((v) => !v)}
-                >
-                  {premiseExpanded ? "Show less" : "Show more"}
-                </Button>
+              {editingTitle ? (
+                <>
+                  <Input
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onKeyDown={onTitleKeyDown}
+                    disabled={savingTitle}
+                    autoFocus
+                    className="text-sm bg-white/5 border-white/20 text-[#f0ebe0]"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      className="cursor-pointer"
+                      disabled={savingTitle || titleDraft.trim() === bounty.title}
+                      onClick={() => void saveTitle()}
+                    >
+                      {savingTitle ? "Saving…" : "Save"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="cursor-pointer"
+                      disabled={savingTitle}
+                      onClick={cancelEditTitle}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                  {titleError && (
+                    <div className="text-xs text-rose-300 mt-1">{titleError}</div>
+                  )}
+                </>
+              ) : (
+                <span className="text-sm text-[#e8e4d8]/90">{bounty.title}</span>
+              )}
+              {pinnedError && (
+                <div className="text-xs text-rose-300 whitespace-pre-wrap">
+                  {pinnedError}
+                </div>
               )}
             </div>
           )}
 
-          {/* Todos */}
-          {bounty.todos.length > 0 && (
+          {/* ── Premise block (with editor when onFieldsChange supplied) ──── */}
+          {onFieldsChange ? (
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
-                Todos
-              </span>
-              <ul className="flex flex-col gap-1">
-                {bounty.todos.map((t, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                  Premise
+                </span>
+                {!editingPremise && (
+                  <button
+                    type="button"
+                    title="Edit premise"
+                    aria-label="Edit premise"
+                    onClick={startEditPremise}
+                    className="cursor-pointer text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] p-0.5 rounded"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              {editingPremise ? (
+                <>
+                  <Textarea
+                    value={premiseDraft}
+                    onChange={(e) => setPremiseDraft(e.target.value)}
+                    onKeyDown={onPremiseKeyDown}
+                    disabled={savingPremise}
+                    rows={8}
+                    autoFocus
+                    className="text-sm font-mono bg-white/5 border-white/20 text-[#f0ebe0] resize-y"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      className="cursor-pointer"
+                      disabled={savingPremise || premiseDraft === bounty.premise}
+                      onClick={() => void savePremise()}
+                    >
+                      {savingPremise ? "Saving…" : "Save"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="cursor-pointer"
+                      disabled={savingPremise}
+                      onClick={cancelEditPremise}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                  {premiseError && (
+                    <div className="text-xs text-rose-300 mt-1">{premiseError}</div>
+                  )}
+                </>
+              ) : bounty.premise ? (
+                <div>
+                  <div
+                    className={cn(
+                      "whitespace-pre-wrap text-sm text-[#e8e4d8]/90 leading-relaxed",
+                      isLongPremise && !premiseExpanded && "line-clamp-4",
+                    )}
+                  >
+                    {bounty.premise}
+                  </div>
+                  {isLongPremise && (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs text-[#a89a80] hover:text-[#e8e4d8]"
+                      onClick={() => setPremiseExpanded((v) => !v)}
+                    >
+                      {premiseExpanded ? "Show less" : "Show more"}
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <span className="text-xs text-[var(--color-pv-fg-dim)] italic">No premise</span>
+              )}
+            </div>
+          ) : (
+            /* Read-only premise (no onFieldsChange) — byte-identical to original */
+            bounty.premise && (
+              <div>
+                <div
+                  className={cn(
+                    "whitespace-pre-wrap text-sm text-[#e8e4d8]/90 leading-relaxed",
+                    isLongPremise && !premiseExpanded && "line-clamp-4",
+                  )}
+                >
+                  {bounty.premise}
+                </div>
+                {isLongPremise && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-xs text-[#a89a80] hover:text-[#e8e4d8]"
+                    onClick={() => setPremiseExpanded((v) => !v)}
+                  >
+                    {premiseExpanded ? "Show less" : "Show more"}
+                  </Button>
+                )}
+              </div>
+            )
+          )}
+
+          {/* ── Todos (editable when onFieldsChange supplied) ─────────────── */}
+          {onFieldsChange ? (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                  Todos
+                </span>
+                {savingTodos && (
+                  <span className="text-[10px] text-[var(--color-pv-fg-dim)]">saving…</span>
+                )}
+              </div>
+              <ul className="flex flex-col gap-1.5">
+                {todosDraft.map((t, i) => (
+                  <li key={i} className="flex items-center gap-1.5 text-sm group">
+                    {/* Reorder arrows */}
+                    <div className="flex flex-col shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleTodoMoveUp(i)}
+                        disabled={i === 0 || savingTodos}
+                        title="Move up"
+                        aria-label="Move todo up"
+                        className="cursor-pointer text-[var(--color-pv-fg-dim)] hover:text-[#e8e4d8] disabled:opacity-30 disabled:cursor-default"
+                      >
+                        <ArrowUp className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTodoMoveDown(i)}
+                        disabled={i === todosDraft.length - 1 || savingTodos}
+                        title="Move down"
+                        aria-label="Move todo down"
+                        className="cursor-pointer text-[var(--color-pv-fg-dim)] hover:text-[#e8e4d8] disabled:opacity-30 disabled:cursor-default"
+                      >
+                        <ArrowDown className="h-3 w-3" />
+                      </button>
+                    </div>
                     <Checkbox
                       checked={t.done}
-                      disabled
-                      className="mt-0.5 cursor-default opacity-60"
+                      onCheckedChange={() => handleTodoToggle(i)}
+                      disabled={savingTodos}
+                      className="mt-0.5 cursor-pointer"
                     />
-                    <span
+                    <Input
+                      value={t.text}
+                      onChange={(e) => handleTodoTextChange(i, e.target.value)}
+                      onBlur={() => handleTodoTextBlur(i)}
+                      disabled={savingTodos}
                       className={cn(
-                        "text-[#e8e4d8]/90",
+                        "flex-1 text-sm bg-white/5 border-white/10 text-[#e8e4d8]/90 h-7 px-2",
                         t.done && "line-through opacity-60",
                       )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleTodoRemove(i)}
+                      disabled={savingTodos}
+                      title="Remove todo"
+                      aria-label="Remove todo"
+                      className="shrink-0 cursor-pointer text-[var(--color-pv-fg-dim)] hover:text-rose-300 disabled:opacity-30 disabled:cursor-default"
                     >
-                      {t.text}
-                    </span>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </li>
                 ))}
               </ul>
+              {/* Add-todo control */}
+              <div className="flex items-center gap-1.5 mt-1">
+                <Input
+                  value={newTodoText}
+                  onChange={(e) => setNewTodoText(e.target.value)}
+                  onKeyDown={onNewTodoKeyDown}
+                  placeholder="Add todo…"
+                  disabled={savingTodos}
+                  className="flex-1 text-sm bg-white/5 border-white/10 text-[#f0ebe0] h-7 px-2 placeholder:text-[var(--color-pv-fg-dim)]"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTodo}
+                  disabled={savingTodos || !newTodoText.trim()}
+                  title="Add todo"
+                  aria-label="Add todo"
+                  className="cursor-pointer text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] disabled:opacity-30 disabled:cursor-default"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+              {todosError && (
+                <div className="text-xs text-rose-300 mt-1">{todosError}</div>
+              )}
+            </div>
+          ) : (
+            /* Read-only todos (no onFieldsChange) — byte-identical to original */
+            bounty.todos.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                  Todos
+                </span>
+                <ul className="flex flex-col gap-1">
+                  {bounty.todos.map((t, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={t.done}
+                        disabled
+                        className="mt-0.5 cursor-default opacity-60"
+                      />
+                      <span
+                        className={cn(
+                          "text-[#e8e4d8]/90",
+                          t.done && "line-through opacity-60",
+                        )}
+                      >
+                        {t.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          )}
+
+          {/* ── Keywords editor (Plan 05 / IDMEDIT-04) ───────────────────── */}
+          {onFieldsChange && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                  Keywords
+                </span>
+                {savingKeywords && (
+                  <span className="text-[10px] text-[var(--color-pv-fg-dim)]">saving…</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {keywordsDraft.map((kw, i) => (
+                  <Badge
+                    key={i}
+                    variant="outline"
+                    className="text-[11px] text-[#e8e4d8]/80 border-white/20 flex items-center gap-1 pr-1"
+                  >
+                    {kw}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveKeyword(i)}
+                      disabled={savingKeywords}
+                      title={`Remove keyword: ${kw}`}
+                      aria-label={`Remove keyword: ${kw}`}
+                      className="cursor-pointer text-[var(--color-pv-fg-dim)] hover:text-rose-300 disabled:opacity-30 disabled:cursor-default"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </Badge>
+                ))}
+                <Input
+                  value={newKeyword}
+                  onChange={onNewKeywordChange}
+                  onKeyDown={onNewKeywordKeyDown}
+                  onBlur={() => { if (newKeyword.trim()) commitKeyword(newKeyword); }}
+                  placeholder="Add keyword…"
+                  disabled={savingKeywords || keywordsDraft.length >= 20}
+                  className="w-32 text-xs bg-white/5 border-white/10 text-[#f0ebe0] h-6 px-2 placeholder:text-[var(--color-pv-fg-dim)]"
+                />
+              </div>
+              {keywordsError && (
+                <div className="text-xs text-rose-300 mt-1">{keywordsError}</div>
+              )}
+            </div>
+          )}
+
+          {/* ── Source links editor (Plan 05 / IDMEDIT-04, T-18-26) ───────── */}
+          {onFieldsChange && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                  Source Links
+                </span>
+                {savingSourceLinks && (
+                  <span className="text-[10px] text-[var(--color-pv-fg-dim)]">saving…</span>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                {sourceLinksDraft.map((link, i) => (
+                  <div key={i} className="flex items-center gap-1.5 group">
+                    <a
+                      href={safeHref(link)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-300 hover:text-blue-200 underline truncate flex-1 min-w-0"
+                      title={link}
+                    >
+                      {link}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSourceLink(i)}
+                      disabled={savingSourceLinks}
+                      title={`Remove link: ${link}`}
+                      aria-label={`Remove link: ${link}`}
+                      className="shrink-0 cursor-pointer text-[var(--color-pv-fg-dim)] hover:text-rose-300 disabled:opacity-30 disabled:cursor-default"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={newSourceLink}
+                    onChange={(e) => { setNewSourceLink(e.target.value); setNewSourceLinkError(null); }}
+                    onKeyDown={onNewSourceLinkKeyDown}
+                    onBlur={onNewSourceLinkBlur}
+                    placeholder="Add link (URL)…"
+                    disabled={savingSourceLinks}
+                    className="flex-1 text-xs bg-white/5 border-white/10 text-[#f0ebe0] h-7 px-2 placeholder:text-[var(--color-pv-fg-dim)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => commitSourceLink(newSourceLink)}
+                    disabled={savingSourceLinks || !newSourceLink.trim()}
+                    title="Add link"
+                    aria-label="Add link"
+                    className="cursor-pointer text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] disabled:opacity-30 disabled:cursor-default"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+                {newSourceLinkError && (
+                  <div className="text-xs text-rose-300 mt-1">{newSourceLinkError}</div>
+                )}
+                {sourceLinksError && (
+                  <div className="text-xs text-rose-300 mt-1">{sourceLinksError}</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Source links read-only display (no onFieldsChange) ─────────
+              Per T-18-26: safeHref used even in read-only mode. */}
+          {!onFieldsChange && bounty.source_links.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                Source Links
+              </span>
+              <ul className="flex flex-col gap-0.5">
+                {bounty.source_links.map((link, i) => (
+                  <li key={i}>
+                    <a
+                      href={safeHref(link)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-300 hover:text-blue-200 underline break-all"
+                    >
+                      {link}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* ── Deadline editor (Plan 05 / IDMEDIT-04) ───────────────────── */}
+          {onFieldsChange && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                  Deadline
+                </span>
+                {savingDeadline && (
+                  <span className="text-[10px] text-[var(--color-pv-fg-dim)]">saving…</span>
+                )}
+              </div>
+              <Input
+                type="date"
+                defaultValue={deadlineValue}
+                key={deadlineValue} /* re-mount when bounty updates to sync value */
+                onChange={handleDeadlineChange}
+                disabled={savingDeadline}
+                className="w-44 text-sm bg-white/5 border-white/20 text-[#f0ebe0] h-7 px-2"
+              />
+              {deadlineError && (
+                <div className="text-xs text-rose-300 mt-1">{deadlineError}</div>
+              )}
+            </div>
+          )}
+
+          {/* ── Meeting questions editor (Plan 05 / IDMEDIT-08) ──────────── */}
+          {onFieldsChange && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">
+                  Meeting Questions
+                </span>
+                {savingMeetingQuestions && (
+                  <span className="text-[10px] text-[var(--color-pv-fg-dim)]">saving…</span>
+                )}
+              </div>
+              <ul className="flex flex-col gap-1.5">
+                {meetingQuestionsDraft.map((q, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <Checkbox
+                      checked={q.answered}
+                      onCheckedChange={() => handleMeetingQuestionToggleAnswered(i)}
+                      disabled={savingMeetingQuestions}
+                      className="mt-0.5 cursor-pointer"
+                      title="Mark as answered"
+                    />
+                    <span
+                      className={cn(
+                        "flex-1 text-[#e8e4d8]/90 text-sm leading-snug",
+                        q.answered && "line-through opacity-60",
+                      )}
+                    >
+                      {q.text}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMeetingQuestion(i)}
+                      disabled={savingMeetingQuestions}
+                      title="Remove question"
+                      aria-label="Remove question"
+                      className="shrink-0 cursor-pointer text-[var(--color-pv-fg-dim)] hover:text-rose-300 disabled:opacity-30 disabled:cursor-default"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {/* Add question control */}
+              <div className="flex items-center gap-1.5 mt-1">
+                <Input
+                  value={newMeetingQuestion}
+                  onChange={(e) => setNewMeetingQuestion(e.target.value)}
+                  onKeyDown={onNewMeetingQuestionKeyDown}
+                  placeholder="Add meeting question…"
+                  disabled={savingMeetingQuestions}
+                  className="flex-1 text-sm bg-white/5 border-white/10 text-[#f0ebe0] h-7 px-2 placeholder:text-[var(--color-pv-fg-dim)]"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddMeetingQuestion}
+                  disabled={savingMeetingQuestions || !newMeetingQuestion.trim()}
+                  title="Add question"
+                  aria-label="Add question"
+                  className="cursor-pointer text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] disabled:opacity-30 disabled:cursor-default"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+              {meetingQuestionsError && (
+                <div className="text-xs text-rose-300 mt-1">{meetingQuestionsError}</div>
+              )}
             </div>
           )}
 
