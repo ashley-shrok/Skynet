@@ -25,6 +25,8 @@ const STT_URL = "http://100.80.122.111:8000/v1/audio/transcriptions";
 
 // --- Patch #223: TTS endpoints (Chatterbox on tailnet) ---
 const TTS_URL = "http://100.80.122.111:8001/v1/audio/speech";
+// --- Patch #237: Streaming TTS endpoint (Chatterbox /tts, not /v1/audio/speech) ---
+const TTS_STREAM_URL = "http://100.80.122.111:8001/tts";
 const VOICES_URL = "http://100.80.122.111:8001/get_predefined_voices";
 export const DEFAULT_VOICE = "Elena.wav";
 export const SPEAK_TEXT_MAX = 25000;
@@ -198,6 +200,106 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
   }
 }
 
+// --- Patch #237: handleSpeakStream — POST /voice/speak-stream reverse-proxy to Chatterbox /tts ---
+// Mirrors handleSpeak structure but replaces arrayBuffer+end with Readable.fromWeb().pipe(res)
+// so chunks stream to the browser as Chatterbox synthesizes them (no server-side buffering).
+//
+// Non-negotiable (19-CONTEXT.md § Backend route shape):
+//   - Pipe-through ONLY: await response.arrayBuffer()/.text()/.blob() are FORBIDDEN here.
+//   - Response headers: Content-Type: audio/wav + X-Accel-Buffering: no (set before pipe starts).
+//   - Upstream URL: TTS_STREAM_URL (http://100.80.122.111:8001/tts) — NOT TTS_URL.
+//   - T-19-04 (T-16-03 analog): non-2xx → fixed error shape, upstream body NOT forwarded.
+//   - T-19-05: AbortController 300s timeout (same cap as handleSpeak).
+export async function handleSpeakStream(req: Request, res: Response): Promise<void> {
+  // (a) Validate body.text: must be a non-empty string within SPEAK_TEXT_MAX
+  if (!req.body || typeof req.body.text !== "string" || req.body.text.length === 0) {
+    res.status(400).json({ error: "body.text is required and must be a non-empty string" });
+    return;
+  }
+  if (req.body.text.length > SPEAK_TEXT_MAX) {
+    res.status(400).json({ error: `body.text exceeds maximum length of ${SPEAK_TEXT_MAX}` });
+    return;
+  }
+
+  // (b) Validate body.voice if provided
+  if (req.body.voice !== undefined) {
+    if (typeof req.body.voice !== "string" || !VOICE_FILENAME_RE.test(req.body.voice)) {
+      res.status(400).json({ error: "body.voice must match [A-Z][A-Za-z]+\\.wav" });
+      return;
+    }
+  }
+
+  // (c) AbortController: 300-second (5 min) TTS timeout — same cap as handleSpeak (patch #232 lesson).
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 300_000);
+
+  try {
+    // (d) Forward to tailnet Chatterbox streaming /tts endpoint
+    const response = await fetch(TTS_STREAM_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: req.body.text,
+        voice_mode: "predefined",
+        predefined_voice_id: req.body.voice ?? DEFAULT_VOICE,
+        stream: true,
+        split_text: true,
+        chunk_size: 80,
+      }),
+      signal: controller.signal,
+    });
+
+    // (e) Clear timeout
+    clearTimeout(timeoutId);
+
+    // (f) Non-2xx: return fixed error shape — T-19-04 / T-16-03 analog (no upstream body leak)
+    if (!response.ok) {
+      res.status(response.status).json({
+        error: "TTS stream non-2xx",
+        status: response.status,
+      });
+      return;
+    }
+
+    // (g) 2xx: pipe WAV bytes through without buffering
+    // Guard against a missing body (should not occur on real Chatterbox but defensively checked)
+    if (!response.body) {
+      throw new Error("Chatterbox response body is null — cannot pipe stream");
+    }
+
+    // Set response headers BEFORE the pipe starts so they are flushed with the first chunk.
+    res.status(200);
+    res.setHeader("Content-Type", "audio/wav");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    // Bridge WHATWG ReadableStream → Node.js Writable and pipe to res.
+    // DO NOT await response.arrayBuffer()/.text()/.blob() — pipe-through only.
+    const { Readable } = await import("node:stream");
+    Readable.fromWeb(response.body as import("node:stream/web").ReadableStream).pipe(res);
+    // The pipe is fire-and-forget: Readable drives res.write(chunk) and res.end() as chunks
+    // arrive from Chatterbox. We return here; the pipe lifecycle outlives this function.
+    return;
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+
+    // (h) AbortError → 504 timeout
+    if (err instanceof DOMException && err.name === "AbortError") {
+      databaseLogger.error("Voice TTS speak-stream request timed out", err, {
+        operation: "voice_speak_stream_timeout",
+      });
+      res.status(504).json({ error: "TTS stream timeout", status: 504 });
+      return;
+    }
+
+    // Anything else → 502 proxy error
+    databaseLogger.error("Voice TTS speak-stream proxy error", err, {
+      operation: "voice_speak_stream_proxy",
+    });
+    res.status(502).json({ error: "TTS stream proxy error", status: 502 });
+    return;
+  }
+}
+
 // --- Patch #223: handleListVoices — GET /voice/voices ---
 export async function handleListVoices(req: Request, res: Response): Promise<Response> {
   void req;
@@ -259,6 +361,18 @@ router.post(
   express.json({ limit: "64kb" }),
   (req: Request, res: Response) => {
     void handleSpeak(req, res);
+  },
+);
+
+// --- Route: POST /speak-stream (Patch #237) ---
+// Middleware chain: authenticateJWT (401 if unauth) → express.json (body parse) → handleSpeakStream
+// T-19-01: authenticateJWT BEFORE express.json — body is never parsed if JWT is invalid.
+router.post(
+  "/speak-stream",
+  authenticateJWT,
+  express.json({ limit: "64kb" }),
+  (req: Request, res: Response) => {
+    void handleSpeakStream(req, res);
   },
 );
 
