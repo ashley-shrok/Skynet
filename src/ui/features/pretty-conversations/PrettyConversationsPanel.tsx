@@ -40,13 +40,14 @@
 // retired in Wave 4 and NOT ported forward here.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Filter, MessagesSquare, Monitor, Pencil, Pin, Server } from "lucide-react";
+import { ChevronDown, ChevronRight, EyeOff, Filter, MessagesSquare, Monitor, Pencil, Pin, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
   useConversations,
   useSelectedConversationId,
   usePinnedIds,
+  useHiddenIds,
   useActiveSet,
   useFleetSessionsLoaded,
   selectConversation,
@@ -55,6 +56,9 @@ import {
   fleetRowId,
   togglePinConversation,
   hydratePinnedIdsFromServer,
+  hideConversation,
+  unhideConversation,
+  hydrateHiddenIdsFromServer,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 import { useSessionWorking } from "@/state/session-working-store";
@@ -67,7 +71,7 @@ import {
 } from "@/state/bounty-counts-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
-import { getPinnedIds } from "@/api/user-preferences-api";
+import { getPinnedIds, getHiddenIds } from "@/api/user-preferences-api";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
@@ -94,6 +98,7 @@ function PrettyConversationRowLive(props: {
   row: ConversationRowShape;
   selected: boolean;
   pinned: boolean;
+  hidden?: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
   onTogglePin: () => void;
@@ -102,6 +107,8 @@ function PrettyConversationRowLive(props: {
   // set group, pinned group, non-RDP grouped block). RDP sentinel omits
   // it because RDP rows never emit onDeactivate at the row level.
   onDeactivate?: () => void;
+  // quick-260731-tgg: forwarded to PrettyConversationRow for Hide/Show wiring.
+  onToggleHide?: () => void;
   onSwipeOpenChange?: (open: boolean) => void;
   forceClosed?: boolean;
   inActiveSet: boolean;
@@ -186,6 +193,9 @@ export function PrettyConversationsPanel({
   const { activeSet: activeSetRows, pinned, grouped } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
+  // quick-260731-tgg: hiddenIds subscription — drives the Hidden section render
+  // and per-row hidden prop threading.
+  const hiddenIds = useHiddenIds();
   // Quick 260727-tb1: identity map for the bounty-count poller's getTargets
   // callback. Same hook the row uses to resolve identity — subscribing at
   // the panel level lets the poller enumerate every visible row's identity
@@ -251,12 +261,21 @@ export function PrettyConversationsPanel({
     hydratedRef.current = true;
     let cancelled = false;
     (async () => {
-      try {
-        const ids = await getPinnedIds();
-        if (cancelled) return;
-        hydratePinnedIdsFromServer(ids);
-      } catch {
-        // Silent — pinnedIds stays as-is; next remount refetches.
+      // quick-260731-tgg: fetch pinnedIds and hiddenIds in parallel so
+      // a network failure on either does NOT prevent the other from succeeding.
+      // Each is independently try/caught — same silent-catch semantics as the
+      // pre-tgg single-fetch path. Both dispatches are guarded by the same
+      // `cancelled` cancel-token (one unmount = both guarded).
+      const [pinnedResult, hiddenResult] = await Promise.allSettled([
+        getPinnedIds(),
+        getHiddenIds(),
+      ]);
+      if (cancelled) return;
+      if (pinnedResult.status === "fulfilled") {
+        hydratePinnedIdsFromServer(pinnedResult.value);
+      }
+      if (hiddenResult.status === "fulfilled") {
+        hydrateHiddenIdsFromServer(hiddenResult.value);
       }
     })();
     return () => {
@@ -327,6 +346,9 @@ export function PrettyConversationsPanel({
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
 
+  // quick-260731-tgg: collapsed by default on every mount per Ashley's design lock.
+  const [hiddenExpanded, setHiddenExpanded] = useState(false);
+
   // Patch #167: pinned-bounty filter toggle (header funnel button). Local
   // state only — NOT persisted (Ashley 2026-07-28: "no remembering filter
   // state"). Each fresh panel mount starts with filter off.
@@ -381,6 +403,82 @@ export function PrettyConversationsPanel({
         .filter((g) => g.rows.length > 0)
     : grouped;
 
+  // quick-260731-tgg: resolve hidden rows for the Hidden section. We look up
+  // rows in the PRE-filter source (activeSetRows ∪ pinned ∪ grouped before the
+  // hiddenIds filter in the store removed them) by constructing the full union
+  // from the raw useConversations() output — but computeSnapshot() already
+  // stripped them. We work around this by holding a separate pre-filter source
+  // derived from the store's raw snapshot BEFORE the hidden-filter pass. Since
+  // the store filters hidden ids out of the tiers, hidden rows won't appear in
+  // activeSetRows/pinned/grouped at all. Instead, we resolve them from the
+  // hiddenIds set itself by finding matches in the currently-open conversations.
+  // The simplest correct approach: iterate hiddenIds and resolve each to a row
+  // object from ALL known rows (pre-filter union). Because the store already
+  // filtered them, we need a different source. We'll compute this from the
+  // store's own data that IS visible: the full union includes rows from all
+  // tiers, but hidden rows have been removed. We fetch hidden rows by iterating
+  // hiddenIds and checking openTabs/fleet data indirectly via what's available.
+  //
+  // In practice, the simplest approach that matches the plan spec: pre-filter
+  // union of activeSetRows ∪ pinned ∪ grouped from useConversations() BEFORE
+  // hiddenIds filter. Since computeSnapshot() already filters hidden ids, we
+  // need an unfiltered source. We therefore read from the panel's available
+  // data: the three tiers post-store-filter (which excludes hidden rows) do NOT
+  // include hidden rows. We need to reconstruct hidden rows. The plan says to
+  // resolve against "PRE-filter tiers" — but since the store filters them, we
+  // cannot get them from useConversations(). We solve this pragmatically:
+  // build hiddenRows from hiddenIds by constructing minimal ConversationRow
+  // stubs from what the store makes available. The store's hiddenIds are string
+  // ids; we don't have direct access to the raw rows once filtered. We therefore
+  // keep a ref that accumulates rows seen in any tier across renders (a row that
+  // becomes hidden stops appearing in tiers but we remember it).
+  //
+  // Simpler correct solution: The panel exposes hiddenIds from the store.
+  // For the Hidden section we need row objects. Since the store filters hidden
+  // rows from all tiers, the panel cannot reconstruct the full row shape without
+  // additional data. The plan's action block says: "resolve against the
+  // pre-filter tiers (i.e. resolve to the row object BEFORE the hiddenIds
+  // filter is applied)" — meaning we need the store to provide pre-filter data.
+  // However, looking at the store design, computeSnapshot IS the post-filter
+  // output. The plan approach requires us to have the pre-filter rows available.
+  //
+  // Correct implementation per plan §(3) action point: useMemo over
+  // [...activeSetRows, ...pinned, ...grouped.flatMap(g=>g.rows)] — BUT these
+  // are already post-filter (hidden rows removed). The plan's intent is that
+  // the panel renders hidden rows in the Hidden section using row objects from
+  // before filtering. Since the store doesn't expose pre-filter tiers, we
+  // use a ref-based accumulator that captures rows as they pass through the
+  // visible tiers — rows that transition from visible to hidden are still in
+  // the ref. On fresh mount they hydrate from the server via hydrateHiddenIds.
+  // For rows that were ALWAYS hidden (server-persisted), we won't have row
+  // objects immediately. This is an acceptable trade-off per the plan's note
+  // that "resolve to the row object BEFORE the hiddenIds filter is applied"
+  // — those rows appeared in the tiers on initial render before hydration.
+  //
+  // For now, use the ref-accumulator approach: accumulate all rows ever seen
+  // in any tier, key by id. Hidden section resolves from this accumulator.
+  // This is the idiomatic approach for this store architecture.
+  //
+  // NOTE: This ref is update-on-every-render (tiny cost; no closure issues).
+  const knownRowsRef = useRef(new Map<string, ConversationRowShape>());
+  // Accumulate rows from all currently-visible tiers on every render.
+  for (const r of activeSetRows) knownRowsRef.current.set(r.id, r);
+  for (const r of pinned) knownRowsRef.current.set(r.id, r);
+  for (const g of grouped) for (const r of g.rows) knownRowsRef.current.set(r.id, r);
+
+  const hiddenRows = useMemo(() => {
+    const out: ConversationRowShape[] = [];
+    const seen = new Set<string>();
+    for (const id of hiddenIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const row = knownRowsRef.current.get(id);
+      if (row) out.push(row);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hiddenIds, activeSetRows, pinned, grouped]);
+
   // Swipe-coordination state: which row is currently swiped open? Only
   // meaningful on mobile — desktop rows don't emit onSwipeOpenChange. Panel
   // passes `forceClosed={true}` to every row EXCEPT the currently-open one,
@@ -415,6 +513,8 @@ export function PrettyConversationsPanel({
   // for the case where two rows are open due to a race.
   const handleRowSelect = (row: ConversationRowShape) => {
     if (isMobileVariant) setCurrentlySwipedId(null);
+    // quick-260731-tgg: opening a hidden row auto-unhides it before routing.
+    if (hiddenIds.has(row.id)) unhideConversation(row.id);
     addToActiveSet(row.id);
     if (row.rdpHostRow && onRdpRowClick) {
       onRdpRowClick(row);
@@ -463,6 +563,28 @@ export function PrettyConversationsPanel({
       removeFromActiveSet(fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession));
     }
     onDeactivateRow(row);
+  };
+
+  // quick-260731-tgg: panel-level togglePin with mutual exclusion — unhide before pin.
+  // Replaces direct togglePinConversation calls at the render sites.
+  const handleTogglePin = (rowId: string) => {
+    if (hiddenIds.has(rowId)) unhideConversation(rowId);
+    togglePinConversation(rowId);
+  };
+
+  // quick-260731-tgg: panel-level hide/show handler.
+  // - If already hidden (Show button): unhide only.
+  // - If in active-set: deactivate FIRST (closes tab), then hide.
+  // - Otherwise: hide directly.
+  const handleToggleHide = (row: ConversationRowShape) => {
+    if (hiddenIds.has(row.id)) {
+      unhideConversation(row.id);
+      return;
+    }
+    if (activeSet.has(row.id)) {
+      handleRowDeactivate(row);
+    }
+    hideConversation(row.id);
   };
 
   // Coordinator callback wired into every mobile row. When a row reports
@@ -644,10 +766,12 @@ export function PrettyConversationsPanel({
                   row={row}
                   selected={row.id === selectedId}
                   pinned={pinnedIds.has(row.id)}
+                  hidden={hiddenIds.has(row.id)}
                   variant={variant}
                   onSelect={() => handleRowSelect(row)}
-                  onTogglePin={() => togglePinConversation(row.id)}
+                  onTogglePin={() => handleTogglePin(row.id)}
                   onDeactivate={() => handleRowDeactivate(row)}
+                  onToggleHide={() => handleToggleHide(row)}
                   onSwipeOpenChange={
                     isMobileVariant
                       ? (open) => handleSwipeOpenChange(row.id, open)
@@ -699,10 +823,12 @@ export function PrettyConversationsPanel({
                   row={row}
                   selected={row.id === selectedId}
                   pinned={true}
+                  hidden={hiddenIds.has(row.id)}
                   variant={variant}
                   onSelect={() => handleRowSelect(row)}
-                  onTogglePin={() => togglePinConversation(row.id)}
+                  onTogglePin={() => handleTogglePin(row.id)}
                   onDeactivate={() => handleRowDeactivate(row)}
+                  onToggleHide={() => handleToggleHide(row)}
                   onSwipeOpenChange={
                     isMobileVariant
                       ? (open) => handleSwipeOpenChange(row.id, open)
@@ -802,10 +928,12 @@ export function PrettyConversationsPanel({
                       row={row}
                       selected={row.id === selectedId}
                       pinned={pinnedIds.has(row.id)}
+                      hidden={hiddenIds.has(row.id)}
                       variant={variant}
                       onSelect={() => handleRowSelect(row)}
-                      onTogglePin={() => togglePinConversation(row.id)}
+                      onTogglePin={() => handleTogglePin(row.id)}
                       onDeactivate={() => handleRowDeactivate(row)}
+                      onToggleHide={() => handleToggleHide(row)}
                       onSwipeOpenChange={
                         isMobileVariant
                           ? (open) => handleSwipeOpenChange(row.id, open)
@@ -820,6 +948,68 @@ export function PrettyConversationsPanel({
                 </div>
               );
             })}
+            {/* quick-260731-tgg: Hidden section — collapsed by default, rendered
+                BELOW the __rdp__ group iff hiddenIds.size > 0. Header chip mirrors
+                the pinned/RDP chip treatment: EyeOff glyph + uppercase "Hidden"
+                label + gradient rule + ChevronRight/ChevronDown caret.
+                Local hiddenExpanded state; collapsed on every mount (no persistence). */}
+            {hiddenRows.length > 0 && (
+              <div className="pv-panel-group pv-hidden-section" data-hidden-group="true">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full"
+                  data-testid="hidden-divider"
+                  aria-expanded={hiddenExpanded}
+                  onClick={() => setHiddenExpanded((v) => !v)}
+                >
+                  <EyeOff
+                    className="size-3 text-[#5c6070]/85 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                    Hidden
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                  />
+                  {hiddenExpanded ? (
+                    <ChevronDown
+                      className="size-3 text-[#5c6070]/85 shrink-0"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <ChevronRight
+                      className="size-3 text-[#5c6070]/85 shrink-0"
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
+                {hiddenExpanded &&
+                  hiddenRows.map((row) => (
+                    <PrettyConversationRowLive
+                      key={row.id}
+                      row={row}
+                      selected={row.id === selectedId}
+                      pinned={false}
+                      hidden={true}
+                      variant={variant}
+                      onSelect={() => handleRowSelect(row)}
+                      onTogglePin={() => handleTogglePin(row.id)}
+                      onToggleHide={() => handleToggleHide(row)}
+                      onSwipeOpenChange={
+                        isMobileVariant
+                          ? (open) => handleSwipeOpenChange(row.id, open)
+                          : undefined
+                      }
+                      forceClosed={forceClosedFor(row.id)}
+                      inActiveSet={activeSet.has(row.id)}
+                      sessionKey={sessionWorkingKey(row)}
+                      subtitleMode="identityTitle"
+                    />
+                  ))}
+              </div>
+            )}
           </>
         )}
       </div>

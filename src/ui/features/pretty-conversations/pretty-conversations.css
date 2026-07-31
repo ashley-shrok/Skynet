@@ -843,6 +843,96 @@
    PrettyBountyCountBadge.tsx returns null when count is falsy, so this
    selector never matches for count=undefined or count=0 rows (no empty
    pill leaks into the DOM). */
+/* ═══════════════════════════════════════════════════════════════════════════
+   quick-260731-tgg: HIDE ACTION — Hide/Show button for conversations.
+   Structural mirror of .pv-deactivate-action (same shape, size, transition)
+   but with a neutral-gray palette (var(--color-pv-fg-muted)) so Hide reads
+   as "less destructive than Deactivate". Not animated (Phase 10 non-
+   negotiable: static glyph only).
+
+   Visibility rules mirror the pin block's hover-reveal (desktop):
+     - Ambient rows: hidden until row is hovered/focus-within (same as pin).
+     - Hidden rows inside expanded Hidden section: always shown on mobile swipe;
+       desktop hover-reveal is effectively inert here (section is collapsed by
+       default; once expanded, the "no hover-reveal on hidden rows" edge is
+       inert because the whole row is inside a collapsed section that Ashley
+       explicitly opened — the CSS guard is documented but not functional).
+     - RDP safety net: HideAction is never threaded to RDP rows; this CSS guard
+       is pure defense-in-depth.
+   Mobile visibility owned by the swipe strip.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-hide-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--color-pv-fg-muted, rgba(92, 96, 112, 0.85));
+  transition: color 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pv-hide-action svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
+.pv-hide-action:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.pv-hide-action:focus-visible {
+  outline: 2px solid rgba(92, 96, 112, 0.6);
+  outline-offset: 2px;
+}
+
+/* Mobile hit-target: bigger tap area (~32px) with a slightly larger glyph.
+   Same shape as .pv-deactivate-action[data-size="mobile"]. */
+.pv-hide-action[data-size="mobile"] {
+  width: 32px;
+  height: 32px;
+}
+
+.pv-hide-action[data-size="mobile"] svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Desktop hover-reveal: hidden on ambient rows unless hovered/focus-within
+   (mirrors pin's hide-on-unpinned rule). */
+.pv-row.pv-row--desktop.ambient:not(:hover):not(:focus-within) .pv-hide-action {
+  display: none;
+}
+
+/* Active-set safety net: HideAction is not in the swipe strip for active-set
+   rows (design lock — they use Deactivate). Desktop context menu provides the
+   Hide affordance. No CSS hide needed here; the row-level render gates it. */
+
+/* RDP safety net: HideAction is never threaded to RDP rows; this is defense-
+   in-depth. */
+.pv-row.rdp .pv-hide-action {
+  display: none;
+}
+
+/* quick-260731-tgg: Hidden section container. Uses the existing .pv-panel-group
+   gap treatment — no unique spacing needed. The hidden-divider button uses
+   inline Tailwind for chip layout (mirrors pinned-divider); this class provides
+   the structural container hook for future CSS overrides. */
+.pv-hidden-section {
+  /* No unique treatment — inherits .pv-panel-group gap/layout from JSX. */
+}
+
+/* Hover feedback on the collapse-toggle chip button. */
+.pv-hidden-section button[data-testid="hidden-divider"]:hover span {
+  color: rgba(255, 255, 255, 0.9);
+}
+
 .pv-bounty-badge {
   min-width: 18px;
   height: 16px;

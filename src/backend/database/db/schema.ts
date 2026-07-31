@@ -746,6 +746,7 @@ export const userPreferences = sqliteTable("user_preferences", {
   accentColor: text("accent_color"),
   language: text("language"),
   pinnedConversationIds: text("pinned_conversation_ids"),
+  hiddenConversationIds: text("hidden_conversation_ids"),
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

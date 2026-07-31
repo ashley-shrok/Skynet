@@ -53,3 +53,46 @@ export async function putPinnedIds(ids: string[]): Promise<string[]> {
     throw new Error(handleApiError(error));
   }
 }
+
+// quick-260731-tgg — thin wrappers around GET/PUT /user-preferences for the
+// hiddenConversationIds slice. Structural mirrors of getPinnedIds / putPinnedIds
+// above — do NOT extract a shared helper; mirror inline to keep the diff atomic.
+
+export async function getHiddenIds(): Promise<string[]> {
+  try {
+    const response = await authApi.get("/user-preferences");
+    const raw = response.data?.hiddenConversationIds;
+    if (Array.isArray(raw) && raw.every((v) => typeof v === "string")) {
+      return raw;
+    }
+    return [];
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
+
+export async function putHiddenIds(ids: string[]): Promise<string[]> {
+  try {
+    const response = await authApi.put("/user-preferences", {
+      hiddenConversationIds: ids,
+    });
+    const raw = response.data?.hiddenConversationIds;
+    const echoed: string[] =
+      Array.isArray(raw) && raw.every((v) => typeof v === "string")
+        ? raw
+        : ids;
+    // SC6 rollout scaffold: deep-compare input vs echoed on every put.
+    const diverged =
+      ids.length !== echoed.length ||
+      ids.some((v, i) => v !== echoed[i]);
+    if (diverged) {
+      console.warn("[hide-persistence] server echo mismatch", {
+        sent: ids,
+        echoed,
+      });
+    }
+    return echoed;
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}

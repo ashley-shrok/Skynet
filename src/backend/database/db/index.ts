@@ -675,6 +675,7 @@ const migrateSchema = () => {
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
   addColumnIfNotExists("user_preferences", "pinned_conversation_ids", "TEXT");
+  addColumnIfNotExists("user_preferences", "hidden_conversation_ids", "TEXT");
 
   // Bounty message-queue-in-pretty-view: queue_slots column for compose_drafts.
   // Existing installs pick this up via addColumnIfNotExists; fresh installs get it

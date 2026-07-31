@@ -40,6 +40,7 @@ type Row = {
   accentColor: string | null;
   language: string | null;
   pinnedConversationIds: string | null;
+  hiddenConversationIds: string | null;
   updatedAt: string;
 };
 
@@ -81,6 +82,8 @@ const insertChain = {
           language: v.language ?? existing?.language ?? null,
           pinnedConversationIds:
             v.pinnedConversationIds ?? existing?.pinnedConversationIds ?? null,
+          hiddenConversationIds:
+            v.hiddenConversationIds ?? existing?.hiddenConversationIds ?? null,
           updatedAt: v.updatedAt ?? new Date().toISOString(),
         };
         rows.set(v.userId, next);
@@ -238,6 +241,7 @@ describe("handleGetPreferences: pinnedConversationIds branches", () => {
       accentColor: null,
       language: null,
       pinnedConversationIds: null,
+      hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
 
@@ -259,6 +263,7 @@ describe("handleGetPreferences: pinnedConversationIds branches", () => {
       accentColor: null,
       language: null,
       pinnedConversationIds: JSON.stringify(["id1", "id2", "id3"]),
+      hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
 
@@ -318,6 +323,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
       accentColor: null,
       language: null,
       pinnedConversationIds: JSON.stringify(["old-a", "old-b"]),
+      hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
 
@@ -346,6 +352,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
       accentColor: null,
       language: null,
       pinnedConversationIds: JSON.stringify(["seed"]),
+      hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     };
     rows.set(USER_ID, seed);
@@ -374,6 +381,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
       accentColor: null,
       language: null,
       pinnedConversationIds: JSON.stringify(["seed"]),
+      hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     };
     rows.set(USER_ID, seed);
@@ -401,6 +409,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
       accentColor: null,
       language: null,
       pinnedConversationIds: JSON.stringify(["seed"]),
+      hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     };
     rows.set(USER_ID, seed);
@@ -479,5 +488,265 @@ describe("handlePutPreferences: pre-existing 400 branches still work", () => {
     expect(res._body).toEqual({
       error: "No preferences provided",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — GET hiddenConversationIds (HIDE 1-3, mirrors PIN 1-3)
+// ---------------------------------------------------------------------------
+
+describe("handleGetPreferences: hiddenConversationIds branches", () => {
+  it("HIDE 1 — GET returns hiddenConversationIds: [] when no row exists for user", () => {
+    const res = makeRes();
+    handleGetPreferences(USER_ID, res as unknown as Response);
+
+    expect(res._status).toBe(200);
+    const body = res._body as { hiddenConversationIds: string[] };
+    expect(body.hiddenConversationIds).toEqual([]);
+    expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
+  });
+
+  it("HIDE 2 — GET returns hiddenConversationIds: [] when column is NULL", () => {
+    rows.set(USER_ID, {
+      userId: USER_ID,
+      reopenTabsOnLogin: false,
+      theme: null,
+      fontSize: null,
+      accentColor: null,
+      language: null,
+      pinnedConversationIds: null,
+      hiddenConversationIds: null,
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    });
+
+    const res = makeRes();
+    handleGetPreferences(USER_ID, res as unknown as Response);
+
+    expect(res._status).toBe(200);
+    const body = res._body as { hiddenConversationIds: string[] };
+    expect(body.hiddenConversationIds).toEqual([]);
+    expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
+  });
+
+  it("HIDE 3 — GET returns the parsed array when column has valid JSON string", () => {
+    rows.set(USER_ID, {
+      userId: USER_ID,
+      reopenTabsOnLogin: false,
+      theme: null,
+      fontSize: null,
+      accentColor: null,
+      language: null,
+      pinnedConversationIds: null,
+      hiddenConversationIds: JSON.stringify(["h1", "h2", "h3"]),
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    });
+
+    const res = makeRes();
+    handleGetPreferences(USER_ID, res as unknown as Response);
+
+    expect(res._status).toBe(200);
+    const body = res._body as { hiddenConversationIds: string[] };
+    expect(body.hiddenConversationIds).toEqual(["h1", "h2", "h3"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — PUT hiddenConversationIds (HIDE 4-10, mirrors PIN 4-10)
+// ---------------------------------------------------------------------------
+
+describe("handlePutPreferences: hiddenConversationIds branches", () => {
+  it("HIDE 4 — PUT with valid string[] persists the JSON.stringify'd form to the DB column", () => {
+    const res = makeRes();
+    handlePutPreferences(
+      USER_ID,
+      { hiddenConversationIds: ["a", "b"] },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    const row = rows.get(USER_ID);
+    expect(row).toBeDefined();
+    expect(row!.hiddenConversationIds).toBe('["a","b"]');
+    expect(typeof row!.hiddenConversationIds).toBe("string");
+  });
+
+  it("HIDE 5 — PUT response body includes hiddenConversationIds as a parsed array", () => {
+    const res = makeRes();
+    handlePutPreferences(
+      USER_ID,
+      { hiddenConversationIds: ["x", "y", "z"] },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    const body = res._body as { hiddenConversationIds: unknown };
+    expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
+    expect(body.hiddenConversationIds).toEqual(["x", "y", "z"]);
+  });
+
+  it("HIDE 6 — PUT with empty array [] persists (unhide-all is legal, response echoes [])", () => {
+    rows.set(USER_ID, {
+      userId: USER_ID,
+      reopenTabsOnLogin: false,
+      theme: null,
+      fontSize: null,
+      accentColor: null,
+      language: null,
+      pinnedConversationIds: null,
+      hiddenConversationIds: JSON.stringify(["old-h1", "old-h2"]),
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    });
+
+    const res = makeRes();
+    handlePutPreferences(
+      USER_ID,
+      { hiddenConversationIds: [] },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(rows.get(USER_ID)!.hiddenConversationIds).toBe("[]");
+    const body = res._body as { hiddenConversationIds: unknown };
+    expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
+    expect(body.hiddenConversationIds).toEqual([]);
+  });
+
+  it("HIDE 7 — PUT with non-array returns 400 with specific error message + DB row unchanged", () => {
+    const seed = {
+      userId: USER_ID,
+      reopenTabsOnLogin: false,
+      theme: null,
+      fontSize: null,
+      accentColor: null,
+      language: null,
+      pinnedConversationIds: null,
+      hiddenConversationIds: JSON.stringify(["seed"]),
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    };
+    rows.set(USER_ID, seed);
+
+    const res = makeRes();
+    handlePutPreferences(
+      USER_ID,
+      { hiddenConversationIds: "not-an-array" },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(400);
+    expect(res._body).toEqual({
+      error: "hiddenConversationIds must be an array of strings",
+    });
+    expect(rows.get(USER_ID)).toEqual(seed);
+  });
+
+  it("HIDE 8 — PUT with non-string element returns 400 + DB row unchanged", () => {
+    const seed = {
+      userId: USER_ID,
+      reopenTabsOnLogin: false,
+      theme: null,
+      fontSize: null,
+      accentColor: null,
+      language: null,
+      pinnedConversationIds: null,
+      hiddenConversationIds: JSON.stringify(["seed"]),
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    };
+    rows.set(USER_ID, seed);
+
+    const res = makeRes();
+    handlePutPreferences(
+      USER_ID,
+      { hiddenConversationIds: ["a", 99] },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(400);
+    expect(res._body).toEqual({
+      error: "hiddenConversationIds must be an array of strings",
+    });
+    expect(rows.get(USER_ID)).toEqual(seed);
+  });
+
+  it("HIDE 9 — PUT with length > 1000 returns 400 + DB row unchanged (DoS mitigation)", () => {
+    const seed = {
+      userId: USER_ID,
+      reopenTabsOnLogin: false,
+      theme: null,
+      fontSize: null,
+      accentColor: null,
+      language: null,
+      pinnedConversationIds: null,
+      hiddenConversationIds: JSON.stringify(["seed"]),
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    };
+    rows.set(USER_ID, seed);
+
+    const huge = Array.from({ length: 1001 }, (_, i) => `hide-id-${i}`);
+    const res = makeRes();
+    handlePutPreferences(
+      USER_ID,
+      { hiddenConversationIds: huge },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(400);
+    expect(res._body).toEqual({
+      error: "hiddenConversationIds exceeds max length of 1000",
+    });
+    expect(rows.get(USER_ID)).toEqual(seed);
+  });
+
+  it("HIDE 10 — PUT round-trip: after PUT with ['h1','h2'], GET returns ['h1','h2']", () => {
+    const putRes = makeRes();
+    handlePutPreferences(
+      USER_ID,
+      { hiddenConversationIds: ["h1", "h2"] },
+      putRes as unknown as Response,
+    );
+    expect(putRes._status).toBe(200);
+
+    const getRes = makeRes();
+    handleGetPreferences(USER_ID, getRes as unknown as Response);
+
+    expect(getRes._status).toBe(200);
+    const body = getRes._body as { hiddenConversationIds: string[] };
+    expect(body.hiddenConversationIds).toEqual(["h1", "h2"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-field test: PUT with BOTH pinnedConversationIds AND hiddenConversationIds
+// Load-bearing: protects against copy-paste refactor that accidentally couples the two fields.
+// ---------------------------------------------------------------------------
+
+describe("handlePutPreferences: cross-field (pinnedConversationIds + hiddenConversationIds)", () => {
+  it("HIDE-X — PUT with BOTH fields persists both, response echoes both as parsed arrays", () => {
+    const res = makeRes();
+    handlePutPreferences(
+      USER_ID,
+      {
+        pinnedConversationIds: ["pin-a", "pin-b"],
+        hiddenConversationIds: ["hide-x", "hide-y"],
+      },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+
+    // Both raw column values are JSON strings
+    const row = rows.get(USER_ID);
+    expect(row).toBeDefined();
+    expect(row!.pinnedConversationIds).toBe('["pin-a","pin-b"]');
+    expect(row!.hiddenConversationIds).toBe('["hide-x","hide-y"]');
+
+    // Both response body fields are parsed arrays (NOT raw JSON strings)
+    const body = res._body as {
+      pinnedConversationIds: unknown;
+      hiddenConversationIds: unknown;
+    };
+    expect(Array.isArray(body.pinnedConversationIds)).toBe(true);
+    expect(body.pinnedConversationIds).toEqual(["pin-a", "pin-b"]);
+    expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
+    expect(body.hiddenConversationIds).toEqual(["hide-x", "hide-y"]);
   });
 });

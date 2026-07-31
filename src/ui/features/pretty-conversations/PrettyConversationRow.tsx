@@ -65,6 +65,7 @@ import type { ConversationRow as ConversationRowShape } from "@/state/conversati
 
 import { PinAction } from "./PinAction";
 import { DeactivateAction } from "./DeactivateAction";
+import { HideAction } from "./HideAction";
 import { PrettyBountyCountBadge } from "./PrettyBountyCountBadge";
 import {
   PrettyConversationContextMenu,
@@ -87,10 +88,12 @@ export function PrettyConversationRow({
   row,
   selected,
   pinned,
+  hidden = false,
   variant,
   onSelect,
   onTogglePin,
   onDeactivate,
+  onToggleHide,
   onSwipeOpenChange,
   forceClosed,
   isWorking = null,
@@ -101,6 +104,10 @@ export function PrettyConversationRow({
   row: ConversationRowShape;
   selected: boolean;
   pinned: boolean;
+  // quick-260731-tgg: whether this row is currently in Ashley's hidden set.
+  // Drives the mobile swipe strip placement (hidden rows show Show instead of
+  // Pin+Hide) and the context menu Hide/Show label.
+  hidden?: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
   onTogglePin: () => void;
@@ -112,6 +119,11 @@ export function PrettyConversationRow({
   // PrettyConversationsPanel.handleRowDeactivate for the store-mutation
   // + tab-close composition.
   onDeactivate?: () => void;
+  // quick-260731-tgg: fired when Ashley clicks Hide (EyeOff) or Show (Eye).
+  // When provided, the Hide/Show item appears in the context menu between
+  // Pin/Unpin and Deactivate. Mobile swipe strip: ambient rows show HideAction,
+  // hidden rows show HideAction(Eye). RDP rows never receive this prop.
+  onToggleHide?: () => void;
   onSwipeOpenChange?: (open: boolean) => void;
   forceClosed?: boolean;
   // Patch #137: WS-published working state for the row's (host, tmux)
@@ -309,6 +321,15 @@ export function PrettyConversationRow({
     [onDeactivate],
   );
 
+  // quick-260731-tgg: hide/show click. Same stopPropagation discipline.
+  const onHideClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      onToggleHide?.();
+    },
+    [onToggleHide],
+  );
+
   // Right-click context menu state for desktop non-RDP rows. Coords are
   // cursor position at contextmenu time; null = menu closed.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(
@@ -341,6 +362,7 @@ export function PrettyConversationRow({
     pinned && "pinned",
     isAmbient && "ambient",
     isRdp && "rdp",
+    hidden && "hidden",
   );
 
   // ─── Hue custom property + mobile swipe transform ─────────────────────────
@@ -399,24 +421,57 @@ export function PrettyConversationRow({
           SECOND (right) — matches Ashley's preview: pin on left, X on right
           when the strip is revealed from the right edge. Ambient (non-
           active-set) mobile rows expose only PinAction (no deactivate). */}
+      {/* Mobile swipe-reveal strip — design-locked placement rules (quick-260731-tgg):
+          HIDDEN rows (inside expanded Hidden section):
+            [HideAction(Eye)]  — Show affordance only. No Pin, no Deactivate
+            (hidden rows are excluded from active-set and pinned by the store filter).
+          ACTIVE-SET rows (non-RDP, non-hidden):
+            [PinAction, DeactivateAction]  — unchanged; to hide, long-press → menu.
+          AMBIENT rows (non-active-set, non-RDP, non-hidden):
+            [PinAction, HideAction(EyeOff)]  — no Deactivate (ambient can't deactivate). */}
       {isMobile && !isRdp && (
         <div
           className="absolute top-0 right-0 bottom-0 flex items-center justify-center gap-3 z-0"
           style={{ width: `${PC_SWIPE_REVEAL}px` }}
           aria-hidden={!effectiveOpen}
         >
-          <PinAction
-            hue={hue}
-            pinned={pinned}
-            size="mobile"
-            onClick={onPinClick}
-          />
-          {inActiveSet && (
-            <DeactivateAction
+          {hidden ? (
+            // Hidden row swipe strip: Show-only (Eye)
+            <HideAction
               hue={hue}
               size="mobile"
-              onClick={onDeactivateClick}
+              hidden={true}
+              onClick={onHideClick}
+              data-testid="hide-action-show"
             />
+          ) : (
+            <>
+              <PinAction
+                hue={hue}
+                pinned={pinned}
+                size="mobile"
+                onClick={onPinClick}
+              />
+              {inActiveSet ? (
+                // Active-set: show Deactivate (design lock — no HideAction on swipe for active-set rows)
+                <DeactivateAction
+                  hue={hue}
+                  size="mobile"
+                  onClick={onDeactivateClick}
+                />
+              ) : (
+                // Ambient: show HideAction (EyeOff) when onToggleHide is provided
+                onToggleHide && (
+                  <HideAction
+                    hue={hue}
+                    size="mobile"
+                    hidden={false}
+                    onClick={onHideClick}
+                    data-testid="hide-action-hide"
+                  />
+                )
+              )}
+            </>
           )}
         </div>
       )}
@@ -574,6 +629,16 @@ export function PrettyConversationRow({
               label: pinned ? "Unpin" : "Pin",
               onClick: onTogglePin,
             });
+            // quick-260731-tgg: Hide/Show item between Pin/Unpin and Deactivate.
+            // Only rendered when onToggleHide is provided (RDP rows never get it —
+            // onRowContextMenu is not wired for isRdp, so items[] already assumes non-RDP;
+            // the belt-and-suspenders onToggleHide check below handles RDP safety).
+            if (onToggleHide) {
+              items.push({
+                label: hidden ? "Show" : "Hide",
+                onClick: onToggleHide,
+              });
+            }
             if (inActiveSet && onDeactivate) {
               items.push({
                 label: "Deactivate",

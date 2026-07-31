@@ -18,6 +18,12 @@ const authenticateJWT = authManager.createAuthMiddleware();
 // subsequent GETs / bloats the encrypted SQLite volume.
 const PINNED_CONVERSATION_IDS_MAX_LENGTH = 1000;
 
+// quick-260731-tgg — max size cap on hiddenConversationIds array. Mirrors
+// PINNED_CONVERSATION_IDS_MAX_LENGTH byte-for-byte (same threat model: DoS
+// via oversized TEXT column write). Ashley's real hide count is expected to
+// be small; 1000 is a generous ceiling matching the pin cap.
+const HIDDEN_CONVERSATION_IDS_MAX_LENGTH = 1000;
+
 /**
  * Parse the raw JSON-serialized string[] stored in the pinned_conversation_ids
  * TEXT column into an actual string[].
@@ -48,6 +54,36 @@ function parsePinnedConversationIds(
   }
 }
 
+/**
+ * Parse the raw JSON-serialized string[] stored in the hidden_conversation_ids
+ * TEXT column into an actual string[].
+ *
+ * Returns [] for:
+ *   - null / undefined (user has never hidden any conversation)
+ *   - malformed JSON
+ *   - JSON that parses to a non-array
+ *   - arrays containing any non-string element (defense-in-depth against a
+ *     corrupted row — mirror of parsePinnedConversationIds)
+ *
+ * Silent-catch: never throws. quick-260731-tgg structural mirror of
+ * parsePinnedConversationIds — do NOT extract a shared helper.
+ */
+function parseHiddenConversationIds(
+  raw: string | null | undefined,
+): string[] {
+  if (raw == null) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    for (const v of parsed) {
+      if (typeof v !== "string") return [];
+    }
+    return parsed as string[];
+  } catch {
+    return [];
+  }
+}
+
 const pickPreferences = (row?: typeof userPreferences.$inferSelect) => ({
   reopenTabsOnLogin: row?.reopenTabsOnLogin ?? false,
   theme: row?.theme ?? null,
@@ -56,6 +92,9 @@ const pickPreferences = (row?: typeof userPreferences.$inferSelect) => ({
   language: row?.language ?? null,
   pinnedConversationIds: parsePinnedConversationIds(
     row?.pinnedConversationIds,
+  ),
+  hiddenConversationIds: parseHiddenConversationIds(
+    row?.hiddenConversationIds,
   ),
 });
 
@@ -95,6 +134,7 @@ export function handlePutPreferences(
     accentColor,
     language,
     pinnedConversationIds,
+    hiddenConversationIds,
   } = (body ?? {}) as {
     reopenTabsOnLogin?: boolean;
     theme?: string | null;
@@ -102,6 +142,7 @@ export function handlePutPreferences(
     accentColor?: string | null;
     language?: string | null;
     pinnedConversationIds?: unknown;
+    hiddenConversationIds?: unknown;
   };
 
   const updates: Partial<typeof userPreferences.$inferInsert> = {
@@ -156,6 +197,31 @@ export function handlePutPreferences(
       });
     }
     updates.pinnedConversationIds = JSON.stringify(pinnedConversationIds);
+  }
+
+  // quick-260731-tgg — hiddenConversationIds validation + serialization.
+  // Structural mirror of the pinnedConversationIds block above: reject non-
+  // arrays, non-string elements, and arrays exceeding the configured DoS-
+  // mitigation cap. Serialize to JSON at the boundary (column is TEXT).
+  if (hiddenConversationIds !== undefined) {
+    if (!Array.isArray(hiddenConversationIds)) {
+      return res.status(400).json({
+        error: "hiddenConversationIds must be an array of strings",
+      });
+    }
+    for (const v of hiddenConversationIds) {
+      if (typeof v !== "string") {
+        return res.status(400).json({
+          error: "hiddenConversationIds must be an array of strings",
+        });
+      }
+    }
+    if (hiddenConversationIds.length > HIDDEN_CONVERSATION_IDS_MAX_LENGTH) {
+      return res.status(400).json({
+        error: `hiddenConversationIds exceeds max length of ${HIDDEN_CONVERSATION_IDS_MAX_LENGTH}`,
+      });
+    }
+    updates.hiddenConversationIds = JSON.stringify(hiddenConversationIds);
   }
 
   // Guard: updates always carries { updatedAt } — length 1 means no user
@@ -228,6 +294,10 @@ export function handlePutPreferences(
  *                   type: array
  *                   items:
  *                     type: string
+ *                 hiddenConversationIds:
+ *                   type: array
+ *                   items:
+ *                     type: string
  */
 router.get("/", authenticateJWT, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
@@ -251,6 +321,10 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *               reopenTabsOnLogin:
  *                 type: boolean
  *               pinnedConversationIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               hiddenConversationIds:
  *                 type: array
  *                 items:
  *                   type: string

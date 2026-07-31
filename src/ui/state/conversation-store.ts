@@ -34,7 +34,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
-import { putPinnedIds } from "@/api/user-preferences-api";
+import { putPinnedIds, putHiddenIds } from "@/api/user-preferences-api";
 
 // ─── Public derived types ────────────────────────────────────────────────────
 
@@ -94,6 +94,7 @@ export type FleetSession = {
 type SnapshotForTest = ConversationList & {
   selectedId: string | null;
   pinnedIds: ReadonlySet<string>;
+  hiddenIds: ReadonlySet<string>;
 };
 
 // ─── Which tab types are "conversations" ─────────────────────────────────────
@@ -149,6 +150,7 @@ type State = {
   hostTree: HostFolder | null;
   openTabs: Tab[];
   pinnedIds: Set<string>;
+  hiddenIds: Set<string>;
   selectedId: string | null;
   // Plan 07-01 (TG-12, TG-17): fleet-discovery snapshot input. Fed ONCE per
   // page-load by AppShell's mount effect (empty dep array useEffect). No
@@ -189,6 +191,7 @@ let state: State = {
   hostTree: null,
   openTabs: [],
   pinnedIds: new Set<string>(),
+  hiddenIds: new Set<string>(),
   selectedId: null,
   fleetSessions: [],
   fleetSessionsLoaded: false,
@@ -520,6 +523,34 @@ function computeSnapshot(): ConversationList {
   rdpRows.sort(compareByLabel);
   if (rdpRows.length > 0) {
     grouped.push({ hostId: "__rdp__", hostName: "", rows: rdpRows });
+  }
+
+  // quick-260731-tgg: final render-time filter — remove hiddenIds from all
+  // three normally-visible tiers (activeSet, pinned, grouped). Applied AFTER
+  // all tier logic so it acts as a pure removal pass. Hidden rows are still
+  // in openTabs/fleetSessions; they simply don't surface in the three tiers.
+  // Groups whose rows collapse to [] after the filter are dropped so we don't
+  // render empty host-divider chips (mirrors the bounty-filter's drop-empty-
+  // groups behaviour in the panel).
+  //
+  // RDP rows (synthesized separately, placed in __rdp__ sentinel group) are
+  // NOT eligible for hiding — their id shape (rdp-host::${host.id}) never
+  // appears in hiddenIds (the hide affordance is suppressed for RDP rows at
+  // the row level). This is inert behavior: if __rdp__ rows could somehow
+  // appear in hiddenIds, they'd be filtered out here too — which would be
+  // the correct behavior — but the guard isn't needed in practice.
+  if (state.hiddenIds.size > 0) {
+    const hiddenIds = state.hiddenIds;
+    const filteredActiveSet = activeSetRows.filter((r) => !hiddenIds.has(r.id));
+    const filteredPinned = pinned.filter((r) => !hiddenIds.has(r.id));
+    const filteredGrouped = grouped
+      .map((g) => ({ ...g, rows: g.rows.filter((r) => !hiddenIds.has(r.id)) }))
+      .filter((g) => g.rows.length > 0);
+    return {
+      activeSet: filteredActiveSet,
+      pinned: filteredPinned,
+      grouped: filteredGrouped,
+    };
   }
 
   return { activeSet: activeSetRows, pinned, grouped };
@@ -862,6 +893,60 @@ export function togglePinConversation(id: string): void {
   else pinConversation(id);
 }
 
+// quick-260731-tgg: hide/unhide/toggle mutators. Fire-and-forget server write,
+// same pattern as pin/unpin above. hiddenIds are intentionally sticky across
+// openTab churn (unlike pinnedIds which get pruned in updateOpenTabs) — Ashley
+// may want to keep a stale hidden id so it re-hides if the session reappears.
+export function hideConversation(id: string): void {
+  if (state.hiddenIds.has(id)) return; // already hidden — no-op
+  const nextHiddenIds = new Set(state.hiddenIds);
+  nextHiddenIds.add(id);
+  try {
+    void putHiddenIds([...nextHiddenIds]);
+  } catch {
+    // Silent — do not block state update on network failure.
+  }
+  state = { ...state, hiddenIds: nextHiddenIds };
+  notify();
+}
+
+export function unhideConversation(id: string): void {
+  if (!state.hiddenIds.has(id)) return; // not hidden — no-op
+  const nextHiddenIds = new Set(state.hiddenIds);
+  nextHiddenIds.delete(id);
+  try {
+    void putHiddenIds([...nextHiddenIds]);
+  } catch {
+    // Silent — do not block state update on network failure.
+  }
+  state = { ...state, hiddenIds: nextHiddenIds };
+  notify();
+}
+
+export function toggleHideConversation(id: string): void {
+  if (state.hiddenIds.has(id)) unhideConversation(id);
+  else hideConversation(id);
+}
+
+// quick-260731-tgg: server-authoritative reconciliation for hiddenIds.
+// Called by PrettyConversationsPanel's mount effect after a successful
+// GET /user-preferences fetch. Same-content guard mirrors hydratePinnedIdsFromServer.
+export function hydrateHiddenIdsFromServer(ids: string[]): void {
+  const nextHiddenIds = new Set(ids);
+  if (nextHiddenIds.size === state.hiddenIds.size) {
+    let allSame = true;
+    for (const id of nextHiddenIds) {
+      if (!state.hiddenIds.has(id)) {
+        allSame = false;
+        break;
+      }
+    }
+    if (allSame) return;
+  }
+  state = { ...state, hiddenIds: nextHiddenIds };
+  notify();
+}
+
 // Phase 15: server-authoritative reconciliation. Called by PrettyConversations
 // Panel's mount effect after a successful GET /user-preferences fetch.
 // Replaces state.pinnedIds with the fetched set; drops any stale in-memory pins
@@ -914,6 +999,19 @@ export function usePinnedIds(): ReadonlySet<string> {
     subscribe,
     getPinnedIdsSnapshot,
     getPinnedIdsSnapshot,
+  );
+}
+
+// quick-260731-tgg: hiddenIds subscription. Mirrors usePinnedIds semantics —
+// a new Set reference on every real mutation, stable reference across no-ops.
+function getHiddenIdsSnapshot(): ReadonlySet<string> {
+  return state.hiddenIds;
+}
+export function useHiddenIds(): ReadonlySet<string> {
+  return useSyncExternalStore(
+    subscribe,
+    getHiddenIdsSnapshot,
+    getHiddenIdsSnapshot,
   );
 }
 
@@ -972,6 +1070,7 @@ export function __getSnapshotForTest(): SnapshotForTest {
     grouped: list.grouped,
     selectedId: state.selectedId,
     pinnedIds: state.pinnedIds,
+    hiddenIds: state.hiddenIds,
   };
 }
 
@@ -999,6 +1098,13 @@ export function __resetActiveSetForTest(): void {
 // pinConversation / unpinConversation writes don't leak forward.
 export function __resetPinnedIdsForTest(): void {
   state = { ...state, pinnedIds: new Set<string>() };
+  notify();
+}
+
+// quick-260731-tgg: reset the module-scoped hiddenIds set to empty. Mirrors
+// __resetPinnedIdsForTest — used by tests' beforeEach to prevent leaks.
+export function __resetHiddenIdsForTest(): void {
+  state = { ...state, hiddenIds: new Set<string>() };
   notify();
 }
 
