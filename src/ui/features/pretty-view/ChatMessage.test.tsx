@@ -10,10 +10,26 @@
  * Non-injected messages (plain text, all assistant messages) render
  * byte-identically to pre-Plan-03 behavior.
  */
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ChatMessage } from "./ChatMessage";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
+import { postSpeakStream } from "@/api/voice-api";
+import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
+
+// Mock voice-api and webAudioStreamPlayer for speak state-machine tests (Phase 19).
+// These mocks only affect the new describe block below; existing tests don't call
+// postSpeak at all (they test chip rendering / copy-button behavior).
+vi.mock("@/api/voice-api", () => ({
+  postSpeakStream: vi.fn(),
+  postSpeak: vi.fn(),
+  SAMPLE_PHRASE: "Hi, this is your voice.",
+}));
+
+vi.mock("./webAudioStreamPlayer", () => ({
+  createWebAudioStreamPlayer: vi.fn(),
+}));
 
 const F1 = {
   filename: "screenshot.png",
@@ -134,6 +150,11 @@ describe("ChatMessage — sender-side injected-turn detection (Plan 05-03)", () 
  * component overrides. Test J (regression guard) is implicit — the existing
  * suite above continues to run untouched.
  */
+// Reset mocks between tests so per-test setup is deterministic.
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("ChatMessage — copy button on code blocks and blockquotes (quick 260730-ujq)", () => {
   it("Test G: fenced code block renders exactly one copy button", () => {
     render(
@@ -165,5 +186,132 @@ describe("ChatMessage — copy button on code blocks and blockquotes (quick 2607
     );
     const copyBtns = screen.queryAllByTestId("copyable-block-copy");
     expect(copyBtns).toHaveLength(0);
+  });
+});
+
+/**
+ * Phase 19 Plan 04 (patch #237): speak state machine tests.
+ *
+ * Tests 18-21 cover the new WebAudioStreamPlayer-based speak handler in
+ * ChatMessage.tsx. The voice-api module and webAudioStreamPlayer module are
+ * mocked so these tests do not require a real audio context or network.
+ *
+ * Test numbering: 18-21 (avoids collision with pre-existing Tests 14, 14b, 14c
+ * and the Phase 19 non-negotiable that tests 15/16/17 remain unused).
+ */
+describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
+  const mockedPostSpeakStream = postSpeakStream as ReturnType<typeof vi.fn>;
+  const mockedCreatePlayer = createWebAudioStreamPlayer as ReturnType<typeof vi.fn>;
+
+  it("Test 18 — clicking speak transitions to playing on successful response", async () => {
+    // Mock player: play resolves immediately; stop is a no-op.
+    const mockPlay = vi.fn().mockResolvedValue(undefined);
+    const mockStop = vi.fn();
+    mockedCreatePlayer.mockImplementation(() => ({
+      play: mockPlay,
+      stop: mockStop,
+    }));
+
+    // Mock fetch: returns a 200 OK response with a readable stream.
+    const stream = new ReadableStream({ start(c) { c.close(); } });
+    const mockResponse = new Response(stream, { status: 200 });
+    mockedPostSpeakStream.mockResolvedValue(mockResponse);
+
+    render(<ChatMessage role="assistant" content="hello" />);
+
+    const speakBtn = screen.getByRole("button", { name: "Speak message" });
+
+    await act(async () => {
+      await userEvent.click(speakBtn);
+    });
+
+    // After postSpeakStream resolves and play() is called, state should be "playing".
+    expect(screen.getByRole("button", { name: "Stop speaking" })).toBeTruthy();
+    // play() was called with the mock response.
+    expect(mockPlay).toHaveBeenCalledWith(mockResponse);
+  });
+
+  it("Test 19 — clicking speak on a currently-playing bubble stops it and reverts to idle", async () => {
+    const mockPlay = vi.fn().mockResolvedValue(undefined);
+    const mockStop = vi.fn();
+    mockedCreatePlayer.mockImplementation(() => ({
+      play: mockPlay,
+      stop: mockStop,
+    }));
+
+    const stream = new ReadableStream({ start(c) { c.close(); } });
+    mockedPostSpeakStream.mockResolvedValue(new Response(stream, { status: 200 }));
+
+    render(<ChatMessage role="assistant" content="hello" />);
+    const speakBtn = screen.getByRole("button", { name: "Speak message" });
+
+    // First click: puts the bubble into "playing" state.
+    await act(async () => {
+      await userEvent.click(speakBtn);
+    });
+    expect(screen.getByRole("button", { name: "Stop speaking" })).toBeTruthy();
+
+    // Second click: same-bubble stop — should call player.stop() and revert to idle.
+    await act(async () => {
+      await userEvent.click(screen.getByRole("button", { name: "Stop speaking" }));
+    });
+
+    expect(mockStop).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
+  });
+
+  it("Test 20 — mocked player onError callback reverts state to idle", async () => {
+    // Capture the onError callback passed to the mock player.
+    let capturedOnError: ((err: Error) => void) | undefined;
+    mockedCreatePlayer.mockImplementation((opts: { onError?: (err: Error) => void }) => {
+      capturedOnError = opts.onError;
+      return {
+        play: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn(),
+      };
+    });
+
+    const stream = new ReadableStream({ start(c) { c.close(); } });
+    mockedPostSpeakStream.mockResolvedValue(new Response(stream, { status: 200 }));
+
+    render(<ChatMessage role="assistant" content="hello" />);
+    const speakBtn = screen.getByRole("button", { name: "Speak message" });
+
+    // Get to "playing" state.
+    await act(async () => {
+      await userEvent.click(speakBtn);
+    });
+    expect(screen.getByRole("button", { name: "Stop speaking" })).toBeTruthy();
+
+    // Fire the onError callback (simulates a mid-stream error from the player).
+    act(() => {
+      capturedOnError?.(new Error("mid-stream blip"));
+    });
+
+    // State must revert to idle.
+    expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
+  });
+
+  it("Test 21 — non-ok response from postSpeakStream reverts state to idle without calling play()", async () => {
+    const mockPlay = vi.fn();
+    mockedCreatePlayer.mockImplementation(() => ({
+      play: mockPlay,
+      stop: vi.fn(),
+    }));
+
+    // Non-ok response: 503.
+    mockedPostSpeakStream.mockResolvedValue(new Response(null, { status: 503 }));
+
+    render(<ChatMessage role="assistant" content="hello" />);
+    const speakBtn = screen.getByRole("button", { name: "Speak message" });
+
+    await act(async () => {
+      await userEvent.click(speakBtn);
+    });
+
+    // State must end at idle (the try/catch caught the !response.ok throw).
+    expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
+    // play() must NOT have been called — fast-fail before player.play().
+    expect(mockPlay).not.toHaveBeenCalled();
   });
 });

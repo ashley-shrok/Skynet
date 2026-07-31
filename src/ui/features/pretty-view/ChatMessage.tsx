@@ -7,12 +7,17 @@ import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
-import { postSpeak } from "@/api/voice-api";
+import { postSpeakStream } from "@/api/voice-api";
+import { createWebAudioStreamPlayer, type WebAudioStreamPlayer } from "./webAudioStreamPlayer";
 
-// Module-level single-active-playback refs — one audio instance across all bubbles.
-let currentAudio: HTMLAudioElement | null = null;
-let currentAudioUrl: string | null = null;
-let currentAudioOwner: symbol | null = null;
+// Patch #237 (Phase 19): singleton now tracks a WebAudioStreamPlayer instance.
+// The player encapsulates the AudioContext, scheduled AudioBufferSourceNodes,
+// and the fetch reader loop. See ./webAudioStreamPlayer.ts.
+// Cross-bubble Stop / new-bubble-preempt semantics preserved: starting on
+// bubble A while bubble B plays stops B first; clicking Stop on the playing
+// bubble stops it; unmount cleanup stops if this bubble owns the singleton.
+let currentPlayer: WebAudioStreamPlayer | null = null;
+let currentOwner: symbol | null = null;
 
 // Presentational chat bubble for one conversational message.
 //
@@ -56,15 +61,13 @@ export function ChatMessage({
   const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing">("idle");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Cleanup: revoke audio on unmount if this bubble owns it
+  // Cleanup: stop player on unmount if this bubble owns it
   useEffect(() => {
     return () => {
-      if (currentAudioOwner === bubbleIdRef.current) {
-        currentAudio?.pause();
-        if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
-        currentAudio = null;
-        currentAudioUrl = null;
-        currentAudioOwner = null;
+      if (currentOwner === bubbleIdRef.current) {
+        currentPlayer?.stop();
+        currentPlayer = null;
+        currentOwner = null;
       }
     };
   }, []);
@@ -72,55 +75,72 @@ export function ChatMessage({
   async function onSpeakClick(e: React.MouseEvent) {
     e.stopPropagation();
 
-    // If this bubble is currently playing, stop it
-    if (speakState === "playing" && currentAudioOwner === bubbleIdRef.current) {
-      currentAudio?.pause();
-      if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
-      currentAudio = null;
-      currentAudioUrl = null;
-      currentAudioOwner = null;
+    // If this bubble is currently playing, stop it (same-bubble stop).
+    if (speakState === "playing" && currentOwner === bubbleIdRef.current) {
+      currentPlayer?.stop();
+      currentPlayer = null;
+      currentOwner = null;
       setSpeakState("idle");
       return;
     }
 
-    // If another bubble is playing, stop it first
-    if (currentAudio) {
-      currentAudio.pause();
-      if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
-      currentAudio = null;
-      currentAudioUrl = null;
-      currentAudioOwner = null;
+    // If another bubble is playing (or loading), stop it first (cross-bubble preempt).
+    if (currentPlayer) {
+      currentPlayer.stop();
+      currentPlayer = null;
+      currentOwner = null;
     }
 
     setSpeakState("loading");
+    const owner = bubbleIdRef.current;
+
+    const player = createWebAudioStreamPlayer({
+      onEnded: () => {
+        // Only clear if this bubble still owns the singleton — guard against
+        // a race where a NEW speak-click already replaced the singleton
+        // (setSpeakState on the OLD bubble would flash "idle" briefly and
+        // race the new bubble's "loading" render).
+        if (currentOwner === owner) {
+          currentPlayer = null;
+          currentOwner = null;
+          setSpeakState("idle");
+        }
+      },
+      onError: (err) => {
+        // Patch #237: accepted tradeoff per 19-CONTEXT.md § Error handling —
+        // no auto-toast on streaming errors. Log for observability; UI
+        // recovers by returning to idle so the user can retry.
+        console.error("[postSpeakStream] player error:", err);
+        if (currentOwner === owner) {
+          currentPlayer = null;
+          currentOwner = null;
+          setSpeakState("idle");
+        }
+      },
+    });
+
+    // Install the singleton BEFORE the fetch so a same-tick preempt from
+    // another bubble sees a non-null currentPlayer and can stop us cleanly.
+    currentPlayer = player;
+    currentOwner = owner;
 
     try {
       const text = containerRef.current?.innerText ?? content;
-      const blob = await postSpeak(text, identityVoice ?? undefined);
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      currentAudio = audio;
-      currentAudioUrl = url;
-      currentAudioOwner = bubbleIdRef.current;
-
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        if (currentAudioOwner === bubbleIdRef.current) {
-          currentAudio = null;
-          currentAudioUrl = null;
-          currentAudioOwner = null;
-          setSpeakState("idle");
-        }
-      };
-
-      // patch #211 lesson: NEVER bare audio.play().catch(...) — jsdom returns undefined
-      Promise.resolve(audio.play()).catch(() => {});
+      const response = await postSpeakStream(text, identityVoice ?? undefined);
+      // Race check: if another bubble preempted us during the fetch,
+      // currentOwner has changed. Bail out before scheduling any audio.
+      if (currentOwner !== owner) return;
+      if (!response.ok) throw new Error(`postSpeakStream returned ${response.status}`);
       setSpeakState("playing");
-    } catch {
-      setSpeakState("idle");
-      currentAudio = null;
-      currentAudioUrl = null;
-      currentAudioOwner = null;
+      // Fire-and-forget: play() drives its own read loop; we hear back via callbacks.
+      void player.play(response);
+    } catch (err) {
+      console.error("[postSpeakStream] fetch error:", err);
+      if (currentOwner === owner) {
+        currentPlayer = null;
+        currentOwner = null;
+        setSpeakState("idle");
+      }
     }
   }
   // Phase 05 Plan 03: sender-side chip render for injected user turns.
