@@ -323,12 +323,20 @@ export type IdentityBountiesEvent = {
 //     { type: "identity:get-history", identityKey: string, hostId: number }
 //     { type: "identity:list-wakeups", identityKey: string, hostId: number }
 //     { type: "identity:get-handoff", identityKey: string, hostId: number }
+//     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
+//     { type: "identity:update-identity-file", identityKey: string, hostId: number, contents: string }
+//     { type: "identity:update-history", identityKey: string, hostId: number, contents: string }
+//     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }
 //
 //   server -> client (UNCHANGED — only request payloads gain hostId):
 //     { type: "identity:identity-file", markdown: string, error?: string }
 //     { type: "identity:history", entries: string[], error?: string }
 //     { type: "identity:wakeups", wakeups: Wakeup[], error?: string }
 //     { type: "identity:handoff", markdown: string, error?: string }
+//     // Phase 18 / IDMEDIT-06: post-write echoes (server re-reads for client rehydration):
+//     { type: "identity:identity-file-updated", markdown: string, error?: string }
+//     { type: "identity:history-updated", entries: string[], error?: string }
+//     { type: "identity:handoff-updated", markdown: string, error?: string }
 //
 // hostId is the pane's SSH host id — backend uses it to route reads to the pane's box
 // (or falls back to the local bind-mount when the hostId is in IDENTITIES_LOCAL_HOST_IDS).
@@ -430,6 +438,61 @@ export type IdentityUpdateWakeupPayload = {
 export type IdentityWakeupUpdatedEvent = {
   type: "identity:wakeup-updated";
   wakeups: Wakeup[];
+  error?: string;
+};
+
+// Phase 18 / IDMEDIT-06: markdown write wire types.
+//
+// Contents carries the FULL FILE — Save is a full-overwrite on the markdown
+// side, not a diff or patch (D-IDMEDIT-01/02/03 shape lock). The *-updated
+// echo carries the confirmed post-write markdown or entries so the client
+// rehydrates from server-side truth rather than trusting its own draft.
+//
+// The server caps contents at IDMEDIT_MAX_MARKDOWN_BYTES = 2_000_000 UTF-8
+// bytes (2MB). Oversized payloads are rejected before SFTP is opened — the
+// error surfaces via the *-updated event's error field.
+
+export type IdentityUpdateIdentityFilePayload = {
+  type: "identity:update-identity-file";
+  identityKey: string;
+  /** Pane SSH host id — backend uses it to route writes to the pane's box. */
+  hostId: number;
+  /** UTF-8 markdown payload (full-overwrite). Server caps at IDMEDIT_MAX_MARKDOWN_BYTES (2MB). */
+  contents: string;
+};
+export type IdentityIdentityFileUpdatedEvent = {
+  type: "identity:identity-file-updated";
+  /** Server-echoed confirmed markdown post-write; source of truth for client rehydrate. */
+  markdown: string;
+  error?: string;
+};
+
+export type IdentityUpdateHistoryPayload = {
+  type: "identity:update-history";
+  identityKey: string;
+  /** Pane SSH host id — backend uses it to route writes to the pane's box. */
+  hostId: number;
+  /** UTF-8 markdown payload (full-overwrite of history.md). Server caps at IDMEDIT_MAX_MARKDOWN_BYTES (2MB). */
+  contents: string;
+};
+export type IdentityHistoryUpdatedEvent = {
+  type: "identity:history-updated";
+  /** Server re-reads history.md and returns parsed entries — mirrors identity:history event shape. */
+  entries: string[];
+  error?: string;
+};
+
+export type IdentityUpdateHandoffPayload = {
+  type: "identity:update-handoff";
+  identityKey: string;
+  /** Pane SSH host id — backend uses it to route writes to the pane's box. */
+  hostId: number;
+  /** UTF-8 markdown payload (full-overwrite of handoff.md). Server caps at IDMEDIT_MAX_MARKDOWN_BYTES (2MB). */
+  contents: string;
+};
+export type IdentityHandoffUpdatedEvent = {
+  type: "identity:handoff-updated";
+  markdown: string;
   error?: string;
 };
 
