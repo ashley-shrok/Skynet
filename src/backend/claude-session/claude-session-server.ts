@@ -30,10 +30,12 @@ import {
   writeIdentityBountyPriority,
   writeIdentityBountyStatus,
   writeIdentityBountyPinned,
+  writeIdentityBountyFields,
   archiveIdentityBounty,
   deleteIdentityBounty,
   type BountyPriority,
   type BountyStatus,
+  type BountyFieldsPatch,
 } from "./identity-artifact-reader.js";
 
 /**
@@ -55,6 +57,7 @@ import {
  *     { type: "identity:update-bounty-priority", identityKey: string, hostId?: number, bountySlug: string, priority: "urgent"|"high"|"medium"|"low"|"unprioritized" } // patch #154: patch bounties/<slug>/bounty.json
  *     { type: "identity:update-bounty-status", identityKey: string, hostId?: number, bountySlug: string, status: "in_progress"|"waiting_on_someone_else"|"done"|"dropped" } // quick 260727-v0b / patch #168: patch bounties/<slug>/bounty.json status field. Allowed values: in_progress, waiting_on_someone_else, done, dropped. "pinned" removed from enum (now an independent boolean field). Folder NOT moved even for done/dropped — supports Ashley's resurrect flow via a pure JSON patch.
  *     { type: "identity:update-bounty-pinned", identityKey: string, hostId?: number, bountySlug: string, pinned: boolean } // quick 260728-sqk / patch #172: patch bounties/<slug>/bounty.json pinned field. `pinned` is an independent boolean orthogonal to status per fleet migration #168. Byte-shape mirror of update-bounty-status — flips the boolean, bumps updated_at, appends timeline line, folder untouched.
+ *     { type: "identity:update-bounty-fields", identityKey: string, hostId: number, bountySlug: string, patch: BountyFieldsPatch } // Phase 18 / IDMEDIT-04: partial-JSON-patch write for bounty fields (title/premise/todos/keywords/source_links/deadline/meeting_questions). Only fields present in `patch` are written; server-owned fields (id/created_at/updated_at/timeline/pinned/requested_by) are protected. updated_at bumped unconditionally; one timeline entry per changed field. pinned rejected — use update-bounty-pinned. Returns fresh {bounties,archivedBounties} for BountyCard rehydration.
  *     { type: "identity:archive-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260727-wd0: server decides new status internally (flip live→done or preserve terminal), then mv bounties/<slug>/ under bounties/archive/<slug>/ (mkdir -p archive/ if absent). No client-supplied status field.
  *     { type: "identity:delete-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260729-g5r / patch #183: permanent rm -rf of a bounty folder. Applies to BOTH open (bounties/<slug>/) AND archived (bounties/archive/<slug>/) cards — server rm's both candidate paths with force:true so one call covers both locations. No confirmation gate here; window.confirm() lives in BountyCard.
  *     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
@@ -90,6 +93,7 @@ import {
  *     { type: "identity:bounty-priority-updated", bounties, archivedBounties, error?: string } // patch #154: response to identity:update-bounty-priority (includes refreshed lists)
  *     { type: "identity:bounty-status-updated", bounties, archivedBounties, error?: string } // quick 260727-v0b: response to identity:update-bounty-status (includes refreshed lists)
  *     { type: "identity:bounty-pinned-updated", bounties, archivedBounties, error?: string } // quick 260728-sqk / patch #172: response to identity:update-bounty-pinned (includes refreshed lists — normalizeBounty carries `pinned:boolean` on every bounty)
+ *     { type: "identity:bounty-fields-updated", bounties, archivedBounties, error?: string } // Phase 18 / IDMEDIT-04: response to identity:update-bounty-fields (fresh bounty lists for BountyCard rehydration — same convention as priority/status/pinned echoes)
  *     { type: "identity:bounty-archived", bounties, archivedBounties, error?: string } // quick 260727-wd0: response to identity:archive-bounty (includes refreshed lists — bounty moved from `bounties` list to `archivedBounties` list)
  *     { type: "identity:bounty-deleted", bounties, archivedBounties, error?: string } // quick 260729-g5r / patch #183: response to identity:delete-bounty (includes refreshed lists — bounty drops out of BOTH lists since its folder is gone)
  *     // Phase 18 / IDMEDIT-06: post-write echoes — server re-reads after write so client rehydrates from server-side truth:
@@ -2655,6 +2659,84 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Phase 18 / IDMEDIT-04: identity:update-bounty-fields — partial-JSON-patch
+    // writer for bounty fields. Accepts title/premise/todos/keywords/source_links/
+    // deadline/meeting_questions; rejects pinned (has its own handler). Per-field
+    // validation runs inside writeIdentityBountyFields — handler only validates the
+    // top-level shape. Returns fresh {bounties, archivedBounties} so BountyCard
+    // rehydrates from server truth (same convention as the priority/status/pinned echoes).
+    if (msg.type === "identity:update-bounty-fields") {
+      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown; patch?: unknown };
+      const rawKey = raw.identityKey;
+      const rawSlug = raw.bountySlug;
+      const rawPatch = raw.patch;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        return;
+      }
+      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        return;
+      }
+      if (typeof rawPatch !== "object" || rawPatch === null) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid patch" })); } catch { /* ignore */ }
+        return;
+      }
+      // Per-field type validation (title length, todos shape, etc.) runs inside
+      // writeIdentityBountyFields. Handler-level check only ensures patch is an object.
+      const identityKey = rawKey;
+      const bountySlug = rawSlug;
+      const patch = rawPatch as BountyFieldsPatch;
+      const rawHostId = raw.hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      try {
+        let bounties: unknown[];
+        let archivedBounties: unknown[];
+        if (useLocal) {
+          await writeIdentityBountyFields(null, identityKey, bountySlug, patch);
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          sshLogger.info("identity:update-bounty-fields", {
+            operation: "identity_update_bounty_fields",
+            userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: true,
+            fields: Object.keys(patch).join(","),
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            await writeIdentityBountyFields(conn, identityKey, bountySlug, patch);
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            sshLogger.info("identity:update-bounty-fields", {
+              operation: "identity_update_bounty_fields",
+              userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
+              fields: Object.keys(patch).join(","),
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties, archivedBounties })); } catch { /* ignore */ }
+      } catch (err) {
+        sshLogger.error(
+          "identity:update-bounty-fields unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_update_bounty_fields_error", userId, identityKey, bountySlug, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
         } catch { /* ignore */ }
       }
       return;
