@@ -196,6 +196,14 @@ function normalizeBounty(parsed: Record<string, unknown>, fallbackId: string): u
     // `status`; defaulted to false when absent from bounty.json so both
     // open and archive payloads always carry the flag to the frontend.
     pinned: typeof parsed.pinned === "boolean" ? parsed.pinned : false,
+    // Phase 18 / IDMEDIT-04: three new pass-through fields for the bounty
+    // field editor (Plan 18-04/18-05). Safe defaults match the existing
+    // pattern (keywords/todos above). Pre-existing bounty.json files that
+    // lack these fields get the safe default on every read — no migration
+    // needed. Frontend consumers see [] / null rather than undefined.
+    source_links: Array.isArray(parsed.source_links) ? parsed.source_links : [],
+    deadline: typeof parsed.deadline === "string" ? parsed.deadline : null,
+    meeting_questions: Array.isArray(parsed.meeting_questions) ? parsed.meeting_questions : [],
   };
 }
 

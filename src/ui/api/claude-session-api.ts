@@ -300,6 +300,14 @@ export type Bounty = {
   updated_at: string;
   timeline: string[];
   todos: { text: string; done: boolean }[];
+  // Phase 18 / IDMEDIT-04: three new fields for the bounty field editor
+  // (Plan 18-04/18-05). Populated by normalizeBounty with safe defaults
+  // ([] / null) so pre-existing bounty.json files without these fields
+  // still produce a valid Bounty on reads. Additive — existing consumers
+  // continue to work unchanged.
+  source_links: string[];
+  deadline: string | null;
+  meeting_questions: { question: string; answered: boolean; answer?: string | null }[];
 };
 
 export type IdentityListBountiesPayload = {
@@ -555,6 +563,51 @@ export type IdentityBountyPinnedUpdatedEvent = {
   type: "identity:bounty-pinned-updated";
   bounties: Bounty[];
   archivedBounties: Bounty[];
+  error?: string;
+};
+
+// Phase 18 / IDMEDIT-04: partial-JSON-patch write surface for bounty fields.
+//
+// Partial patch semantics (not full-object replacement): only the keys present
+// in the `patch` object are written; unmentioned fields are untouched. This
+// avoids races with server-owned fields (updated_at, timeline) that the client
+// never holds a complete view of.
+//
+// Server-side behavior (writeIdentityBountyFields in identity-artifact-reader.ts):
+//   - changedFields enumerated from patch's own keys (id/created_at/updated_at/
+//     timeline/pinned/requested_by are never writable via this handler)
+//   - updated_at bumped unconditionally to new Date().toISOString()
+//   - One timeline entry appended per changed field key:
+//     `${nowIso} ${field} updated via identity modal`
+//   - Byte-cap: IDMEDIT_MAX_BOUNTY_JSON_BYTES = 100_000 before write
+//   - pinned explicitly rejected (use identity:update-bounty-pinned instead)
+//
+// `meeting_questions` writes are accepted from any authenticated WS caller;
+// user-only-authored semantics are a UI convention, not wire enforcement
+// (IDMEDIT-08 semantics locked in SCRATCH-REPORT.md).
+export type BountyFieldsPatch = {
+  title?: string;
+  premise?: string;
+  todos?: { text: string; done: boolean }[];
+  keywords?: string[];
+  source_links?: string[];
+  deadline?: string | null;
+  meeting_questions?: { question: string; answered: boolean; answer?: string | null }[];
+};
+
+export type IdentityUpdateBountyFieldsPayload = {
+  type: "identity:update-bounty-fields";
+  identityKey: string;
+  hostId: number;
+  bountySlug: string;
+  /** Partial JSON patch — only fields present are written; unmentioned fields untouched. */
+  patch: BountyFieldsPatch;
+};
+
+export type IdentityBountyFieldsUpdatedEvent = {
+  type: "identity:bounty-fields-updated";
+  bounties: Bounty[];         // fresh open list — rehydrate BountyCard from server truth
+  archivedBounties: Bounty[]; // fresh archive list
   error?: string;
 };
 
