@@ -142,9 +142,14 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
     }
   }
 
-  // (c) AbortController: 30-second TTS timeout
+  // (c) AbortController: 300-second (5 min) TTS timeout — 10x handleTranscribe's 30s cap.
+  // TTS synthesis time scales with input length, and SPEAK_TEXT_MAX = 25000 chars can
+  // take minutes at Chatterbox's rate; a shorter cap trips before real long-message
+  // requests finish and surfaces as a "connection lost" toast on the client
+  // (dbHealthMonitor.isBackendUnreachable matches the 504 "TTS timeout" via its
+  // "timeout" substring rule, then fires database-connection-degraded → AppShell toast).
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  const timeoutId = setTimeout(() => controller.abort(), 300_000);
 
   try {
     // (d) Forward to tailnet Chatterbox TTS
