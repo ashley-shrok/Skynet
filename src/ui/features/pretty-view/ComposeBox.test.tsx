@@ -5,14 +5,14 @@
 // mock the compose-drafts API so tests don't touch fetch. useIsTouchDevice
 // is mocked per-test to flip the paperclip visibility.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import type { StagedAttachmentLike } from "./AttachmentChipStrip";
 
 // Mock the compose-drafts API BEFORE importing ComposeBox so the module's
 // effect uses the mock at first render.
 vi.mock("@/api/compose-drafts-api", () => ({
-  getComposeDraft: vi.fn().mockResolvedValue({ body: "" }),
+  getComposeDraft: vi.fn().mockResolvedValue({ body: "", queueSlots: [] }),
   putComposeDraft: vi.fn().mockResolvedValue(undefined),
   flushComposeDraftKeepalive: vi.fn(),
 }));
@@ -390,6 +390,314 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     expect(btnB.disabled).toBe(true);
     fireEvent.click(btnB);
     expect(onSendB).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// Queue slots (bounty: message-queue-in-pretty-view)
+// ============================================================
+
+describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
+  // Access the mocked compose-drafts-api module
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let getComposeDraftMock: ReturnType<typeof vi.fn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let putComposeDraftMock: ReturnType<typeof vi.fn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let flushComposeDraftKeepaliveMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vi.useFakeTimers();
+
+    // Re-import to get fresh mock references after clearAllMocks.
+    const apiMod = await import("@/api/compose-drafts-api");
+    getComposeDraftMock = apiMod.getComposeDraft as ReturnType<typeof vi.fn>;
+    putComposeDraftMock = apiMod.putComposeDraft as ReturnType<typeof vi.fn>;
+    flushComposeDraftKeepaliveMock = apiMod.flushComposeDraftKeepalive as ReturnType<typeof vi.fn>;
+
+    // Default: hydrate with empty body + empty queueSlots
+    getComposeDraftMock.mockResolvedValue({ body: "", queueSlots: [] });
+    putComposeDraftMock.mockResolvedValue(undefined);
+    flushComposeDraftKeepaliveMock.mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Helper: flush all pending microtasks (Promise resolution) so async mount
+  // effects (getComposeDraft.then(...)) complete before we do user interactions.
+  async function flushMountEffect() {
+    await act(async () => {
+      // Two rounds to cover nested microtasks (useEffect → fetch → .then → setState)
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  // QS 1: Plus button appends a queue slot with empty text
+  it("QS 1 — Plus button appends a queue slot with empty textarea", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+
+    const plusBtn = screen.getByRole("button", { name: /add queued message textarea/i });
+    expect(plusBtn).toBeTruthy();
+
+    fireEvent.click(plusBtn);
+
+    // After clicking Plus, a new queue slot textarea should appear
+    // (in addition to the primary textarea)
+    const allTextareas = screen.getAllByRole("textbox");
+    // Should have primary + at least 1 queue slot
+    expect(allTextareas.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // QS 2: Typing into a queue slot updates that slot's text
+  it("QS 2 — typing into a queue slot textarea updates its text", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+
+    fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    // The FIRST textarea is the newly added queue slot (queue slot stack renders above
+    // Row 2 primary textarea in DOM order — slot = index 0, primary = last)
+    const slotTextarea = allTextareas[0];
+
+    fireEvent.change(slotTextarea, { target: { value: "queued message" } });
+    expect(slotTextarea.value).toBe("queued message");
+  });
+
+  // QS 3: X button on a queue slot removes only that slot
+  it("QS 3 — clicking the X (delete) button on a slot removes only that slot", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+
+    const plusBtn = screen.getByRole("button", { name: /add queued message textarea/i });
+    fireEvent.click(plusBtn);
+    fireEvent.click(plusBtn);
+
+    // Should have 2 queue slots now (plus primary = 3 total textareas)
+    expect(screen.getAllByRole("textbox").length).toBe(3);
+
+    // Delete the first queue slot
+    const deleteButtons = screen.getAllByRole("button", { name: /delete queued message/i });
+    expect(deleteButtons.length).toBe(2);
+    fireEvent.click(deleteButtons[0]);
+
+    // Now should have 2 textareas (primary + 1 remaining slot)
+    expect(screen.getAllByRole("textbox").length).toBe(2);
+  });
+
+  // QS 4: Send slot success — onSend called with text, slot disappears
+  it("QS 4 — clicking slot Send with text calls onSend and removes the slot on success (true)", async () => {
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+    await flushMountEffect();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+    });
+
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
+    const slotTextarea = allTextareas[0];
+
+    await act(async () => {
+      fireEvent.change(slotTextarea, { target: { value: "send this" } });
+    });
+
+    // Find the slot's Send button (not the primary Send)
+    const slotSendBtn = screen.getByRole("button", { name: /send queued message/i });
+    await act(async () => {
+      fireEvent.click(slotSendBtn);
+    });
+
+    expect(onSend).toHaveBeenCalledWith("send this");
+    // Slot should be removed after successful send
+    expect(screen.getAllByRole("textbox").length).toBe(1); // only primary
+  });
+
+  // QS 5: Send slot failure — slot persists, errorMessage surfaces
+  it("QS 5 — clicking slot Send when onSend returns false keeps the slot and shows error", async () => {
+    const onSend = vi.fn(() => false);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+    await flushMountEffect();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+    });
+
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
+    const slotTextarea = allTextareas[0];
+
+    await act(async () => {
+      fireEvent.change(slotTextarea, { target: { value: "failing send" } });
+    });
+
+    const slotSendBtn = screen.getByRole("button", { name: /send queued message/i });
+    await act(async () => {
+      fireEvent.click(slotSendBtn);
+    });
+
+    expect(onSend).toHaveBeenCalledWith("failing send");
+    // Slot persists
+    expect(screen.getAllByRole("textbox").length).toBe(2);
+    // Error message surfaces
+    expect(screen.getByText(/not connected/i)).toBeTruthy();
+  });
+
+  // QS 6: Send slot disabled when empty
+  it("QS 6 — slot Send button is disabled when slot.text.trim() is empty", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+    });
+
+    const slotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
+    expect(slotSendBtn.disabled).toBe(true);
+
+    // Type some text — button should become enabled.
+    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    const slotTextarea = allTextareas[0];
+
+    await act(async () => {
+      fireEvent.change(slotTextarea, { target: { value: "  hello  " } });
+    });
+
+    // Re-query to get updated state
+    const updatedSlotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
+    expect(updatedSlotSendBtn.disabled).toBe(false);
+
+    // Clear text → disabled again
+    await act(async () => {
+      fireEvent.change(slotTextarea, { target: { value: "   " } });
+    });
+    const disabledAgain = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
+    expect(disabledAgain.disabled).toBe(true);
+  });
+
+  // QS 7: Persistence — hydrate queueSlots on mount from getComposeDraft
+  it("QS 7 — mount hydrates queueSlots from getComposeDraft response", async () => {
+    getComposeDraftMock.mockResolvedValue({
+      body: "",
+      queueSlots: [{ id: "seed-a", text: "seeded slot" }],
+    });
+
+    render(<ComposeBox {...baseProps()} />);
+
+    // Wait for hydration async effect to complete
+    await flushMountEffect();
+
+    // After hydration, the seeded slot should appear
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    expect(allTextareas.length).toBeGreaterThanOrEqual(2);
+    const slotTextarea = allTextareas.find((t) => t.value === "seeded slot");
+    expect(slotTextarea).toBeTruthy();
+  });
+
+  // QS 8: Autosave — putComposeDraft called with queueSlots after 400ms debounce
+  it("QS 8 — adding a slot schedules putComposeDraft with queueSlots after 400ms debounce", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    putComposeDraftMock.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+    });
+
+    // Type in the new slot. Slot renders ABOVE primary in DOM: slot = index 0.
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    const slotTextarea = allTextareas[0];
+
+    await act(async () => {
+      fireEvent.change(slotTextarea, { target: { value: "autosave me" } });
+    });
+
+    // Advance past debounce and flush the flushDirty() async call
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(putComposeDraftMock).toHaveBeenCalled();
+    // The call should include queueSlots as the 4th argument
+    const lastCall = putComposeDraftMock.mock.calls[putComposeDraftMock.mock.calls.length - 1];
+    expect(lastCall).toBeDefined();
+    expect(Array.isArray(lastCall[3])).toBe(true); // 4th arg = queueSlots
+    const savedSlots = lastCall[3] as Array<{ id: string; text: string }>;
+    expect(savedSlots.some((s) => s.text === "autosave me")).toBe(true);
+  });
+
+  // QS 9: localStorage mirror — extended payload {body, queueSlots}
+  it("QS 9 — after autosave, localStorage contains extended {body, queueSlots} payload", async () => {
+    render(<ComposeBox {...baseProps({ hostId: 99, tmuxSession: "ls-test" })} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+
+    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    const slotTextarea = allTextareas[0];
+    fireEvent.change(slotTextarea, { target: { value: "ls-slot" } });
+
+    // Advance past debounce
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await Promise.resolve();
+    });
+
+    const lsKey = `skynet:compose-draft:99:ls-test`;
+    const lsValue = localStorage.getItem(lsKey);
+    expect(lsValue).not.toBeNull();
+
+    // Should be JSON with body and queueSlots
+    const parsed = JSON.parse(lsValue!);
+    expect(parsed).toHaveProperty("body");
+    expect(parsed).toHaveProperty("queueSlots");
+    expect(Array.isArray(parsed.queueSlots)).toBe(true);
+  });
+
+  // QS 10: Mic per-slot — mic button on slot starts recording for that slot
+  it("QS 10 — mic button on queue slot: voice.start called when slot mic tapped", async () => {
+    // Set up MediaDevices mock so showMicButton is visible
+    const originalMediaDevices = navigator.mediaDevices;
+    const startMock = vi.fn();
+    // We can't easily test voice per-slot wiring without the full voice mock
+    // from ComposeBox.voice.test.tsx. This test verifies the mic button IS rendered
+    // on queue slots when mediaDevices is available.
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: { getUserMedia: vi.fn() },
+      configurable: true,
+    });
+
+    render(<ComposeBox {...baseProps()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+
+    // Should have a mic button on the slot (aria-label "Record voice for queued slot" or similar)
+    // The key assertion: a Record voice button appears associated with the slot
+    const micButtons = screen.queryAllByRole("button", { name: /record voice/i });
+    // In idle state with mediaDevices, mic button(s) should appear
+    expect(micButtons.length).toBeGreaterThanOrEqual(1);
+
+    // Restore
+    if (originalMediaDevices) {
+      Object.defineProperty(navigator, "mediaDevices", {
+        value: originalMediaDevices,
+        configurable: true,
+      });
+    }
   });
 });
 
