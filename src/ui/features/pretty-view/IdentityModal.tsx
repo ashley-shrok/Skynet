@@ -23,6 +23,13 @@ import { Button } from "@/components/button";
 // natural placement because it owns both identityKey + hostId + the WS
 // response callback (there is no shared identity:* listener elsewhere).
 import { invalidateIdentity as invalidateBountyCount } from "@/state/bounty-counts-store";
+// Quick 260731-1c8: add inline title + avatar editor to the Identity tab.
+// updateIdentity is the existing PUT /identities/:id HTTP client; applyIdentityChange
+// broadcasts the fresh identity to all useIdentities() consumers so live
+// IdentityBadge / SessionRow / PrettyConversationRow / RelayInboundBubble
+// re-render without a manual refresh.
+import { updateIdentity } from "@/api/identities-api";
+import { applyIdentityChange } from "@/state/identities-store";
 import {
   openClaudeSessionSocket,
   type Bounty,
@@ -148,6 +155,22 @@ export function IdentityModal({
   const [activeTab, setActiveTab] = useState("identity");
   // refetchKey increments on Retry to re-trigger the fetch effect.
   const [refetchKey, setRefetchKey] = useState(0);
+
+  // Quick 260731-1c8: inline editor state for the Identity tab.
+  // titleDraft: controlled value for the title <input>.
+  // committedTitle: the last successfully saved (or initial) title, used to
+  //   determine if the draft differs from server truth (drives Save disabled state).
+  //   Updates to `updated.title` on save success; resets to identity.title on open.
+  // avatarFile: the picked File to upload on Save (null = no new file picked).
+  // avatarPreviewUrl: object URL for the picked file (revoked on cleanup/cancel/save).
+  // saving: true while the PUT is in-flight (disables Save + Cancel).
+  // saveError: inline error string from the server, null when clean.
+  const [titleDraft, setTitleDraft] = useState<string>(identity.title ?? "");
+  const [committedTitle, setCommittedTitle] = useState<string>(identity.title ?? "");
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
   // Replaces the previous shadcn TabsList strip, which (a) aesthetically didn't
@@ -330,6 +353,32 @@ export function IdentityModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, identity.identityKey, hostId, refetchKey]);
+
+  // Quick 260731-1c8: reset editor state on fresh open or identity switch.
+  // Revokes any prior avatarPreviewUrl to avoid memory leaks; resets
+  // titleDraft + committedTitle to server truth and clears avatarFile + saveError
+  // so the editor is clean on each open.
+  useEffect(() => {
+    if (!open) return;
+    setTitleDraft(identity.title ?? "");
+    setCommittedTitle(identity.title ?? "");
+    setAvatarFile(null);
+    setSaveError(null);
+    setAvatarPreviewUrl((prior) => {
+      if (prior) URL.revokeObjectURL(prior);
+      return null;
+    });
+  }, [open, identity.id, identity.title]);
+
+  // Cleanup: revoke the preview URL when the modal is unmounted mid-edit.
+  useEffect(() => {
+    return () => {
+      setAvatarPreviewUrl((prior) => {
+        if (prior) URL.revokeObjectURL(prior);
+        return null;
+      });
+    };
+  }, []);
 
   // Patch #172: pinned-first partition. `pinned` is now an independent
   // boolean field (fleet migration #168), so ANY bounty with pinned===true
@@ -568,6 +617,68 @@ export function IdentityModal({
     grouped.other.length > 0;
   const hasArchive = sortedArchive.length > 0;
 
+  // Quick 260731-1c8: Identity-tab editor handlers.
+
+  // onAvatarPick: reads the picked file, revokes any prior object URL, sets new
+  // avatarFile and avatarPreviewUrl. NOTE: no client-side preflight on size or
+  // mime — the server is the source of truth; its error strings flow through
+  // inline per the plan spec.
+  function onAvatarPick(e: React.ChangeEvent<HTMLInputElement>): void {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarPreviewUrl((prior) => {
+      if (prior) URL.revokeObjectURL(prior);
+      return URL.createObjectURL(file);
+    });
+    setAvatarFile(file);
+  }
+
+  // onSave: calls updateIdentity with the current draft title + picked file,
+  // then broadcasts the fresh identity via applyIdentityChange so all
+  // useIdentities() consumers (IdentityBadge, SessionRow, PrettyConversationRow,
+  // RelayInboundBubble) re-render without a manual refresh.
+  async function onSave(): Promise<void> {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      // Only include title in the meta payload if it differs from last-committed truth.
+      const meta: Record<string, unknown> = {};
+      if (titleDraft !== committedTitle) {
+        meta.title = titleDraft.trim() === "" ? null : titleDraft;
+      }
+      const updated = await updateIdentity(identity.id, meta, avatarFile);
+      applyIdentityChange(updated);
+      // Revoke old preview URL; fall back to the freshly-etag-busted server URL.
+      setAvatarPreviewUrl((prior) => {
+        if (prior) URL.revokeObjectURL(prior);
+        return null;
+      });
+      setAvatarFile(null);
+      const newTitle = updated.title ?? "";
+      setTitleDraft(newTitle);
+      // Update committedTitle so the Save button correctly re-disables when
+      // draft === saved truth (even if the identity prop hasn't re-rendered yet).
+      setCommittedTitle(newTitle);
+      setSaveError(null);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // onCancel: discards unsaved drafts back to last-committed server truth,
+  // revokes the preview URL, clears the inline error. Does NOT close the modal.
+  function onCancel(): void {
+    setTitleDraft(committedTitle);
+    setAvatarPreviewUrl((prior) => {
+      if (prior) URL.revokeObjectURL(prior);
+      return null;
+    });
+    setAvatarFile(null);
+    setSaveError(null);
+  }
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={false}>
       {/* Patch #108: Portal into the chat-content region container (passed in
@@ -645,8 +756,11 @@ export function IdentityModal({
             borderBottom: `1px solid hsla(${hue}, 50%, 50%, 0.2)`,
           }}
         >
+          {/* Quick 260731-1c8: cache-bust the header avatar with ?v=<avatarEtag>
+              so that after applyIdentityChange fires with a new avatarEtag the
+              browser fetches the fresh image instead of serving the stale cache. */}
           <img
-            src={identity.avatarUrl}
+            src={`${identity.avatarUrl}?v=${identity.avatarEtag}`}
             alt=""
             className="shrink-0 object-cover"
             style={{
@@ -710,11 +824,118 @@ export function IdentityModal({
           onValueChange={setActiveTab}
           className="flex-1 min-h-0 flex flex-col"
         >
-          {/* Identity tab — patch #17g: default tab; renders <key>.md as markdown */}
+          {/* Identity tab — patch #17g: default tab; renders <key>.md as markdown.
+              Quick 260731-1c8: adds inline title + avatar editor ABOVE the markdown
+              block. Editor exposes exactly two fields (title + avatar); displayName
+              and colorHue are NOT exposed as editable here. */}
           <TabsContent
             value="identity"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
+            {/* Quick 260731-1c8: inline editor block — title + avatar */}
+            <div className="mb-6">
+              <h3 className="text-xs uppercase tracking-wide text-[var(--color-pv-fg-muted)] mb-3">
+                Edit identity
+              </h3>
+
+              {/* Avatar preview + file picker row */}
+              <div className="flex items-center gap-3 mb-3">
+                <img
+                  src={avatarPreviewUrl ?? `${identity.avatarUrl}?v=${identity.avatarEtag}`}
+                  alt=""
+                  className="shrink-0 object-cover"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: "50%",
+                    boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
+                  }}
+                  draggable={false}
+                />
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="sr-only"
+                    onChange={onAvatarPick}
+                    disabled={saving}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild={false}
+                    type="button"
+                    disabled={saving}
+                    onClick={(e) => {
+                      // Delegate click to the hidden file input inside the label.
+                      // Prevent the label's default click from double-firing.
+                      (e.currentTarget.parentElement?.querySelector("input[type='file']") as HTMLInputElement | null)?.click();
+                    }}
+                  >
+                    Change avatar…
+                  </Button>
+                </label>
+              </div>
+
+              {/* Title input */}
+              <div className="mb-3">
+                <label
+                  className="block text-xs text-[var(--color-pv-fg-muted)] mb-1"
+                  htmlFor="identity-title-input"
+                >
+                  Title
+                </label>
+                <input
+                  id="identity-title-input"
+                  type="text"
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  disabled={saving}
+                  style={{
+                    width: "100%",
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(220,225,245,0.15)",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    color: "#f0ebe0",
+                    fontSize: "0.875rem",
+                    outline: "none",
+                  }}
+                />
+              </div>
+
+              {/* Inline error */}
+              {saveError && (
+                <p className="text-sm text-[color:var(--color-pv-code-fg)] mb-3">
+                  Couldn&apos;t save: {saveError}
+                </p>
+              )}
+
+              {/* Save + Cancel buttons */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    saving ||
+                    (titleDraft === committedTitle && avatarFile === null)
+                  }
+                  onClick={() => { void onSave(); }}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                  onClick={onCancel}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+
+            {/* Existing identity.md markdown preview — unchanged */}
             <IdentityFileTab state={identityFileState} />
           </TabsContent>
 
