@@ -627,3 +627,40 @@ Plans:
 - [x] 17-02-PLAN.md — Backend SSRF-safe /relay-pointer HTTP proxy on main Express backend (port 30001) + BOTH nginx configs updated for long-inbound file-pointer fetch (RELAYBUB-04)
 - [x] 17-03-PLAN.md — Frontend RelayOutboundBubble + RelayInboundBubble + mxid resolver + file-pointer fetcher + PrettyView dispatch wiring (RELAYBUB-01, RELAYBUB-02, RELAYBUB-03, RELAYBUB-04, RELAYBUB-05, RELAYBUB-06)
 - [ ] 17-04-PLAN.md — Deploy checkpoint: build-verify + Ashley UAT checklist for RELAYBUB-01..06 + patches-md entry draft (all RELAYBUB-01..06)
+
+### Phase 18: Identity modal — full editability across all tabs
+
+**Goal:** Make every artifact surface in IdentityModal fully editable in-place, so Ashley edits identity file / history / handoff / bounty fields / wakeup specs from her phone via term.gigaashley.click without spinning up a Claude session on the target box. Today: Bounties has status/priority/pin/archive/delete, Wakeups has spec CRUD (patch #154 + quick 260731-2pa); Identity file / History / Handoff are read-only text views; Bounty title / premise / todos / keywords / source_links / deadline are read-only. All become read+write, with atomic writes (tmp+rename) for markdown files and `updated_at` + timeline bumps for JSON edits. Cross-machine identity edits work over SSH.
+
+**Requirements**: IDMEDIT-01, IDMEDIT-02, IDMEDIT-03, IDMEDIT-04, IDMEDIT-05, IDMEDIT-06, IDMEDIT-07, IDMEDIT-08
+
+**Depends on:** None new — builds on identity-artifact-reader.ts write primitives (`writeIdentityWakeupUpdate`, `writeIdentityBountyPriority`, `writeIdentityBountyStatus`, `writeIdentityBountyPinned`, `archiveIdentityBounty`, `deleteIdentityBounty`) and the identity-modal WS wire pattern (patch #17g/#92).
+
+**Success Criteria** (what must be TRUE):
+
+  1. **Markdown tabs editable.** Identity file / History / Handoff tabs each have Edit/Save/Cancel controls in their tab toolbar. Edit mode replaces the ReactMarkdown preview with a monospace textarea filling the pane height. Save persists via new WS write payloads (`identity:update-identity-file`, `identity:update-history`, `identity:update-handoff`) that overwrite the file atomically (tmp+rename). Cancel with unsaved changes prompts `window.confirm("Discard unsaved changes?")`. Server echoes the confirmed markdown back and the tab re-hydrates from server-side truth.
+  2. **Bounty fields editable.** BountyCard exposes editable in-place editors for `title` (inline input), `premise` (textarea), `todos` (add/edit text/toggle done/remove/reorder), `keywords[]` (list editor), `source_links[]` (list editor), and `deadline` (date-or-datetime picker). Existing edit surfaces (status/priority/pinned/archive/delete) unchanged. `id`, `created_at`, `updated_at`, `timeline[]` remain read-only. `meeting_questions[]` follows user-reserved semantics — surfaces in the editor with add + mark-answered, no agent-only add path introduced.
+  3. **Backend atomic-write primitives.** New backend writers mirror the existing tmp+rename pattern from `writeIdentityWakeupUpdate`: `writeIdentityFile`, `writeIdentityHistory`, `writeIdentityHandoff` (full-file overwrite); `writeIdentityBountyFields` (partial JSON patch that bumps `updated_at` + appends a `<ISO-Z> <field> updated via identity modal` timeline entry per field changed). Both LOCAL (bind-mount `fs.writeFile` via tmp) and REMOTE (SSH) branches wired for every new writer.
+  4. **Cross-machine writes work.** REMOTE branch supports writes at any payload size — SFTP or chunked-stdin protocol, chosen at plan time (`execCommand` in `tmux-helper.ts` does not currently support stdin, so this needs an SFTP or new exec-with-stdin primitive). Verified by editing e.g. nelly.md from Ashley's phone connected to skynet-ec2's Skynet against nelly's live identity folder on thenasty.
+  5. **Design contract locked from scratches.** Markdown-tab editor shape is LOCKED from the file-editing-in-identity-modal scratch UAT 2026-07-31 (Ashley greenlit "worked" against the docker-cp'd scratch on skynet). Bounty-field editor shape is LOCKED via a follow-up scratch iteration BEFORE Wave B ships — todos alone is 5 interactions (add/edit/toggle/remove/reorder) and warrants its own docker-cp scratch round to lock the shape.
+  6. **No regression** to existing edit surfaces or read paths. Bounties status/priority/pinned/archive/delete continue to work byte-for-byte. Wakeups spec CRUD (patch #154 + quick 260731-2pa) continues to work. Identity-tab title/avatar/voice edits (quick 260731-1c8 + patch #223) continue to work. Read-only markdown tab display (pre-Phase-18 shape) preserved as the default state after cancel/close.
+  7. **Security parity.** All new WS handlers validate `identityKey` against `IDENTITY_KEY_RE` and bounty slug against `IDENTITY_SLUG_RE` before any shell/SSH interpolation. No new shell-escape gaps introduced. Payload validation matches the existing update-wakeup handler's shape (typed guards on every input field, error responses via `identity:*-error` echoes).
+
+**Design source-of-truth:**
+- **Markdown-tab editor**: SCRATCH-ITERATED 2026-07-31 in bounty `file-editing-in-identity-modal` (Ashley greenlit shape on live docker-cp scratch; container still serves the scratch bytes until the ship recreate). Shape locked.
+- **Bounty-field editor**: PENDING scratch round (Wave B prerequisite — plan should call this out explicitly so it's not skipped).
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+- **Atomic writes only** — never a bare `fs.writeFile` without tmp+rename. A mid-write crash MUST leave the previous version on disk. Mirror the exact pattern from `writeIdentityWakeupUpdate` lines 713-718.
+- **`meeting_questions[]` remains user-only-authored** — the bounty-field editor exposes it, but no server-side handler is introduced that any agent flow could invoke to add one on the user's behalf. UI convention only; wire-level guards preserve semantics.
+- **`pinned` remains user-reserved via the existing star toggle** — no separate `pinned:true` programmatic-set path added. The Phase 18 bounty-field editor does not surface pin as one of its editable fields.
+- **Timeline entries** appended on JSON field updates use the existing "via identity modal" convention (patch #154 pattern in `writeIdentityBountyPriority` line 768).
+
+**Rebase risk:** LOW — purely additive to fork-local identity-modal + backend WS handlers. No upstream Skynet surfaces touched.
+
+**Bounty tracker:** `~/.claude/identities/tina/bounties/file-editing-in-identity-modal/` — the bounty Ashley parked 2026-07-31; expand it to cover the full phase scope. Scratch-iteration outcomes from THIS session (markdown-tab shape lock) feed the plan.
+
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 18 to break down)

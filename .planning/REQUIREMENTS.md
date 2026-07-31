@@ -192,6 +192,17 @@ Deferred to future patches. Each add earns its way in as its own separate design
 - [x] **RELAYBUB-05**: Body extraction is best-effort — variants that defeat static parsing (shell-var interpolation like `$body`, `--data-raw`, heredoc-nested payloads) render the bubble with a ⚠ warning and the raw command line, rather than dropping the detection entirely. Detection remains bulletproof — the two heuristic conjunctions are the ONLY truth signal.
 - [x] **RELAYBUB-06**: All existing pretty-view functionality is preserved end-to-end — plain-text send/receive, WipBubble, PlanPendingBubble, tool-use rendering (for non-relay curl commands), IdentityBadge, ComposeBox, session-changeover behavior, keyboard chords. Zero regression to non-relay turn rendering.
 
+### Identity Modal — Full Editability (Phase 18)
+
+- [ ] **IDMEDIT-01**: Identity file tab has Edit / Save / Cancel controls in its toolbar; entering edit mode replaces the ReactMarkdown preview with a monospace textarea filling the pane height; Save persists via `identity:update-identity-file` WS payload (backend `writeIdentityFile` — atomic tmp+rename); Cancel with unsaved changes prompts `window.confirm("Discard unsaved changes?")`; server echoes the confirmed markdown back and the tab exits edit-mode into the confirmed state. Design shape locked from the 2026-07-31 file-editing-in-identity-modal scratch UAT.
+- [ ] **IDMEDIT-02**: History tab has the same edit shape as IDMEDIT-01, backed by `identity:update-history` WS payload (backend `writeIdentityHistory` — full-file overwrite of `history.md`, atomic tmp+rename).
+- [ ] **IDMEDIT-03**: Handoff tab has the same edit shape as IDMEDIT-01, backed by `identity:update-handoff` WS payload (backend `writeIdentityHandoff` — full-file overwrite of `handoff.md`, atomic tmp+rename).
+- [ ] **IDMEDIT-04**: BountyCard exposes editable in-place editors for `title` (inline input), `premise` (textarea), `todos` (add / edit text / toggle done / remove / reorder), `keywords[]` (list editor), `source_links[]` (list editor), and `deadline` (date-or-datetime picker). All backed by a single `identity:update-bounty-fields` WS payload (partial JSON patch); backend `writeIdentityBountyFields` performs atomic tmp+rename, bumps `updated_at`, and appends a `<ISO-Z> <field> updated via identity modal` timeline entry per field changed. Existing edit surfaces (status/priority/pinned/archive/delete) unchanged; `id`, `created_at`, `updated_at`, `timeline[]` remain read-only.
+- [ ] **IDMEDIT-05**: All identity artifact writers (markdown + JSON) work over BOTH the LOCAL bind-mount branch (`fs.writeFile` via tmp) AND the REMOTE SSH branch (SFTP or chunked-stdin, chosen at plan time since `execCommand` in `tmux-helper.ts` does not currently support stdin). No "LOCAL only" limitations. Verified by editing e.g. nelly.md from Ashley's phone connected to skynet-ec2's Skynet against nelly's live identity folder on thenasty.
+- [ ] **IDMEDIT-06**: Every new WS write handler validates `identityKey` against `IDENTITY_KEY_RE` and (where applicable) bounty slug against `IDENTITY_SLUG_RE` BEFORE any shell/SSH interpolation. No new shell-escape gaps. Payload validation matches the existing update-wakeup handler's shape (typed guards per field, structured error responses via `identity:*-updated { error }` echoes).
+- [ ] **IDMEDIT-07**: Existing edit surfaces preserved byte-for-byte — Bounties status/priority/pinned/archive/delete (patch #154 + quick 260727-v0b + patch #172 + quick 260727-wd0 + quick 260729-g5r), Wakeups spec CRUD (patch #154 + quick 260731-2pa), and Identity-tab title/avatar/voice (quick 260731-1c8 + patch #223) continue to work unchanged. Read-only markdown display remains the default state after cancel/close.
+- [ ] **IDMEDIT-08**: `meeting_questions[]` (user-reserved per bounty schema, added 2026-07-08) surfaces in the bounty-field editor with add + mark-answered affordances only — no agent-only add path is introduced. `pinned` remains user-reserved via the existing header star toggle and is NOT surfaced as a bounty-field editor field.
+
 ## Out of Scope
 
 Explicit exclusions. Documented to prevent scope creep.
@@ -312,11 +323,21 @@ Which phases cover which requirements. Populated during roadmap creation.
 | RELAYBUB-05 | Phase 17 | Complete |
 | RELAYBUB-06 | Phase 17 | Complete |
 
+| IDMEDIT-01 | Phase 18 | Pending |
+| IDMEDIT-02 | Phase 18 | Pending |
+| IDMEDIT-03 | Phase 18 | Pending |
+| IDMEDIT-04 | Phase 18 | Pending |
+| IDMEDIT-05 | Phase 18 | Pending |
+| IDMEDIT-06 | Phase 18 | Pending |
+| IDMEDIT-07 | Phase 18 | Pending |
+| IDMEDIT-08 | Phase 18 | Pending |
+
 **Coverage:**
-- v1 requirements: 90 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12, 8 pending Phase 15, 6 pending Phase 17)
-- Mapped to phases: 90 ✓
+- v1 requirements: 98 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12, 8 pending Phase 15, 6 pending Phase 17, 8 pending Phase 18)
+- Mapped to phases: 98 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
 *Last updated: 2026-07-28 — added RELAYBUB-01..06 for Phase 17 (pretty-view relay bubbles — Skynet integration; port validated prototype detectors + bubble rendering into src/ui/features/pretty-view/ as a message-turn extension)*
+*2026-07-31 — added IDMEDIT-01..08 for Phase 18 (identity modal — full editability across all tabs; markdown-tab editor shape locked from file-editing-in-identity-modal scratch UAT, bounty-field editor shape pending Wave B scratch prerequisite)*
