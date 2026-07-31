@@ -35,6 +35,7 @@ import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import type { Client as SSHClientType } from "ssh2";
+type SFTPWrapper = import("ssh2").SFTPWrapper;
 import { sshLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 
@@ -741,6 +742,190 @@ export async function writeIdentityWakeupUpdate(
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
     `"$HOME/.claude/identities/${identityKey}/wakeups/${wakeupSlug}.json"`;
   await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
+// 6b. Markdown atomic write primitives — Phase 18 (IDMEDIT-06)
+// ---------------------------------------------------------------------------
+//
+// Three exported writers (writeIdentityFile, writeIdentityHistory,
+// writeIdentityHandoff) plus one private SFTP helper (writeMarkdownFileAtomic)
+// and a byte-cap constant (IDMEDIT_MAX_MARKDOWN_BYTES).
+//
+// LOCAL branch (conn === null): tmp+rename via fs.writeFile + fs.rename —
+//   mirrors the wakeup writer's lines 713-718 pattern byte-for-byte.
+// REMOTE branch (conn is SSHClientType): SFTP tmp+rename via ssh2 SFTPWrapper.
+//   execCommand in tmux-helper.ts does NOT support stdin (see lines 1-50 there),
+//   so arbitrary markdown payloads cannot be safely streamed through shell
+//   interpolation. SFTP delivers UTF-8 bytes as a first-class stream and
+//   matches the SFTP idiom already used in file-manager-session.ts and
+//   host-transfer.ts. Only the target path is interpolated into a string;
+//   identityKey is regex-validated before path construction (D-IDMEDIT-06).
+//
+// Security posture per threat model:
+//   T-18-01 / T-18-02: IDENTITY_KEY_RE validated at handler AND inside each
+//     REMOTE branch (double-belt, matches writeIdentityWakeupUpdate line 727).
+//   T-18-03: IDMEDIT_MAX_MARKDOWN_BYTES = 2_000_000 hard cap checked via
+//     Buffer.byteLength before opening SFTP — mirrors SPEAK_TEXT_MAX pattern.
+//   T-18-06 / T-18-07: writeMarkdownFileAtomic uses SFTP tmp+rename with
+//     try/finally sftp.end() and best-effort tmp cleanup on error.
+
+/** Maximum UTF-8 byte size for markdown payloads written via the three
+ *  identity markdown writers. Mirrors SPEAK_TEXT_MAX = 25000 from voice.ts;
+ *  2MB is generous for identity files (nelly.md is ~40KB) while capping DoS. */
+export const IDMEDIT_MAX_MARKDOWN_BYTES = 2_000_000;
+
+/**
+ * Private SFTP helper — promise-wraps conn.sftp → sftp.writeFile(tmp) →
+ * sftp.rename(tmp, target). On any error: best-effort sftp.unlink(tmp)
+ * cleanup (fire-and-forget) then re-throw. Always closes SFTP in finally.
+ *
+ * Called exclusively from the three REMOTE-branch writers below so the
+ * SFTP tmp+rename byte-shape is defined in one place (one audit surface per
+ * D-IDMEDIT-06).
+ */
+async function writeMarkdownFileAtomic(
+  conn: SSHClientType,
+  targetPath: string,
+  contents: string,
+): Promise<void> {
+  const tmpPath = targetPath + ".tmp";
+  const buf = Buffer.from(contents, "utf-8");
+  const bytes = buf.byteLength;
+
+  // Promise-wrap conn.sftp — mirrors file-manager-session.ts getSessionSftp idiom
+  // but without session caching (identity writes are one-shot per WS message).
+  const sftp: SFTPWrapper = await new Promise<SFTPWrapper>((resolve, reject) => {
+    conn.sftp((err, s) => {
+      if (err) return reject(err);
+      resolve(s);
+    });
+  });
+
+  try {
+    // Write to .tmp first (atomic-write pattern: crash leaves prior file intact)
+    await new Promise<void>((resolve, reject) => {
+      sftp.writeFile(tmpPath, buf, { mode: 0o644 }, (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+
+    // Rename tmp → target
+    await new Promise<void>((resolve, reject) => {
+      sftp.rename(tmpPath, targetPath, (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+
+    sshLogger.info("identity-artifact-reader: identity_markdown_write", {
+      operation: "identity_markdown_write",
+      targetPath,
+      bytes,
+    });
+  } catch (err) {
+    sshLogger.error(
+      "identity-artifact-reader: identity_markdown_write failed",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_markdown_write_error", targetPath, bytes },
+    );
+    // Best-effort cleanup of the .tmp file — fire-and-forget
+    sftp.unlink(tmpPath, () => {});
+    throw err;
+  } finally {
+    sftp.end();
+  }
+}
+
+/** Write the identity file (<key>/<key>.md) atomically.
+ *
+ * LOCAL branch (conn === null): tmp+rename via Node fs — mirrors
+ *   writeIdentityWakeupUpdate lines 713-718.
+ * REMOTE branch (conn is SSHClientType): SFTP tmp+rename via
+ *   writeMarkdownFileAtomic. Validates identityKey and byte-caps contents
+ *   before opening SFTP (D-IDMEDIT-06 / T-18-02 / T-18-03). */
+export async function writeIdentityFile(
+  conn: SSHClientType | null,
+  identityKey: string,
+  contents: string,
+): Promise<void> {
+  if (conn === null) {
+    // LOCAL branch — tmp+rename, mirrors writeIdentityWakeupUpdate lines 713-718
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, identityKey + ".md");
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, contents, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  // REMOTE branch — validate + cap before opening SFTP (D-IDMEDIT-06)
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (Buffer.byteLength(contents, "utf-8") > IDMEDIT_MAX_MARKDOWN_BYTES) {
+    throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
+  }
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/${identityKey}.md`;
+  await writeMarkdownFileAtomic(conn, targetPath, contents);
+}
+
+/** Write the identity history file (<key>/history.md) atomically.
+ *
+ * Identical shape to writeIdentityFile; targetPath basename is history.md. */
+export async function writeIdentityHistory(
+  conn: SSHClientType | null,
+  identityKey: string,
+  contents: string,
+): Promise<void> {
+  if (conn === null) {
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, "history.md");
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, contents, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (Buffer.byteLength(contents, "utf-8") > IDMEDIT_MAX_MARKDOWN_BYTES) {
+    throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
+  }
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/history.md`;
+  await writeMarkdownFileAtomic(conn, targetPath, contents);
+}
+
+/** Write the identity handoff file (<key>/handoff.md) atomically.
+ *
+ * Identical shape to writeIdentityFile; targetPath basename is handoff.md. */
+export async function writeIdentityHandoff(
+  conn: SSHClientType | null,
+  identityKey: string,
+  contents: string,
+): Promise<void> {
+  if (conn === null) {
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, "handoff.md");
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, contents, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (Buffer.byteLength(contents, "utf-8") > IDMEDIT_MAX_MARKDOWN_BYTES) {
+    throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
+  }
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/handoff.md`;
+  await writeMarkdownFileAtomic(conn, targetPath, contents);
 }
 
 // ---------------------------------------------------------------------------
