@@ -660,6 +660,7 @@ export const identities = sqliteTable("identities", {
   displayName: text("display_name").notNull(),
   title: text("title"),
   colorHue: integer("color_hue"),
+  voice: text("voice"),
   avatarMime: text("avatar_mime").notNull(),
   avatarData: blob("avatar_data", { mode: "buffer" }).notNull(),
   avatarEtag: text("avatar_etag").notNull(),

@@ -30,11 +30,14 @@ const upload = multer({
   },
 });
 
+const IDENTITY_VOICE_RE = /^[A-Z][A-Za-z]+\.wav$/;
+
 type IdentityMetadata = {
   identityKey?: string;
   displayName?: string;
   title?: string | null;
   colorHue?: number | null;
+  voice?: string | null;
 };
 
 function parseMultipartMetadata(req: Request): IdentityMetadata | null {
@@ -53,6 +56,7 @@ function publicIdentity(row: typeof identities.$inferSelect) {
     displayName: row.displayName,
     title: row.title,
     colorHue: row.colorHue,
+    voice: row.voice,
     avatarMime: row.avatarMime,
     avatarUrl: `/identities/${row.id}/avatar`,
     avatarEtag: row.avatarEtag,
@@ -140,6 +144,7 @@ router.post(
           displayName,
           title: meta.title ?? null,
           colorHue: meta.colorHue ?? null,
+          voice: meta.voice ?? null,
           avatarMime: req.file.mimetype,
           avatarData: buffer,
           avatarEtag: etag,
@@ -210,6 +215,15 @@ router.put(
           return res.status(400).json({ error: "colorHue must be 0-359" });
         } else {
           updates.colorHue = meta.colorHue;
+        }
+      }
+      if (meta.voice !== undefined) {
+        if (meta.voice === null) {
+          updates.voice = null;
+        } else if (typeof meta.voice !== "string" || !IDENTITY_VOICE_RE.test(meta.voice)) {
+          return res.status(400).json({ error: "voice must match [A-Z][A-Za-z]+\\.wav" });
+        } else {
+          updates.voice = meta.voice;
         }
       }
       if (req.file) {

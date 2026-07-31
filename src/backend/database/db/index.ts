@@ -470,6 +470,7 @@ async function initializeCompleteDatabase(): Promise<void> {
         display_name TEXT NOT NULL,
         title TEXT,
         color_hue INTEGER,
+        voice TEXT,
         avatar_mime TEXT NOT NULL,
         avatar_data BLOB NOT NULL,
         avatar_etag TEXT NOT NULL,
@@ -684,6 +685,7 @@ const migrateSchema = () => {
 
   addColumnIfNotExists("identities", "title", "TEXT");
   addColumnIfNotExists("identities", "color_hue", "INTEGER");
+  addColumnIfNotExists("identities", "voice", "TEXT");
   addColumnIfNotExists("identities", "avatar_mime", "TEXT");
   addColumnIfNotExists("identities", "avatar_data", "BLOB");
   addColumnIfNotExists("identities", "avatar_etag", "TEXT");

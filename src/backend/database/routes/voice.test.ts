@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { handleTranscribe } from "./voice.js";
+import { handleTranscribe, handleSpeak, handleListVoices, DEFAULT_VOICE, SPEAK_TEXT_MAX } from "./voice.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Express mock (enough to drive the handler)
@@ -20,9 +20,12 @@ type MockRes = {
   _status: number;
   _body: unknown;
   _ended: boolean;
+  _endedBuf: Buffer | undefined;
+  _headers: Record<string, string>;
   status: (code: number) => MockRes;
   json: (body: unknown) => MockRes;
-  end: () => MockRes;
+  end: (buf?: Buffer) => MockRes;
+  set: (key: string, value: string) => MockRes;
 };
 
 function makeRes(): MockRes {
@@ -30,6 +33,8 @@ function makeRes(): MockRes {
     _status: 200,
     _body: undefined,
     _ended: false,
+    _endedBuf: undefined,
+    _headers: {},
     status(code) {
       this._status = code;
       return this;
@@ -38,8 +43,13 @@ function makeRes(): MockRes {
       this._body = body;
       return this;
     },
-    end() {
+    end(buf?: Buffer) {
       this._ended = true;
+      if (buf !== undefined) this._endedBuf = buf;
+      return this;
+    },
+    set(key: string, value: string) {
+      this._headers[key] = value;
       return this;
     },
   };
@@ -69,6 +79,23 @@ function makeFetchResponse(status: number, body: unknown): Response {
     json: async () => body,
     text: async () => JSON.stringify(body),
   } as unknown as Response;
+}
+
+function makeTtsFetchResponse(
+  status: number,
+  wavBytes: Uint8Array = new Uint8Array([82, 73, 70, 70]),
+): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => "audio/wav" },
+    arrayBuffer: async () => wavBytes.buffer as ArrayBuffer,
+    json: async () => ({}),
+  } as unknown as Response;
+}
+
+function makeSpeakReq(body: Record<string, unknown>): { body: Record<string, unknown> } {
+  return { body };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +236,227 @@ describe("handleTranscribe", () => {
     expect(res._status).toBe(504);
     const body = res._body as { error: string; status: number };
     expect(body.error).toBe("STT timeout");
+    expect(body.status).toBe(504);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleSpeak tests (patch #223 — behaviors A-H)
+// ---------------------------------------------------------------------------
+
+describe("handleSpeak", () => {
+  it("Test A: returns 400 when body.text is missing", async () => {
+    const req = makeSpeakReq({});
+    const res = makeRes();
+    vi.stubGlobal("fetch", async () => { throw new Error("should not be called"); });
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(400);
+    const body = res._body as { error: string };
+    expect(typeof body.error).toBe("string");
+  });
+
+  it("Test A2: returns 400 when body.text is empty string", async () => {
+    const req = makeSpeakReq({ text: "" });
+    const res = makeRes();
+    vi.stubGlobal("fetch", async () => { throw new Error("should not be called"); });
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(400);
+  });
+
+  it("Test B: returns 400 when body.text length exceeds SPEAK_TEXT_MAX", async () => {
+    const req = makeSpeakReq({ text: "a".repeat(SPEAK_TEXT_MAX + 1) });
+    const res = makeRes();
+    vi.stubGlobal("fetch", async () => { throw new Error("should not be called"); });
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(400);
+    const body = res._body as { error: string };
+    expect(typeof body.error).toBe("string");
+  });
+
+  it("Test C: returns 400 when body.voice is invalid (does not match regex)", async () => {
+    const req = makeSpeakReq({ text: "hello", voice: "invalid-voice.mp3" });
+    const res = makeRes();
+    vi.stubGlobal("fetch", async () => { throw new Error("should not be called"); });
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(400);
+    const body = res._body as { error: string };
+    expect(typeof body.error).toBe("string");
+  });
+
+  it("Test D: returns 200 with audio/wav bytes when Chatterbox returns 200", async () => {
+    const wavBytes = new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]);
+    const req = makeSpeakReq({ text: "Hello world" });
+    const res = makeRes();
+    vi.stubGlobal("fetch", async () => makeTtsFetchResponse(200, wavBytes));
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(res._headers["Content-Type"]).toBe("audio/wav");
+    expect(res._ended).toBe(true);
+    expect(res._endedBuf).toBeDefined();
+    expect(Buffer.from(res._endedBuf!)).toEqual(Buffer.from(wavBytes));
+  });
+
+  it("Test E: when body.voice is omitted, fetch body JSON uses DEFAULT_VOICE", async () => {
+    const req = makeSpeakReq({ text: "Hello" });
+    const res = makeRes();
+    let capturedBody: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", async (_url: string, opts: RequestInit) => {
+      capturedBody = JSON.parse(opts.body as string) as Record<string, unknown>;
+      return makeTtsFetchResponse(200);
+    });
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody!.voice).toBe(DEFAULT_VOICE);
+  });
+
+  it("Test F: when body.voice is provided and valid, fetch body JSON uses that voice", async () => {
+    const req = makeSpeakReq({ text: "Hello", voice: "Marcus.wav" });
+    const res = makeRes();
+    let capturedBody: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", async (_url: string, opts: RequestInit) => {
+      capturedBody = JSON.parse(opts.body as string) as Record<string, unknown>;
+      return makeTtsFetchResponse(200);
+    });
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody!.voice).toBe("Marcus.wav");
+  });
+
+  it("Test G: upstream non-2xx returns res.status(upstream.status).json with error shape (no body leak)", async () => {
+    const req = makeSpeakReq({ text: "Hello" });
+    const res = makeRes();
+    vi.stubGlobal("fetch", async () => makeTtsFetchResponse(503));
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(503);
+    const body = res._body as { error: string; status: number };
+    expect(body.status).toBe(503);
+    expect(typeof body.error).toBe("string");
+  });
+
+  it("Test H: fetch throwing AbortError returns 504 {error:'TTS timeout', status:504}", async () => {
+    const req = makeSpeakReq({ text: "Hello" });
+    const res = makeRes();
+    vi.stubGlobal("fetch", async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    await handleSpeak(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(504);
+    const body = res._body as { error: string; status: number };
+    expect(body.error).toBe("TTS timeout");
+    expect(body.status).toBe(504);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleListVoices tests (patch #223 — behaviors I-K)
+// ---------------------------------------------------------------------------
+
+describe("handleListVoices", () => {
+  it("Test I: returns upstream JSON array verbatim on 200", async () => {
+    const voiceList = [
+      { display_name: "Elena", filename: "Elena.wav" },
+      { display_name: "Marcus", filename: "Marcus.wav" },
+    ];
+    vi.stubGlobal("fetch", async () => ({
+      ok: true,
+      status: 200,
+      json: async () => voiceList,
+    }));
+
+    const req = {} as import("express").Request;
+    const res = makeRes();
+
+    await handleListVoices(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(res._body).toEqual(voiceList);
+  });
+
+  it("Test J: upstream non-2xx returns {error, status} with upstream status code", async () => {
+    vi.stubGlobal("fetch", async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: "unavailable" }),
+    }));
+
+    const req = {} as import("express").Request;
+    const res = makeRes();
+
+    await handleListVoices(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(503);
+    const body = res._body as { error: string; status: number };
+    expect(body.status).toBe(503);
+    expect(typeof body.error).toBe("string");
+  });
+
+  it("Test K: AbortError returns 504 {error:'voices timeout', status:504}", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    const req = {} as import("express").Request;
+    const res = makeRes();
+
+    await handleListVoices(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(504);
+    const body = res._body as { error: string; status: number };
+    expect(body.error).toBe("voices timeout");
     expect(body.status).toBe(504);
   });
 });
