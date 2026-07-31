@@ -1019,26 +1019,40 @@ export function ComposeBox({
       if (target === "primary") {
         setText(result.glued);
         scheduleAutosave(result.glued, latestQueueSlotsRef.current);
-        // D-16-05: route through the SAME handleSend — attachment branching,
-        // D-50 newline collapse, COMPOSE-04 hard-lock all still apply.
-        handleSend(result.glued);
+        // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — Ashley sends manually once the overlay clears.
+        if (!recycleActive) {
+          // D-16-05: route through the SAME handleSend — attachment branching,
+          // D-50 newline collapse, COMPOSE-04 hard-lock all still apply.
+          handleSend(result.glued);
+        }
       } else {
         // For a queue slot: update slot text then send it.
         setQueueSlots((prev) =>
           prev.map((s) => s.id === target ? { ...s, text: result.glued } : s),
         );
-        // handleQueueSlotSend reads from queueSlots state, but due to async
-        // batching we pass the glued text directly via onSend to avoid stale reads.
-        const payload = collapseNewlinesForSend(result.glued.trim());
-        if (payload) {
-          const dispatched = onSend(payload);
-          if (dispatched) {
-            const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== target);
-            setQueueSlots(nextSlots);
-            scheduleAutosave(latestBodyRef.current, nextSlots);
-          } else {
-            setErrorMessage("Not connected — try again in a moment");
+        // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle,
+        // text lands in slot, no dispatch, slot not removed — Ashley sends manually once overlay clears.
+        if (!recycleActive) {
+          // handleQueueSlotSend reads from queueSlots state, but due to async
+          // batching we pass the glued text directly via onSend to avoid stale reads.
+          const payload = collapseNewlinesForSend(result.glued.trim());
+          if (payload) {
+            const dispatched = onSend(payload);
+            if (dispatched) {
+              const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== target);
+              setQueueSlots(nextSlots);
+              scheduleAutosave(latestBodyRef.current, nextSlots);
+            } else {
+              setErrorMessage("Not connected — try again in a moment");
+            }
           }
+        } else {
+          // Mirror handleVoiceAppend's slot-only write pattern: text into the slot,
+          // scheduleAutosave with the updated slots, slot preserved.
+          const nextSlots = latestQueueSlotsRef.current.map((s) =>
+            s.id === target ? { ...s, text: result.glued } : s,
+          );
+          scheduleAutosave(latestBodyRef.current, nextSlots);
         }
       }
     }
@@ -1209,8 +1223,7 @@ export function ComposeBox({
     navigator.mediaDevices != null &&
     voice.state === "idle" &&
     !asideActive &&
-    !queueArmed &&
-    !recycleActive;
+    !queueArmed;
   const showRecordingControls = voice.state === "recording";
   const showTranscribingSend = voice.state === "transcribing";
 
@@ -1772,8 +1785,7 @@ export function ComposeBox({
               navigator.mediaDevices != null &&
               isSlotIdle &&
               !asideActive &&
-              !queueArmed &&
-              !recycleActive;
+              !queueArmed;
             const showSlotRecording = isSlotRecording;
             const showSlotSend = !showSlotRecording;
             return (
@@ -1969,10 +1981,11 @@ export function ComposeBox({
             "pr-10",
             // Quick 260730-vtk: mirrors the `pr-10` above on the LEFT
             // when the inside-textarea Paperclip is present
-            // (showPaperclip=true → 40px hit target at absolute left-1
-            // bottom-0.5 needs matching left padding on the Textarea so
-            // text doesn't underlap the icon).
-            showPaperclip && "pl-10",
+            // (showPaperclip=true → 44px matching left padding on the
+            // Textarea so text doesn't underlap the icon at absolute
+            // left-1 bottom-0.5). Quick 260731-ulo: bumped 40px→44px
+            // (pl-10→pl-11) per Ashley for a few more px of clearance.
+            showPaperclip && "pl-11",
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
             "transition-[box-shadow,border-color] duration-200",
@@ -2015,7 +2028,7 @@ export function ComposeBox({
           <button
             type="button"
             onClick={handleOpenFilePicker}
-            disabled={canSend === false || asideActive === true || recycleActive === true}
+            disabled={canSend === false || asideActive === true}
             aria-label="Attach file"
             title="Attach file"
             className={cn(

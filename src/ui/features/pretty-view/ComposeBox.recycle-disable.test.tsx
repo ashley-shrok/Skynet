@@ -10,7 +10,7 @@
  *   - Send button: STAYS as Send (aria-label "Send", paper-plane icon,
  *     NOT morphed to X/Resume) but `disabled=true`. Send is orthogonal
  *     to aside — recycle disables, aside morphs.
- *   - Aux buttons (reset cell, paperclip, ThumbsUp, Lightbulb, Queue):
+ *   - Aux buttons (reset cell, ThumbsUp, Lightbulb, Queue):
  *     ALL disabled=true when recycleActive=true. Predicates OR-in
  *     `|| recycleActive === true` in parallel with the existing
  *     `|| asideActive === true` clause.
@@ -24,10 +24,16 @@
  *
  * Renders + mock setup mirror ComposeBox.aside-morph.test.tsx verbatim
  * (established fixture pattern for the file).
+ *
+ * Quick 260731-ulo (bounty mic-available-when-composebox-disabled):
+ * mic + paperclip stay USABLE during recycle (no WS side-effect from
+ * either alone). Voice-send is gated so a completed transcript during
+ * recycle lands in the textarea/slot but does NOT dispatch — Ashley
+ * sends manually once the overlay clears.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "" }),
@@ -77,7 +83,7 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
     expect(screen.queryByLabelText("Resume")).toBeNull();
   });
 
-  it("B2: recycleActive=true — aux buttons all disabled", () => {
+  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up, explain, queue-for-idle) disabled", () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -91,12 +97,10 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
       />,
     );
     const resetBtn = screen.getByLabelText("Send with /id reset prefix") as HTMLButtonElement;
-    const attachBtn = screen.getByLabelText("Attach file") as HTMLButtonElement;
     const thumbsUpBtn = screen.getByLabelText("Send 'let's go'") as HTMLButtonElement;
     const explainBtn = screen.getByLabelText("Ask for a concise re-explanation") as HTMLButtonElement;
     const queueBtn = screen.getByLabelText("Queue send for when session goes idle") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
-    expect(attachBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);
     expect(explainBtn.disabled).toBe(true);
     expect(queueBtn.disabled).toBe(true);
@@ -144,5 +148,169 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
     // changed); value survives the transition.
     const textareaAfter = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
     expect(textareaAfter.value).toBe("pre-draft");
+  });
+
+  // Quick 260731-ulo (bounty mic-available-when-composebox-disabled).
+  // Nested describe adds mediaDevices + MediaRecorder + fetch stubs
+  // (same pattern as ComposeBox.voice.test.tsx L102-116) so the mic
+  // renders and the voice-flow can be driven end-to-end during
+  // recycle. afterEach restores globals so B1-B6 above and other test
+  // files are not perturbed.
+  describe("recycleActive=true — mic + paperclip usable (bounty mic-available-when-composebox-disabled)", () => {
+    /** Minimal MediaStream stub: getTracks() returns one stoppable track. */
+    function makeMockStream() {
+      const track = { stop: vi.fn() };
+      return {
+        getTracks: vi.fn(() => [track]),
+        _track: track,
+      };
+    }
+
+    /** Minimal MediaRecorder stub. Tests can trigger ondataavailable / onstop manually. */
+    class MockMediaRecorder {
+      static instances: MockMediaRecorder[] = [];
+
+      mimeType = "audio/webm";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      start = vi.fn();
+      stop = vi.fn().mockImplementation(() => {
+        if (this.onstop) this.onstop();
+      });
+
+      constructor(public stream: MediaStream) {
+        MockMediaRecorder.instances.push(this);
+      }
+
+      emitData(blob: Blob) {
+        if (this.ondataavailable) this.ondataavailable({ data: blob });
+      }
+    }
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      localStorage.clear();
+
+      MockMediaRecorder.instances = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).MediaRecorder = MockMediaRecorder;
+
+      const mockStream = makeMockStream();
+      const getUserMediaMock = vi.fn().mockResolvedValue(mockStream);
+      Object.defineProperty(globalThis, "navigator", {
+        value: {
+          mediaDevices: {
+            getUserMedia: getUserMediaMock,
+          },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ text: "hello world" }),
+        }),
+      );
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    it("C1: recycleActive=true + showPaperclip=true — Paperclip button renders and is NOT disabled", () => {
+      render(
+        <ComposeBox
+          {...baseProps({
+            recycleActive: true,
+            showPaperclip: true,
+            onAttachFiles: vi.fn(),
+          })}
+        />,
+      );
+      const attachBtn = screen.getByLabelText("Attach file") as HTMLButtonElement;
+      expect(attachBtn).toBeTruthy();
+      expect(attachBtn.disabled).toBe(false);
+    });
+
+    it("C2: recycleActive=true — primary MicButton renders and is NOT disabled", () => {
+      render(<ComposeBox {...baseProps({ recycleActive: true })} />);
+      const micBtn = screen.getByRole("button", { name: "Record voice" }) as HTMLButtonElement;
+      expect(micBtn).toBeTruthy();
+      expect(micBtn.disabled).toBe(false);
+    });
+
+    it("C3: recycleActive=true — completed PRIMARY voice transcript lands in the textarea but does NOT trigger onSend", async () => {
+      const onSend = vi.fn(() => true);
+      render(<ComposeBox {...baseProps({ onSend, recycleActive: true })} />);
+
+      const micBtn = screen.getByRole("button", { name: "Record voice" });
+      fireEvent.click(micBtn);
+
+      const sendTranscriptBtn = await screen.findByRole("button", { name: "Send transcript" });
+
+      act(() => {
+        const recorder = MockMediaRecorder.instances[0];
+        recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
+      });
+
+      fireEvent.click(sendTranscriptBtn);
+
+      const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+      await waitFor(() => {
+        expect(textarea.value).toBe("hello world");
+      });
+
+      // The core bounty assertion: no auto-send during recycle.
+      expect(onSend).not.toHaveBeenCalled();
+    });
+
+    it("C4: recycleActive=true — after voice transcript lands, Send button stays disabled (sendDisabled OR-in guard)", async () => {
+      const onSend = vi.fn(() => true);
+      render(<ComposeBox {...baseProps({ onSend, recycleActive: true })} />);
+
+      const micBtn = screen.getByRole("button", { name: "Record voice" });
+      fireEvent.click(micBtn);
+
+      const sendTranscriptBtn = await screen.findByRole("button", { name: "Send transcript" });
+
+      act(() => {
+        const recorder = MockMediaRecorder.instances[0];
+        recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
+      });
+
+      fireEvent.click(sendTranscriptBtn);
+
+      const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+      await waitFor(() => {
+        expect(textarea.value).toBe("hello world");
+      });
+
+      // Even though the textarea now holds "hello world" (which would normally
+      // enable Send), recycleActive OR-in keeps sendDisabled=true. Guards a
+      // future refactor that accidentally decouples the two.
+      const sendBtn = screen.getByLabelText("Send") as HTMLButtonElement;
+      expect(sendBtn.disabled).toBe(true);
+      expect(onSend).not.toHaveBeenCalled();
+    });
+
+    // TODO(quick 260731-ulo): C5 slot-branch parity test — deferred; primary-mic parity in C3 is required coverage.
+    // Rationale: seeding a queue slot via the Plus-button flow and then
+    // driving the slot mic through the voice pipeline requires a fixture
+    // shape that does not cleanly extend the current file's baseProps
+    // pattern (per-slot mic sharing aria-label with primary mic + relying
+    // on `voice.state === "recording"` + `micTarget === slot.id` to render
+    // RecordingControls inside the correct slot container). The plan
+    // explicitly permits skipping C5 rather than expanding fixture wiring
+    // for one test. Slot-branch source-side guard in handleVoiceSend is
+    // symmetric with the primary branch (both wrap dispatch in
+    // `if (!recycleActive)` with the same "text lands, no dispatch, slot
+    // not removed" invariant) and exercised via handleVoiceAppend's
+    // existing coverage in ComposeBox.voice.test.tsx.
   });
 });
