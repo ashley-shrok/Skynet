@@ -40,7 +40,7 @@
 // retired in Wave 4 and NOT ported forward here.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Filter, MessagesSquare, Monitor, Pencil, Server } from "lucide-react";
+import { Filter, MessagesSquare, Monitor, Pencil, Pin, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -660,17 +660,39 @@ export function PrettyConversationsPanel({
                 />
               ))}
             </div>
-            {/* Pinned rows — flat, no "Pinned" section header. The pin
-                glyph on each row is the only marker. Patch #137: live
-                isWorking + inActiveSet wiring per row. The panel-level
-                activeSet subscription is hoisted once (above); each row's
-                isWorking is read inside PrettyConversationRowLive so the
-                store subscription happens at a stable hook-call site.
-                Same wiring repeats at the two grouped render sites below.
-                Patch #144 Fix (e): pinned rows now share the same
-                `pv-panel-group` wrapper as the grouped sections so intra-
-                group row gap (8px) is uniform with between-group gap. */}
+            {/* Pinned rows. Patch #234: a "Pinned" divider chip renders
+                above the pinned tier when displayedPinned.length > 0,
+                mirroring the RDP divider chip pattern (Pin glyph + uppercase
+                muted label + gradient rule). Chip is gated on length so an
+                empty pinned tier stays visually absent (no lonely header).
+                Patch #137: live isWorking + inActiveSet wiring per row.
+                The panel-level activeSet subscription is hoisted once
+                (above); each row's isWorking is read inside
+                PrettyConversationRowLive so the store subscription happens
+                at a stable hook-call site. Same wiring repeats at the two
+                grouped render sites below. Patch #144 Fix (e): pinned rows
+                now share the same `pv-panel-group` wrapper as the grouped
+                sections so intra-group row gap (8px) is uniform with
+                between-group gap. */}
             <div className="pv-panel-group" data-pinned-group="true">
+              {displayedPinned.length > 0 && (
+                <div
+                  className="flex items-center gap-2 px-4 pt-3 pb-1.5"
+                  data-testid="pinned-divider"
+                >
+                  <Pin
+                    className="size-3 text-[#5c6070]/85 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                    Pinned
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                  />
+                </div>
+              )}
               {displayedPinned.map((row) => (
                 <PrettyConversationRowLive
                   key={row.id}

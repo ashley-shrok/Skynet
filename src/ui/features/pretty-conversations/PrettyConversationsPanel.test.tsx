@@ -446,18 +446,18 @@ describe("PrettyConversationsPanel: pinned-first ordering", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 3 — No "Pinned" section header; no per-host semibold header
+// Test 3 — "Pinned" divider chip (patch #234); per-host divider chip
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: no 'Pinned' section header + per-host divider chip (quick-260727-f9v Test 3 rewrite)", () => {
-  it('Test 3 (post-f9v): does NOT render a "Pinned" section header; DOES render a per-host divider chip above the non-RDP grouped section', () => {
-    // Contract change (quick-260727-f9v): the OLD Test 3 asserted "hostA
-    // does not appear outside a row" (i.e. no per-host header of any form).
-    // That "flat, no per-host header" lock is intentionally reversed here
-    // — non-RDP host groups now DO carry a divider chip above them
-    // (Server glyph + uppercase hostname label + gradient rule filler),
-    // mirroring the RDP chip's treatment. The pinned-glyph-only rule for
-    // pinned rows still stands: NO standalone "Pinned" section header.
+describe("PrettyConversationsPanel: 'Pinned' divider chip + per-host divider chip (patch #234 Test 3 rewrite)", () => {
+  it('Test 3 (post-#234): renders a "Pinned" divider chip above pinned rows AND a per-host divider chip above the non-RDP grouped section', () => {
+    // Contract change (patch #234): pinned tier now DOES get a divider
+    // chip above it when pinned.length > 0, mirroring the RDP chip's
+    // treatment (Pin glyph + uppercase muted label + gradient rule). The
+    // previous "no 'Pinned' section header" lock (quick-260727-f9v) is
+    // reversed by Ashley's request 2026-07-31.
+    // The per-host divider chip above the non-RDP grouped section
+    // (quick-260727-f9v) is preserved unchanged.
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       pinned: [makeConversationRow({ id: "a", label: "alpha", host: hostA })],
@@ -475,34 +475,53 @@ describe("PrettyConversationsPanel: no 'Pinned' section header + per-host divide
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    // Preserved assertion — no standalone "Pinned" section header.
-    const walk = (
-      node: HTMLElement,
-      cb: (el: HTMLElement) => void,
-    ): void => {
-      cb(node);
-      for (const c of Array.from(node.children) as HTMLElement[]) walk(c, cb);
-    };
-    let sawPinnedHeader = false;
-    walk(container, (el) => {
-      const directText = Array.from(el.childNodes)
-        .filter((n) => n.nodeType === 3)
-        .map((n) => n.textContent ?? "")
-        .join("")
-        .trim();
-      if (/^pinned$/i.test(directText)) sawPinnedHeader = true;
-    });
-    expect(sawPinnedHeader).toBe(false);
+    // NEW (patch #234): "Pinned" divider chip present, INSIDE the
+    // data-pinned-group wrapper (so intra-group spacing rules apply),
+    // and its label text is "Pinned".
+    const pinnedChip = container.querySelector(
+      '[data-testid="pinned-divider"]',
+    ) as HTMLElement | null;
+    expect(pinnedChip).toBeTruthy();
+    expect(pinnedChip!.textContent).toMatch(/Pinned/);
+    const pinnedGroup = container.querySelector(
+      '[data-pinned-group="true"]',
+    ) as HTMLElement | null;
+    expect(pinnedGroup).toBeTruthy();
+    expect(pinnedGroup!.contains(pinnedChip!)).toBe(true);
 
-    // NEW (f9v): the panel now renders a per-host divider chip above the
-    // hostA non-RDP grouped section. The chip carries data-testid="host-
-    // divider" AND data-host-id="h1" AND its label text is "hostA".
+    // Preserved (quick-260727-f9v): the per-host divider chip above
+    // hostA's non-RDP grouped section carries data-testid="host-divider"
+    // AND data-host-id="h1" AND label text "hostA".
     const hostChip = container.querySelector(
       '[data-testid="host-divider"]',
     ) as HTMLElement | null;
     expect(hostChip).toBeTruthy();
     expect(hostChip!.getAttribute("data-host-id")).toBe("h1");
     expect(hostChip!.textContent).toMatch(/hostA/);
+  });
+
+  it('Test 3B (patch #234): does NOT render the "Pinned" divider chip when pinned is empty', () => {
+    // Gating rule per Ashley: the chip only shows when there are pins.
+    // An empty pinned tier stays visually absent — no lonely header.
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({ id: "c", label: "charlie", host: hostA }),
+          ],
+        },
+      ],
+      pinnedIds: new Set(),
+    });
+
+    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+
+    const pinnedChip = container.querySelector('[data-testid="pinned-divider"]');
+    expect(pinnedChip).toBeNull();
   });
 });
 
