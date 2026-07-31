@@ -59,6 +59,13 @@ import {
   type IdentityDeleteBountyPayload,
   type IdentityBountyDeletedEvent,
   type Wakeup,
+  // Phase 18 / IDMEDIT-01,02,03: markdown-tab write wire types from Plan 01
+  type IdentityUpdateIdentityFilePayload,
+  type IdentityIdentityFileUpdatedEvent,
+  type IdentityUpdateHistoryPayload,
+  type IdentityHistoryUpdatedEvent,
+  type IdentityUpdateHandoffPayload,
+  type IdentityHandoffUpdatedEvent,
 } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
 import { BountyCard } from "./BountyCard";
@@ -514,6 +521,62 @@ export function IdentityModal({
     );
     if (res.error) throw new Error(res.error);
     setWakeupsState({ status: "ready", data: res.wakeups });
+  }
+
+  // Phase 18 / IDMEDIT-01: save handler for the identity file (<key>.md).
+  // Byte-shape mirror of updateWakeup — sendIdentityMutation generic, throws on
+  // res.error, replaces state from server echo (T-18-12 mitigation).
+  async function updateIdentityFile(contents: string): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateIdentityFilePayload = {
+      type: "identity:update-identity-file",
+      identityKey: identity.identityKey,
+      hostId,
+      contents,
+    };
+    const res = await sendIdentityMutation<IdentityUpdateIdentityFilePayload, IdentityIdentityFileUpdatedEvent>(
+      payload,
+      "identity:identity-file-updated",
+    );
+    if (res.error) throw new Error(res.error);
+    setIdentityFileState({ status: "ready", data: res.markdown });
+  }
+
+  // Phase 18 / IDMEDIT-02: save handler for history.md. Sets historyState
+  // with both entries (read-mode list) and markdown (edit-mode textarea) from
+  // the server echo; falls back to client draft for markdown if server omits it
+  // (which should not happen post-widening — the fallback is defensive only).
+  async function updateHistory(contents: string): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateHistoryPayload = {
+      type: "identity:update-history",
+      identityKey: identity.identityKey,
+      hostId,
+      contents,
+    };
+    const res = await sendIdentityMutation<IdentityUpdateHistoryPayload, IdentityHistoryUpdatedEvent>(
+      payload,
+      "identity:history-updated",
+    );
+    if (res.error) throw new Error(res.error);
+    setHistoryState({ status: "ready", data: { entries: res.entries, markdown: res.markdown ?? contents } });
+  }
+
+  // Phase 18 / IDMEDIT-03: save handler for handoff.md.
+  async function updateHandoff(contents: string): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateHandoffPayload = {
+      type: "identity:update-handoff",
+      identityKey: identity.identityKey,
+      hostId,
+      contents,
+    };
+    const res = await sendIdentityMutation<IdentityUpdateHandoffPayload, IdentityHandoffUpdatedEvent>(
+      payload,
+      "identity:handoff-updated",
+    );
+    if (res.error) throw new Error(res.error);
+    setHandoffState({ status: "ready", data: res.markdown });
   }
 
   async function updateBountyPriority(
@@ -1067,8 +1130,8 @@ export function IdentityModal({
               </div>
             </div>
 
-            {/* Existing identity.md markdown preview — unchanged */}
-            <IdentityFileTab state={identityFileState} />
+            {/* Existing identity.md markdown preview — Phase 18 / IDMEDIT-01: onSave threaded */}
+            <IdentityFileTab state={identityFileState} onSave={updateIdentityFile} />
           </TabsContent>
 
           {/* Bounties tab — populated (patch #87 — unchanged) */}
@@ -1223,7 +1286,7 @@ export function IdentityModal({
             value="history"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            <HistoryTab state={historyState} />
+            <HistoryTab state={historyState} onSave={updateHistory} />
           </TabsContent>
 
           {/* Wakeups tab — patch #17g: wakeups/*.json cards */}
@@ -1239,7 +1302,7 @@ export function IdentityModal({
             value="handoff"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            <HandoffTab state={handoffState} />
+            <HandoffTab state={handoffState} onSave={updateHandoff} />
           </TabsContent>
 
           {/* Patch #191: bottom icon-bar section switcher (Telegram-shape). */}
