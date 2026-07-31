@@ -23,6 +23,7 @@ import {
   hydratePinnedIdsFromServer,
   addToActiveSet,
   removeFromActiveSet,
+  fleetRowId,
   useConversations,
   useSelectedConversationId,
   usePinnedIds,
@@ -1567,6 +1568,151 @@ describe("conversation-store (patch #150 C): two-URL-tab restore glows both rest
 
     // Selection landed on the first (focus contract preserved).
     expect(__getSnapshotForTest().selectedId).toBe("restored-a");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Patch #230 A — URL-driven restore glow parity (store-level contract).
+// Ashley reported (2026-07-31, live diag with tina): loading a hash-restore
+// URL only "activates" the ONE tab focused by active=<N>; other URL-hash
+// tabs mount in the tab bar but stay ambient in pretty-conversations and
+// don't connect their WebSocket until first click. Root cause paralleled
+// patch #150 C's persisted-restore bug: AppShell.tsx's URL-driven block
+// (~L969-978) called setActiveTabId + selectConversationDeferred on the
+// active tab only, never looped addToActiveSet over openedIds. The fix
+// mirrors #150 C's `for (const t of restoredTabs) addToActiveSet(t.id)`
+// pattern into the URL-driven block.
+//
+// This test is the store-level regression guard for the URL-driven fix:
+// mirror what the fixed AppShell does (per-tab addToActiveSet after the
+// updateOpenTabs commit) and assert that ALL opened ids land in activeSet.
+// Structurally identical to the #150 C test above; the AppShell fix location
+// is different but the store-side contract is the same.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (patch #230 A): URL-driven multi-tab restore glows all opened tabs", () => {
+  it("per-tab addToActiveSet after updateOpenTabs lights ALL URL-opened tabs in activeSet", () => {
+    const hostA = makeHost("hA", "alpha");
+    // URL-restored tabs use openTab-generated dynamic ids
+    // (`hostname-terminal-${Date.now()}-${counter}` in AppShell.tsx:1033).
+    // Fake three such ids here to represent a #tab=A&tab=B&tab=C restore.
+    const tabA = makeTab("alpha-terminal-9990-0", "terminal", hostA, "s1");
+    const tabB = makeTab("alpha-terminal-9990-1", "terminal", hostA, "s2");
+    const tabC = makeTab("alpha-terminal-9990-2", "terminal", hostA, "s3");
+
+    // Mirror the fixed AppShell URL-driven block:
+    //   for each spec: openTab(...) → openedIds.push(newId) → setTabs
+    //   → updateOpenTabs (via useEffect)
+    //   setActiveTabId(openedIds[idx]) → mirror
+    //   selectConversationDeferred(openedIds[idx]) → active-tab focus
+    //   for (const id of openedIds) addToActiveSet(id)   ← THE FIX
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabA, tabB, tabC]);
+      const openedIds = [tabA.id, tabB.id, tabC.id];
+      const idx = 1; // active=1 in the URL, i.e. tabB is focused
+      selectConversationDeferred(openedIds[idx]);
+      // The fix: addToActiveSet per opened id so ALL glow, not just [idx].
+      for (const id of openedIds) addToActiveSet(id);
+    });
+
+    const { result } = renderHook(() => useActiveSet());
+    // ALL three URL-opened tabs are in activeSet — the load-bearing assertion.
+    expect(result.current.has(tabA.id)).toBe(true);
+    expect(result.current.has(tabB.id)).toBe(true);
+    expect(result.current.has(tabC.id)).toBe(true);
+    expect(result.current.size).toBeGreaterThanOrEqual(3);
+
+    // Selection landed on the active URL-index tab (focus contract preserved).
+    expect(__getSnapshotForTest().selectedId).toBe(tabB.id);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Patch #230 B — pinned tier surfaces fleet-shadow pins on URL-restored openTabs.
+// Ashley reported (2026-07-31, live diag): pin count differs by URL —
+// loading with a hash-restore shows FEWER pins than the base URL. Root
+// cause: server-persisted pins use fleet-format ids
+// (`fleet::${hostId}::${sessionName}`). URL-hash restore calls openTab()
+// which mints a dynamic id (`hostname-terminal-${Date.now()}-${counter}`,
+// AppShell.tsx:1033). computeSnapshot then dedupes the matching fleet
+// synthetic row OUT of fleetSyntheticRows (L324, "openTabs-entry-wins").
+// The Tier 2 pinned iteration over conversationTabs checked
+// `pinnedIds.has(tab.id)` — dynamic id doesn't match fleet-format pin →
+// pin has nowhere to render. Fix: also check the openTab's fleet-shadow
+// id `fleetRowId(parseInt(tab.host.id), tab.targetTmuxSession)` against
+// pinnedIds. The pin id itself SURVIVES in state.pinnedIds (the pruner's
+// fleetPinKeepSet is built from state.fleetSessions, which still holds
+// the session); this bug is render-side only.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (patch #230 B): pinned tier surfaces fleet-shadow pins on URL-restored openTabs", () => {
+  it("openTab with dynamic id + fleet-format pin renders in pinned tier via fleet-shadow-id check", () => {
+    const hostA = makeHost("1", "alpha"); // host.id "1" so parseInt(host.id) = 1
+    // Fleet session exists on hostId=1 with sessionName="work".
+    const fleetSession: FleetSession = {
+      hostId: 1,
+      hostName: "alpha",
+      sessionName: "work",
+      created: 100,
+    };
+    // URL-restored openTab with a dynamic id (NOT the fleet-format id)
+    // that shadows the fleet session via (host.id=1, targetTmuxSession="work").
+    const tabDynamicId = "alpha-terminal-1785522000-0";
+    const openTab = makeTab(tabDynamicId, "terminal", hostA, "work");
+    // Server-persisted pin uses the FLEET-format id.
+    const persistedPinId = fleetRowId(1, "work");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateFleetSessions([fleetSession]);
+      updateOpenTabs([openTab]);
+      hydratePinnedIdsFromServer([persistedPinId]);
+    });
+
+    const { result } = renderHook(() => useConversations());
+    // The pin is rendered — via the openTab (fleet row got deduped out
+    // by openTabs-entry-wins at L324).
+    expect(result.current.pinned).toHaveLength(1);
+    expect(result.current.pinned[0].id).toBe(tabDynamicId);
+    // Sanity: the raw pinnedIds set still holds the fleet-format id.
+    expect(__getSnapshotForTest().pinnedIds.has(persistedPinId)).toBe(true);
+  });
+
+  it("openTab with dynamic id + openTab-form pin ALSO still renders (backwards compat)", () => {
+    const hostA = makeHost("1", "alpha");
+    const openTab = makeTab("alpha-terminal-1785522000-0", "terminal", hostA, "work");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([openTab]);
+      // Pin under the openTab-form id (the legacy path — e.g. user pinned
+      // via the UI after opening the tab). Must continue to work.
+      hydratePinnedIdsFromServer([openTab.id]);
+    });
+
+    const { result } = renderHook(() => useConversations());
+    expect(result.current.pinned).toHaveLength(1);
+    expect(result.current.pinned[0].id).toBe(openTab.id);
+  });
+
+  it("openTab WITHOUT targetTmuxSession does not fake-match a fleet-shadow pin", () => {
+    // Defense-in-depth: the fleet-shadow-id check must only fire when
+    // targetTmuxSession is non-null/non-empty (mirroring L303-306's
+    // openTabsSessionKeys build). A hostless-or-sessionless tab must not
+    // synthesize a fleet id and accidentally match an unrelated pin.
+    const hostA = makeHost("1", "alpha");
+    const openTab = makeTab("alpha-terminal-1785522000-0", "terminal", hostA, null);
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([openTab]);
+      // A pin exists for fleet::1::something but this tab has no session.
+      hydratePinnedIdsFromServer([fleetRowId(1, "something")]);
+    });
+
+    const { result } = renderHook(() => useConversations());
+    // Pinned tier must be empty — the openTab has no session to shadow, so
+    // it can't claim the fleet pin.
+    expect(result.current.pinned).toHaveLength(0);
   });
 });
 

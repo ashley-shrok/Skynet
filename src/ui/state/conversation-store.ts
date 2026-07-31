@@ -366,7 +366,27 @@ function computeSnapshot(): ConversationList {
   // fleetSyntheticRows so fleet-derived pinned rows surface at the top.
   const pinned: ConversationRow[] = [];
   for (const tab of conversationTabs) {
-    if (!state.pinnedIds.has(tab.id)) continue;
+    // patch #230 B: a URL-restored (or freshly-opened) tab has a
+    // dynamic openTab id (`hostname-terminal-${Date.now()}-${counter}`,
+    // AppShell.openTab L1033) that never matches the fleet-format id
+    // (`fleet::${hostId}::${sessionName}`) server-persisted pins use.
+    // When the openTab shadows a fleet session, the fleet synthetic
+    // row gets deduped out at L324 ("openTabs-entry-wins"), so a pin
+    // whose id is the fleet form must ALSO be recognized against the
+    // openTab's fleet-shadow id here — else the pin has nowhere to
+    // render (fleet row gone, openTab id doesn't match pinnedIds) and
+    // silently disappears from the pinned tier despite surviving in
+    // state.pinnedIds. The store-mutation pruner already keeps such
+    // pins alive via fleetPinKeepSet built from state.fleetSessions
+    // (see updateOpenTabs L552-557); this is the render-side counterpart.
+    const shadowFleetId =
+      tab.host && tab.targetTmuxSession
+        ? fleetRowId(parseInt(tab.host.id), tab.targetTmuxSession)
+        : null;
+    const isPinned =
+      state.pinnedIds.has(tab.id) ||
+      (shadowFleetId !== null && state.pinnedIds.has(shadowFleetId));
+    if (!isPinned) continue;
     if (emittedIds.has(tab.id)) continue; // already in Tier 1
     pinned.push(rowFromTab(tab));
     emittedIds.add(tab.id);

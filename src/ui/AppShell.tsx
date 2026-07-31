@@ -975,6 +975,15 @@ export function AppShell({
                 : 0;
             setActiveTabId(openedIds[idx]);
             selectConversationDeferred(openedIds[idx]);
+            // patch #230 A: URL-restored tabs need the same #150 C fix
+            // as persisted-restore above — without addToActiveSet per
+            // opened tab, non-active URL-hash tabs stay ambient in
+            // pretty-conversations and don't connect their WebSocket
+            // until first click. addToActiveSet is idempotent, so
+            // openedIds[idx] getting hit both here and via the
+            // selectConversationDeferred → selectedId → panel effect
+            // path is a harmless no-op.
+            for (const id of openedIds) addToActiveSet(id);
           }
         }
       } catch {
