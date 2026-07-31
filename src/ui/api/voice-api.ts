@@ -20,6 +20,36 @@ export async function postSpeak(text: string, voice?: string): Promise<Blob> {
   }
 }
 
+/**
+ * Streaming variant of postSpeak (patch #237 / Phase 19).
+ *
+ * Returns the raw Response with an unread body — caller drives
+ * response.body.getReader() for Web Audio API progressive decode.
+ *
+ * JWT is attached manually because fetch() is not routed through
+ * main-axios.ts's request interceptor.
+ *
+ * Does NOT throw on non-2xx — caller inspects response.ok / response.status
+ * and surfaces errors via toast.
+ */
+export async function postSpeakStream(
+  text: string,
+  voice?: string,
+): Promise<Response> {
+  const body: { text: string; voice?: string } = { text };
+  if (voice) body.voice = voice;
+
+  const jwt = localStorage.getItem("jwt");
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
+
+  return fetch("/voice/speak-stream", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+}
+
 export async function getVoices(): Promise<{ display_name: string; filename: string }[]> {
   try {
     const response = await authApi.get("/voice/voices");
