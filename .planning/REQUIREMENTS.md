@@ -203,6 +203,16 @@ Deferred to future patches. Each add earns its way in as its own separate design
 - [ ] **IDMEDIT-07**: Existing edit surfaces preserved byte-for-byte — Bounties status/priority/pinned/archive/delete (patch #154 + quick 260727-v0b + patch #172 + quick 260727-wd0 + quick 260729-g5r), Wakeups spec CRUD (patch #154 + quick 260731-2pa), and Identity-tab title/avatar/voice (quick 260731-1c8 + patch #223) continue to work unchanged. Read-only markdown display remains the default state after cancel/close.
 - [ ] **IDMEDIT-08**: `meeting_questions[]` (user-reserved per bounty schema, added 2026-07-08) surfaces in the bounty-field editor with add + mark-answered affordances only — no agent-only add path is introduced. `pinned` remains user-reserved via the existing header star toggle and is NOT surfaced as a bounty-field editor field.
 
+### Streaming TTS Output — Chatterbox /tts (Phase 19)
+
+- [ ] **TTSSTR-01**: New backend route `POST /voice/speak-stream` on Skynet's Express backend (port 30001) that stream-proxies chunks from Chatterbox `http://100.80.122.111:8001/tts` to the browser WITHOUT server-side buffering. Implementation uses `Readable.fromWeb(response.body).pipe(res)` (or equivalent Node WHATWG-stream bridge) — the existing patch #223 `Buffer.from(await response.arrayBuffer())` full-buffer pattern MUST NOT be used on this route. Response sets `Content-Type: audio/wav` and `X-Accel-Buffering: no` (defense-in-depth against any downstream reverse-proxy buffering).
+- [ ] **TTSSTR-02**: Request body schema translation happens server-side. Skynet client sends `{text, voice?}` (matching the existing buffered `/voice/speak` shape); backend forwards to Chatterbox as `{text, voice_mode:"predefined", predefined_voice_id: voice ?? "Elena.wav", stream:true, split_text:true, chunk_size:80}`. Voice validation reuses the existing `VOICE_FILENAME_RE` (`/^[A-Z][A-Za-z]+\.wav$/`) and `SPEAK_TEXT_MAX` (25000) constants from `voice.ts`. Default voice remains `Elena.wav` (unchanged from patch #223 — do NOT switch to Adrian just because Nelly's demo used it).
+- [ ] **TTSSTR-03**: Nginx configuration adds a new `location /voice/speak-stream` block in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf` (per CLAUDE.md caveat) with `proxy_buffering off;`, `proxy_request_buffering off;`, `chunked_transfer_encoding on;`, and appropriate `proxy_read_timeout` (300s to match TTS synthesis ceiling, matching patch #232 lesson). Existing `location /voice/speak` block for the buffered route is untouched. Caddy edge streams chunked-transfer by default; verify via end-to-end `curl -N` test through the public URL that chunks arrive as they synthesize (not batched).
+- [ ] **TTSSTR-04**: Frontend `src/ui/api/voice-api.ts` adds `postSpeakStream(text: string, voice?: string): Promise<Response>` that uses `fetch()` (not axios) to POST `/voice/speak-stream` and returns the raw `Response` object (streaming body reader deferred to the caller). JWT auth is manually attached via `Authorization: Bearer ${token}` header (axios interceptor is unavailable when using fetch — read the JWT from the same source `main-axios.ts` uses). Existing `postSpeak()` axios/blob helper is PRESERVED unchanged (IdentityModal voice-preview keeps calling it).
+- [ ] **TTSSTR-05**: Frontend `src/ui/features/pretty-view/ChatMessage.tsx` speak-button handler (currently `ChatMessage.tsx:97-124`, `postSpeak → URL.createObjectURL(blob) → new Audio(url).play()`) is replaced with a Web Audio API progressive-decode player: `postSpeakStream()` → response body `getReader()` loop → accumulate first bytes until 44-byte RIFF/WAV header parseable (sample rate + channels + bit depth extracted) → for each subsequent PCM chunk, allocate `AudioBuffer`, copy PCM samples in (with correct bit-depth conversion), create `AudioBufferSourceNode`, schedule via a running `nextStartTime` clock so consecutive chunks play back-to-back gaplessly. Audio starts BEFORE synthesis completes (TTFB target ~30ms per Nelly's demo). Reference pattern: view-source at https://gigaashley.click/tts-demo/ (~50 lines of JS in the `<script>` block — Nelly said lift wholesale).
+- [ ] **TTSSTR-06**: Cross-bubble Stop / new-bubble-preempt semantics preserved. Current module-level `currentAudio` singleton pattern (`ChatMessage.tsx:87-93`) is adapted to Web Audio: singleton tracks the active `AudioContext` + array of scheduled `AudioBufferSourceNode`s + the fetch `ReadableStreamDefaultReader`. Starting a new bubble's speak (or clicking Stop) calls `.stop()` on every queued source node, `.cancel()` on the reader, and closes/nullifies the AudioContext, mirroring the existing "pause + revokeObjectURL + null singleton" tear-down. Error handling: fetch stream errors mid-response (transient network blip, TTS server drop, container recreate) abort scheduled sources, revert `speakState` to `idle`, no ugly click or trailing partial audio. Losing the `voice-api.ts:11-12` `dbHealthMonitor.isBackendUnreachable` auto-toast integration on the streaming path is acceptable (that integration is axios-specific; streaming errors are semantically different from database-unreachable).
+- [ ] **TTSSTR-07**: Existing `POST /voice/speak` (patch #223, buffered) is preserved BYTE-FOR-BYTE. IdentityModal voice preview continues calling it via `postSpeak()`. JWT auth (`authenticateJWT` middleware), 300s AbortController timeout, T-16-03 no-body-leak on non-2xx (`{error:"TTS non-2xx", status}` fixed shape), and 504 timeout / 502 proxy-error handling from patch #223 are all mirrored on the new streaming route. Ships as numbered patch #237 with a full `skynet-patches.md` entry (motivation, root cause vs previous approach, request-body-schema translation table, files touched, rebase risk, deploy note bundling with the held #198→#236 queue). End-to-end manual verify: click speak-button on a long assistant message in production Skynet, confirm audio begins playing well before synthesis completes.
+
 ## Out of Scope
 
 Explicit exclusions. Documented to prevent scope creep.
@@ -332,12 +342,21 @@ Which phases cover which requirements. Populated during roadmap creation.
 | IDMEDIT-07 | Phase 18 | Pending |
 | IDMEDIT-08 | Phase 18 | Pending |
 
+| TTSSTR-01 | Phase 19 | Pending |
+| TTSSTR-02 | Phase 19 | Pending |
+| TTSSTR-03 | Phase 19 | Pending |
+| TTSSTR-04 | Phase 19 | Pending |
+| TTSSTR-05 | Phase 19 | Pending |
+| TTSSTR-06 | Phase 19 | Pending |
+| TTSSTR-07 | Phase 19 | Pending |
+
 **Coverage:**
-- v1 requirements: 98 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12, 8 pending Phase 15, 6 pending Phase 17, 8 pending Phase 18)
-- Mapped to phases: 98 ✓
+- v1 requirements: 105 total (19 shipped, 5 pending Phase 3, 10 pending Phase 4, 14 pending Phase 5, 11 pending Phase 6, 7 pending Phase 7, 5 pending Phase 11, 5 pending Phase 12, 8 pending Phase 15, 6 pending Phase 17, 8 pending Phase 18, 7 pending Phase 19)
+- Mapped to phases: 105 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-17*
 *Last updated: 2026-07-28 — added RELAYBUB-01..06 for Phase 17 (pretty-view relay bubbles — Skynet integration; port validated prototype detectors + bubble rendering into src/ui/features/pretty-view/ as a message-turn extension)*
 *2026-07-31 — added IDMEDIT-01..08 for Phase 18 (identity modal — full editability across all tabs; markdown-tab editor shape locked from file-editing-in-identity-modal scratch UAT, bounty-field editor shape pending Wave B scratch prerequisite)*
+*2026-07-31 — added TTSSTR-01..07 for Phase 19 (streaming TTS output via Chatterbox /tts; replaces buffered path on bubble speak-button with Web Audio API progressive decode; iOS Safari spike passed on Ashley's iPhone PWA; IdentityModal voice-preview keeps calling buffered /voice/speak unchanged)*
