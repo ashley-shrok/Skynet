@@ -110,6 +110,7 @@ const BASE_IDENTITY: Identity = {
   displayName: "Tina",
   title: "Old title",
   colorHue: null,
+  voice: null,
   avatarMime: "image/png",
   avatarUrl: "/identities/id-1/avatar",
   avatarEtag: "etag-1",

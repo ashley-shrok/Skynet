@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, Clock, Handshake, Target, User, X } from "lucide-react";
+import { AlarmClock, Clock, Handshake, Target, User, Volume2, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -30,6 +30,7 @@ import { invalidateIdentity as invalidateBountyCount } from "@/state/bounty-coun
 // re-render without a manual refresh.
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
+import { postSpeak, getVoices, SAMPLE_PHRASE } from "@/api/voice-api";
 import {
   openClaudeSessionSocket,
   type Bounty,
@@ -171,6 +172,13 @@ export function IdentityModal({
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Patch #223: voice picker state
+  const [voices, setVoices] = useState<{ display_name: string; filename: string }[]>([]);
+  const [voiceDraft, setVoiceDraft] = useState<string>(identity.voice ?? "");
+  const [committedVoice, setCommittedVoice] = useState<string | null>(identity.voice ?? null);
+  // Sample playback refs
+  const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
+  const sampleUrlRef = useRef<string | null>(null);
 
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
   // Replaces the previous shadcn TabsList strip, which (a) aesthetically didn't
@@ -368,7 +376,32 @@ export function IdentityModal({
       if (prior) URL.revokeObjectURL(prior);
       return null;
     });
-  }, [open, identity.id, identity.title]);
+    // Patch #223: reset voice draft on open/identity switch
+    setVoiceDraft(identity.voice ?? "");
+    setCommittedVoice(identity.voice ?? null);
+  }, [open, identity.id, identity.title, identity.voice]);
+
+  // Patch #223: fetch available voices on modal open
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getVoices()
+      .then((list) => { if (!cancelled) setVoices(list); })
+      .catch(() => { if (!cancelled) setVoices([]); });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Patch #223: unmount cleanup for sample audio
+  useEffect(() => {
+    return () => {
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        if (sampleUrlRef.current) URL.revokeObjectURL(sampleUrlRef.current);
+        sampleAudioRef.current = null;
+        sampleUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // Cleanup: revoke the preview URL when the modal is unmounted mid-edit.
   useEffect(() => {
@@ -636,6 +669,34 @@ export function IdentityModal({
     setAvatarFile(file);
   }
 
+  // Patch #223: sample playback for voice picker
+  async function onSampleClick(): Promise<void> {
+    try {
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        if (sampleUrlRef.current) URL.revokeObjectURL(sampleUrlRef.current);
+        sampleAudioRef.current = null;
+        sampleUrlRef.current = null;
+      }
+      const blob = await postSpeak(SAMPLE_PHRASE, voiceDraft || undefined);
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      sampleAudioRef.current = audio;
+      sampleUrlRef.current = url;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        if (sampleAudioRef.current === audio) {
+          sampleAudioRef.current = null;
+          sampleUrlRef.current = null;
+        }
+      };
+      // patch #211 lesson: NEVER bare audio.play().catch(...)
+      Promise.resolve(audio.play()).catch(() => {});
+    } catch {
+      // swallow — handleApiError already logs
+    }
+  }
+
   // onSave: calls updateIdentity with the current draft title + picked file,
   // then broadcasts the fresh identity via applyIdentityChange so all
   // useIdentities() consumers (IdentityBadge, SessionRow, PrettyConversationRow,
@@ -648,6 +709,10 @@ export function IdentityModal({
       const meta: Record<string, unknown> = {};
       if (titleDraft !== committedTitle) {
         meta.title = titleDraft.trim() === "" ? null : titleDraft;
+      }
+      // Patch #223: include voice if it changed
+      if ((voiceDraft || null) !== committedVoice) {
+        meta.voice = voiceDraft === "" ? null : voiceDraft;
       }
       const updated = await updateIdentity(identity.id, meta, avatarFile);
       applyIdentityChange(updated);
@@ -662,6 +727,9 @@ export function IdentityModal({
       // Update committedTitle so the Save button correctly re-disables when
       // draft === saved truth (even if the identity prop hasn't re-rendered yet).
       setCommittedTitle(newTitle);
+      // Patch #223: update committed voice
+      setCommittedVoice(updated.voice ?? null);
+      setVoiceDraft(updated.voice ?? "");
       setSaveError(null);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
@@ -680,6 +748,8 @@ export function IdentityModal({
     });
     setAvatarFile(null);
     setSaveError(null);
+    // Patch #223: revert voice draft
+    setVoiceDraft(committedVoice ?? "");
   }
 
   return (
@@ -907,6 +977,62 @@ export function IdentityModal({
                 />
               </div>
 
+              {/* Patch #223: Voice picker */}
+              <div className="mb-3">
+                <label
+                  className="block text-xs text-[var(--color-pv-fg-muted)] mb-1"
+                  htmlFor="identity-voice-select"
+                >
+                  Voice
+                </label>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <select
+                    id="identity-voice-select"
+                    value={voiceDraft}
+                    onChange={(e) => setVoiceDraft(e.target.value)}
+                    disabled={saving}
+                    style={{
+                      flex: 1,
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(220,225,245,0.15)",
+                      borderRadius: 6,
+                      padding: "6px 10px",
+                      color: "#f0ebe0",
+                      fontSize: "0.875rem",
+                      outline: "none",
+                    }}
+                  >
+                    <option value="">(default)</option>
+                    {voices.map((v) => (
+                      <option key={v.filename} value={v.filename}>
+                        {v.display_name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    aria-label="Sample voice"
+                    onClick={() => { void onSampleClick(); }}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: 6,
+                      background: "rgba(0,0,0,0.28)",
+                      border: "1px solid rgba(255,255,255,0.10)",
+                      color: "rgba(255,220,170,0.72)",
+                      opacity: 0.62,
+                      cursor: "pointer",
+                    }}
+                    className="hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+                  >
+                    <Volume2 size={16} />
+                  </button>
+                </div>
+              </div>
+
               {/* Inline error */}
               {saveError && (
                 <p className="text-sm text-[color:var(--color-pv-code-fg)] mb-3">
@@ -921,7 +1047,7 @@ export function IdentityModal({
                   size="sm"
                   disabled={
                     saving ||
-                    (titleDraft === committedTitle && avatarFile === null)
+                    (titleDraft === committedTitle && avatarFile === null && (voiceDraft || null) === committedVoice)
                   }
                   onClick={() => { void onSave(); }}
                 >
