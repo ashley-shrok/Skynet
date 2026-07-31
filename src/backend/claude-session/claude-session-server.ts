@@ -24,6 +24,9 @@ import {
   readIdentityBounties,
   readIdentityPinnedBountyCount,
   writeIdentityWakeupUpdate,
+  writeIdentityFile,
+  writeIdentityHistory,
+  writeIdentityHandoff,
   writeIdentityBountyPriority,
   writeIdentityBountyStatus,
   writeIdentityBountyPinned,
@@ -54,6 +57,10 @@ import {
  *     { type: "identity:update-bounty-pinned", identityKey: string, hostId?: number, bountySlug: string, pinned: boolean } // quick 260728-sqk / patch #172: patch bounties/<slug>/bounty.json pinned field. `pinned` is an independent boolean orthogonal to status per fleet migration #168. Byte-shape mirror of update-bounty-status — flips the boolean, bumps updated_at, appends timeline line, folder untouched.
  *     { type: "identity:archive-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260727-wd0: server decides new status internally (flip live→done or preserve terminal), then mv bounties/<slug>/ under bounties/archive/<slug>/ (mkdir -p archive/ if absent). No client-supplied status field.
  *     { type: "identity:delete-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260729-g5r / patch #183: permanent rm -rf of a bounty folder. Applies to BOTH open (bounties/<slug>/) AND archived (bounties/archive/<slug>/) cards — server rm's both candidate paths with force:true so one call covers both locations. No confirmation gate here; window.confirm() lives in BountyCard.
+ *     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
+ *     { type: "identity:update-identity-file", identityKey: string, hostId: number, contents: string } // Phase 18: full-overwrite <key>/<key>.md via SFTP tmp+rename (REMOTE) or fs tmp+rename (LOCAL)
+ *     { type: "identity:update-history", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/history.md
+ *     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/handoff.md
  *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
  *     // reads from the local bind-mount (IDENTITIES_HOST_DIR); otherwise SSHes to the pane's host.
  *     // Response shapes UNCHANGED — only request payloads gain the optional hostId field.
@@ -85,6 +92,10 @@ import {
  *     { type: "identity:bounty-pinned-updated", bounties, archivedBounties, error?: string } // quick 260728-sqk / patch #172: response to identity:update-bounty-pinned (includes refreshed lists — normalizeBounty carries `pinned:boolean` on every bounty)
  *     { type: "identity:bounty-archived", bounties, archivedBounties, error?: string } // quick 260727-wd0: response to identity:archive-bounty (includes refreshed lists — bounty moved from `bounties` list to `archivedBounties` list)
  *     { type: "identity:bounty-deleted", bounties, archivedBounties, error?: string } // quick 260729-g5r / patch #183: response to identity:delete-bounty (includes refreshed lists — bounty drops out of BOTH lists since its folder is gone)
+ *     // Phase 18 / IDMEDIT-06: post-write echoes — server re-reads after write so client rehydrates from server-side truth:
+ *     { type: "identity:identity-file-updated", markdown: string, error?: string } // Phase 18: response to identity:update-identity-file (confirmed markdown post-write)
+ *     { type: "identity:history-updated", entries: string[], error?: string }       // Phase 18: response to identity:update-history (server re-reads + re-parses entries)
+ *     { type: "identity:handoff-updated", markdown: string, error?: string }        // Phase 18: response to identity:update-handoff (confirmed markdown post-write)
  *
  * Image frames carry inline base64 payloads: each `images[]` element is
  * `{ data: string, mediaType: string, toolUseId?: string }` where `data`
@@ -2147,6 +2158,205 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Phase 18 / IDMEDIT-06: identity:update-identity-file — full-overwrite
+    // <key>/<key>.md via SFTP tmp+rename (REMOTE) or fs tmp+rename (LOCAL).
+    // After write, re-reads the file via readIdentityFile so the client
+    // rehydrates from server-side truth. Mirror of identity:update-wakeup.
+    if (msg.type === "identity:update-identity-file") {
+      const raw = msg as { identityKey?: unknown; hostId?: unknown; contents?: unknown };
+      const rawKey = raw.identityKey;
+      const rawContents = raw.contents;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "invalid identityKey" })); } catch { /* ignore */ }
+        return;
+      }
+      if (typeof rawContents !== "string") {
+        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "contents must be a string" })); } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const contents = rawContents;
+      const rawHostId = raw.hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      try {
+        let markdown: string;
+        if (useLocal) {
+          await writeIdentityFile(null, identityKey, contents);
+          ({ markdown } = await readIdentityFile(null, identityKey));
+          sshLogger.info("identity:update-identity-file", {
+            operation: "identity_update_identity_file",
+            userId, identityKey, hostId: hostIdNum, useLocal: true,
+            bytes: Buffer.byteLength(contents, "utf-8"),
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            await writeIdentityFile(conn, identityKey, contents);
+            ({ markdown } = await readIdentityFile(conn, identityKey));
+            sshLogger.info("identity:update-identity-file", {
+              operation: "identity_update_identity_file",
+              userId, identityKey, hostId: hostIdNum, useLocal: false,
+              bytes: Buffer.byteLength(contents, "utf-8"),
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
+        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown })); } catch { /* ignore */ }
+      } catch (err) {
+        sshLogger.error(
+          "identity:update-identity-file unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_update_identity_file_error", userId, identityKey, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Phase 18 / IDMEDIT-06: identity:update-history — full-overwrite
+    // <key>/history.md. After write, re-reads via readIdentityHistory so the
+    // client receives parsed entries (mirrors HistoryTab's existing wire shape).
+    if (msg.type === "identity:update-history") {
+      const raw = msg as { identityKey?: unknown; hostId?: unknown; contents?: unknown };
+      const rawKey = raw.identityKey;
+      const rawContents = raw.contents;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        return;
+      }
+      if (typeof rawContents !== "string") {
+        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "contents must be a string" })); } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const contents = rawContents;
+      const rawHostId = raw.hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      try {
+        let entries: string[];
+        if (useLocal) {
+          await writeIdentityHistory(null, identityKey, contents);
+          ({ entries } = await readIdentityHistory(null, identityKey));
+          sshLogger.info("identity:update-history", {
+            operation: "identity_update_history",
+            userId, identityKey, hostId: hostIdNum, useLocal: true,
+            bytes: Buffer.byteLength(contents, "utf-8"),
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            await writeIdentityHistory(conn, identityKey, contents);
+            ({ entries } = await readIdentityHistory(conn, identityKey));
+            sshLogger.info("identity:update-history", {
+              operation: "identity_update_history",
+              userId, identityKey, hostId: hostIdNum, useLocal: false,
+              bytes: Buffer.byteLength(contents, "utf-8"),
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
+        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries })); } catch { /* ignore */ }
+      } catch (err) {
+        sshLogger.error(
+          "identity:update-history unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_update_history_error", userId, identityKey, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: err instanceof Error ? err.message : String(err) }));
+        } catch { /* ignore */ }
+      }
+      return;
+    }
+
+    // Phase 18 / IDMEDIT-06: identity:update-handoff — full-overwrite
+    // <key>/handoff.md. After write, re-reads via readIdentityHandoff so the
+    // client rehydrates from server-side truth.
+    if (msg.type === "identity:update-handoff") {
+      const raw = msg as { identityKey?: unknown; hostId?: unknown; contents?: unknown };
+      const rawKey = raw.identityKey;
+      const rawContents = raw.contents;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "invalid identityKey" })); } catch { /* ignore */ }
+        return;
+      }
+      if (typeof rawContents !== "string") {
+        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "contents must be a string" })); } catch { /* ignore */ }
+        return;
+      }
+      const identityKey = rawKey;
+      const contents = rawContents;
+      const rawHostId = raw.hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      try {
+        let markdown: string;
+        if (useLocal) {
+          await writeIdentityHandoff(null, identityKey, contents);
+          ({ markdown } = await readIdentityHandoff(null, identityKey));
+          sshLogger.info("identity:update-handoff", {
+            operation: "identity_update_handoff",
+            userId, identityKey, hostId: hostIdNum, useLocal: true,
+            bytes: Buffer.byteLength(contents, "utf-8"),
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            await writeIdentityHandoff(conn, identityKey, contents);
+            ({ markdown } = await readIdentityHandoff(conn, identityKey));
+            sshLogger.info("identity:update-handoff", {
+              operation: "identity_update_handoff",
+              userId, identityKey, hostId: hostIdNum, useLocal: false,
+              bytes: Buffer.byteLength(contents, "utf-8"),
+            });
+          } finally {
+            try { conn.end(); } catch { /* ignore */ }
+          }
+        }
+        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown })); } catch { /* ignore */ }
+      } catch (err) {
+        sshLogger.error(
+          "identity:update-handoff unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_update_handoff_error", userId, identityKey, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
         } catch { /* ignore */ }
       }
       return;
