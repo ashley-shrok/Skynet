@@ -660,11 +660,11 @@ Plans:
 
 **Bounty tracker:** `~/.claude/identities/tina/bounties/file-editing-in-identity-modal/` — the bounty Ashley parked 2026-07-31; expand it to cover the full phase scope. Scratch-iteration outcomes from THIS session (markdown-tab shape lock) feed the plan.
 
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 **Wave 1**
 
-- [ ] 18-01-PLAN.md — Shared backend atomic-write primitive: writeIdentityFile/History/Handoff + SFTP tmp+rename + WS handlers + wire types (IDMEDIT-06)
+- [x] 18-01-PLAN.md — Shared backend atomic-write primitive: writeIdentityFile/History/Handoff + SFTP tmp+rename + WS handlers + wire types (IDMEDIT-06)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

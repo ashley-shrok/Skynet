@@ -199,7 +199,7 @@ Deferred to future patches. Each add earns its way in as its own separate design
 - [ ] **IDMEDIT-03**: Handoff tab has the same edit shape as IDMEDIT-01, backed by `identity:update-handoff` WS payload (backend `writeIdentityHandoff` — full-file overwrite of `handoff.md`, atomic tmp+rename).
 - [ ] **IDMEDIT-04**: BountyCard exposes editable in-place editors for `title` (inline input), `premise` (textarea), `todos` (add / edit text / toggle done / remove / reorder), `keywords[]` (list editor), `source_links[]` (list editor), and `deadline` (date-or-datetime picker). All backed by a single `identity:update-bounty-fields` WS payload (partial JSON patch); backend `writeIdentityBountyFields` performs atomic tmp+rename, bumps `updated_at`, and appends a `<ISO-Z> <field> updated via identity modal` timeline entry per field changed. Existing edit surfaces (status/priority/pinned/archive/delete) unchanged; `id`, `created_at`, `updated_at`, `timeline[]` remain read-only.
 - [ ] **IDMEDIT-05**: All identity artifact writers (markdown + JSON) work over BOTH the LOCAL bind-mount branch (`fs.writeFile` via tmp) AND the REMOTE SSH branch (SFTP or chunked-stdin, chosen at plan time since `execCommand` in `tmux-helper.ts` does not currently support stdin). No "LOCAL only" limitations. Verified by editing e.g. nelly.md from Ashley's phone connected to skynet-ec2's Skynet against nelly's live identity folder on thenasty.
-- [ ] **IDMEDIT-06**: Every new WS write handler validates `identityKey` against `IDENTITY_KEY_RE` and (where applicable) bounty slug against `IDENTITY_SLUG_RE` BEFORE any shell/SSH interpolation. No new shell-escape gaps. Payload validation matches the existing update-wakeup handler's shape (typed guards per field, structured error responses via `identity:*-updated { error }` echoes).
+- [x] **IDMEDIT-06**: Every new WS write handler validates `identityKey` against `IDENTITY_KEY_RE` and (where applicable) bounty slug against `IDENTITY_SLUG_RE` BEFORE any shell/SSH interpolation. No new shell-escape gaps. Payload validation matches the existing update-wakeup handler's shape (typed guards per field, structured error responses via `identity:*-updated { error }` echoes).
 - [ ] **IDMEDIT-07**: Existing edit surfaces preserved byte-for-byte — Bounties status/priority/pinned/archive/delete (patch #154 + quick 260727-v0b + patch #172 + quick 260727-wd0 + quick 260729-g5r), Wakeups spec CRUD (patch #154 + quick 260731-2pa), and Identity-tab title/avatar/voice (quick 260731-1c8 + patch #223) continue to work unchanged. Read-only markdown display remains the default state after cancel/close.
 - [ ] **IDMEDIT-08**: `meeting_questions[]` (user-reserved per bounty schema, added 2026-07-08) surfaces in the bounty-field editor with add + mark-answered affordances only — no agent-only add path is introduced. `pinned` remains user-reserved via the existing header star toggle and is NOT surfaced as a bounty-field editor field.
 
@@ -328,7 +328,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | IDMEDIT-03 | Phase 18 | Pending |
 | IDMEDIT-04 | Phase 18 | Pending |
 | IDMEDIT-05 | Phase 18 | Pending |
-| IDMEDIT-06 | Phase 18 | Pending |
+| IDMEDIT-06 | Phase 18 | Complete |
 | IDMEDIT-07 | Phase 18 | Pending |
 | IDMEDIT-08 | Phase 18 | Pending |
 
