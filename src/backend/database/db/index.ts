@@ -499,6 +499,7 @@ async function initializeCompleteDatabase(): Promise<void> {
         host_id INTEGER NOT NULL,
         tmux_session TEXT NOT NULL DEFAULT '',
         body TEXT NOT NULL DEFAULT '',
+        queue_slots TEXT NOT NULL DEFAULT '[]',
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (user_id, host_id, tmux_session),
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -673,6 +674,11 @@ const migrateSchema = () => {
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
   addColumnIfNotExists("user_preferences", "pinned_conversation_ids", "TEXT");
+
+  // Bounty message-queue-in-pretty-view: queue_slots column for compose_drafts.
+  // Existing installs pick this up via addColumnIfNotExists; fresh installs get it
+  // from the CREATE TABLE IF NOT EXISTS block above.
+  addColumnIfNotExists("compose_drafts", "queue_slots", "TEXT NOT NULL DEFAULT '[]'");
 
   addColumnIfNotExists("user_open_tabs", "target_tmux_session", "TEXT");
 

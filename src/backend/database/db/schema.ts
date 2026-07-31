@@ -708,6 +708,7 @@ export const composeDrafts = sqliteTable("compose_drafts", {
     .references(() => hosts.id, { onDelete: "cascade" }),
   tmuxSession: text("tmux_session").notNull().default(""),
   body: text("body").notNull().default(""),
+  queueSlots: text("queue_slots").notNull().default("[]"),
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
