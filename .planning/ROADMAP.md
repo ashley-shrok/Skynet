@@ -660,7 +660,7 @@ Plans:
 
 **Bounty tracker:** `~/.claude/identities/tina/bounties/file-editing-in-identity-modal/` — the bounty Ashley parked 2026-07-31; expand it to cover the full phase scope. Scratch-iteration outcomes from THIS session (markdown-tab shape lock) feed the plan.
 
-**Plans:** 2/5 plans executed
+**Plans:** 4/5 plans executed
 
 **Wave 1**
 
@@ -672,11 +672,11 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion — BLOCKING scratch prerequisite)*
 
-- [ ] 18-03-PLAN.md — Bounty-field editor scratch UAT via docker-cp overlay; produces 18-03-SCRATCH-REPORT.md as the design-locked spec for Plan 05; no ship code committed (IDMEDIT-08)
+- [x] 18-03-PLAN.md — Bounty-field editor scratch UAT via docker-cp overlay; produces 18-03-SCRATCH-REPORT.md as the design-locked spec for Plan 05; no ship code committed (IDMEDIT-08)
 
 **Wave 4** *(blocked on Wave 3 SCRATCH-REPORT.md)*
 
-- [ ] 18-04-PLAN.md — Backend bounty-fields writer (writeIdentityBountyFields partial JSON patch, extended normalizeBounty, extended Bounty wire type, identity:update-bounty-fields WS handler) (IDMEDIT-04)
+- [x] 18-04-PLAN.md — Backend bounty-fields writer (writeIdentityBountyFields partial JSON patch, extended normalizeBounty, extended Bounty wire type, identity:update-bounty-fields WS handler) (IDMEDIT-04)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
