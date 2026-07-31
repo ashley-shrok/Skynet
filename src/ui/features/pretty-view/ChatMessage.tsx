@@ -1,11 +1,18 @@
+import React, { useRef, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ThumbsUp } from "lucide-react";
+import { ThumbsUp, Volume2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
+import { postSpeak } from "@/api/voice-api";
+
+// Module-level single-active-playback refs — one audio instance across all bubbles.
+let currentAudio: HTMLAudioElement | null = null;
+let currentAudioUrl: string | null = null;
+let currentAudioOwner: symbol | null = null;
 
 // Presentational chat bubble for one conversational message.
 //
@@ -38,11 +45,84 @@ import { CopyableBlock } from "./CopyableBlock";
 export function ChatMessage({
   role,
   content,
+  identityVoice = null,
 }: {
   role: "user" | "assistant";
   content: string;
+  identityVoice?: string | null;
 }) {
   const isUser = role === "user";
+  const bubbleIdRef = useRef(Symbol("speak-bubble"));
+  const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing">("idle");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Cleanup: revoke audio on unmount if this bubble owns it
+  useEffect(() => {
+    return () => {
+      if (currentAudioOwner === bubbleIdRef.current) {
+        currentAudio?.pause();
+        if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+        currentAudio = null;
+        currentAudioUrl = null;
+        currentAudioOwner = null;
+      }
+    };
+  }, []);
+
+  async function onSpeakClick(e: React.MouseEvent) {
+    e.stopPropagation();
+
+    // If this bubble is currently playing, stop it
+    if (speakState === "playing" && currentAudioOwner === bubbleIdRef.current) {
+      currentAudio?.pause();
+      if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+      currentAudio = null;
+      currentAudioUrl = null;
+      currentAudioOwner = null;
+      setSpeakState("idle");
+      return;
+    }
+
+    // If another bubble is playing, stop it first
+    if (currentAudio) {
+      currentAudio.pause();
+      if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+      currentAudio = null;
+      currentAudioUrl = null;
+      currentAudioOwner = null;
+    }
+
+    setSpeakState("loading");
+
+    try {
+      const text = containerRef.current?.innerText ?? content;
+      const blob = await postSpeak(text, identityVoice ?? undefined);
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      currentAudio = audio;
+      currentAudioUrl = url;
+      currentAudioOwner = bubbleIdRef.current;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudioOwner === bubbleIdRef.current) {
+          currentAudio = null;
+          currentAudioUrl = null;
+          currentAudioOwner = null;
+          setSpeakState("idle");
+        }
+      };
+
+      // patch #211 lesson: NEVER bare audio.play().catch(...) — jsdom returns undefined
+      Promise.resolve(audio.play()).catch(() => {});
+      setSpeakState("playing");
+    } catch {
+      setSpeakState("idle");
+      currentAudio = null;
+      currentAudioUrl = null;
+      currentAudioOwner = null;
+    }
+  }
   // Phase 05 Plan 03: sender-side chip render for injected user turns.
   // When a user-role message's content matches the exact format produced
   // by formatInjectedUserTurn (caption + \n\n + INJECTED_DELIMITER + \n +
@@ -80,6 +160,8 @@ export function ChatMessage({
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
+        ref={containerRef}
+        style={{ position: "relative" }}
         className={cn(
           // Phase 4 Glass: raised-object bubble treatment.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
@@ -187,6 +269,37 @@ export function ChatMessage({
           >
             {processedContent}
           </ReactMarkdown>
+        )}
+        {!isUser && (
+          <button
+            type="button"
+            onClick={(e) => { void onSpeakClick(e); }}
+            aria-label={speakState === "playing" ? "Stop speaking" : "Speak message"}
+            style={{
+              position: "absolute",
+              right: 6,
+              bottom: 6,
+              width: 28,
+              height: 28,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 6,
+              background: "rgba(0,0,0,0.28)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              color: "rgba(255,220,170,0.72)",
+              opacity: 0.62,
+              cursor: "pointer",
+              transition: "opacity 120ms, background 120ms, transform 80ms",
+            }}
+            className="hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+          >
+            {speakState === "loading" ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Volume2 size={16} />
+            )}
+          </button>
         )}
       </div>
     </div>

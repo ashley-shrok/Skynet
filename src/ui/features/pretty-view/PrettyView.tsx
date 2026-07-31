@@ -1261,6 +1261,7 @@ export function PrettyView({
                   <ChatMessage
                     role={m.role}
                     content={m.content}
+                    identityVoice={pvIdentity?.voice ?? null}
                   />
                 )}
               </div>

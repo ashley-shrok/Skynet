@@ -6,6 +6,7 @@ export interface Identity {
   displayName: string;
   title: string | null;
   colorHue: number | null;
+  voice: string | null;
   avatarMime: string;
   avatarUrl: string;
   avatarEtag: string;
@@ -18,6 +19,7 @@ export interface IdentityInput {
   displayName?: string;
   title?: string | null;
   colorHue?: number | null;
+  voice?: string | null;
 }
 
 function buildFormData(meta: IdentityInput, avatar: File | null): FormData {
