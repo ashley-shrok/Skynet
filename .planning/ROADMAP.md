@@ -660,7 +660,7 @@ Plans:
 
 **Bounty tracker:** `~/.claude/identities/tina/bounties/file-editing-in-identity-modal/` — the bounty Ashley parked 2026-07-31; expand it to cover the full phase scope. Scratch-iteration outcomes from THIS session (markdown-tab shape lock) feed the plan.
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed — Phase 18 COMPLETE 2026-07-31, Ashley UAT approved ("Great job.")
 
 **Wave 1**
 
@@ -680,4 +680,6 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 18-05-PLAN.md — BountyCard field editors (title/premise/todos/keywords/source_links/deadline/meeting_questions) + IdentityModal wiring + Ashley UAT walking bounty-field editors AND IDMEDIT-07 non-regression across all pre-existing edit surfaces (IDMEDIT-07)
+- [x] 18-05-PLAN.md — BountyCard field editors (title/premise/todos/keywords/source_links/deadline/meeting_questions) + IdentityModal wiring + Ashley UAT walking bounty-field editors AND IDMEDIT-07 non-regression across all pre-existing edit surfaces (IDMEDIT-07)
+
+**Deploy status:** HELD pending explicit skynet-ec2 recreate greenlight per fork DEPLOY DISCIPLINE. The current live container has SCRATCH BYTES from mid-UAT docker cp (Wave 1 + Wave 2 + cursor fix + Wave 4 + Wave 5 all live). The fork branch has ~15 new commits since ffaae0b ready to build+recreate.
