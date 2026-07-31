@@ -459,7 +459,10 @@ export function IdentityModal({
 
   async function updateWakeup(
     wakeupSlug: string,
-    updates: { enabled?: boolean; schedule?: unknown },
+    // Quick 260731-2pa: signature widened to also accept `name` +
+    // `instruction`. Form-based wakeup editor writes the full spec on Save.
+    // Server-side payload assembly + sendIdentityMutation are already generic.
+    updates: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string },
   ): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
     const payload: IdentityUpdateWakeupPayload = {
