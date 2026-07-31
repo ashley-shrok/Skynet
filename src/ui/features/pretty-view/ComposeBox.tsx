@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Hourglass, Lightbulb, ListPlus, Loader2, Paperclip, Plus, RefreshCw, RotateCcw, Square, Target, ThumbsUp, X } from "lucide-react";
+import { Lightbulb, ListPlus, Loader2, Paperclip, Plus, RefreshCw, RotateCcw, RotateCwFadingClock, Square, Target, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -1753,7 +1753,7 @@ export function ComposeBox({
                   ],
             )}
           >
-            <Hourglass className="size-4" />
+            <RotateCwFadingClock className="size-4" />
           </Button>
         </div>
       </div>
@@ -1997,7 +1997,7 @@ export function ComposeBox({
             without hiding whatever the user composed. */}
         {queueArmed && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pointer-events-none rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]">
-            <Hourglass className="size-5 text-[hsla(38,70%,72%,0.9)]" />
+            <RotateCwFadingClock className="size-5 text-[hsla(38,70%,72%,0.9)]" />
             <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
               Queued — waiting for idle
             </span>
