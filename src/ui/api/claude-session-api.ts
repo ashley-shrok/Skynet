@@ -381,6 +381,12 @@ export type IdentityHandoffEvent = { type: "identity:handoff"; markdown: string;
 // like the read handlers — client opens a WS, sends the update, receives the
 // FRESH list, closes. Fresh-list-in-response saves a follow-up read round-trip
 // and gives the modal an atomic swap.
+//
+// Quick 260731-2pa: `IdentityUpdateWakeupPayload.updates` widened to also
+// carry `name?: string` and `instruction?: string` — the form-based editor
+// in WakeupsTab.tsx writes the full spec on Save (all four fields), so the
+// wire type has to allow all four. Backend server + WakeupUpdate type mirror
+// the widening.
 
 export const BOUNTY_PRIORITY_VALUES = [
   "urgent",
@@ -412,7 +418,14 @@ export type IdentityUpdateWakeupPayload = {
   hostId: number;
   /** filename stem of wakeups/<slug>.json — regex-validated on the server. */
   wakeupSlug: string;
-  updates: { enabled?: boolean; schedule?: unknown };
+  updates: {
+    enabled?: boolean;
+    schedule?: unknown;
+    // Quick 260731-2pa: `name` (non-empty string) and `instruction` (string)
+    // added — form-based wakeup editor writes the full spec on Save.
+    name?: string;
+    instruction?: string;
+  };
 };
 export type IdentityWakeupUpdatedEvent = {
   type: "identity:wakeup-updated";

@@ -645,8 +645,21 @@ export async function readIdentityBounties(
 // universally installed on identity boxes; python3 IS, because the scheduler
 // itself is python3). The one-liner writes to a temp file and moves into
 // place so a mid-write kill can't leave a truncated JSON file.
+//
+// Quick 260731-2pa: `WakeupUpdate` widened to also accept `name` and
+// `instruction`. The form-based editor in WakeupsTab.tsx (which replaces the
+// raw JSON schedule textarea from patch #154) writes the full spec on Save
+// — {name, enabled, schedule, instruction} — so all four fields need a
+// write path. The remote-branch python script's generic `for k,v in
+// u.items(): d[k]=v` already merges any key; only the local branch needs
+// the two new explicit assignments.
 
-export type WakeupUpdate = { enabled?: boolean; schedule?: unknown };
+export type WakeupUpdate = {
+  enabled?: boolean;
+  schedule?: unknown;
+  name?: string;
+  instruction?: string;
+};
 
 /** Merge `updates` into wakeups/<wakeupSlug>.json. Caller validates slug
  *  against IDENTITY_SLUG_RE before invoking. Throws on filesystem/parse errors
@@ -673,6 +686,17 @@ export async function writeIdentityWakeupUpdate(
   if (updates.enabled !== undefined && typeof updates.enabled !== "boolean") {
     throw new Error("enabled must be a boolean");
   }
+  // Quick 260731-2pa: name/instruction guards. name must be a non-empty
+  // string (empty-name spec files break the scheduler's dedup key); instruction
+  // is any string (including empty, in case the user clears it).
+  if (updates.name !== undefined) {
+    if (typeof updates.name !== "string" || updates.name.length === 0) {
+      throw new Error("name must be a non-empty string");
+    }
+  }
+  if (updates.instruction !== undefined && typeof updates.instruction !== "string") {
+    throw new Error("instruction must be a string");
+  }
 
   if (conn === null) {
     const root = getLocalIdentitiesRoot();
@@ -681,6 +705,10 @@ export async function writeIdentityWakeupUpdate(
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (updates.enabled !== undefined) parsed.enabled = updates.enabled;
     if (updates.schedule !== undefined) parsed.schedule = updates.schedule;
+    // Quick 260731-2pa: name/instruction assignment. Remote branch's python
+    // one-liner already merges these generically — no script change needed.
+    if (updates.name !== undefined) parsed.name = updates.name;
+    if (updates.instruction !== undefined) parsed.instruction = updates.instruction;
     const next = JSON.stringify(parsed, null, 2) + "\n";
     // Atomic-ish write: temp file + rename (fs.writeFile is not atomic on
     // its own; a mid-write crash can leave a truncated file). Same guard the

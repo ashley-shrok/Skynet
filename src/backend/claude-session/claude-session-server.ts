@@ -2048,6 +2048,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Patch #154: identity:update-wakeup — patch a single wakeups/<slug>.json
     // (enabled and/or schedule) and return the fresh list so the modal can
     // atomically re-render. Same local/SSH routing as list-wakeups.
+    //
+    // Quick 260731-2pa: `updates` widened to also accept `name` (non-empty
+    // string) and `instruction` (string). Backs the form-based editor in
+    // WakeupsTab.tsx which writes the full spec on Save. Filter, validate,
+    // and thread each field into `filtered` the same way enabled/schedule
+    // already do; the `no updates` guard now considers all four.
     if (msg.type === "identity:update-wakeup") {
       const raw = msg as { identityKey?: unknown; hostId?: unknown; wakeupSlug?: unknown; updates?: unknown };
       const rawKey = raw.identityKey;
@@ -2067,8 +2073,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
       const identityKey = rawKey;
       const wakeupSlug = rawSlug;
-      const updates = rawUpdates as { enabled?: unknown; schedule?: unknown };
-      const filtered: { enabled?: boolean; schedule?: unknown } = {};
+      const updates = rawUpdates as { enabled?: unknown; schedule?: unknown; name?: unknown; instruction?: unknown };
+      const filtered: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string } = {};
       if (updates.enabled !== undefined) {
         if (typeof updates.enabled !== "boolean") {
           try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "enabled must be boolean" })); } catch { /* ignore */ }
@@ -2079,7 +2085,21 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (updates.schedule !== undefined) {
         filtered.schedule = updates.schedule;
       }
-      if (filtered.enabled === undefined && filtered.schedule === undefined) {
+      if (updates.name !== undefined) {
+        if (typeof updates.name !== "string" || updates.name.length === 0) {
+          try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "name must be a non-empty string" })); } catch { /* ignore */ }
+          return;
+        }
+        filtered.name = updates.name;
+      }
+      if (updates.instruction !== undefined) {
+        if (typeof updates.instruction !== "string") {
+          try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "instruction must be a string" })); } catch { /* ignore */ }
+          return;
+        }
+        filtered.instruction = updates.instruction;
+      }
+      if (filtered.enabled === undefined && filtered.schedule === undefined && filtered.name === undefined && filtered.instruction === undefined) {
         try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "no updates" })); } catch { /* ignore */ }
         return;
       }
