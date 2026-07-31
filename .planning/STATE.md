@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-07-31T18:17:14.879Z"
+status: executing
+last_updated: "2026-07-31T23:31:38.438Z"
 last_activity: 2026-07-31
 progress:
-  total_phases: 19
-  completed_phases: 12
-  total_plans: 75
-  completed_plans: 70
-  percent: 63
+  total_phases: 20
+  completed_phases: 13
+  total_plans: 80
+  completed_plans: 72
+  percent: 65
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 16 — voice-input-in-composebox-mic-button-tap-to-record-stt-via-s
+**Current focus:** Phase 19 — streaming-tts-output-via-chatterbox-tts-endpoint
 
 ## Current Position
 
-Phase: 16 (voice-input-in-composebox-mic-button-tap-to-record-stt-via-s) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-07-31 - Completed quick task 260731-ulo: enable mic + paperclip during session recycle in ComposeBox (patch #236)
+Phase: 19 (streaming-tts-output-via-chatterbox-tts-endpoint) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-07-31
 
 Prior activity: 2026-07-31 — Completed quick task 260731-r81: fix "Server connection lost, recovering…" toast that fired when the pretty-view speak button was used on a long assistant message. Ashley bounty-driven (`speak-button-long-message-triggers-connection-lost-popup` — pinned, verbatim parked earlier this session via `/bounty`: "'Server connection lost, recovering…' popup happens when i try to use speak button on a long message"). Root cause diagnosed: both the frontend axios call in `postSpeak` (bound to `authApi`'s default 30s timeout at `main-axios.ts:306`) and the backend `handleSpeak` AbortController (`src/backend/database/routes/voice.ts:147`, `setTimeout(..., 30_000)`) timed out before Chatterbox TTS finished synthesizing long text — one path throws `code=ECONNABORTED` "timeout of 30000ms exceeded" (client trips first), the other returns 504 `{error: "TTS timeout"}` (backend trips first). Either path lands in `main-axios.ts:530`'s response interceptor which calls `dbHealthMonitor.reportDatabaseError()`; the `isBackendUnreachable` predicate matches BOTH `errorCode === "ECONNABORTED"` and `lowerMessage.includes("timeout")`, so it emits `database-connection-degraded` → `AppShell.tsx:646` renders toast `common.connectionDegraded` = "Server connection lost, recovering…" (`locales/en.json:115`), which sticks until any other request succeeds. The 30s cap was inherited unthinkingly from `handleTranscribe`'s T-16-02 STT timeout when patch #223 added TTS support last session — STT clips are small + fast, TTS synthesis scales with text length, and `SPEAK_TEXT_MAX = 25000` chars can take minutes at Chatterbox's rate. Vehicle sizing per ROADMAP check: no `speak-button-connection-lost` phase in ROADMAP.md, ~10 lines of code across two files with no design decisions → `/gsd:quick` (not plan-phase, not ad-hoc — the two-file cross-tree scope + typecheck + full-suite value justify the ceremony). Fix (two atomic code commits on `feat/tab-title-from-tmux`): `d7ab821` bumps `handleSpeak`'s AbortController from `30_000` → `300_000` ms (5 min) with an inline comment explaining the 10× asymmetry vs `handleTranscribe`; `c8f75ae` adds explicit `timeout: 300_000` to `postSpeak`'s axios config object overriding `authApi`'s 30s default, with a matching inline comment. Deliberately NOT touched (per plan leave-alone list, verified via `git diff --name-only HEAD~2 HEAD`): `handleTranscribe` (still 30s — STT scope preserved), `handleListVoices` (still 30s), `getVoices` (still uses authApi 30s default), `main-axios.ts` global default, `db-health-monitor.ts::isBackendUnreachable` predicate, all locale files, all AppShell toast wiring, `ChatMessage.speak.test.tsx` + `IdentityModal.voice.test.tsx` (both mock `postSpeak` at the module boundary so the timeout value isn't observed — remained green untouched). Sanity greps corroborate: `setTimeout(..., 30_000)` count in `voice.ts` = 2 (handleTranscribe + handleListVoices only), `setTimeout(..., 300_000)` count = 1 (handleSpeak), `timeout: 300_000` in `voice-api.ts` = 1 (postSpeak only), zero timeout key added to `getVoices`. Verification: `npm run build:backend` EXIT 0 per patch #154 mandatory-for-backend-touching rule; `npm run build` EXIT 0 (frontend bundle 4.28s); full `npx vitest run --reporter=verbose` = **947 passed / 6 skipped / 0 failed across 82 files** — matches the `8e01c93` baseline exactly (no regressions); independent grep of `/tmp/r81-vitest.log` for `FAIL|failed|✗` per tina.md L508 preference (#209→#211 arc) — 17 hits all benign (application-level `[INFO]` log lines from tests that intentionally exercise failure paths + `--reporter=verbose` printing test names containing the word "failed" + expected `Network Error` lines from voice-api error-handling suites); zero `Unhandled|Rejection` matches outside expected test scopes. Two atomic commits scope-clean: `git show --name-only d7ab821` = 1 file (`src/backend/database/routes/voice.ts`), `git show --name-only c8f75ae` = 1 file (`src/ui/api/voice-api.ts`) — no identity-side files touched (per h8f-vs-hn8 executor-scope split, Tina updates skynet-patches.md + bounty archive AS ORCHESTRATOR after this row); no git worktrees used (fleet rule 2026-07-31 verified via `workflow.use_worktrees=false` in gsd config); no push, no `docker build`, no `docker compose up --force-recreate` — stopped at commit boundary per fleet rule (Ashley 2026-07-27). Ships as patch #231 in `~/.claude/identities/tina/skynet-patches.md`. Closes pinned bounty `~/.claude/identities/tina/bounties/speak-button-long-message-triggers-connection-lost-popup/` — status stays `in_progress` + `pinned` per through-line rule until it archives on batch deploy (observable fix requires the container to carry the new bundle; #231's fix only takes effect post-recreate). Ninth atomic entry in the pinned-bounties multi-session work-through-all-pinned-bounties arc (after #215 copy-button + #216 overlay-behind-badge + #217 attach-inside-textarea + #218 alphabetical-ordering + #219 identity title+avatar + #220 wakeup-form-editor + #221 message-queue + #222 idle-icon-swap + #223 speak-messages + #224–#228 identity-modal-full-editability Phase 18 + #229 bubble-padding + #230 A+B URL-hash-restore). Deploy queue extends to #198→#231 (~52 unpushed-to-container commits); still HELD until Ashley's ship word on the batch recreate. Rebase risk: nil — both timeout call sites are fork-authored (patch #155 for handleTranscribe scaffolding, patch #223 for handleSpeak).
 
@@ -59,7 +59,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 97%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -103,6 +103,7 @@ Progress: [██████████] 97%
 | Phase 16 P02 | 282 | 2 tasks | 5 files |
 | Phase 16 P04 | 125 | 1 tasks | 1 files |
 | Phase 18 P04 | 25m | 3 tasks | 3 files |
+| Phase 19 P01 | 203 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -296,6 +297,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-31T18:17:09.031Z
+Last session: 2026-07-31T23:31:38.393Z
 Stopped at: Completed quick-260730-mj2 (sticky-scroll-strip): 2 atomic commits on feat/tab-title-from-tmux (8fa7c82, 5c176ad); NOT pushed, NOT built, NOT deployed.
 Resume file: None
