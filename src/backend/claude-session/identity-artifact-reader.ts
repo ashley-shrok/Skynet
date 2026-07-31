@@ -674,6 +674,27 @@ export type WakeupUpdate = {
   instruction?: string;
 };
 
+/**
+ * Partial-patch shape for writeIdentityBountyFields.
+ *
+ * MUST stay in sync with BountyFieldsPatch in src/ui/api/claude-session-api.ts
+ * (backend↔frontend tsconfig boundary prevents a direct import — the UI tsconfig
+ * uses browser globals that fail under the Node-targeted backend tsconfig).
+ *
+ * `pinned` is intentionally absent — it has its own handler (writeIdentityBountyPinned).
+ * `meeting_questions` accepts writes from any authenticated caller; user-only-authored
+ * semantics are a UI convention, not wire enforcement (IDMEDIT-08 / SCRATCH-REPORT.md).
+ */
+export type BountyFieldsPatch = {
+  title?: string;
+  premise?: string;
+  todos?: { text: string; done: boolean }[];
+  keywords?: string[];
+  source_links?: string[];
+  deadline?: string | null;
+  meeting_questions?: { text: string; answered: boolean }[];
+};
+
 /** Merge `updates` into wakeups/<wakeupSlug>.json. Caller validates slug
  *  against IDENTITY_SLUG_RE before invoking. Throws on filesystem/parse errors
  *  or if the spec file doesn't exist. */
@@ -787,6 +808,12 @@ export async function writeIdentityWakeupUpdate(
  *  2MB is generous for identity files (nelly.md is ~40KB) while capping DoS. */
 export const IDMEDIT_MAX_MARKDOWN_BYTES = 2_000_000;
 
+/** Maximum UTF-8 byte size for bounty.json after a partial-patch write.
+ *  100KB cap prevents a crafted todos[]/meeting_questions[] from bloating
+ *  bounty.json to an absurd size (T-18-19). Checked on the serialized
+ *  post-patch JSON BEFORE the write on both LOCAL and REMOTE branches. */
+export const IDMEDIT_MAX_BOUNTY_JSON_BYTES = 100_000;
+
 /**
  * Private SFTP helper — promise-wraps conn.sftp → sftp.writeFile(tmp) →
  * sftp.rename(tmp, target). On any error: best-effort sftp.unlink(tmp)
@@ -845,6 +872,34 @@ async function writeMarkdownFileAtomic(
     // Best-effort cleanup of the .tmp file — fire-and-forget
     sftp.unlink(tmpPath, () => {});
     throw err;
+  } finally {
+    sftp.end();
+  }
+}
+
+/**
+ * Private SFTP helper — reads a remote file into a Buffer via SFTP.
+ * Promise-wraps conn.sftp → sftp.readFile(remotePath) → sftp.end() in finally.
+ * Returns Buffer (sftp.readFile default). Throws on any SSH/SFTP error.
+ *
+ * Mirrors writeMarkdownFileAtomic's promise-wrap discipline. Used by the
+ * REMOTE branch of writeIdentityBountyFields so JSON mutation stays in Node
+ * process memory rather than being piped through a python shell script.
+ */
+async function sftpReadFile(conn: SSHClientType, remotePath: string): Promise<Buffer> {
+  const sftp: SFTPWrapper = await new Promise<SFTPWrapper>((resolve, reject) => {
+    conn.sftp((err, s) => {
+      if (err) return reject(err);
+      resolve(s);
+    });
+  });
+  try {
+    return await new Promise<Buffer>((resolve, reject) => {
+      sftp.readFile(remotePath, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
   } finally {
     sftp.end();
   }
@@ -1152,6 +1207,200 @@ export async function writeIdentityBountyPinned(
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
     `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
+// 8c. writeIdentityBountyFields — partial-JSON-patch write for bounty fields
+// ---------------------------------------------------------------------------
+//
+// Phase 18 / IDMEDIT-04: accepts a partial patch object and writes ONLY the
+// fields present in the patch to bounty.json. Server-owned fields (id,
+// created_at, updated_at, timeline, pinned, requested_by) are never writable
+// via this handler — the changedFields list is derived from the caller's patch
+// object, and updated_at + timeline are unconditionally re-assigned after the
+// merge so the server clock always wins (T-18-17 / T-18-22).
+//
+// REMOTE branch uses SFTP to read+write (no python pipe) — the JSON mutation
+// lives in Node process memory so arbitrary-size content (todos[], meeting_
+// questions[]) is handled safely. writeMarkdownFileAtomic is reused for the
+// SFTP tmp+rename write half (accepts arbitrary UTF-8 content despite its name).
+//
+// `pinned` is explicitly rejected via an upfront guard — it has its own handler
+// (writeIdentityBountyPinned). Per SCRATCH-REPORT.md IDMEDIT-08 locked semantics,
+// `meeting_questions` is accepted from any authenticated caller (user-reserved-
+// authoring is a UI convention, not a wire enforcement).
+
+/** ALLOWED_PATCH_KEYS: the only keys in BountyFieldsPatch that may be written.
+ *  Any key NOT in this set that the caller sneaks into the patch is silently
+ *  ignored because changedFields is derived from this set intersected with the
+ *  caller's own keys (T-18-17). */
+const ALLOWED_BOUNTY_PATCH_KEYS = new Set<string>([
+  "title",
+  "premise",
+  "todos",
+  "keywords",
+  "source_links",
+  "deadline",
+  "meeting_questions",
+]);
+
+/**
+ * Partial-JSON-patch writer for bounty.json's editable fields.
+ *
+ * patch: object with optional title?, premise?, todos?, keywords?,
+ *   source_links?, deadline?, meeting_questions?. Only present keys are
+ *   written; unmentioned fields are untouched. pinned is explicitly rejected.
+ *
+ * LOCAL branch: fs.readFile → JSON.parse → merge → JSON.stringify → tmp+rename.
+ * REMOTE branch: sftpReadFile → JSON.parse → merge → JSON.stringify →
+ *   writeMarkdownFileAtomic (SFTP tmp+rename). Both branches enforce:
+ *   - per-field type validation BEFORE any I/O
+ *   - IDMEDIT_MAX_BOUNTY_JSON_BYTES byte-cap on serialized post-patch JSON
+ *   - updated_at unconditionally bumped to server clock
+ *   - one timeline entry per changed field key
+ */
+export async function writeIdentityBountyFields(
+  conn: SSHClientType | null,
+  identityKey: string,
+  bountySlug: string,
+  patch: BountyFieldsPatch,
+): Promise<void> {
+  // --- Upfront guard: pinned is not writable via this handler ---
+  if ("pinned" in patch) {
+    throw new Error("pinned is not editable via update-bounty-fields; use update-bounty-pinned");
+  }
+
+  // --- Per-field type validation (BEFORE any file I/O) ---
+  if (patch.title !== undefined) {
+    if (typeof patch.title !== "string" || patch.title.length > 500) {
+      throw new Error("title must be a string of at most 500 chars");
+    }
+  }
+  if (patch.premise !== undefined) {
+    if (typeof patch.premise !== "string" || patch.premise.length > 50000) {
+      throw new Error("premise must be a string of at most 50000 chars");
+    }
+  }
+  if (patch.todos !== undefined) {
+    if (!Array.isArray(patch.todos)) {
+      throw new Error("todos must be an array of { text: string; done: boolean }");
+    }
+    for (const item of patch.todos) {
+      if (
+        typeof item !== "object" || item === null ||
+        typeof item.text !== "string" || item.text.length > 5000 ||
+        typeof item.done !== "boolean"
+      ) {
+        throw new Error("todos must be an array of { text: string; done: boolean }");
+      }
+    }
+  }
+  if (patch.keywords !== undefined) {
+    if (!Array.isArray(patch.keywords)) {
+      throw new Error("keywords must be an array of strings");
+    }
+    for (const kw of patch.keywords) {
+      if (typeof kw !== "string" || kw.length > 200) {
+        throw new Error("keywords must be an array of strings each at most 200 chars");
+      }
+    }
+  }
+  if (patch.source_links !== undefined) {
+    if (!Array.isArray(patch.source_links)) {
+      throw new Error("source_links must be an array of strings");
+    }
+    for (const link of patch.source_links) {
+      if (typeof link !== "string" || link.length > 2000) {
+        throw new Error("source_links must be an array of strings each at most 2000 chars");
+      }
+    }
+  }
+  if (patch.deadline !== undefined && patch.deadline !== null) {
+    if (typeof patch.deadline !== "string") {
+      throw new Error("deadline must be a string (ISO-8601) or null to clear");
+    }
+  }
+  if (patch.meeting_questions !== undefined) {
+    if (!Array.isArray(patch.meeting_questions)) {
+      throw new Error("meeting_questions must be an array of { text: string; answered: boolean }");
+    }
+    for (const mq of patch.meeting_questions) {
+      if (
+        typeof mq !== "object" || mq === null ||
+        typeof mq.text !== "string" || mq.text.length > 5000 ||
+        typeof mq.answered !== "boolean"
+      ) {
+        throw new Error("meeting_questions must be an array of { text: string; answered: boolean }");
+      }
+    }
+  }
+
+  // Derive the list of fields actually being changed (only ALLOWED keys).
+  // Using ALLOWED_BOUNTY_PATCH_KEYS ensures a client that sneaks extra keys
+  // (e.g. { id: "attacker" }) cannot stomp server-owned fields (T-18-17).
+  const changedFields = Object.keys(patch).filter(
+    (k) => ALLOWED_BOUNTY_PATCH_KEYS.has(k) && (patch as Record<string, unknown>)[k] !== undefined,
+  );
+  if (changedFields.length === 0) {
+    throw new Error("no updates");
+  }
+
+  const nowIso = new Date().toISOString();
+  const timelineLines = changedFields.map((f) => `${nowIso} ${f} updated via identity modal`);
+
+  if (conn === null) {
+    // LOCAL branch — fs.readFile → JSON.parse → merge → JSON.stringify → tmp+rename
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, "bounties", bountySlug, "bounty.json");
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // Apply only ALLOWED changed keys (T-18-17: server-owned fields untouched)
+    for (const k of changedFields) {
+      parsed[k] = (patch as Record<string, unknown>)[k];
+    }
+    // Unconditional server-clock overwrite — client cannot suppress these (T-18-22)
+    parsed.updated_at = nowIso;
+    const tl = Array.isArray(parsed.timeline) ? [...parsed.timeline] : [];
+    for (const line of timelineLines) tl.push(line);
+    parsed.timeline = tl;
+    const next = JSON.stringify(parsed, null, 2) + "\n";
+    if (Buffer.byteLength(next, "utf-8") > IDMEDIT_MAX_BOUNTY_JSON_BYTES) {
+      throw new Error("bounty JSON exceeds IDMEDIT_MAX_BOUNTY_JSON_BYTES");
+    }
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, next, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  // REMOTE branch — SFTP read → Node merge → SFTP tmp+rename write
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json`;
+  // Read current bounty.json via SFTP into Node process memory
+  const currentBytes = await sftpReadFile(conn, targetPath);
+  const parsed = JSON.parse(currentBytes.toString("utf-8")) as Record<string, unknown>;
+  // Apply only ALLOWED changed keys (T-18-17: server-owned fields untouched)
+  for (const k of changedFields) {
+    parsed[k] = (patch as Record<string, unknown>)[k];
+  }
+  // Unconditional server-clock overwrite — client cannot suppress these (T-18-22)
+  parsed.updated_at = nowIso;
+  const tl = Array.isArray(parsed.timeline) ? [...parsed.timeline] : [];
+  for (const line of timelineLines) tl.push(line);
+  parsed.timeline = tl;
+  const next = JSON.stringify(parsed, null, 2) + "\n";
+  if (Buffer.byteLength(next, "utf-8") > IDMEDIT_MAX_BOUNTY_JSON_BYTES) {
+    throw new Error("bounty JSON exceeds IDMEDIT_MAX_BOUNTY_JSON_BYTES");
+  }
+  // Write via SFTP tmp+rename — reuses writeMarkdownFileAtomic (generic UTF-8
+  // content helper despite its name; the SFTP tmp+rename logic is content-agnostic)
+  await writeMarkdownFileAtomic(conn, targetPath, next);
 }
 
 // ---------------------------------------------------------------------------
