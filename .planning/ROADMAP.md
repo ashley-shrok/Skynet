@@ -660,7 +660,7 @@ Plans:
 
 **Bounty tracker:** `~/.claude/identities/tina/bounties/file-editing-in-identity-modal/` — the bounty Ashley parked 2026-07-31; expand it to cover the full phase scope. Scratch-iteration outcomes from THIS session (markdown-tab shape lock) feed the plan.
 
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 **Wave 1**
 
@@ -668,7 +668,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 18-02-PLAN.md — Markdown-tab editors (IdentityFileTab, HistoryTab, HandoffTab) with Edit/Save/Cancel toolbar + Ashley UAT covering LOCAL and REMOTE (nelly on thenasty) writes (IDMEDIT-01, IDMEDIT-02, IDMEDIT-03, IDMEDIT-05)
+- [x] 18-02-PLAN.md — Markdown-tab editors (IdentityFileTab, HistoryTab, HandoffTab) with Edit/Save/Cancel toolbar + Ashley UAT covering LOCAL and REMOTE (nelly on thenasty) writes (IDMEDIT-01, IDMEDIT-02, IDMEDIT-03, IDMEDIT-05)
 
 **Wave 3** *(blocked on Wave 2 completion — BLOCKING scratch prerequisite)*
 
