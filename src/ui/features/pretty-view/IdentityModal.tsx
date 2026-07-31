@@ -58,6 +58,9 @@ import {
   type IdentityBountyArchivedEvent,
   type IdentityDeleteBountyPayload,
   type IdentityBountyDeletedEvent,
+  type BountyFieldsPatch,
+  type IdentityUpdateBountyFieldsPayload,
+  type IdentityBountyFieldsUpdatedEvent,
   type Wakeup,
   // Phase 18 / IDMEDIT-01,02,03: markdown-tab write wire types from Plan 01
   type IdentityUpdateIdentityFilePayload,
@@ -662,6 +665,39 @@ export function IdentityModal({
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
+  // Phase 18 / IDMEDIT-04 / Plan 05: byte-shape mirror of updateBountyPriority
+  // for the bounty field editor write surface. Accepts a partial patch covering
+  // any subset of the seven editable fields (title, premise, todos, keywords,
+  // source_links, deadline, meeting_questions); server merges only the provided
+  // keys. invalidateBountyCount fire-and-forget matches the existing convention
+  // (a field edit such as todos-done-toggle or meeting_questions-add can
+  // indirectly affect counts in future derivation expansions).
+  async function updateBountyFields(
+    bountySlug: string,
+    patch: BountyFieldsPatch,
+  ): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateBountyFieldsPayload = {
+      type: "identity:update-bounty-fields",
+      identityKey: identity.identityKey,
+      hostId,
+      bountySlug,
+      patch,
+    };
+    const res = await sendIdentityMutation<
+      IdentityUpdateBountyFieldsPayload,
+      IdentityBountyFieldsUpdatedEvent
+    >(payload, "identity:bounty-fields-updated");
+    if (res.error) throw new Error(res.error);
+    setBounties(res.bounties);
+    setArchivedBounties(res.archivedBounties);
+    // Rebuild the pinned-count cache — a field edit (especially todos state
+    // changes or a meeting_questions add) can flip counts indirectly if the
+    // panel's count derivation ever expands beyond raw pinned. Fire-and-
+    // forget matches the existing convention.
+    void invalidateBountyCount(identity.identityKey, hostId);
+  }
+
   // Quick 260727-wd0: byte-shape mirror of updateBountyStatus for the
   // archive write surface. Payload has NO status field — server decides
   // internally (flip live→done or preserve terminal). Same fresh-list
@@ -1231,6 +1267,14 @@ export function IdentityModal({
                             // to sortedArchive.map below — permanent rm -rf
                             // applies regardless of location (locked D-2).
                             onDelete={() => deleteBounty(b.slug)}
+                            // Phase 18 / IDMEDIT-04 / Plan 05: field editors
+                            // threaded for ALL THREE OPEN partitions
+                            // (pinned / in_progress / rest / other via
+                            // OPEN_STATUS_ORDER). Archived cards also get
+                            // field editors (sortedArchive.map below) since
+                            // even archived bounties can have fields edited
+                            // (e.g. retrospective meeting_question).
+                            onFieldsChange={(patch) => updateBountyFields(b.slug, patch)}
                           />
                         ))}
                       </div>
@@ -1273,6 +1317,14 @@ export function IdentityModal({
                                  — permanent delete applies to archived cards
                                  too (locked design D-2). */
                               onDelete={() => deleteBounty(b.slug)}
+                              // Phase 18 / IDMEDIT-04 / Plan 05: field editors
+                              // threaded for archived cards too — archived
+                              // bounties can still have fields edited (e.g.
+                              // add a retrospective meeting_question). SCRATCH-
+                              // REPORT may gate specific fields read-only
+                              // inside the card (none locked as read-only in
+                              // the report for archived cards).
+                              onFieldsChange={(patch) => updateBountyFields(b.slug, patch)}
                             />
                           ))}
                         </div>
