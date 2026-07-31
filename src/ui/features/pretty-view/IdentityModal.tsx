@@ -198,7 +198,9 @@ export function IdentityModal({
 
   // Patch #17g: independent state slots for each new artifact tab.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
-  const [historyState, setHistoryState] = useState<TabState<string[]>>({ status: "loading" });
+  // Phase 18 / IDMEDIT-02: widened from TabState<string[]> to carry both
+  // entries (read-mode list rendering) and markdown (edit-mode textarea seed).
+  const [historyState, setHistoryState] = useState<TabState<{ entries: string[]; markdown: string }>>({ status: "loading" });
   const [wakeupsState, setWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
   const [handoffState, setHandoffState] = useState<TabState<string>>({ status: "loading" });
 
@@ -327,9 +329,10 @@ export function IdentityModal({
     openOneShot<IdentityGetHistoryPayload, IdentityHistoryEvent>(
       { type: "identity:get-history", identityKey: identity.identityKey, hostId, },
       "identity:history",
+      // Phase 18 / IDMEDIT-02: store both entries (read-mode) and markdown (edit-mode textarea seed)
       (ev) => setHistoryState(ev.error
         ? { status: "error", error: ev.error }
-        : { status: "ready", data: ev.entries }),
+        : { status: "ready", data: { entries: ev.entries, markdown: ev.markdown ?? "" } }),
       (e) => setHistoryState({ status: "error", error: e }),
     );
 

@@ -355,7 +355,11 @@ export type IdentityGetHistoryPayload = {
   /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
   hostId: number;
 };
-export type IdentityHistoryEvent = { type: "identity:history"; entries: string[]; error?: string };
+// Phase 18 / IDMEDIT-02: widened to carry `markdown` (raw file body) alongside
+// `entries` (parsed reverse-chronological lines). markdown is optional for
+// backward compat with any payload pre-dating the widening; the server WILL
+// always emit it now. Consumers that only read `entries` are unaffected.
+export type IdentityHistoryEvent = { type: "identity:history"; entries: string[]; markdown?: string; error?: string };
 
 // Patch #154: Wakeup gains `slug` (filename stem — the address the update
 // path uses) and raw `schedule` (unknown — so the modal renders + edits it
@@ -475,10 +479,15 @@ export type IdentityUpdateHistoryPayload = {
   /** UTF-8 markdown payload (full-overwrite of history.md). Server caps at IDMEDIT_MAX_MARKDOWN_BYTES (2MB). */
   contents: string;
 };
+// Phase 18 / IDMEDIT-02: widened same as IdentityHistoryEvent to carry `markdown`
+// alongside `entries`. Both fields carried in the echo so HistoryTab rehydrates
+// from server truth (entries for read-mode list, markdown for edit-mode textarea).
 export type IdentityHistoryUpdatedEvent = {
   type: "identity:history-updated";
   /** Server re-reads history.md and returns parsed entries — mirrors identity:history event shape. */
   entries: string[];
+  /** Raw file body for HistoryTab editor textarea rehydration. */
+  markdown?: string;
   error?: string;
 };
 

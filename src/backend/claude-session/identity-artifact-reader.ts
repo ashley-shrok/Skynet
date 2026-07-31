@@ -244,30 +244,34 @@ export async function readIdentityFile(
 // 2. readIdentityHistory — <key>/history.md
 // ---------------------------------------------------------------------------
 
-/** Result shape for history reads. Matches the wire shape "identity:history". */
+/** Result shape for history reads. Matches the wire shape "identity:history".
+ * Phase 18 / IDMEDIT-02: widened to also carry `markdown` (raw file body)
+ * so the HistoryTab editor can populate its textarea without a separate read.
+ * The `entries` field is unchanged — additive widening, no consumers broken.
+ */
 export async function readIdentityHistory(
   conn: SSHClientType | null,
   identityKey: string,
-): Promise<{ entries: string[] }> {
+): Promise<{ entries: string[]; markdown: string }> {
   if (conn === null) {
     // LOCAL branch (mirrors server.ts lines 1275-1281)
     const root = getLocalIdentitiesRoot();
     const filePath = path.join(root, identityKey, "history.md");
     try {
-      const contents = await fs.readFile(filePath, "utf-8");
-      const entries = contents
+      const markdown = await fs.readFile(filePath, "utf-8");
+      const entries = markdown
         .split("\n")
         .map((line) => line.trim())
         .filter((line) => line.length > 0 && !line.startsWith("#"))
         .reverse();
-      return { entries };
+      return { entries, markdown };
     } catch (err: unknown) {
       if (
         typeof err === "object" &&
         err !== null &&
         (err as NodeJS.ErrnoException).code === "ENOENT"
       ) {
-        return { entries: [] };
+        return { entries: [], markdown: "" };
       }
       throw err;
     }
@@ -278,14 +282,14 @@ export async function readIdentityHistory(
   // Patch #95: direct interpolation (see readIdentityFile for the shellEscape
   // + outer double-quote bug this replaces).
   const cmd = `cat "$HOME/.claude/identities/${identityKey}/history.md" 2>/dev/null || true`;
-  const stdout = await execWithTimeout(conn, cmd);
-  if (!stdout) return { entries: [] };
-  const entries = stdout
+  const markdown = await execWithTimeout(conn, cmd);
+  if (!markdown) return { entries: [], markdown: "" };
+  const entries = markdown
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"))
     .reverse();
-  return { entries };
+  return { entries, markdown };
 }
 
 // ---------------------------------------------------------------------------

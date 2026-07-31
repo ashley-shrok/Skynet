@@ -1962,8 +1962,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
       try {
         let entries: string[];
+        let markdown: string;
         if (useLocal) {
-          ({ entries } = await readIdentityHistory(null, identityKey));
+          ({ entries, markdown } = await readIdentityHistory(null, identityKey));
           sshLogger.info("identity:get-history", {
             operation: "identity_get_history",
             userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: entries.length,
@@ -1971,12 +1972,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:history", entries: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:history", entries: [], markdown: "", error: "host not found" })); } catch { /* ignore */ }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
-            ({ entries } = await readIdentityHistory(conn, identityKey));
+            ({ entries, markdown } = await readIdentityHistory(conn, identityKey));
             sshLogger.info("identity:get-history", {
               operation: "identity_get_history",
               userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: entries.length,
@@ -1985,7 +1986,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
             try { conn.end(); } catch { /* ignore */ }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:history", entries })); } catch { /* ignore */ }
+        // Phase 18 / IDMEDIT-02: emit markdown alongside entries so HistoryTab
+        // can populate its textarea editor without a separate raw-file fetch.
+        try { ws.send(JSON.stringify({ type: "identity:history", entries, markdown })); } catch { /* ignore */ }
       } catch (err: unknown) {
         sshLogger.error(
           "identity:get-history error",
@@ -1993,7 +1996,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           { operation: "identity_get_history_error", userId, identityKey, hostId: hostIdNum },
         );
         try {
-          ws.send(JSON.stringify({ type: "identity:history", entries: [], error: err instanceof Error ? err.message : String(err) }));
+          ws.send(JSON.stringify({ type: "identity:history", entries: [], markdown: "", error: err instanceof Error ? err.message : String(err) }));
         } catch { /* ignore */ }
       }
       return;
@@ -2255,9 +2258,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
       try {
         let entries: string[];
+        let markdown: string;
         if (useLocal) {
           await writeIdentityHistory(null, identityKey, contents);
-          ({ entries } = await readIdentityHistory(null, identityKey));
+          ({ entries, markdown } = await readIdentityHistory(null, identityKey));
           sshLogger.info("identity:update-history", {
             operation: "identity_update_history",
             userId, identityKey, hostId: hostIdNum, useLocal: true,
@@ -2266,13 +2270,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], markdown: "", error: "host not found" })); } catch { /* ignore */ }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
             await writeIdentityHistory(conn, identityKey, contents);
-            ({ entries } = await readIdentityHistory(conn, identityKey));
+            ({ entries, markdown } = await readIdentityHistory(conn, identityKey));
             sshLogger.info("identity:update-history", {
               operation: "identity_update_history",
               userId, identityKey, hostId: hostIdNum, useLocal: false,
@@ -2282,7 +2286,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
             try { conn.end(); } catch { /* ignore */ }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries })); } catch { /* ignore */ }
+        // Phase 18 / IDMEDIT-02: echo both entries and markdown so HistoryTab
+        // rehydrates the textarea from server truth after Save.
+        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries, markdown })); } catch { /* ignore */ }
       } catch (err) {
         sshLogger.error(
           "identity:update-history unexpected error",
@@ -2290,7 +2296,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           { operation: "identity_update_history_error", userId, identityKey, hostId: hostIdNum },
         );
         try {
-          ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: err instanceof Error ? err.message : String(err) }));
+          ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], markdown: "", error: err instanceof Error ? err.message : String(err) }));
         } catch { /* ignore */ }
       }
       return;
