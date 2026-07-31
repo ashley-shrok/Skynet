@@ -96,6 +96,7 @@ export function IdentityFileTab({
             <Button
               variant="outline"
               size="sm"
+              className="cursor-pointer"
               onClick={() => {
                 setDraft(state.data);
                 setSaveError(null);
@@ -110,6 +111,7 @@ export function IdentityFileTab({
               <Button
                 variant="default"
                 size="sm"
+                className="cursor-pointer"
                 disabled={saving || draft === state.data}
                 onClick={() => { void handleSave(); }}
               >
@@ -118,6 +120,7 @@ export function IdentityFileTab({
               <Button
                 variant="outline"
                 size="sm"
+                className="cursor-pointer"
                 disabled={saving}
                 onClick={handleCancel}
               >

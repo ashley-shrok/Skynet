@@ -1004,6 +1004,7 @@ export function IdentityModal({
                     size="sm"
                     asChild={false}
                     type="button"
+                    className="cursor-pointer"
                     disabled={saving}
                     onClick={(e) => {
                       // Delegate click to the hidden file input inside the label.
@@ -1111,6 +1112,7 @@ export function IdentityModal({
                 <Button
                   variant="outline"
                   size="sm"
+                  className="cursor-pointer"
                   disabled={
                     saving ||
                     (titleDraft === committedTitle && avatarFile === null && (voiceDraft || null) === committedVoice)
@@ -1122,6 +1124,7 @@ export function IdentityModal({
                 <Button
                   variant="outline"
                   size="sm"
+                  className="cursor-pointer"
                   disabled={saving}
                   onClick={onCancel}
                 >

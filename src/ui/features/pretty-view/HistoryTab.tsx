@@ -104,6 +104,7 @@ export function HistoryTab({
             <Button
               variant="outline"
               size="sm"
+              className="cursor-pointer"
               onClick={() => {
                 setDraft(state.data.markdown);
                 setSaveError(null);
@@ -130,6 +131,7 @@ export function HistoryTab({
             <Button
               variant="outline"
               size="sm"
+              className="cursor-pointer"
               onClick={() => {
                 setDraft(state.data.markdown);
                 setSaveError(null);
@@ -144,6 +146,7 @@ export function HistoryTab({
               <Button
                 variant="default"
                 size="sm"
+                className="cursor-pointer"
                 disabled={saving || draft === state.data.markdown}
                 onClick={() => { void handleSave(); }}
               >
@@ -152,6 +155,7 @@ export function HistoryTab({
               <Button
                 variant="outline"
                 size="sm"
+                className="cursor-pointer"
                 disabled={saving}
                 onClick={handleCancel}
               >

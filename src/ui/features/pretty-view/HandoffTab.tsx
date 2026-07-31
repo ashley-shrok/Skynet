@@ -92,6 +92,7 @@ export function HandoffTab({
             <Button
               variant="outline"
               size="sm"
+              className="cursor-pointer"
               onClick={() => {
                 setDraft(state.data);
                 setSaveError(null);
@@ -106,6 +107,7 @@ export function HandoffTab({
               <Button
                 variant="default"
                 size="sm"
+                className="cursor-pointer"
                 disabled={saving || draft === state.data}
                 onClick={() => { void handleSave(); }}
               >
@@ -114,6 +116,7 @@ export function HandoffTab({
               <Button
                 variant="outline"
                 size="sm"
+                className="cursor-pointer"
                 disabled={saving}
                 onClick={handleCancel}
               >
