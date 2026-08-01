@@ -670,12 +670,7 @@ export function PrettyConversationsPanel({
               src="/apple-touch-icon-192.png"
               alt=""
               aria-hidden="true"
-              style={{
-                width: 20,
-                height: 20,
-                borderRadius: 4,
-                flexShrink: 0,
-              }}
+              className="pv-header-logo"
             />
             Skynet
           </span>
@@ -759,31 +754,33 @@ export function PrettyConversationsPanel({
                 displayName, terminal fallback hostname). Closes the scope gap
                 left by quick-260727-f9v + #184 that only switched pinned +
                 grouped and left the active-set default at "hostname". */}
-            <div className="pv-panel-group" data-active-set-group="true">
-              {displayedActiveSetRows.map((row) => (
-                <PrettyConversationRowLive
-                  key={row.id}
-                  row={row}
-                  selected={row.id === selectedId}
-                  pinned={pinnedIds.has(row.id)}
-                  hidden={hiddenIds.has(row.id)}
-                  variant={variant}
-                  onSelect={() => handleRowSelect(row)}
-                  onTogglePin={() => handleTogglePin(row.id)}
-                  onDeactivate={() => handleRowDeactivate(row)}
-                  onToggleHide={() => handleToggleHide(row)}
-                  onSwipeOpenChange={
-                    isMobileVariant
-                      ? (open) => handleSwipeOpenChange(row.id, open)
-                      : undefined
-                  }
-                  forceClosed={forceClosedFor(row.id)}
-                  inActiveSet={activeSet.has(row.id)}
-                  sessionKey={sessionWorkingKey(row)}
-                  subtitleMode="identityTitle"
-                />
-              ))}
-            </div>
+            {displayedActiveSetRows.length > 0 && (
+              <div className="pv-panel-group" data-active-set-group="true">
+                {displayedActiveSetRows.map((row) => (
+                  <PrettyConversationRowLive
+                    key={row.id}
+                    row={row}
+                    selected={row.id === selectedId}
+                    pinned={pinnedIds.has(row.id)}
+                    hidden={hiddenIds.has(row.id)}
+                    variant={variant}
+                    onSelect={() => handleRowSelect(row)}
+                    onTogglePin={() => handleTogglePin(row.id)}
+                    onDeactivate={() => handleRowDeactivate(row)}
+                    onToggleHide={() => handleToggleHide(row)}
+                    onSwipeOpenChange={
+                      isMobileVariant
+                        ? (open) => handleSwipeOpenChange(row.id, open)
+                        : undefined
+                    }
+                    forceClosed={forceClosedFor(row.id)}
+                    inActiveSet={activeSet.has(row.id)}
+                    sessionKey={sessionWorkingKey(row)}
+                    subtitleMode="identityTitle"
+                  />
+                ))}
+              </div>
+            )}
             {/* Pinned rows. Patch #234: a "Pinned" divider chip renders
                 above the pinned tier when displayedPinned.length > 0,
                 mirroring the RDP divider chip pattern (Pin glyph + uppercase
@@ -801,7 +798,9 @@ export function PrettyConversationsPanel({
             <div className="pv-panel-group" data-pinned-group="true">
               {displayedPinned.length > 0 && (
                 <div
-                  className="flex items-center gap-2 px-4 pt-3 pb-1.5"
+                  className={`flex items-center gap-2 px-4 pb-1.5 ${
+                    displayedActiveSetRows.length > 0 ? "pt-3" : "pt-0.5"
+                  }`}
                   data-testid="pinned-divider"
                 >
                   <Pin

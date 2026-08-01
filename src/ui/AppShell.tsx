@@ -1539,18 +1539,48 @@ export function AppShell({
               },
             )}
             className={
-              "fixed flex items-center justify-center w-8 h-8 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer " +
-              (!isTouchDevice && sidebarOpen
-                ? "rounded-r-lg border-y border-r border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-base)] hover:bg-[rgba(220,225,245,0.06)] hover:border-[color:var(--color-pv-border-quiet-strong)]"
-                : "rounded-lg border border-[color:var(--color-pv-border-quiet)] bg-[rgba(220,225,245,0.06)] hover:bg-[rgba(220,225,245,0.12)] hover:border-[color:var(--color-pv-border-quiet-strong)]")
+              isTouchDevice
+                ? "fixed flex items-center justify-center rounded-full text-[#f0ebe0] hover:text-white transition-transform hover:scale-[1.03] active:scale-[0.97] cursor-pointer"
+                : "fixed flex items-center justify-center w-8 h-8 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer " +
+                  (sidebarOpen
+                    ? "rounded-r-lg border-y border-r border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-base)] hover:bg-[rgba(220,225,245,0.06)] hover:border-[color:var(--color-pv-border-quiet-strong)]"
+                    : "rounded-lg border border-[color:var(--color-pv-border-quiet)] bg-[rgba(220,225,245,0.06)] hover:bg-[rgba(220,225,245,0.12)] hover:border-[color:var(--color-pv-border-quiet-strong)]")
             }
             style={{
-              top: "max(env(safe-area-inset-top), 8px)",
+              // Touch: mirror the identity badge's visual offset so the back
+              // button reads as its left-side counterpart. The badge is
+              // Tailwind `top-4 right-5` inside PrettyView; PrettyView sits
+              // under `safe-area-inset-top + 12px session-view padding`. So
+              // badge-top from viewport = safe-area + 12 + 1rem. Reuse the
+              // exact same rem-based math so both offsets scale together
+              // under patch #165's html=24 mobile bump.
+              top: isTouchDevice
+                ? "calc(max(env(safe-area-inset-top), 8px) + 12px + 1rem)"
+                : "max(env(safe-area-inset-top), 8px)",
               left: !isTouchDevice && sidebarOpen
                 ? `${sidebarEditing ? 560 : sidebarWidth}px`
-                : "max(env(safe-area-inset-left), 8px)",
+                : isTouchDevice
+                  ? "calc(max(env(safe-area-inset-left), 0px) + 1.25rem)"
+                  : "max(env(safe-area-inset-left), 8px)",
               zIndex: 30,
               transition: sidebarDragging ? "none" : "left 0.2s",
+              // Touch-only hue-glass treatment: identity-avatar-badge visual
+              // language (round, hue-tinted gradient, inset warm highlight +
+              // outer hue glow). Neutral hue 35 (warm amber) to sit ambient
+              // rather than compete with the identity badge visible top-right.
+              ...(isTouchDevice
+                ? {
+                    width: 64,
+                    height: 64,
+                    background:
+                      "linear-gradient(160deg, hsla(35, 45%, 25%, 0.72), hsla(35, 40%, 15%, 0.82))",
+                    border: "1px solid hsla(35, 65%, 55%, 0.4)",
+                    boxShadow:
+                      "0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(35, 65%, 55%, 0.4)",
+                    backdropFilter: "blur(20px) saturate(1.4)",
+                    WebkitBackdropFilter: "blur(20px) saturate(1.4)",
+                  }
+                : {}),
             }}
           >
             <span
@@ -1563,7 +1593,7 @@ export function AppShell({
                 transition: "transform 220ms",
               }}
             >
-              <ChevronLeft className="size-4" />
+              <ChevronLeft className={isTouchDevice ? "size-8" : "size-4"} />
             </span>
           </button>
         )}
@@ -1647,7 +1677,9 @@ export function AppShell({
           style={
             isMobileListScreen
               ? { width: 0, flex: "0 0 0px", overflow: "hidden" }
-              : undefined
+              : isTouchDevice
+                ? { paddingTop: 12 }
+                : undefined
           }
           aria-hidden={isMobileListScreen ? true : undefined}
         >

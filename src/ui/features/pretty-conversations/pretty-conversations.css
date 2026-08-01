@@ -181,6 +181,16 @@
   stroke-width: 2;
 }
 
+/* Header logo (favicon-ish 20x20 rounded square left of the "Skynet" title).
+   Extracted from an inline style on the <img> so a mobile media query can
+   override without inline-style specificity fighting it. */
+.pv-panel-header .pv-header-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    USAGE METER — single-bar fill+tick (Ashley 2026-07-29 pick, B variant from
    the tune-meter picker with a slight prominence bump before lock-in).
@@ -959,6 +969,35 @@
    above remain unchanged. No !important needed — .pv-bounty-badge is
    fork-owned CSS with no shadcn ancestor competing for specificity. */
 @media (max-width: 767.98px) {
+  /* Bump panel-header controls to match the em-scaled row density.
+     Patch #165 scaled rows 1.5x on mobile via html=24px; the header
+     buttons stayed at hardcoded 32px and read visibly smaller than
+     everything below them. Sizes here target ~44px touch-target with a
+     matching bump to the logo + title so the whole header row looks
+     coherent with the pretty-row density beneath. */
+  .pv-panel-header .pv-pencil,
+  .pv-panel-header .pv-filter {
+    width: 60px;
+    height: 60px;
+    border-radius: 14px;
+  }
+  .pv-panel-header .pv-pencil svg,
+  .pv-panel-header .pv-filter svg {
+    width: 32px;
+    height: 32px;
+  }
+  .pv-panel-header .pv-header-actions {
+    gap: 12px;
+  }
+  .pv-panel-header .pv-title {
+    font-size: 18px;
+  }
+  .pv-panel-header .pv-header-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+  }
+
   .pv-bounty-badge {
     min-width: 32px;
     height: 28px;
