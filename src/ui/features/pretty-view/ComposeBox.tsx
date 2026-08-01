@@ -12,7 +12,6 @@ import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChip
 import { useVoiceRecording } from "./useVoiceRecording";
 import { MicButton } from "./MicButton";
 import { RecordingControls } from "./RecordingControls";
-import { applyIntentTransform } from "./composeIntentTransform";
 
 // Compose-and-send box for the pretty view.
 //
@@ -797,7 +796,7 @@ export function ComposeBox({
   const fireNextQueued = useCallback(() => {
     if (queue.length === 0) return;
     const head = queue[0];
-    const payload = applyIntentTransform(collapseNewlinesForSend(head.text)).transformed;
+    const payload = collapseNewlinesForSend(head.text);
     const dispatched = onSend(payload);
     if (dispatched) {
       setQueue((prev) => prev.filter((_, i) => i !== 0));
@@ -929,7 +928,7 @@ export function ComposeBox({
 
     setErrorMessage(null);
 
-    const payload = applyIntentTransform(collapseNewlinesForSend(trimmed)).transformed;
+    const payload = collapseNewlinesForSend(trimmed);
     const dispatched = onSend(payload);
     if (dispatched) {
       const nextSlots = queueSlots.filter((s) => s.id !== slotId);
@@ -981,7 +980,7 @@ export function ComposeBox({
     setErrorMessage(null); // clear any prior error
 
     // D-50 policy: collapse newlines to spaces on send. Ink safety.
-    const payload = applyIntentTransform(collapseNewlinesForSend(trimmed)).transformed;
+    const payload = collapseNewlinesForSend(trimmed);
 
     const dispatched = onSend(payload);
     if (dispatched) {
@@ -1061,7 +1060,7 @@ export function ComposeBox({
         if (!recycleActive) {
           // handleQueueSlotSend reads from queueSlots state, but due to async
           // batching we pass the glued text directly via onSend to avoid stale reads.
-          const payload = applyIntentTransform(collapseNewlinesForSend(result.glued.trim())).transformed;
+          const payload = collapseNewlinesForSend(result.glued.trim());
           if (payload) {
             const dispatched = onSend(payload);
             if (dispatched) {
