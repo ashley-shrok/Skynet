@@ -287,6 +287,22 @@ html {
   background-color: var(--color-pv-base-end);
 }
 
+/* iOS PWA standalone-mode viewport fix: without this, body sizes to fit
+ * AppShell (100dvh) which iOS reports as physical-viewport MINUS both safe
+ * areas (~82 CSS px short on iPhone 16 Pro Max). That leaves body ending ~34
+ * CSS px above physical bottom, and body's `bg-background` painting stops
+ * there — producing a visible "black bar" strip below the app. Forcing body
+ * to 100vh (which iOS DOES resolve to full physical viewport in PWA
+ * standalone) makes body cover the whole display, which in turn causes iOS
+ * to re-measure the viewport such that innerHeight, visualViewport.height,
+ * and 100dvh all grow to the full physical value. AppShell's 100dvh then
+ * naturally reaches the physical bottom without needing its own edit.
+ * Verified live 2026-08-01 on Ashley's iPhone 16 Pro Max PWA via the
+ * bottompad diagnostic tuner (see bounty pwa-bottom-safe-area-reclaim). */
+body {
+  min-height: 100vh;
+}
+
 /* Font size scale applied to html element */
 html.fs-xs {
   font-size: 11px;
