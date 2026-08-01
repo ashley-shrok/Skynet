@@ -934,13 +934,15 @@
 }
 
 .pv-bounty-badge {
-  min-width: 18px;
-  height: 16px;
-  padding: 0 5px;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
   border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 16px;
+  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums slashed-zero;
   color: var(--color-pv-fg);
   background: hsla(var(--pv-hue), 45%, 30%, 0.6);
   border: 1px solid hsla(var(--pv-hue), 55%, 55%, 0.35);
@@ -958,10 +960,10 @@
    fork-owned CSS with no shadcn ancestor competing for specificity. */
 @media (max-width: 767.98px) {
   .pv-bounty-badge {
-    min-width: 28px;
-    height: 26px;
-    padding: 0 8px;
-    font-size: 16px;
-    line-height: 26px;
+    min-width: 32px;
+    height: 28px;
+    padding: 0 9px;
+    font-size: 19px;
+    line-height: 28px;
   }
 }
