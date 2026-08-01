@@ -346,14 +346,48 @@ export function ComposeBox({
   // keyword branch where parseFloat resolves to NaN.
   const maxHeightPxRef = useRef<number | null>(null);
 
-  // Patch #84: single-slot "queue send for when session goes idle" state.
-  // queuedText === null → nothing queued (button rests). queuedText === string →
-  // armed: overlay is up, textarea disabled, watchdog effect will fire dispatch
-  // after `isIdle === true` holds continuously for 3s. dispatchTimerRef holds
-  // the pending setTimeout id (mirrors the drainEndTimerRef pattern above).
-  // Single-slot by design: no queue depth, no retry, no configurable threshold.
-  const [queuedText, setQueuedText] = useState<string | null>(null);
+  // Vehicle C v2 (2026-08-01): per-source FIFO queue for "send when idle".
+  // Each entry pairs a source key ("primary" for the main textarea, or a
+  // queueSlot id string) with the trimmed text captured at arm-time.
+  // Idle watchdog fires ONE head entry per idle event — sequential cadence
+  // across N armed textareas emerges naturally from the session cycling
+  // working→idle between dispatches. Retires patch #84's single-slot
+  // `queuedText: string | null` — that design blocked "arm N textareas and
+  // walk away" because arming a second textarea would overwrite the first.
+  // 3s idle threshold + strict `isIdle !== true` gate carry over unchanged.
+  type QueueEntry = { source: "primary" | string; text: string };
+  const [queue, setQueue] = useState<QueueEntry[]>([]);
   const dispatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Helpers for the per-source queue. `isSourceArmed` answers the
+  // per-textarea overlay/disabled-gate questions. `queueArmed` is the
+  // any-armed roll-up (mostly for the idle watchdog effect's gate).
+  // `armSourceForIdle` trims the text, no-ops on empty, upserts in place
+  // on an existing source (preserves FIFO position — user retype does
+  // NOT jump the queue), and clears errorMessage. `cancelSourceArmed`
+  // filters out one source (source-scoped cancel; other armed sources
+  // persist).
+  function isSourceArmed(source: "primary" | string): boolean {
+    return queue.some((e) => e.source === source);
+  }
+  const queueArmed = queue.length > 0;
+  function armSourceForIdle(source: "primary" | string, sourceText: string): void {
+    const trimmed = sourceText.trim();
+    if (!trimmed) return;
+    setErrorMessage(null);
+    setQueue((prev) => {
+      const existingIdx = prev.findIndex((e) => e.source === source);
+      if (existingIdx >= 0) {
+        const next = prev.slice();
+        next[existingIdx] = { source, text: trimmed };
+        return next;
+      }
+      return [...prev, { source, text: trimmed }];
+    });
+  }
+  function cancelSourceArmed(source: "primary" | string): void {
+    setQueue((prev) => prev.filter((e) => e.source !== source));
+  }
 
   // Bounty message-queue-in-pretty-view: per-slot message queue state.
   // queueSlots: array of {id, text} objects rendered as stacked textareas
@@ -750,37 +784,49 @@ export function ComposeBox({
     });
   }, [clearDebounce, hostId, tmuxSessionKey]);
 
-  // Patch #84: dispatch the queued message when the idle watchdog fires.
-  // Guaranteed queuedText !== null when this runs (watchdog effect gates
-  // on that). D-50 Ink safety: collapse newlines to spaces before send,
-  // matching handleSend. Fail-loud on dispatch failure per Ashley
-  // 2026-07-19 (do NOT retry silently). useCallback is REQUIRED here —
-  // the watchdog effect keeps a ref to this function via its dependency
-  // array, and a bare function decl would capture a stale queuedText
-  // between the arm and the timer fire.
-  const fireQueuedDispatch = useCallback(() => {
-    if (queuedText === null) return;
-    const payload = applyIntentTransform(collapseNewlinesForSend(queuedText)).transformed;
+  // Vehicle C v2 (2026-08-01): dispatch queue[0] (head-of-FIFO) when the
+  // idle watchdog fires. Only ONE entry per idle event — sequential cadence
+  // across N armed textareas emerges from the session cycling working→idle
+  // between dispatches. D-50 Ink safety: collapse newlines to spaces before
+  // send, matching handleSend. Fail-loud on dispatch failure per Ashley
+  // 2026-07-19 (do NOT retry silently). Source-specific cleanup on success:
+  // primary → clear text + clearAfterSend(); slot → drop slot from
+  // queueSlots + scheduleAutosave. useCallback is REQUIRED — the watchdog
+  // effect keeps a ref via its dependency array; a bare function decl would
+  // capture a stale `queue` between arm and timer fire.
+  const fireNextQueued = useCallback(() => {
+    if (queue.length === 0) return;
+    const head = queue[0];
+    const payload = applyIntentTransform(collapseNewlinesForSend(head.text)).transformed;
     const dispatched = onSend(payload);
     if (dispatched) {
-      setText("");
-      setQueuedText(null);
-      clearAfterSend();
+      setQueue((prev) => prev.filter((_, i) => i !== 0));
+      if (head.source === "primary") {
+        setText("");
+        clearAfterSend();
+      } else {
+        const slotId = head.source;
+        const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== slotId);
+        setQueueSlots(nextSlots);
+        scheduleAutosave(latestBodyRef.current, nextSlots);
+      }
     } else {
-      setQueuedText(null);
+      setQueue((prev) => prev.filter((_, i) => i !== 0));
       setErrorMessage("Not connected — queued send failed");
     }
-  }, [queuedText, onSend, clearAfterSend]);
+  }, [queue, onSend, clearAfterSend]);
 
-  // Patch #84: idle watchdog — while a queue is armed, wait for
-  // isIdle === true to hold continuously for 3s before firing dispatch.
-  // Strict `=== true` — `null` (unknown / backend hasn't spoken) does
-  // NOT trigger, matching the ergonomic contract that the queue only
-  // fires when we KNOW the session went idle. Combined with the
-  // backend's ~4s isIdle debounce this yields ~7s effective delay from
-  // Claude's last output. Locked with Ashley 2026-07-19.
+  // Vehicle C v2 (2026-08-01): FIFO-aware idle watchdog. Gate on
+  // `queue.length === 0` (no armed sources → nothing to fire). Strict
+  // `isIdle !== true` — `null` (unknown / backend hasn't spoken) does NOT
+  // trigger, matching the ergonomic contract that the queue only fires when
+  // we KNOW the session went idle. Combined with the backend's ~4s isIdle
+  // debounce this yields ~7s effective delay from Claude's last output.
+  // 3s idle threshold preserved from patch #84 (Ashley 2026-07-19 lock).
+  // fireNextQueued() dispatches ONE head entry per firing — the session's
+  // subsequent working→idle cycle re-runs this effect to fire the next.
   useEffect(() => {
-    if (queuedText === null) return;
+    if (queue.length === 0) return;
     if (isIdle !== true) {
       // Session is working (or unknown) — cancel any pending fire so
       // the 3s window resets from the NEXT idle=true transition.
@@ -797,7 +843,7 @@ export function ComposeBox({
     if (dispatchTimerRef.current !== null) return;
     dispatchTimerRef.current = setTimeout(() => {
       dispatchTimerRef.current = null;
-      fireQueuedDispatch();
+      fireNextQueued();
     }, 3000);
     return () => {
       if (dispatchTimerRef.current) {
@@ -805,7 +851,7 @@ export function ComposeBox({
         dispatchTimerRef.current = null;
       }
     };
-  }, [queuedText, isIdle, fireQueuedDispatch]);
+  }, [queue, isIdle, fireNextQueued]);
 
   // Patch #84: unmount cleanup — belt-and-suspenders against the
   // unmount-while-idle-transitioning race. The watchdog effect's own
@@ -851,25 +897,11 @@ export function ComposeBox({
     void flushDirty();
   }
 
-  // Patch #84: Queue button click. If armed → cancel (clear timer, drop
-  // queue, refocus textarea). If idle → arm with the current trimmed
-  // text (empty text is a no-op, matching handleSend's early return).
-  // Silent cancel — no error UI on cancel branch.
-  function handleQueue() {
-    if (queuedText !== null) {
-      if (dispatchTimerRef.current) {
-        clearTimeout(dispatchTimerRef.current);
-        dispatchTimerRef.current = null;
-      }
-      setQueuedText(null);
-      textareaRef.current?.focus();
-      return;
-    }
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setErrorMessage(null);
-    setQueuedText(trimmed);
-  }
+  // Vehicle C v2 (2026-08-01): the aux-row Queue (Hourglass) button and
+  // its handleQueue click handler were retired. Arm-idle is now per-
+  // textarea via `armSourceForIdle(source, text)` (see the state block
+  // above); each textarea has its own Arm button and click-to-cancel
+  // overlay. See the primary/queueSlot render blocks below for wiring.
 
   // D-50 policy helper: collapse newlines to spaces on send. Ink safety.
   // Extracted from handleSend so queue-slot sends reuse the same logic.
@@ -884,13 +916,10 @@ export function ComposeBox({
   // - On success: remove slot from state + trigger autosave
   // - On failure: keep slot + surface errorMessage (mirrors primary handleSend)
   function handleQueueSlotSend(slotId: string) {
-    // COMPOSE-04 hard-lock: if queue is armed, cancel it first (immediate action wins).
-    if (queuedText !== null) {
-      if (dispatchTimerRef.current) {
-        clearTimeout(dispatchTimerRef.current);
-        dispatchTimerRef.current = null;
-      }
-      setQueuedText(null);
+    // Vehicle C v2: source-scoped cancel — send-on-X dequeues X only;
+    // other armed sources persist through the cadence.
+    if (isSourceArmed(slotId)) {
+      cancelSourceArmed(slotId);
     }
 
     const slot = queueSlots.find((s) => s.id === slotId);
@@ -919,14 +948,10 @@ export function ComposeBox({
   // of the current `text` state. All other handleSend logic (attachment
   // branching, D-50 newline collapse, COMPOSE-04 hard-lock) still applies.
   function handleSend(overridePayload?: string) {
-    // Patch #84: immediate action wins — cancel any armed queue silently
-    // and proceed with the direct send. No error UI on the dropped queue.
-    if (queuedText !== null) {
-      if (dispatchTimerRef.current) {
-        clearTimeout(dispatchTimerRef.current);
-        dispatchTimerRef.current = null;
-      }
-      setQueuedText(null);
+    // Vehicle C v2: source-scoped cancel — send on primary dequeues
+    // primary only; other armed sources persist through the cadence.
+    if (isSourceArmed("primary")) {
+      cancelSourceArmed("primary");
     }
 
     // D-16-05: use override payload if provided (voice send path), otherwise
@@ -1083,13 +1108,11 @@ export function ComposeBox({
     // path below — this is purely a UI-latency shortcut.
     onResetClicked?.();
 
-    // Patch #84: immediate action wins — cancel any armed queue silently.
-    if (queuedText !== null) {
-      if (dispatchTimerRef.current) {
-        clearTimeout(dispatchTimerRef.current);
-        dispatchTimerRef.current = null;
-      }
-      setQueuedText(null);
+    // Vehicle C v2: source-scoped cancel — reset dequeues primary only
+    // (reset acts on the primary textarea's context). Other armed
+    // sources persist through the cadence.
+    if (isSourceArmed("primary")) {
+      cancelSourceArmed("primary");
     }
 
     setErrorMessage(null);
@@ -1141,14 +1164,10 @@ export function ComposeBox({
   // draft resets to '' so a reload doesn't resurrect it. Failed
   // dispatch leaves both intact.
   function handleQuickSend(quickText: string) {
-    // Patch #84: immediate action wins — cancel any armed queue silently.
-    if (queuedText !== null) {
-      if (dispatchTimerRef.current) {
-        clearTimeout(dispatchTimerRef.current);
-        dispatchTimerRef.current = null;
-      }
-      setQueuedText(null);
-    }
+    // Vehicle C v2: quick-reply (thumbs-up, recap) is textarea-independent —
+    // it does NOT touch the per-source queue. Armed sources persist across
+    // quick-replies so Ashley can fire a canned reply without losing any
+    // arm-idle state on the primary or queueSlots.
 
     setErrorMessage(null);
     const dispatched = onSend(quickText);
@@ -1167,11 +1186,13 @@ export function ComposeBox({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Patch #84: while a queue is armed the textarea is disabled (Edit K
-    // adds `disabled={queuedText !== null}`), so keydown normally cannot
-    // reach us. Defense in depth against any focus-restoration race —
-    // swallow all keys silently while armed.
-    if (queuedText !== null) return;
+    // Vehicle C v2: while primary is armed the textarea is disabled
+    // (`disabled={primaryArmed}` on the primary Textarea below), so
+    // keydown normally cannot reach us. Defense in depth against any
+    // focus-restoration race — swallow all keys silently while the
+    // primary source is armed. Slot arm state is orthogonal and does
+    // NOT gate the primary textarea's key handling.
+    if (isSourceArmed("primary")) return;
     // Quick 260729-j8l: during session recycle the Send button is
     // disabled (via sendDisabled below) but the textarea stays typeable
     // so Ashley can pre-draft the next message. Swallow the Enter-send
@@ -1191,40 +1212,51 @@ export function ComposeBox({
     // textarea is focused.
   }
 
-  // Patch #84: derived state for the Queue (Hourglass) button. Armed
-  // when queuedText !== null. Disabled when either the transport is
-  // down (mirrors the canSend gate the removed Send button used) OR
-  // when text is empty AND we're not already armed — an armed button
-  // must always be clickable so the user can cancel.
-  const queueArmed = queuedText !== null;
-  const queueDisabled =
-    canSend === false || (queuedText === null && text.trim() === "");
+  // Vehicle C v2 (2026-08-01): the derived queueArmed / queueDisabled
+  // block for the retired aux-row Queue (Hourglass) button was removed.
+  // The `queueArmed` roll-up is declared once inside the per-source
+  // state block above (const queueArmed = queue.length > 0) and is used
+  // by the idle watchdog. Per-textarea gates use `isSourceArmed(source)`.
 
-  // Phase 16: send-button slot visibility gates.
+  // Vehicle C v2 (2026-08-01): send-button slot visibility gates. Mic and
+  // arm-idle COEXIST — 260729-3y1 lock: mic stays reachable regardless of
+  // textarea contents. Mic hides only while the PRIMARY source is armed
+  // (the overlay covers the slot). Arm-idle button appears only when there
+  // IS text to arm and the primary is not already armed.
   //
-  // showMicButton: mic CO-RENDERS beside the send button (one 40px hit-target
-  // to its left) when all four conditions hold:
-  //   - navigator.mediaDevices is available (browser supports getUserMedia; also
-  //     serves as the JSDOM guard so existing tests that don't mock mediaDevices
-  //     still see the Send button — those tests exercise the non-voice path)
+  // showMicButton: mic CO-RENDERS beside the send button when:
+  //   - navigator.mediaDevices is available (browser supports getUserMedia;
+  //     JSDOM guard so tests that don't mock mediaDevices still see Send)
   //   - voice is idle (not recording, not transcribing)
   //   - aside-morph is NOT active (X-for-Resume owns the slot when true)
-  //   - queue is NOT armed (pending-overlay covers the slot when armed)
-  // Text length and attached-file presence NO LONGER gate the mic — Ashley
-  // 260729-3y1: mic must stay reachable regardless of textarea contents so she
-  // never has to clear dirty input just to start voice capture.
+  //   - primary source is NOT armed (armed overlay covers the slot)
+  //
+  // showPrimaryArmButton: per-textarea arm-idle button appears at right-21
+  // (one slot LEFT of Mic at right-11) when:
+  //   - voice is idle (button lives in the same relative parent)
+  //   - aside-morph is NOT active
+  //   - primary is NOT already armed (would be redundant)
+  //   - textarea has trimmed content to arm
+  //   - recycle is NOT active (recycle disables all WS-side-effect actions)
   //
   // showRecordingControls: while recording, the three-button controls own the slot.
   //   MicButton and send button are both hidden.
   //
   // showTranscribingSend: during the STT round-trip, the existing send button
   //   renders disabled so rapid-tap cannot double-fire (T-16-16 mitigation).
+  const primaryArmed = isSourceArmed("primary");
   const showMicButton =
     typeof navigator !== "undefined" &&
     navigator.mediaDevices != null &&
     voice.state === "idle" &&
     !asideActive &&
-    !queueArmed;
+    !primaryArmed;
+  const showPrimaryArmButton =
+    voice.state === "idle" &&
+    !asideActive &&
+    !primaryArmed &&
+    text.trim() !== "" &&
+    !recycleActive;
   const showRecordingControls = voice.state === "recording";
   const showTranscribingSend = voice.state === "transcribing";
 
@@ -1234,10 +1266,12 @@ export function ComposeBox({
   const displayError = errorMessage ?? voice.errorMessage;
 
   // Patch #129: inside-textarea Send button disabled predicate. Locked with
-  // Ashley 2026-07-23 (console-iterated visual). Truth table:
-  //   - queueArmed → disabled (button lives under the queueArmed overlay
-  //     but native disabled is belt-and-suspenders vs the overlay's
-  //     pointer-events-none).
+  // Ashley 2026-07-23 (console-iterated visual). Vehicle C v2 (2026-08-01):
+  // gate on `primaryArmed` (source-scoped) instead of `queueArmed` — Send
+  // lives on the primary textarea, so a slot being armed must NOT disable
+  // the primary Send. Truth table:
+  //   - primaryArmed → disabled (button lives under the primary armed overlay
+  //     but native disabled is belt-and-suspenders vs any pointer-events edge).
   //   - canSend === false && !hasAttachments → disabled (text-only send
   //     would fail with no transport; attachment path routes independently
   //     via onSendWithAttachments so it survives a canSend===false WS state).
@@ -1247,7 +1281,7 @@ export function ComposeBox({
   //     this file (see `disabled={canSend === false}` on the aux-row buttons).
   //   - text.trim() === "" && !hasAttachments → disabled (nothing to send).
   const sendDisabled =
-    queueArmed ||
+    primaryArmed ||
     recycleActive === true ||
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
@@ -1654,57 +1688,13 @@ export function ComposeBox({
           >
             <CircleHelp className="size-4" />
           </Button>
-          {/* Patch #84: Queue button — arms a single-slot "send when
-              session goes idle" queue. Rests warm-neutral (matches
-              ThumbsUp's `.pv-icon-btn` treatment). When armed, glows
-              amber + pulses to signal "waiting" — semantically distinct
-              from Send's saturated warm-amber (VISUAL-08 send is
-              always-on attention grab; Queue's amber is TRANSIENT
-              status). `!` load-bearing on all bg-[linear-gradient(...)]
-              classes: the shadcn `outline` variant carries
-              `dark:bg-input/30 dark:hover:bg-input/50` (specificity
-              0-2-0) which would beat plain 0-1-0 arbitrary bg. Same
-              trap as patch #81-fix on the Textarea. */}
-          <Button
-            size="icon-sm"
-            variant="outline"
-            onClick={handleQueue}
-            disabled={queueDisabled || asideActive === true || recycleActive === true}
-            aria-label={
-              queueArmed
-                ? "Cancel queued send"
-                : "Queue send for when session goes idle"
-            }
-            title={
-              queueArmed
-                ? "Cancel queued send"
-                : "Queue send for when session goes idle"
-            }
-            className={cn(
-              "rounded-md cursor-pointer",
-              queueArmed
-                ? [
-                    "bg-[linear-gradient(180deg,hsla(38,55%,50%,0.9),hsla(38,60%,32%,0.95))]!",
-                    "border-[hsla(38,70%,55%,0.5)]",
-                    "text-[#fff5e0]",
-                    "shadow-[0_2px_6px_rgba(0,0,0,0.45),_inset_0_1px_0_rgba(255,235,190,0.35),_0_0_16px_hsla(38,70%,52%,0.35)]",
-                    "animate-pulse",
-                  ]
-                : [
-                    "border-white/10",
-                    "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]!",
-                    "text-[#e8e4d8]",
-                    "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
-                    "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]!",
-                    "hover:border-[rgba(255,240,215,0.22)]",
-                    "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-                    // #165: mobile-only size bump (see explanation above).
-                    "max-md:size-12 [&_svg]:max-md:size-6",
-                  ],
-            )}
-          >
-            <RotateCwFadingClock className="size-4" />
-          </Button>
+          {/* Vehicle C: the aux-row Queue (Hourglass) button was retired —
+              send-when-idle is now per-textarea. See per-textarea Arm
+              button in the queueSlot map below AND in the primary
+              textarea's send-button slot further down (at right-21, one
+              slot LEFT of mic at right-11). Mic and Arm-idle COEXIST —
+              260729-3y1 lock: mic stays reachable regardless of text
+              content. */}
         </div>
       </div>
       {/* Bounty message-queue-in-pretty-view: queue-slot stack.
@@ -1717,18 +1707,32 @@ export function ComposeBox({
           {queueSlots.map((slot) => {
             const isSlotRecording = voice.state === "recording" && micTarget === slot.id;
             const isSlotIdle = voice.state === "idle";
+            // Vehicle C v2 (2026-08-01): per-slot arm state. `slotArmed`
+            // gates the disabled Textarea + overlay + Send disable; mic
+            // hides ONLY while this slot is armed (not while ANY source
+            // is armed) — Ashley 260729-3y1 mic-always-reachable lock.
+            // showSlotArmButton mirrors the primary Arm-idle button gate
+            // adapted for slots.
+            const slotArmed = isSourceArmed(slot.id);
+            const slotHasText = slot.text.trim() !== "";
             const showSlotMic =
               typeof navigator !== "undefined" &&
               navigator.mediaDevices != null &&
               isSlotIdle &&
               !asideActive &&
-              !queueArmed;
+              !slotArmed;
+            const showSlotArmButton =
+              isSlotIdle &&
+              !asideActive &&
+              !slotArmed &&
+              slotHasText;
             const showSlotRecording = isSlotRecording;
             const showSlotSend = !showSlotRecording;
             return (
               <div key={slot.id} className="relative flex-1" data-slot-id={slot.id}>
                 <Textarea
                   value={slot.text}
+                  disabled={slotArmed}
                   onChange={(e) => {
                     const nextText = e.target.value;
                     const nextSlots = queueSlots.map((s) =>
@@ -1759,6 +1763,31 @@ export function ComposeBox({
                     "focus-visible:ring-0 focus-visible:outline-none",
                   )}
                 />
+                {/* Vehicle C v2 (2026-08-01): per-slot armed overlay.
+                    Renders as a <button> with pointer-events-auto so the
+                    entire scrim is click-to-cancel (source-scoped —
+                    cancels ONLY this slot). rounded-[10px] matches the
+                    slot Textarea's rounding so corners align. Dark
+                    scrim + tight blur reads as "held, waiting" without
+                    hiding the composed text underneath. */}
+                {slotArmed && (
+                  <button
+                    type="button"
+                    onClick={() => cancelSourceArmed(slot.id)}
+                    aria-label="Cancel queued send"
+                    title="Cancel queued send"
+                    className={cn(
+                      "absolute inset-0 flex flex-col items-center justify-center gap-1.5",
+                      "rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]",
+                      "cursor-pointer",
+                    )}
+                  >
+                    <RotateCwFadingClock className="size-5 text-[hsla(38,70%,72%,0.9)]" />
+                    <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
+                      Queued — waiting for idle
+                    </span>
+                  </button>
+                )}
                 {/* Delete X button — absolute left-1 bottom-0.5 */}
                 <button
                   type="button"
@@ -1793,7 +1822,7 @@ export function ComposeBox({
                       <button
                         type="button"
                         onClick={() => handleQueueSlotSend(slot.id)}
-                        disabled={slot.text.trim() === ""}
+                        disabled={slot.text.trim() === "" || slotArmed}
                         aria-label="Send queued message"
                         title="Send queued message"
                         className={cn(
@@ -1818,13 +1847,36 @@ export function ComposeBox({
                         </svg>
                       </button>
                     )}
-                    {/* MicButton for this slot — right-11 bottom-0.5 when voice is idle */}
+                    {/* Vehicle C v2 (2026-08-01): mic + arm-idle COEXIST
+                        on this slot when voice is idle. Mic sits at
+                        right-11 bottom-0.5 (unchanged). Arm-idle sits at
+                        right-21 bottom-0.5 — one slot LEFT of mic —
+                        gated on non-empty slot text and slot-not-armed.
+                        260729-3y1 lock: mic always reachable. */}
                     {showSlotMic && (
                       <MicButton
                         onClick={() => beginRecord(slot.id)}
                         title="Record voice"
                         positionClass="right-11 bottom-0.5"
                       />
+                    )}
+                    {showSlotArmButton && (
+                      <button
+                        type="button"
+                        onClick={() => armSourceForIdle(slot.id, slot.text)}
+                        aria-label="Send when idle"
+                        title="Send when idle"
+                        className={cn(
+                          "absolute right-21 bottom-0.5",
+                          "p-2",
+                          "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+                          "transition-[color,transform] duration-120",
+                          "active:scale-95",
+                          "cursor-pointer",
+                        )}
+                      >
+                        <RotateCwFadingClock className="size-6" aria-hidden="true" />
+                      </button>
                     )}
                   </>
                 )}
@@ -1851,7 +1903,7 @@ export function ComposeBox({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          disabled={queueArmed}
+          disabled={primaryArmed}
           placeholder={`Message ${identityName || "Claude"}…`}
           rows={1}
           // Phase 4 Glass: recessed textarea well (patch #81) +
@@ -1933,25 +1985,35 @@ export function ComposeBox({
           // Note: NOT disabled when canSend===false — user can compose
           // during a transient disconnect and send when WS reconnects.
           // The send button is disabled; the error will surface on attempt.
-          // (Patch #84 DOES disable via `disabled={queueArmed}` above —
-          // that gate is orthogonal: it applies only while the queue is
-          // armed, restoring editability the instant the queue clears
-          // or is cancelled.)
+          // (Vehicle C v2 DOES disable via `disabled={primaryArmed}` above —
+          // that gate is orthogonal: it applies only while the PRIMARY source
+          // is armed, restoring editability the instant the primary clears
+          // or is cancelled via the overlay click below.)
         />
-        {/* Patch #84: pending overlay. Mounts only while queue is armed.
-            `pointer-events-none` so the Textarea underneath still owns
-            all interaction (it's already disabled, but this keeps the
-            overlay from stealing pointer focus). `rounded-[10px]`
-            matches the Textarea's own rounded-[10px] so corners align.
-            Dark warm-cool scrim + tight blur reads as "held, waiting"
-            without hiding whatever the user composed. */}
-        {queueArmed && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pointer-events-none rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]">
+        {/* Vehicle C v2 (2026-08-01): primary armed overlay. Rendered as a
+            <button> with pointer-events-auto so the entire scrim is
+            click-to-cancel (source-scoped — cancels ONLY the primary
+            source; slot arm states persist). `rounded-[10px]` matches the
+            Textarea's rounded-[10px] so corners align. Dark warm-cool
+            scrim + tight blur reads as "held, waiting" without hiding
+            whatever the user composed. */}
+        {primaryArmed && (
+          <button
+            type="button"
+            onClick={() => cancelSourceArmed("primary")}
+            aria-label="Cancel queued send"
+            title="Cancel queued send"
+            className={cn(
+              "absolute inset-0 flex flex-col items-center justify-center gap-1.5",
+              "rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]",
+              "cursor-pointer",
+            )}
+          >
             <RotateCwFadingClock className="size-5 text-[hsla(38,70%,72%,0.9)]" />
             <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
               Queued — waiting for idle
             </span>
-          </div>
+          </button>
         )}
         {/* Quick 260730-vtk: Paperclip attach button moved from Row 1
             aux group to here per Ashley 2026-07-30. Mirrors Send's
@@ -2114,15 +2176,38 @@ export function ComposeBox({
                 right-1 anchor). voice.start() is passed directly (NOT wrapped
                 in async) so the first statement inside is the synchronous
                 getUserMedia call (D-16-02 iOS Safari constraint). Guards are
-                mediaDevices + voice.state==="idle" + !asideActive + !queueArmed
+                mediaDevices + voice.state==="idle" + !asideActive + !primaryArmed
                 (see the showMicButton predicate above) — text length and
-                attachment presence no longer factor in. */}
+                attachment presence no longer factor in.
+                Vehicle C v2 (2026-08-01): mic + arm-idle COEXIST on the
+                primary textarea. Arm-idle sits at right-21 bottom-0.5 —
+                one slot LEFT of mic (right-11) — gated on non-empty text
+                and !primaryArmed. Both are absolutely positioned inside
+                the same relative parent (40px separation). */}
             {showMicButton && (
               <MicButton
                 onClick={() => beginRecord("primary")}
                 title="Record voice"
                 positionClass="right-11 bottom-0.5"
               />
+            )}
+            {showPrimaryArmButton && (
+              <button
+                type="button"
+                onClick={() => armSourceForIdle("primary", text)}
+                aria-label="Send when idle"
+                title="Send when idle"
+                className={cn(
+                  "absolute right-21 bottom-0.5",
+                  "p-2",
+                  "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+                  "transition-[color,transform] duration-120",
+                  "active:scale-95",
+                  "cursor-pointer",
+                )}
+              >
+                <RotateCwFadingClock className="size-6" aria-hidden="true" />
+              </button>
             )}
           </>
         )}
