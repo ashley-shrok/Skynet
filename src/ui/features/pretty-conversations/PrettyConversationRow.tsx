@@ -533,7 +533,11 @@ export function PrettyConversationRow({
             host render nothing here in both modes (final safety net; no host
             = no sublabel line = no possibility of stringifying undefined). */}
         <div className="pv-body">
-          <span className="pv-label">{row.label}</span>
+          <span className="pv-label">
+            {subtitleMode === "identityTitle" && identity
+              ? identity.displayName
+              : row.label}
+          </span>
           {row.host && (
             <span className="pv-host">
               {subtitleMode === "identityTitle" && identity ? (

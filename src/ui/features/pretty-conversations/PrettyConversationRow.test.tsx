@@ -1100,3 +1100,58 @@ describe("PrettyConversationRow: subtitleMode='identityTitle' (quick-260727-f9v)
     expect(pvHost!.querySelector('svg[width="11"]')).toBeTruthy();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 20 (A/B) — main-label render source: identity.displayName vs row.label
+// ─────────────────────────────────────────────────────────────────────────────
+// Ashley 2026-08-01: identity-session rows in the conversation list showed
+// their tmux sessionName (lowercase identity key) as the main label, while
+// the IdentityBadge showed the properly-cased `identity.displayName`. The
+// row now takes its main label from identity.displayName when subtitleMode
+// is "identityTitle" AND identity resolves — matching the badge's source.
+// When either condition is false, the row falls back verbatim to row.label
+// (raw terminal rows, unresolved identities, hostname-mode rows unchanged).
+
+describe("PrettyConversationRow: main label source (Ashley 2026-08-01)", () => {
+  it("Test 20A: subtitleMode='identityTitle' + identity resolved → main label is identity.displayName (NOT row.label)", () => {
+    // Identity's displayName is properly-cased "Nelly"; row.label is the
+    // lowercase tmux sessionName "nelly-session". The .pv-label must render
+    // "Nelly" — matching what IdentityBadge shows for the same identity.
+    currentIdentity = { ...makeIdentity(200, "Nelly") };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ label: "nelly-session", targetTmuxSession: "nelly" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        subtitleMode="identityTitle"
+      />,
+    );
+    const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
+    expect(pvLabel).toBeTruthy();
+    expect(pvLabel!.textContent?.trim()).toBe("Nelly");
+    expect(pvLabel!.textContent?.trim()).not.toBe("nelly-session");
+  });
+
+  it("Test 20B: subtitleMode='identityTitle' + NO identity resolved → main label is row.label (verbatim fallback)", () => {
+    // currentIdentity null (reset in beforeEach) — safety-net fallback for
+    // rows in identity-mode contexts that don't resolve an identity. MUST
+    // render row.label so the row never ships with an empty main label.
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ label: "unresolved-session", targetTmuxSession: "nobody" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        subtitleMode="identityTitle"
+      />,
+    );
+    const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
+    expect(pvLabel).toBeTruthy();
+    expect(pvLabel!.textContent?.trim()).toBe("unresolved-session");
+  });
+});
