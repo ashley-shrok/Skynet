@@ -30,6 +30,16 @@ export interface WebAudioStreamPlayerOptions {
 export interface WebAudioStreamPlayer {
   play(response: Response): Promise<void>;
   stop(): void;
+  // Pause/resume suspend and resume the underlying AudioContext. Already-
+  // scheduled AudioBufferSourceNodes hold their start times against the
+  // context clock, which freezes while suspended — so on resume, everything
+  // continues from where it left off, and any chunks the reader loop schedules
+  // during the pause naturally queue up for post-resume playback. Both are
+  // best-effort: if the browser has already killed the AudioContext (long tab
+  // background, memory pressure), resume() fires onError with the underlying
+  // failure so the caller can flip back to idle.
+  pause(): Promise<void>;
+  resume(): Promise<void>;
 }
 
 /**
@@ -247,5 +257,44 @@ export function createWebAudioStreamPlayer(
     // Do NOT fire onEnded or onError — external stop is the caller's own action.
   }
 
-  return { play, stop };
+  async function pause(): Promise<void> {
+    // No-op if stopped, if play() hasn't started, or if context is already
+    // suspended/closed. suspend() is safe to call in "running" state only.
+    if (stopped || !audioContext) return;
+    if (audioContext.state !== "running") return;
+    try {
+      await audioContext.suspend();
+    } catch {
+      // Rare — browser may reject if the context was killed under us.
+      // Treat as a no-op; the next resume attempt will surface it via onError.
+    }
+  }
+
+  async function resume(): Promise<void> {
+    // No-op if stopped or if play() hasn't started. If the context isn't
+    // actually suspended (already running / already closed / gone), a
+    // resume() call would either be pointless or fail — surface a killed
+    // context to the caller via onError so the UI can flip back to idle.
+    if (stopped || !audioContext) return;
+    if (audioContext.state === "running") return;
+    if (audioContext.state === "closed") {
+      if (!onErrorFired) {
+        onErrorFired = true;
+        teardown();
+        opts.onError?.(new Error("AudioContext closed — cannot resume"));
+      }
+      return;
+    }
+    try {
+      await audioContext.resume();
+    } catch (err) {
+      if (!onErrorFired) {
+        onErrorFired = true;
+        teardown();
+        opts.onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
+  }
+
+  return { play, stop, pause, resume };
 }

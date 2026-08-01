@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ThumbsUp, Volume2, Loader2 } from "lucide-react";
+import { ThumbsUp, Volume2, Loader2, Pause, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
@@ -58,7 +58,7 @@ export function ChatMessage({
 }) {
   const isUser = role === "user";
   const bubbleIdRef = useRef(Symbol("speak-bubble"));
-  const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing">("idle");
+  const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Cleanup: stop player on unmount if this bubble owns it
@@ -75,16 +75,26 @@ export function ChatMessage({
   async function onSpeakClick(e: React.MouseEvent) {
     e.stopPropagation();
 
-    // If this bubble is currently playing, stop it (same-bubble stop).
+    // Same-bubble click while playing: pause. AudioContext.suspend() freezes
+    // the context clock — already-scheduled sources and any that arrive from
+    // the read loop during the pause naturally queue up until resume.
     if (speakState === "playing" && currentOwner === bubbleIdRef.current) {
-      currentPlayer?.stop();
-      currentPlayer = null;
-      currentOwner = null;
-      setSpeakState("idle");
+      void currentPlayer?.pause();
+      setSpeakState("paused");
       return;
     }
 
-    // If another bubble is playing (or loading), stop it first (cross-bubble preempt).
+    // Same-bubble click while paused: resume. If the browser killed the
+    // AudioContext under us (long background suspension), the player fires
+    // onError → the handler below flips speakState back to idle.
+    if (speakState === "paused" && currentOwner === bubbleIdRef.current) {
+      void currentPlayer?.resume();
+      setSpeakState("playing");
+      return;
+    }
+
+    // If another bubble is playing (or loading, or paused), stop it first
+    // (cross-bubble preempt). This is also the only cancel-from-paused path.
     if (currentPlayer) {
       currentPlayer.stop();
       currentPlayer = null;
@@ -295,7 +305,13 @@ export function ChatMessage({
           <button
             type="button"
             onClick={(e) => { void onSpeakClick(e); }}
-            aria-label={speakState === "playing" ? "Stop speaking" : "Speak message"}
+            aria-label={
+              speakState === "playing"
+                ? "Pause speaking"
+                : speakState === "paused"
+                  ? "Resume speaking"
+                  : "Speak message"
+            }
             style={{
               position: "absolute",
               right: 6,
@@ -317,6 +333,10 @@ export function ChatMessage({
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />
+            ) : speakState === "playing" ? (
+              <Pause size={16} />
+            ) : speakState === "paused" ? (
+              <Play size={16} />
             ) : (
               <Volume2 size={16} />
             )}

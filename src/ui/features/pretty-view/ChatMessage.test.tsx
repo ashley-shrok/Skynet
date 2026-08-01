@@ -204,12 +204,16 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
   const mockedCreatePlayer = createWebAudioStreamPlayer as ReturnType<typeof vi.fn>;
 
   it("Test 18 — clicking speak transitions to playing on successful response", async () => {
-    // Mock player: play resolves immediately; stop is a no-op.
+    // Mock player: play resolves immediately; stop/pause/resume are no-ops.
     const mockPlay = vi.fn().mockResolvedValue(undefined);
     const mockStop = vi.fn();
+    const mockPause = vi.fn().mockResolvedValue(undefined);
+    const mockResume = vi.fn().mockResolvedValue(undefined);
     mockedCreatePlayer.mockImplementation(() => ({
       play: mockPlay,
       stop: mockStop,
+      pause: mockPause,
+      resume: mockResume,
     }));
 
     // Mock fetch: returns a 200 OK response with a readable stream.
@@ -225,18 +229,23 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
       await userEvent.click(speakBtn);
     });
 
-    // After postSpeakStream resolves and play() is called, state should be "playing".
-    expect(screen.getByRole("button", { name: "Stop speaking" })).toBeTruthy();
+    // After postSpeakStream resolves and play() is called, state should be
+    // "playing" — button now advertises Pause as the next action.
+    expect(screen.getByRole("button", { name: "Pause speaking" })).toBeTruthy();
     // play() was called with the mock response.
     expect(mockPlay).toHaveBeenCalledWith(mockResponse);
   });
 
-  it("Test 19 — clicking speak on a currently-playing bubble stops it and reverts to idle", async () => {
+  it("Test 19 — same-bubble click while playing calls pause() (not stop); another click calls resume()", async () => {
     const mockPlay = vi.fn().mockResolvedValue(undefined);
     const mockStop = vi.fn();
+    const mockPause = vi.fn().mockResolvedValue(undefined);
+    const mockResume = vi.fn().mockResolvedValue(undefined);
     mockedCreatePlayer.mockImplementation(() => ({
       play: mockPlay,
       stop: mockStop,
+      pause: mockPause,
+      resume: mockResume,
     }));
 
     const stream = new ReadableStream({ start(c) { c.close(); } });
@@ -245,19 +254,27 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     render(<ChatMessage role="assistant" content="hello" />);
     const speakBtn = screen.getByRole("button", { name: "Speak message" });
 
-    // First click: puts the bubble into "playing" state.
+    // First click → playing. Button labels itself with the NEXT action: Pause.
     await act(async () => {
       await userEvent.click(speakBtn);
     });
-    expect(screen.getByRole("button", { name: "Stop speaking" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pause speaking" })).toBeTruthy();
 
-    // Second click: same-bubble stop — should call player.stop() and revert to idle.
+    // Second click → pause() is called, button flips to advertise Resume.
     await act(async () => {
-      await userEvent.click(screen.getByRole("button", { name: "Stop speaking" }));
+      await userEvent.click(screen.getByRole("button", { name: "Pause speaking" }));
     });
+    expect(mockPause).toHaveBeenCalledTimes(1);
+    expect(mockStop).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Resume speaking" })).toBeTruthy();
 
-    expect(mockStop).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
+    // Third click → resume() is called, button flips back to advertise Pause.
+    await act(async () => {
+      await userEvent.click(screen.getByRole("button", { name: "Resume speaking" }));
+    });
+    expect(mockResume).toHaveBeenCalledTimes(1);
+    expect(mockStop).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Pause speaking" })).toBeTruthy();
   });
 
   it("Test 20 — mocked player onError callback reverts state to idle", async () => {
@@ -268,6 +285,8 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
       return {
         play: vi.fn().mockResolvedValue(undefined),
         stop: vi.fn(),
+        pause: vi.fn().mockResolvedValue(undefined),
+        resume: vi.fn().mockResolvedValue(undefined),
       };
     });
 
@@ -277,11 +296,11 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     render(<ChatMessage role="assistant" content="hello" />);
     const speakBtn = screen.getByRole("button", { name: "Speak message" });
 
-    // Get to "playing" state.
+    // Get to "playing" state — the label now advertises Pause as next.
     await act(async () => {
       await userEvent.click(speakBtn);
     });
-    expect(screen.getByRole("button", { name: "Stop speaking" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pause speaking" })).toBeTruthy();
 
     // Fire the onError callback (simulates a mid-stream error from the player).
     act(() => {
@@ -297,6 +316,8 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     mockedCreatePlayer.mockImplementation(() => ({
       play: mockPlay,
       stop: vi.fn(),
+      pause: vi.fn().mockResolvedValue(undefined),
+      resume: vi.fn().mockResolvedValue(undefined),
     }));
 
     // Non-ok response: 503.

@@ -37,14 +37,19 @@ interface MockAudioBuffer {
 
 interface MockContext {
   currentTime: number;
-  state: "running" | "closed";
+  state: "running" | "suspended" | "closed";
   destination: object;
   sources: MockSource[];
   buffers: MockAudioBuffer[];
   createBuffer(ch: number, fr: number, sr: number): MockAudioBuffer;
   createBufferSource(): MockSource;
   close(): Promise<void>;
+  suspend(): Promise<void>;
+  resume(): Promise<void>;
   _closed: boolean;
+  _suspendCalls: number;
+  _resumeCalls: number;
+  _resumeRejects: boolean;
 }
 
 let mockCtx: MockContext;
@@ -58,6 +63,9 @@ function makeMockContext(): MockContext {
     sources: [],
     buffers: [],
     _closed: false,
+    _suspendCalls: 0,
+    _resumeCalls: 0,
+    _resumeRejects: false,
 
     createBuffer(ch: number, fr: number, sr: number): MockAudioBuffer {
       const channelData = Array.from({ length: ch }, () => new Float32Array(fr));
@@ -104,6 +112,19 @@ function makeMockContext(): MockContext {
     close(): Promise<void> {
       ctx.state = "closed";
       ctx._closed = true;
+      return Promise.resolve();
+    },
+
+    suspend(): Promise<void> {
+      ctx._suspendCalls += 1;
+      if (ctx.state === "running") ctx.state = "suspended";
+      return Promise.resolve();
+    },
+
+    resume(): Promise<void> {
+      ctx._resumeCalls += 1;
+      if (ctx._resumeRejects) return Promise.reject(new Error("resume failed"));
+      if (ctx.state === "suspended") ctx.state = "running";
       return Promise.resolve();
     },
   };
@@ -410,5 +431,121 @@ describe("createWebAudioStreamPlayer", () => {
     for (let i = 0; i < 4; i++) {
       expect(decoded[i]).toBeCloseTo(expected[i], 5);
     }
+  });
+
+  // ─── pause() / resume() — pause-message-speaking bounty ────────────────────
+
+  it("Test 9 — pause() calls AudioContext.suspend() when running; resume() calls .resume() when suspended", async () => {
+    const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
+    const chunk = makeWavChunk(pcm);
+    const player = createWebAudioStreamPlayer({});
+    await player.play(makeMockResponse([chunk]));
+
+    const ctx = ctxInstances[0];
+    expect(ctx.state).toBe("running");
+
+    await player.pause();
+    expect(ctx._suspendCalls).toBe(1);
+    expect(ctx.state).toBe("suspended");
+
+    await player.resume();
+    expect(ctx._resumeCalls).toBe(1);
+    expect(ctx.state).toBe("running");
+  });
+
+  it("Test 10 — pause()/resume() before play() are no-ops (no context yet)", async () => {
+    const player = createWebAudioStreamPlayer({});
+    await player.pause();
+    await player.resume();
+    expect(ctxInstances).toHaveLength(0);
+  });
+
+  it("Test 11 — pause() after stop() is a no-op", async () => {
+    const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
+    const chunk = makeWavChunk(pcm);
+    const player = createWebAudioStreamPlayer({});
+    await player.play(makeMockResponse([chunk]));
+
+    player.stop();
+    const ctx = ctxInstances[0];
+    expect(ctx._closed).toBe(true);
+    const suspendCallsAtStop = ctx._suspendCalls;
+
+    await player.pause();
+    expect(ctx._suspendCalls).toBe(suspendCallsAtStop);
+  });
+
+  it("Test 12 — pause() while already suspended is a no-op (idempotent)", async () => {
+    const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
+    const chunk = makeWavChunk(pcm);
+    const player = createWebAudioStreamPlayer({});
+    await player.play(makeMockResponse([chunk]));
+
+    await player.pause();
+    const ctx = ctxInstances[0];
+    expect(ctx._suspendCalls).toBe(1);
+
+    await player.pause();
+    expect(ctx._suspendCalls).toBe(1);
+  });
+
+  it("Test 13 — resume() on a closed context fires onError instead of throwing", async () => {
+    const onError = vi.fn();
+    const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
+    const chunk = makeWavChunk(pcm);
+    const player = createWebAudioStreamPlayer({ onError });
+    await player.play(makeMockResponse([chunk]));
+
+    // Simulate the browser having killed the AudioContext under us mid-pause
+    // (long tab background suspension). AudioContext.state transitions to
+    // "closed" and any resume() attempt should surface as onError.
+    const ctx = ctxInstances[0];
+    ctx.state = "closed";
+
+    await player.resume();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect((onError.mock.calls[0][0] as Error).message).toMatch(/closed/i);
+  });
+
+  it("Test 14 — resume() surfacing an underlying rejection fires onError", async () => {
+    const onError = vi.fn();
+    const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
+    const chunk = makeWavChunk(pcm);
+    const player = createWebAudioStreamPlayer({ onError });
+    await player.play(makeMockResponse([chunk]));
+
+    // Put the context into suspended state, then rig resume() to reject —
+    // mirrors a browser refusing resume mid-transition for its own reasons.
+    await player.pause();
+    const ctx = ctxInstances[0];
+    ctx._resumeRejects = true;
+
+    await player.resume();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect((onError.mock.calls[0][0] as Error).message).toMatch(/resume failed/i);
+  });
+
+  it("Test 15 — external stop() from a paused state still tears down (no onError)", async () => {
+    const onError = vi.fn();
+    const onEnded = vi.fn();
+    const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f, 0x00, 0x00, 0x00, 0x00]);
+    const chunk = makeWavChunk(pcm);
+    const player = createWebAudioStreamPlayer({ onError, onEnded });
+    await player.play(makeMockResponse([chunk]));
+
+    await player.pause();
+    const ctx = ctxInstances[0];
+    expect(ctx.state).toBe("suspended");
+
+    player.stop();
+
+    expect(ctx._closed).toBe(true);
+    for (const source of ctx.sources) expect(source._stopped).toBe(true);
+    // Neither callback fires — external stop is not a natural end, and it's
+    // not an error either.
+    expect(onError).not.toHaveBeenCalled();
+    expect(onEnded).not.toHaveBeenCalled();
   });
 });

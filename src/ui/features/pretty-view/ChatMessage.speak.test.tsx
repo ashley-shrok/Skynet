@@ -40,11 +40,15 @@ vi.mock("@/api/voice-api", () => ({
 
 const mockPlay = vi.fn(async () => {});
 const mockStop = vi.fn();
+const mockPause = vi.fn(async () => {});
+const mockResume = vi.fn(async () => {});
 
 vi.mock("./webAudioStreamPlayer", () => ({
   createWebAudioStreamPlayer: vi.fn(() => ({
     play: mockPlay,
     stop: mockStop,
+    pause: mockPause,
+    resume: mockResume,
   })),
 }));
 
@@ -60,8 +64,12 @@ beforeEach(() => {
   mockedCreatePlayer.mockImplementation(() => ({
     play: mockPlay,
     stop: mockStop,
+    pause: mockPause,
+    resume: mockResume,
   }));
   mockPlay.mockResolvedValue(undefined);
+  mockPause.mockResolvedValue(undefined);
+  mockResume.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -95,7 +103,7 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
     });
   });
 
-  it("Test 4: while postSpeakStream is pending, button shows Loader2; after resolution, shows Volume2 (playing)", async () => {
+  it("Test 4: while postSpeakStream is pending, button shows Loader2; after resolution, shows Pause (playing)", async () => {
     let resolveStream!: (r: Response) => void;
     mockedPostSpeakStream.mockReturnValueOnce(
       new Promise<Response>((resolve) => { resolveStream = resolve; }),
@@ -121,30 +129,36 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
     });
   });
 
-  it("Test 5: clicking same button while audio is playing calls player.stop()", async () => {
-    render(<ChatMessage role="assistant" content="Stop test" />);
+  it("Test 5: same-bubble click cycles playing → paused → playing via pause()/resume() (never stop())", async () => {
+    render(<ChatMessage role="assistant" content="Pause test" />);
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
-    // Wait for playing state
+    // Wait for playing state — button now advertises pause action.
     await waitFor(() => {
-      const stopBtn = screen.queryByLabelText(/stop speaking/i);
-      expect(stopBtn).not.toBeNull();
+      const pauseBtn = screen.queryByLabelText(/pause speaking/i);
+      expect(pauseBtn).not.toBeNull();
     });
 
-    // Click again to stop — should call player.stop()
-    const stopBtn = screen.getByLabelText(/stop speaking/i);
-    fireEvent.click(stopBtn);
-
+    // Click while playing → player.pause(), aria-label swaps to "Resume speaking"
+    fireEvent.click(screen.getByLabelText(/pause speaking/i));
     await waitFor(() => {
-      expect(mockStop).toHaveBeenCalled();
+      expect(mockPause).toHaveBeenCalled();
     });
-
-    // Button should be back to idle
     await waitFor(() => {
-      const idleBtn = screen.getByLabelText(/speak message/i);
-      expect(idleBtn).not.toBeNull();
+      expect(screen.queryByLabelText(/resume speaking/i)).not.toBeNull();
     });
+    expect(mockStop).not.toHaveBeenCalled();
+
+    // Click while paused → player.resume(), aria-label swaps back to "Pause speaking"
+    fireEvent.click(screen.getByLabelText(/resume speaking/i));
+    await waitFor(() => {
+      expect(mockResume).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/pause speaking/i)).not.toBeNull();
+    });
+    expect(mockStop).not.toHaveBeenCalled();
   });
 
   it("Test 6: clicking a different assistant bubble while one is playing calls stop() on the first player", async () => {
@@ -162,13 +176,44 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
     // Click first bubble
     fireEvent.click(firstBtn);
     await waitFor(() => {
-      expect(firstBtn.getAttribute("aria-label")).toBe("Stop speaking");
+      expect(firstBtn.getAttribute("aria-label")).toBe("Pause speaking");
     });
 
     // Reset stop spy so we can detect the cross-bubble preempt call
     mockStop.mockClear();
 
     // Click second bubble — should call stop() on the first player (cross-bubble preempt)
+    fireEvent.click(secondBtn);
+    await waitFor(() => {
+      expect(mockStop).toHaveBeenCalled();
+    });
+  });
+
+  it("Test 7: cross-bubble preempt cancels a PAUSED bubble via stop() (paused is not sticky)", async () => {
+    const { container } = render(
+      <div>
+        <ChatMessage role="assistant" content="First bubble" />
+        <ChatMessage role="assistant" content="Second bubble" />
+      </div>,
+    );
+
+    const buttons = container.querySelectorAll("button[aria-label]");
+    const firstBtn = buttons[0] as HTMLElement;
+    const secondBtn = buttons[1] as HTMLElement;
+
+    // Start first, then pause it.
+    fireEvent.click(firstBtn);
+    await waitFor(() => {
+      expect(firstBtn.getAttribute("aria-label")).toBe("Pause speaking");
+    });
+    fireEvent.click(firstBtn);
+    await waitFor(() => {
+      expect(firstBtn.getAttribute("aria-label")).toBe("Resume speaking");
+    });
+
+    mockStop.mockClear();
+
+    // Click second bubble while first is paused — first's player.stop() is called.
     fireEvent.click(secondBtn);
     await waitFor(() => {
       expect(mockStop).toHaveBeenCalled();
