@@ -746,3 +746,176 @@ describe("duplicate upload_start on same messageQueueItemId", () => {
     );
   });
 });
+
+/* --------------------------------------------------------------------- */
+/*  Quick-fix 260801-29v regression: chunk arriving on the same tick as  */
+/*  its parent upload_start must not race the SFTP setup and emit        */
+/*  upload_failed reason=unknown_temp_id message="no active batch".      */
+/*                                                                       */
+/*  The fix lives in src/backend/ssh/terminal.ts (per-WS `pendingStarts` */
+/*  map + defer-behind-pending-start in case "upload_chunk"). There is   */
+/*  no exported dispatch helper today, so these tests mirror that        */
+/*  wiring locally so the race is exercised against the SAME             */
+/*  handleUploadStart / handleUploadChunk functions terminal.ts calls.   */
+/* --------------------------------------------------------------------- */
+
+describe("Quick-fix 260801-29v: chunk-before-start-settled race", () => {
+  // Mirror of terminal.ts case "upload_start" + case "upload_chunk"
+  // dispatch wiring (the two-line fix). Reset per test.
+  let pendingStarts: Map<string, Promise<void>>;
+
+  beforeEach(() => {
+    pendingStarts = new Map<string, Promise<void>>();
+  });
+
+  function dispatchStart(
+    deps: ReturnType<typeof makeDeps>,
+    payload: UploadStartPayload,
+  ): Promise<void> {
+    const p = handleUploadStart(deps, payload);
+    const mqid = payload.messageQueueItemId;
+    if (typeof mqid === "string" && mqid.length > 0) {
+      pendingStarts.set(mqid, p);
+      p.finally(() => {
+        pendingStarts.delete(mqid);
+      });
+    }
+    return p;
+  }
+
+  function dispatchChunk(
+    deps: ReturnType<typeof makeDeps>,
+    payload: {
+      type: "upload_chunk";
+      messageQueueItemId: string;
+      tempId: string;
+      offset: number;
+      bytes: string;
+    },
+  ): void {
+    const mqid = payload.messageQueueItemId;
+    const pending =
+      typeof mqid === "string" && mqid.length > 0
+        ? pendingStarts.get(mqid)
+        : undefined;
+    if (pending) {
+      pending
+        .then(() => handleUploadChunk(deps, payload))
+        .catch(() => {
+          // A rejected start already emitted upload_failed inside
+          // handleUploadStart; swallow to avoid unhandled rejection.
+        });
+      return;
+    }
+    handleUploadChunk(deps, payload);
+  }
+
+  it("Test A: chunk fired same tick as upload_start does NOT emit unknown_temp_id 'no active batch'", async () => {
+    // Slow the SFTP realpath so the start's async chain takes at least
+    // one macrotask to reach `activeBatches.set(mqid, batch)`. Without
+    // the pendingStarts defer, a chunk fired on the same tick would
+    // race past and hit `no active batch`.
+    const sftp = makeMockSftp();
+    sftp.realpath = vi.fn(
+      (_p: string, cb: (err: Error | null, r: string) => void) => {
+        setTimeout(() => cb(null, "/home/ash"), 0);
+      },
+    );
+    const ws = makeMockWs();
+    const deps = makeDeps(sftp, ws);
+    const bodyBytes = Buffer.from("hello world", "utf8"); // 11 bytes
+
+    // Fire start — do NOT await.
+    void dispatchStart(
+      deps,
+      startPayload([
+        {
+          tempId: "t1",
+          filename: "log.txt",
+          size: bodyBytes.length,
+          mimetype: "text/plain",
+        },
+      ]),
+    );
+    // IMMEDIATELY on the same tick, fire chunk — do NOT await.
+    dispatchChunk(deps, {
+      type: "upload_chunk",
+      messageQueueItemId: "mqid-test",
+      tempId: "t1",
+      offset: 0,
+      bytes: bodyBytes.toString("base64"),
+    });
+
+    // Wait for the terminal event of the batch lifecycle.
+    await waitFor(
+      ws,
+      (e) => (e as { type?: string }).type === "upload_ready_to_inject",
+    );
+
+    // Assert: NO upload_failed with reason=unknown_temp_id was emitted.
+    const raceFailure = ws.__sentEvents.find(
+      (e) =>
+        (e as UploadFailedEvent).type === "upload_failed" &&
+        (e as UploadFailedEvent).reason === "unknown_temp_id",
+    );
+    expect(raceFailure).toBeUndefined();
+
+    // And the payload landed successfully — upload_complete emitted
+    // with full bytes.
+    const complete = ws.__sentEvents.find(
+      (e) => (e as { type?: string }).type === "upload_complete",
+    ) as { landingPath: string; tempId: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(complete?.tempId).toBe("t1");
+  });
+
+  it("Test B: fast path — chunk after start settled runs handleUploadChunk synchronously", async () => {
+    const sftp = makeMockSftp();
+    const ws = makeMockWs();
+    const deps = makeDeps(sftp, ws);
+    const bodyBytes = Buffer.from("x", "utf8");
+
+    // Fully settle the start.
+    await dispatchStart(
+      deps,
+      startPayload([
+        {
+          tempId: "t1",
+          filename: "log.txt",
+          size: bodyBytes.length,
+          mimetype: "text/plain",
+        },
+      ]),
+    );
+    // Extra macrotask to guarantee the .finally cleanup ran.
+    await new Promise((r) => setTimeout(r, 20));
+
+    // pendingStarts self-cleaned on settle.
+    expect(pendingStarts.has("mqid-test")).toBe(false);
+
+    // Fire chunk — because pendingStarts is empty, dispatchChunk hits
+    // the synchronous branch. Assert `bytesReceived` on the fileState
+    // advances BEFORE any await — proving no `.then()` wrapper.
+    dispatchChunk(deps, {
+      type: "upload_chunk",
+      messageQueueItemId: "mqid-test",
+      tempId: "t1",
+      offset: 0,
+      bytes: bodyBytes.toString("base64"),
+    });
+    // No await here — check state right now.
+    const batch = __getActiveBatchesForTest().get("mqid-test");
+    expect(batch).toBeDefined();
+    const fileState = batch?.files.get("t1");
+    expect(fileState?.bytesReceived).toBe(bodyBytes.length);
+
+    // Also verify the SFTP writeStream received the bytes synchronously.
+    expect(sftp.__writeStreams[0].bytesWritten).toBe(bodyBytes.length);
+
+    // Let the batch finalize cleanly so the test doesn't leak state.
+    await waitFor(
+      ws,
+      (e) => (e as { type?: string }).type === "upload_ready_to_inject",
+    );
+  });
+});
