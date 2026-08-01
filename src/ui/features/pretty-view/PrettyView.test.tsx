@@ -698,7 +698,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     // Aux button disabled — pick the reset button (canonical aux gate; other
     // aux buttons follow the same pattern per Wave 4 Task 1).
     const resetBtn = container.querySelector(
-      'button[aria-label*="/id reset" i]',
+      'button[aria-label*="reset context window" i]',
     ) as HTMLButtonElement | null;
     expect(resetBtn).toBeTruthy();
     expect(resetBtn!.disabled).toBe(true);

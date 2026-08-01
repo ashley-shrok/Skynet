@@ -167,20 +167,16 @@ export function ChatMessage({
   // delimiter substring in prose).
   const injected = isUser ? parseInjectedUserTurn(content) : null;
   // Quick-reply as-a-thumbs-up: a user message whose text is exactly the
-  // quick-reply payload (case-insensitive, ignoring surrounding whitespace)
-  // renders as a ThumbsUp glyph inside the normal user bubble. Mirrors the
-  // ComposeBox quick-send button that produces this message, so what she
-  // sent visually matches what she clicked. Client-render-only — session
-  // file stays faithful. Recognizes the current payload ("let's go") AND legacy
-  // payloads ("yes", "works for me", "good to go", "go ahead") so past session
-  // files still render as the ThumbsUp glyph after each button-text swap.
+  // quick-reply payload "thumbs up" (case-insensitive, ignoring surrounding
+  // whitespace) renders as a ThumbsUp glyph inside the normal user bubble.
+  // Mirrors the ComposeBox quick-send button that produces this message, so
+  // what she sent visually matches what she clicked. Client-render-only —
+  // session file stays faithful. Narrowed to a single equality check per
+  // bounty `thumbs-up-button-rename-and-bubble-cleanup` (2026-08-01): legacy
+  // alt-matches for 'yes'/'works for me'/'good to go'/'go ahead'/'let's go'
+  // are stripped so past session files render those bubbles as plain text.
   const isQuickReply =
-    isUser &&
-    !injected &&
-    (() => {
-      const t = content.trim().toLowerCase();
-      return t === "let's go" || t === "yes" || t === "works for me" || t === "good to go" || t === "go ahead";
-    })();
+    isUser && !injected && content.trim().toLowerCase() === "thumbs up";
   // Prettify slash-command triplets before markdown parsing. Runs of
   // <command-message>/<command-name>/<command-args> tags become ⟨cmd:...⟩
   // sentinel markers, then the `p` component override below splits those

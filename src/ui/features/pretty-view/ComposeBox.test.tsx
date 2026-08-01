@@ -442,7 +442,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
 
-    const plusBtn = screen.getByRole("button", { name: /add queued message textarea/i });
+    const plusBtn = screen.getByRole("button", { name: /queue a message/i });
     expect(plusBtn).toBeTruthy();
 
     fireEvent.click(plusBtn);
@@ -459,7 +459,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
 
-    fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
 
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
     // The FIRST textarea is the newly added queue slot (queue slot stack renders above
@@ -475,7 +475,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
 
-    const plusBtn = screen.getByRole("button", { name: /add queued message textarea/i });
+    const plusBtn = screen.getByRole("button", { name: /queue a message/i });
     fireEvent.click(plusBtn);
     fireEvent.click(plusBtn);
 
@@ -498,7 +498,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     await flushMountEffect();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
     });
 
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
@@ -527,7 +527,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     await flushMountEffect();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
     });
 
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
@@ -556,7 +556,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     await flushMountEffect();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
     });
 
     const slotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
@@ -609,7 +609,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     putComposeDraftMock.mockClear();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
     });
 
     // Type in the new slot. Slot renders ABOVE primary in DOM: slot = index 0.
@@ -644,7 +644,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
       await Promise.resolve();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
 
     // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
@@ -683,7 +683,7 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
 
     render(<ComposeBox {...baseProps()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /add queued message textarea/i }));
+    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
 
     // Should have a mic button on the slot (aria-label "Record voice for queued slot" or similar)
     // The key assertion: a Record voice button appears associated with the slot
@@ -723,7 +723,7 @@ describe("ComposeBox — Phase 9 layout", () => {
     render(<ComposeBox {...baseProps()} />);
     // Patch #14-04 test-fix: aria-label was renamed to "Send 'let's go'"
     // (see ComposeBox.tsx around L1245); the regex needed refreshing.
-    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
+    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
     // Patch #129: selector updated per Test 7 rationale. The new inside-
     // textarea Send button lives in Row 2's textarea wrapper (line ~1250);
     // Row 1's aux-group (ThumbsUp) still precedes it in DOM order — the
@@ -768,7 +768,7 @@ describe("ComposeBox — Phase 9 layout", () => {
     // Row 1 anchor here. Use ThumbsUp (aria-label "Send 'let's go'")
     // instead, which still lives in Row 1's aux group — same anchor as
     // the sibling desktop test just below.
-    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
+    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
     const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
     expect(row1).not.toBeNull();
     expect(row1!.className).toContain("min-h-[44px]");
@@ -789,7 +789,7 @@ describe("ComposeBox — Phase 9 layout", () => {
     );
     // Patch #14-04 test-fix: aria-label was renamed to "Send 'let's go'"
     // (see ComposeBox.tsx around L1245); the regex needed refreshing.
-    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
+    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
     const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
     expect(row1).not.toBeNull();
     expect(row1!.className).toContain("min-h-8");
@@ -840,13 +840,15 @@ describe("ComposeBox — patch #135 auto-grow", () => {
   });
 });
 
-// Quick 260730-l34 (patch #204): Target (/bounty) and ListPlus (/queue)
-// prefix-send buttons in the aux row between Lightbulb and Hourglass.
-// Payload contract: click → handleSend("/bounty <text>") or ("/queue <text>")
-// via the overridePayload seam at ComposeBox.tsx:795. Textarea clears on
-// success (COMPOSE-04 hard-lock). Disabled predicate matches the aux-row
-// pattern PLUS the empty-text guard (text.trim() === "").
-describe("ComposeBox — quick 260730-l34: /bounty and /queue prefix buttons", () => {
+// Vehicle B (quick 260801-62m): the /bounty (Target) and /queue (ListPlus
+// prefix-send) buttons introduced by patch #204 (quick 260730-l34) have been
+// DELETED. Rationale: /bounty is superseded by the natural-language
+// "bounty bounty" voice trigger shipped as patch #241 (composeIntentTransform);
+// /queue is superseded by the queued-message textareas managed by the
+// "Queue a message" (ListPlus) add-textarea button in Row 2. The prior
+// describe block ("ComposeBox — quick 260730-l34: /bounty and /queue prefix
+// buttons") has been replaced by the removal-assertion block below.
+describe("ComposeBox — Vehicle B strip: /queue and /bounty prefix buttons removed", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Patch #129 test-hygiene fix: localStorage carries compose-draft
@@ -854,53 +856,13 @@ describe("ComposeBox — quick 260730-l34: /bounty and /queue prefix buttons", (
     localStorage.clear();
   });
 
-  it("renders Target (bounty) button with aria-label 'Send with /bounty prefix'", () => {
+  it("no longer renders the /bounty (Target) prefix-send button", () => {
     render(<ComposeBox {...baseProps({ canSend: true })} />);
-    expect(screen.getByLabelText(/send with \/bounty prefix/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/send with \/bounty prefix/i)).toBeNull();
   });
 
-  it("renders ListPlus (queue) button with aria-label 'Send with /queue prefix'", () => {
+  it("no longer renders the /queue (ListPlus prefix-send) button", () => {
     render(<ComposeBox {...baseProps({ canSend: true })} />);
-    expect(screen.getByLabelText(/send with \/queue prefix/i)).toBeTruthy();
-  });
-
-  it("bounty button click with text present calls onSend with '/bounty <text>' payload", () => {
-    const onSend = vi.fn(() => true);
-    render(<ComposeBox {...baseProps({ onSend, canSend: true })} />);
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "hello" } });
-    fireEvent.click(screen.getByLabelText(/send with \/bounty prefix/i));
-    expect(onSend).toHaveBeenCalledWith("/bounty hello");
-    // COMPOSE-04 clear-on-success contract.
-    expect(textarea.value).toBe("");
-  });
-
-  it("queue button click with text present calls onSend with '/queue <text>' payload", () => {
-    const onSend = vi.fn(() => true);
-    render(<ComposeBox {...baseProps({ onSend, canSend: true })} />);
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "hello" } });
-    fireEvent.click(screen.getByLabelText(/send with \/queue prefix/i));
-    expect(onSend).toHaveBeenCalledWith("/queue hello");
-    // COMPOSE-04 clear-on-success contract.
-    expect(textarea.value).toBe("");
-  });
-
-  it("bounty and queue buttons are disabled when textarea is empty", () => {
-    render(<ComposeBox {...baseProps({ canSend: true })} />);
-    const bountyBtn = screen.getByLabelText(/send with \/bounty prefix/i) as HTMLButtonElement;
-    const queueBtn = screen.getByLabelText(/send with \/queue prefix/i) as HTMLButtonElement;
-    expect(bountyBtn.disabled).toBe(true);
-    expect(queueBtn.disabled).toBe(true);
-  });
-
-  it("bounty and queue buttons become enabled when text is present", () => {
-    render(<ComposeBox {...baseProps({ canSend: true })} />);
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "hi" } });
-    const bountyBtn = screen.getByLabelText(/send with \/bounty prefix/i) as HTMLButtonElement;
-    const queueBtn = screen.getByLabelText(/send with \/queue prefix/i) as HTMLButtonElement;
-    expect(bountyBtn.disabled).toBe(false);
-    expect(queueBtn.disabled).toBe(false);
+    expect(screen.queryByLabelText(/send with \/queue prefix/i)).toBeNull();
   });
 });

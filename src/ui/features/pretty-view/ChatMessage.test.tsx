@@ -122,24 +122,41 @@ describe("ChatMessage — sender-side injected-turn detection (Plan 05-03)", () 
     ).toBeNull();
   });
 
-  it("Test 14: quick-reply thumbs-up render still works (non-injected user message with the quick-reply payload)", () => {
+  it("Test 14 (Vehicle B strip): quick-reply thumbs-up render works for the new 'thumbs up' payload", () => {
     // Regression guard: the isQuickReply branch must not be disturbed by
-    // the injected-turn detection ordering.
-    render(<ChatMessage role="user" content="good to go" />);
+    // the injected-turn detection ordering. Post-Vehicle B (quick 260801-62m),
+    // ONLY the exact payload "thumbs up" (case/whitespace insensitive) triggers
+    // the ThumbsUp glyph — legacy alt-matches are stripped.
+    render(<ChatMessage role="user" content="thumbs up" />);
     // ThumbsUp glyph is rendered with aria-label "quick reply".
     expect(screen.getByLabelText(/quick reply/i)).toBeTruthy();
     // And no chip strip.
     expect(screen.queryByTestId("attachment-chip-strip")).toBeNull();
   });
 
-  it("Test 14b (patch #107): quick-reply thumbs-up renders for the new 'works for me' payload", () => {
-    render(<ChatMessage role="user" content="works for me" />);
-    expect(screen.getByLabelText(/quick reply/i)).toBeTruthy();
+  it("Test 14b (Vehicle B strip): legacy 'good to go' payload renders as plain text bubble, NOT thumbs-up", () => {
+    render(<ChatMessage role="user" content="good to go" />);
+    expect(screen.queryByLabelText(/quick reply/i)).toBeNull();
   });
 
-  it("Test 14c (patch #107): quick-reply thumbs-up still renders for legacy 'go ahead' payload", () => {
+  it("Test 14c (Vehicle B strip): legacy 'works for me' payload renders as plain text bubble, NOT thumbs-up", () => {
+    render(<ChatMessage role="user" content="works for me" />);
+    expect(screen.queryByLabelText(/quick reply/i)).toBeNull();
+  });
+
+  it("Test 14d (Vehicle B strip): legacy 'go ahead' payload renders as plain text bubble, NOT thumbs-up", () => {
     render(<ChatMessage role="user" content="go ahead" />);
-    expect(screen.getByLabelText(/quick reply/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/quick reply/i)).toBeNull();
+  });
+
+  it("Test 14e (Vehicle B strip): legacy 'yes' payload renders as plain text bubble, NOT thumbs-up", () => {
+    render(<ChatMessage role="user" content="yes" />);
+    expect(screen.queryByLabelText(/quick reply/i)).toBeNull();
+  });
+
+  it("Test 14f (Vehicle B strip): legacy 'let's go' payload renders as plain text bubble, NOT thumbs-up", () => {
+    render(<ChatMessage role="user" content="let's go" />);
+    expect(screen.queryByLabelText(/quick reply/i)).toBeNull();
   });
 });
 

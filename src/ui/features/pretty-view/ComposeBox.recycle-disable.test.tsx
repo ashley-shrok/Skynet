@@ -96,9 +96,9 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
         })}
       />,
     );
-    const resetBtn = screen.getByLabelText("Send with /id reset prefix") as HTMLButtonElement;
-    const thumbsUpBtn = screen.getByLabelText("Send 'let's go'") as HTMLButtonElement;
-    const explainBtn = screen.getByLabelText("Ask for a concise re-explanation") as HTMLButtonElement;
+    const resetBtn = screen.getByLabelText("Reset context window") as HTMLButtonElement;
+    const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
+    const explainBtn = screen.getByLabelText("Recap the current situation") as HTMLButtonElement;
     const queueBtn = screen.getByLabelText("Queue send for when session goes idle") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);

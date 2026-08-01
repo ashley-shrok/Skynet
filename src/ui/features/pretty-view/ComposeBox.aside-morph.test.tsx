@@ -60,7 +60,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         })}
       />,
     );
-    const resetBtn = screen.getByLabelText(/send with \/id reset prefix/i);
+    const resetBtn = screen.getByLabelText(/reset context window/i);
     expect((resetBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -70,7 +70,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         {...baseProps({})}
       />,
     );
-    const resetBtn = screen.getByLabelText(/send with \/id reset prefix/i);
+    const resetBtn = screen.getByLabelText(/reset context window/i);
     // canSend=true, no aside → not disabled
     expect((resetBtn as HTMLButtonElement).disabled).toBe(false);
   });
@@ -97,7 +97,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         })}
       />,
     );
-    const thumbsUpBtn = screen.getByLabelText(/send 'let's go'/i);
+    const thumbsUpBtn = screen.getByLabelText(/send 'thumbs up'/i);
     expect((thumbsUpBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -125,42 +125,17 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
     expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
   });
 
-  // Quick 260730-l34 (patch #204): Target (/bounty) and ListPlus (/queue)
-  // prefix-send buttons follow the same aux-row aside-morph disable
-  // contract as ThumbsUp/Hourglass (Tests 4/5 above). NOTE: their disable
-  // predicate ALSO includes `text.trim() === ""`, so we MUST type non-empty
-  // text into the textarea before asserting the asideActive clause —
-  // otherwise the empty-text clause would trivially disable the button and
-  // the test wouldn't prove asideActive is what's flipping it.
-  it("Task 1 Test 7: bounty (/bounty) button becomes disabled when asideActive=true even with text present", () => {
-    render(
-      <ComposeBox
-        {...baseProps({
-          asideActive: true,
-          canSend: true,
-        })}
-      />,
-    );
-    const textarea = screen.getByRole("textbox");
-    fireEvent.change(textarea, { target: { value: "hello" } });
-    const bountyBtn = screen.getByLabelText(/send with \/bounty prefix/i);
-    expect((bountyBtn as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("Task 1 Test 8: queue (/queue) button becomes disabled when asideActive=true even with text present", () => {
-    render(
-      <ComposeBox
-        {...baseProps({
-          asideActive: true,
-          canSend: true,
-        })}
-      />,
-    );
-    const textarea = screen.getByRole("textbox");
-    fireEvent.change(textarea, { target: { value: "hello" } });
-    const queueBtn = screen.getByLabelText(/send with \/queue prefix/i);
-    expect((queueBtn as HTMLButtonElement).disabled).toBe(true);
-  });
+  // Task 1 Test 7 REMOVED (Vehicle B strip, quick 260801-62m): the /bounty
+  // (Target) prefix-send button no longer exists — superseded by the
+  // natural-language "bounty bounty" voice trigger shipped as patch #241
+  // (composeIntentTransform). Removal-assertion coverage now lives in
+  // ComposeBox.test.tsx under the "Vehicle B strip" describe block.
+  //
+  // Task 1 Test 8 REMOVED (Vehicle B strip, quick 260801-62m): the /queue
+  // (ListPlus prefix-send) button no longer exists — superseded by the
+  // queued-message textareas managed by the "Queue a message" (ListPlus)
+  // add-textarea button in Row 2. Removal-assertion coverage now lives in
+  // ComposeBox.test.tsx under the "Vehicle B strip" describe block.
 });
 
 describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)", () => {
