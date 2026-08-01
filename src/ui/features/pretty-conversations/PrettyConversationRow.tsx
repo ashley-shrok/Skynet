@@ -635,7 +635,7 @@ export function PrettyConversationRow({
             // the belt-and-suspenders onToggleHide check below handles RDP safety).
             if (onToggleHide) {
               items.push({
-                label: hidden ? "Show" : "Hide",
+                label: hidden ? "Unhide" : "Hide",
                 onClick: onToggleHide,
               });
             }

@@ -2232,8 +2232,8 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     expect(labels[2]).toMatch(/deactivate/i);
   });
 
-  // (h) Context menu on a hidden row shows Show in the same slot
-  it("Test (h): context menu on a hidden row shows 'Show' instead of 'Hide'", async () => {
+  // (h) Context menu on a hidden row shows Unhide in the same slot
+  it("Test (h): context menu on a hidden row shows 'Unhide' instead of 'Hide'", async () => {
     setSnapshot({
       grouped: [
         { hostId: "h1", hostName: "hostA", rows: [makeConversationRow({ id: "hidden-row-h", label: "hidden-h", host: hostA })] },
@@ -2254,8 +2254,8 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     });
 
     const menu = screen.getByRole("menu");
-    // Should have a "Show" item, not "Hide"
-    expect(within(menu).queryByRole("menuitem", { name: /^show$/i })).toBeTruthy();
+    // Should have an "Unhide" item, not "Hide" (patch #252 — Ashley 2026-08-01 ask)
+    expect(within(menu).queryByRole("menuitem", { name: /^unhide$/i })).toBeTruthy();
     expect(within(menu).queryByRole("menuitem", { name: /^hide$/i })).toBeNull();
   });
 
