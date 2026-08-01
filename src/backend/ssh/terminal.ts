@@ -231,6 +231,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // upload phase — one namespace, one lifecycle).
   const ownedUploadBatches = new Set<string>();
 
+  // Quick-fix 260801-29v: per-WS map of in-flight `handleUploadStart`
+  // promises, keyed on `messageQueueItemId`. Fixes the race where a
+  // 64 KB `upload_chunk` arriving on the same WS tick as its parent
+  // `upload_start` reaches `handleUploadChunk` before the SFTP setup
+  // (realpath + ensureLandingDir + createWriteStream) has registered
+  // the batch in `activeBatches` — which otherwise emits
+  // `upload_failed reason=unknown_temp_id message="no active batch"`.
+  // The map self-cleans on start settle (finally). Chunks whose parent
+  // start has already resolved bypass this map entirely and continue
+  // to run synchronously (warm-session fast path preserved).
+  const pendingStarts = new Map<string, Promise<void>>();
+
   let wsAlive = true;
 
   ws.on("pong", () => {
@@ -876,25 +888,65 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // mitigation rationale.
       case "upload_start": {
         const uploadStart = parsed as unknown as UploadStartPayload;
-        if (
-          typeof uploadStart.messageQueueItemId === "string" &&
-          uploadStart.messageQueueItemId.length > 0
-        ) {
-          ownedUploadBatches.add(uploadStart.messageQueueItemId);
+        const startMqid = uploadStart.messageQueueItemId;
+        if (typeof startMqid === "string" && startMqid.length > 0) {
+          ownedUploadBatches.add(startMqid);
         }
-        void handleUploadStart(
+        // Quick-fix 260801-29v: capture the start promise (do NOT await
+        // at dispatch — other WS message types must keep flowing while
+        // SFTP setup happens) and track it in `pendingStarts` so an
+        // `upload_chunk` arriving on the same tick can defer behind it
+        // instead of hitting "no active batch". Map self-cleans on
+        // settle via `.finally(...)`.
+        const startPromise = handleUploadStart(
           { sshConn, ws, userId, currentSessionId },
           uploadStart,
         );
+        if (typeof startMqid === "string" && startMqid.length > 0) {
+          pendingStarts.set(startMqid, startPromise);
+          startPromise.finally(() => {
+            pendingStarts.delete(startMqid);
+          });
+        }
         break;
       }
 
       case "upload_chunk": {
         const uploadChunk = parsed as unknown as UploadChunkPayload;
-        handleUploadChunk(
-          { sshConn, ws, userId, currentSessionId },
-          uploadChunk,
-        );
+        // Quick-fix 260801-29v: if the parent `upload_start` is still
+        // in-flight (SFTP setup not yet complete → batch not yet in
+        // `activeBatches`), defer this chunk behind that promise so we
+        // don't emit `upload_failed reason=unknown_temp_id message="no
+        // active batch"`. If the start already resolved (or this chunk
+        // is for a foreign/unknown mqid), fall through to the original
+        // synchronous call — warm-session fast path, no added microtask.
+        const chunkMqid = uploadChunk.messageQueueItemId;
+        const pending =
+          typeof chunkMqid === "string" && chunkMqid.length > 0
+            ? pendingStarts.get(chunkMqid)
+            : undefined;
+        if (pending) {
+          pending
+            .then(() =>
+              handleUploadChunk(
+                { sshConn, ws, userId, currentSessionId },
+                uploadChunk,
+              ),
+            )
+            .catch(() => {
+              // A rejected start already emitted its own upload_failed
+              // event inside handleUploadStart; if handleUploadChunk
+              // then finds no batch it will emit unknown_temp_id, which
+              // is the CORRECT signal for a truly-failed start (vs. the
+              // race we are fixing here). Swallow to avoid an unhandled
+              // rejection.
+            });
+        } else {
+          handleUploadChunk(
+            { sshConn, ws, userId, currentSessionId },
+            uploadChunk,
+          );
+        }
         break;
       }
 
