@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Gestion SSH et de bureau à distance auto-hébergée",
-    "loginTitle": "Se connecter à Skynet",
+    "loginTitle": "Se connecter à SKYNET",
     "registerTitle": "Créer un compte",
     "forgotPassword": "Mot de passe oublié ?",
     "rememberMe": "Se souvenir de l'appareil pendant 30 jours (comprend TOTP)",

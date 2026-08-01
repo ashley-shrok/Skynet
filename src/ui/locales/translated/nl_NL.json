@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Zelf gehoste SSH- en beheerservices voor externe bureaubladen",
-    "loginTitle": "Inloggen op Skynet",
+    "loginTitle": "Inloggen op SKYNET",
     "registerTitle": "Account Aanmaken",
     "forgotPassword": "Wachtwoord Vergeten?",
     "rememberMe": "Onthoud apparaat voor 30 dagen (inclusief TOTP)",

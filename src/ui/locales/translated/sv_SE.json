@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Självhostad SSH och fjärrskrivbordshantering",
-    "loginTitle": "Logga in till Skynet",
+    "loginTitle": "Logga in till SKYNET",
     "registerTitle": "Skapa konto",
     "forgotPassword": "Glömt lösenordet?",
     "rememberMe": "Kom ihåg enheten i 30 dagar (inkluderar TOTP)",

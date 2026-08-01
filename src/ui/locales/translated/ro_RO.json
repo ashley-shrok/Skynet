@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Gestionare SSH și desktop la distanță auto-găzduită",
-    "loginTitle": "Autentificare în Skynet",
+    "loginTitle": "Autentificare în SKYNET",
     "registerTitle": "Creare cont",
     "forgotPassword": "Parolă uitată?",
     "rememberMe": "Ține minte dispozitivul pentru 30 de zile (include TOTP)",

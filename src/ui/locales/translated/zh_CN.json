@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "自托管 SSH 和远程桌面管理",
-    "loginTitle": "登录 Skynet",
+    "loginTitle": "登录 SKYNET",
     "registerTitle": "创建账户",
     "forgotPassword": "忘记密码？",
     "rememberMe": "记住设备30天 (包括TOTP)",

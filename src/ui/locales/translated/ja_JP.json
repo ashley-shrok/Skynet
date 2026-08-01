@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "セルフホスト型のSSHおよびリモートデスクトップ管理",
-    "loginTitle": "Skynetにログイン",
+    "loginTitle": "SKYNETにログイン",
     "registerTitle": "アカウントを作成",
     "forgotPassword": "パスワードをお忘れですか？",
     "rememberMe": "30日間デバイスを記憶（TOTPを含む）",

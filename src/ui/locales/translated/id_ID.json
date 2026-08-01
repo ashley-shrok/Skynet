@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Manajemen SSH dan desktop jarak jauh yang dihosting sendiri",
-    "loginTitle": "Masuk ke Skynet",
+    "loginTitle": "Masuk ke SKYNET",
     "registerTitle": "Buat Akun",
     "forgotPassword": "Lupa kata sandi?",
     "rememberMe": "Ingat Perangkat Selama 30 Hari (termasuk TOTP)",

@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Samodzielnie hostowany SSH i zdalne zarządzanie pulpitem",
-    "loginTitle": "Zaloguj się do Skynet",
+    "loginTitle": "Zaloguj się do SKYNET",
     "registerTitle": "Utwórz konto",
     "forgotPassword": "Zapomniałeś hasła?",
     "rememberMe": "Zapamiętaj urządzenie przez 30 dni (w tym TOTP)",

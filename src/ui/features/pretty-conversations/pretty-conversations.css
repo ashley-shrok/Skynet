@@ -181,14 +181,26 @@
   stroke-width: 2;
 }
 
-/* Header logo (favicon-ish 20x20 rounded square left of the "Skynet" title).
+/* Header logo (Skynet triangle SVG left of the wordmark).
    Extracted from an inline style on the <img> so a mobile media query can
-   override without inline-style specificity fighting it. */
+   override without inline-style specificity fighting it. No border-radius —
+   the mark is a triangle on transparent bg, not a rounded square. */
 .pv-panel-header .pv-header-logo {
   width: 20px;
   height: 20px;
-  border-radius: 4px;
   flex-shrink: 0;
+}
+
+/* Header wordmark (SKYNET image replacing what used to be the text "Skynet").
+   Height-locked; width follows source aspect (1271:143 ≈ 8.89:1).
+   Slightly taller than the prior 12px title font-size to let the mark carry
+   the brand weight the text couldn't. */
+.pv-panel-header .pv-header-wordmark {
+  height: 13px;
+  width: auto;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -995,7 +1007,9 @@
   .pv-panel-header .pv-header-logo {
     width: 40px;
     height: 40px;
-    border-radius: 8px;
+  }
+  .pv-panel-header .pv-header-wordmark {
+    height: 22px;
   }
 
   .pv-bounty-badge {

@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Itse isännöity SSH ja etätyöpöytähallinta",
-    "loginTitle": "Kirjaudu Skynetiin",
+    "loginTitle": "Kirjaudu SKYNETiin",
     "registerTitle": "Luo Tili",
     "forgotPassword": "Unohditko Salasanan?",
     "rememberMe": "Muista laite 30 päivän ajan (sisältää TOTP)",

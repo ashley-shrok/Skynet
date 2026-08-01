@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Saját üzemeltetésű SSH és távoli asztalkezelés",
-    "loginTitle": "Bejelentkezés a Skynetbe",
+    "loginTitle": "Bejelentkezés a SKYNETbe",
     "registerTitle": "Fiók létrehozása",
     "forgotPassword": "Elfelejtett jelszó?",
     "rememberMe": "Eszköz megjegyzése 30 napig (TOTP-t is tartalmaz)",

@@ -175,7 +175,7 @@ export function AppShell({
       id: "dashboard",
       instanceId: "dashboard",
       type: "dashboard",
-      label: "Skynet",
+      label: "SKYNET",
       openedAt: Date.now(),
     },
   ]);
@@ -407,7 +407,7 @@ export function AppShell({
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);
     const tmux = tmuxSessionNames[activeTabId];
-    document.title = tmux || activeTab?.label || "Skynet";
+    document.title = tmux || activeTab?.label || "SKYNET";
   }, [activeTabId, tabs, tmuxSessionNames]);
 
   // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
@@ -1195,7 +1195,7 @@ export function AppShell({
               id: "dashboard",
               instanceId: "dashboard",
               type: "dashboard",
-              label: "Skynet",
+              label: "SKYNET",
               openedAt: Date.now(),
             },
           ];

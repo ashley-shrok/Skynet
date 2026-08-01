@@ -76,6 +76,7 @@ import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
 import WeeklyUsageMeter from "./WeeklyUsageMeter";
+import SkynetLogo from "./SkynetLogo";
 
 // Patch #137: derive the (hostId:tmuxSessionName) key used by the session-
 // working-store to look up the row's live isWorking state. Rows without a
@@ -666,13 +667,15 @@ export function PrettyConversationsPanel({
             className="pv-title"
             style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
           >
-            <img
-              src="/apple-touch-icon-192.png"
-              alt=""
+            <SkynetLogo
               aria-hidden="true"
               className="pv-header-logo"
             />
-            Skynet
+            <img
+              src="/skynet-wordmark.png"
+              alt="SKYNET"
+              className="pv-header-wordmark"
+            />
           </span>
           <div className="pv-header-actions">
             {/* Patch #167: pinned-bounty filter toggle. Same chrome/size as

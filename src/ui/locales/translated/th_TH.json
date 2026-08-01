@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "การจัดการ SSH และเดสก์ท็อประยะไกลแบบโฮสต์เอง",
-    "loginTitle": "เข้าสู่ระบบ Skynet",
+    "loginTitle": "เข้าสู่ระบบ SKYNET",
     "registerTitle": "สร้างบัญชี",
     "forgotPassword": "ลืมรหัสผ่านใช่ไหม?",
     "rememberMe": "จดจำอุปกรณ์เป็นเวลา 30 วัน (รวมถึง TOTP)",

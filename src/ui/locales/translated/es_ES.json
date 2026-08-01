@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "SSH autoalojado y administración remota de escritorio",
-    "loginTitle": "Iniciar sesión en Skynet",
+    "loginTitle": "Iniciar sesión en SKYNET",
     "registerTitle": "Crear cuenta",
     "forgotPassword": "¿Olvidó la contraseña?",
     "rememberMe": "Recordar dispositivo durante 30 días (incluye TOTP)",

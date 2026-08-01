@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Selvhostet SSH og ekstern skrivebordsadministrasjon",
-    "loginTitle": "Logg inn i Skynet",
+    "loginTitle": "Logg inn i SKYNET",
     "registerTitle": "Opprett konto",
     "forgotPassword": "Glemt passord?",
     "rememberMe": "Husk enhet for 30 dager (inkluderer TOTP)",

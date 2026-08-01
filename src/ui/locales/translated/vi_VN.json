@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Quản lý SSH và máy tính từ xa tự lưu trữ",
-    "loginTitle": "Đăng nhập vào Skynet",
+    "loginTitle": "Đăng nhập vào SKYNET",
     "registerTitle": "Tạo tài khoản",
     "forgotPassword": "Quên mật khẩu?",
     "rememberMe": "Lưu mã xác thực thiết bị trong 30 ngày (bao gồm cả mã TOTP)",

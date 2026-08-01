@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "자체 호스팅 SSH 및 원격 데스크톱 관리",
-    "loginTitle": "Skynet에 로그인하세요",
+    "loginTitle": "SKYNET에 로그인하세요",
     "registerTitle": "계정 생성",
     "forgotPassword": "비밀번호를 잊으셨나요?",
     "rememberMe": "30일 동안 기기 정보를 기억해 두세요 (TOTP 포함).",

@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Самостоятелно хоствано SSH и управление на отдалечен работен плот",
-    "loginTitle": "Вход в Skynet",
+    "loginTitle": "Вход в SKYNET",
     "registerTitle": "Създаване на акаунт",
     "forgotPassword": "Забравена парола?",
     "rememberMe": "Запомни устройството за 30 дни (включва TOTP)",

@@ -909,7 +909,7 @@
   },
   "auth": {
     "tagline": "Self-hosted SSH and remote desktop management",
-    "loginTitle": "Login to Skynet",
+    "loginTitle": "Login to SKYNET",
     "registerTitle": "Create Account",
     "forgotPassword": "Forgot Password?",
     "rememberMe": "Remember Device for 30 Days (includes TOTP)",

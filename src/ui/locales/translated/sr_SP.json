@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Самостално хостовано SSH и управљање удаљеном радном површином",
-    "loginTitle": "Пријавите се на Skynet",
+    "loginTitle": "Пријавите се на SKYNET",
     "registerTitle": "Направи налог",
     "forgotPassword": "Заборавили сте лозинку?",
     "rememberMe": "Запамти уређај 30 дана (укључује TOTP)",

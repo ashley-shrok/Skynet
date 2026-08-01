@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Samostatně hostované SSH a správa vzdálené plochy",
-    "loginTitle": "Přihlásit se do Skynet",
+    "loginTitle": "Přihlásit se do SKYNET",
     "registerTitle": "Vytvořit účet",
     "forgotPassword": "Zapomněli jste heslo?",
     "rememberMe": "Zapamatovat zařízení na 30 dní (včetně TOTP)",

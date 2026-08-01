@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "إدارة SSH وسطح المكتب عن بُعد ذاتية الاستضافة",
-    "loginTitle": "تسجيل الدخول إلى Skynet",
+    "loginTitle": "تسجيل الدخول إلى SKYNET",
     "registerTitle": "إنشاء حساب",
     "forgotPassword": "نسيت كلمة المرور؟",
     "rememberMe": "تذكر الجهاز لمدة 30 يوما (يشمل TOTP)",

@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Власне керування SSH та віддаленим робочим столом",
-    "loginTitle": "Увійти до Skynet",
+    "loginTitle": "Увійти до SKYNET",
     "registerTitle": "Створити обл. запис",
     "forgotPassword": "Забули пароль?",
     "rememberMe": "Запам'ятати пристрій за 30 днів (включає TOTP)",

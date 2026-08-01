@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "SSH autoallotjat i gestió d'escriptori remot",
-    "loginTitle": "Inicia la sessió a Skynet",
+    "loginTitle": "Inicia la sessió a SKYNET",
     "registerTitle": "Crea un compte",
     "forgotPassword": "Has oblidat la contrasenya?",
     "rememberMe": "Recorda el dispositiu durant 30 dies (inclou TOTP)",

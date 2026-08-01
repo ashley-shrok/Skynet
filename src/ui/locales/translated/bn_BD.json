@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "সেলফ-হোস্টেড SSH এবং রিমোট ডেস্কটপ ম্যানেজমেন্ট",
-    "loginTitle": "Skynet-এ লগইন করুন",
+    "loginTitle": "SKYNET-এ লগইন করুন",
     "registerTitle": "অ্যাকাউন্ট তৈরি করুন",
     "forgotPassword": "পাসওয়ার্ড ভুলে গেছেন?",
     "rememberMe": "৩০ দিনের জন্য ডিভাইস মনে রাখুন (TOTP অন্তর্ভুক্ত)",

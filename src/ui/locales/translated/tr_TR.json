@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Kendi sunucunuzda barındırılan SSH ve uzaktan masaüstü yönetimi",
-    "loginTitle": "Skynet'e giriş yapın",
+    "loginTitle": "SKYNET'e giriş yapın",
     "registerTitle": "Hesap oluşturmak",
     "forgotPassword": "Parolanızı mı unuttunuz?",
     "rememberMe": "Cihazı 30 Gün Boyunca Hatırlayın (TOTP Dahil)",

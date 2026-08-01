@@ -6,8 +6,8 @@
 //   4)  RDP-sentinel HostGroup renders at bottom with "Remote desktop" divider
 //   5)  Header pencil opens NewSessionDialog
 //   6)  Header pencil NOT rendered when onCreateSession undefined
-//   7)  Desktop header shows Skynet brand lockup (img + text) — quick-260730-tuo
-//   8)  Mobile header shows Skynet brand lockup (same shape as desktop) — quick-260730-tuo
+//   7)  Desktop header shows SKYNET brand lockup (inline SVG logo + wordmark img) — patch #257
+//   8)  Mobile header shows SKYNET brand lockup (same shape as desktop) — patch #257
 //   9)  Desktop gear renders when onRailClick provided
 //  10)  Mobile gear NEVER renders (even when onRailClick provided)
 //  11)  RETIRED — settingsRowSlot prop dropped in Phase 11 (Ashley's "no settings" lock)
@@ -1185,39 +1185,39 @@ describe("PrettyConversationsPanel: pencil gate", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 7 — Desktop header shows Skynet brand lockup (img + text)
+// Test 7 — Desktop header shows SKYNET brand lockup (inline SVG logo + wordmark img)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: desktop header title", () => {
-  it("Test 7: desktop variant renders Skynet brand lockup (img + text) in .pv-title with .pv-panel-header treatment (quick-260730-tuo)", () => {
-    const { container, queryByText } = render(
+  it("Test 7 (patch #257): desktop variant renders SKYNET brand lockup (inline SVG logo + wordmark img) in .pv-title with .pv-panel-header treatment", () => {
+    const { container, queryByAltText } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
-    // quick-260730-tuo: header copy flipped from i18n "Conversations" to the
-    // hardcoded "Skynet" brand mark (brand marks are not localizable). The
-    // `.pv-title` span is now a brand lockup: 20×20 rounded logo + text.
-    const titleEl = queryByText(/^skynet$/i) as HTMLElement | null;
-    expect(titleEl).toBeTruthy();
+    // Patch #257: brand lockup is now inline SkynetLogo SVG (svgr'd from
+    // src/ui/assets/skynet-logo.svg, so no /icon.svg file to cache-fight) +
+    // /skynet-wordmark.png replacing the prior "Skynet" text node.
+    const wordmark = queryByAltText("SKYNET") as HTMLImageElement | null;
+    expect(wordmark).toBeTruthy();
+    expect(wordmark!.tagName).toBe("IMG");
+    expect(wordmark!.getAttribute("src")).toBe("/skynet-wordmark.png");
+    expect(wordmark!.className).toContain("pv-header-wordmark");
 
-    // Phase 13 Wave 2 SHAPE-02: title carries the mock's `.pv-title` class-
-    // toggle treatment (12px + 700 + 0.1em letter-spacing + UPPERCASE +
-    // --color-pv-fg). Retired: `text-[13px] font-semibold tracking-tight`
-    // Skynet-theme utility classes.
+    // The wordmark's containing .pv-title lockup carries the class-toggle
+    // treatment (12px + 700 + 0.1em letter-spacing + UPPERCASE + --color-pv-fg).
+    const titleEl = wordmark!.closest(".pv-title") as HTMLElement | null;
+    expect(titleEl).toBeTruthy();
     expect(titleEl!.className).toContain("pv-title");
 
-    // quick-260730-tuo: `.pv-title` now contains a brand-lockup <img> as its
-    // first flex child (aria-hidden, empty alt — decorative). Assert on src /
-    // alt / aria-hidden shape so a swap to the wrong asset regresses the test.
-    const brandImg = titleEl!.querySelector("img");
-    expect(brandImg).toBeTruthy();
-    expect(brandImg!.getAttribute("src")).toBe("/apple-touch-icon-192.png");
-    expect(brandImg!.getAttribute("alt")).toBe("");
-    expect(brandImg!.getAttribute("aria-hidden")).toBe("true");
+    // Header-logo SVG (SkynetLogo from svgr) is the sibling before the wordmark:
+    // aria-hidden decorative mark, .pv-header-logo class. No `<img src="...">`
+    // for the logo anymore — the SVG is inlined into the JS bundle.
+    const logoSvg = titleEl!.querySelector("svg.pv-header-logo");
+    expect(logoSvg).toBeTruthy();
+    expect(logoSvg!.getAttribute("aria-hidden")).toBe("true");
 
     // Header row container carries `.pv-panel-header` — CSS handles layout
     // (14px 16px padding, hairline border-bottom via --color-pv-border-quiet,
-    // display:flex, justify-content:space-between). Retired inline utilities:
-    // `flex items-center justify-between px-4 py-3 border-b border-white/[0.06]`.
+    // display:flex, justify-content:space-between).
     const headerRow = container.querySelector(
       "[data-testid='pretty-conversations-panel'] .pv-panel-header",
     ) as HTMLElement | null;
@@ -1232,8 +1232,8 @@ describe("PrettyConversationsPanel: desktop header title", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
-  it("Test 8 (spec change patch #144 f + quick-260730-tuo): mobile variant renders Skynet brand lockup (same shape as desktop) — prior 'deliberately left off per Phase 10 design' handoff note was wrong per Ashley 2026-07-24; copy flipped from Conversations to Skynet 2026-07-30", () => {
-    const { container, queryByText, queryByRole } = render(
+  it("Test 8 (patch #257 + spec-change patch #144 f): mobile variant renders SKYNET brand lockup (same shape as desktop)", () => {
+    const { container, queryByAltText, queryByRole } = render(
       <PrettyConversationsPanel
         variant="mobile"
         hostTree={ONE_HOST_TREE}
@@ -1241,24 +1241,25 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
         onDeactivateRow={() => {}}
       />,
     );
-    // quick-260730-tuo: mobile + desktop render identical header brand-lockup
-    // shape (patch #144 fix f made both variants share the same title element),
-    // so mobile now asserts on "Skynet" text + brand-img shape too.
-    const titleEl = queryByText(/^skynet$/i) as HTMLElement | null;
-    expect(titleEl).toBeTruthy();
+    // Patch #257: mobile + desktop render identical header brand-lockup shape
+    // (inline SkynetLogo SVG + wordmark img). Mobile mirrors Test 7's contract.
+    const wordmark = queryByAltText("SKYNET") as HTMLImageElement | null;
+    expect(wordmark).toBeTruthy();
+    expect(wordmark!.tagName).toBe("IMG");
+    expect(wordmark!.getAttribute("src")).toBe("/skynet-wordmark.png");
+    expect(wordmark!.className).toContain("pv-header-wordmark");
 
-    // The `.pv-title` element is now present on mobile (Fix f removed the
-    // showDesktopTitle gate that used to emit an empty aria-hidden span
-    // in its place).
+    // The `.pv-title` element is present on mobile (Fix f removed the
+    // showDesktopTitle gate).
+    const titleEl = wordmark!.closest(".pv-title") as HTMLElement | null;
+    expect(titleEl).toBeTruthy();
     expect(container.querySelector(".pv-title")).toBeTruthy();
 
-    // Brand-lockup img shape (mirrors Test 7) — same src / alt / aria-hidden
-    // contract on mobile as desktop.
-    const brandImg = titleEl!.querySelector("img");
-    expect(brandImg).toBeTruthy();
-    expect(brandImg!.getAttribute("src")).toBe("/apple-touch-icon-192.png");
-    expect(brandImg!.getAttribute("alt")).toBe("");
-    expect(brandImg!.getAttribute("aria-hidden")).toBe("true");
+    // Header-logo SVG (SkynetLogo from svgr): mirrors Test 7 — same
+    // aria-hidden + class contract on mobile as desktop.
+    const logoSvg = titleEl!.querySelector("svg.pv-header-logo");
+    expect(logoSvg).toBeTruthy();
+    expect(logoSvg!.getAttribute("aria-hidden")).toBe("true");
 
     // Header row container still carries `.pv-panel-header` even on mobile.
     expect(container.querySelector(".pv-panel-header")).toBeTruthy();

@@ -889,7 +889,7 @@
   },
   "auth": {
     "tagline": "Gestione SSH e desktop remoto self-hosted",
-    "loginTitle": "Accedi a Skynet",
+    "loginTitle": "Accedi a SKYNET",
     "registerTitle": "Crea Account",
     "forgotPassword": "Password Dimenticata?",
     "rememberMe": "Ricorda il dispositivo per 30 giorni (include TOTP)",
