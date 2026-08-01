@@ -101,7 +101,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
     expect((thumbsUpBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("Task 1 Test 5: queue (Hourglass) button becomes disabled when asideActive=true", () => {
+  it("Task 1 Test 5 (Vehicle C): aux-row Queue button is REMOVED — per-textarea arm-idle replaces it", () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -109,8 +109,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         })}
       />,
     );
-    const queueBtn = screen.getByLabelText(/queue send for when session goes idle/i);
-    expect((queueBtn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByLabelText(/queue send for when session goes idle/i)).toBeNull();
   });
 
   it("Task 1 Test 6: textarea REMAINS editable when asideActive=true (locked per CONTEXT.md § ComposeBox morph)", () => {

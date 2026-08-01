@@ -155,19 +155,31 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
   });
 
-  it("Test 2: MicButton and Send button BOTH render when text is non-empty (co-render, no swap)", async () => {
-    // Quick 260729-3y1: showMicButton no longer gates on text length; MicButton
-    // co-renders LEFT of Send (at right-11 bottom-0.5) instead of swap-in-
-    // single-slot. Ashley UX rule: mic must stay tappable even with dirty text
-    // so voice capture can start without clearing input first.
+  it("Test 2 (Vehicle C v2 2026-08-01): mic and arm-idle COEXIST on non-empty text (Ashley 260729-3y1 lock: mic always reachable)", async () => {
+    // Vehicle C v2 (260801-75z): arm-idle affordance moved off the aux row
+    // and onto each textarea. On non-empty primary text, three buttons
+    // coexist: Mic (right-11), Arm-idle (right-21, one slot LEFT of mic),
+    // and Send (right-1). Ashley UX rule: mic must stay reachable
+    // regardless of textarea contents so voice capture can start without
+    // clearing input first. Empty text hides ONLY the arm-idle button —
+    // mic and Send still render (Send disabled when nothing to send).
     render(<ComposeBox {...baseProps()} />);
     const textarea = screen.getByPlaceholderText(/message/i);
-    // Type some text into the textarea.
+
+    // Non-empty text → mic + arm-idle + Send all visible.
     fireEvent.change(textarea, { target: { value: "hello" } });
-    // After typing, voice is still idle → BOTH MicButton and Send render.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send when idle" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    });
+
+    // Clear the text → mic + Send still visible; arm-idle hidden.
+    fireEvent.change(textarea, { target: { value: "" } });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Send when idle" })).toBeNull();
     });
   });
 
@@ -263,12 +275,15 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // onSend from props was NOT called — append does not send.
     expect(onSend).not.toHaveBeenCalled();
 
-    // State returns to idle — BOTH MicButton and Send are visible after the
-    // append completes. Quick 260729-3y1: MicButton is no longer gated by
-    // text length, so it co-renders alongside Send at right-11 bottom-0.5
-    // even though the textarea now contains "hello world".
+    // State returns to idle — MicButton + arm-idle + Send are ALL visible
+    // after the append completes. Quick 260729-3y1: MicButton is no longer
+    // gated by text length, so it co-renders alongside Send at right-11
+    // bottom-0.5 even though the textarea now contains "hello world".
+    // Vehicle C v2 (260801-75z): arm-idle button also renders on the
+    // primary at right-21 bottom-0.5 whenever text.trim() !== "".
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send when idle" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
   });
@@ -339,18 +354,30 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     });
   });
 
-  it("Test 10: MicButton and Send both visible in idle + text non-empty (regression guard for co-render slot)", async () => {
-    // Quick 260729-3y1 regression guard: the swap-in-single-slot pattern
-    // (mic OR send depending on text length) was replaced by a co-render
-    // pattern (mic AND send when idle + not morphed/queued). This test
-    // explicitly asserts BOTH buttons resolve via screen.getByRole so a
-    // future regression that reintroduces the mutual-exclusion gate would
-    // fail loudly here.
+  it("Test 10 (Vehicle C v2 2026-08-01): mic + arm-idle + Send all coexist on non-empty text; empty text hides only arm-idle", async () => {
+    // Vehicle C v2 (260801-75z) regression guard: the swap-in-single-slot
+    // pattern (mic OR send depending on text length) was replaced by a
+    // co-render pattern in patch 260729-3y1, and Vehicle C v2 adds a
+    // third coexisting button (arm-idle) that appears whenever the
+    // textarea has non-empty text. Empty text: mic + Send only. Non-empty
+    // text: mic + arm-idle + Send. A future regression that
+    // reintroduces mutual-exclusion between any of the three would fail
+    // loudly here.
     render(<ComposeBox {...baseProps()} />);
     const textarea = screen.getByPlaceholderText(/message/i);
+
+    // Empty text case: mic + Send visible, arm-idle hidden.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Send when idle" })).toBeNull();
+    });
+
+    // Non-empty text case: all three visible.
     fireEvent.change(textarea, { target: { value: "hello" } });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send when idle" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
   });

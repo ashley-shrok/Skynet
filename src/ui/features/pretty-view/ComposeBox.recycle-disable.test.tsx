@@ -83,27 +83,24 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
     expect(screen.queryByLabelText("Resume")).toBeNull();
   });
 
-  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up, explain, queue-for-idle) disabled", () => {
+  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up, recap) disabled; aux Queue button removed per Vehicle C", () => {
     render(
       <ComposeBox
         {...baseProps({
           recycleActive: true,
           showPaperclip: true,
           onAttachFiles: vi.fn(),
-          // onInterrupt intentionally omitted — the stop button doesn't
-          // participate in the recycleActive gate (not in the plan's
-          // aux-button disable set).
         })}
       />,
     );
     const resetBtn = screen.getByLabelText("Reset context window") as HTMLButtonElement;
     const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
     const explainBtn = screen.getByLabelText("Recap the current situation") as HTMLButtonElement;
-    const queueBtn = screen.getByLabelText("Queue send for when session goes idle") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);
     expect(explainBtn.disabled).toBe(true);
-    expect(queueBtn.disabled).toBe(true);
+    expect(screen.queryByLabelText("Queue send for when session goes idle")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send when idle" })).toBeNull();
   });
 
   it("B3: recycleActive=true — textarea stays typeable", () => {
