@@ -72,6 +72,7 @@ import {
   navigateToView,
   navigateToList,
 } from "@/lib/mobile-flow";
+import { useIdentities } from "@/state/identities-store";
 // Phase 11 Plan 03 (Ashley "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -254,6 +255,7 @@ export function AppShell({
 
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
+  const { byKey: identitiesByKey } = useIdentities();
   // Plan 06-03: mobile-flow drives list-vs-view rendering on touchscreen
   // viewports. Reads the `#mv=1` URL fragment key (patch #25 pattern
   // extended); AppShell gates ALL mobile-flow-driven rendering on
@@ -407,8 +409,17 @@ export function AppShell({
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);
     const tmux = tmuxSessionNames[activeTabId];
-    document.title = tmux || activeTab?.label || "SKYNET";
-  }, [activeTabId, tabs, tmuxSessionNames]);
+    // Ashley 2026-08-01: browser tab title mirrors the conversation-list
+    // main-label source (patch #258) — for identity sessions, use the
+    // properly-cased `identity.displayName` ("Tina") instead of the
+    // lowercase tmux sessionName ("tina"). Falls back to raw tmux name,
+    // then activeTab.label, then "SKYNET" (verbatim prior chain) when
+    // no identity resolves.
+    const resolvedKey = (tmux ?? activeTab?.label ?? "").toLowerCase();
+    const identity = resolvedKey ? identitiesByKey.get(resolvedKey) : null;
+    document.title =
+      identity?.displayName || tmux || activeTab?.label || "SKYNET";
+  }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey]);
 
   // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
   // The conversation-store is a pure DERIVATION of AppShell's tab state; it
