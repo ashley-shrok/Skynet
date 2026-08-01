@@ -1298,6 +1298,12 @@ export function PrettyView({
                   "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.85),rgba(60,50,32,0.9))]",
                   "hover:border-[rgba(255,240,215,0.22)]",
                   "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,210,0.22),_0_0_20px_rgba(255,240,215,0.16)]",
+                  // Bounty jump-to-bottom-button-bigger-on-mobile
+                  // (2026-08-01): mobile-only bump matching the aux row's
+                  // new 75%-of-#165 mobile size (54×54 wrapper + 27px
+                  // icon at html=24 mobile) for a comfortable tap target
+                  // on the floating jump-to-bottom action.
+                  "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
                 )}
               >
                 <ArrowDown className="size-4" />

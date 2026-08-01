@@ -1400,8 +1400,8 @@ export function ComposeBox({
             CSS vars `--seg-count` and `--meter-width` expose tuning via
             DevTools without a rebuild. */}
         <div
-          className="h-7 w-[var(--meter-width)] rounded-md flex flex-row p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
-          style={{"--seg-count": SEG_COUNT, "--meter-width": "160px"} as React.CSSProperties}
+          className="self-stretch w-[var(--meter-width)] rounded-md flex flex-row p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
+          style={{"--seg-count": SEG_COUNT, "--meter-width": "12rem"} as React.CSSProperties}
           role="meter"
           aria-label="Context window"
           aria-valuemin={0}
@@ -1569,8 +1569,12 @@ export function ComposeBox({
           {/* Bounty message-queue-in-pretty-view: Queue-a-message button
               (ListPlus icon) — appends a new queue-slot textarea stacked
               above Row 2. Leftmost of the aux buttons. Same warm-neutral
-              Glass treatment as neighbors. #165 mobile size bump:
-              max-md:size-12 [&_svg]:max-md:size-6. Vehicle B (quick
+              Glass treatment as neighbors. Mobile size (bounty
+              composebox-aux-buttons-75-percent-size-on-mobile,
+              2026-08-01): max-md:size-9 [&_svg]:max-md:size-[1.125rem] —
+              75% of the original #165 max-md:size-12 bump per Ashley
+              mobile UAT ("could probably be like 75% of their current
+              size. And that would be comfortable"). Vehicle B (quick
               260801-62m) renamed from "Add queued message textarea" /
               Plus icon to "Queue a message" / ListPlus icon. */}
           <Button
@@ -1588,7 +1592,7 @@ export function ComposeBox({
               "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
               "hover:border-[rgba(255,240,215,0.22)]",
               "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-              "max-md:size-12 [&_svg]:max-md:size-6",
+              "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
             )}
           >
             <ListPlus className="size-4" />
@@ -1620,7 +1624,7 @@ export function ComposeBox({
                 // #165: mobile-only size bump — 72px button + 36px icon at
                 // html=24 (matches the 3em pv-row--mobile avatar for visual
                 // consistency in the "chat surface primary chrome" group).
-                "max-md:size-12 [&_svg]:max-md:size-6",
+                "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
               )}
             >
               <Square className="size-4" />
@@ -1652,7 +1656,7 @@ export function ComposeBox({
               "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
               // #165: mobile-only size bump (see explanation on the other
               // buttons above).
-              "max-md:size-12 [&_svg]:max-md:size-6",
+              "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
             )}
           >
             <ThumbsUp className="size-4" />
@@ -1682,7 +1686,7 @@ export function ComposeBox({
               "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
               // #165: mobile-only size bump (see explanation on the other
               // buttons above).
-              "max-md:size-12 [&_svg]:max-md:size-6",
+              "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
             )}
           >
             <CircleHelp className="size-4" />
@@ -2159,8 +2163,7 @@ export function ComposeBox({
                   <Loader2 className="size-6 animate-spin" aria-hidden="true" />
                 ) : (
                   <svg
-                    width="24"
-                    height="24"
+                    className="size-6"
                     viewBox="0 0 24 24"
                     fill="currentColor"
                     aria-hidden="true"
