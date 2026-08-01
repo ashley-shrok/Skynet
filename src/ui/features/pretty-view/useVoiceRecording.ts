@@ -43,6 +43,7 @@ import startUrl from "../../assets/sounds/mic/start.mp3?url";
 import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
 import cancelUrl from "../../assets/sounds/mic/cancel.mp3?url";
 import errorUrl from "../../assets/sounds/mic/error.mp3?url";
+import { applyIntentTransform } from "./composeIntentTransform";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -283,8 +284,9 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
       playSound(errorAudioRef.current);
     }
 
-    const glued = applyGlue(currentText, transcript);
-    return { transcript, glued };
+    const transformedTranscript = applyIntentTransform(transcript).transformed;
+    const glued = applyGlue(currentText, transformedTranscript);
+    return { transcript: transformedTranscript, glued };
   }
 
   /**
@@ -316,8 +318,9 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
       playSound(errorAudioRef.current);
     }
 
-    const glued = applyGlue(currentText, transcript);
-    return { transcript, glued };
+    const transformedTranscript = applyIntentTransform(transcript).transformed;
+    const glued = applyGlue(currentText, transformedTranscript);
+    return { transcript: transformedTranscript, glued };
   }
 
   return { state, errorMessage, start, cancel, endAppend, endSend };

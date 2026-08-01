@@ -464,6 +464,111 @@ describe("useVoiceRecording", () => {
     expect(errorAudio2!.play).toHaveBeenCalledTimes(1);
   });
 
+  // ---------------------------------------------------------------------------
+  // Intent transform tests (Tests I1-I4) — verify endAppend/endSend apply
+  // applyIntentTransform to the STT transcript before glue
+  // ---------------------------------------------------------------------------
+
+  it("Test I1: endAppend with 'bounty bounty add a banana button' transcript transforms to '/bounty add a banana button' in both fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ text: "bounty bounty add a banana button" }),
+      }),
+    );
+
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    let returnValue: Awaited<ReturnType<typeof result.current.endAppend>> = null;
+    await act(async () => {
+      returnValue = await result.current.endAppend("");
+    });
+
+    expect(returnValue).not.toBeNull();
+    expect(returnValue!.transcript).toBe("/bounty add a banana button");
+    expect(returnValue!.glued).toBe("/bounty add a banana button");
+  });
+
+  it("Test I2: endSend with 'bounty bounty add a banana button' transcript transforms to '/bounty add a banana button' in both fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ text: "bounty bounty add a banana button" }),
+      }),
+    );
+
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    let returnValue: Awaited<ReturnType<typeof result.current.endSend>> = null;
+    await act(async () => {
+      returnValue = await result.current.endSend("");
+    });
+
+    expect(returnValue).not.toBeNull();
+    expect(returnValue!.transcript).toBe("/bounty add a banana button");
+    expect(returnValue!.glued).toBe("/bounty add a banana button");
+  });
+
+  it("Test I3: endAppend with non-triggering transcript 'hello world' round-trips unchanged", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ text: "hello world" }),
+      }),
+    );
+
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    let returnValue: Awaited<ReturnType<typeof result.current.endAppend>> = null;
+    await act(async () => {
+      returnValue = await result.current.endAppend("");
+    });
+
+    expect(returnValue).not.toBeNull();
+    expect(returnValue!.transcript).toBe("hello world");
+    expect(returnValue!.glued).toBe("hello world");
+  });
+
+  it("Test I4: endAppend with single 'bounty' (no doubling) round-trips unchanged", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ text: "bounty" }),
+      }),
+    );
+
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    let returnValue: Awaited<ReturnType<typeof result.current.endAppend>> = null;
+    await act(async () => {
+      returnValue = await result.current.endAppend("");
+    });
+
+    expect(returnValue).not.toBeNull();
+    expect(returnValue!.transcript).toBe("bounty");
+    expect(returnValue!.glued).toBe("bounty");
+  });
+
   it("Test F: failed .play() Promise does not throw or break the recording flow", async () => {
     // Make start.mp3's play() reject (e.g., Safari autoplay blocked)
     // We need to intercept the Audio constructor to inject this behavior.
