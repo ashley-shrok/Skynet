@@ -178,6 +178,13 @@ export function createWebAudioStreamPlayer(
 
     let headerBytes: Uint8Array | null = null;
     let header: RiffHeader | null = null;
+    // Trailing bytes from the previous chunk that didn't complete a full PCM
+    // frame — prepended to the next chunk before decoding. Without this,
+    // chunks arriving at odd byte boundaries silently drop 1-3 bytes per
+    // occurrence in decodePcmChunk's frame truncation, and every subsequent
+    // Int16 sample is misaligned by that offset. Symptom: audio starts clean,
+    // drifts to gibberish, then to static as more misaligned chunks accumulate.
+    let pcmRemainder = new Uint8Array(0);
     // 20ms epsilon — small enough to be imperceptible, large enough to prevent
     // underrun on the very first scheduled source.
     const nextStartTimeRef = { value: audioContext.currentTime + 0.02 };
@@ -204,6 +211,21 @@ export function createWebAudioStreamPlayer(
           headerBytes = null;
         } else {
           pcmChunk = value;
+        }
+
+        // Prepend any trailing partial-frame bytes from the previous chunk,
+        // then split off any new trailing partial-frame bytes to carry over.
+        // This keeps every scheduleChunk call frame-aligned, regardless of
+        // where the HTTP chunked-transfer boundaries fall in the byte stream.
+        if (pcmRemainder.byteLength > 0) {
+          pcmChunk = concat(pcmRemainder, pcmChunk);
+          pcmRemainder = new Uint8Array(0);
+        }
+        const frameBytes = header.channels * (header.bitDepth / 8);
+        const alignedLen = Math.floor(pcmChunk.byteLength / frameBytes) * frameBytes;
+        if (alignedLen < pcmChunk.byteLength) {
+          pcmRemainder = pcmChunk.subarray(alignedLen);
+          pcmChunk = pcmChunk.subarray(0, alignedLen);
         }
 
         if (pcmChunk.byteLength === 0) continue;

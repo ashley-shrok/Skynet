@@ -361,4 +361,54 @@ describe("createWebAudioStreamPlayer", () => {
     // Sample rate must be 24000 (from the assembled header).
     expect(ctx.buffers[0].sampleRate).toBe(24000);
   });
+
+  it("Test 8 — chunks with odd PCM byte counts carry the trailing byte over (frame alignment regression, patch #238)", async () => {
+    // Regression test for the patch #237 ship-day bug: HTTP chunked-transfer
+    // chunks can arrive at arbitrary byte boundaries. When a chunk's PCM
+    // portion has an odd byte count (mono 16-bit = 2 bytes/frame), the naive
+    // decodePcmChunk floor-divides and drops the trailing byte. The next
+    // chunk then starts on a misaligned byte, and every subsequent Int16
+    // sample straddles two adjacent samples in the byte stream. Symptom:
+    // audio starts clean, drifts into gibberish English, then into static.
+    //
+    // Fix: pcmRemainder carry-over in play(). This test proves the fix.
+    //
+    // Setup: 4 mono 16-bit samples across two chunks, with the first PCM
+    // chunk containing an odd byte count (3 bytes). Values chosen to be
+    // asymmetric so any misalignment produces obviously-wrong Float32 output.
+    // Samples: 0x1122, 0x3344, 0x5566, 0x7788 (little-endian byte pairs:
+    // 22 11, 44 33, 66 55, 88 77).
+    const allPcm = new Uint8Array([0x22, 0x11, 0x44, 0x33, 0x66, 0x55, 0x88, 0x77]);
+    // First chunk carries header + 3 PCM bytes (1.5 frames — half a sample trails).
+    const first = makeWavChunk(allPcm.slice(0, 3));
+    // Second chunk is pure PCM: the remaining 5 bytes.
+    const second = allPcm.slice(3);
+
+    const player = createWebAudioStreamPlayer({});
+    const response = makeMockResponse([first, second]);
+
+    await player.play(response);
+
+    // Player must have decoded exactly 4 correctly-aligned Int16 samples.
+    // If the misalignment bug is present, the second chunk starts on byte
+    // 0x33 (the high byte of sample 0x3344), and the decoded Float32 values
+    // will be garbage.
+    expect(ctxInstances).toHaveLength(1);
+    const ctx = ctxInstances[0];
+    // Total frames scheduled must equal 4 (1 from first chunk + 3 from second).
+    const totalFrames = ctx.buffers.reduce((sum, b) => sum + b.frames, 0);
+    expect(totalFrames).toBe(4);
+    // Concatenate decoded samples across all buffers and verify each Int16
+    // was read at its correct byte offset. Expected values in Float32 = Int16 / 32768.
+    const decoded: number[] = [];
+    for (const buf of ctx.buffers) {
+      const ch0 = buf._channelData[0];
+      for (let i = 0; i < ch0.length; i++) decoded.push(ch0[i]);
+    }
+    // Little-endian Int16 reads: 0x1122 = 4386, 0x3344 = 13124, 0x5566 = 21862, 0x7788 = 30600.
+    const expected = [0x1122, 0x3344, 0x5566, 0x7788].map((v) => v / 32768);
+    for (let i = 0; i < 4; i++) {
+      expect(decoded[i]).toBeCloseTo(expected[i], 5);
+    }
+  });
 });
