@@ -109,11 +109,17 @@ export function Auth({
   const [password, setPassword] = useState("");
   const [signupConfirmPassword, setSignupConfirmPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(() => {
+    // Patch #253: default true when never previously set (Ashley 2026-08-01
+    // ask). Only an explicit stored "false" keeps it off; null and "true"
+    // both come up checked. LoginPage.tsx is currently dead code (no live
+    // renderer — see main.tsx only wires <Auth />) but we keep it in sync
+    // with Auth.tsx so if an Electron path ever revives it, the behavior
+    // matches.
     try {
       const saved = localStorage.getItem("rememberMe");
-      return saved === "true";
+      return saved !== "false";
     } catch {
-      return false;
+      return true;
     }
   });
   const [loading, setLoading] = useState(false);
