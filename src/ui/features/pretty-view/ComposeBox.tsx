@@ -1323,7 +1323,7 @@ export function ComposeBox({
         // the send button and at low alpha elsewhere. Deepened top
         // inset shadow reinforces the shelf depth. Result: textured,
         // dimensional, but still quiet.
-        "flex flex-col gap-1 px-2 pt-2 pb-[env(safe-area-inset-bottom)] md:pb-3 shrink-0",
+        "flex flex-col gap-1 px-2 pt-2 pb-[env(safe-area-inset-bottom)] md:pb-2 shrink-0",
         // Patch #82 palette shift: warm-brown → cool blue-black to
         // match the mock. RGB polarity flipped (was R>G>B, now B>R>G)
         // with the same alpha structure so the shelf still reads at
