@@ -97,7 +97,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         })}
       />,
     );
-    const thumbsUpBtn = screen.getByLabelText(/send 'thumbs up'/i);
+    const thumbsUpBtn = screen.getByLabelText(/send 'let's go'/i);
     expect((thumbsUpBtn as HTMLButtonElement).disabled).toBe(true);
   });
 

@@ -445,7 +445,7 @@ export function ComposeBox({
   // pointerdown on the compose root adds `.pv-btn-pressed` to whatever
   // <button> was tapped for a fixed 250ms window, regardless of how long
   // the tap is held or when :active drops. Rationale: pretty-view buttons
-  // like ThumbsUp ("thumbs up") produce message bubbles asynchronously —
+  // like ThumbsUp ("let's go") produce message bubbles asynchronously —
   // the underlying session decides when the message lands — so Ashley
   // needs an immediate local ack that her tap registered. The `:active`
   // pseudo-class alone drops the moment the finger releases (very short
@@ -1641,10 +1641,10 @@ export function ComposeBox({
           <Button
             size="icon-sm"
             variant="outline"
-            onClick={() => { onGoodToGo?.(); handleQuickSend("thumbs up"); }}
+            onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
             disabled={canSend === false || asideActive === true || recycleActive === true}
-            aria-label="Send 'thumbs up'"
-            title="Send 'thumbs up'"
+            aria-label="Send 'let's go'"
+            title="Send 'let's go'"
             className={cn(
               "rounded-md cursor-pointer",
               "border-white/10",

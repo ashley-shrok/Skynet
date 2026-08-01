@@ -723,7 +723,7 @@ describe("ComposeBox — Phase 9 layout", () => {
     render(<ComposeBox {...baseProps()} />);
     // Patch #14-04 test-fix: aria-label was renamed to "Send 'let's go'"
     // (see ComposeBox.tsx around L1245); the regex needed refreshing.
-    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
+    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
     // Patch #129: selector updated per Test 7 rationale. The new inside-
     // textarea Send button lives in Row 2's textarea wrapper (line ~1250);
     // Row 1's aux-group (ThumbsUp) still precedes it in DOM order — the
@@ -768,7 +768,7 @@ describe("ComposeBox — Phase 9 layout", () => {
     // Row 1 anchor here. Use ThumbsUp (aria-label "Send 'let's go'")
     // instead, which still lives in Row 1's aux group — same anchor as
     // the sibling desktop test just below.
-    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
+    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
     const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
     expect(row1).not.toBeNull();
     expect(row1!.className).toContain("min-h-[44px]");
@@ -789,7 +789,7 @@ describe("ComposeBox — Phase 9 layout", () => {
     );
     // Patch #14-04 test-fix: aria-label was renamed to "Send 'let's go'"
     // (see ComposeBox.tsx around L1245); the regex needed refreshing.
-    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
+    const thumbsUp = screen.getByLabelText(/send 'let's go'/i);
     const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
     expect(row1).not.toBeNull();
     expect(row1!.className).toContain("min-h-8");

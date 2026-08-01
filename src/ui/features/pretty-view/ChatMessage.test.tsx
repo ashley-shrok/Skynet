@@ -122,12 +122,12 @@ describe("ChatMessage — sender-side injected-turn detection (Plan 05-03)", () 
     ).toBeNull();
   });
 
-  it("Test 14 (Vehicle B strip): quick-reply thumbs-up render works for the new 'thumbs up' payload", () => {
+  it("Test 14: quick-reply thumbs-up render works for the 'let's go' payload", () => {
     // Regression guard: the isQuickReply branch must not be disturbed by
-    // the injected-turn detection ordering. Post-Vehicle B (quick 260801-62m),
-    // ONLY the exact payload "thumbs up" (case/whitespace insensitive) triggers
-    // the ThumbsUp glyph — legacy alt-matches are stripped.
-    render(<ChatMessage role="user" content="thumbs up" />);
+    // the injected-turn detection ordering. ONLY the exact payload "let's go"
+    // (case/whitespace insensitive) triggers the ThumbsUp glyph — legacy
+    // alt-matches (including 'thumbs up' after the #254 revert) are stripped.
+    render(<ChatMessage role="user" content="let's go" />);
     // ThumbsUp glyph is rendered with aria-label "quick reply".
     expect(screen.getByLabelText(/quick reply/i)).toBeTruthy();
     // And no chip strip.
@@ -154,8 +154,8 @@ describe("ChatMessage — sender-side injected-turn detection (Plan 05-03)", () 
     expect(screen.queryByLabelText(/quick reply/i)).toBeNull();
   });
 
-  it("Test 14f (Vehicle B strip): legacy 'let's go' payload renders as plain text bubble, NOT thumbs-up", () => {
-    render(<ChatMessage role="user" content="let's go" />);
+  it("Test 14f: legacy 'thumbs up' payload renders as plain text bubble, NOT thumbs-up glyph", () => {
+    render(<ChatMessage role="user" content="thumbs up" />);
     expect(screen.queryByLabelText(/quick reply/i)).toBeNull();
   });
 });
