@@ -312,12 +312,9 @@ export function ChatMessage({
               position: "absolute",
               right: 6,
               bottom: 6,
-              width: 28,
-              height: 28,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              borderRadius: 6,
               background: "rgba(0,0,0,0.28)",
               border: "1px solid rgba(255,255,255,0.10)",
               color: "rgba(255,220,170,0.72)",
@@ -325,7 +322,7 @@ export function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className="hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />

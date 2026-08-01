@@ -344,6 +344,31 @@ html.fs-xl {
   }
 }
 
+/* Per-bubble speak button (ChatMessage). Base 28x28 (unchanged from prior
+   inline style) so desktop hover-reveal density is preserved; on mobile
+   viewports the tap target roughly doubles so the affordance reads as
+   proper touch chrome rather than a fingernail-sized square. */
+.pv-speak-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.pv-speak-btn svg {
+  width: 16px;
+  height: 16px;
+}
+@media (max-width: 767.98px) {
+  .pv-speak-btn {
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+  }
+  .pv-speak-btn svg {
+    width: 26px;
+    height: 26px;
+  }
+}
+
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
