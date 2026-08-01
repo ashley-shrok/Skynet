@@ -40,7 +40,7 @@
 // retired in Wave 4 and NOT ported forward here.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, EyeOff, Filter, MessagesSquare, Monitor, Pencil, Pin, Server } from "lucide-react";
+import { ChevronDown, ChevronRight, EyeOff, Filter, MessagesSquare, Monitor, Pin, Plus, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -706,7 +706,7 @@ export function PrettyConversationsPanel({
                 title={newSessionLabel}
                 className="pv-pencil"
               >
-                <Pencil />
+                <Plus />
               </button>
             )}
           </div>
