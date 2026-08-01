@@ -1005,4 +1005,22 @@
     font-size: 19px;
     line-height: 28px;
   }
+
+  /* Patch #251 — 2x the ready-dot on mobile per Ashley 2026-08-01 verbatim:
+     "we should make the idle indicator on the conversation list on mobile
+     twice as tall and twice as wide." Disc goes 14px → 28px; glow layers
+     scale proportionally (12→24, 22→44 blur radii; 1→2, 3→6 spreads) so
+     the halo stays in proportion to the disc — a 2x disc with the same
+     absolute glow reads as a big nucleus with a shrunk halo. Hairline
+     border-stroke and inset highlight left at 1px (rim details read
+     consistently at any scale). Desktop untouched. */
+  .pv-ready-dot {
+    width: 28px;
+    height: 28px;
+    box-shadow:
+      0 0 0 1px hsla(var(--pv-hue), 80%, 65%, 0.55),
+      0 0 24px 2px hsla(var(--pv-hue), 80%, 60%, 0.75),
+      0 0 44px 6px hsla(var(--pv-hue), 75%, 55%, 0.35),
+      inset 0 1px 0 rgba(255, 245, 220, 0.7);
+  }
 }
