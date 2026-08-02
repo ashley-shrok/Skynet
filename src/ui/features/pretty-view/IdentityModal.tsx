@@ -1143,9 +1143,9 @@ export function IdentityModal({
                       outline: "none",
                     }}
                   >
-                    <option value="">(default)</option>
+                    <option value="" style={{ background: "#1a1c26", color: "#f0ebe0" }}>(default)</option>
                     {voices.map((v) => (
-                      <option key={v.filename} value={v.filename}>
+                      <option key={v.filename} value={v.filename} style={{ background: "#1a1c26", color: "#f0ebe0" }}>
                         {v.display_name}
                       </option>
                     ))}
