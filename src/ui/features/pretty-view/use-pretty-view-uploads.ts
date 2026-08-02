@@ -87,14 +87,23 @@ export interface UsePrettyViewUploadsDeps {
   reuseIdOnRetry?: boolean;
 }
 
+// Quick 260802-wxy: staged attachments are keyed by a string `target` so multiple
+// consumers (primary composebox, per-queued-slot textareas — Quick B) can each
+// own an independent chip strip without cross-contamination. The convention is
+// a bare string (no enum enforcement) — "primary" is the only producer in
+// Quick A. Quick B will introduce additional target strings (e.g., queueSlot
+// ids). The legacy `stagedAttachments` return field always mirrors the
+// "primary" target so existing consumers (ComposeBox) see NO behavior change.
 export interface UsePrettyViewUploadsReturn {
   stagedAttachments: StagedAttachment[];
   folderDropRejected: boolean;
   batchInFlight: boolean;
   pendingSendWaitingForWs: boolean;
   stageAttachments: (
+    target: string,
     items: File[] | DataTransferItemList | FileList,
   ) => void;
+  getStagedAttachments: (target: string) => StagedAttachment[];
   removeAttachment: (tempId: string) => void;
   startBatch: (
     caption: string,
@@ -121,30 +130,48 @@ const FOLDER_REJECTION_MS = 3000;
 export function usePrettyViewUploads(
   deps: UsePrettyViewUploadsDeps,
 ): UsePrettyViewUploadsReturn {
-  const [stagedAttachments, setStagedAttachments] = useState<
-    StagedAttachment[]
-  >([]);
+  // Quick 260802-wxy: per-target staging state. Map<target, StagedAttachment[]>
+  // where target is a bare string (no enum enforcement). "primary" is the only
+  // producer in Quick A; Quick B will introduce additional targets. The state
+  // Map is treated immutably (each update constructs a NEW Map) so React's
+  // reference-equality bail-out fires re-renders reliably.
+  const [stagedAttachmentsByTarget, setStagedAttachmentsByTarget] = useState<
+    Map<string, StagedAttachment[]>
+  >(() => new Map());
   const [folderDropRejected, setFolderDropRejected] = useState(false);
   const [batchInFlight, setBatchInFlight] = useState(false);
   const [pendingSendWaitingForWs, setPendingSendWaitingForWs] = useState(false);
 
-  // Mirror stagedAttachments in a ref so the chunk pump (async loop) can
-  // read the freshest state without stale-closure surprises. Every setState
-  // call also updates the ref synchronously.
-  const attachmentsRef = useRef<StagedAttachment[]>([]);
+  // Mirror stagedAttachmentsByTarget in a ref so the chunk pump (async loop)
+  // can read the freshest state per-target without stale-closure surprises.
+  // Every setAttachments call also updates the ref synchronously with a fresh
+  // Map clone.
+  const attachmentsRefByTarget = useRef<Map<string, StagedAttachment[]>>(
+    new Map(),
+  );
   const setAttachments = useCallback(
     (
+      target: string,
       updater:
         | StagedAttachment[]
         | ((prev: StagedAttachment[]) => StagedAttachment[]),
     ) => {
-      setStagedAttachments((prev) => {
+      setStagedAttachmentsByTarget((prevMap) => {
+        const prev = prevMap.get(target) ?? [];
         const next =
           typeof updater === "function"
             ? (updater as (p: StagedAttachment[]) => StagedAttachment[])(prev)
             : updater;
-        attachmentsRef.current = next;
-        return next;
+        // Construct a NEW Map so reference-equality changes and React
+        // re-renders consumers of stagedAttachmentsByTarget.
+        const nextMap = new Map(prevMap);
+        nextMap.set(target, next);
+        // Keep the ref in lockstep: clone (so callers holding a reference
+        // don't see mutations under them) then set the same target key.
+        const nextRefMap = new Map(attachmentsRefByTarget.current);
+        nextRefMap.set(target, next);
+        attachmentsRefByTarget.current = nextRefMap;
+        return nextMap;
       });
     },
     [],
@@ -236,7 +263,12 @@ export function usePrettyViewUploads(
 
       switch (event.type) {
         case "upload_progress": {
-          setAttachments((prev) =>
+          // Quick 260802-wxy: primary target — only the primary composebox
+          // is a producer in Quick A. Server events for batches started
+          // from Quick B's per-slot producers will still land here on the
+          // "primary" branch until Quick B introduces per-target batch
+          // identity (out of scope for this quick).
+          setAttachments("primary", (prev) =>
             prev.map((a) =>
               a.tempId === event.tempId
                 ? {
@@ -250,7 +282,7 @@ export function usePrettyViewUploads(
           break;
         }
         case "upload_complete": {
-          setAttachments((prev) =>
+          setAttachments("primary", (prev) =>
             prev.map((a) =>
               a.tempId === event.tempId
                 ? {
@@ -264,7 +296,7 @@ export function usePrettyViewUploads(
           break;
         }
         case "upload_failed": {
-          setAttachments((prev) =>
+          setAttachments("primary", (prev) =>
             prev.map((a) => {
               if (event.tempId && a.tempId !== event.tempId) return a;
               // Batch-level failure (no tempId) → mark all in-flight/staged
@@ -304,7 +336,10 @@ export function usePrettyViewUploads(
   // Stage attachments (drag/drop/paste/paperclip all land here)
   // -------------------------------------------------------------------------
   const stageAttachments = useCallback(
-    (items: File[] | DataTransferItemList | FileList) => {
+    (
+      target: string,
+      items: File[] | DataTransferItemList | FileList,
+    ) => {
       const { files, sawFolder } = normalizeToFiles(items);
       if (sawFolder) {
         // UPLOAD-12: folder drops refused all-or-nothing. Show the nudge for
@@ -328,7 +363,7 @@ export function usePrettyViewUploads(
         bytesUploaded: 0,
         error: null,
       }));
-      setAttachments((prev) => [...prev, ...newlyStaged]);
+      setAttachments(target, (prev) => [...prev, ...newlyStaged]);
     },
     [setAttachments],
   );
@@ -338,8 +373,22 @@ export function usePrettyViewUploads(
   // -------------------------------------------------------------------------
   const removeAttachment = useCallback(
     (tempId: string) => {
-      const existing = attachmentsRef.current.find((a) => a.tempId === tempId);
-      if (!existing) return;
+      // Quick 260802-wxy: tempIds are UUIDs — unique across all targets. Walk
+      // every target to find which one owns the tempId, then remove from that
+      // target only. (In Quick A only "primary" is a producer so the search
+      // is trivial; the walk is future-proofing for Quick B's per-slot targets
+      // without needing another refactor.)
+      let owningTarget: string | null = null;
+      let existing: StagedAttachment | undefined;
+      for (const [tgt, list] of attachmentsRefByTarget.current) {
+        const found = list.find((a) => a.tempId === tempId);
+        if (found) {
+          owningTarget = tgt;
+          existing = found;
+          break;
+        }
+      }
+      if (!existing || owningTarget === null) return;
 
       // If in flight (or already complete but the batch hasn't fully wrapped),
       // signal the pump and tell the server to abort this file.
@@ -360,7 +409,9 @@ export function usePrettyViewUploads(
           }
         }
       }
-      setAttachments((prev) => prev.filter((a) => a.tempId !== tempId));
+      setAttachments(owningTarget, (prev) =>
+        prev.filter((a) => a.tempId !== tempId),
+      );
     },
     [batchInFlight, setAttachments],
   );
@@ -372,7 +423,12 @@ export function usePrettyViewUploads(
     async (
       caption: string,
     ): Promise<{ messageQueueItemId: string } | null> => {
-      const currentAttachments = attachmentsRef.current;
+      // Quick 260802-wxy: startBatch operates on the primary target for
+      // Quick A. Quick B will parameterize target when queued slots produce
+      // their own batches; leaving that migration explicit for now so this
+      // quick's diff stays scoped to the state-model refactor.
+      const currentAttachments =
+        attachmentsRefByTarget.current.get("primary") ?? [];
       if (currentAttachments.length === 0) return null;
 
       // Fresh batch id (unless we're mid-retry and reuseIdOnRetry is set —
@@ -426,7 +482,10 @@ export function usePrettyViewUploads(
   // -------------------------------------------------------------------------
   const retryBatch = useCallback(
     async (): Promise<{ messageQueueItemId: string } | null> => {
-      const currentAttachments = attachmentsRef.current;
+      // Quick 260802-wxy: retryBatch operates on the primary target (Quick A).
+      // Symmetric with startBatch — will be parameterized in Quick B.
+      const currentAttachments =
+        attachmentsRefByTarget.current.get("primary") ?? [];
       if (currentAttachments.length === 0) return null;
 
       // Files to re-upload: errored + still-staged. Completed files are
@@ -445,8 +504,8 @@ export function usePrettyViewUploads(
       readyFiredRef.current = false;
       lastOffsetSentRef.current = new Map();
       abortFlagsRef.current = new Map();
-      // Reset per-file state on the retried files.
-      setAttachments((prev) =>
+      // Reset per-file state on the retried files (primary target).
+      setAttachments("primary", (prev) =>
         prev.map((a) =>
           a.status === "complete"
             ? a
@@ -490,6 +549,9 @@ export function usePrettyViewUploads(
   // any explicit "clear staging" gesture).
   // -------------------------------------------------------------------------
   const resetBatch = useCallback(() => {
+    // Quick 260802-wxy: resetBatch clears PRIMARY only. Other targets
+    // (Quick B's per-slot producers) manage their own clear semantics
+    // — the primary chunk pump has no authority over them.
     batchIdRef.current = null;
     capturedCaptionRef.current = "";
     readyFiredRef.current = false;
@@ -497,7 +559,7 @@ export function usePrettyViewUploads(
     abortFlagsRef.current = new Map();
     setBatchInFlight(false);
     setPendingSendWaitingForWs(false);
-    setAttachments([]);
+    setAttachments("primary", []);
   }, [setAttachments]);
 
   // -------------------------------------------------------------------------
@@ -519,7 +581,15 @@ export function usePrettyViewUploads(
   // in practice they shouldn't, but defense in depth is cheap).
   // -------------------------------------------------------------------------
   const pumpBatch = useCallback(async (batchId: string) => {
-    const initialAttachments = attachmentsRef.current;
+    // Quick 260802-wxy: pump all targets FLATLY. Batch/status/progress
+    // logic keys off tempId (not target), so the pump can treat cross-
+    // target attachments identically. In Quick A only "primary" produces,
+    // so this Array.from is effectively unchanged in behavior; the
+    // structural refactor preserves the semantics for Quick B without
+    // needing another pump rewrite.
+    const initialAttachments = Array.from(
+      attachmentsRefByTarget.current.values(),
+    ).flat();
     const targets = initialAttachments.filter(
       (a) => a.status !== "complete",
     );
@@ -564,9 +634,22 @@ export function usePrettyViewUploads(
 
   const pumpFile = useCallback(
     async (att: StagedAttachment, batchId: string) => {
+      // Quick 260802-wxy: find which target owns this attachment so per-
+      // file state updates go to the right map key. In Quick A this is
+      // always "primary" (only producer); the walk future-proofs Quick B.
+      // Fallback to "primary" if the attachment somehow can't be located
+      // (defensive — should not occur in normal flow).
+      const findOwningTarget = (tempId: string): string => {
+        for (const [tgt, list] of attachmentsRefByTarget.current) {
+          if (list.some((a) => a.tempId === tempId)) return tgt;
+        }
+        return "primary";
+      };
+      const owningTarget = findOwningTarget(att.tempId);
+
       // Mark this file as uploading (so chips can transition into progress-
       // ring rendering).
-      setAttachments((prev) =>
+      setAttachments(owningTarget, (prev) =>
         prev.map((a) =>
           a.tempId === att.tempId && a.status === "staged"
             ? { ...a, status: "uploading" }
@@ -591,7 +674,7 @@ export function usePrettyViewUploads(
             if (iterations++ > BACKPRESSURE_HARD_TIMEOUT_ITERATIONS) {
               // Give up — mark this file as errored and bail. Server will
               // never see the rest of the chunks.
-              setAttachments((prev) =>
+              setAttachments(owningTarget, (prev) =>
                 prev.map((a) =>
                   a.tempId === att.tempId
                     ? {
@@ -618,7 +701,7 @@ export function usePrettyViewUploads(
         try {
           buffer = await blob.arrayBuffer();
         } catch {
-          setAttachments((prev) =>
+          setAttachments(owningTarget, (prev) =>
             prev.map((a) =>
               a.tempId === att.tempId
                 ? {
@@ -675,8 +758,23 @@ export function usePrettyViewUploads(
   }, []);
 
   // -------------------------------------------------------------------------
+  // Public target-aware read API (Quick 260802-wxy).
+  // -------------------------------------------------------------------------
+  const getStagedAttachments = useCallback(
+    (target: string): StagedAttachment[] => {
+      return stagedAttachmentsByTarget.get(target) ?? [];
+    },
+    [stagedAttachmentsByTarget],
+  );
+
+  // -------------------------------------------------------------------------
   // Stable return object
   // -------------------------------------------------------------------------
+  // Legacy `stagedAttachments` field: mirrors the "primary" target so
+  // existing consumers (ComposeBox) see NO behavior change. Derived once
+  // per re-render of the state map.
+  const stagedAttachments =
+    stagedAttachmentsByTarget.get("primary") ?? EMPTY_ATTACHMENTS;
   return useMemo(
     () => ({
       stagedAttachments,
@@ -684,6 +782,7 @@ export function usePrettyViewUploads(
       batchInFlight,
       pendingSendWaitingForWs,
       stageAttachments,
+      getStagedAttachments,
       removeAttachment,
       startBatch,
       retryBatch,
@@ -696,6 +795,7 @@ export function usePrettyViewUploads(
       batchInFlight,
       pendingSendWaitingForWs,
       stageAttachments,
+      getStagedAttachments,
       removeAttachment,
       startBatch,
       retryBatch,
@@ -704,6 +804,12 @@ export function usePrettyViewUploads(
     ],
   );
 }
+
+// Stable empty-array reference so the legacy `stagedAttachments` mirror does
+// not construct a new [] on every render when the primary target is empty
+// (avoids waking up React.memo boundaries downstream that depend on
+// reference equality for the empty case).
+const EMPTY_ATTACHMENTS: StagedAttachment[] = [];
 
 // ---------------------------------------------------------------------------
 // Helpers

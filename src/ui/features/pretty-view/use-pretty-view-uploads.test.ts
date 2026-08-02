@@ -124,7 +124,7 @@ describe("usePrettyViewUploads", () => {
     const f2 = makeMockFile("b.txt", 200);
 
     act(() => {
-      result.current.stageAttachments([f1, f2]);
+      result.current.stageAttachments("primary", [f1, f2]);
     });
 
     expect(result.current.stagedAttachments).toHaveLength(2);
@@ -162,7 +162,7 @@ describe("usePrettyViewUploads", () => {
     ] as unknown as DataTransferItemList;
 
     act(() => {
-      result.current.stageAttachments(items);
+      result.current.stageAttachments("primary", items);
     });
 
     expect(result.current.stagedAttachments).toHaveLength(0);
@@ -183,7 +183,7 @@ describe("usePrettyViewUploads", () => {
     );
     const f = makeMockFile("a.txt", 10);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
     const tempId = result.current.stagedAttachments[0].tempId;
     act(() => {
@@ -206,7 +206,7 @@ describe("usePrettyViewUploads", () => {
     const f1 = makeMockFile("a.bin", CHUNK_SIZE_BYTES * 4);
     const f2 = makeMockFile("b.bin", 10);
     act(() => {
-      result.current.stageAttachments([f1, f2]);
+      result.current.stageAttachments("primary", [f1, f2]);
     });
     const tempId1 = result.current.stagedAttachments[0].tempId;
 
@@ -242,7 +242,7 @@ describe("usePrettyViewUploads", () => {
     const size = CHUNK_SIZE_BYTES * 2 + 100; // 3 chunks
     const f = makeMockFile("x.bin", size);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
 
     let ret: { messageQueueItemId: string } | null = null;
@@ -291,7 +291,7 @@ describe("usePrettyViewUploads", () => {
     );
     const f = makeMockFile("x.bin", 10);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
     const tempId = result.current.stagedAttachments[0].tempId;
 
@@ -343,7 +343,7 @@ describe("usePrettyViewUploads", () => {
     );
     const f = makeMockFile("x.bin", 65536);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
     const tempId = result.current.stagedAttachments[0].tempId;
 
@@ -379,7 +379,7 @@ describe("usePrettyViewUploads", () => {
     );
     const f = makeMockFile("x.bin", 10);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
     const tempId = result.current.stagedAttachments[0].tempId;
     let batchId = "";
@@ -425,7 +425,7 @@ describe("usePrettyViewUploads", () => {
     );
     const f = makeMockFile("x.bin", 10);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
     const tempId = result.current.stagedAttachments[0].tempId;
     let firstBatchId = "";
@@ -469,7 +469,7 @@ describe("usePrettyViewUploads", () => {
     );
     const f = makeMockFile("x.bin", CHUNK_SIZE_BYTES * 3);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
 
     // Break the WS mid-batch. Setting the flag BEFORE startBatch guarantees
@@ -502,7 +502,7 @@ describe("usePrettyViewUploads", () => {
       makeMockFile(`f${i}.bin`, CHUNK_SIZE_BYTES * 20),
     );
     act(() => {
-      result.current.stageAttachments(files);
+      result.current.stageAttachments("primary", files);
     });
 
     await act(async () => {
@@ -567,7 +567,7 @@ describe("usePrettyViewUploads", () => {
     );
     const f = makeMockFile("x.bin", CHUNK_SIZE_BYTES * 3);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
 
     await act(async () => {
@@ -605,7 +605,7 @@ describe("usePrettyViewUploads", () => {
     );
     const f = makeMockFile("x.bin", 10);
     act(() => {
-      result.current.stageAttachments([f]);
+      result.current.stageAttachments("primary", [f]);
     });
     const tempId = result.current.stagedAttachments[0].tempId;
 
@@ -657,5 +657,147 @@ describe("usePrettyViewUploads", () => {
     expect(ret).toBeNull();
     const starts = ws.sent.filter((m) => m.type === "upload_start");
     expect(starts).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick 260802-wxy: target-aware API — the internal state model is now
+// Map<string, StagedAttachment[]> keyed by target. `stageAttachments` takes
+// a `target` argument first; `getStagedAttachments(target)` reads the list
+// for that target; the legacy `stagedAttachments` field on the return object
+// mirrors the "primary" target so existing callers see NO behavior change.
+// These tests exercise cross-target isolation and mirroring invariants that
+// Quick B will rely on when it wires per-queued-slot producers.
+// ---------------------------------------------------------------------------
+
+describe("target-aware API (Quick 260802-wxy)", () => {
+  let ws: MockWS;
+  let onReady: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    ws = new MockWS();
+    onReady = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Target 1: stageAttachments('primary', files) populates the legacy stagedAttachments field with N entries, unique tempIds", () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f1 = makeMockFile("a.txt", 10);
+    const f2 = makeMockFile("b.txt", 20);
+    const f3 = makeMockFile("c.txt", 30);
+    act(() => {
+      result.current.stageAttachments("primary", [f1, f2, f3]);
+    });
+    expect(result.current.stagedAttachments).toHaveLength(3);
+    const names = result.current.stagedAttachments.map((a) => a.file.name);
+    expect(names).toEqual(["a.txt", "b.txt", "c.txt"]);
+    const ids = new Set(result.current.stagedAttachments.map((a) => a.tempId));
+    expect(ids.size).toBe(3);
+  });
+
+  it("Target 2: getStagedAttachments('q-slot-1') returns [] when nothing has been staged to that target", () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    expect(result.current.getStagedAttachments("q-slot-1")).toEqual([]);
+    // Same for any arbitrary never-staged target.
+    expect(result.current.getStagedAttachments("never-touched")).toEqual([]);
+  });
+
+  it("Target 3: staging 2 files to 'primary' leaves getStagedAttachments('q-slot-1') empty AND stagedAttachments (legacy) length 2", () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f1 = makeMockFile("p1.txt", 10);
+    const f2 = makeMockFile("p2.txt", 20);
+    act(() => {
+      result.current.stageAttachments("primary", [f1, f2]);
+    });
+    expect(result.current.stagedAttachments).toHaveLength(2);
+    expect(result.current.getStagedAttachments("q-slot-1")).toEqual([]);
+  });
+
+  it("Target 4: staging 2 files to 'q-slot-1' leaves stagedAttachments (legacy = primary) empty AND getStagedAttachments('q-slot-1') length 2", () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f1 = makeMockFile("q1.txt", 10);
+    const f2 = makeMockFile("q2.txt", 20);
+    act(() => {
+      result.current.stageAttachments("q-slot-1", [f1, f2]);
+    });
+    expect(result.current.stagedAttachments).toEqual([]); // primary mirror
+    const qSlot1 = result.current.getStagedAttachments("q-slot-1");
+    expect(qSlot1).toHaveLength(2);
+    expect(qSlot1.map((a) => a.file.name)).toEqual(["q1.txt", "q2.txt"]);
+  });
+
+  it("Target 5: stagedAttachments (legacy) equals getStagedAttachments('primary') after any staging — identical contents", () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f1 = makeMockFile("m1.txt", 10);
+    const f2 = makeMockFile("m2.txt", 20);
+    act(() => {
+      result.current.stageAttachments("primary", [f1, f2]);
+    });
+    const legacy = result.current.stagedAttachments;
+    const viaGetter = result.current.getStagedAttachments("primary");
+    expect(viaGetter).toHaveLength(legacy.length);
+    for (let i = 0; i < legacy.length; i++) {
+      expect(viaGetter[i].tempId).toBe(legacy[i].tempId);
+      expect(viaGetter[i].file.name).toBe(legacy[i].file.name);
+      expect(viaGetter[i].status).toBe(legacy[i].status);
+    }
+  });
+
+  it("Target 6: resetBatch() clears 'primary' but does NOT clear other targets ('q-slot-1' persists)", () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const pf1 = makeMockFile("p1.txt", 10);
+    const qf1 = makeMockFile("q1.txt", 10);
+    const qf2 = makeMockFile("q2.txt", 20);
+    act(() => {
+      result.current.stageAttachments("primary", [pf1]);
+      result.current.stageAttachments("q-slot-1", [qf1, qf2]);
+    });
+    // Sanity: both targets populated before reset.
+    expect(result.current.stagedAttachments).toHaveLength(1);
+    expect(result.current.getStagedAttachments("q-slot-1")).toHaveLength(2);
+    act(() => {
+      result.current.resetBatch();
+    });
+    // Primary cleared, q-slot-1 intact.
+    expect(result.current.stagedAttachments).toEqual([]);
+    expect(result.current.getStagedAttachments("q-slot-1")).toHaveLength(2);
+    expect(
+      result.current
+        .getStagedAttachments("q-slot-1")
+        .map((a) => a.file.name),
+    ).toEqual(["q1.txt", "q2.txt"]);
   });
 });

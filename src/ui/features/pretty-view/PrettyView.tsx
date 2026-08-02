@@ -1075,9 +1075,11 @@ export function PrettyView({
         const items = dt.items;
         const files = Array.from(dt.files);
         if (items && items.length > 0) {
-          uploads.stageAttachments(items);
+          // Quick 260802-wxy: primary target — drag/drop lands in the main
+          // composebox's chip strip. Quick B will introduce per-slot targets.
+          uploads.stageAttachments("primary", items);
         } else if (files.length > 0) {
-          uploads.stageAttachments(files);
+          uploads.stageAttachments("primary", files);
         }
       }}
       className={cn(
@@ -1396,7 +1398,12 @@ export function PrettyView({
           onRemoveAttachment={uploads.removeAttachment}
           showPaperclip={true}
           isTouchDevice={isTouchDevice}
-          onAttachFiles={uploads.stageAttachments}
+          // Quick 260802-wxy: wrap the target-aware hook API in a
+          // ComposeBox-compatible (files-only) callback that always targets
+          // "primary" — the paperclip picker and paste path in the main
+          // composebox always stage to primary in Quick A. Quick B will
+          // add per-slot paperclips with their own slot-id targets.
+          onAttachFiles={(files) => uploads.stageAttachments("primary", files)}
           // Phase 14 quick-task 260726-vbd: widened asideActive predicate
           // covers both the GENERATION phase (asidePending=true, from /btw
           // submit through aside_ready arrival) and the DISPLAY phase
