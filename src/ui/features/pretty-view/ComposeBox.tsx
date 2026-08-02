@@ -1270,6 +1270,12 @@ export function ComposeBox({
     !recycleActive;
   const showRecordingControls = isPrimaryRecording;
   const showTranscribingSend = isPrimaryTranscribing;
+  // Quick 260802-uow bounty 3: when 3 buttons render on the primary
+  // (send at right-1 + mic at right-11 + arm-idle at right-21), pr-10
+  // is undersized — typed text visually crowds under the mic and
+  // arm-idle icons. Bump right padding to pr-32 (128px) only when the
+  // 3-button state is active. 2-button states keep pr-10.
+  const primaryThreeButtonState = showMicButton && showPrimaryArmButton;
 
   // Phase 16: merge voice.errorMessage into the existing displayError. The error
   // display block renders only one message at a time; voice errors are transient
@@ -1760,6 +1766,10 @@ export function ComposeBox({
             const showSlotRecording = isSlotRecording;
             const showSlotTranscribingSend = isSlotTranscribing;
             const showSlotSend = !showSlotRecording;
+            // Quick 260802-uow bounty 3: mirror of primaryThreeButtonState
+            // for the slot textarea — bump the slot's right padding when
+            // send + mic + arm-idle all render together.
+            const slotThreeButtonState = showSlotMic && showSlotArmButton;
             return (
               <div key={slot.id} className="relative flex-1" data-slot-id={slot.id}>
                 <Textarea
@@ -1787,6 +1797,11 @@ export function ComposeBox({
                     "border border-[rgba(220,225,245,0.07)]",
                     "rounded-[10px] px-4 py-3",
                     "pr-10 pl-10",
+                    // Quick 260802-uow bounty 3: bump right padding to
+                    // clear mic (right-11) + arm-idle (right-21) when
+                    // all 3 buttons render. tailwind-merge later-wins
+                    // dedupes pr-10 vs pr-32.
+                    slotThreeButtonState && "pr-32",
                     "placeholder:text-[var(--color-pv-fg-dim)]",
                     "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
                     "transition-[box-shadow,border-color] duration-200",
@@ -2015,6 +2030,11 @@ export function ComposeBox({
             // 40px right padding while the 16px left padding survives.
             // No `!` needed — no dark: variant conflict on padding.
             "pr-10",
+            // Quick 260802-uow bounty 3: bump right padding to clear
+            // mic (right-11) + arm-idle (right-21) when all 3 buttons
+            // render on the primary. tailwind-merge later-wins dedupes
+            // pr-10 vs pr-32. 2-button states keep pr-10.
+            primaryThreeButtonState && "pr-32",
             // Quick 260730-vtk: mirrors the `pr-10` above on the LEFT
             // when the inside-textarea Paperclip is present
             // (showPaperclip=true → 44px matching left padding on the
