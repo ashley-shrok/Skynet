@@ -1576,18 +1576,23 @@ export function AppShell({
               zIndex: 30,
               transition: sidebarDragging ? "none" : "left 0.2s",
               // Touch-only hue-glass treatment: identity-avatar-badge visual
-              // language (round, hue-tinted gradient, inset warm highlight +
-              // outer hue glow). Neutral hue 35 (warm amber) to sit ambient
-              // rather than compete with the identity badge visible top-right.
+              // language (round, hue-tinted gradient, inset highlight + outer
+              // glow). Patch #272 (Ashley 2026-08-02) — recoloured from the
+              // prior warm-amber (hue 35) that Ashley called "weird yellowish"
+              // to a dark blue/gray drawn from the pv palette family (the
+              // user-bubble mid-blue-gray at hsl~220/28%/16-25% is the seed).
+              // Reads as "part of the scheme" rather than a lone warm accent.
+              // Still ambient — doesn't compete with the identity badge (which
+              // wears the pane's identity colorHue).
               ...(isTouchDevice
                 ? {
                     width: 64,
                     height: 64,
                     background:
-                      "linear-gradient(160deg, hsla(35, 45%, 25%, 0.72), hsla(35, 40%, 15%, 0.82))",
-                    border: "1px solid hsla(35, 65%, 55%, 0.4)",
+                      "linear-gradient(160deg, hsla(218, 25%, 22%, 0.85), hsla(218, 25%, 14%, 0.9))",
+                    border: "1px solid hsla(218, 35%, 55%, 0.35)",
                     boxShadow:
-                      "0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(35, 65%, 55%, 0.4)",
+                      "0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(220,225,245,0.3), 0 0 24px hsla(218, 40%, 55%, 0.3)",
                     backdropFilter: "blur(20px) saturate(1.4)",
                     WebkitBackdropFilter: "blur(20px) saturate(1.4)",
                   }
