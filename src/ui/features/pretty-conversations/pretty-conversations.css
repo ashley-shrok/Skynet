@@ -1037,4 +1037,15 @@
       0 0 44px 6px hsla(var(--pv-hue), 75%, 55%, 0.35),
       inset 0 1px 0 rgba(255, 245, 220, 0.7);
   }
+
+  /* Patch #261 — half-a-row bottom padding on the conversation list so the
+     last row(s) aren't clipped by browser bottom chrome / iOS home indicator.
+     Base rule at :277 gives 18px bottom for all viewports; at html=24 mobile
+     a row is ~74px (2.25rem badge + 10px×2 padding), so 18px reads clipped.
+     max() takes the larger of Ashley's target (~half a row = 36px) and the
+     iOS safe-area inset — safe-area wins in landscape / on devices with
+     larger insets, 36px wins on typical iPhones. Desktop untouched. */
+  .pv-panel-scroll {
+    padding-bottom: max(env(safe-area-inset-bottom), 36px);
+  }
 }
