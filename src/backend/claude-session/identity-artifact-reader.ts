@@ -816,12 +816,38 @@ export const IDMEDIT_MAX_BOUNTY_JSON_BYTES = 100_000;
 
 /**
  * Private SFTP helper — promise-wraps conn.sftp → sftp.writeFile(tmp) →
- * sftp.rename(tmp, target). On any error: best-effort sftp.unlink(tmp)
- * cleanup (fire-and-forget) then re-throw. Always closes SFTP in finally.
+ * sftp.ext_openssh_rename(tmp, target). On any error: best-effort
+ * sftp.unlink(tmp) cleanup (fire-and-forget) then re-throw. Always closes
+ * SFTP in finally.
  *
  * Called exclusively from the three REMOTE-branch writers below so the
  * SFTP tmp+rename byte-shape is defined in one place (one audit surface per
  * D-IDMEDIT-06).
+ *
+ * WHY ext_openssh_rename AND NOT sftp.rename (quick 260802-qrw, root-caused
+ * by @stacy on ceo-skynet 2026-08-02, confirmed on skynet-ec2):
+ *
+ *   SFTPv3's SSH_FXP_RENAME cannot atomically overwrite an existing target.
+ *   OpenSSH's process_rename tries link(old, new) first; when `new` already
+ *   exists, link() returns EEXIST. OpenSSH's errno_to_portable() has no
+ *   case for EEXIST and falls through to SSH2_FX_FAILURE — the ssh2 client
+ *   surfaces this as a generic `Error: Failure` with code 4 and an empty
+ *   error string. Every overwrite of an existing identity file therefore
+ *   fails; only first-time writes (target missing) succeed. That was the
+ *   root cause of Ashley's IdentityModal "sometimes it works, sometimes
+ *   it doesn't" saves — all her edits are on EXISTING identity files.
+ *
+ *   The posix-rename@openssh.com extension (ext_openssh_rename) has POSIX
+ *   rename(2) semantics: atomic overwrite of an existing target, no
+ *   link()/EEXIST detour. It is advertised by every OpenSSH ≥5.1 (2008+)
+ *   and is universal across Ashley's fleet — no fallback needed. Any
+ *   hypothetical missing-extension case surfaces as ssh2 throwing
+ *   "Server does not support this extended request" synchronously, which
+ *   gets caught by the try/catch below and logged with the existing shape.
+ *
+ *   The regression test at identity-artifact-reader.remote-writes.test.ts
+ *   installs a throwing trap on sftp.rename that fails loudly with a
+ *   diagnostic naming the fix if a future refactor reverts this call site.
  */
 async function writeMarkdownFileAtomic(
   conn: SSHClientType,
@@ -850,9 +876,11 @@ async function writeMarkdownFileAtomic(
       });
     });
 
-    // Rename tmp → target
+    // Rename tmp → target via posix-rename@openssh.com (atomic overwrite;
+    // see prologue for the EEXIST → SSH2_FX_FAILURE trap that made
+    // plain sftp.rename unsafe for existing-file overwrites).
     await new Promise<void>((resolve, reject) => {
-      sftp.rename(tmpPath, targetPath, (err) => {
+      sftp.ext_openssh_rename(tmpPath, targetPath, (err) => {
         if (err) return reject(err);
         resolve();
       });
