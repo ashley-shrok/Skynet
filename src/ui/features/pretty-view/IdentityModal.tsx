@@ -187,6 +187,9 @@ export function IdentityModal({
   const [voices, setVoices] = useState<{ display_name: string; filename: string }[]>([]);
   const [voiceDraft, setVoiceDraft] = useState<string>(identity.voice ?? "");
   const [committedVoice, setCommittedVoice] = useState<string | null>(identity.voice ?? null);
+  // Patch #279: colorHue picker state — fall back to prop hue when identity.colorHue is null
+  const [hueDraft, setHueDraft] = useState<number>(identity.colorHue ?? hue);
+  const [committedHue, setCommittedHue] = useState<number>(identity.colorHue ?? hue);
   // Sample playback refs
   const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
   const sampleUrlRef = useRef<string | null>(null);
@@ -393,7 +396,10 @@ export function IdentityModal({
     // Patch #223: reset voice draft on open/identity switch
     setVoiceDraft(identity.voice ?? "");
     setCommittedVoice(identity.voice ?? null);
-  }, [open, identity.id, identity.title, identity.voice]);
+    // Patch #279: reset hue draft on open/identity switch
+    setHueDraft(identity.colorHue ?? hue);
+    setCommittedHue(identity.colorHue ?? hue);
+  }, [open, identity.id, identity.title, identity.voice, identity.colorHue]);
 
   // Patch #223: fetch available voices on modal open
   useEffect(() => {
@@ -817,7 +823,20 @@ export function IdentityModal({
       if ((voiceDraft || null) !== committedVoice) {
         meta.voice = voiceDraft === "" ? null : voiceDraft;
       }
+      // Patch #279: include colorHue if it changed
+      if (hueDraft !== committedHue) {
+        meta.colorHue = hueDraft;
+      }
       const updated = await updateIdentity(identity.id, meta, avatarFile);
+      // Patch #279: GET-verify guard — Skynet's multipart handler has been known to silently
+      // no-op on the `data` field when middleware order gets misconfigured. Defensive check:
+      // if we sent a colorHue change but the server echo doesn't reflect it, surface an inline
+      // error instead of trusting the 200. Only guards colorHue changes (title/voice already
+      // have their own draft-vs-echo recovery paths via setCommittedTitle/setCommittedVoice).
+      if (meta.colorHue !== undefined && updated.colorHue !== meta.colorHue) {
+        setSaveError(`Server did not persist colorHue (sent ${meta.colorHue as number}, got ${updated.colorHue ?? "null"})`);
+        return;
+      }
       applyIdentityChange(updated);
       // Revoke old preview URL; fall back to the freshly-etag-busted server URL.
       setAvatarPreviewUrl((prior) => {
@@ -833,6 +852,8 @@ export function IdentityModal({
       // Patch #223: update committed voice
       setCommittedVoice(updated.voice ?? null);
       setVoiceDraft(updated.voice ?? "");
+      // Patch #279: update committed hue from server echo
+      setCommittedHue(updated.colorHue ?? hueDraft);
       setSaveError(null);
       setEditing(false);
     } catch (err) {
@@ -854,6 +875,8 @@ export function IdentityModal({
     setSaveError(null);
     // Patch #223: revert voice draft
     setVoiceDraft(committedVoice ?? "");
+    // Patch #279: revert hue draft
+    setHueDraft(committedHue);
     setEditing(false);
   }
 
@@ -1174,6 +1197,44 @@ export function IdentityModal({
                 </div>
               </div>
 
+              {/* Patch #279: colorHue picker row */}
+              <div className="mb-3">
+                <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-hue-input">
+                  Color
+                </label>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    id="identity-hue-input"
+                    type="range"
+                    min={0}
+                    max={360}
+                    step={1}
+                    value={hueDraft}
+                    onChange={(e) => setHueDraft(Number(e.target.value))}
+                    disabled={saving}
+                    style={{
+                      flex: 1,
+                      height: 10,
+                      borderRadius: 5,
+                      appearance: "none",
+                      WebkitAppearance: "none",
+                      background: "linear-gradient(to right, hsl(0,70%,50%), hsl(60,70%,50%), hsl(120,70%,50%), hsl(180,70%,50%), hsl(240,70%,50%), hsl(300,70%,50%), hsl(360,70%,50%))",
+                      outline: "none",
+                    }}
+                  />
+                  <div style={{
+                    width: 24, height: 24, borderRadius: "50%",
+                    background: `hsl(${hueDraft}, 65%, 55%)`,
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
+                    flexShrink: 0,
+                  }} />
+                  <span className="text-xs text-[var(--color-pv-fg-muted)]" style={{ minWidth: 32, textAlign: "right" }}>
+                    {hueDraft}°
+                  </span>
+                </div>
+              </div>
+
               {/* Inline error */}
               {saveError && (
                 <p className="text-sm text-[color:var(--color-pv-code-fg)] mb-3">
@@ -1189,7 +1250,7 @@ export function IdentityModal({
                   className="cursor-pointer"
                   disabled={
                     saving ||
-                    (titleDraft === committedTitle && avatarFile === null && (voiceDraft || null) === committedVoice)
+                    (titleDraft === committedTitle && avatarFile === null && (voiceDraft || null) === committedVoice && hueDraft === committedHue)
                   }
                   onClick={() => { void onSave(); }}
                 >

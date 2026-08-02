@@ -323,6 +323,35 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     expect(document.querySelector("[data-slot='identity-modal-content']")).toBeTruthy();
   });
 
+  it("6: hue picker smoke — hueDraft updates on slider change, colorHue included in save meta", async () => {
+    mockedUpdateIdentity.mockResolvedValue({ ...BASE_IDENTITY, colorHue: 180 });
+
+    renderModal();
+
+    // Reveal edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+
+    // Locate hue input by id.
+    const hueInput = document.getElementById("identity-hue-input") as HTMLInputElement;
+    expect(hueInput).toBeTruthy();
+
+    // Change hue to 180.
+    fireEvent.change(hueInput, { target: { value: "180" } });
+
+    // Degree readout should update immediately.
+    expect(screen.getByText("180°")).toBeTruthy();
+
+    // Click Save — hue changed from committedHue=200 to 180, so meta.colorHue should be set.
+    fireEvent.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => {
+      expect(mockedUpdateIdentity).toHaveBeenCalledTimes(1);
+    });
+
+    const [, meta] = mockedUpdateIdentity.mock.calls[0];
+    expect(meta).toEqual({ colorHue: 180 });
+  });
+
   it("5: cancel discards unsaved changes — title reverts, no object URL in preview, updateIdentity not called, modal stays open", async () => {
     // Spy on createObjectURL to detect whether it's in use after cancel.
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake-cancel");
