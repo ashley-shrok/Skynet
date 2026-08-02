@@ -5,9 +5,6 @@
 // hover, RDP, ready-dot) lives in pretty-conversations.css. This component
 // keeps only the surviving JS-only concerns:
 //
-//   - Swipe reveal state machine (mobile) — the swipe transform is dynamic
-//     per-frame and can't be expressed in pure CSS; it stays as an inline
-//     transform on the row body.
 //   - Ready-dot conditional render (`inActiveSet && isWorking === false`) —
 //     JS-gated so the DOM never contains a ready-dot span when isWorking is
 //     null or true (preserves the test expectations for Tests 15/16/17). The
@@ -17,6 +14,13 @@
 //     tabIcon fallback).
 //   - Click / keyboard / touch handlers, aria-labels, `--pv-hue` custom
 //     property emission for hue-bearing rows.
+//   - Mobile long-press → context menu (quick-260802-pq2): a 500ms touch
+//     hold with <10px movement opens the SAME PrettyConversationContextMenu
+//     desktop right-click uses, at the touch coordinates. Replaces the
+//     retired swipe-to-reveal action strip (which had a bleed-through class
+//     of bug through translucent ambient/hidden row backgrounds — bounty
+//     `swipe-actions-visible-through-translucent-rows`). Nothing painted
+//     behind rows = no bleed-through, ever.
 //
 // State variants are className toggles composed via `cn`:
 //   className={cn('pv-row', variantClass, selected && 'selected',
@@ -24,8 +28,8 @@
 //     pinned && 'pinned', isAmbient && 'ambient', isRdp && 'rdp')}
 //
 // The ONE inline style on `.pv-row` is `{'--pv-hue': hue}` for hue-bearing
-// rows. Mobile also spreads `transform: translateX(...)` for the swipe (the
-// documented exception — dynamic dx can't be CSS-only).
+// rows. Post-pq2 mobile has no transform (no swipe machinery) — the row body
+// is a static CSS-rendered card in both variants.
 //
 // Retired vs pre-Phase-13:
 //   - All JS-computed CSSProperties for base body / avatar / ambient /
@@ -40,6 +44,11 @@
 //     `w-10 h-10`, `px-4 py-3` / `px-3 py-2.5`, `gap-3` / `gap-2.5`) on the
 //     row/avatar/body/meta divs — CSS handles layout via `display: flex`,
 //     `flex: 1`, `padding`, etc.
+//   - quick-260802-pq2: swipe state machine (swipedOpen / dxLive / start refs /
+//     onTouchStart / onTouchMove / onTouchEnd), swipe-reveal strip JSX,
+//     PinAction / DeactivateAction / HideAction imports (only rendered inside
+//     the retired strip), PC_SWIPE_* tokens, forceClosed / onSwipeOpenChange
+//     props, data-swiped-open attribute.
 //
 // Identity carry-through mirrors ConversationRow.tsx lines 41-47 verbatim so
 // identity-tinted rows keep the same "which session is this" reading after
@@ -47,6 +56,7 @@
 
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -63,27 +73,21 @@ import { useBountyCount } from "@/state/bounty-counts-store";
 import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 
-import { PinAction } from "./PinAction";
-import { DeactivateAction } from "./DeactivateAction";
-import { HideAction } from "./HideAction";
 import { PrettyBountyCountBadge } from "./PrettyBountyCountBadge";
 import {
   PrettyConversationContextMenu,
   type PrettyContextMenuItem,
 } from "./PrettyConversationContextMenu";
-import {
-  PC_SWIPE_ANGLE_TOLERANCE,
-  PC_SWIPE_REVEAL,
-  PC_SWIPE_THRESHOLD,
-} from "./tokens";
 
 // ─── Prop shape ──────────────────────────────────────────────────────────────
 // `variant` drives the density class (`pv-row--mobile` vs `pv-row--desktop`)
-// AND the swipe wiring gate (mobile-only).
+// AND the long-press wiring gate (mobile-only). Desktop rows never arm the
+// long-press timer.
 //
-// `forceClosed` is the panel's coordination hook — the panel drives a
-// "currently swiped-open row id" and passes forceClosed={true} to every OTHER
-// row so opening one snaps the others shut.
+// quick-260802-pq2: the swipe machinery (forceClosed / onSwipeOpenChange
+// props, PC_SWIPE_* tokens, swipedOpen state, transform emission,
+// reveal-strip JSX) was fully removed. The mobile row exposes the same
+// context menu desktop right-click uses via a 500ms long-press touch hold.
 export function PrettyConversationRow({
   row,
   selected,
@@ -94,8 +98,6 @@ export function PrettyConversationRow({
   onTogglePin,
   onDeactivate,
   onToggleHide,
-  onSwipeOpenChange,
-  forceClosed,
   isWorking = null,
   isRecycling = false,
   inActiveSet = false,
@@ -105,27 +107,23 @@ export function PrettyConversationRow({
   selected: boolean;
   pinned: boolean;
   // quick-260731-tgg: whether this row is currently in Ashley's hidden set.
-  // Drives the mobile swipe strip placement (hidden rows show Show instead of
-  // Pin+Hide) and the context menu Hide/Show label.
+  // Drives the context menu Hide/Show label. (Pre-pq2 also drove the swipe
+  // strip placement; strip is gone.)
   hidden?: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
   onTogglePin: () => void;
-  // quick-260727-gm3: fired when Ashley clicks the red-tinted X inside
-  // .pv-meta (desktop) OR the swipe strip (mobile). MUST be provided by
-  // the panel whenever inActiveSet === true && !isRdp — otherwise the
-  // click is a no-op at the row level (the button still renders + fires
-  // its own click, but forwards to a missing callback). See
-  // PrettyConversationsPanel.handleRowDeactivate for the store-mutation
-  // + tab-close composition.
+  // quick-260727-gm3: fired when Ashley clicks the red-tinted Deactivate
+  // menu item (desktop right-click OR mobile long-press). MUST be provided by
+  // the panel whenever inActiveSet === true && !isRdp — otherwise the menu
+  // item is filtered out at items[] build time. See
+  // PrettyConversationsPanel.handleRowDeactivate for the store-mutation +
+  // tab-close composition.
   onDeactivate?: () => void;
   // quick-260731-tgg: fired when Ashley clicks Hide (EyeOff) or Show (Eye).
   // When provided, the Hide/Show item appears in the context menu between
-  // Pin/Unpin and Deactivate. Mobile swipe strip: ambient rows show HideAction,
-  // hidden rows show HideAction(Eye). RDP rows never receive this prop.
+  // Pin/Unpin and Deactivate. RDP rows never receive this prop.
   onToggleHide?: () => void;
-  onSwipeOpenChange?: (open: boolean) => void;
-  forceClosed?: boolean;
   // Patch #137: WS-published working state for the row's (host, tmux)
   // pair. `true` = agent busy, `false` = idle, `null` = unknown
   // (backend hasn't published yet). Only `false` allows the ready-dot
@@ -194,144 +192,11 @@ export function PrettyConversationRow({
   const isMobile = variant === "mobile";
   const variantClass = isMobile ? "pv-row--mobile" : "pv-row--desktop";
 
-  // ─── Mobile swipe state machine ────────────────────────────────────────────
-  // Wire only on mobile variant AND non-RDP rows. Desktop variant + RDP rows
-  // get zero touch listeners at the render tree level.
-  const [swipedOpen, setSwipedOpen] = useState(false);
-  const [dxLive, setDxLive] = useState<number | null>(null); // null = not
-  //                                                             actively
-  //                                                             swiping
-  const startXRef = useRef<number>(0);
-  const startYRef = useRef<number>(0);
-  const activeRef = useRef<boolean>(false);
-  const baseDxRef = useRef<number>(0);
-
-  // forceClosed prop wins over local state — the panel uses it to close
-  // sibling rows when a new one opens.
-  const effectiveOpen = forceClosed === true ? false : swipedOpen;
-
-  const emitSwipeOpenChange = useCallback(
-    (open: boolean) => {
-      if (onSwipeOpenChange) onSwipeOpenChange(open);
-    },
-    [onSwipeOpenChange],
-  );
-
-  const onTouchStart = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      if (isRdp) return;
-      if (!isMobile) return;
-      const t = e.touches[0];
-      if (!t) return;
-      startXRef.current = t.clientX;
-      startYRef.current = t.clientY;
-      baseDxRef.current = effectiveOpen ? -PC_SWIPE_REVEAL : 0;
-      activeRef.current = true;
-      // Do not preventDefault — passive-friendly. Native vertical scroll wins
-      // for a vertical drag; we only track horizontal.
-    },
-    [isRdp, isMobile, effectiveOpen],
-  );
-
-  const onTouchMove = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      if (isRdp) return;
-      if (!isMobile) return;
-      if (!activeRef.current) return;
-      const t = e.touches[0];
-      if (!t) return;
-      const dy = Math.abs(t.clientY - startYRef.current);
-      if (dy > PC_SWIPE_ANGLE_TOLERANCE) {
-        // Vertical gesture — yield to browser scroll and abort the swipe.
-        activeRef.current = false;
-        setDxLive(null);
-        return;
-      }
-      const raw = t.clientX - startXRef.current;
-      const clamped = Math.max(
-        -PC_SWIPE_REVEAL,
-        Math.min(0, baseDxRef.current + raw),
-      );
-      setDxLive(clamped);
-    },
-    [isRdp, isMobile],
-  );
-
-  const onTouchEnd = useCallback(() => {
-    if (isRdp) return;
-    if (!isMobile) return;
-    if (!activeRef.current) {
-      // Vertical bail-out already reset; nothing to commit.
-      setDxLive(null);
-      return;
-    }
-    activeRef.current = false;
-    const finalDx = dxLive ?? baseDxRef.current;
-    const shouldOpen = finalDx < -PC_SWIPE_THRESHOLD;
-    setDxLive(null);
-    if (shouldOpen !== swipedOpen) {
-      setSwipedOpen(shouldOpen);
-      emitSwipeOpenChange(shouldOpen);
-    }
-  }, [isRdp, isMobile, dxLive, swipedOpen, emitSwipeOpenChange]);
-
-  // ─── Row-body click ────────────────────────────────────────────────────────
-  // Mobile: if the row is swiped-open, a click on the body closes it INSTEAD
-  // of firing onSelect. Desktop: click always fires onSelect (no swipe state
-  // to interfere).
-  const onBodyClick = useCallback(() => {
-    if (isMobile && effectiveOpen) {
-      setSwipedOpen(false);
-      emitSwipeOpenChange(false);
-      return;
-    }
-    onSelect();
-  }, [isMobile, effectiveOpen, onSelect, emitSwipeOpenChange]);
-
-  const onBodyKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        onBodyClick();
-      }
-    },
-    [onBodyClick],
-  );
-
-  // ─── Pin click (both variants) ─────────────────────────────────────────────
-  // stopPropagation lives HERE (not inside PinAction) so the row's onClick
-  // does not fire.
-  const onPinClick = useCallback(
-    (e: MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation();
-      onTogglePin();
-    },
-    [onTogglePin],
-  );
-
-  // quick-260727-gm3: deactivate click (both variants). Same stopPropagation
-  // discipline as onPinClick — the row's click handler must not fire when
-  // the X is pressed. Forwards to the panel's handler (which pairs
-  // removeFromActiveSet + closeTab) if provided; otherwise silent no-op.
-  const onDeactivateClick = useCallback(
-    (e: MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation();
-      if (onDeactivate) onDeactivate();
-    },
-    [onDeactivate],
-  );
-
-  // quick-260731-tgg: hide/show click. Same stopPropagation discipline.
-  const onHideClick = useCallback(
-    (e: MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation();
-      onToggleHide?.();
-    },
-    [onToggleHide],
-  );
-
-  // Right-click context menu state for desktop non-RDP rows. Coords are
-  // cursor position at contextmenu time; null = menu closed.
+  // ─── Context menu state (desktop right-click AND mobile long-press) ───────
+  // Coords are the pointer position at open time; null = menu closed. Shared
+  // state between the two entry points so both flow through the SAME
+  // PrettyConversationContextMenu portal render (single items[] builder
+  // below).
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -345,6 +210,124 @@ export function PrettyConversationRow({
       setCtxMenu({ x: e.clientX, y: e.clientY });
     },
     [],
+  );
+
+  // ─── Mobile long-press → context menu (quick-260802-pq2) ──────────────────
+  // Wire only on mobile variant AND non-RDP rows. Desktop variant + RDP rows
+  // get zero touch listeners at the render tree level (see JSX prop wiring
+  // below — the four onTouch* props are `undefined` for those cases).
+  //
+  // Contract:
+  //   - touchStart arms a 500ms timer capturing (clientX, clientY).
+  //   - If touchEnd fires before 500ms → no menu, no side effects, standard
+  //     click path continues (short-tap → onSelect via onBodyClick).
+  //   - touchMove checks Math.hypot(dx, dy) against 10px. Exceed → cancel the
+  //     pending timer (movement wins → vertical scroll takes over).
+  //   - If the 500ms timer fires without cancellation:
+  //       * setCtxMenu({ x: startClientX, y: startClientY })
+  //       * navigator.vibrate?.(10) (feature-checked — must NOT throw when
+  //         the API is missing, e.g. iOS Safari; delete-then-restore pattern
+  //         in TL5 tests locks this contract).
+  //       * suppressNextClickRef ← true so the synthesized click that follows
+  //         the long-press does NOT also fire onSelect on the row body.
+  //   - useEffect cleanup on unmount clears any pending timer to avoid a
+  //     late setState / setCtxMenu on an unmounted component.
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressNextClickRef = useRef<boolean>(false);
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const onTouchStart = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (isRdp || !isMobile) return;
+      const t = e.touches[0];
+      if (!t) return;
+      const x = t.clientX;
+      const y = t.clientY;
+      longPressStartRef.current = { x, y };
+      // Clear any stale timer (defensive — should be null already after prior
+      // touchEnd/Cancel; belt-and-suspenders).
+      clearLongPressTimer();
+      longPressTimerRef.current = window.setTimeout(() => {
+        setCtxMenu({ x, y });
+        // Feature-checked haptic — many browsers (esp. iOS Safari) do NOT
+        // implement navigator.vibrate. `?.` guards the call.
+        navigator.vibrate?.(10);
+        suppressNextClickRef.current = true;
+        longPressTimerRef.current = null;
+      }, 500);
+    },
+    [isRdp, isMobile, clearLongPressTimer],
+  );
+
+  const onTouchMove = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (isRdp || !isMobile) return;
+      if (longPressTimerRef.current === null) return;
+      if (longPressStartRef.current === null) return;
+      const t = e.touches[0];
+      if (!t) return;
+      const dx = t.clientX - longPressStartRef.current.x;
+      const dy = t.clientY - longPressStartRef.current.y;
+      if (Math.hypot(dx, dy) > 10) {
+        // Movement wins over long-press — cancel the pending timer so
+        // vertical scroll / swipe fling can proceed uninterrupted.
+        clearLongPressTimer();
+        longPressStartRef.current = null;
+      }
+    },
+    [isRdp, isMobile, clearLongPressTimer],
+  );
+
+  const onTouchEnd = useCallback(() => {
+    if (isRdp || !isMobile) return;
+    // Clear any pending timer (early touchEnd → no menu).
+    clearLongPressTimer();
+    longPressStartRef.current = null;
+    // Deliberately DO NOT touch suppressNextClickRef here — the following
+    // click event needs to read it to suppress the trailing tap after a
+    // successful long-press.
+  }, [isRdp, isMobile, clearLongPressTimer]);
+
+  // Cleanup on unmount so a pending timer doesn't fire against an unmounted
+  // component (setState on unmounted → React warning + potential dangling
+  // navigator.vibrate call).
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // ─── Row-body click ────────────────────────────────────────────────────────
+  // Post-pq2: no swipe close-branch. Mobile short-tap AND desktop click both
+  // just fire onSelect. The suppressNextClickRef gate catches the synthesized
+  // click that follows a long-press (jsdom does not synthesize it, but real
+  // browsers do) so a successful long-press does NOT also fire onSelect.
+  const onBodyClick = useCallback(() => {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
+    onSelect();
+  }, [onSelect]);
+
+  const onBodyKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onBodyClick();
+      }
+    },
+    [onBodyClick],
   );
 
   // ─── Class composition ────────────────────────────────────────────────────
@@ -365,38 +348,19 @@ export function PrettyConversationRow({
     hidden && "hidden",
   );
 
-  // ─── Hue custom property + mobile swipe transform ─────────────────────────
+  // ─── Hue custom property ──────────────────────────────────────────────────
   // The ONLY inline style on `.pv-row` is `--pv-hue: {hue}` for hue-bearing
-  // rows, plus (on mobile) the swipe transform (dynamic per-frame; can't be
-  // CSS-only). CSS reads `--pv-hue` in every `hsla(var(--pv-hue), ...)`
-  // expression. When hue is null, the CSS fallback (`--pv-hue: 216` on
-  // `.pv-row`) applies but the .ambient / .rdp branches use non-hue
-  // backgrounds so no visual leak.
-  const activeDrag = dxLive !== null;
-  const targetDx = activeDrag
-    ? dxLive
-    : effectiveOpen
-      ? -PC_SWIPE_REVEAL
-      : 0;
-  const bodyStyle: CSSProperties = (() => {
-    const style: Record<string, string | number> = {};
-    if (hue !== null) {
-      style["--pv-hue"] = hue;
-    }
-    if (isMobile) {
-      style.transform = `translateX(${targetDx}px)`;
-      style.transition = activeDrag ? "none" : "transform 180ms ease";
-    }
-    return style as CSSProperties;
-  })();
+  // rows. Post-pq2: no swipe transform / transition (retired). CSS reads
+  // `--pv-hue` in every `hsla(var(--pv-hue), ...)` expression. When hue is
+  // null, the CSS fallback (`--pv-hue: 216` on `.pv-row`) applies but the
+  // .ambient / .rdp branches use non-hue backgrounds so no visual leak.
+  const bodyStyle: CSSProperties =
+    hue !== null ? ({ "--pv-hue": hue } as CSSProperties) : ({} as CSSProperties);
 
   // ─── Render tree ───────────────────────────────────────────────────────────
-  // Outer wrapper is `relative` (positions the mobile swipe strip) and
-  // `overflow-hidden` on mobile so the row-body transform doesn't paint over
-  // sibling rows.
-  const wrapperClass = isMobile
-    ? "relative overflow-hidden"
-    : "relative";
+  // Outer wrapper is `relative` in BOTH variants — post-pq2 there's no swipe
+  // transform to clip, so mobile no longer needs `overflow-hidden`.
+  const wrapperClass = "relative";
 
   const initialLetter = identity
     ? (identity.displayName ?? "?").charAt(0).toUpperCase()
@@ -410,76 +374,14 @@ export function PrettyConversationRow({
       data-pinned={pinned ? "true" : "false"}
       data-variant={variant}
       data-rdp-host-row={isRdp ? "true" : undefined}
-      data-swiped-open={isMobile && effectiveOpen ? "true" : undefined}
     >
-      {/* Mobile swipe-reveal strip. Absolutely positioned behind the row body
-          so the row-body transform reveals it. Only rendered for mobile
-          variant AND non-RDP rows (T-Test-34: RDP rows can't be pinned).
-          quick-260727-gm3: strip widened to 132px (tokens.ts) and now hosts
-          BOTH PinAction AND DeactivateAction side-by-side when the row is
-          in the active-set. Order: PinAction FIRST (left), DeactivateAction
-          SECOND (right) — matches Ashley's preview: pin on left, X on right
-          when the strip is revealed from the right edge. Ambient (non-
-          active-set) mobile rows expose only PinAction (no deactivate). */}
-      {/* Mobile swipe-reveal strip — design-locked placement rules (quick-260731-tgg):
-          HIDDEN rows (inside expanded Hidden section):
-            [HideAction(Eye)]  — Show affordance only. No Pin, no Deactivate
-            (hidden rows are excluded from active-set and pinned by the store filter).
-          ACTIVE-SET rows (non-RDP, non-hidden):
-            [PinAction, DeactivateAction]  — unchanged; to hide, long-press → menu.
-          AMBIENT rows (non-active-set, non-RDP, non-hidden):
-            [PinAction, HideAction(EyeOff)]  — no Deactivate (ambient can't deactivate). */}
-      {isMobile && !isRdp && (
-        <div
-          className="absolute top-0 right-0 bottom-0 flex items-center justify-center gap-3 z-0"
-          style={{ width: `${PC_SWIPE_REVEAL}px` }}
-          aria-hidden={!effectiveOpen}
-        >
-          {hidden ? (
-            // Hidden row swipe strip: Show-only (Eye)
-            <HideAction
-              hue={hue}
-              size="mobile"
-              hidden={true}
-              onClick={onHideClick}
-              data-testid="hide-action-show"
-            />
-          ) : (
-            <>
-              <PinAction
-                hue={hue}
-                pinned={pinned}
-                size="mobile"
-                onClick={onPinClick}
-              />
-              {inActiveSet ? (
-                // Active-set: show Deactivate (design lock — no HideAction on swipe for active-set rows)
-                <DeactivateAction
-                  hue={hue}
-                  size="mobile"
-                  onClick={onDeactivateClick}
-                />
-              ) : (
-                // Ambient: show HideAction (EyeOff) when onToggleHide is provided
-                onToggleHide && (
-                  <HideAction
-                    hue={hue}
-                    size="mobile"
-                    hidden={false}
-                    onClick={onHideClick}
-                    data-testid="hide-action-hide"
-                  />
-                )
-              )}
-            </>
-          )}
-        </div>
-      )}
-
       {/* Row body — the CSS file (pretty-conversations.css) handles all
           layout, background, border, shadow, hover, and state variants via
           the composed className. The only inline style is `--pv-hue` (for
-          hue-bearing rows) + the mobile swipe transform. */}
+          hue-bearing rows). quick-260802-pq2: onTouchStart/Move/End/Cancel
+          now wire the long-press → context-menu handlers (mobile non-RDP
+          only). Desktop + RDP rows get `undefined` for all four so no timer
+          is ever armed. */}
       <div
         role="button"
         tabIndex={0}

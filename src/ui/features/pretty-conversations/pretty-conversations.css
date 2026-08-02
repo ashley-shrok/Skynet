@@ -305,7 +305,15 @@
   padding: 10px 12px;
   color: #fbf5e8;
   cursor: pointer;
+  /* quick-260802-pq2: mobile long-press ergonomics — suppress iOS
+     Safari's native text-selection callout AND the tap-and-hold selection
+     UI so the 500ms long-press → context menu handler does not fight the
+     browser's own long-press affordance on mobile. All three declarations
+     are inert on desktop (mouse pointer never triggers them) so they live
+     in the base .pv-row block. */
+  -webkit-touch-callout: none;
   user-select: none;
+  -webkit-user-select: none;
   border-radius: var(--radius-pv-bubble);
   background: linear-gradient(160deg,
     hsla(var(--pv-hue), 50%, 38%, 0.55),
@@ -663,8 +671,14 @@
    DESKTOP PIN HOVER-REVEAL — the pin-action button is hidden on desktop rows
    by default and revealed on row hover, for BOTH pinned and unpinned rows.
    Pinned state is signalled by position (pinned rows sort to the top of the
-   panel), not by a persistently-visible pin glyph. Mobile rows use the
-   swipe-strip mechanism (owned by the React component) instead.
+   panel), not by a persistently-visible pin glyph.
+
+   Mobile: pre-quick-260802-pq2 rows used a swipe-to-reveal action strip
+   (owned by PrettyConversationRow.tsx). That strip was retired; mobile rows
+   now expose Pin via a long-press → PrettyConversationContextMenu affordance
+   and render NO PinAction in the .pv-meta column at all (the button
+   component is no longer imported by the row). This CSS block is desktop-
+   scoped (`.pv-row.pv-row--desktop`) so it stays inert for mobile rows.
 
    The pin-action button is queryable in tests via [data-testid="pin-action"].
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -732,10 +746,13 @@
   outline-offset: 2px;
 }
 
-/* Mobile hit-target: bigger tap area (~32px) with a slightly larger glyph
-   so the affordance stays comfortable inside the swipe-reveal strip without
-   introducing button chrome (no background, no border, no rounded rect —
-   still a bare icon-with-hue-drop-shadow, just scaled up). */
+/* Mobile hit-target: bigger tap area (~32px) with a slightly larger glyph.
+   Pre-quick-260802-pq2 this scaling was for the mobile swipe-reveal strip;
+   post-pq2 the row no longer renders PinAction at all on mobile (long-press
+   menu replaces the swipe strip). This selector is retained because
+   PinAction is still consumed elsewhere (e.g. potential future re-mounts)
+   and the mobile size variant is a component-level concern, not a
+   row-composition concern. */
 .pv-pin-action[data-size="mobile"] {
   width: 32px;
   height: 32px;
@@ -757,9 +774,9 @@
    pin-action button is hidden entirely unless the row is hovered OR any
    descendant is keyboard-focused (allows pin-via-keyboard-nav). Pinned
    state is signalled by position (pinned rows sort to the top of the
-   panel), so no persistent pin glyph is needed to convey it. Mobile rows
-   use the swipe-strip mechanism for reveal so this rule is scoped to
-   desktop only. */
+   panel), so no persistent pin glyph is needed to convey it. This rule
+   is desktop-only (`.pv-row--desktop`) — mobile rows never render
+   PinAction post-quick-260802-pq2 (long-press menu instead). */
 .pv-row.pv-row--desktop:not(:hover):not(:focus-within) .pv-pin-action {
   display: none;
 }
@@ -781,8 +798,10 @@
      - Ambient safety net: defense-in-depth guard so ambient rows NEVER
        render the glyph even if a row-level render regresses.
      - RDP safety net: same shape as the pin RDP guard.
-   Mobile visibility owned by the swipe strip (row-level render); no CSS
-   hide rule for mobile.
+   Mobile: pre-quick-260802-pq2 the swipe strip owned mobile visibility;
+   post-pq2 the row does NOT render DeactivateAction on mobile at all
+   (long-press menu carries the Deactivate item instead), so there is no
+   mobile CSS hide rule.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .pv-deactivate-action {
@@ -817,9 +836,12 @@
   outline-offset: 2px;
 }
 
-/* Mobile hit-target: bigger tap area (~32px) with a slightly larger glyph
-   so the affordance stays comfortable inside the widened 132px swipe strip
-   alongside PinAction. Same shape as `.pv-pin-action[data-size="mobile"]`. */
+/* Mobile hit-target: bigger tap area (~32px) with a slightly larger glyph.
+   Pre-quick-260802-pq2 this sized the button for the mobile swipe strip
+   (widened to 132px to fit PinAction + DeactivateAction side-by-side);
+   post-pq2 the row no longer renders DeactivateAction on mobile at all.
+   Selector retained at the component level for potential re-mount sites
+   and to keep parity with `.pv-pin-action[data-size="mobile"]`. */
 .pv-deactivate-action[data-size="mobile"] {
   width: 32px;
   height: 32px;
@@ -875,14 +897,16 @@
 
    Visibility rules mirror the pin block's hover-reveal (desktop):
      - Ambient rows: hidden until row is hovered/focus-within (same as pin).
-     - Hidden rows inside expanded Hidden section: always shown on mobile swipe;
-       desktop hover-reveal is effectively inert here (section is collapsed by
-       default; once expanded, the "no hover-reveal on hidden rows" edge is
-       inert because the whole row is inside a collapsed section that Ashley
-       explicitly opened — the CSS guard is documented but not functional).
+     - Hidden rows inside expanded Hidden section: desktop hover-reveal is
+       effectively inert here (section is collapsed by default; once
+       expanded, the "no hover-reveal on hidden rows" edge is inert because
+       the whole row is inside a collapsed section that Ashley explicitly
+       opened — the CSS guard is documented but not functional).
      - RDP safety net: HideAction is never threaded to RDP rows; this CSS guard
        is pure defense-in-depth.
-   Mobile visibility owned by the swipe strip.
+   Mobile: pre-quick-260802-pq2 the swipe strip owned mobile visibility;
+   post-pq2 the row does NOT render HideAction on mobile at all (long-press
+   menu carries the Hide/Show item instead).
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .pv-hide-action {
@@ -933,9 +957,12 @@
   display: none;
 }
 
-/* Active-set safety net: HideAction is not in the swipe strip for active-set
-   rows (design lock — they use Deactivate). Desktop context menu provides the
-   Hide affordance. No CSS hide needed here; the row-level render gates it. */
+/* Active-set safety net: pre-quick-260802-pq2 HideAction was omitted from
+   the mobile swipe strip for active-set rows (they used Deactivate instead).
+   Post-pq2 the strip is gone entirely and Hide/Deactivate both reach through
+   the same PrettyConversationContextMenu (long-press on mobile, right-click
+   on desktop). No CSS hide needed here; the row-level items[] builder gates
+   which menu items appear per row-state. */
 
 /* RDP safety net: HideAction is never threaded to RDP rows; this is defense-
    in-depth. */
