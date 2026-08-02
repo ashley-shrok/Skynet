@@ -1403,7 +1403,7 @@ export function ComposeBox({
           used to double as the height proxy, which prevented desktop
           from opting into the paperclip without also inheriting the
           chunky 44px row. */}
-      <div className={cn("flex items-center gap-2", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>
+      <div className={cn("flex items-center gap-2 mb-[3px]", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>
         {/* Patch #83: cohesive segmented-well meter with integrated reset
             cell (one instrument). The well ALWAYS mounts (segments show
             dim when contextPct is null so the row geometry never jitters
@@ -1724,7 +1724,7 @@ export function ComposeBox({
           Slots stack vertically; oldest at top, newest at bottom
           (adjacent to the primary Row 2 textarea below). */}
       {queueSlots.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 mb-1">
           {queueSlots.map((slot) => {
             const isSlotRecording = voice.state === "recording" && micTarget === slot.id;
             const isSlotTranscribing = voice.state === "transcribing" && micTarget === slot.id;
