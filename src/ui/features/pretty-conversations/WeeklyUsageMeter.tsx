@@ -12,6 +12,34 @@
 
 import { useEffect, useState } from "react";
 
+// Green→amber→red band matches the ComposeBox context-window meter
+// (ComposeBox.tsx §Phase 9 UAT, patch #83+ — thresholds locked 2026-07-22).
+// Same thresholds, same hsla values, same visual language; values duplicated
+// rather than shared because the two meters have different geometry
+// (12-segment well vs single continuous fill) and no other consumer.
+type UsageBand = "green" | "amber" | "red";
+
+function bandFor(pct: number): UsageBand {
+  if (pct >= 78) return "red";
+  if (pct >= 45) return "amber";
+  return "green";
+}
+
+const BAND_FILL_STYLE: Record<UsageBand, { background: string; boxShadow: string }> = {
+  green: {
+    background: "linear-gradient(90deg, hsla(155,45%,52%,1), hsla(155,45%,42%,1))",
+    boxShadow: "0 0 12px hsla(155,45%,45%,0.6), inset 0 1px 0 rgba(220,255,235,0.35)",
+  },
+  amber: {
+    background: "linear-gradient(90deg, hsla(38,75%,55%,1), hsla(38,75%,45%,1))",
+    boxShadow: "0 0 12px hsla(38,75%,55%,0.6), inset 0 1px 0 rgba(255,240,200,0.35)",
+  },
+  red: {
+    background: "linear-gradient(90deg, hsla(0,72%,55%,1), hsla(0,72%,42%,1))",
+    boxShadow: "0 0 12px hsla(0,72%,55%,0.7), inset 0 1px 0 rgba(255,220,200,0.35)",
+  },
+};
+
 interface UsageWindow {
   /** 0–100 (percentage of the rate-limit window consumed) */
   used_percentage: number;
@@ -100,13 +128,14 @@ function MeterRow({
   usagePct: number;
   elapsedPct: number;
 }) {
+  const bandStyle = BAND_FILL_STYLE[bandFor(usagePct)];
   return (
     <div className="pv-usage-meter-row">
       <span className="pv-usage-meter-label">{label}</span>
       <div className="pv-usage-meter-bar">
         <div
           className="pv-usage-meter-fill-usage"
-          style={{ width: `${usagePct}%` }}
+          style={{ width: `${usagePct}%`, ...bandStyle }}
         />
         <div
           className="pv-usage-meter-tick"

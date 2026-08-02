@@ -243,19 +243,15 @@
      widths are clamped in JS + backend, so no defense-in-depth needed here. */
 }
 
-/* Full-height coral usage fill (was 50%-height top half in the previous
-   dual-race design). Prominence bump on lock-in: brighter gradient endpoints,
-   a stronger warm glow, subtle cream inset highlight on the top edge to give
-   the fill a bit of dimension. */
+/* Full-height usage fill. Structural bits only (positioning + border-radius);
+   the actual gradient + glow + inset highlight come from inline
+   `background`/`boxShadow` computed per band in WeeklyUsageMeter.tsx
+   (green→amber→red matching the ComposeBox context-window meter). */
 .pv-usage-meter-fill-usage {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  background: linear-gradient(90deg, hsla(38, 62%, 74%, 0.92), hsla(20, 78%, 66%, 1));
-  box-shadow:
-    0 0 12px hsla(20, 78%, 60%, 0.6),
-    inset 0 1px 0 rgba(255, 245, 220, 0.35);
   border-radius: 3px;
 }
 
