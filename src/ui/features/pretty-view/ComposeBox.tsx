@@ -1226,38 +1226,50 @@ export function ComposeBox({
   // showMicButton: mic CO-RENDERS beside the send button when:
   //   - navigator.mediaDevices is available (browser supports getUserMedia;
   //     JSDOM guard so tests that don't mock mediaDevices still see Send)
-  //   - voice is idle (not recording, not transcribing)
+  //   - primary is NOT the active mic target (other textareas may be
+  //     recording/transcribing; mic stays visible on the primary but is
+  //     disabled via the disabled prop so a second concurrent recording
+  //     cannot start — Quick 260802-uow bounty 1)
   //   - aside-morph is NOT active (X-for-Resume owns the slot when true)
   //   - primary source is NOT armed (armed overlay covers the slot)
   //
   // showPrimaryArmButton: per-textarea arm-idle button appears at right-21
   // (one slot LEFT of Mic at right-11) when:
-  //   - voice is idle (button lives in the same relative parent)
   //   - aside-morph is NOT active
   //   - primary is NOT already armed (would be redundant)
   //   - textarea has trimmed content to arm
   //   - recycle is NOT active (recycle disables all WS-side-effect actions)
+  //   Quick 260802-uow bounty 1: voice.state is INTENTIONALLY not gated
+  //   here — send-when-idle while recording on another textarea is a
+  //   valid workflow (Ashley).
   //
   // showRecordingControls: while recording, the three-button controls own the slot.
-  //   MicButton and send button are both hidden.
+  //   MicButton and send button are both hidden. Gated on isPrimaryRecording
+  //   (voice.state === "recording" && micTarget === "primary") so a slot
+  //   recording does not steal the primary's controls.
   //
-  // showTranscribingSend: during the STT round-trip, the existing send button
-  //   renders disabled so rapid-tap cannot double-fire (T-16-16 mitigation).
+  // showTranscribingSend: during the STT round-trip on THIS textarea, the
+  //   existing send button renders disabled so rapid-tap cannot double-fire
+  //   (T-16-16 mitigation). Quick 260802-uow bounty 2: also gated on
+  //   micTarget === "primary" so a slot's transcribing spinner doesn't
+  //   render on the primary send button.
   const primaryArmed = isSourceArmed("primary");
+  const isPrimaryRecording = voice.state === "recording" && micTarget === "primary";
+  const isPrimaryTranscribing = voice.state === "transcribing" && micTarget === "primary";
   const showMicButton =
     typeof navigator !== "undefined" &&
     navigator.mediaDevices != null &&
-    voice.state === "idle" &&
+    !isPrimaryRecording &&
+    !isPrimaryTranscribing &&
     !asideActive &&
     !primaryArmed;
   const showPrimaryArmButton =
-    voice.state === "idle" &&
     !asideActive &&
     !primaryArmed &&
     text.trim() !== "" &&
     !recycleActive;
-  const showRecordingControls = voice.state === "recording";
-  const showTranscribingSend = voice.state === "transcribing";
+  const showRecordingControls = isPrimaryRecording;
+  const showTranscribingSend = isPrimaryTranscribing;
 
   // Phase 16: merge voice.errorMessage into the existing displayError. The error
   // display block renders only one message at a time; voice errors are transient
@@ -1709,27 +1721,44 @@ export function ComposeBox({
         <div className="flex flex-col gap-2">
           {queueSlots.map((slot) => {
             const isSlotRecording = voice.state === "recording" && micTarget === slot.id;
-            const isSlotIdle = voice.state === "idle";
+            const isSlotTranscribing = voice.state === "transcribing" && micTarget === slot.id;
             // Vehicle C v2 (2026-08-01): per-slot arm state. `slotArmed`
             // gates the disabled Textarea + overlay + Send disable; mic
             // hides ONLY while this slot is armed (not while ANY source
             // is armed) — Ashley 260729-3y1 mic-always-reachable lock.
             // showSlotArmButton mirrors the primary Arm-idle button gate
             // adapted for slots.
+            //
+            // Quick 260802-uow bounty 1: mic on THIS slot is visible
+            // whenever THIS slot isn't itself the active mic target
+            // (recording OR transcribing). If another textarea is
+            // recording, this slot's mic stays visible but disabled via
+            // the MicButton `disabled` prop below — prevents a second
+            // concurrent recording from starting.
+            //
+            // Quick 260802-uow bounty 1: showSlotArmButton no longer
+            // gates on voice.state — send-when-idle while recording
+            // elsewhere is a valid workflow.
+            //
+            // Quick 260802-uow bounty 2: showSlotTranscribingSend gates
+            // the slot's Loader2 spinner render (parallel to the primary's
+            // showTranscribingSend). Only true when THIS slot is the
+            // transcribing target.
             const slotArmed = isSourceArmed(slot.id);
             const slotHasText = slot.text.trim() !== "";
+            const isSlotActiveMic = isSlotRecording || isSlotTranscribing;
             const showSlotMic =
               typeof navigator !== "undefined" &&
               navigator.mediaDevices != null &&
-              isSlotIdle &&
+              !isSlotActiveMic &&
               !asideActive &&
               !slotArmed;
             const showSlotArmButton =
-              isSlotIdle &&
               !asideActive &&
               !slotArmed &&
               slotHasText;
             const showSlotRecording = isSlotRecording;
+            const showSlotTranscribingSend = isSlotTranscribing;
             const showSlotSend = !showSlotRecording;
             return (
               <div key={slot.id} className="relative flex-1" data-slot-id={slot.id}>
@@ -1825,7 +1854,11 @@ export function ComposeBox({
                       <button
                         type="button"
                         onClick={() => handleQueueSlotSend(slot.id)}
-                        disabled={slot.text.trim() === "" || slotArmed}
+                        disabled={
+                          showSlotTranscribingSend ||
+                          slot.text.trim() === "" ||
+                          slotArmed
+                        }
                         aria-label="Send queued message"
                         title="Send queued message"
                         className={cn(
@@ -1839,15 +1872,25 @@ export function ComposeBox({
                           "cursor-pointer",
                         )}
                       >
-                        <svg
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                          aria-hidden="true"
-                        >
-                          <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-                        </svg>
+                        {/* Quick 260802-uow bounty 2: when this slot is the
+                            transcribing target, swap the paper-plane for the
+                            Loader2 spinner — mirrors the primary's pattern
+                            (~L2162) so the STT round-trip spinner appears on
+                            the SAME textarea where the mic was pressed, not
+                            always the primary. */}
+                        {showSlotTranscribingSend ? (
+                          <Loader2 className="size-6 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <svg
+                            width="24"
+                            height="24"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+                          </svg>
+                        )}
                       </button>
                     )}
                     {/* Vehicle C v2 (2026-08-01): mic + arm-idle COEXIST
@@ -1859,6 +1902,7 @@ export function ComposeBox({
                     {showSlotMic && (
                       <MicButton
                         onClick={() => beginRecord(slot.id)}
+                        disabled={voice.state !== "idle"}
                         title="Record voice"
                         positionClass="right-11 bottom-0.5"
                       />
@@ -2189,6 +2233,7 @@ export function ComposeBox({
             {showMicButton && (
               <MicButton
                 onClick={() => beginRecord("primary")}
+                disabled={voice.state !== "idle"}
                 title="Record voice"
                 positionClass="right-11 bottom-0.5"
               />
