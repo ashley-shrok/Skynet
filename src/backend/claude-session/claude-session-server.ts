@@ -9,6 +9,7 @@ import { discoverClaudeSession } from "./session-file-discovery.js";
 import { parseSessionLine } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 import { parseContextPct } from "./context-pct-parser.js";
+import { isPlanPending } from "./plan-pending-parser.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import {
   isLocalHostId,
@@ -867,6 +868,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
     { planFilePath: string; ts: number }
   >();
   let pendingPlansLastSerialized = "null";
+  // Plan-pending PANE-SCRAPE sentinel (quick 260802-rps). Independent of
+  // `pendingPlansLastSerialized` (which gates the legacy patch #63 JSONL
+  // scan below) because the two signal sources have different resolution
+  // timing under Claude Code 2.1.150 — the pane transitions to pending
+  // instantly when the Ink prompt opens, while the JSONL only shows the
+  // ExitPlanMode tool_use after the user resolves. Both emit onto the
+  // same `{type:"plan_pending", pending}` WS frame; whichever transitions
+  // first wins on the frontend (see PlanPendingBubble.tsx). Same "null"
+  // initial sentinel as `pendingPlansLastSerialized` — matches
+  // JSON.stringify(null) so an initial `pending:null` scrape does not
+  // fire a spurious first emit.
+  let planPendingLastSerialized = "null";
   let stopped = false;
 
   // Phase 3 session-changeover state machine. Per D-30 (two-layer detection):
@@ -944,6 +957,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     harnessTasksLastSerialized = null;
     pendingPlans.clear();
     pendingPlansLastSerialized = "null";
+    planPendingLastSerialized = "null";
     backgroundedAgents.clear();
     backgroundedAgentsLastSerialized = "[]";
     backgroundedShells.clear();
@@ -1199,6 +1213,27 @@ wss.on("connection", async (ws: WebSocket, req) => {
           backgroundedShells.delete(idMatch[1]);
         }
       }
+      // ── DEPRECATED FOR PENDING-WINDOW DETECTION (quick 260802-rps) ─────
+      // Claude Code 2.1.150's `ExitPlanModeV2Tool` BUFFERS the tool_use in
+      // Ink UI memory and only flushes it to the parent JSONL when the user
+      // resolves the plan-approval prompt (approve or reject). Live
+      // confirmation on Moxie's workstation 2026-08-02: 57-minute gap
+      // between the model calling ExitPlanMode and the JSONL write, which
+      // landed at the exact moment Ashley approved. As a result THIS SCAN
+      // IS EFFECTIVELY DEAD CODE for pending-window detection — during the
+      // entire pending window the JSONL has zero signal.
+      //
+      // The authoritative live signal is now the pane-scrape via
+      // `isPlanPending` wired into the context-pct setInterval (see
+      // ~line 3106). This scan is RETAINED as belt-and-suspenders for two
+      // remaining edges: (1) the resolution edge — after V2 flushes both
+      // the tool_use and the matching tool_result on user resolution, this
+      // scan will re-emit `pending: null` (harmless coalesce with the
+      // pane-scrape's own null-emit); (2) backward-compat for any older
+      // Claude Code sessions still writing ExitPlanMode eagerly (v1 tool
+      // behavior). Do NOT delete without confirming both edges are
+      // covered by the pane-scrape.
+      // ────────────────────────────────────────────────────────────────
       // Plan-pending scan (patch #63). Reuses `obj` + `content` from the
       // patch-#61 backgrounded-agents scan above; do NOT re-parse.
       //   - assistant turn whose content[] contains a tool_use block with
@@ -1604,6 +1639,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     backgroundedShellsLastSerialized = "[]";
     pendingPlans.clear();
     pendingPlansLastSerialized = "null";
+    planPendingLastSerialized = "null";
     hasSeenExit = false;
     holdingTicks = 0;
 
@@ -3118,11 +3154,39 @@ wss.on("connection", async (ws: WebSocket, req) => {
           // inputs — a single null-check replaces the inline
           // Number.isFinite / < 0 / > 100 chain.
           const pct = parseContextPct(output);
-          if (pct === null) return;
-          try {
-            ws.send(JSON.stringify({ type: "context_pct", pct }));
-          } catch {
-            /* ws may be mid-close */
+          if (pct !== null) {
+            try {
+              ws.send(JSON.stringify({ type: "context_pct", pct }));
+            } catch {
+              /* ws may be mid-close */
+            }
+          }
+          // Plan-pending PANE-SCRAPE (quick 260802-rps). Reuses the same
+          // `output` capture-pane payload that just fed parseContextPct
+          // above — no additional SSH round-trip. Gated on serialized-
+          // diff so we only emit on state transitions (open → close, and
+          // vice versa), same posture as the pendingPlans / backgrounded
+          // Agents / backgrounded Shells emissions in the JSONL scan.
+          // `planFilePath: ""` because the pane text does not reliably
+          // carry the plan file path and PlanPendingBubble.tsx does not
+          // read that field for rendering — the shape of the payload is
+          // preserved for symmetry with the legacy patch #63 emission.
+          const currentPending = isPlanPending(output)
+            ? { planFilePath: "" }
+            : null;
+          const pendingSerialized = JSON.stringify(currentPending);
+          if (pendingSerialized !== planPendingLastSerialized) {
+            planPendingLastSerialized = pendingSerialized;
+            try {
+              ws.send(
+                JSON.stringify({
+                  type: "plan_pending",
+                  pending: currentPending,
+                }),
+              );
+            } catch {
+              /* ws may be mid-close */
+            }
           }
         })
         .catch(() => {
