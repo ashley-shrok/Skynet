@@ -854,46 +854,13 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     expect(rowEl!.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(0);
   });
 
-  it("Test 20D: mobile active-set non-RDP swipe strip contains BOTH pin-action AND deactivate-action; ambient mobile strip has ONLY pin-action", () => {
-    const hostA = makeHost("h1", "hostA");
-    setSnapshot({
-      activeSet: [
-        makeConversationRow({ id: "m-active", label: "mobile-active", host: hostA }),
-      ],
-      pinned: [],
-      grouped: [
-        {
-          hostId: "h1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "m-ambient", label: "mobile-ambient", host: hostA }),
-          ],
-        },
-      ],
-    });
-    mockActiveSet = new Set<string>(["m-active"]);
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
-    );
-
-    const activeRow = container.querySelector(
-      '[data-conversation-id="m-active"]',
-    ) as HTMLElement | null;
-    const ambientRow = container.querySelector(
-      '[data-conversation-id="m-ambient"]',
-    ) as HTMLElement | null;
-    expect(activeRow).toBeTruthy();
-    expect(ambientRow).toBeTruthy();
-
-    // Active row strip → both pin AND deactivate.
-    expect(activeRow!.querySelectorAll('[data-testid="pin-action"]').length).toBe(1);
-    expect(activeRow!.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(1);
-
-    // Ambient row strip → only pin, no deactivate.
-    expect(ambientRow!.querySelectorAll('[data-testid="pin-action"]').length).toBe(1);
-    expect(ambientRow!.querySelectorAll('[data-testid="deactivate-action"]').length).toBe(0);
-  });
+  // Test 20D (mobile active-set/ambient swipe-strip DOM assertions) DELETED in
+  // quick-260802-pq2. The swipe strip was retired alongside the row's swipe
+  // state machine; mobile action affordance is the long-press → Pretty
+  // ConversationContextMenu (same builder desktop right-click uses). Row-level
+  // menu-open tests live in PrettyConversationRow.test.tsx TL1-TL5; the
+  // items[] builder is a single source of truth so mobile menu content is
+  // guaranteed by transitivity with the desktop assertions in Test 20A + 20E.
 
   it("Test 20E: clicking the Deactivate menu item calls removeFromActiveSet(row.id) + onDeactivateRow(row) exactly once each; row-body onSelect (selectConversation / onConversationSelected) is NOT called", () => {
     // Post quick-260730-o2m: deactivate is reached via right-click context
@@ -2369,80 +2336,14 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     expect(deactivateOrder).toBeLessThan(hideOrder);
   });
 
-  // (k) Mobile swipe strip on an ambient row renders HideAction (EyeOff), no DeactivateAction
-  it("Test (k): mobile swipe strip on an ambient row renders HideAction (EyeOff), no DeactivateAction", () => {
-    setSnapshot({
-      grouped: [
-        { hostId: "h1", hostName: "hostA", rows: [makeConversationRow({ id: "ambient-row-k", label: "ambient-k", host: hostA })] },
-      ],
-      hiddenIds: new Set(),
-    });
-    // mockActiveSet stays empty → row is ambient
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
-    );
-
-    const rowEl = container.querySelector('[data-conversation-id="ambient-row-k"]') as HTMLElement;
-    expect(rowEl).toBeTruthy();
-
-    // Should have hide-action (Hide affordance) but NO deactivate-action
-    expect(rowEl.querySelector('[data-testid="hide-action-hide"]')).toBeTruthy();
-    expect(rowEl.querySelector('[data-testid="deactivate-action"]')).toBeNull();
-  });
-
-  // (l) Mobile swipe strip on a hidden row (inside expanded Hidden section) renders HideAction (Eye)
-  it("Test (l): mobile swipe strip on a hidden row (in expanded Hidden section) renders HideAction (Eye/Show)", async () => {
-    const row = makeConversationRow({ id: "hidden-row-l", label: "hidden-l", host: hostA });
-    setSnapshot({
-      grouped: [{ hostId: "h1", hostName: "hostA", rows: [row] }],
-      hiddenIds: new Set(["hidden-row-l"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
-    );
-
-    // Expand the Hidden section
-    const chip = container.querySelector('[data-testid="hidden-divider"]') as HTMLElement;
-    expect(chip).toBeTruthy();
-    fireEvent.click(chip);
-
-    await waitFor(() => {
-      expect(chip.getAttribute("aria-expanded")).toBe("true");
-    });
-
-    // Find the row in the expanded Hidden section
-    const hiddenGroup = container.querySelector('[data-hidden-group="true"]') as HTMLElement;
-    const hiddenRowEl = hiddenGroup.querySelector('[data-conversation-id="hidden-row-l"]') as HTMLElement;
-    expect(hiddenRowEl).toBeTruthy();
-
-    // Should have hide-action with data-hidden="true" (Show affordance, Eye icon)
-    const hideBtn = hiddenRowEl.querySelector('[data-testid="hide-action-show"]') as HTMLElement | null;
-    expect(hideBtn).toBeTruthy();
-    expect(hideBtn!.getAttribute("data-hidden")).toBe("true");
-  });
-
-  // (m) Mobile swipe strip on an active-set row still renders DeactivateAction, NO HideAction (design lock)
-  it("Test (m): mobile swipe strip on an active-set row renders DeactivateAction, NO HideAction (design lock)", () => {
-    setSnapshot({
-      activeSet: [
-        makeConversationRow({ id: "active-row-m", label: "active-m", host: hostA }),
-      ],
-      hiddenIds: new Set(),
-    });
-    mockActiveSet = new Set(["active-row-m"]);
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
-    );
-
-    const rowEl = container.querySelector('[data-conversation-id="active-row-m"]') as HTMLElement;
-    expect(rowEl).toBeTruthy();
-
-    // Should have deactivate-action but NO hide-action (design lock)
-    expect(rowEl.querySelector('[data-testid="deactivate-action"]')).toBeTruthy();
-    expect(rowEl.querySelector('[data-testid="hide-action-hide"]')).toBeNull();
-    expect(rowEl.querySelector('[data-testid="hide-action-show"]')).toBeNull();
-  });
+  // Tests (k), (l), (m) DELETED in quick-260802-pq2. They asserted on the
+  // mobile swipe-strip's [data-testid="hide-action-*"] / "deactivate-action"
+  // DOM presence. That strip was retired; mobile action affordance is the
+  // long-press → PrettyConversationContextMenu (same builder desktop
+  // right-click uses). Row-level menu-open coverage lives in Pretty
+  // ConversationRow.test.tsx TL1-TL5. The items[] builder is the single
+  // source of truth for menu contents, so mobile menu content is guaranteed
+  // by transitivity with tests (g)/(h)/(i)/(j) above (which exercise the
+  // context menu on desktop right-click paths — same builder feeds both
+  // entry points).
 });

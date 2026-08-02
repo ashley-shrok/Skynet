@@ -66,8 +66,8 @@
 // 14-35 verbatim: mock react-i18next passthrough, mock session-hue helpers
 // and identities-store to per-test-controllable outputs.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen, within } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, render, fireEvent, screen, within } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import type { Host } from "@/types/ui-types";
@@ -219,152 +219,12 @@ describe("PrettyConversationRow: selected-row hue treatment (class + custom prop
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2 — Mobile swipe-left past threshold opens the reveal strip
+// Tests 2/3/4/5 (mobile swipe machinery) DELETED in quick-260802-pq2.
+// Coverage moves to the new "PrettyConversationRow: mobile long-press context
+// menu" describe block at the end of this file (TL1-TL5) — the swipe-to-
+// reveal action strip was replaced with a long-press → PrettyConversation
+// ContextMenu (same component desktop right-click uses).
 // ─────────────────────────────────────────────────────────────────────────────
-
-describe("PrettyConversationRow: mobile swipe open", () => {
-  it("Test 2: swipe-left dx=-60 (past 40px threshold) opens the strip", () => {
-    currentIdentity = makeIdentity(120, "nelly");
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    fireEvent.touchMove(body, {
-      touches: [{ clientX: 140, clientY: 100 } as Touch],
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-
-    expect(wrapper.getAttribute("data-swiped-open")).toBe("true");
-    // PinAction inside the reveal strip is queryable.
-    const pin = wrapper.querySelector(
-      '[data-testid="pin-action"]',
-    ) as HTMLElement | null;
-    expect(pin).toBeTruthy();
-    expect(pin!.getAttribute("aria-label")).toMatch(/pin/i);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 3 — Mobile swipe under threshold snaps closed
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("PrettyConversationRow: mobile swipe below threshold", () => {
-  it("Test 3: swipe-left dx=-25 (under 40px threshold) snaps closed", () => {
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    fireEvent.touchMove(body, {
-      touches: [{ clientX: 175, clientY: 100 } as Touch],
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-
-    // data-swiped-open should be absent (attribute is omitted, not "false")
-    expect(wrapper.getAttribute("data-swiped-open")).toBeNull();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 4 — Vertical gesture > 12px yields to browser scroll
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("PrettyConversationRow: vertical-gesture bail-out", () => {
-  it("Test 4: dy=20 aborts the swipe and does NOT fire onSelect", () => {
-    const onSelect = vi.fn();
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={onSelect}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    fireEvent.touchMove(body, {
-      touches: [{ clientX: 150, clientY: 120 } as Touch], // dy=20 > 12
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-
-    expect(wrapper.getAttribute("data-swiped-open")).toBeNull();
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 5 — Tap on swiped-open row closes it, does NOT fire onSelect
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("PrettyConversationRow: tap-to-close on swiped-open row", () => {
-  it("Test 5: click on swiped-open row closes it without firing onSelect", () => {
-    const onSelect = vi.fn();
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="mobile"
-        onSelect={onSelect}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-
-    // Open first
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    fireEvent.touchMove(body, {
-      touches: [{ clientX: 140, clientY: 100 } as Touch],
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-    expect(wrapper.getAttribute("data-swiped-open")).toBe("true");
-
-    // Now tap the body
-    fireEvent.click(body);
-    expect(wrapper.getAttribute("data-swiped-open")).toBeNull();
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 6 — Tap on closed row fires onSelect
@@ -397,7 +257,11 @@ describe("PrettyConversationRow: tap-to-select on closed row", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
-  it("Test 7: mobile RDP row carries `rdp` class + skips swipe + no PinAction", () => {
+  it("Test 7: mobile RDP row carries `rdp` class + no PinAction (RDP long-press guard covered by TL4)", () => {
+    // quick-260802-pq2: the swipe touch sequence + data-swiped-open assertion
+    // were dropped from this test. RDP no-long-press-menu is verified in TL4
+    // (bottom of file). Test 7 keeps the RDP class + no-PinAction assertions
+    // + data-rdp-host-row shape guard.
     const onSelect = vi.fn();
     const { container } = render(
       <PrettyConversationRow
@@ -419,16 +283,6 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     // Row body carries the `rdp` class.
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     expect(body.className).toContain("rdp");
-
-    // Touch sequence that would otherwise open — no data-swiped-open.
-    fireEvent.touchStart(body, {
-      touches: [{ clientX: 200, clientY: 100 } as Touch],
-    });
-    fireEvent.touchMove(body, {
-      touches: [{ clientX: 140, clientY: 100 } as Touch],
-    });
-    fireEvent.touchEnd(body, { changedTouches: [] });
-    expect(wrapper.getAttribute("data-swiped-open")).toBeNull();
 
     // Data-rdp-host-row set for downstream styling.
     expect(wrapper.getAttribute("data-rdp-host-row")).toBe("true");
@@ -973,11 +827,19 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     ).toBeNull();
   });
 
-  it("Test 18f: mobile row body does NOT wire onContextMenu (mobile swipe-strip carries the actions instead)", () => {
-    // Mobile-untouched regression guard: dispatching contextmenu on a
-    // mobile row's body does NOT open the portal menu (onContextMenu is
-    // undefined on mobile per !isMobile && !isRdp guard); AND the mobile
-    // swipe-strip PinAction is still present.
+  it("Test 18f: mobile row body does NOT wire onContextMenu AND has NO in-DOM PinAction (quick-260802-pq2)", () => {
+    // quick-260802-pq2 rewrite: the mobile swipe-reveal strip that used to
+    // host PinAction / DeactivateAction / HideAction was retired. Mobile
+    // action affordance is now the long-press → PrettyConversationContext
+    // Menu (covered by TL1-TL5). Two guarantees this test locks:
+    //   (1) The desktop right-click path (onContextMenu on row body) is
+    //       STILL undefined on mobile — dispatching a contextmenu event does
+    //       NOT open the portal menu. This is unchanged from pre-pq2.
+    //   (2) There is NO in-DOM `[data-testid="pin-action"]` on a mobile row
+    //       anymore. Pre-pq2 the swipe strip rendered PinAction unconditionally
+    //       on non-RDP mobile rows; post-pq2 the row does not import PinAction
+    //       at all. Long-press opens the same menu desktop right-click uses;
+    //       the menu is portal-mounted, not embedded in the row DOM.
     currentIdentity = makeIdentity(210, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -995,11 +857,10 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
     expect(screen.queryByRole("menu")).toBeNull();
-    // Mobile swipe-strip PinAction is present (rendered inside the reveal
-    // strip, unaffected by this strip).
+    // (2) No PinAction in the row DOM anymore.
     expect(
       container.querySelector('[data-testid="pin-action"]'),
-    ).toBeTruthy();
+    ).toBeNull();
   });
 });
 
@@ -1153,5 +1014,252 @@ describe("PrettyConversationRow: main label source (Ashley 2026-08-01)", () => {
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
     expect(pvLabel!.textContent?.trim()).toBe("unresolved-session");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TL1-TL5 — Mobile long-press → context menu (quick-260802-pq2)
+// ─────────────────────────────────────────────────────────────────────────────
+// The mobile swipe-to-reveal action strip was retired. A 500ms touch hold
+// with <10px movement now opens the SAME PrettyConversationContextMenu that
+// desktop right-click opens (portal-mounted to document.body). Coverage:
+//   TL1 — 500ms hold on a mobile non-RDP row opens the menu; Pin menuitem
+//         present; onSelect NOT called.
+//   TL2 — Movement >10px before 500ms cancels the pending long-press. No
+//         menu, no onSelect.
+//   TL3 — Short tap (<500ms) still fires onSelect exactly once, no menu.
+//   TL4 — Mobile RDP row NEVER opens the menu (isRdp gate).
+//   TL5 — navigator.vibrate is called with 10 when present; when absent,
+//         the menu still opens and no throw occurs (feature-detection lock).
+
+describe("PrettyConversationRow: mobile long-press context menu (quick-260802-pq2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("TL1: mobile non-RDP row + 500ms hold opens the menu at touch coords; Pin menuitem present; onSelect NOT called", () => {
+    currentIdentity = makeIdentity(200, "nelly");
+    const onSelect = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 200, clientY: 100 } as Touch],
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+
+    const menu = screen.getByRole("menu");
+    expect(menu).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
+    // The long-press did NOT fire onSelect (the trailing click gate would
+    // have suppressed it anyway; jsdom does not synthesize a click on
+    // touchEnd, so we're locking the "hold-alone doesn't fire onSelect"
+    // guarantee too).
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("TL2: mobile non-RDP row + touchMove dx=15 (>10) before 500ms cancels the long-press; no menu, no onSelect", () => {
+    currentIdentity = makeIdentity(45, "nelly");
+    const onSelect = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 200, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 215, clientY: 105 } as Touch], // hypot(15,5) ≈ 15.8 > 10
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    // jsdom does not synthesize a click on touchEnd — the assertion is
+    // trivially green in this environment, but keep it to lock the
+    // contract that movement bail-out does not also fire onSelect.
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("TL3: mobile non-RDP row + short tap (<500ms) fires onSelect exactly once; no menu", () => {
+    currentIdentity = makeIdentity(120, "nelly");
+    const onSelect = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 200, clientY: 100 } as Touch],
+    });
+    // No advanceTimersByTime — early touchEnd BEFORE the 500ms threshold.
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    // Standard click path continues — jsdom does not synthesize the click,
+    // so fire it explicitly (matching a real browser's short-tap sequence).
+    fireEvent.click(body);
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("TL4: mobile RDP row + 500ms hold does NOT open the menu (isRdp guard); no throws", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    // The touch handlers are `undefined` on RDP rows (see row JSX wiring —
+    // onTouchStart={isMobile && !isRdp ? … : undefined}). Dispatching the
+    // touch events is a no-op at the React handler layer; no timer arms;
+    // advancing time changes nothing.
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 200, clientY: 100 } as Touch],
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("TL5a: navigator.vibrate is called with 10 on successful long-press when the API is present", () => {
+    currentIdentity = makeIdentity(60, "nelly");
+    const originalVibrate = (navigator as unknown as { vibrate?: unknown }).vibrate;
+    const vibrateSpy = vi.fn();
+    (navigator as unknown as { vibrate: unknown }).vibrate = vibrateSpy;
+    try {
+      const { container } = render(
+        <PrettyConversationRow
+          row={makeRow()}
+          selected={false}
+          pinned={false}
+          variant="mobile"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+        />,
+      );
+      const wrapper = container.querySelector(
+        '[data-conversation-id="conv-1"]',
+      ) as HTMLElement;
+      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+      fireEvent.touchStart(body, {
+        touches: [{ clientX: 200, clientY: 100 } as Touch],
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      fireEvent.touchEnd(body, { changedTouches: [] });
+
+      expect(vibrateSpy).toHaveBeenCalledTimes(1);
+      expect(vibrateSpy).toHaveBeenCalledWith(10);
+    } finally {
+      // Restore navigator.vibrate to its original value (undefined in jsdom).
+      if (originalVibrate === undefined) {
+        delete (navigator as unknown as { vibrate?: unknown }).vibrate;
+      } else {
+        (navigator as unknown as { vibrate: unknown }).vibrate = originalVibrate;
+      }
+    }
+  });
+
+  it("TL5b: long-press opens the menu and does NOT throw when navigator.vibrate is absent (feature-detection lock)", () => {
+    currentIdentity = makeIdentity(60, "nelly");
+    // jsdom does not implement navigator.vibrate by default; be defensive
+    // in case a prior test stubbed it and skipped its own restore.
+    const originalVibrate = (navigator as unknown as { vibrate?: unknown }).vibrate;
+    if (originalVibrate !== undefined) {
+      delete (navigator as unknown as { vibrate?: unknown }).vibrate;
+    }
+    try {
+      expect(
+        (navigator as unknown as { vibrate?: unknown }).vibrate,
+      ).toBeUndefined();
+
+      const { container } = render(
+        <PrettyConversationRow
+          row={makeRow()}
+          selected={false}
+          pinned={false}
+          variant="mobile"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+        />,
+      );
+      const wrapper = container.querySelector(
+        '[data-conversation-id="conv-1"]',
+      ) as HTMLElement;
+      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+      fireEvent.touchStart(body, {
+        touches: [{ clientX: 100, clientY: 100 } as Touch],
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      fireEvent.touchEnd(body, { changedTouches: [] });
+
+      // Menu still opens — the vibrate call is optional-chained inside the
+      // timer callback and must not throw when the API is missing.
+      expect(screen.getByRole("menu")).toBeTruthy();
+    } finally {
+      // Restore whatever was there before the test (still undefined in
+      // vanilla jsdom).
+      if (originalVibrate !== undefined) {
+        (navigator as unknown as { vibrate: unknown }).vibrate = originalVibrate;
+      }
+    }
   });
 });

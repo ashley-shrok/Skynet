@@ -26,10 +26,13 @@
 //     shadcn-free.
 //   - settingsRowSlot prop retired in Phase 11 (Ashley's "no settings" lock —
 //     SettingsRow deleted alongside AppRail).
-//   - Swipe coordination (mobile): only one row swiped-open at a time;
-//     opening a new one auto-closes the previous via the row's Wave 1
-//     `forceClosed` prop; selecting any row also resets the coordinator
-//     state (defense-in-depth)
+//   - quick-260802-pq2: the mobile swipe-coordination layer
+//     (currentlySwipedId + handleSwipeOpenChange + forceClosedFor + row-level
+//     forceClosed/onSwipeOpenChange props) was retired alongside the row's
+//     swipe state machine. Mobile row actions now flow through the same
+//     PrettyConversationContextMenu desktop uses — reached via long-press on
+//     mobile and right-click on desktop. Panel no longer coordinates row
+//     open-state because there is no row open-state to coordinate.
 //
 // Store consumption is verbatim from ConversationsPanel.tsx — same three
 // hooks (useConversations / useSelectedConversationId / usePinnedIds) and
@@ -115,8 +118,8 @@ function PrettyConversationRowLive(props: {
   onDeactivate?: () => void;
   // quick-260731-tgg: forwarded to PrettyConversationRow for Hide/Show wiring.
   onToggleHide?: () => void;
-  onSwipeOpenChange?: (open: boolean) => void;
-  forceClosed?: boolean;
+  // quick-260802-pq2: onSwipeOpenChange / forceClosed removed — the row's
+  // swipe machinery was retired; mobile now uses long-press → context menu.
   inActiveSet: boolean;
   sessionKey: string | null;
   // quick-260727-f9v: pass-through for the row's sublabel render mode.
@@ -485,14 +488,10 @@ export function PrettyConversationsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hiddenIds, activeSetRows, pinned, grouped]);
 
-  // Swipe-coordination state: which row is currently swiped open? Only
-  // meaningful on mobile — desktop rows don't emit onSwipeOpenChange. Panel
-  // passes `forceClosed={true}` to every row EXCEPT the currently-open one,
-  // enforcing the "only one row swiped-open at a time" rule per Wave 1's
-  // handoff pattern.
-  const [currentlySwipedId, setCurrentlySwipedId] = useState<string | null>(
-    null,
-  );
+  // quick-260802-pq2: swipe-coordination state (currentlySwipedId +
+  // handleSwipeOpenChange + forceClosedFor) removed alongside the row's
+  // swipe state machine. Mobile now uses long-press → PrettyConversation
+  // ContextMenu; there is no row open-state to coordinate.
 
   const showPencilButton = typeof onCreateSession === "function";
   const isMobileVariant = variant === "mobile";
@@ -506,11 +505,10 @@ export function PrettyConversationsPanel({
   // All branches fire onConversationSelected so the mobile list→view
   // transition (Plan 06-03) fires identically for every click.
   //
-  // Also defensively resets currentlySwipedId to null — the row itself
-  // suppresses onSelect when swipedOpen, so this is belt-and-suspenders
-  // for the case where two rows are open due to a race.
+  // quick-260802-pq2: prior implementation reset currentlySwipedId here as
+  // belt-and-suspenders for the swipe-open race; both the state and the
+  // race are gone with the swipe machinery.
   const handleRowSelect = (row: ConversationRowShape) => {
-    if (isMobileVariant) setCurrentlySwipedId(null);
     // quick-260731-tgg: opening a hidden row auto-unhides it before routing.
     if (hiddenIds.has(row.id)) unhideConversation(row.id);
     addToActiveSet(row.id);
@@ -585,25 +583,9 @@ export function PrettyConversationsPanel({
     hideConversation(row.id);
   };
 
-  // Coordinator callback wired into every mobile row. When a row reports
-  // open=true, we record its id; when it reports open=false we clear it if
-  // it was ours. Desktop rows never call this (the row only calls it when
-  // its swipe state transitions, which only happens in mobile variant).
-  const handleSwipeOpenChange = (rowId: string, open: boolean) => {
-    setCurrentlySwipedId((prev) => {
-      if (open) return rowId;
-      // Row reports it closed: clear only if this was the tracked row.
-      return prev === rowId ? null : prev;
-    });
-  };
-
-  // Helper: `forceClosed` value to pass to a given row. In mobile variant,
-  // it's `true` for every row whose id is NOT the currently-swiped row.
-  // In desktop variant, forceClosed is irrelevant (no swipe state at all).
-  const forceClosedFor = (rowId: string): boolean | undefined => {
-    if (!isMobileVariant) return undefined;
-    return currentlySwipedId !== null && currentlySwipedId !== rowId;
-  };
+  // quick-260802-pq2: handleSwipeOpenChange + forceClosedFor removed —
+  // the row's swipe machinery was retired; there is no per-row open-state
+  // to coordinate. Mobile actions flow through the long-press context menu.
 
   // Precompute a stable no-op togglePin for RDP rows (belt-and-suspenders —
   // Wave 1's contract already suppresses swipe/pin intrinsically for RDP,
@@ -755,12 +737,6 @@ export function PrettyConversationsPanel({
                     onTogglePin={() => handleTogglePin(row.id)}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onToggleHide={() => handleToggleHide(row)}
-                    onSwipeOpenChange={
-                      isMobileVariant
-                        ? (open) => handleSwipeOpenChange(row.id, open)
-                        : undefined
-                    }
-                    forceClosed={forceClosedFor(row.id)}
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
                     subtitleMode="identityTitle"
@@ -815,12 +791,6 @@ export function PrettyConversationsPanel({
                   onTogglePin={() => handleTogglePin(row.id)}
                   onDeactivate={() => handleRowDeactivate(row)}
                   onToggleHide={() => handleToggleHide(row)}
-                  onSwipeOpenChange={
-                    isMobileVariant
-                      ? (open) => handleSwipeOpenChange(row.id, open)
-                      : undefined
-                  }
-                  forceClosed={forceClosedFor(row.id)}
                   inActiveSet={activeSet.has(row.id)}
                   sessionKey={sessionWorkingKey(row)}
                   subtitleMode="identityTitle"
@@ -920,12 +890,6 @@ export function PrettyConversationsPanel({
                       onTogglePin={() => handleTogglePin(row.id)}
                       onDeactivate={() => handleRowDeactivate(row)}
                       onToggleHide={() => handleToggleHide(row)}
-                      onSwipeOpenChange={
-                        isMobileVariant
-                          ? (open) => handleSwipeOpenChange(row.id, open)
-                          : undefined
-                      }
-                      forceClosed={forceClosedFor(row.id)}
                       inActiveSet={activeSet.has(row.id)}
                       sessionKey={sessionWorkingKey(row)}
                       subtitleMode="identityTitle"
@@ -983,12 +947,6 @@ export function PrettyConversationsPanel({
                       onSelect={() => handleRowSelect(row)}
                       onTogglePin={() => handleTogglePin(row.id)}
                       onToggleHide={() => handleToggleHide(row)}
-                      onSwipeOpenChange={
-                        isMobileVariant
-                          ? (open) => handleSwipeOpenChange(row.id, open)
-                          : undefined
-                      }
-                      forceClosed={forceClosedFor(row.id)}
                       inActiveSet={activeSet.has(row.id)}
                       sessionKey={sessionWorkingKey(row)}
                       subtitleMode="identityTitle"
