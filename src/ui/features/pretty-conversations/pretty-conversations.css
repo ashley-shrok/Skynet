@@ -387,6 +387,10 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* Match the IdentityBadge (pretty-view top-right) + IdentityModal header
+     name/title font. Both use Inter Variable; the app root defaults to
+     JetBrains Mono, which was leaking into the row's label/host until now. */
+  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
 .pv-body .pv-label {
@@ -411,6 +415,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-top: 1px;
 }
 
 .pv-body .pv-host svg {
@@ -651,7 +656,7 @@
 }
 
 .pv-row--desktop .pv-body .pv-host {
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
