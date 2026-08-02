@@ -1,6 +1,6 @@
 // ─── PrettyConversationsPanel — Vitest coverage ──────────────────────────────
 // 15 tests for the flat-list panel from Phase 10 Plan 02 Task 2:
-//   1)  Empty state renders idle glass card ("No conversations yet")
+//   1)  Loading strip renders while fleetSessionsLoaded is false; disappears once true
 //   2)  Pinned rows render at top, grouped rows below (DOM order)
 //   3)  NO "Pinned" section header; NO per-host semibold header
 //   4)  RDP-sentinel HostGroup renders at bottom with "Remote desktop" divider
@@ -333,37 +333,72 @@ beforeEach(async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1 — Empty state renders idle glass card
+// Test 1 — Load-in-flight affordance (Loading… strip)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: empty state", () => {
-  it("Test 1: renders idle glass card and NO PrettyConversationRow when list is empty", () => {
+describe("PrettyConversationsPanel: load-in-flight affordance", () => {
+  it("Test 1: renders 'Loading conversations…' strip while fleetSessionsLoaded=false and no rows", () => {
+    // beforeEach leaves mockFleetSessionsLoaded=false and all tiers empty.
     setSnapshot({ pinned: [], grouped: [] });
-    const { container, queryByText, queryAllByTestId } = render(
+    const { container, queryByTestId, queryByText, queryAllByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Empty-state text is present
-    expect(queryByText(/no conversations yet/i)).toBeTruthy();
+    // Loading strip is present with the expected label + spinner.
+    expect(queryByTestId("pretty-conversations-loading")).toBeTruthy();
+    expect(queryByText(/loading conversations/i)).toBeTruthy();
+    expect(container.querySelector(".animate-spin")).toBeTruthy();
 
-    // Empty card carries the gradient glass background — check the raw
-    // style attribute / class for the gradient marker.
-    const emptyCard = container.querySelector(
-      '[data-testid="pretty-conversations-empty"]',
-    ) as HTMLElement | null;
-    expect(emptyCard).toBeTruthy();
-    // The gradient marker lives in the Tailwind arbitrary-value bracket
-    // class — the class list should include the linear-gradient token
-    // authored in the source (blue-gray no-identity treatment).
-    expect(emptyCard!.className).toContain("linear-gradient");
-
-    // NO conversation-row instances rendered.
-    const rows = container.querySelectorAll("[data-conversation-id]");
-    expect(rows.length).toBe(0);
-
-    // Also assert PrettyConversationRow avatar test-id is absent (belt-
-    // and-suspenders — if a row DID render we would find its avatar).
+    // No rows — but that's fine, the loading strip covers the load window.
     expect(queryAllByTestId("pcrow-avatar").length).toBe(0);
+  });
+
+  it("Test 1b: loading strip disappears once fleetSessionsLoaded flips true", () => {
+    mockFleetSessionsLoaded = true;
+    setSnapshot({ pinned: [], grouped: [] });
+    const { queryByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    expect(queryByTestId("pretty-conversations-loading")).toBeNull();
+  });
+
+  it("Test 1c: loading strip renders ABOVE already-arrived rows (RDP-first consumer case)", () => {
+    // Mimic the real observable: RDP rows arrive first, fleet is still in flight.
+    const rdpHost = makeHost("rdp1", "beelink");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "__rdp__",
+          hostName: "Remote desktop",
+          rows: [
+            makeConversationRow({
+              id: "rdp-row-1",
+              label: "beelink",
+              host: rdpHost,
+              rdpHostRow: true,
+              targetTmuxSession: null,
+            }),
+          ],
+        },
+      ],
+    });
+    const { container, queryByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const loading = container.querySelector(
+      '[data-testid="pretty-conversations-loading"]',
+    ) as HTMLElement | null;
+    const rdpRow = container.querySelector(
+      '[data-conversation-id="rdp-row-1"]',
+    ) as HTMLElement | null;
+    expect(loading).toBeTruthy();
+    expect(rdpRow).toBeTruthy();
+    // Node.DOCUMENT_POSITION_FOLLOWING = 4 — loading strip precedes RDP row.
+    expect(loading!.compareDocumentPosition(rdpRow!) & 4).toBe(4);
+    // Historical empty-card testid MUST NOT reappear.
+    expect(queryByTestId("pretty-conversations-empty")).toBeNull();
   });
 });
 
@@ -415,7 +450,7 @@ describe("PrettyConversationsPanel: active-set group above pinned (Patch #149 B+
     expect(pinnedGroup!.contains(pinnedRow!)).toBe(true);
   });
 
-  it("Test 18b: isEmpty is false when activeSet has rows but pinned+grouped are empty", () => {
+  it("Test 18b: active-set rows render when pinned+grouped are empty", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [
@@ -425,9 +460,10 @@ describe("PrettyConversationsPanel: active-set group above pinned (Patch #149 B+
       grouped: [],
     });
 
-    const { queryByTestId } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-    // Empty-state card should NOT render when activeSet has rows
-    expect(queryByTestId("pretty-conversations-empty")).toBeNull();
+    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    expect(
+      container.querySelector('[data-conversation-id="active-1"]'),
+    ).toBeTruthy();
   });
 });
 
@@ -1772,8 +1808,11 @@ describe("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
     ).toBeFalsy();
   });
 
-  it("Test 26: filter=on with no matching rows renders the filter-specific empty state", () => {
+  it("Test 26: filter=on with no matching rows renders no rows (empty-state card retired 2026-08-02)", () => {
     // One row with no pinned bounties; identity resolves but count is 0.
+    // Filter on → row filtered out → no rows render. No dedicated empty
+    // card any more; the header chrome (SKYNET logo, filter, pencil, meter)
+    // is affordance enough per Ashley 2026-08-02.
     const host1 = makeHost("1", "hostA");
     mockIdentitiesByKey = new Map([
       ["nelly-session", { identityKey: "nelly" }],
@@ -1796,16 +1835,20 @@ describe("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
         },
       ],
     });
-    const { queryByTestId, getByTestId, getByText } = render(
+    const { container, getByTestId, queryByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
-    // Filter off: no empty state.
-    expect(queryByTestId("pretty-conversations-empty")).toBeFalsy();
+    // Filter off: nelly-row is visible.
+    expect(
+      container.querySelector('[data-conversation-id="nelly-row"]'),
+    ).toBeTruthy();
     // Flip filter on.
     fireEvent.click(getByTestId("pv-filter-pinned-bounties"));
-    // Filter on with 0 matches: empty state renders with the filter label.
-    expect(queryByTestId("pretty-conversations-empty")).toBeTruthy();
-    expect(getByText("No conversations with pinned bounties")).toBeTruthy();
+    // Filter on with 0 matches: no rows render, no empty-state card.
+    expect(
+      container.querySelector('[data-conversation-id="nelly-row"]'),
+    ).toBeFalsy();
+    expect(queryByTestId("pretty-conversations-empty")).toBeNull();
   });
 
   it("Test 27: filter=on drops groups whose rows are ALL filtered out (no orphan host-divider chip)", () => {

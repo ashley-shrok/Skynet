@@ -11,8 +11,13 @@
 //     subtle "Remote desktop" divider chip and Monitor-glyph avatars
 //     (the row's `data-rdp-host-row="true"` attribute already suppresses
 //     pin+swipe intrinsically per Wave 1's contract)
-//   - Empty state = PlanPendingBubble-style idle glass card centered in the
-//     scroll region ("No conversations yet")
+//   - Load-in-flight affordance: a compact "Loading conversations…" strip
+//     with a spinning Loader2 renders at the top of the scroll region
+//     while `useFleetSessionsLoaded()` is still false. Sits above whatever
+//     rows have already arrived (RDP + openTab rows tend to land first
+//     while the fleet enumeration is still in flight). No dedicated
+//     empty-state card — the header chrome (SKYNET logo, pencil, filter,
+//     usage meter) is affordance enough for a truly-empty list.
 //   - Header carries a `variant` prop-driven layout:
 //       * variant="mobile"  → pencil icon ONLY (right-aligned); no title
 //       * variant="desktop" → title "Conversations" (left) + pencil (right)
@@ -40,7 +45,7 @@
 // retired in Wave 4 and NOT ported forward here.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, EyeOff, Filter, MessagesSquare, Monitor, Pin, Plus, Server } from "lucide-react";
+import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, Pin, Plus, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -489,14 +494,6 @@ export function PrettyConversationsPanel({
     null,
   );
 
-  // Patch #167: isEmpty is now computed against the DISPLAYED collections so
-  // the empty-state card renders when the filter is on and nothing matches.
-  // Pre-#167 shape was activeSetRows/pinned/grouped directly (unfiltered).
-  const isEmpty =
-    displayedActiveSetRows.length === 0 &&
-    displayedPinned.length === 0 &&
-    displayedGrouped.length === 0;
-
   const showPencilButton = typeof onCreateSession === "function";
   const isMobileVariant = variant === "mobile";
 
@@ -620,20 +617,12 @@ export function PrettyConversationsPanel({
   const rdpSectionLabel = t("nav.conversations.rdpSection", {
     defaultValue: "Remote desktop",
   });
-  const emptyLabel = t("nav.conversations.empty", {
-    defaultValue: "No conversations yet",
-  });
-  // Patch #167: filter-specific empty label — shown when filterPinnedOnly is
-  // true AND every row was filtered out. Distinct from the base "no
-  // conversations yet" so Ashley knows it's a filter result, not a truly
-  // empty list.
-  const emptyFilterLabel = t("nav.conversations.emptyPinnedFilter", {
-    defaultValue: "No conversations with pinned bounties",
-  });
   const filterLabel = t("nav.conversations.filterPinnedBounties", {
     defaultValue: "Filter by pinned bounties",
   });
-  const activeEmptyLabel = filterPinnedOnly ? emptyFilterLabel : emptyLabel;
+  const loadingLabel = t("nav.conversations.loading", {
+    defaultValue: "Loading conversations…",
+  });
 
   return (
     <div
@@ -719,36 +708,31 @@ export function PrettyConversationsPanel({
           so the panel bottom sits ABOVE the safe-area — settings row is not
           covered when scroll is at rest. */}
       <div className="pv-panel-scroll min-h-0">
-        {isEmpty ? (
-          // Empty-state = PlanPendingBubble-style idle glass card centered
-          // in the scroll region. Uses the neutral no-identity treatment
-          // (blue-gray gradient like ChatMessage user bubble) since there
-          // is no identity hue to reference for an empty list.
-          <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-6 py-10">
-            <div
-              role="status"
-              aria-label={activeEmptyLabel}
-              data-testid="pretty-conversations-empty"
-              className={
-                "flex items-center gap-2 text-sm text-[#dfe3ee] " +
-                "rounded-[14px] px-4 py-3 " +
-                "backdrop-blur-xl saturate-150 " +
-                "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)] " +
-                "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))] " +
-                "border border-[rgba(120,140,180,0.32)] " +
-                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.10)_inset,_0_0_0_0.5px_rgba(120,140,180,0.16)_inset,_0_0_24px_rgba(120,140,180,0.08)]"
-              }
-            >
-              <MessagesSquare
-                className="size-4 shrink-0 text-[#dfe3ee]/80"
-                aria-hidden="true"
-              />
-              <span>{activeEmptyLabel}</span>
-            </div>
+        {/* Load-in-flight affordance. Renders at the top of the scroll region
+            while the fleet enumeration is still in flight; disappears once
+            useFleetSessionsLoaded() flips true. RDP and openTab rows tend to
+            arrive first (host-tree endpoint), so consumers with RDP hosts
+            see the strip above already-rendered rows, while RDP-less
+            consumers see just the strip on an otherwise empty panel — both
+            get an explicit "more is coming" signal instead of a blank flash.
+            No separate empty-state card: the header chrome is affordance
+            enough when the list is genuinely empty post-load. */}
+        {!fleetSessionsLoaded && (
+          <div
+            role="status"
+            aria-busy="true"
+            aria-label={loadingLabel}
+            data-testid="pretty-conversations-loading"
+            className="flex items-center justify-center gap-2 px-4 py-3 text-[12px] text-[#dfe3ee]/75"
+          >
+            <Loader2
+              className="size-4 shrink-0 animate-spin"
+              aria-hidden="true"
+            />
+            <span>{loadingLabel}</span>
           </div>
-        ) : (
-          <>
-            {/* Patch #149 B+C: active-set rows overtake pinned per Ashley 2026-07-24.
+        )}
+        {/* Patch #149 B+C: active-set rows overtake pinned per Ashley 2026-07-24.
                 Rows here get pinned={pinnedIds.has(row.id)} so a row that IS pinned
                 AND active still shows the pin glyph.
                 Patch #195 (Ashley 2026-07-29): sublabel switched to
@@ -1012,8 +996,6 @@ export function PrettyConversationsPanel({
                   ))}
               </div>
             )}
-          </>
-        )}
       </div>
 
       {/* NewSessionDialog VERBATIM from ConversationsPanel.tsx lines
