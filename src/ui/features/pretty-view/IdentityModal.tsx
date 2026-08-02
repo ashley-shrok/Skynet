@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, Clock, Handshake, Target, User, Volume2, X } from "lucide-react";
+import { AlarmClock, Clock, Handshake, Pencil, Target, User, Volume2, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -182,6 +182,7 @@ export function IdentityModal({
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   // Patch #223: voice picker state
   const [voices, setVoices] = useState<{ display_name: string; filename: string }[]>([]);
   const [voiceDraft, setVoiceDraft] = useState<string>(identity.voice ?? "");
@@ -833,6 +834,7 @@ export function IdentityModal({
       setCommittedVoice(updated.voice ?? null);
       setVoiceDraft(updated.voice ?? "");
       setSaveError(null);
+      setEditing(false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -852,6 +854,7 @@ export function IdentityModal({
     setSaveError(null);
     // Patch #223: revert voice draft
     setVoiceDraft(committedVoice ?? "");
+    setEditing(false);
   }
 
   return (
@@ -956,6 +959,40 @@ export function IdentityModal({
               </span>
             )}
           </div>
+          {/* Patch #277: pencil toggle button — reveals/hides the edit block.
+              Matches close-button glass affordance (same size, border, glow
+              recipe) but NOT wrapped in DialogClose — does not close the dialog. */}
+          <button
+            type="button"
+            aria-label={editing ? "Done editing" : "Edit identity"}
+            title={editing ? "Done editing" : "Edit identity"}
+            className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center transition-[color,background-color,border-color,box-shadow] duration-200"
+            style={{
+              background: editing ? "rgba(255, 255, 255, 0.10)" : "rgba(255, 255, 255, 0.04)",
+              border: editing ? "1px solid rgba(220, 225, 245, 0.22)" : "1px solid rgba(220, 225, 245, 0.10)",
+              boxShadow: editing ? `0 0 20px hsla(${hue}, 60%, 50%, 0.25)` : "none",
+              color: editing ? "#f0ebe0" : "#a89a80",
+            }}
+            onMouseEnter={(e) => {
+              if (!editing) {
+                e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
+                e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.22)";
+                e.currentTarget.style.boxShadow = `0 0 20px hsla(${hue}, 60%, 50%, 0.25)`;
+                e.currentTarget.style.color = "#f0ebe0";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!editing) {
+                e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
+                e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.10)";
+                e.currentTarget.style.boxShadow = "none";
+                e.currentTarget.style.color = "#a89a80";
+              }
+            }}
+            onClick={() => setEditing((v) => !v)}
+          >
+            <Pencil className="size-4" />
+          </button>
           {/* Patch #91: close button glow-up. Was a ghost square with no
               rest-state visual weight ("pretty lame looking" per Ashley
               on first #90 deploy eyeball). Now a proper glass pill with:
@@ -1007,8 +1044,9 @@ export function IdentityModal({
             value="identity"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            {/* Quick 260731-1c8: inline editor block — title + avatar */}
-            <div className="mb-6">
+            {/* Quick 260731-1c8: inline editor block — title + avatar
+                Patch #277: gated behind the pencil toggle (editing state). */}
+            {editing && (<div className="mb-6">
               <h3 className="text-xs uppercase tracking-wide text-[var(--color-pv-fg-muted)] mb-3">
                 Edit identity
               </h3>
@@ -1167,7 +1205,7 @@ export function IdentityModal({
                   Cancel
                 </Button>
               </div>
-            </div>
+            </div>)}
 
             {/* Existing identity.md markdown preview — Phase 18 / IDMEDIT-01: onSave threaded */}
             <IdentityFileTab state={identityFileState} onSave={updateIdentityFile} />

@@ -161,6 +161,9 @@ describe("IdentityModal voice picker (patch #223)", () => {
   it("Test 1: getVoices() called exactly once on open; select has Elena + Marcus options (plus default)", async () => {
     renderModal();
 
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+
     await waitFor(() => {
       expect(mockedGetVoices).toHaveBeenCalledTimes(1);
     });
@@ -178,6 +181,9 @@ describe("IdentityModal voice picker (patch #223)", () => {
   it("Test 2a: identity.voice === null → select value is '' (default)", async () => {
     renderModal({ voice: null });
 
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
       expect(select.value).toBe("");
@@ -187,6 +193,9 @@ describe("IdentityModal voice picker (patch #223)", () => {
   it("Test 2b: identity.voice === 'Elena.wav' → select value is 'Elena.wav'", async () => {
     renderModal({ voice: "Elena.wav" });
 
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
       expect(select.value).toBe("Elena.wav");
@@ -195,6 +204,9 @@ describe("IdentityModal voice picker (patch #223)", () => {
 
   it("Test 3: changing dropdown does not immediately call updateIdentity", async () => {
     renderModal({ voice: null });
+
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
 
     // Wait for voices to load
     await waitFor(() => {
@@ -211,6 +223,9 @@ describe("IdentityModal voice picker (patch #223)", () => {
 
   it("Test 4: sample button calls postSpeak(SAMPLE_PHRASE, currentDropdownValue || undefined)", async () => {
     renderModal({ voice: null });
+
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
 
     // Wait for voices to load
     await waitFor(() => {
@@ -237,6 +252,9 @@ describe("IdentityModal voice picker (patch #223)", () => {
   it("Test 4b: when '(default)' selected, postSpeak called with undefined voice", async () => {
     renderModal({ voice: null });
 
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+
     // Leave dropdown at "(default)" — value is ""
     const sampleBtn = screen.getByLabelText("Sample voice");
     fireEvent.click(sampleBtn);
@@ -254,6 +272,9 @@ describe("IdentityModal voice picker (patch #223)", () => {
     mockedUpdateIdentity.mockResolvedValue(updatedIdentity);
 
     renderModal({ voice: null });
+
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
 
     // Wait for voices to load
     await waitFor(() => {
@@ -284,6 +305,9 @@ describe("IdentityModal voice picker (patch #223)", () => {
     mockedUpdateIdentity.mockResolvedValue(updatedIdentity);
 
     renderModal({ voice: "Elena.wav" });
+
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
 
     // Wait for voices to load
     await waitFor(() => {

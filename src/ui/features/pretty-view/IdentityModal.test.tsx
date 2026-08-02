@@ -160,6 +160,9 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
 
     renderModal();
 
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+
     // Get the title input and change its value.
     const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
     expect(titleInput.value).toBe("Old title");
@@ -187,11 +190,11 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     expect(mockedApplyIdentityChange).toHaveBeenCalledTimes(1);
     expect(mockedApplyIdentityChange).toHaveBeenCalledWith(updatedIdentity);
 
-    // After save completes, titleDraft is reset to updated.title.
-    // Save button should be disabled again (draft === server truth AND no file picked).
+    // After save completes, setEditing(false) collapses the edit block.
+    // Patch #277: verify pencil returned to non-editing state (Save button gone from DOM).
     await waitFor(() => {
-      const btn = screen.getByRole("button", { name: /Save/i });
-      expect((btn as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByRole("button", { name: /edit identity/i })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Save/i })).toBeNull();
     });
   });
 
@@ -203,6 +206,9 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     mockedUpdateIdentity.mockResolvedValue(updatedIdentity);
 
     renderModal();
+
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
 
     // Simulate picking a file via the hidden file input.
     const fileInput = document.querySelector(
@@ -244,6 +250,9 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     mockedUpdateIdentity.mockRejectedValue(new Error("File too large"));
 
     renderModal();
+
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
 
     // Type a title change to test that it's preserved after error.
     const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
@@ -289,6 +298,9 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
 
     renderModal();
 
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+
     // Simulate picking a GIF file.
     const fileInput = document.querySelector(
       "input[type='file']",
@@ -318,6 +330,9 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
 
     renderModal({ title: "Original" });
 
+    // Patch #277: reveal the edit block via pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+
     // Dirty the title.
     const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
     expect(titleInput.value).toBe("Original");
@@ -344,6 +359,10 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     // Click Cancel.
     const cancelBtn = screen.getByRole("button", { name: /Cancel/i });
     fireEvent.click(cancelBtn);
+
+    // Patch #277: Cancel collapses the edit block (setEditing(false)).
+    // Re-open via pencil to verify the title revert.
+    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
 
     // Title reverts to "Original".
     const titleInputAfter = screen.getByLabelText("Title") as HTMLInputElement;
