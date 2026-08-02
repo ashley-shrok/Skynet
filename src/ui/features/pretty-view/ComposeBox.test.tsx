@@ -68,7 +68,18 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     expect(screen.queryByTestId("attachment-chip-strip")).toBeNull();
   });
 
-  it("Test 2: chip strip mounts above the textarea when attachments are staged", () => {
+  it("Test 2: chip strip mounts INSIDE the textarea wrapper (still document-precedes the textarea, but as a sibling of it, not a parent-container sibling)", () => {
+    // Quick 260802-wxy: the chip strip was relocated from a Row-3 sibling
+    // above Row 1 to an absolutely-positioned child at the TOP of the
+    // primary textarea's wrapper (the same `<div className="relative
+    // flex-1 self-stretch">` that hosts the Send button and paperclip).
+    // The strip renders FIRST inside the wrapper, so DOM_POSITION_FOLLOWING
+    // still holds (textarea comes after strip in document order) — but the
+    // relationship is now SIBLING inside the wrapper, not sibling of the
+    // wrapper. Test 2b below asserts the sibling-of-textarea invariant
+    // explicitly; this test preserves the document-order regression guard
+    // and adds an `absolute` className assertion to prove overlay
+    // positioning (not stacked layout).
     render(
       <ComposeBox
         {...baseProps({
@@ -85,6 +96,42 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     // DOM_POSITION_FOLLOWING (0x04) means textarea comes AFTER strip.
     // eslint-disable-next-line no-bitwise
     expect(strip.compareDocumentPosition(textarea) & 0x04).toBeTruthy();
+    // Overlay positioning: the strip's absolutely-positioned wrapper
+    // (chipStripRef target) carries `absolute` — proves the visual
+    // treatment is overlay, not stacked block layout. The strip element
+    // itself lives INSIDE that wrapper, so we walk one level up to the
+    // wrapper div and check its className.
+    const stripWrapper = strip.parentElement;
+    expect(stripWrapper).not.toBeNull();
+    expect(stripWrapper!.className).toMatch(/absolute/);
+  });
+
+  it("Test 2b: chip strip's parent wrapper is the same wrapper that contains the primary textarea (regression guard for the overlay-in-wrapper invariant)", () => {
+    // Quick 260802-wxy: load-bearing structural assertion. If a future
+    // refactor moves the strip back out of the wrapper (e.g. re-parents
+    // it above Row 1 as a Row-3 sibling), `stripWrapper.contains(textarea)`
+    // will be false and this test will fail hard. Keep it.
+    render(
+      <ComposeBox
+        {...baseProps({
+          stagedAttachments: [mkAtt("a", "one.txt"), mkAtt("b", "two.txt")],
+          onRemoveAttachment: vi.fn(),
+          showPaperclip: false,
+          onAttachFiles: vi.fn(),
+        })}
+      />,
+    );
+    const strip = screen.getByTestId("attachment-chip-strip");
+    const textarea = screen.getByPlaceholderText(/message/i);
+    // Walk up until we hit the `relative flex-1 self-stretch` wrapper —
+    // the same one that contains the Textarea and the Send button.
+    const stripWrapper = strip.closest("div.relative.flex-1.self-stretch");
+    const textareaWrapper = textarea.closest(
+      "div.relative.flex-1.self-stretch",
+    );
+    expect(stripWrapper).not.toBeNull();
+    expect(textareaWrapper).not.toBeNull();
+    expect(stripWrapper).toBe(textareaWrapper);
   });
 
   it("Test 3: paperclip hidden when showPaperclip=false (desktop)", () => {

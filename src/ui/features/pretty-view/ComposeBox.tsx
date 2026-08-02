@@ -340,6 +340,13 @@ export function ComposeBox({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composeRootRef = useRef<HTMLDivElement>(null);
+  // Quick 260802-wxy: refs + state for the overlaid chip strip inside the
+  // primary textarea wrapper. The strip is absolutely positioned at top-0
+  // and the textarea's paddingTop grows to accommodate its rendered height
+  // so composed text never underlaps the chips. ResizeObserver drives the
+  // measurement (chips wrap when the strip's flex-wrap runs out of width).
+  const chipStripRef = useRef<HTMLDivElement | null>(null);
+  const [chipStripHeight, setChipStripHeight] = useState(0);
   // Patch #135: cache of the 6-row height cap (px), computed once on mount
   // from getComputedStyle(el).lineHeight × 6. Null until first useLayoutEffect
   // pass consults the DOM. 144px fallback (24 × 6) covers the JSDOM `normal`
@@ -935,6 +942,42 @@ export function ComposeBox({
     el.style.overflowY = clamped >= maxHeightPxRef.current ? "auto" : "hidden";
   }, [text]);
 
+  // Quick 260802-wxy: measure the overlaid chip strip's rendered height so
+  // the textarea's paddingTop can grow to accommodate it (chips wrap, so the
+  // height is content-dependent — a static padding value would clip long
+  // filename lists). AttachmentChipStrip returns null when the list is
+  // empty, so chipStripRef.current transitions null↔element as the user
+  // stages/unstages files; we key the effect on stagedAttachments.length so
+  // the observer is (re)attached when the strip mounts and torn down when
+  // it unmounts.
+  const stagedAttachmentsCount = stagedAttachments?.length ?? 0;
+  useLayoutEffect(() => {
+    const el = chipStripRef.current;
+    if (!el) {
+      // Strip not mounted (empty state) — reset padding to zero so the
+      // textarea reverts to its base `py-3` inline-style-free height.
+      setChipStripHeight(0);
+      return;
+    }
+    // Prime with an immediate measurement so the first paint carries
+    // paddingTop; ResizeObserver will only fire on subsequent size
+    // changes (chip add/remove, viewport width changes that trigger
+    // wrap).
+    setChipStripHeight(Math.ceil(el.getBoundingClientRect().height));
+    // JSDOM does not implement ResizeObserver — guard so tests don't crash.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const h = entry.contentRect?.height ?? 0;
+      setChipStripHeight(Math.ceil(h));
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [stagedAttachmentsCount]);
+
   function handleTextChange(next: string) {
     setText(next);
     scheduleAutosave(next, latestQueueSlotsRef.current);
@@ -1401,14 +1444,12 @@ export function ComposeBox({
         className,
       )}
     >
-      {/* Phase 05: chip strip mounts above the compose rows when at
-          least one attachment is staged (UPLOAD-04 mounting rule).
-          AttachmentChipStrip returns null when the list is empty,
-          so no wrapper conditional needed here (Row 3 ephemeral). */}
-      <AttachmentChipStrip
-        attachments={stagedAttachments ?? []}
-        onRemove={onRemoveAttachment ?? (() => {})}
-      />
+      {/* Quick 260802-wxy: chip strip relocated INSIDE the primary textarea
+          wrapper (see the wrapper block at line ~2009 below). Previously
+          rendered as a Row-3 sibling above Row 1; now overlaid absolutely at
+          the top of the textarea so chips visually attach to the message
+          being composed. The retry affordance below STAYS at this Row-3
+          location — it is a compose-level control, not a per-textarea one. */}
       {/* Phase 05: retry affordance surfaces only when at least one
           chip is in the error state. Clicking re-issues the upload
           batch via the parent hook's retryBatch. Kept in-flow (not
@@ -2007,6 +2048,26 @@ export function ComposeBox({
             fills the wrapper. `relative` is the positioning context for
             the overlay. */}
         <div className="relative flex-1 self-stretch">
+        {/* Quick 260802-wxy: overlaid chip strip. Renders as an
+            absolutely-positioned child at the TOP of the wrapper (before
+            the Textarea) so it visually attaches to the message being
+            composed. AttachmentChipStrip returns null when the list is
+            empty (UPLOAD-04 mounting rule), so no wrapper conditional is
+            needed — the chipStripRef simply becomes null and the
+            useLayoutEffect resets chipStripHeight to 0, restoring the
+            Textarea's base padding. z-10 keeps chips above the Textarea
+            body; the Send button (right-1 bottom-0.5) and Paperclip
+            (left-1 bottom-0.5) sit at BOTTOM so they never collide with
+            the top-anchored chips. */}
+        <div
+          ref={chipStripRef}
+          className="absolute top-0 left-0 right-0 z-10 px-2 pt-2 pointer-events-auto"
+        >
+          <AttachmentChipStrip
+            attachments={stagedAttachments ?? []}
+            onRemove={onRemoveAttachment ?? (() => {})}
+          />
+        </div>
         <Textarea
           ref={textareaRef}
           value={text}
@@ -2017,6 +2078,17 @@ export function ComposeBox({
           disabled={primaryArmed}
           placeholder={`Message ${identityName || "Claude"}…`}
           rows={1}
+          // Quick 260802-wxy: dynamic paddingTop grows with the overlaid
+          // chip strip's measured height so composed text never underlaps
+          // the chips. Base `py-3` (12px top) is preserved via the
+          // className below; this inline style only applies when at least
+          // one attachment is staged (chipStripHeight > 0). `+ 12`
+          // preserves the base 12px comfort gap between chips and text.
+          style={
+            chipStripHeight > 0
+              ? { paddingTop: `${chipStripHeight + 12}px` }
+              : undefined
+          }
           // Phase 4 Glass: recessed textarea well (patch #81) +
           // identity-hue focus ring (VISUAL-03/VISUAL-07). Fill is a
           // warm-black rgba(15,10,5,0.42) — sits DEEPER than #79's
