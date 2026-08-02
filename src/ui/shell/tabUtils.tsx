@@ -92,6 +92,7 @@ function TerminalTabContent({
   host,
   label,
   isVisible,
+  attach,
   onCloseTab,
   onTmuxSessionChange,
   onTmuxSessionMissing,
@@ -100,6 +101,7 @@ function TerminalTabContent({
   host: Host;
   label: string;
   isVisible: boolean;
+  attach: boolean;
   onCloseTab?: (id: string) => void;
   onTmuxSessionChange?: (sessionName: string | null) => void;
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
@@ -121,6 +123,7 @@ function TerminalTabContent({
         allowCreateTmux={tab.allowCreateTmux ?? false}
         hostName={host.name}
         isVisible={isVisible}
+        attach={attach}
         title={label}
         showTitle={false}
         splitScreen={false}
@@ -150,6 +153,7 @@ export function renderTabContent(
   ) => void,
   onCloseTab?: (id: string) => void,
   isVisible = true,
+  shouldAttach: boolean = false,
   onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void,
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void,
 ) {
@@ -179,6 +183,7 @@ export function renderTabContent(
           host={host}
           label={label}
           isVisible={isVisible}
+          attach={shouldAttach}
           onCloseTab={onCloseTab}
           onTmuxSessionChange={
             onTmuxSessionChange

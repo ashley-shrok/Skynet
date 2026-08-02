@@ -59,6 +59,7 @@ import {
   selectConversation,
   selectConversationDeferred,
   addToActiveSet,
+  useActiveSet,
 } from "@/state/conversation-store";
 import { getSessionList } from "@/api/sessions-api";
 import {
@@ -501,6 +502,7 @@ export function AppShell({
   }, [hostsById]);
 
   const selectedConversationId = useSelectedConversationId();
+  const activeSet = useActiveSet();
 
   // The "effective active-inline" id is whatever drives the currently-visible
   // conversation view. For session-type tabs (those the conversation-store
@@ -1782,6 +1784,8 @@ export function AppShell({
                   // ("is this pane the currently-visible one?"), only the
                   // underlying scalar changed.
                   const activeInline = !inPane && tab.id === effectiveSelectedTabId;
+                  const isInActiveSet = activeSet.has(tab.id);
+                  const shouldAttach = inPane || activeInline || isInActiveSet;
                   return createPortal(
                     renderTabContent(
                       tab,
@@ -1792,6 +1796,7 @@ export function AppShell({
                       openTab,
                       closeTab,
                       inPane || activeInline,
+                      shouldAttach,
                       handleTmuxSessionChange,
                       handleTmuxSessionMissing,
                     ),

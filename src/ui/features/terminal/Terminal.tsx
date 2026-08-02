@@ -80,6 +80,7 @@ type HostKeyVerificationData = Omit<
 interface SSHTerminalProps {
   hostConfig: TerminalHostConfig;
   isVisible: boolean;
+  attach: boolean;
   title?: string;
   showTitle?: boolean;
   splitScreen?: boolean;
@@ -109,6 +110,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     {
       hostConfig,
       isVisible,
+      attach,
       splitScreen = false,
       onClose,
       onTmuxSessionChange,
@@ -2811,7 +2813,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     }, [terminal]);
 
     useEffect(() => {
-      if (!terminal || !hostConfig || !isVisible) return;
+      // attach (not isVisible) gates WS lifecycle: URL-restored active-set tabs must open their WS even while offscreen. See bounty url-restore-loads-only-selected-session-not-full-active-set.
+      if (!terminal || !hostConfig || !attach) return;
       if (isConnected || isConnecting) return;
 
       if (isReconnectingRef.current || reconnectTimeoutRef.current !== null) {
@@ -2841,7 +2844,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }
         });
       });
-    }, [terminal, hostConfig.id, isVisible, isConnected, isConnecting]);
+    }, [terminal, hostConfig.id, attach, isConnected, isConnecting]);
 
     useEffect(() => {
       if (!terminal || !fitAddonRef.current) return;
