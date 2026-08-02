@@ -901,22 +901,11 @@ export function Auth({ onLogin }: AuthProps) {
       </div>
     );
 
-  const TAB_ITEMS: { id: AuthView; label: string; show: boolean }[] = [
-    {
-      id: "login",
-      label: t("common.login"),
-      show: passwordLoginAllowed && !firstUser,
-    },
-    {
-      id: "register",
-      label: t("common.register"),
-      show: (passwordLoginAllowed || firstUser) && registrationAllowed,
-    },
-    { id: "external", label: t("auth.external"), show: oidcConfigured },
-  ];
-
   return (
-    <div className="fixed inset-0 flex flex-col bg-[color:var(--color-pv-base)] overflow-hidden">
+    <div
+      className="fixed inset-0 flex flex-col bg-[color:var(--color-pv-base)] overflow-hidden"
+      style={{ "--pv-hue": "190", "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
+    >
       {isElectron() && !isInElectronWebView() && showServerConfig === false && (
         <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--color-pv-border-quiet)] shrink-0">
           <button
@@ -933,27 +922,6 @@ export function Auth({ onLogin }: AuthProps) {
         </div>
       )}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left decorative panel */}
-        <div className="hidden lg:flex flex-col w-[420px] shrink-0 bg-[color:var(--color-pv-surface-quiet)] border-r border-[color:var(--color-pv-border-quiet)] relative overflow-hidden select-none">
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage:
-                "radial-gradient(circle, color-mix(in oklch, var(--border) 80%, transparent) 1px, transparent 1px)",
-              backgroundSize: "24px 24px",
-            }}
-          />
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 px-12">
-            <span className="text-4xl font-bold tracking-[0.3em] font-mono">
-              SKYNET
-            </span>
-            <div className="w-8 h-px bg-[hsla(var(--pv-hue,35),55%,45%,0.9)]" />
-            <span className="text-[11px] font-mono text-[color:var(--color-pv-fg-muted)] uppercase tracking-[0.25em]">
-              {t("auth.tagline")}
-            </span>
-          </div>
-        </div>
-
         {/* Right panel */}
         <div className="flex flex-1 items-center justify-center p-6 overflow-y-auto relative">
           <div className="w-full max-w-sm flex flex-col gap-6">
@@ -1155,33 +1123,19 @@ export function Auth({ onLogin }: AuthProps) {
               view === "register" ||
               view === "external") && (
               <div className="flex flex-col gap-5">
-                <div className="flex border border-[color:var(--color-pv-border-quiet-strong)] overflow-hidden">
-                  {TAB_ITEMS.filter((item) => item.show).map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => switchView(item.id)}
-                      className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-widest transition-colors ${view === item.id ? "bg-[hsla(var(--pv-hue,35),55%,45%,0.9)] text-background" : "text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] hover:bg-[rgba(220,225,245,0.06)]"}`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <h1 className="text-xl font-bold">
-                    {view === "login"
-                      ? t("auth.loginTitle")
-                      : view === "register"
-                        ? t("auth.registerTitle")
-                        : t("auth.loginWithExternal")}
-                  </h1>
-                  <p className="text-xs text-[color:var(--color-pv-fg-muted)]">
-                    {view === "login"
-                      ? t("auth.loginSubtitle", "")
-                      : view === "register"
-                        ? t("auth.registerSubtitle", "")
-                        : t("auth.loginWithExternalDesc")}
-                  </p>
+                <div className="flex items-center justify-center gap-3 select-none">
+                  <img
+                    src="/icon.png"
+                    alt=""
+                    className="h-12 w-12 shrink-0"
+                    draggable={false}
+                  />
+                  <img
+                    src="/skynet-wordmark.png"
+                    alt="Skynet"
+                    className="h-8 w-auto"
+                    draggable={false}
+                  />
                 </div>
 
                 {view === "external" && (
@@ -1243,30 +1197,19 @@ export function Auth({ onLogin }: AuthProps) {
                         disabled={loading}
                       />
                     </Field>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          id="rememberMe"
-                          checked={rememberMe}
-                          onCheckedChange={(v) => setRememberMe(v === true)}
-                          disabled={loading}
-                        />
-                        <label
-                          htmlFor="rememberMe"
-                          className="text-xs text-[color:var(--color-pv-fg-muted)] cursor-pointer"
-                        >
-                          {t("auth.rememberMe")}
-                        </label>
-                      </div>
-                      {passwordResetAllowed && (
-                        <button
-                          type="button"
-                          onClick={() => switchView("reset")}
-                          className="text-xs text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-code-fg)] transition-colors"
-                        >
-                          {t("auth.forgotPassword")}
-                        </button>
-                      )}
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="rememberMe"
+                        checked={rememberMe}
+                        onCheckedChange={(v) => setRememberMe(v === true)}
+                        disabled={loading}
+                      />
+                      <label
+                        htmlFor="rememberMe"
+                        className="text-xs text-[color:var(--color-pv-fg-muted)] cursor-pointer"
+                      >
+                        {t("auth.rememberMe")}
+                      </label>
                     </div>
                     <Button
                       type="submit"
@@ -1345,31 +1288,6 @@ export function Auth({ onLogin }: AuthProps) {
                 )}
 
                 <Separator />
-                <p className="text-center text-xs text-[color:var(--color-pv-fg-muted)]">
-                  {view === "login" && registrationAllowed ? (
-                    <>
-                      {t("auth.noAccount", "Don't have an account?")}{" "}
-                      <button
-                        onClick={() => switchView("register")}
-                        className="text-[color:var(--color-pv-code-fg)] hover:opacity-80 font-bold transition-colors"
-                      >
-                        {t("common.register")}
-                      </button>
-                    </>
-                  ) : view === "register" &&
-                    passwordLoginAllowed &&
-                    !firstUser ? (
-                    <>
-                      {t("auth.hasAccount", "Already have an account?")}{" "}
-                      <button
-                        onClick={() => switchView("login")}
-                        className="text-[color:var(--color-pv-code-fg)] hover:opacity-80 font-bold transition-colors"
-                      >
-                        {t("common.login")}
-                      </button>
-                    </>
-                  ) : null}
-                </p>
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
                     {t("common.language")}

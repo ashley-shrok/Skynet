@@ -153,7 +153,10 @@ export function NewSessionDialog({
         if (!next) onClose();
       }}
     >
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+      <DialogContent
+        className="w-[calc(100vw-2rem)] sm:max-w-md"
+        style={{ "--pv-hue": "190", "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
+      >
         <DialogHeader>
           <DialogTitle>{startTitle}</DialogTitle>
           <DialogDescription>{startDescription}</DialogDescription>
