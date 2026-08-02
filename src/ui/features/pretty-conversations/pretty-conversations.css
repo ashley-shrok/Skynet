@@ -1048,6 +1048,17 @@
     line-height: 28px;
   }
 
+  /* Patch #270 — bump 5h + weekly usage-meter bar height on mobile per Ashley
+     2026-08-02 verbatim: "increasing the height on the five-hour and weekly
+     usage meters in the header of the conversation list on mobile ... on
+     desktop, their height is decent ... on mobile, they are oddly skinny
+     bars vertically." Desktop 10px stays; mobile 16px = 1.6x, matching the
+     bounty-badge and ready-dot mobile-bump precedents. Tick's ±2px overhang
+     rides the taller bar naturally. Desktop untouched. */
+  .pv-usage-meter-bar {
+    height: 16px;
+  }
+
   /* Patch #251 — 2x the ready-dot on mobile per Ashley 2026-08-01 verbatim:
      "we should make the idle indicator on the conversation list on mobile
      twice as tall and twice as wide." Disc goes 14px → 28px; glow layers
