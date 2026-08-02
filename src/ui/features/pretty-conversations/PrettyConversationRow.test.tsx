@@ -670,6 +670,60 @@ describe("PrettyConversationRow: quick-260730-qbl ready-dot suppression — recy
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test 15c — [quick-260802-w9e] inActiveSet + isWorking===false +
+//            hasQueuePending===true renders NO ready-dot
+//            (JS gate; extends the row-level dot predicate with the fourth
+//            conjunct `!hasQueuePending` for the pinned bounty
+//            `hide-idle-dot-when-queued-message-waiting-to-send`).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: quick-260802-w9e ready-dot suppression — queue armed", () => {
+  it("Test 15c: inActiveSet+isWorking===false+hasQueuePending===true renders NO ready-dot (JS gate)", () => {
+    currentIdentity = makeIdentity(210);
+    const { queryByLabelText } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={false}
+        hasQueuePending={true}
+      />,
+    );
+    // JS gate: `!hasQueuePending` suppresses the ready-dot span entirely
+    // even though the row would otherwise satisfy the pre-w9e predicate
+    // (inActiveSet && isWorking===false && !isRecycling).
+    expect(queryByLabelText("ready")).toBeNull();
+  });
+
+  it("Test 15c-guard: hasQueuePending default (false) preserves existing dot render (regression guard)", () => {
+    // Verify that the new prop defaults to false so ALL pre-w9e call sites
+    // (which do NOT pass hasQueuePending) continue to render the dot when
+    // the other three predicates are satisfied. Guards against a
+    // hypothetical default flip that would silently suppress every
+    // pre-existing consumer's dot.
+    currentIdentity = makeIdentity(210);
+    const { queryByLabelText } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={false}
+        /* hasQueuePending omitted — must default to false → dot renders */
+      />,
+    );
+    expect(queryByLabelText("ready")).not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test 18 — [Phase 13] Ambient recession + RDP exemption (class-based)
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -5,11 +5,17 @@
 // hover, RDP, ready-dot) lives in pretty-conversations.css. This component
 // keeps only the surviving JS-only concerns:
 //
-//   - Ready-dot conditional render (`inActiveSet && isWorking === false`) —
-//     JS-gated so the DOM never contains a ready-dot span when isWorking is
-//     null or true (preserves the test expectations for Tests 15/16/17). The
-//     CSS `.pv-row.active-set:not(.working) .pv-ready-dot { display: block }`
-//     provides a secondary gate for the visibility invariant.
+//   - Ready-dot conditional render
+//     (`inActiveSet && isWorking === false && !isRecycling && !hasQueuePending`)
+//     — JS-gated so the DOM never contains a ready-dot span when isWorking is
+//     null or true (preserves the test expectations for Tests 15/16/17), when
+//     the SessionHoldingOverlay is up (quick-260730-qbl), OR when the row's
+//     ComposeBox has an armed idle-send queue (quick-260802-w9e — closes the
+//     pinned bounty `hide-idle-dot-when-queued-message-waiting-to-send`).
+//     The CSS `.pv-row.active-set:not(.working):not(.recycling) .pv-ready-dot
+//     { display: block }` provides a secondary gate for the isWorking +
+//     isRecycling axes only; the queue-pending gate lives ONLY in JS
+//     because it isn't surfaced as a row className.
 //   - Avatar image src selection (identity.avatarUrl vs initial letter vs
 //     tabIcon fallback).
 //   - Click / keyboard / touch handlers, aria-labels, `--pv-hue` custom
@@ -100,6 +106,7 @@ export function PrettyConversationRow({
   onToggleHide,
   isWorking = null,
   isRecycling = false,
+  hasQueuePending = false,
   inActiveSet = false,
   subtitleMode = "hostname",
 }: {
@@ -138,6 +145,16 @@ export function PrettyConversationRow({
   // signal. Panel resolves via useSessionRecycling(sessionWorkingKey(row))
   // — both stores are keyed identically (`${hostId}:${tmuxSession ?? ""}`).
   isRecycling?: boolean;
+  // quick-260802-w9e: true when this row's ComposeBox has at least one
+  // message armed to auto-send on the next agent-idle window (Vehicle C v2
+  // per-source FIFO at ComposeBox.tsx:358). Suppresses the ready-dot as the
+  // fourth predicate gate — if a queued message is armed to auto-send the
+  // moment the agent goes idle, the agent is effectively already spoken-for
+  // and NOT ready for Ashley's next instruction (which IS the meaning of
+  // the dot). Panel resolves via useSessionQueuePending(sessionWorkingKey(row))
+  // — all three stores (working / recycling / queue-pending) share the
+  // exact same `${hostId}:${tmuxSession ?? ""}` key shape.
+  hasQueuePending?: boolean;
   // Patch #137: whether this row is in Ashley's active-set (any
   // session she has selectConversation-ed in this browser-tab
   // session). Rows in the set keep the full-bubble treatment; rows
@@ -483,19 +500,32 @@ export function PrettyConversationRow({
 
           {/* Ready-dot — signals "engaged AND agent idle, ready for
               Ashley's next input." Rendered iff inActiveSet &&
-              isWorking === false && !isRecycling. JS gate is strictly
-              narrower than the CSS
-              `.pv-row.active-set:not(.working):not(.recycling) .pv-ready-dot
-              { display: block }` rule (JS excludes null and true; CSS only
-              excludes working + recycling) — the JS gate is the source of
-              truth and the CSS gate is a defense-in-depth visibility
-              invariant.
+              isWorking === false && !isRecycling && !hasQueuePending. JS
+              gate is strictly narrower than any CSS gate (JS excludes null
+              and true for isWorking, and excludes both recycling and
+              queue-pending) — the JS gate is the source of truth and the
+              CSS `.pv-row.active-set:not(.working):not(.recycling)
+              .pv-ready-dot { display: block }` rule is a defense-in-depth
+              visibility invariant for the isWorking + isRecycling axes.
 
               The `!isRecycling` conjunct (quick-260730-qbl) suppresses the
               dot whenever the row's pretty-view surface is currently
               showing SessionHoldingOverlay (patch #74). The CSS gate at
               pretty-conversations.css line 463 has been extended in
               parallel to `:not(.recycling)` for defense-in-depth.
+
+              The `!hasQueuePending` conjunct (quick-260802-w9e) suppresses
+              the dot whenever this row's ComposeBox has at least one
+              message armed for send-when-idle. Bounty rationale verbatim:
+              "if a queued message is armed to auto-send the moment the
+              agent goes idle, the agent is effectively already spoken-for
+              and NOT ready for Ashley's next instruction (which IS the
+              meaning of the dot)." Closes pinned bounty
+              `hide-idle-dot-when-queued-message-waiting-to-send`.
+              JS-only gate here — no matching CSS mirror because
+              `has-queue-pending` is not surfaced as a row className (the
+              class rollup at lines 342-343 is deliberately untouched;
+              only the dot-render suppression is in scope).
 
               Hue-cream fill + hue outer glow all handled by CSS via
               `.pv-ready-dot` selector; the neutral fallback for hue-null
@@ -504,7 +534,7 @@ export function PrettyConversationRow({
               combination in practice — the panel passes isWorking={null}
               for RDP rows because sessionWorkingKey resolves against a
               null tmux session). */}
-          {inActiveSet && isWorking === false && !isRecycling && (
+          {inActiveSet && isWorking === false && !isRecycling && !hasQueuePending && (
             <span
               aria-label="ready"
               data-pv-conv-ready-dot="true"

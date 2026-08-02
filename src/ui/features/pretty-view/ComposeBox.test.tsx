@@ -866,3 +866,134 @@ describe("ComposeBox — Vehicle B strip: /queue and /bounty prefix buttons remo
     expect(screen.queryByLabelText(/send with \/queue prefix/i)).toBeNull();
   });
 });
+
+// ============================================================
+// quick-260802-w9e — session-queue-pending-store publish integration
+// ============================================================
+//
+// Verifies ComposeBox is the SOLE publisher for the new store and publishes
+// on every queue mutation:
+//   (a) mounting publishes `false` (initial empty queue).
+//   (b) arming the primary textarea via "Send when idle" publishes `true`.
+//   (c) cancelling the armed primary (click the "Cancel queued send"
+//       overlay) publishes `false`.
+//   (d) unmount publishes `false` (cleanup effect).
+//
+// Uses getSessionQueuePendingSnapshot() from the store's test helpers to
+// inspect the raw internal Map without going through the hook. Resets the
+// store via __resetForTest() in beforeEach so each test starts empty.
+describe("ComposeBox — quick-260802-w9e session-queue-pending-store publish integration", () => {
+  // Import the store's test surface. Kept inside the describe block so the
+  // top-level module import list stays scoped to production seams.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let getSnapshot: () => ReadonlyMap<string, boolean>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let resetStore: () => void;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    const storeMod = await import("@/state/session-queue-pending-store");
+    getSnapshot = storeMod.getSessionQueuePendingSnapshot;
+    resetStore = storeMod.__resetForTest;
+    resetStore();
+  });
+
+  afterEach(() => {
+    // Belt-and-suspenders — the next describe block's beforeEach may not
+    // touch this store; leave a clean slate on exit.
+    resetStore();
+  });
+
+  it("(a) mount publishes false to the store (initial empty queue) — key `${hostId}:${tmuxSession ?? ''}` matches sessionWorkingKey shape", () => {
+    render(<ComposeBox {...baseProps({ hostId: 42, tmuxSession: "sess-alpha" })} />);
+    const snap = getSnapshot();
+    // Key shape MUST match `${hostId}:${tmuxSession ?? ""}` — same shape as
+    // sessionWorkingKey() at PrettyConversationsPanel.tsx:95-98.
+    expect(snap.has("42:sess-alpha")).toBe(true);
+    expect(snap.get("42:sess-alpha")).toBe(false);
+  });
+
+  it("(b) arming the primary textarea for send-when-idle publishes true", async () => {
+    render(<ComposeBox {...baseProps({ hostId: 42, tmuxSession: "sess-alpha" })} />);
+    // (a) baseline: false is published on mount.
+    expect(getSnapshot().get("42:sess-alpha")).toBe(false);
+
+    // Type text into the primary textarea so the "Send when idle" arm button
+    // renders (showPrimaryArmButton predicate: text.trim() !== "").
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "arm me for idle" } });
+    });
+
+    // Click "Send when idle" (aria-label locks the selector; there is exactly
+    // ONE per-textarea arm-idle button in the render tree since only the
+    // primary has content).
+    const armBtn = screen.getByRole("button", { name: /send when idle/i });
+    await act(async () => {
+      fireEvent.click(armBtn);
+    });
+
+    // Queue mutation → publish effect deps `[queue, sessionKey]` fires → the
+    // store snapshot flips to true.
+    expect(getSnapshot().get("42:sess-alpha")).toBe(true);
+  });
+
+  it("(c) clicking the primary armed overlay ('Cancel queued send') publishes false again", async () => {
+    render(<ComposeBox {...baseProps({ hostId: 42, tmuxSession: "sess-alpha" })} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "arm me for idle" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send when idle/i }));
+    });
+    // Sanity check: armed → true.
+    expect(getSnapshot().get("42:sess-alpha")).toBe(true);
+
+    // Cancel the armed primary via the overlay button (aria-label
+    // "Cancel queued send"). cancelSourceArmed("primary") filters the entry
+    // out of the queue → queue.length === 0 → publish effect fires false.
+    const cancelBtn = screen.getByRole("button", { name: /cancel queued send/i });
+    await act(async () => {
+      fireEvent.click(cancelBtn);
+    });
+
+    expect(getSnapshot().get("42:sess-alpha")).toBe(false);
+  });
+
+  it("(d) unmount publishes false via the cleanup effect", async () => {
+    const { unmount } = render(
+      <ComposeBox {...baseProps({ hostId: 42, tmuxSession: "sess-alpha" })} />,
+    );
+    // Arm first so the state is true → unmount MUST reset it to false.
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "arm me for idle" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send when idle/i }));
+    });
+    expect(getSnapshot().get("42:sess-alpha")).toBe(true);
+
+    // Unmount fires the cleanup effect (deps `[sessionKey]`) → publishes
+    // false. Belt-and-suspenders even against the publish effect's own
+    // cleanup: the dedicated cleanup effect fires exactly once with the
+    // final `false` state regardless of queue mutation cadence.
+    await act(async () => {
+      unmount();
+    });
+    expect(getSnapshot().get("42:sess-alpha")).toBe(false);
+  });
+
+  it("(e) tmuxSession=null (Windows / no-tmux host) publishes with the `${hostId}:` key shape", () => {
+    // Regression guard for the key-shape contract: sessionWorkingKey at
+    // PrettyConversationsPanel.tsx:95-98 emits `${hostId}:` (trailing colon,
+    // empty tmux segment) when targetTmuxSession is null. The compose-box
+    // publisher MUST emit the identical shape so a consumer that resolves
+    // one string finds both stores.
+    render(<ComposeBox {...baseProps({ hostId: 99, tmuxSession: null })} />);
+    expect(getSnapshot().has("99:")).toBe(true);
+    expect(getSnapshot().get("99:")).toBe(false);
+  });
+});

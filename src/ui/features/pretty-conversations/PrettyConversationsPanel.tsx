@@ -71,6 +71,7 @@ import {
 } from "@/state/conversation-store";
 import { useSessionWorking } from "@/state/session-working-store";
 import { useSessionRecycling } from "@/state/session-recycling-store";
+import { useSessionQueuePending } from "@/state/session-queue-pending-store";
 import { useIdentities } from "@/state/identities-store";
 import {
   bountyCountsCompositeKey,
@@ -103,6 +104,12 @@ function sessionWorkingKey(row: ConversationRowShape): string | null {
 // a .map() callback — Rules-of-Hooks compliance. Each row is keyed on row.id
 // at the render sites below, so React's reconciler pairs the same hook
 // order to the same row instance across renders.
+//
+// quick-260730-qbl added the session-recycling-store subscription.
+// quick-260802-w9e added the session-queue-pending-store subscription — the
+// row's ready-dot is now suppressed by a FOURTH gate `!hasQueuePending` when
+// this session has an armed idle-send queue in its ComposeBox. All three
+// stores share the exact same `${hostId}:${tmuxSession ?? ""}` key shape.
 function PrettyConversationRowLive(props: {
   row: ConversationRowShape;
   selected: boolean;
@@ -136,11 +143,19 @@ function PrettyConversationRowLive(props: {
   // `${hostId}:${tmuxSession ?? ""}` shape (PrettyView.tsx and Terminal.tsx
   // compute the same key; sessionWorkingKey() at line 81-84 produces it here).
   const isRecycling = useSessionRecycling(sessionKey);
+  // quick-260802-w9e: queue-pending-store consumption. Same key shape as
+  // both stores above. Published by ComposeBox from a useEffect on
+  // `[queue, sessionKey]`; the row-level ready-dot render at
+  // PrettyConversationRow.tsx:507 gates on `!hasQueuePending` as the fourth
+  // predicate so a session with an armed idle-send queue does NOT paint the
+  // dot (the session is spoken-for pending idle; NOT ready for input).
+  const hasQueuePending = useSessionQueuePending(sessionKey);
   return (
     <PrettyConversationRow
       {...rowProps}
       isWorking={isWorking}
       isRecycling={isRecycling === true}
+      hasQueuePending={hasQueuePending}
       inActiveSet={inActiveSet}
     />
   );

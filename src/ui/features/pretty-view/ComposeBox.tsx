@@ -8,6 +8,7 @@ import {
   getComposeDraft,
   putComposeDraft,
 } from "@/api/compose-drafts-api";
+import { publishSessionQueuePending } from "@/state/session-queue-pending-store";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
 import { useVoiceRecording } from "./useVoiceRecording";
 import { MicButton } from "./MicButton";
@@ -490,6 +491,17 @@ export function ComposeBox({
   // Normalize the nullable prop for storage-boundary calls.
   const tmuxSessionKey: string | null = tmuxSession ?? null;
 
+  // quick-260802-w9e: composite key for the session-queue-pending-store.
+  // Shape `${hostId}:${tmuxSession ?? ""}` MATCHES sessionWorkingKey() at
+  // PrettyConversationsPanel.tsx:95-98 verbatim so both the working-store
+  // and the queue-pending-store are looked up with the SAME string. Guarded
+  // on `hostId` truthiness — 0 is not a valid host id in the fork's schema
+  // but the extra guard covers the "props not yet wired" edge case at zero
+  // cost. Nullish when unable to publish; the effects below early-return.
+  const sessionKey: string | null = hostId
+    ? `${hostId}:${tmuxSession ?? ""}`
+    : null;
+
   const clearDebounce = useCallback(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -865,6 +877,43 @@ export function ComposeBox({
       }
     };
   }, []);
+
+  // ─── session-queue-pending-store publishers (quick-260802-w9e) ─────────────
+  // These two effects publish to `session-queue-pending-store` so
+  // PrettyConversationRow can suppress its patch #137 ready-dot when this
+  // ComposeBox has any armed idle-send messages. Extends the dot predicate at
+  // PrettyConversationRow.tsx:507 with the fourth gate `!hasQueuePending`.
+  // Closes pinned bounty `hide-idle-dot-when-queued-message-waiting-to-send`.
+  //
+  // Key shape (`${hostId}:${tmuxSession ?? ""}`) mirrors sessionWorkingKey()
+  // at PrettyConversationsPanel.tsx:95-98 verbatim so both stores share the
+  // same lookup string.
+  //
+  // We publish `queue` (the armed-for-idle FIFO at line 358) — NOT
+  // `queueSlots` (visual textareas; not all are armed for idle-send). The
+  // bounty targets Ashley's exact ask: "if a queued message is armed to
+  // auto-send the moment the agent goes idle."
+  //
+  // Two separate effects:
+  //   (a) publish effect: deps `[queue, sessionKey]` — fires on every queue
+  //       mutation. The store's own no-op notify guard dedupes redundant
+  //       publishes (e.g. re-renders that don't change queue.length > 0's
+  //       boolean value).
+  //   (b) cleanup effect: deps `[sessionKey]` — fires the cleanup on unmount
+  //       AND on sessionKey changes (host/tmux switch). Kept separate from
+  //       the publish effect so unmount cleanup fires exactly ONCE with the
+  //       final state, not per-mutation.
+  useEffect(() => {
+    if (sessionKey === null) return;
+    publishSessionQueuePending(sessionKey, queue.length > 0);
+  }, [queue, sessionKey]);
+
+  useEffect(() => {
+    if (sessionKey === null) return;
+    return () => {
+      publishSessionQueuePending(sessionKey, false);
+    };
+  }, [sessionKey]);
 
   // Patch #135: auto-grow the textarea with its CONTENTS (not just newlines).
   // The prior newline-count `rows` heuristic left long single-line messages
