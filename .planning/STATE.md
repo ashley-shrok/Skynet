@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-03T03:59:33.759Z"
+last_updated: "2026-08-03T04:29:10.751Z"
 last_activity: 2026-08-03
 progress:
   total_phases: 21
   completed_phases: 14
   total_plans: 86
-  completed_plans: 79
+  completed_plans: 81
   percent: 67
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 20 (identity-creation-ui) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-08-03
 
@@ -85,7 +85,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 95%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -131,6 +131,7 @@ Progress: [██████████] 95%
 | Phase 18 P04 | 25m | 3 tasks | 3 files |
 | Phase 19 P01 | 203 | 2 tasks | 2 files |
 | Phase 20-identity-creation-ui P02 | 15 | 3 tasks | 5 files |
+| Phase 20-identity-creation-ui P05 | 10m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -192,6 +193,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 15 Wave 2: SC6 rollout scaffold — putPinnedIds console.warn's on server-echo mismatch (JSON-endpoint equivalent of patch #77 GET-verify)
 - [Phase ?]: Phase 15 Wave 2: Test 30p uses vi.importActual to bypass module mock for real-putPinnedIds coverage
 - [Phase ?]: isLocalHostId imported from identity-artifact-reader.ts; SSH probe uses single-quoted name in if [ -d ] check; 3-tier timeout (3s connect, 3s exec, 10s nginx)
+- [Phase ?]: colorHue default 210 (cyan-blue — midpoint of used-hue clusters)
 
 ### Pending Todos
 
@@ -341,6 +343,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-03T03:59:26.801Z
-Stopped at: Phase 20 planned - 6 plans, 4 waves, IDUI-01..IDUI-10 covered, plan-checker PASSED
+Last session: 2026-08-03T04:29:10.679Z
+Stopped at: Completed 20-05-PLAN.md
 Resume file: None
