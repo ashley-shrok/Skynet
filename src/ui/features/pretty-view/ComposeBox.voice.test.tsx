@@ -443,4 +443,128 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     const spinner = sendBtn.querySelector("svg.animate-spin");
     expect(spinner).toBeNull();
   });
+
+  it("Test 13 (quick 260803-7vf): reset-while-recording glues transcript onto textarea body and dispatches `/id reset (glued)`", async () => {
+    // Ashley 2026-08-03: "if you are recording and you hit the reset button,
+    // then it essentially combines the functionality of the send button when
+    // you're recording and the functionality of the reset button." One click,
+    // one motion, one dispatch. Fire sync fx immediately (patch #122 latency
+    // guarantee: onResetClicked before the ~1-3s STT round-trip), then after
+    // endSend resolves dispatch `/id reset (glued)` where glued = textarea
+    // body + " " + transcript.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ text: "and one more thing" }),
+      }),
+    );
+    const onSend = vi.fn(() => true);
+    const onResetClicked = vi.fn();
+    render(<ComposeBox {...baseProps({ onSend, onResetClicked })} />);
+
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hi there" } });
+
+    const micBtn = screen.getByRole("button", { name: "Record voice" });
+    fireEvent.click(micBtn);
+
+    // Wait for recording controls to confirm recording state.
+    await screen.findByRole("button", { name: "Send transcript" });
+
+    // Push a data chunk so the blob is non-empty (mirrors Test 8).
+    act(() => {
+      const recorder = MockMediaRecorder.instances[0];
+      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
+    });
+
+    const resetBtn = screen.getByRole("button", { name: "Reset context window" });
+    fireEvent.click(resetBtn);
+
+    // onResetClicked fires SYNC on click (patch #122 latency guarantee) —
+    // no waitFor needed for this assertion; it MUST have fired before the
+    // await voice.endSend even resolves.
+    expect(onResetClicked).toHaveBeenCalled();
+
+    // onSend fires with the glued payload after endSend resolves.
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith("/id reset (hi there and one more thing)");
+    });
+
+    // Textarea cleared after successful dispatch.
+    await waitFor(() => {
+      expect(textarea.value).toBe("");
+    });
+  });
+
+  it("Test 14 (quick 260803-7vf): reset-while-recording with STT failure falls back to dispatch with existing textarea body", async () => {
+    // Locked design decision #4: reset ALWAYS dispatches when the user
+    // pressed reset. STT failure MUST NOT produce a silent no-op — fall
+    // back to the existing textarea body so Ashley still gets a reset
+    // with contextual hint attached.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: "internal server error" }),
+      }),
+    );
+    const onSend = vi.fn(() => true);
+    const onResetClicked = vi.fn();
+    render(<ComposeBox {...baseProps({ onSend, onResetClicked })} />);
+
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "existing body" } });
+
+    const micBtn = screen.getByRole("button", { name: "Record voice" });
+    fireEvent.click(micBtn);
+
+    await screen.findByRole("button", { name: "Send transcript" });
+
+    act(() => {
+      const recorder = MockMediaRecorder.instances[0];
+      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
+    });
+
+    const resetBtn = screen.getByRole("button", { name: "Reset context window" });
+    fireEvent.click(resetBtn);
+
+    expect(onResetClicked).toHaveBeenCalled();
+
+    // KEY assertion: onSend fires with the EXISTING textarea body — NOT
+    // plain "/id reset", NOT a silent no-op.
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith("/id reset (existing body)");
+    });
+  });
+
+  it("Test 15 (quick 260803-7vf): transcribing state disables the reset button", async () => {
+    // Locked design decision #5: transcribing gate mirrors the send-button
+    // transcribing-disable pattern to prevent double-fire. Freeze the
+    // transcribing state with a never-resolving fetch (mirrors Test 11).
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+
+    render(<ComposeBox {...baseProps()} />);
+
+    const micBtn = screen.getByRole("button", { name: "Record voice" });
+    fireEvent.click(micBtn);
+
+    const sendTranscriptBtn = await screen.findByRole("button", { name: "Send transcript" });
+
+    act(() => {
+      const recorder = MockMediaRecorder.instances[0];
+      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
+    });
+
+    fireEvent.click(sendTranscriptBtn);
+
+    // With fetch frozen the hook stays in "transcribing" — the reset button
+    // must render disabled.
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: "Reset context window" }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+  });
 });
