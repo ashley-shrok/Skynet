@@ -970,7 +970,7 @@ export function ComposeBox({
     const clamped = Math.min(el.scrollHeight, maxHeightPxRef.current);
     el.style.height = clamped + "px";
     el.style.overflowY = clamped >= maxHeightPxRef.current ? "auto" : "hidden";
-  }, [text]);
+  }, [text, chipStripHeight]);
 
   // Quick 260802-wxy: measure the overlaid chip strip's rendered height so
   // the textarea's paddingTop can grow to accommodate it (chips wrap, so the
@@ -2125,7 +2125,7 @@ export function ComposeBox({
         {showPaperclip && (
           <button
             type="button"
-            onClick={handleOpenFilePicker}
+            onClick={() => handleOpenFilePicker("primary")}
             disabled={canSend === false || asideActive === true}
             aria-label="Attach file"
             title="Attach file"
