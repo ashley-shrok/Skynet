@@ -18,7 +18,7 @@
  *   7: invalid name returns 400 {error: "name must match [a-z0-9._=/+-]+"}
  *   8: missing hostId returns 400
  *   9: 401 without JWT
- *  10: shell safety — name is single-quoted in SSH probe command
+ *  10: shell safety — name is validated pre-SSH and interpolated raw inside double-quoted path (CR-03 regression)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
@@ -315,7 +315,7 @@ describe("GET /identities/exists-on-host", () => {
     expect(resolveHostById).not.toHaveBeenCalled();
   });
 
-  it("Test 10: shell safety — name is single-quoted in the SSH probe command", async () => {
+  it("shell safety — name is validated pre-SSH and interpolated raw inside double-quoted path (CR-03 regression)", async () => {
     // Part A: A name that would be injection-evil if unescaped is rejected by
     // IDENTITY_KEY_RE before SSH is reached.
     const evilName = encodeURIComponent("x'; touch /tmp/pwn; #");
@@ -326,10 +326,12 @@ describe("GET /identities/exists-on-host", () => {
     expect(rejectedRes.status).toBe(400);
     expect(connectOneShot).not.toHaveBeenCalled();
 
-    // Part B: For a valid name, assert execCommand receives a command where the
-    // name is wrapped in single-quotes (defense-in-depth, mirroring
-    // identity-artifact-reader.ts §SHELL SAFETY).
-    const safeName = "valid-name";
+    // Part B: For a valid name, assert execCommand receives a command where
+    // the name is interpolated raw inside the double-quoted path.
+    // CR-03 regression guard: single quotes must NOT wrap the name — they do
+    // not nest inside double quotes in POSIX shell and would match a directory
+    // literally named 'testname' instead of testname.
+    const safeName = "testname";
     (execCommand as Mock).mockResolvedValue("missing");
 
     await httpRequest(server, {
@@ -339,7 +341,10 @@ describe("GET /identities/exists-on-host", () => {
 
     expect(execCommand).toHaveBeenCalledTimes(1);
     const [, command] = (execCommand as Mock).mock.calls[0] as [unknown, string];
-    // The name must appear inside single-quotes somewhere in the shell command
-    expect(command).toContain(`'${safeName}'`);
+    // The name must appear raw inside the double-quoted path (correct form)
+    expect(command).toContain(`/identities/${safeName}`);
+    expect(command).toContain(`"$HOME/.claude/identities/${safeName}"`);
+    // CR-03 regression: single-quoted form must NOT appear in the command
+    expect(command).not.toContain(`'${safeName}'`);
   });
 });

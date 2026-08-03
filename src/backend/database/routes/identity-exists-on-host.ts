@@ -14,8 +14,11 @@
  * Security:
  *   - IDENTITY_KEY_RE gates all names BEFORE any SSH/fs work (shell injection
  *     prevention, T-IDUI-05-01).
- *   - Single-quoting the name in the SSH command is defense-in-depth, mirroring
- *     identity-artifact-reader.ts §SHELL SAFETY.
+ *   - The name is validated by IDENTITY_KEY_RE before the SSH command is
+ *     constructed; no inner shell quoting is applied because single quotes do
+ *     NOT nest inside double quotes in POSIX shell — applying them would match
+ *     a directory literally named `'name'` rather than `name`. This matches
+ *     the validate-then-interpolate pattern used by identity-artifact-reader.ts.
  *   - SSH errors (connect timeout, etc.) return 504 with a generic "Host
  *     unreachable" message — no upstream SSH error detail is leaked.
  *
@@ -113,8 +116,10 @@ router.get(
     } else {
       // SSH BRANCH: open one-shot connection, run existence check
       // SHELL SAFETY: name is already validated by IDENTITY_KEY_RE above.
-      // Single-quoting name in the shell command is defense-in-depth
-      // (mirrors identity-artifact-reader.ts §SHELL SAFETY).
+      // The name is interpolated raw inside the double-quoted path — no inner
+      // single quotes are applied because single quotes do NOT nest inside
+      // double quotes in POSIX shell. Validate-then-interpolate pattern
+      // (matches identity-artifact-reader.ts). CR-03 regression guard.
       let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
       try {
         conn = await connectOneShot(
@@ -125,7 +130,7 @@ router.get(
         const output = await Promise.race([
           execCommand(
             conn,
-            `if [ -d "$HOME/.claude/identities/'${name}'" ]; then echo exists; else echo missing; fi`,
+            `if [ -d "$HOME/.claude/identities/${name}" ]; then echo exists; else echo missing; fi`,
           ),
           new Promise<string>((_, reject) =>
             setTimeout(
