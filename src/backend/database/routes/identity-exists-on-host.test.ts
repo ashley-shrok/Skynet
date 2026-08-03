@@ -74,6 +74,9 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
 
 vi.mock("fs/promises", () => ({
   stat: vi.fn(),
+  default: {
+    stat: vi.fn(),
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -84,7 +87,7 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
-import * as fsp from "fs/promises";
+import { stat as fspStat } from "fs/promises";
 
 // ---------------------------------------------------------------------------
 // Helpers: HTTP request wrapper
@@ -176,7 +179,7 @@ beforeEach(() => {
   (execCommand as Mock).mockResolvedValue("missing");
 
   // Default: fs.stat rejects ENOENT
-  (fsp.stat as Mock).mockRejectedValue(
+  (fspStat as Mock).mockRejectedValue(
     Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" }),
   );
 
@@ -189,6 +192,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mockUserId = "1"; // reset for subsequent tests
   return new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
@@ -199,7 +203,7 @@ afterEach(() => {
 describe("GET /identities/exists-on-host", () => {
   it("Test 1: local branch — existing folder returns {exists: true}", async () => {
     // hostId=5 → isLocalHostId=true; fs.stat succeeds (folder exists)
-    (fsp.stat as Mock).mockResolvedValue({});
+    (fspStat as Mock).mockResolvedValue({});
 
     const res = await httpRequest(server, {
       method: "GET",

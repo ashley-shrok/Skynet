@@ -16,6 +16,7 @@ import rbacRoutes from "./routes/rbac.js";
 import openTabsRoutes from "./routes/open-tabs.js";
 import identitiesRoutes from "./routes/identities.js";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
+import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -1796,6 +1797,9 @@ app.use("/open-tabs", openTabsRoutes);
 // /identities/avatar/batch and /identities/avatar/candidate/:id don't collide
 // with the generic /identities/:id/* routes in identitiesRoutes.
 app.use("/identities/avatar", identityAvatarBatchRoutes);
+// Phase 20 (IDUI-05): target-host-side identity name collision probe — mount
+// BEFORE /identities so /identities/exists-on-host resolves here first.
+app.use("/identities", identityExistsOnHostRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
