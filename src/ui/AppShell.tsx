@@ -1406,11 +1406,22 @@ export function AppShell({
             isTouchDevice ? () => navigateToView() : undefined
           }
           hostTree={realHostTree}
-          onCreateSession={({ host, sessionName }) => {
+          onCreateSession={(opts) => {
+            // opts is now a discriminated union from plan 06:
+            //   identityMode=true  → identity-birth-success shape (sessionName = identity name)
+            //   identityMode=false → regular-session shape (sessionName optional)
+            const host = opts.host;
+            const sessionName = opts.identityMode
+              ? opts.name                    // identity name doubles as tmux session name (Nelly mechanism)
+              : opts.sessionName;
             const newTabId = openTab(host, "terminal", undefined, {
               targetTmuxSession: sessionName ?? null,
               label: sessionName ?? undefined,
-              allowCreateTmux: true,
+              // For identity-birth: backend already ran `tmux new-session -d -s <name>` at step 2
+              // and launched claude at step 3. Frontend attaches to existing session — do NOT
+              // create a new one (prevents race where frontend also tries to create and
+              // either fails "session already exists" or clobbers by creating a duplicate).
+              allowCreateTmux: !opts.identityMode,
             });
             selectConversationDeferred(newTabId);
             if (isTouchDevice) navigateToView();

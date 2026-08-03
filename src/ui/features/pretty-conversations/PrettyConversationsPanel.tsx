@@ -79,7 +79,7 @@ import {
   useAllBountyCounts,
 } from "@/state/bounty-counts-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
-import { NewSessionDialog } from "@/sidebar/NewSessionDialog";
+import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
 import { getPinnedIds, getHiddenIds } from "@/api/user-preferences-api";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -188,7 +188,7 @@ export function PrettyConversationsPanel({
   // header button is only mounted when this callback is provided (matches
   // the ConversationsPanel gate that used to be on the old inline
   // new-session button affordance).
-  onCreateSession?: (opts: { host: Host; sessionName?: string }) => void;
+  onCreateSession?: (opts: NewSessionOnCreateOpts) => void;
   // Detached-fleet-row click (Plan 07-01, TG-14) — same contract as
   // ConversationsPanel: fired instead of selectConversation when the row
   // is fleet-only. When omitted, fleet-only rows fall through to
