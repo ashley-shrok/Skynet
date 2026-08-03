@@ -760,7 +760,12 @@ Plans:
 
 **Rebase risk:** LOW — additive frontend modal surface + additive backend session-orchestration route + integration with existing avatar pipeline + reuse of existing Skynet identity POST contract. No upstream Skynet surfaces disturbed. Fork severed 2026-07-24 so no upstream to rebase against anyway.
 
-**Plans:** 0 plans
+**Plans:** 6 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 20 to break down)
+- [ ] 20-01-PLAN.md — Backend: POST /identities/avatar/batch (LLM archetype + gpt-image-1 x3 + gamma 0.7 + short-TTL cache) + nginx dual-config
+- [ ] 20-02-PLAN.md — Backend: GET /identities/exists-on-host?hostId=&name= (SSH probe + local-branch for self-birth) + nginx dual-config
+- [ ] 20-03-PLAN.md — Frontend: extract VoicePicker + ColorPicker from IdentityModal.tsx into shared reusable components
+- [ ] 20-04-PLAN.md — Backend: POST /identities/birth SSE orchestrator (5-step Nelly-cribbed sequence, self-birth branch, silent-no-op guard) + nginx SSE block
+- [ ] 20-05-PLAN.md — Frontend: extend sidebar NewSessionDialog with path + identity-mode + birth field cluster + collision precheck (both sides) + avatar batch/pick UI
+- [ ] 20-06-PLAN.md — Frontend: SSE birth-stream consumer + 5-row progress checklist + per-step failure blurbs + AppShell focus-follow
