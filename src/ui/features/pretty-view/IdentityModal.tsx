@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, Clock, Handshake, Pencil, Target, User, Volume2, X } from "lucide-react";
+import { AlarmClock, Clock, Handshake, Pencil, Target, User, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -30,7 +30,8 @@ import { invalidateIdentity as invalidateBountyCount } from "@/state/bounty-coun
 // re-render without a manual refresh.
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
-import { postSpeak, getVoices, SAMPLE_PHRASE } from "@/api/voice-api";
+import { VoicePicker } from "./pickers/VoicePicker";
+import { ColorPicker } from "./pickers/ColorPicker";
 import {
   openClaudeSessionSocket,
   type Bounty,
@@ -183,16 +184,12 @@ export function IdentityModal({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  // Patch #223: voice picker state
-  const [voices, setVoices] = useState<{ display_name: string; filename: string }[]>([]);
+  // Patch #223: voice picker state (voices/sampleAudioRef/sampleUrlRef moved to VoicePicker)
   const [voiceDraft, setVoiceDraft] = useState<string>(identity.voice ?? "");
   const [committedVoice, setCommittedVoice] = useState<string | null>(identity.voice ?? null);
   // Patch #279: colorHue picker state — fall back to prop hue when identity.colorHue is null
   const [hueDraft, setHueDraft] = useState<number>(identity.colorHue ?? hue);
   const [committedHue, setCommittedHue] = useState<number>(identity.colorHue ?? hue);
-  // Sample playback refs
-  const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
-  const sampleUrlRef = useRef<string | null>(null);
 
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
   // Replaces the previous shadcn TabsList strip, which (a) aesthetically didn't
@@ -400,28 +397,6 @@ export function IdentityModal({
     setHueDraft(identity.colorHue ?? hue);
     setCommittedHue(identity.colorHue ?? hue);
   }, [open, identity.id, identity.title, identity.voice, identity.colorHue]);
-
-  // Patch #223: fetch available voices on modal open
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    getVoices()
-      .then((list) => { if (!cancelled) setVoices(list); })
-      .catch(() => { if (!cancelled) setVoices([]); });
-    return () => { cancelled = true; };
-  }, [open]);
-
-  // Patch #223: unmount cleanup for sample audio
-  useEffect(() => {
-    return () => {
-      if (sampleAudioRef.current) {
-        sampleAudioRef.current.pause();
-        if (sampleUrlRef.current) URL.revokeObjectURL(sampleUrlRef.current);
-        sampleAudioRef.current = null;
-        sampleUrlRef.current = null;
-      }
-    };
-  }, []);
 
   // Cleanup: revoke the preview URL when the modal is unmounted mid-edit.
   useEffect(() => {
@@ -778,33 +753,6 @@ export function IdentityModal({
     setAvatarFile(file);
   }
 
-  // Patch #223: sample playback for voice picker
-  async function onSampleClick(): Promise<void> {
-    try {
-      if (sampleAudioRef.current) {
-        sampleAudioRef.current.pause();
-        if (sampleUrlRef.current) URL.revokeObjectURL(sampleUrlRef.current);
-        sampleAudioRef.current = null;
-        sampleUrlRef.current = null;
-      }
-      const blob = await postSpeak(SAMPLE_PHRASE, voiceDraft || undefined);
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      sampleAudioRef.current = audio;
-      sampleUrlRef.current = url;
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        if (sampleAudioRef.current === audio) {
-          sampleAudioRef.current = null;
-          sampleUrlRef.current = null;
-        }
-      };
-      // patch #211 lesson: NEVER bare audio.play().catch(...)
-      Promise.resolve(audio.play()).catch(() => {});
-    } catch {
-      // swallow — handleApiError already logs
-    }
-  }
 
   // onSave: calls updateIdentity with the current draft title + picked file,
   // then broadcasts the fresh identity via applyIdentityChange so all
@@ -1141,98 +1089,16 @@ export function IdentityModal({
                 />
               </div>
 
-              {/* Patch #223: Voice picker */}
+              {/* Patch #223: Voice picker (extracted to VoicePicker component) */}
               <div className="mb-3">
-                <label
-                  className="block text-xs text-[var(--color-pv-fg-muted)] mb-1"
-                  htmlFor="identity-voice-select"
-                >
-                  Voice
-                </label>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <select
-                    id="identity-voice-select"
-                    value={voiceDraft}
-                    onChange={(e) => setVoiceDraft(e.target.value)}
-                    disabled={saving}
-                    style={{
-                      flex: 1,
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(220,225,245,0.15)",
-                      borderRadius: 6,
-                      padding: "6px 10px",
-                      color: "#f0ebe0",
-                      fontSize: "0.875rem",
-                      outline: "none",
-                    }}
-                  >
-                    <option value="" style={{ background: "#1a1c26", color: "#f0ebe0" }}>(default)</option>
-                    {voices.map((v) => (
-                      <option key={v.filename} value={v.filename} style={{ background: "#1a1c26", color: "#f0ebe0" }}>
-                        {v.display_name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    aria-label="Sample voice"
-                    onClick={() => { void onSampleClick(); }}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderRadius: 6,
-                      background: "rgba(0,0,0,0.28)",
-                      border: "1px solid rgba(255,255,255,0.10)",
-                      color: "rgba(255,220,170,0.72)",
-                      opacity: 0.62,
-                      cursor: "pointer",
-                    }}
-                    className="hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
-                  >
-                    <Volume2 size={16} />
-                  </button>
-                </div>
+                <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-voice-select">Voice</label>
+                <VoicePicker id="identity-voice-select" value={voiceDraft} onChange={setVoiceDraft} disabled={saving} />
               </div>
 
-              {/* Patch #279: colorHue picker row */}
+              {/* Patch #279: colorHue picker (extracted to ColorPicker component) */}
               <div className="mb-3">
-                <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-hue-input">
-                  Color
-                </label>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input
-                    id="identity-hue-input"
-                    type="range"
-                    min={0}
-                    max={360}
-                    step={1}
-                    value={hueDraft}
-                    onChange={(e) => setHueDraft(Number(e.target.value))}
-                    disabled={saving}
-                    style={{
-                      flex: 1,
-                      height: 10,
-                      borderRadius: 5,
-                      appearance: "none",
-                      WebkitAppearance: "none",
-                      background: "linear-gradient(to right, hsl(0,70%,50%), hsl(60,70%,50%), hsl(120,70%,50%), hsl(180,70%,50%), hsl(240,70%,50%), hsl(300,70%,50%), hsl(360,70%,50%))",
-                      outline: "none",
-                    }}
-                  />
-                  <div style={{
-                    width: 24, height: 24, borderRadius: "50%",
-                    background: `hsl(${hueDraft}, 65%, 55%)`,
-                    border: "1px solid rgba(255,255,255,0.15)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)",
-                    flexShrink: 0,
-                  }} />
-                  <span className="text-xs text-[var(--color-pv-fg-muted)]" style={{ minWidth: 32, textAlign: "right" }}>
-                    {hueDraft}°
-                  </span>
-                </div>
+                <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-hue-input">Color</label>
+                <ColorPicker id="identity-hue-input" value={hueDraft} onChange={setHueDraft} disabled={saving} />
               </div>
 
               {/* Inline error */}
