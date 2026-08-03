@@ -1862,6 +1862,7 @@ export function ComposeBox({
               }}
               scheduleAutosave={scheduleAutosave}
               latestBody={latestBodyRef.current}
+              queue={queue}
               handleQueueSlotSend={handleQueueSlotSend}
               armSourceForIdle={armSourceForIdle}
               cancelSourceArmed={cancelSourceArmed}
@@ -2028,21 +2029,42 @@ export function ComposeBox({
             scrim + tight blur reads as "held, waiting" without hiding
             whatever the user composed. */}
         {primaryArmed && (
+          /* Quick 260803-05i (Task 3, bounty adjust-visual-on-queued-
+             messages): restructured from a vertical icon-above-label stack
+             to a single inline row: icon + label + fire-order badge (when
+             queueSlots.length >= 2) + literal lowercase "click to cancel"
+             copy. Unified gate `queueSlots.length >= 2` on both primary
+             and queued overlays for visual consistency (see plan
+             deviation note). Icon shrunk from size-5 → size-4 to sit
+             inline. Cancel onClick unchanged. */
           <button
             type="button"
             onClick={() => cancelSourceArmed("primary")}
             aria-label="Cancel queued send"
             title="Cancel queued send"
             className={cn(
-              "absolute inset-0 flex flex-col items-center justify-center gap-1.5",
+              "absolute inset-0 flex flex-row items-center justify-center gap-2 px-3",
               "rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]",
               "cursor-pointer",
             )}
           >
-            <RotateCwFadingClock className="size-5 text-[hsla(38,70%,72%,0.9)]" />
+            <RotateCwFadingClock className="size-4 text-[hsla(38,70%,72%,0.9)]" />
             <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
               Queued — waiting for idle
             </span>
+            {queueSlots.length >= 2 && (() => {
+              const idx = queue.findIndex((e) => e.source === "primary");
+              if (idx < 0) return null;
+              return (
+                <span
+                  data-testid="fire-order-badge"
+                  className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[rgba(220,225,245,0.10)] text-[hsla(38,60%,80%,0.9)]"
+                >
+                  {idx + 1}/{queueSlots.length}
+                </span>
+              );
+            })()}
+            <span className="text-xs text-[hsla(38,60%,80%,0.7)]">click to cancel</span>
           </button>
         )}
         {/* Quick 260730-vtk: Paperclip attach button moved from Row 1
@@ -2276,6 +2298,9 @@ interface QueuedRowProps {
   onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
   scheduleAutosave: (nextBody: string, nextSlots?: Array<{ id: string; text: string }>) => void;
   latestBody: string;
+  // Quick 260803-05i (Task 3): queue FIFO — used to compute this slot's
+  // fire-order badge index inside the armed overlay.
+  queue: Array<{ source: "primary" | string; text: string }>;
   handleQueueSlotSend: (slotId: string) => void;
   armSourceForIdle: (source: "primary" | string, sourceText: string) => void;
   cancelSourceArmed: (source: "primary" | string) => void;
@@ -2302,6 +2327,7 @@ function QueuedRow(props: QueuedRowProps) {
     canSend,
     queueSlots,
     onSlotsChange,
+    queue,
     handleQueueSlotSend,
     armSourceForIdle,
     cancelSourceArmed,
@@ -2469,7 +2495,14 @@ function QueuedRow(props: QueuedRowProps) {
             a <button> with pointer-events-auto so the entire scrim is
             click-to-cancel (source-scoped — cancels ONLY this slot).
             rounded-[10px] matches the slot Textarea's rounding so
-            corners align. */}
+            corners align.
+            Quick 260803-05i (Task 3, bounty adjust-visual-on-queued-
+            messages): restructured from a vertical icon-above-label stack
+            to a single inline row: icon + label + fire-order badge (when
+            queueSlots.length >= 2) + literal lowercase "click to cancel"
+            copy. Icon shrunk from size-5 → size-4 to sit inline. Cancel
+            onClick unchanged — the entire scrim is still the cancel
+            affordance. */}
         {slotArmed && (
           <button
             type="button"
@@ -2477,15 +2510,28 @@ function QueuedRow(props: QueuedRowProps) {
             aria-label="Cancel queued send"
             title="Cancel queued send"
             className={cn(
-              "absolute inset-0 flex flex-col items-center justify-center gap-1.5",
+              "absolute inset-0 flex flex-row items-center justify-center gap-2 px-3",
               "rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]",
               "cursor-pointer",
             )}
           >
-            <RotateCwFadingClock className="size-5 text-[hsla(38,70%,72%,0.9)]" />
+            <RotateCwFadingClock className="size-4 text-[hsla(38,70%,72%,0.9)]" />
             <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
               Queued — waiting for idle
             </span>
+            {queueSlots.length >= 2 && (() => {
+              const idx = queue.findIndex((e) => e.source === slot.id);
+              if (idx < 0) return null;
+              return (
+                <span
+                  data-testid="fire-order-badge"
+                  className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[rgba(220,225,245,0.10)] text-[hsla(38,60%,80%,0.9)]"
+                >
+                  {idx + 1}/{queueSlots.length}
+                </span>
+              );
+            })()}
+            <span className="text-xs text-[hsla(38,60%,80%,0.7)]">click to cancel</span>
           </button>
         )}
         {/* Quick 260803-05i (Task 1): Paperclip attach button — absolute

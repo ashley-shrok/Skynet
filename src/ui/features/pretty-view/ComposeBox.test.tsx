@@ -968,6 +968,146 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-right dele
     expect(textareaWrapper).not.toBeNull();
     expect(stripWrapper).toBe(textareaWrapper);
   });
+
+  // ── Task 3: one-line armed overlay header + click-to-cancel + fire-order badge
+
+  it("QB-10: queued armed overlay is one inline row — icon + label + 'click to cancel' in the same flex-row parent", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    // Add a slot, type text, arm it.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const slotTextareas = screen.getAllByRole(
+      "textbox",
+    ) as HTMLTextAreaElement[];
+    // Slot renders BEFORE primary — slots are indices 0..N-1, primary is
+    // last. Type into the ONLY slot.
+    const slotTextarea = slotTextareas[0];
+    await act(async () => {
+      fireEvent.change(slotTextarea, { target: { value: "first queued" } });
+    });
+    // Click the slot's arm-idle button. QB-10 has ONE slot so QB-12 asserts
+    // the badge is absent; but the layout structure (flex-row + label + "click
+    // to cancel") is the assertion here.
+    const armButtons = screen.getAllByRole("button", {
+      name: /send when idle/i,
+    });
+    await act(async () => {
+      fireEvent.click(armButtons[0]);
+    });
+    const overlay = screen.getByRole("button", { name: /cancel queued send/i });
+    expect(overlay.className).toMatch(/flex-row/);
+    expect(overlay.className).not.toMatch(/flex-col/);
+    expect(overlay.textContent).toMatch(/Queued.*waiting for idle/);
+    expect(overlay.textContent).toMatch(/click to cancel/);
+  });
+
+  it("QB-11: fire-order badge PRESENT when queueSlots.length >= 2 and this slot is armed — reads `${idx+1}/${queueSlots.length}`", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    // Add TWO slots (so queueSlots.length >= 2), then arm the FIRST one.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const slotTextareas = screen.getAllByRole(
+      "textbox",
+    ) as HTMLTextAreaElement[];
+    // slots are indices 0 and 1; primary is index 2.
+    await act(async () => {
+      fireEvent.change(slotTextareas[0], { target: { value: "first" } });
+    });
+    // Arm the FIRST slot — its arm button is the FIRST "send when idle"
+    // button in the DOM.
+    const armButtons = screen.getAllByRole("button", {
+      name: /send when idle/i,
+    });
+    await act(async () => {
+      fireEvent.click(armButtons[0]);
+    });
+    const badge = screen.getByTestId("fire-order-badge");
+    expect(badge).toBeTruthy();
+    // Fire-order text is `${idx+1}/${queueSlots.length}` — total = 2.
+    expect(badge.textContent).toMatch(/^\d+\/2$/);
+  });
+
+  it("QB-12: fire-order badge ABSENT when queueSlots.length === 1 (single queued slot needs no 1/1 badge)", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const slotTextareas = screen.getAllByRole(
+      "textbox",
+    ) as HTMLTextAreaElement[];
+    await act(async () => {
+      fireEvent.change(slotTextareas[0], { target: { value: "only slot" } });
+    });
+    const armButtons = screen.getAllByRole("button", {
+      name: /send when idle/i,
+    });
+    await act(async () => {
+      fireEvent.click(armButtons[0]);
+    });
+    expect(screen.queryByTestId("fire-order-badge")).toBeNull();
+  });
+
+  it("QB-13: 'click to cancel' literal lowercase copy is present in the armed overlay (regression guard for Ashley's exact phrase)", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const slotTextareas = screen.getAllByRole(
+      "textbox",
+    ) as HTMLTextAreaElement[];
+    await act(async () => {
+      fireEvent.change(slotTextareas[0], { target: { value: "test" } });
+    });
+    const armButtons = screen.getAllByRole("button", {
+      name: /send when idle/i,
+    });
+    await act(async () => {
+      fireEvent.click(armButtons[0]);
+    });
+    // Case-sensitive matcher — Ashley asked for the literal lowercase phrase.
+    expect(screen.getByText(/click to cancel/)).toBeTruthy();
+  });
+
+  it("QB-14: clicking the armed overlay STILL cancels — click-to-cancel behavior preserved after the header restructure", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const slotTextareas = screen.getAllByRole(
+      "textbox",
+    ) as HTMLTextAreaElement[];
+    await act(async () => {
+      fireEvent.change(slotTextareas[0], { target: { value: "cancel me" } });
+    });
+    const armButtons = screen.getAllByRole("button", {
+      name: /send when idle/i,
+    });
+    await act(async () => {
+      fireEvent.click(armButtons[0]);
+    });
+    const overlayBefore = screen.getByRole("button", {
+      name: /cancel queued send/i,
+    });
+    expect(overlayBefore).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(overlayBefore);
+    });
+    // After cancel, the overlay is gone (slot text is intact, slot is
+    // re-editable).
+    expect(
+      screen.queryByRole("button", { name: /cancel queued send/i }),
+    ).toBeNull();
+  });
 });
 
 describe("ComposeBox — Phase 9 layout", () => {
