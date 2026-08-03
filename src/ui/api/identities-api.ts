@@ -111,3 +111,126 @@ export async function getIdentityExistsOnHost(
     handleApiError(error, "check identity on host");
   }
 }
+
+// ─── openBirthStream ─────────────────────────────────────────────────────────
+// SSE consumer for POST /identities/birth. EventSource does NOT support POST;
+// we use fetch + ReadableStream instead. Auth is cookie-based (withCredentials
+// equivalent: credentials:"include") — the JWT cookie is sent automatically by
+// the browser, matching the authApi axios instance's `withCredentials: true`.
+//
+// Wire format (per plan 04 SSE route):
+//   event: birth
+//   data: {"type":"step","n":1,"phase":"started"}
+//
+//   event: birth
+//   data: {"type":"ended","ok":true,"identityId":"...","sessionName":"..."}
+//
+// The generator yields each parsed BirthEvent in order. On non-200 response,
+// it reads the JSON error body and throws. On stream end, it exits cleanly.
+
+export interface BirthRequest {
+  hostId: number;
+  name: string;
+  title: string;
+  path: string;
+  colorHue: number | null;
+  voice: string | null;
+  avatarCandidateId: string;
+}
+
+export type BirthEvent =
+  | {
+      type: "step";
+      n: 1 | 2 | 3 | 4 | 5;
+      phase: "started" | "completed" | "failed";
+      reason?: string;
+    }
+  | {
+      type: "ended";
+      ok: boolean;
+      failedStep?: number;
+      identityId?: string;
+      sessionName?: string;
+    };
+
+export async function* openBirthStream(
+  opts: BirthRequest,
+  signal?: AbortSignal,
+): AsyncGenerator<BirthEvent> {
+  const response = await fetch("/identities/birth", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(opts),
+    credentials: "include",
+    signal,
+  });
+
+  if (response.status !== 200) {
+    let errorMsg = `birth failed: HTTP ${response.status}`;
+    try {
+      const json = (await response.json()) as { error?: string };
+      if (json.error) errorMsg = json.error;
+    } catch {
+      // ignore JSON parse errors; use the default message
+    }
+    throw new Error(errorMsg);
+  }
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE frames are separated by double newlines
+    const frames = buffer.split("\n\n");
+    // Keep the last (potentially incomplete) chunk in the buffer
+    buffer = frames.pop() ?? "";
+
+    for (const frame of frames) {
+      if (!frame.trim()) continue;
+      // Find the data: line in the frame
+      const lines = frame.split("\n");
+      let dataLine: string | undefined;
+      for (const line of lines) {
+        if (line.startsWith("data:")) {
+          dataLine = line.slice("data:".length).trim();
+          break;
+        }
+      }
+      if (!dataLine) continue;
+      try {
+        const evt = JSON.parse(dataLine) as BirthEvent;
+        yield evt;
+      } catch {
+        // Malformed JSON — skip frame
+      }
+    }
+  }
+
+  // Flush any remaining complete frame from the buffer
+  if (buffer.trim()) {
+    const lines = buffer.split("\n");
+    let dataLine: string | undefined;
+    for (const line of lines) {
+      if (line.startsWith("data:")) {
+        dataLine = line.slice("data:".length).trim();
+        break;
+      }
+    }
+    if (dataLine) {
+      try {
+        const evt = JSON.parse(dataLine) as BirthEvent;
+        yield evt;
+      } catch {
+        // Malformed JSON — skip
+      }
+    }
+  }
+}
