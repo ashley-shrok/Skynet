@@ -79,3 +79,35 @@ export async function deleteIdentity(id: string): Promise<void> {
     handleApiError(error, "delete identity");
   }
 }
+
+export interface AvatarCandidate {
+  id: string;
+  url: string;
+}
+
+export async function postGenerateAvatarBatch(input: {
+  name: string;
+  title: string;
+  brief: string;
+}): Promise<AvatarCandidate[]> {
+  try {
+    const response = await authApi.post("/identities/avatar/batch", input);
+    return (response.data as { candidates: AvatarCandidate[] }).candidates;
+  } catch (error) {
+    handleApiError(error, "generate avatars");
+  }
+}
+
+export async function getIdentityExistsOnHost(
+  hostId: number,
+  name: string,
+): Promise<boolean> {
+  try {
+    const response = await authApi.get("/identities/exists-on-host", {
+      params: { hostId, name },
+    });
+    return (response.data as { exists: boolean }).exists;
+  } catch (error) {
+    handleApiError(error, "check identity on host");
+  }
+}
