@@ -184,3 +184,40 @@ describe("openBirthStream: Test 5 — throws on non-200 response", () => {
     }).rejects.toThrow("invalid body");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CR-05: openBirthStream error paths
+// ─────────────────────────────────────────────────────────────────────────────
+describe("CR-05: openBirthStream error paths", () => {
+  it("cancels response.body on non-200 status", async () => {
+    const mockCancel = vi.fn().mockResolvedValue(undefined);
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      headers: { get: () => "application/json" },
+      json: vi.fn().mockResolvedValueOnce({ error: "test error" }),
+      body: { cancel: mockCancel },
+    });
+
+    const opts = { hostId: 1, name: "alicia", title: "T", path: "~", colorHue: null, voice: null, avatarCandidateId: "c1" };
+    await expect(async () => {
+      for await (const _ of openBirthStream(opts)) { /* consume */ }
+    }).rejects.toThrow();
+
+    expect(mockCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws 'empty SSE stream' when 200 response has null body", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => "text/event-stream" },
+      body: null,
+    });
+
+    const opts = { hostId: 1, name: "alicia", title: "T", path: "~", colorHue: null, voice: null, avatarCandidateId: "c1" };
+    await expect(async () => {
+      for await (const _ of openBirthStream(opts)) { /* consume */ }
+    }).rejects.toThrow("empty SSE stream");
+  });
+});

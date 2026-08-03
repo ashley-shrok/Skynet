@@ -176,10 +176,17 @@ export async function* openBirthStream(
     } catch {
       // ignore JSON parse errors; use the default message
     }
+    // Belt-and-braces: cancel the body to release the TCP/HTTP2 connection
+    // slot even if response.json() already consumed it (cancel is a no-op on
+    // a consumed body). Placed after JSON extraction so error message is preserved.
+    await response.body?.cancel().catch(() => { /* swallow — best-effort release */ });
     throw new Error(errorMsg);
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error("birth failed: server returned empty SSE stream");
+  }
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
 
