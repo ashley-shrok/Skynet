@@ -1221,12 +1221,24 @@ export function ComposeBox({
   // parentheses appended to "/id reset " so the reset carries a hint
   // through to the fresh session, and (b) it fires even when the body is
   // blank — in which case it sends just "/id reset".
-  function handleResetSend() {
+  //
+  // Quick 260803-7vf: split into fireResetSyncFx (synchronous UI effects)
+  // + dispatchResetPayload (payload construction + dispatch tail) so
+  // handleVoiceResetSend can compose them with an await in between —
+  // syncFx runs BEFORE the STT round-trip (patch #122 latency guarantee),
+  // dispatch runs AFTER the transcript resolves so the glued payload
+  // reaches onSend.
+
+  // Synchronous UI effects — MUST run BEFORE any await in the recording
+  // branch (patch #122 latency guarantee: SessionHoldingOverlay pops on
+  // click, not after the ~1-3s STT round-trip).
+  function fireResetSyncFx() {
     // Patch #122: fire the PrettyView `isHolding` signal synchronously so
     // `SessionHoldingOverlay`'s 350ms delay-arm timer starts NOW, not when
     // the backend's `session_holding` WS frame arrives (~seconds later).
     // The `/id reset` payload still routes through the normal `onSend`
-    // path below — this is purely a UI-latency shortcut.
+    // path in dispatchResetPayload below — this is purely a UI-latency
+    // shortcut.
     onResetClicked?.();
 
     // Vehicle C v2: source-scoped cancel — reset dequeues primary only
@@ -1260,8 +1272,12 @@ export function ComposeBox({
       drainEndTimerRef.current = null;
       setIsDraining(false);
     }, 800);
+  }
 
-    const trimmed = text.trim();
+  // Payload construction + dispatch tail. Body is the raw textarea/glued
+  // string; trim + collapse mirror the pre-refactor behavior exactly.
+  function dispatchResetPayload(body: string) {
+    const trimmed = body.trim();
     const payload = trimmed
       ? `/id reset (${collapseNewlinesForSend(trimmed)})`
       : "/id reset";
@@ -1271,6 +1287,37 @@ export function ComposeBox({
       clearAfterSend();
     } else {
       setErrorMessage("Not connected — try again in a moment");
+    }
+  }
+
+  function handleResetSend() {
+    fireResetSyncFx();
+    dispatchResetPayload(text);
+  }
+
+  // Quick 260803-7vf: recording-state reset — combines send-while-recording
+  // (stop → transcribe → glue) with reset dispatch. fireResetSyncFx runs
+  // FIRST (before any await) so onResetClicked/drain-sweep don't wait on
+  // the STT round-trip. Then await endSend, then dispatch the glued
+  // payload. On STT failure (endSend returns null) we fall back to the
+  // existing textarea body — reset ALWAYS dispatches, never silent no-op
+  // (locked design decision #4).
+  async function handleVoiceResetSend() {
+    fireResetSyncFx();
+    const baseText = text;
+    const result = await voice.endSend(baseText);
+    const body = result ? result.glued : baseText;
+    dispatchResetPayload(body);
+  }
+
+  // Router: branch on voice.state so the meter-well reset button does the
+  // right thing in either idle or recording state. Wired into the reset
+  // button's onClick below.
+  function handleResetClick() {
+    if (voice.state === "recording") {
+      void handleVoiceResetSend();
+    } else {
+      handleResetSend();
     }
   }
 
@@ -1557,8 +1604,8 @@ export function ComposeBox({
               then-right). Divider stays between them. */}
           <button
             type="button"
-            onClick={handleResetSend}
-            disabled={canSend === false || asideActive === true || recycleActive === true}
+            onClick={handleResetClick}
+            disabled={canSend === false || asideActive === true || recycleActive === true || voice.state === "transcribing"}
             aria-label="Reset context window"
             title="Reset context window"
             className={cn(
