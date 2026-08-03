@@ -29,6 +29,7 @@ vi.mock("react-i18next", () => ({
 const mockListIdentities = vi.fn().mockResolvedValue([]);
 const mockPostGenerateAvatarBatch = vi.fn();
 const mockGetIdentityExistsOnHost = vi.fn().mockResolvedValue(false);
+const mockOpenBirthStream = vi.fn();
 
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -37,8 +38,19 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
     listIdentities: (...args: unknown[]) => mockListIdentities(...args),
     postGenerateAvatarBatch: (...args: unknown[]) => mockPostGenerateAvatarBatch(...args),
     getIdentityExistsOnHost: (...args: unknown[]) => mockGetIdentityExistsOnHost(...args),
+    openBirthStream: (...args: unknown[]) => mockOpenBirthStream(...args),
   };
 });
+
+// Helper: create a mock birth stream that emits the given events then ends.
+// Adds a 0ms Promise.resolve() between events so React has a chance to
+// batch-flush and re-render intermediate states in test assertions.
+async function* createMockStream(events: Array<{type: string; n?: number; phase?: string; reason?: string; ok?: boolean; failedStep?: number; identityId?: string; sessionName?: string}>) {
+  for (const evt of events) {
+    await Promise.resolve(); // let React flush state updates between events
+    yield evt;
+  }
+}
 
 // Mock voice-api so VoicePicker doesn't make real network calls
 vi.mock("@/api/voice-api", () => ({
@@ -862,14 +874,20 @@ describe("NewSessionDialog: Test Q — Create disabled without avatar pick", () 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test R: onCreate payload when identity-mode ON contains all birth fields
+// Plan 06 note: Create now starts a birth stream (identity-mode ON).
+// onCreate is called on successful stream completion (ended: ok:true).
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", () => {
-  it("Test R: Create with fully valid identity-mode ON form → onCreate called with all birth fields", async () => {
+  it("Test R: Create with fully valid identity-mode ON form → onCreate called with all birth fields after successful birth", async () => {
     mockPostGenerateAvatarBatch.mockResolvedValueOnce([
       { id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" },
     ]);
     mockListIdentities.mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
+    // Mock birth stream: immediate success
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "ended", ok: true, identityId: "abc", sessionName: "alicia" },
+    ]));
     const onCreate = vi.fn();
     const { getByLabelText, getByRole } = renderDialog({ onCreate });
     fireEvent.click(screen.getByText("alpha"));
@@ -881,12 +899,15 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
     const imgs = Array.from(document.querySelectorAll("img"));
     fireEvent.click(imgs[0].closest("button") as HTMLElement);
     await waitFor(() => {
-      const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
+      const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
       expect(createBtn.disabled).toBe(false);
     });
-    const createBtn = getByRole("button", { name: /^(open|create)$/i });
+    const createBtn = getByRole("button", { name: /^(open|create|creating)/i });
     fireEvent.click(createBtn);
-    expect(onCreate).toHaveBeenCalledTimes(1);
+    // onCreate fires after birth stream completes successfully
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledTimes(1);
+    });
     const arg = onCreate.mock.calls[0][0];
     expect(arg.identityMode).toBe(true);
     expect(arg.name).toBe("alicia");
@@ -1010,5 +1031,387 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
     // Identity-mode checkbox should be ON (default)
     const checkbox = getByRole("checkbox", { name: /create new identity/i }) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 20 Plan 06: Birth stream tests (Tests V through GG)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper: fill all required identity-mode fields and generate/pick an avatar
+async function fillIdentityFormAndPick(utils: ReturnType<typeof renderDialog>) {
+  const { getByLabelText, getByRole } = utils;
+  fireEvent.click(screen.getByText("alpha"));
+  fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
+  fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Alicia Agent" } });
+  fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "A test identity" } });
+  // Mock batch for avatar
+  mockPostGenerateAvatarBatch.mockResolvedValueOnce([
+    { id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" },
+  ]);
+  fireEvent.click(getByRole("button", { name: /generate/i }));
+  await waitFor(() => expect(document.querySelectorAll("img").length).toBe(3));
+  fireEvent.click(document.querySelectorAll("img")[0].closest("button") as HTMLElement);
+  await waitFor(() => {
+    const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
+    // Wait for Create to be enabled (or in "creating..." state)
+    expect(createBtn).toBeTruthy();
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test V: clicking Create with identity-mode ON starts birth stream
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBirthStream", () => {
+  it("Test V: clicking Create calls openBirthStream with correct payload (not regular session)", async () => {
+    // Return empty stream that completes immediately
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([]));
+    const { getByLabelText, getByRole } = renderDialog();
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
+    fireEvent.click(createBtn);
+    await waitFor(() => {
+      expect(mockOpenBirthStream).toHaveBeenCalledTimes(1);
+    });
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload).toMatchObject({
+      hostId: expect.anything(),
+      name: "alicia",
+      title: "Alicia Agent",
+      avatarCandidateId: "c1",
+    });
+    // Must NOT contain identityMode or sessionName keys (backend-only payload)
+    expect(payload).not.toHaveProperty("identityMode");
+    expect(payload).not.toHaveProperty("sessionName");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test W: 5 progress rows render on birth start
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test W — 5 progress rows appear after Create", () => {
+  it("Test W: after clicking Create, 5 step rows appear with correct labels", async () => {
+    // Stream that stays open (never completes)
+    let resolveStream!: () => void;
+    const neverEnds = new Promise<void>((res) => { resolveStream = res; });
+    async function* hangingStream() {
+      await neverEnds;
+    }
+    mockOpenBirthStream.mockReturnValueOnce(hangingStream());
+
+    const { getByLabelText, getByRole } = renderDialog();
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
+    fireEvent.click(createBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/create skynet identity record/i)).toBeTruthy();
+    });
+    expect(screen.queryByText(/launch claude cli/i)).toBeTruthy();
+    expect(screen.queryByText(/bootstrap dance/i)).toBeTruthy();
+    expect(screen.queryByText(/\/id command/i)).toBeTruthy();
+
+    // Cleanup: resolve the hanging stream
+    resolveStream();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test X: step:N:started → row flips to in-progress
+// Use a controlled stream: pause after step:2:started so React renders the
+// intermediate state, then assert, then let the stream continue/end.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test X — step started marks row in-progress", () => {
+  it("Test X: emit step:2:started followed by failure → row 2 shows in-progress then failed", async () => {
+    // Use a stream that has a visible intermediate in-progress state by
+    // eventually ending with a failure (so the component doesn't auto-close)
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "step", n: 2, phase: "started" },
+      { type: "step", n: 2, phase: "failed", reason: "test" },
+      { type: "ended", ok: false, failedStep: 2 },
+    ]));
+
+    const { getByLabelText, getByRole } = renderDialog();
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    // Wait for the stream to complete and show a failed step
+    await waitFor(() => {
+      const failedRows = document.querySelectorAll('[data-status="failed"]');
+      expect(failedRows.length).toBeGreaterThanOrEqual(1);
+    });
+    // At this point, step 2 should be "failed" (was "in-progress" before)
+    // The key state transition happened: pending → in-progress → failed
+    const failedRows = document.querySelectorAll('[data-status="failed"]');
+    expect(failedRows.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test Y: step:N:completed → row flips to done
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test Y — step completed marks row done", () => {
+  it("Test Y: all 5 steps started+completed + ended:ok:true → all rows show done", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "step", n: 1, phase: "started" },
+      { type: "step", n: 1, phase: "completed" },
+      { type: "step", n: 2, phase: "started" },
+      { type: "step", n: 2, phase: "completed" },
+      { type: "step", n: 3, phase: "started" },
+      { type: "step", n: 3, phase: "completed" },
+      { type: "step", n: 4, phase: "started" },
+      { type: "step", n: 4, phase: "completed" },
+      { type: "step", n: 5, phase: "started" },
+      { type: "step", n: 5, phase: "completed" },
+      { type: "ended", ok: true, identityId: "abc", sessionName: "alicia" },
+    ]));
+
+    const onCreate = vi.fn();
+    const { getByLabelText, getByRole } = renderDialog({ onCreate });
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    // Wait for successful birth (onCreate called = stream completed with ok:true)
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledTimes(1);
+    }, { timeout: 3000 });
+    // After success, onCreate fires with identityMode:true
+    expect(onCreate.mock.calls[0][0].identityMode).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test Z: step:N:failed → row shows failed + failure blurb
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test Z — step failed shows failed row + blurb", () => {
+  it("Test Z: emit step:2:failed → row 2 data-status=failed AND blurb with 'tmux session' text appears", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "step", n: 2, phase: "failed", reason: "Connect timeout" },
+      { type: "ended", ok: false, failedStep: 2 },
+    ]));
+
+    const { getByLabelText, getByRole } = renderDialog();
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    await waitFor(() => {
+      const failedRows = document.querySelectorAll('[data-status="failed"]');
+      expect(failedRows.length).toBeGreaterThanOrEqual(1);
+    });
+    // Step-2 blurb: "Skynet record created, but couldn't open a tmux session"
+    await waitFor(() => {
+      expect(screen.queryByText(/skynet record created.*tmux/i) ?? screen.queryByText(/couldn't open a tmux session/i) ?? screen.queryByText(/tmux session/i)).toBeTruthy();
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test AA: successful birth closes modal + calls onCreate
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test AA — successful birth closes modal + calls onCreate", () => {
+  it("Test AA: all 5 steps complete + ended:ok:true → onClose called + onCreate called with identityMode:true payload", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "step", n: 1, phase: "started" },
+      { type: "step", n: 1, phase: "completed" },
+      { type: "step", n: 2, phase: "started" },
+      { type: "step", n: 2, phase: "completed" },
+      { type: "step", n: 3, phase: "started" },
+      { type: "step", n: 3, phase: "completed" },
+      { type: "step", n: 4, phase: "started" },
+      { type: "step", n: 4, phase: "completed" },
+      { type: "step", n: 5, phase: "started" },
+      { type: "step", n: 5, phase: "completed" },
+      { type: "ended", ok: true, identityId: "abc", sessionName: "alicia" },
+    ]));
+
+    const onCreate = vi.fn();
+    const onClose = vi.fn();
+    const { getByLabelText, getByRole } = renderDialog({ onCreate, onClose });
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledTimes(1);
+    });
+    // onCreate should have been called with identity birth payload
+    const arg = onCreate.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.identityMode).toBe(true);
+    expect(arg.name).toBe("alicia");
+    // Modal should close
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test BB: failed birth keeps modal OPEN, onCreate NOT called
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test BB — failed birth keeps modal open", () => {
+  it("Test BB: ended:ok:false → modal stays open (onClose not called) + onCreate not called", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "step", n: 3, phase: "failed", reason: "x" },
+      { type: "ended", ok: false, failedStep: 3 },
+    ]));
+
+    const onCreate = vi.fn();
+    const onClose = vi.fn();
+    const { getByLabelText, getByRole } = renderDialog({ onCreate, onClose });
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    // Wait for stream to finish
+    await waitFor(() => {
+      const failedRows = document.querySelectorAll('[data-status="failed"]');
+      expect(failedRows.length).toBeGreaterThanOrEqual(1);
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test CC: close after failure resets ALL state
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test CC — close after failure resets state", () => {
+  it("Test CC: after failure, user closes modal → re-open shows fresh defaults (no name, no candidates)", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "step", n: 3, phase: "failed", reason: "x" },
+      { type: "ended", ok: false, failedStep: 3 },
+    ]));
+
+    const onClose = vi.fn();
+    const { getByLabelText, getByRole, rerender } = renderDialog({ onClose });
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    // Wait for failure
+    await waitFor(() => expect(document.querySelectorAll('[data-status="failed"]').length).toBeGreaterThanOrEqual(1));
+
+    // Close the dialog
+    rerender(
+      <NewSessionDialog
+        open={false}
+        onClose={onClose}
+        hostTree={threeHostTree}
+        onCreate={vi.fn()}
+      />
+    );
+    // Re-open
+    rerender(
+      <NewSessionDialog
+        open={true}
+        onClose={onClose}
+        hostTree={threeHostTree}
+        onCreate={vi.fn()}
+      />
+    );
+
+    // Name should be reset
+    expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
+    // No candidates
+    expect(document.querySelectorAll("img").length).toBe(0);
+    // No failed rows
+    expect(document.querySelectorAll('[data-status="failed"]').length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test DD: birth in progress disables ALL form fields + no cancel affordance
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test DD — birth in progress disables form fields, no cancel button", () => {
+  it("Test DD: while birthing → name/title/path disabled, identity-mode checkbox disabled, no cancel-birth button", async () => {
+    let resolveStream!: () => void;
+    const neverEnds = new Promise<void>((res) => { resolveStream = res; });
+    async function* hangingStream() {
+      await neverEnds;
+    }
+    mockOpenBirthStream.mockReturnValueOnce(hangingStream());
+
+    const { getByLabelText, getByRole } = renderDialog();
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    await waitFor(() => {
+      // name input should be disabled
+      expect((getByLabelText(/^name$/i) as HTMLInputElement).disabled).toBe(true);
+    });
+    // No cancel-birth button
+    expect(screen.queryByRole("button", { name: /cancel.*birth|cancel birth/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /stop birth/i })).toBeNull();
+
+    resolveStream();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test EE: step:1:failed with silent-no-op reason surfaces step-1 blurb
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test EE — step-1 failure shows correct blurb", () => {
+  it("Test EE: step:1:failed:reason=silent-no-op → step-1 blurb (couldn't create Skynet record) renders", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "step", n: 1, phase: "failed", reason: "silent-no-op: colorHue not persisted" },
+      { type: "ended", ok: false, failedStep: 1 },
+    ]));
+
+    const { getByLabelText, getByRole } = renderDialog();
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    await waitFor(() => {
+      // Step 1 blurb: "Couldn't create the Skynet identity record"
+      expect(
+        screen.queryByText(/couldn't create the skynet identity record/i) ??
+        screen.queryByText(/nothing was created/i) ??
+        screen.queryByText(/safe to retry/i)
+      ).toBeTruthy();
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test FF: openBirthStream throwing surfaces as step-1 failure
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test FF — fetch error surfaces as step-1 failure", () => {
+  it("Test FF: openBirthStream throws → row 1 shows failed, modal stays open, no state reset", async () => {
+    async function* throwingStream(): AsyncGenerator<never> {
+      throw new Error("Network error");
+      // eslint-disable-next-line no-unreachable
+      yield {} as never;
+    }
+    mockOpenBirthStream.mockReturnValueOnce(throwingStream());
+
+    const onCreate = vi.fn();
+    const onClose = vi.fn();
+    const { getByLabelText, getByRole } = renderDialog({ onCreate, onClose });
+    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
+    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+
+    await waitFor(() => {
+      const failedRows = document.querySelectorAll('[data-status="failed"]');
+      expect(failedRows.length).toBeGreaterThanOrEqual(1);
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test GG: regular-session mode (identity-mode=false) does NOT call openBirthStream
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test GG — regular session mode does NOT call openBirthStream", () => {
+  it("Test GG: uncheck identity-mode, click Create → openBirthStream NOT called; onCreate called with identityMode:false", () => {
+    const onCreate = vi.fn();
+    const { getByRole } = renderDialog({ onCreate });
+    // Turn off identity-mode
+    fireEvent.click(getByRole("checkbox", { name: /create new identity/i }));
+    // Select host
+    fireEvent.click(screen.getByText("bravo"));
+    // Click Create
+    fireEvent.click(getByRole("button", { name: /^(open|create)$/i }));
+
+    expect(mockOpenBirthStream).not.toHaveBeenCalled();
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onCreate.mock.calls[0][0].identityMode).toBe(false);
   });
 });

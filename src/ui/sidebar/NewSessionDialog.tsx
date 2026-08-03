@@ -23,13 +23,20 @@
 // in both modes. Both collision checks fire on name blur. Avatar batch fetch
 // + required pick. Brief EPHEMERAL — never persisted anywhere.
 //
+// Phase 20 Plan 06: SSE birth stream consumer (IDUI-06, IDUI-07, IDUI-08).
+// When Create fires with identityMode=true, opens an SSE stream against
+// POST /identities/birth, renders the 5-step BirthProgress checklist,
+// shows per-step failure blurbs on failure, closes on success + fires
+// focus-follow via AppShell's existing openTab flow.
+// NO cancel/retry/rollback affordances per D-CONTEXT non-negotiables.
+//
 // Zero new npm deps. Reuses the fork's Dialog wrapper (@/components/dialog),
 // Button (@/components/button), Input (@/components/input), Plus/Search icons
 // from lucide-react.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Search } from "lucide-react";
+import { Search, Loader2, Check, XCircle, Circle } from "lucide-react";
 
 import {
   Dialog,
@@ -48,7 +55,9 @@ import {
   listIdentities,
   postGenerateAvatarBatch,
   getIdentityExistsOnHost,
+  openBirthStream,
   type AvatarCandidate,
+  type BirthEvent,
 } from "@/api/identities-api";
 
 // Client-side session-name pattern — defense-in-depth (T-06-04-01). Word
@@ -105,6 +114,120 @@ export type NewSessionOnCreateOpts =
       colorHue: number | null;
     };
 
+// ─── BirthProgress ─────────────────────────────────────────────────────────
+// Step labels for the 5-step birth sequence (matching CONTEXT.md §"Compound birth sequence")
+const BIRTH_STEP_LABELS = [
+  "Create Skynet identity record",
+  "Open tmux session", // rendered with hostName at runtime
+  "Launch Claude CLI",
+  "Bootstrap dance",
+  "Send /id command",
+];
+
+// Failure blurbs verbatim from D-CONTEXT §"Failure blurbs", indexed 0-4 (step N is index N-1).
+// Slots: <host>, <name>, <path> — replaced at render time.
+const BIRTH_STEP_BLURBS = [
+  "Couldn't create the Skynet identity record. Nothing was created — safe to retry.",
+  "Skynet record created, but couldn't open a tmux session on <host>. You'll need to delete the identity record from the identity modal before retrying, or open the session by hand: `ssh <host> tmux new-session -d -s <name> -c <path>`.",
+  "Session is open on <host>, but the Claude CLI didn't launch. Attach with `ssh <host> tmux attach -t <name>` and start it yourself.",
+  "Session is open and Claude launched, but the bootstrap dance didn't complete. Attach with `ssh <host> tmux attach -t <name>` and press Enter a few times until the REPL responds, then run `/id <name>` yourself.",
+  "Session is at the REPL, but /id <name> didn't fire. Attach with `ssh <host> tmux attach -t <name>` and run it yourself.",
+];
+
+type StepStatus = "pending" | "in-progress" | "done" | "failed";
+
+interface BirthStepState {
+  n: 1 | 2 | 3 | 4 | 5;
+  status: StepStatus;
+  reason?: string;
+}
+
+const INITIAL_BIRTH_PROGRESS: BirthStepState[] = [
+  { n: 1, status: "pending" },
+  { n: 2, status: "pending" },
+  { n: 3, status: "pending" },
+  { n: 4, status: "pending" },
+  { n: 5, status: "pending" },
+];
+
+// BirthProgress — inline sub-component for the 5-step ticking checklist
+function BirthProgress({
+  steps,
+  failedStep,
+  hostName,
+  identityName,
+  identityPath,
+}: {
+  steps: BirthStepState[];
+  failedStep: number | null;
+  hostName: string;
+  identityName: string;
+  identityPath: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2 pt-3 border-t border-[color:var(--color-pv-border-quiet)]">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
+        Birth Progress
+      </span>
+      {steps.map((step, i) => {
+        const label =
+          step.n === 2
+            ? `Open tmux session on ${hostName}`
+            : BIRTH_STEP_LABELS[i];
+        return (
+          <div key={step.n} data-status={step.status} className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="flex items-center shrink-0">
+                {step.status === "pending" && (
+                  <Circle className="size-3.5 text-[color:var(--color-pv-fg-dim)]" />
+                )}
+                {step.status === "in-progress" && (
+                  <Loader2 className="size-3.5 text-[color:var(--color-pv-code-fg)] animate-spin" />
+                )}
+                {step.status === "done" && (
+                  <Check className="size-3.5 text-green-500" />
+                )}
+                {step.status === "failed" && (
+                  <XCircle className="size-3.5 text-red-500" />
+                )}
+              </span>
+              <span
+                className={`text-xs ${
+                  step.status === "done"
+                    ? "text-green-500"
+                    : step.status === "failed"
+                      ? "text-red-400"
+                      : step.status === "in-progress"
+                        ? "text-[color:var(--color-pv-fg)]"
+                        : "text-[color:var(--color-pv-fg-dim)]"
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+            {/* Failure blurb — only shown for the failed step */}
+            {step.status === "failed" && failedStep === step.n && (
+              <div className="ml-5 flex flex-col gap-1">
+                <p className="text-xs text-red-400">
+                  {BIRTH_STEP_BLURBS[step.n - 1]
+                    .replace(/<host>/g, hostName)
+                    .replace(/<name>/g, identityName)
+                    .replace(/<path>/g, identityPath)}
+                </p>
+                {step.reason && (
+                  <p className="text-[10px] text-[color:var(--color-pv-fg-dim)] font-mono">
+                    Debug: {step.reason}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function NewSessionDialog({
   open,
   onClose,
@@ -150,6 +273,14 @@ export function NewSessionDialog({
   // Debounce ref for collision precheck (cancel on remount/name change)
   const collisionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Birth stream state (plan 06)
+  const [birthing, setBirthing] = useState(false);
+  const [birthProgress, setBirthProgress] = useState<BirthStepState[]>(
+    INITIAL_BIRTH_PROGRESS.map((s) => ({ ...s })),
+  );
+  const [birthFailedStep, setBirthFailedStep] = useState<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const flatHosts = useMemo(
     () =>
       // Patch #111 F4: exclude RDP-enabled hosts from the new-session picker.
@@ -175,6 +306,13 @@ export function NewSessionDialog({
     });
   }, [flatHosts, search]);
 
+  // Reset birth progress helper
+  function resetBirthProgress() {
+    setBirthing(false);
+    setBirthProgress(INITIAL_BIRTH_PROGRESS.map((s) => ({ ...s })));
+    setBirthFailedStep(null);
+  }
+
   // On open: if there's exactly one host in the tree, auto-select it (Test 9).
   // On close: reset all local state so a re-open starts fresh.
   useEffect(() => {
@@ -183,6 +321,8 @@ export function NewSessionDialog({
         setSelectedHost(flatHosts[0]);
       }
     } else {
+      // Abort any in-flight birth stream
+      abortControllerRef.current?.abort();
       // Reset all state to defaults on close
       setSelectedHost(null);
       setSessionName("");
@@ -205,8 +345,20 @@ export function NewSessionDialog({
         clearTimeout(collisionTimerRef.current);
         collisionTimerRef.current = null;
       }
+      // Reset birth state
+      resetBirthProgress();
     }
   }, [open, flatHosts]);
+
+  // Component unmount cleanup — abort stream if modal unmounts mid-birth.
+  // NOTE: the backend birth sequence continues regardless; this just stops
+  // the frontend from consuming SSE events (intentional per D-CONTEXT
+  // §"No cancel mid-birth").
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // When identity-mode toggles OFF, clear avatar candidates + picked candidate.
   // D-CONTEXT § "Stale-avatar handling": do NOT auto-reset on name/title/brief field edits
@@ -269,14 +421,93 @@ export function NewSessionDialog({
     }
   }
 
+  // Birth stream handler — runs when Create is clicked with identity-mode ON
+  async function handleBirth() {
+    if (!selectedHost || !pickedCandidateId) return;
+    setBirthing(true);
+    setBirthProgress(INITIAL_BIRTH_PROGRESS.map((s) => ({ ...s })));
+    setBirthFailedStep(null);
+    abortControllerRef.current = new AbortController();
+
+    const normalizedPath = normalizePath(path);
+
+    try {
+      const stream = openBirthStream(
+        {
+          hostId: selectedHost.id as unknown as number,
+          name: name.toLowerCase(),
+          title,
+          path: normalizedPath,
+          colorHue,
+          voice: voice || null,
+          avatarCandidateId: pickedCandidateId,
+        },
+        abortControllerRef.current.signal,
+      );
+
+      let endedEvent: BirthEvent | null = null;
+
+      for await (const evt of stream) {
+        if (evt.type === "step") {
+          setBirthProgress((prev) => {
+            const next = prev.map((s) => {
+              if (s.n === evt.n) {
+                return { ...s, status: evt.phase as StepStatus, reason: evt.reason };
+              }
+              return s;
+            });
+            return next;
+          });
+          if (evt.phase === "failed") {
+            setBirthFailedStep(evt.n);
+          }
+        } else if (evt.type === "ended") {
+          endedEvent = evt;
+          break;
+        }
+      }
+
+      if (endedEvent && endedEvent.type === "ended" && endedEvent.ok) {
+        // Success: call onCreate for focus-follow, then close modal
+        onCreate({
+          host: selectedHost,
+          sessionName: name.toLowerCase(),
+          path: normalizedPath,
+          identityMode: true,
+          name: name.toLowerCase(),
+          title,
+          brief,
+          avatarCandidateId: pickedCandidateId,
+          voice: voice || null,
+          colorHue,
+        });
+        setBirthing(false);
+        onClose();
+      } else {
+        // Failure: keep modal open, form fields disabled (user must close to retry)
+        setBirthing(false);
+      }
+    } catch (_e) {
+      // Stream error (fetch reject, network error, etc.) — surface as step-1 failure
+      setBirthProgress((prev) => {
+        const next = [...prev];
+        next[0] = { ...next[0], status: "failed", reason: _e instanceof Error ? _e.message : "birth failed" };
+        return next;
+      });
+      setBirthFailedStep(1);
+      setBirthing(false);
+    }
+  }
+
   // canOpen (Create button) computation:
   // - identity-mode ON: require host + valid name + title + brief + candidates + picked + no collisions
   // - identity-mode OFF: require host + valid session name (mirrors existing logic)
+  // During birthing: Create is disabled regardless
   const nameValid = identityMode
     ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
     : SESSION_NAME_PATTERN.test(sessionName);
 
-  const canOpen = identityMode
+  const canOpen = !birthing && (identityMode
     ? selectedHost !== null &&
       nameValid &&
       title.trim().length > 0 &&
@@ -286,7 +517,16 @@ export function NewSessionDialog({
       !skynetCollision &&
       !hostCollision &&
       !collisionChecking
-    : selectedHost !== null && nameValid;
+    : selectedHost !== null && nameValid);
+
+  // Whether birth failed (show progress even after birthing completes if failed)
+  // Also show progress if any step has been started (non-pending) — keeps progress
+  // visible while stream is in-flight even before birthFailedStep is set.
+  const anyStepActive = birthProgress.some((s) => s.status !== "pending");
+  const showBirthProgress = birthing || birthFailedStep !== null || anyStepActive;
+
+  // Whether form fields should be disabled (during birthing OR after failure — user must close to reset)
+  const formDisabled = birthing || birthFailedStep !== null;
 
   const uiTitle = t("nav.newSession", { defaultValue: "New session" });
   const startTitle = t("nav.newSessionTitle", {
@@ -315,6 +555,7 @@ export function NewSessionDialog({
   });
 
   const hasGeneratedOnce = candidates.length > 0;
+  void uiTitle; // suppress unused warning
 
   return (
     <Dialog
@@ -341,7 +582,8 @@ export function NewSessionDialog({
               onChange={(e) => setSearch(e.target.value)}
               placeholder={searchPlaceholder}
               aria-label={searchPlaceholder}
-              className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0"
+              disabled={formDisabled}
+              className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0 disabled:opacity-50"
             />
           </div>
 
@@ -364,8 +606,9 @@ export function NewSessionDialog({
                     type="button"
                     role="option"
                     aria-selected={selected}
-                    onClick={() => setSelectedHost(h)}
-                    className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 ${
+                    disabled={formDisabled}
+                    onClick={() => !formDisabled && setSelectedHost(h)}
+                    className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 disabled:opacity-50 ${
                       selected
                         ? "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] text-[color:var(--color-pv-fg)]"
                         : "hover:bg-[hsla(var(--pv-hue,35),40%,25%,0.18)] text-[color:var(--color-pv-fg)]"
@@ -403,6 +646,7 @@ export function NewSessionDialog({
                 value={sessionName}
                 onChange={(e) => setSessionName(e.target.value)}
                 placeholder={namePlaceholder}
+                disabled={formDisabled}
                 aria-invalid={!nameValid}
                 aria-describedby={!nameValid ? "new-session-name-error" : undefined}
               />
@@ -431,6 +675,7 @@ export function NewSessionDialog({
               value={path}
               onChange={(e) => setPath(e.target.value)}
               placeholder="~"
+              disabled={formDisabled}
             />
           </div>
 
@@ -440,8 +685,9 @@ export function NewSessionDialog({
               type="checkbox"
               id="new-session-identity-mode"
               checked={identityMode}
-              onChange={(e) => setIdentityMode(e.target.checked)}
-              className="w-3.5 h-3.5 rounded"
+              onChange={(e) => !formDisabled && setIdentityMode(e.target.checked)}
+              disabled={formDisabled}
+              className="w-3.5 h-3.5 rounded disabled:opacity-50"
             />
             <label
               htmlFor="new-session-identity-mode"
@@ -475,6 +721,7 @@ export function NewSessionDialog({
                   }}
                   onBlur={() => runCollisionPrecheck(name)}
                   placeholder="e.g. alicia"
+                  disabled={formDisabled}
                   aria-invalid={name.length > 0 && !IDENTITY_NAME_PATTERN.test(name)}
                 />
                 {/* Name validation errors */}
@@ -509,6 +756,7 @@ export function NewSessionDialog({
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="e.g. Research Assistant"
+                  disabled={formDisabled}
                 />
               </div>
 
@@ -527,7 +775,8 @@ export function NewSessionDialog({
                   onChange={(e) => setBrief(e.target.value)}
                   placeholder="A short description to seed the avatar generation..."
                   rows={3}
-                  className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] placeholder:text-[color:var(--color-pv-fg-dim)] outline-none resize-none"
+                  disabled={formDisabled}
+                  className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] placeholder:text-[color:var(--color-pv-fg-dim)] outline-none resize-none disabled:opacity-50"
                 />
               </div>
 
@@ -539,7 +788,7 @@ export function NewSessionDialog({
                   </span>
                   <button
                     type="button"
-                    disabled={genLoading || !name || !title.trim() || !brief.trim()}
+                    disabled={formDisabled || genLoading || !name || !title.trim() || !brief.trim()}
                     onClick={() => { void handleGenerate(); }}
                     className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
                     aria-label={hasGeneratedOnce ? "Regenerate" : "Generate"}
@@ -564,8 +813,9 @@ export function NewSessionDialog({
                         type="button"
                         data-candidate-id={c.id}
                         aria-selected={pickedCandidateId === c.id}
-                        onClick={() => setPickedCandidateId(c.id)}
-                        className={`flex-1 rounded overflow-hidden border-2 transition-all ${
+                        disabled={formDisabled}
+                        onClick={() => !formDisabled && setPickedCandidateId(c.id)}
+                        className={`flex-1 rounded overflow-hidden border-2 transition-all disabled:opacity-50 ${
                           pickedCandidateId === c.id
                             ? "border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)]"
                             : "border-transparent hover:border-[color:var(--color-pv-border-quiet)]"
@@ -592,9 +842,10 @@ export function NewSessionDialog({
                 </label>
                 <VoicePicker
                   value={voice}
-                  onChange={setVoice}
+                  onChange={(v) => !formDisabled && setVoice(v)}
                   id="new-identity-voice"
                   ariaLabel="Voice"
+                  disabled={formDisabled}
                 />
               </div>
 
@@ -608,18 +859,33 @@ export function NewSessionDialog({
                 </label>
                 <ColorPicker
                   value={colorHue}
-                  onChange={setColorHue}
+                  onChange={(v) => !formDisabled && setColorHue(v)}
                   id="new-identity-color"
+                  disabled={formDisabled}
                 />
               </div>
             </div>
           )}
+
+          {/* Birth progress — shown during birth AND after failure */}
+          {showBirthProgress && (
+            <BirthProgress
+              steps={birthProgress}
+              failedStep={birthFailedStep}
+              hostName={selectedHost?.name ?? ""}
+              identityName={name.toLowerCase()}
+              identityPath={normalizePath(path)}
+            />
+          )}
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            {cancelLabel}
-          </Button>
+          {/* Cancel button — hidden during birth (not during failure, to allow close) */}
+          {!birthing && (
+            <Button variant="ghost" onClick={onClose}>
+              {cancelLabel}
+            </Button>
+          )}
           <Button
             variant="outline"
             disabled={!canOpen}
@@ -628,20 +894,8 @@ export function NewSessionDialog({
               if (!canOpen || !selectedHost) return;
               const normalizedPath = normalizePath(path);
               if (identityMode) {
-                // Identity-mode ON: emit full birth payload
-                // The identity name doubles as the tmux session name per Nelly's mechanism
-                onCreate({
-                  host: selectedHost,
-                  sessionName: name,
-                  path: normalizedPath,
-                  identityMode: true,
-                  name: name.toLowerCase(),
-                  title,
-                  brief, // EPHEMERAL — only in memory, only sent to birth endpoint by plan 06
-                  avatarCandidateId: pickedCandidateId!,
-                  voice: voice || null,
-                  colorHue,
-                });
+                // Identity-mode ON: start birth stream
+                void handleBirth();
               } else {
                 // Identity-mode OFF: existing regular-session contract + path
                 onCreate({
@@ -653,7 +907,7 @@ export function NewSessionDialog({
               }
             }}
           >
-            {openLabel}
+            {birthing ? "Creating..." : openLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
