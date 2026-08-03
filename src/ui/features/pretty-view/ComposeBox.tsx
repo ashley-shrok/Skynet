@@ -198,6 +198,17 @@ export interface ComposeBoxProps {
   // One callback for BOTH entry points (paperclip picker + textarea
   // paste). The parent hook's stageAttachments handler consumes this.
   onAttachFiles?: (files: File[]) => void;
+  // Quick 260803-05i: target-aware staging entry point. Queued slots pass their
+  // own target string `queued:${slot.id}` so per-slot attachments stay isolated.
+  // Legacy `onAttachFiles` remains for backward-compat + primary paste path.
+  onAttachFilesForTarget?: (target: string, files: File[]) => void;
+  // Quick 260803-05i: per-slot read of staged attachments. Task 2 uses this to
+  // render the overlay chip strip inside each queued textarea's wrapper.
+  getStagedAttachmentsForTarget?: (target: string) => StagedAttachmentLike[];
+  // Quick 260803-05i: per-slot clear. QueuedRow's top-right delete × calls
+  // this when a slot is removed so its staged attachments don't linger in
+  // the hook.
+  clearStagedForTarget?: (target: string) => void;
   // Called instead of onSend when Send is clicked and at least one
   // attachment is staged. The caller (PrettyView) invokes
   // usePrettyViewUploads.startBatch(caption). Send remains ENABLED
@@ -288,6 +299,9 @@ export function ComposeBox({
   showPaperclip,
   isTouchDevice,
   onAttachFiles,
+  onAttachFilesForTarget,
+  getStagedAttachmentsForTarget,
+  clearStagedForTarget,
   onSendWithAttachments,
   onRetryBatch,
   asideActive,
@@ -302,17 +316,33 @@ export function ComposeBox({
   // file to be re-picked later — some browsers otherwise no-op a repeat
   // selection because the "value hasn't changed."
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const handleOpenFilePicker = useCallback(() => {
+  // Quick 260803-05i: records which target owns the currently-open file picker.
+  // The main-composebox paperclip sets this to "primary" on click; each queued
+  // slot's paperclip sets this to `queued:${slot.id}`. handleFileInputChange
+  // reads the ref, defaults to "primary" if null (safety), and routes to the
+  // target-aware onAttachFilesForTarget prop (falling back to onAttachFiles if
+  // the target-aware prop isn't threaded — backward-compat).
+  const activeStagingTargetRef = useRef<string | null>(null);
+  const handleOpenFilePicker = useCallback((target: string = "primary") => {
+    activeStagingTargetRef.current = target;
     fileInputRef.current?.click();
   }, []);
   const handleFileInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
-      if (files.length > 0) onAttachFiles?.(files);
+      const target = activeStagingTargetRef.current ?? "primary";
+      activeStagingTargetRef.current = null;
+      if (files.length > 0) {
+        if (onAttachFilesForTarget) {
+          onAttachFilesForTarget(target, files);
+        } else {
+          onAttachFiles?.(files);
+        }
+      }
       // Reset so the same file can be picked again in the same session.
       e.target.value = "";
     },
-    [onAttachFiles],
+    [onAttachFiles, onAttachFilesForTarget],
   );
   // Phase 05 — clipboard paste of file-shaped payloads (screenshots,
   // dragged-from-Files.app, etc.). Text pastes fall through to the
@@ -1886,7 +1916,12 @@ export function ComposeBox({
                     "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
                     "border border-[rgba(220,225,245,0.07)]",
                     "rounded-[10px] px-4 py-3",
-                    "pr-10 pl-10",
+                    // Quick 260803-05i: queued textareas always have a
+                    // paperclip at left-1 bottom-0.5 now (parity with
+                    // primary). pl-11 mirrors the primary's paperclip-
+                    // clearance treatment so composed text does not
+                    // underlap the icon.
+                    "pr-10 pl-11",
                     // Quick 260802-uow bounty 3: bump right padding to
                     // clear mic (right-11) + arm-idle (right-21) when
                     // all 3 buttons render. tailwind-merge later-wins
@@ -1925,26 +1960,68 @@ export function ComposeBox({
                     </span>
                   </button>
                 )}
-                {/* Delete X button — absolute left-1 bottom-0.5 */}
+                {/* Quick 260803-05i: Paperclip attach button — absolute
+                    left-1 bottom-0.5. Physically REPLACES the former delete
+                    × (which moved to the top-right corner tab below). Uses
+                    the SAME visual treatment as the main-composebox
+                    paperclip so Ashley's opacity/hover/pressed animation
+                    feel is identical across primary and queued rows.
+                    handleOpenFilePicker(`queued:${slot.id}`) arms the
+                    activeStagingTargetRef so handleFileInputChange routes
+                    the selected files to the slot's target string via
+                    onAttachFilesForTarget. */}
+                <button
+                  type="button"
+                  onClick={() => handleOpenFilePicker(`queued:${slot.id}`)}
+                  disabled={canSend === false || asideActive === true || recycleActive === true}
+                  aria-label="Attach file to queued message"
+                  title="Attach file"
+                  className={cn(
+                    "absolute left-1 bottom-0.5",
+                    "p-2",
+                    "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+                    "disabled:text-[rgba(240,235,224,0.15)]",
+                    "disabled:cursor-not-allowed",
+                    "transition-[color,transform] duration-120",
+                    "active:scale-95",
+                    "cursor-pointer",
+                  )}
+                >
+                  <Paperclip className="size-6" />
+                </button>
+                {/* Quick 260803-05i: Delete × top-right corner tab. Positioned
+                    OUTSIDE the textarea's rounded-[10px] border via -top-2
+                    -right-2 so it visually protrudes as a small tab (Ashley's
+                    design differentiator vs. the main composebox — which has
+                    no per-message delete affordance). Sibling of the Textarea
+                    + armed overlay + paperclip + Send/mic/arm-idle group, so
+                    it lives OUTSIDE the inner content area (Task 2's inner
+                    wrapper will host the chip-strip overlay; this tab must
+                    NOT be inside it). onClick removes the slot AND clears
+                    that slot's staged attachments via clearStagedForTarget
+                    (the new hook API from Task 1). 30%→90% opacity treatment
+                    matches the paperclip. */}
                 <button
                   type="button"
                   onClick={() => {
                     const nextSlots = queueSlots.filter((s) => s.id !== slot.id);
                     setQueueSlots(nextSlots);
                     scheduleAutosave(latestBodyRef.current, nextSlots);
+                    clearStagedForTarget?.(`queued:${slot.id}`);
                   }}
                   aria-label="Delete queued message"
                   title="Delete queued message"
                   className={cn(
-                    "absolute left-1 bottom-0.5",
-                    "p-2",
+                    "absolute -top-2 -right-2 z-20",
+                    "p-1 rounded-full",
+                    "bg-[rgba(10,12,20,0.85)] border border-[rgba(220,225,245,0.12)]",
                     "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
                     "transition-[color,transform] duration-120",
                     "active:scale-95",
                     "cursor-pointer",
                   )}
                 >
-                  <X className="size-6" aria-hidden="true" />
+                  <X className="size-4" aria-hidden="true" />
                 </button>
                 {/* Send / RecordingControls slot — absolute right-1 bottom-0.5 (mutex) */}
                 {showSlotRecording ? (

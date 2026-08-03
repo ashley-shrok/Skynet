@@ -105,6 +105,14 @@ export interface UsePrettyViewUploadsReturn {
   ) => void;
   getStagedAttachments: (target: string) => StagedAttachment[];
   removeAttachment: (tempId: string) => void;
+  // Quick 260803-05i: clear ONE target's staged attachments (aborts any
+  // in-flight pump loops for that target's tempIds; leaves other targets
+  // untouched). Used by ComposeBox when a queued slot is deleted — slot
+  // removal must also purge its per-slot staging so a re-added slot with
+  // the same id doesn't inherit stale entries (defense-in-depth; slot ids
+  // are UUIDs so collision is effectively impossible, but the invariant
+  // matters for correctness).
+  clearStagedForTarget: (target: string) => void;
   startBatch: (
     caption: string,
   ) => Promise<{ messageQueueItemId: string } | null>;
@@ -545,6 +553,27 @@ export function usePrettyViewUploads(
   );
 
   // -------------------------------------------------------------------------
+  // Quick 260803-05i: clearStagedForTarget — empties ONE target's staged
+  // list AND flips abort-flags for its in-flight tempIds so the pump bails at
+  // the next chunk check. Mirrors removeAttachment's abort-flag pattern per
+  // tempId. Does NOT touch batchIdRef, capturedCaptionRef, readyFiredRef, or
+  // batchInFlight — those are primary-batch-scoped lifecycle, not per-target
+  // (queued targets stage without a batch in this Quick; queued-slot send
+  // does not yet wire startBatch — noted as follow-up in the plan).
+  // -------------------------------------------------------------------------
+  const clearStagedForTarget = useCallback(
+    (target: string) => {
+      const current = attachmentsRefByTarget.current.get(target) ?? [];
+      for (const att of current) {
+        abortFlagsRef.current.set(att.tempId, true);
+        lastOffsetSentRef.current.delete(att.tempId);
+      }
+      setAttachments(target, []);
+    },
+    [setAttachments],
+  );
+
+  // -------------------------------------------------------------------------
   // resetBatch — caller invokes AFTER onUploadReadyToInject fires (or on
   // any explicit "clear staging" gesture).
   // -------------------------------------------------------------------------
@@ -784,6 +813,7 @@ export function usePrettyViewUploads(
       stageAttachments,
       getStagedAttachments,
       removeAttachment,
+      clearStagedForTarget,
       startBatch,
       retryBatch,
       resetBatch,
@@ -797,6 +827,7 @@ export function usePrettyViewUploads(
       stageAttachments,
       getStagedAttachments,
       removeAttachment,
+      clearStagedForTarget,
       startBatch,
       retryBatch,
       resetBatch,

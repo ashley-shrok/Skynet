@@ -800,4 +800,67 @@ describe("target-aware API (Quick 260802-wxy)", () => {
         .map((a) => a.file.name),
     ).toEqual(["q1.txt", "q2.txt"]);
   });
+
+  // Quick 260803-05i: clearStagedForTarget(target) — per-target clear API.
+  // Empties one target's staged list AND aborts any in-flight pumps for that
+  // target's tempIds (defense-in-depth: matches removeAttachment's abort-flag
+  // pattern). Used by ComposeBox when a queued slot is deleted so its
+  // per-slot staged attachments don't linger in the hook.
+  it("Target 7: clearStagedForTarget('queued:slot-a') empties ONLY that target — primary and other queued targets remain intact", () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const pf = makeMockFile("primary.txt", 10);
+    const qa1 = makeMockFile("qa1.txt", 10);
+    const qa2 = makeMockFile("qa2.txt", 20);
+    const qb = makeMockFile("qb.txt", 30);
+    act(() => {
+      result.current.stageAttachments("primary", [pf]);
+      result.current.stageAttachments("queued:slot-a", [qa1, qa2]);
+      result.current.stageAttachments("queued:slot-b", [qb]);
+    });
+    // Sanity: all three targets populated.
+    expect(result.current.stagedAttachments).toHaveLength(1);
+    expect(result.current.getStagedAttachments("queued:slot-a")).toHaveLength(2);
+    expect(result.current.getStagedAttachments("queued:slot-b")).toHaveLength(1);
+    act(() => {
+      result.current.clearStagedForTarget("queued:slot-a");
+    });
+    // Only queued:slot-a cleared; primary and queued:slot-b intact.
+    expect(result.current.stagedAttachments).toHaveLength(1);
+    expect(result.current.stagedAttachments[0].file.name).toBe("primary.txt");
+    expect(result.current.getStagedAttachments("queued:slot-a")).toEqual([]);
+    expect(result.current.getStagedAttachments("queued:slot-b")).toHaveLength(1);
+    expect(
+      result.current.getStagedAttachments("queued:slot-b")[0].file.name,
+    ).toBe("qb.txt");
+  });
+
+  it("Target 8: clearStagedForTarget('queued:slot-a') on an empty target is a no-op — does not throw, other targets remain intact after staging", () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    // Nothing staged yet — clear should be a no-op.
+    expect(() => {
+      act(() => {
+        result.current.clearStagedForTarget("queued:slot-a");
+      });
+    }).not.toThrow();
+    expect(result.current.getStagedAttachments("queued:slot-a")).toEqual([]);
+    // After the no-op clear, staging to primary should still work as normal.
+    const pf = makeMockFile("post-clear.txt", 10);
+    act(() => {
+      result.current.stageAttachments("primary", [pf]);
+    });
+    expect(result.current.stagedAttachments).toHaveLength(1);
+    expect(result.current.stagedAttachments[0].file.name).toBe("post-clear.txt");
+    // queued:slot-a still empty.
+    expect(result.current.getStagedAttachments("queued:slot-a")).toEqual([]);
+  });
 });

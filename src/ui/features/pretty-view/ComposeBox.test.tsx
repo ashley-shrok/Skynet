@@ -748,6 +748,148 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
   });
 });
 
+// ============================================================
+// Quick 260803-05i: queued-row per-slot paperclip, top-right delete corner
+// tab, padding parity, per-slot chip overlay (Task 2), one-line armed
+// header (Task 3). This describe block accumulates across all three tasks
+// so the mount/setup boilerplate is defined once.
+// ============================================================
+
+describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-right delete tab + padding parity + overlay chip + one-line armed header", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function flushMountEffect() {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  // ── Task 1: paperclip + top-right delete tab + padding parity ────────────
+
+  it("QB-1: queued row renders a paperclip attach button at absolute left-1 bottom-0.5 with 30% opacity default", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const paperclip = screen.getByRole("button", {
+      name: /attach file to queued message/i,
+    });
+    expect(paperclip).toBeTruthy();
+    expect(paperclip.className).toMatch(/\bleft-1\b/);
+    expect(paperclip.className).toMatch(/\bbottom-0\.5\b/);
+    // 30% opacity treatment — matches the main-composebox paperclip.
+    expect(paperclip.className).toMatch(/rgba\(240,235,224,0\.3\)/);
+  });
+
+  it("QB-2: paperclip click on queued slot routes file-picker output to onAttachFilesForTarget(`queued:${slotId}`, files) — NOT primary", async () => {
+    const onAttachFilesForTarget = vi.fn();
+    render(
+      <ComposeBox
+        {...baseProps({ onAttachFilesForTarget })}
+      />,
+    );
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    // Click the queued paperclip — arms activeStagingTargetRef with the
+    // slot's target BEFORE opening the hidden file input.
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /attach file to queued message/i }),
+      );
+    });
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    expect(fileInput).not.toBeNull();
+    const f = new File(["hello"], "hello.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", {
+      value: [f],
+      configurable: true,
+    });
+    await act(async () => {
+      fireEvent.change(fileInput);
+    });
+    expect(onAttachFilesForTarget).toHaveBeenCalledTimes(1);
+    const [target, files] = onAttachFilesForTarget.mock.calls[0];
+    expect(target).toMatch(/^queued:/);
+    expect(files).toEqual([f]);
+  });
+
+  it("QB-3: queued row renders a delete × in the top-right corner OUTSIDE the textarea wrapper (tab protrudes via -top-* + -right-*)", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const deleteBtn = screen.getByRole("button", {
+      name: /delete queued message/i,
+    });
+    // Corner-tab positioning: -top-* + -right-* protrudes OUTSIDE the
+    // textarea's border (Task 1 uses -top-2 -right-2).
+    expect(deleteBtn.className).toMatch(/-top-/);
+    expect(deleteBtn.className).toMatch(/-right-/);
+    // Delete tab must be a descendant of the slot outer container.
+    const outer = deleteBtn.closest("[data-slot-id]");
+    expect(outer).not.toBeNull();
+  });
+
+  it("QB-4: clicking the delete × removes the slot AND calls clearStagedForTarget for that slot's target", async () => {
+    const clearStagedForTarget = vi.fn();
+    render(
+      <ComposeBox {...baseProps({ clearStagedForTarget })} />,
+    );
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    expect(screen.getAllByRole("textbox").length).toBe(2); // slot + primary
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /delete queued message/i }),
+      );
+    });
+    expect(screen.getAllByRole("textbox").length).toBe(1); // primary only
+    expect(clearStagedForTarget).toHaveBeenCalledTimes(1);
+    expect(clearStagedForTarget.mock.calls[0][0]).toMatch(/^queued:/);
+  });
+
+  it("QB-5: queued textarea className carries pl-11 (padding parity for the left-side paperclip clearance)", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    // Slot renders BEFORE primary in DOM order.
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    const slotTextarea = allTextareas[0];
+    expect(slotTextarea.className).toMatch(/\bpl-11\b/);
+  });
+
+  it("QB-6: the old left-1 bottom-0.5 delete × is GONE — the delete button now lives at the top-right corner (className MUST NOT contain 'left-1')", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const deleteBtn = screen.getByRole("button", {
+      name: /delete queued message/i,
+    });
+    expect(deleteBtn.className).not.toMatch(/\bleft-1\b/);
+  });
+});
+
 describe("ComposeBox — Phase 9 layout", () => {
   beforeEach(() => {
     vi.clearAllMocks();

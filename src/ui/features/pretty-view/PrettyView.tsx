@@ -1401,9 +1401,17 @@ export function PrettyView({
           // Quick 260802-wxy: wrap the target-aware hook API in a
           // ComposeBox-compatible (files-only) callback that always targets
           // "primary" — the paperclip picker and paste path in the main
-          // composebox always stage to primary in Quick A. Quick B will
-          // add per-slot paperclips with their own slot-id targets.
+          // composebox always stage to primary in Quick A. Quick B added
+          // per-slot paperclips (below via onAttachFilesForTarget) but the
+          // legacy callback stays for the paste path + backward-compat.
           onAttachFiles={(files) => uploads.stageAttachments("primary", files)}
+          // Quick 260803-05i: target-aware wiring for the queued-row per-slot
+          // paperclip + per-slot chip strip overlay (Task 2) + per-slot
+          // clear-on-delete (Task 1). Legacy primary-only wiring above stays
+          // in place — the target-aware props are additive.
+          onAttachFilesForTarget={(target, files) => uploads.stageAttachments(target, files)}
+          getStagedAttachmentsForTarget={uploads.getStagedAttachments}
+          clearStagedForTarget={uploads.clearStagedForTarget}
           // Phase 14 quick-task 260726-vbd: widened asideActive predicate
           // covers both the GENERATION phase (asidePending=true, from /btw
           // submit through aside_ready arrival) and the DISPLAY phase
