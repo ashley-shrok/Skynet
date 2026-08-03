@@ -480,3 +480,40 @@ describe("Terminal.tsx handleInjectedTurnReady — behavioral reproduction", () 
     expect(mockWs.send).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Quick 260803-1xw / bounty pv-paste-to-terminal-lands-as-unsent-bracket-
+ * paste: structural pins for the new `paste_send_failed` WS handler branch.
+ * The backend PV submit watchdog (patch: quick 260803-1xw) emits this event
+ * when the initial Enter + 1 retry Enter both failed to produce activity
+ * within 2 x 2.5s windows. Terminal.tsx surfaces it as a `toast.error` and
+ * logs to the connection log — same pattern as `tmux_unavailable` / `tmux_
+ * detached` above.
+ */
+describe("Terminal.tsx quick 260803-1xw — paste_send_failed WS handler", () => {
+  const src = readFileSync(TERMINAL_TSX, "utf-8");
+  const I18N_EN = join(HERE, "..", "..", "locales", "en.json");
+
+  it("Test PV-Watchdog 1: WS handler branch for paste_send_failed exists exactly once", () => {
+    const matches = src.match(/msg\.type === "paste_send_failed"/g);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(1);
+  });
+
+  it("Test PV-Watchdog 2: paste_send_failed branch calls toast.error with pasteSendFailed i18n key", () => {
+    // Proximity match — the toast.error call must live inside the branch.
+    // The window (900 chars) is generous enough to allow for the docblock
+    // comment above the toast.error call but tight enough that we won't
+    // false-positive on an unrelated toast.error elsewhere in the file.
+    expect(
+      /msg\.type === "paste_send_failed"[\s\S]{0,900}toast\.error\(t\("terminal\.pasteSendFailed"\)/.test(
+        src,
+      ),
+    ).toBe(true);
+  });
+
+  it("Test PV-Watchdog 3: terminal.pasteSendFailed i18n key is registered in en.json", () => {
+    const i18nSrc = readFileSync(I18N_EN, "utf-8");
+    expect(i18nSrc).toMatch(/"pasteSendFailed"/);
+  });
+});

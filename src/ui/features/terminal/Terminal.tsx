@@ -1771,6 +1771,22 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             setIsTmuxAttached(false);
             onTmuxSessionChange?.(null);
             toast.info(t("terminal.tmuxDetached"), { duration: 3000 });
+          } else if (msg.type === "paste_send_failed") {
+            // Quick 260803-1xw / bounty pv-paste-to-terminal-lands-as-
+            // unsent-bracket-paste: the backend PV submit watchdog fires
+            // this event when the initial Enter + 1 retry Enter both
+            // failed to produce any PTY activity within 2 x 2.5s windows.
+            // Tina could not reproduce the underlying stuck-send locally
+            // (tmux+paste-buffer at 22KB/100KB), so this is our
+            // observability + recovery UX rather than a byte-level fix —
+            // surface visibly so Ashley knows the send didn't take effect
+            // and can retry manually or shorten the message.
+            toast.error(t("terminal.pasteSendFailed"), { duration: 8000 });
+            addLog({
+              type: "error",
+              stage: "connection",
+              message: t("terminal.pasteSendFailed"),
+            });
           } else if (msg.type === "connection_log") {
             if (msg.data) {
               addLog({
