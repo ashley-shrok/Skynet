@@ -202,6 +202,8 @@ describe("NewSessionDialog: search filter", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 5: empty name is VALID; Open is enabled after host select; onCreate
 //         receives sessionName: undefined (empty allowed → server auto-fills)
+// Phase 20 Plan 05: identity-mode defaults ON; test turns it OFF to exercise
+// the regular-session path. onCreate now includes {path, identityMode:false}.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: empty name accepted", () => {
   it("Test 5: empty name → Open enabled after host select → onCreate({host, sessionName: undefined})", () => {
@@ -214,6 +216,10 @@ describe("NewSessionDialog: empty name accepted", () => {
         onCreate={onCreate}
       />,
     );
+
+    // Turn off identity-mode to use the regular-session path
+    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    fireEvent.click(checkbox);
 
     // Pre-select-host: Open is disabled
     let openBtn = getByRole("button", { name: /^open$/i }) as HTMLButtonElement;
@@ -237,6 +243,8 @@ describe("NewSessionDialog: empty name accepted", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 6: non-empty valid name passes through to onCreate
+// Phase 20 Plan 05: identity-mode defaults ON; test turns it OFF to exercise
+// the regular-session path. onCreate now includes {path, identityMode:false}.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: non-empty name passthrough", () => {
   it("Test 6: valid name → onCreate({host, sessionName: 'my-session'})", () => {
@@ -250,6 +258,10 @@ describe("NewSessionDialog: non-empty name passthrough", () => {
       />,
     );
 
+    // Turn off identity-mode to use the regular-session path
+    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    fireEvent.click(checkbox);
+
     fireEvent.click(getByText("alpha"));
     const nameInput = getByLabelText(/session name/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "my-session" } });
@@ -259,15 +271,19 @@ describe("NewSessionDialog: non-empty name passthrough", () => {
     fireEvent.click(openBtn);
 
     expect(onCreate).toHaveBeenCalledTimes(1);
-    expect(onCreate.mock.calls[0][0]).toEqual({
+    const arg = onCreate.mock.calls[0][0];
+    expect(arg).toMatchObject({
       host: expect.objectContaining({ id: "h1", name: "alpha" }),
       sessionName: "my-session",
+      identityMode: false,
     });
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 7: invalid characters disable Open and surface an error
+// Phase 20 Plan 05: identity-mode defaults ON; test turns it OFF to exercise
+// the regular session-name validation path (SESSION_NAME_PATTERN).
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: invalid name disables Open", () => {
   it("Test 7: name with shell-metachars disables Open + surfaces error message", () => {
@@ -280,6 +296,10 @@ describe("NewSessionDialog: invalid name disables Open", () => {
         onCreate={onCreate}
       />,
     );
+    // Turn off identity-mode to reveal the session-name input
+    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    fireEvent.click(checkbox);
+
     fireEvent.click(getByText("alpha"));
     const nameInput = getByLabelText(/session name/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "bad;name`chars" } });
@@ -316,6 +336,8 @@ describe("NewSessionDialog: no host disables Open", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 9: single-host tree auto-selects the sole host on open
+// Phase 20 Plan 05: identity-mode defaults ON; test turns it OFF so that
+// host auto-selection alone is sufficient to enable Open (regular-session path).
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: single-host auto-select", () => {
   it("Test 9: hostTree with exactly one host → that host is pre-selected + Open enabled + click fires onCreate with the sole host", () => {
@@ -328,7 +350,11 @@ describe("NewSessionDialog: single-host auto-select", () => {
         onCreate={onCreate}
       />,
     );
-    // Open button should be enabled immediately without user host-select
+    // Turn off identity-mode so single-host auto-selection enables Open
+    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    fireEvent.click(checkbox);
+
+    // Open button should be enabled immediately (sole host pre-selected + no extra fields needed)
     const openBtn = getByRole("button", { name: /^open$/i }) as HTMLButtonElement;
     expect(openBtn.disabled).toBe(false);
 
@@ -609,21 +635,20 @@ describe("NewSessionDialog: Test H — invalid name disables Create + shows erro
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test I — Skynet collision blocks Create", () => {
   it("Test I: listIdentities returns matching key → 'Already exists in Skynet' + Create disabled", async () => {
-    vi.useFakeTimers();
-    mockListIdentities.mockResolvedValueOnce([
+    mockListIdentities.mockResolvedValue([
       { identityKey: "alicia", displayName: "Alicia", id: "1", title: null, colorHue: null, voice: null,
         avatarMime: "", avatarUrl: "", avatarEtag: "", createdAt: "", updatedAt: "" }
     ]);
-    mockGetIdentityExistsOnHost.mockResolvedValueOnce(false);
+    mockGetIdentityExistsOnHost.mockResolvedValue(false);
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "alicia" } });
     fireEvent.blur(nameInput);
-    vi.runAllTimers();
+    // Wait for debounce (300ms) + async collision checks
     await waitFor(() => {
       expect(screen.queryByText(/already exists in skynet/i)).toBeTruthy();
-    });
+    }, { timeout: 2000 });
     const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
   });
@@ -634,18 +659,16 @@ describe("NewSessionDialog: Test I — Skynet collision blocks Create", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test J — host collision blocks Create", () => {
   it("Test J: getIdentityExistsOnHost returns true → 'Already exists on <hostname>' + Create disabled", async () => {
-    vi.useFakeTimers();
-    mockListIdentities.mockResolvedValueOnce([]);
-    mockGetIdentityExistsOnHost.mockResolvedValueOnce(true);
+    mockListIdentities.mockResolvedValue([]);
+    mockGetIdentityExistsOnHost.mockResolvedValue(true);
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "new-agent" } });
     fireEvent.blur(nameInput);
-    vi.runAllTimers();
     await waitFor(() => {
       expect(screen.queryByText(/already exists on/i)).toBeTruthy();
-    });
+    }, { timeout: 2000 });
     const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
   });
@@ -656,13 +679,12 @@ describe("NewSessionDialog: Test J — host collision blocks Create", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test K — collision clears when name changes", () => {
   it("Test K: after collision, change name to valid unique one → error clears", async () => {
-    vi.useFakeTimers();
     mockListIdentities
       .mockResolvedValueOnce([
         { identityKey: "alicia", displayName: "Alicia", id: "1", title: null, colorHue: null,
           voice: null, avatarMime: "", avatarUrl: "", avatarEtag: "", createdAt: "", updatedAt: "" }
       ])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
 
     const { getByLabelText } = renderDialog();
@@ -670,14 +692,12 @@ describe("NewSessionDialog: Test K — collision clears when name changes", () =
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "alicia" } });
     fireEvent.blur(nameInput);
-    vi.runAllTimers();
-    await waitFor(() => expect(screen.queryByText(/already exists in skynet/i)).toBeTruthy());
+    await waitFor(() => expect(screen.queryByText(/already exists in skynet/i)).toBeTruthy(), { timeout: 2000 });
 
-    // Change name
+    // Change name — collision state clears immediately on change
     fireEvent.change(nameInput, { target: { value: "alicia2" } });
-    fireEvent.blur(nameInput);
-    vi.runAllTimers();
-    await waitFor(() => expect(screen.queryByText(/already exists in skynet/i)).toBeNull());
+    // The collision error should clear on change (setSkynetCollision(false) in onChange)
+    await waitFor(() => expect(screen.queryByText(/already exists in skynet/i)).toBeNull(), { timeout: 2000 });
   });
 });
 
