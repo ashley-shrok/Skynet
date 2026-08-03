@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-03T03:33:53.950Z"
-last_activity: 2026-08-03 -- Phase 20 execution started
+last_updated: "2026-08-03T03:59:33.759Z"
+last_activity: 2026-08-03
 progress:
   total_phases: 21
   completed_phases: 14
   total_plans: 86
-  completed_plans: 76
+  completed_plans: 79
   percent: 67
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 20 (identity-creation-ui) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 20
-Last activity: 2026-08-03 -- Phase 20 execution started
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-08-03
 
 Last activity: 2026-08-03 — Completed quick task 260803-05i: Queued rows per-slot paperclip attach + delete top-right corner tab + padding parity + overlay chip strip via QueuedRow extraction + bounty #1's one-line header restructure with fire-order badge + "click to cancel" copy (Quick B closer of paired ship with `attached-files-as-chips-in-textarea-per-message` #2). Cashes in Quick A's per-target state model scaffolding to wire queued textareas as non-primary producers, closes BOTH bounties #1 (`adjust-visual-on-queued-messages`) and #2 (`attached-files-as-chips-in-textarea-per-message`) in a single coordinated pair completion. Three atomic commits on `feat/tab-title-from-tmux`: `5ad9634` (patch #284 — per-queued paperclip attach button at `absolute left-1 bottom-0.5` with 30%→90% opacity replaces the old left-slot delete ×; new small × corner tab at `-top-2 -right-2` OUTSIDE the queued textarea border with same opacity treatment becomes the visual differentiator per Ashley's own resolution "the delete mechanism doubles as the differentiator"; `pl-11` padding parity so text doesn't underlap the paperclip; new `clearStagedForTarget(target)` hook API on usePrettyViewUploads with 2 new tests T-7/T-8; three new target-aware ComposeBox props `onAttachFilesForTarget`/`getStagedAttachmentsForTarget`/`clearStagedForTarget` wired through PrettyView; file picker rewritten to route via `activeStagingTargetRef` so click-attach on any slot lands in that slot's target; 6 new ComposeBox tests QB-1..QB-6 covering paperclip position + opacity, click-invokes-picker-with-`queued:` target, delete-tab-position-outside-wrapper, delete-clears-slot-and-attachments, padding parity assertion) + `3ccfc0c` (patch #285 — extracted queued row body into private `QueuedRow` component inside ComposeBox.tsx with 24-prop surface so per-slot `chipStripRef` + `chipStripHeight` state + JSDOM-guarded ResizeObserver are naturally scoped per instance; added inner `.relative.flex-1.self-stretch` wrapper hosting overlaid `<AttachmentChipStrip>` on each queued textarea mirroring Quick A's primary pattern verbatim with dynamic `paddingTop = chipStripHeight + 12`; each row reads its own attachments via `getStagedAttachmentsForTarget("queued:${slot.id}")`; 3 new tests QB-7/QB-8/QB-9 covering slot-inner-wrapper overlay + empty-state no-strip + primary-overlay regression guard through extraction) + `25d5bda` (patch #286 — closes bounty #1: restructured BOTH the queued AND primary armed overlays from vertical icon-above-label stack to single inline `flex-row` with icon shrunk `size-5→size-4` + label + optional `${idx+1}/${queueSlots.length}` fire-order badge gated `queueSlots.length >= 2` for visual consistency across both surfaces + literal lowercase "click to cancel" copy; QueuedRow gained a `queue` prop for badge computation; the cancel `onClick` handler is untouched so click-to-cancel behavior is preserved — the text is a cue, not a mechanism swap; 5 new tests QB-10..QB-14 covering one-line layout, badge presence at 2+ / absence at 1, "click to cancel" text presence, cancel-onclick-still-fires). Verification: `npx tsc --noEmit` EXIT 0 on each commit; narrow suites 39→45→48→53 across the three tasks; final full frontend suite `npx vitest run` = **1103 passed / 6 skipped / 0 failed across 89 files** (+16 net-new tests vs Quick A's 1087 baseline, 0 regressions); defense-in-depth grep gate on `/tmp/05i-vitest-full.log` for `FAIL|✗|Unhandled|failed` = 0 lines. Zero backend files touched across all three commits. NOT pushed / NOT image-built / NOT deployed per code-work-doesn't-authorize-ship rule (Ashley 2026-07-27). Ships as patches #284 + #285 + #286 in `~/.claude/identities/tina/skynet-patches.md`. Deploy queue extends #267→#283 → +#284+#285+#286 (**20 unpushed-to-container commits atop `sha256:07547f6c4185`**); HELD until Ashley's ship word ends the pinned-rotation. Rebase risk: nil — all touched files fork-authored (Phase 05 pretty-view). Both bounties archived on ship: `bounties/attached-files-as-chips-in-textarea-per-message/` + `bounties/adjust-visual-on-queued-messages/` → `bounties/archive/`. Pinned pool: 10 → 8 (this session shipped BOTH bounties as the coordinated pair Ashley designed 2026-08-02). Eighteenth pinned-bounty group resolved in the work-through-all-pinned-bounties arc.
 
@@ -85,7 +85,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 97%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -130,6 +130,7 @@ Progress: [██████████] 97%
 | Phase 16 P04 | 125 | 1 tasks | 1 files |
 | Phase 18 P04 | 25m | 3 tasks | 3 files |
 | Phase 19 P01 | 203 | 2 tasks | 2 files |
+| Phase 20-identity-creation-ui P02 | 15 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -190,6 +191,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 15 Wave 2: Variant B store mutator locked (try/catch around void putPinnedIds([...nextPinnedIds]) BEFORE state mutation; mirrors addToActiveSet:713-722)
 - [Phase ?]: Phase 15 Wave 2: SC6 rollout scaffold — putPinnedIds console.warn's on server-echo mismatch (JSON-endpoint equivalent of patch #77 GET-verify)
 - [Phase ?]: Phase 15 Wave 2: Test 30p uses vi.importActual to bypass module mock for real-putPinnedIds coverage
+- [Phase ?]: isLocalHostId imported from identity-artifact-reader.ts; SSH probe uses single-quoted name in if [ -d ] check; 3-tier timeout (3s connect, 3s exec, 10s nginx)
 
 ### Pending Todos
 
@@ -339,6 +341,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-03T03:24:15.701Z
+Last session: 2026-08-03T03:59:26.801Z
 Stopped at: Phase 20 planned - 6 plans, 4 waves, IDUI-01..IDUI-10 covered, plan-checker PASSED
-Resume file: .planning/phases/20-identity-creation-ui/20-01-PLAN.md
+Resume file: None
