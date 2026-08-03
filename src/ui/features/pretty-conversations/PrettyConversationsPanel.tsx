@@ -720,7 +720,7 @@ export function PrettyConversationsPanel({
             aria-busy="true"
             aria-label={loadingLabel}
             data-testid="pretty-conversations-loading"
-            className="flex items-center justify-center gap-2 px-4 py-3 text-[12px] text-[#dfe3ee]/75"
+            className="flex items-center justify-center gap-2 px-4 py-3 text-[14px] text-[#dfe3ee]/75"
           >
             <Loader2
               className="size-4 shrink-0 animate-spin"
@@ -785,7 +785,7 @@ export function PrettyConversationsPanel({
                     className="size-3 text-[#5c6070]/85 shrink-0"
                     aria-hidden="true"
                   />
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                  <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
                     Pinned
                   </span>
                   <span
@@ -839,7 +839,7 @@ export function PrettyConversationsPanel({
                         className="size-3 text-[#5c6070]/85 shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                      <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
                         {rdpSectionLabel}
                       </span>
                       <span
@@ -885,7 +885,7 @@ export function PrettyConversationsPanel({
                       className="size-3 text-[#5c6070]/85 shrink-0"
                       aria-hidden="true"
                     />
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                    <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
                       {group.hostName}
                     </span>
                     <span
@@ -931,7 +931,7 @@ export function PrettyConversationsPanel({
                     className="size-3 text-[#5c6070]/85 shrink-0"
                     aria-hidden="true"
                   />
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                  <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
                     Hidden
                   </span>
                   <span

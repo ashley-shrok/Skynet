@@ -137,7 +137,7 @@ export function PrettyConversationContextMenu({
             display: "block",
             width: "100%",
             textAlign: "left",
-            padding: "8px 12px",
+            padding: "18px 14px",
             fontSize: 14,
             lineHeight: "18px",
             borderRadius: 8,

@@ -565,7 +565,7 @@ export function NewSessionDialog({
       }}
     >
       <DialogContent
-        className="w-[calc(100vw-2rem)] sm:max-w-md"
+        className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto"
         style={{ "--pv-hue": "190", "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
       >
         <DialogHeader>
