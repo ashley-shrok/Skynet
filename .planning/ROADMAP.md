@@ -769,3 +769,30 @@ Plans:
 - [x] 20-04-PLAN.md — Backend: POST /identities/birth SSE orchestrator (5-step Nelly-cribbed sequence, self-birth branch, silent-no-op guard) + nginx SSE block
 - [x] 20-05-PLAN.md — Frontend: extend sidebar NewSessionDialog with path + identity-mode + birth field cluster + collision precheck (both sides) + avatar batch/pick UI
 - [x] 20-06-PLAN.md — Frontend: SSE birth-stream consumer + 5-row progress checklist + per-step failure blurbs + AppShell focus-follow
+
+### Phase 21: Fleet auth reminders + guided re-login, in Skynet
+
+**Goal:** Add a Skynet-native feature that watches, for every qualifying managed box (Linux + tmux + coding-harness installed), when the harness's login is going to force a hand-typed re-authentication — and both warns the user ahead of time via top-of-conversation-list cards AND provides an in-app guided re-login flow that resolves the reauth without leaving Skynet. Reminder side polls each qualifying box for last-login-time (from the box's `~/.claude/history.jsonl` `/login` command entries) and current-auth-state (from `claude auth status` read-only query); backend computes fine/warning/expired per box (threshold ~5 days out against the ~30-day community-consensus refresh-token lifetime); WebSocket signals surface as cards at the top of the conversation list, expired-above-warning, silent when everything's fine. Guided-flow side: clicking a card opens a full-app-blocking modal that spins up a hidden tmux session on the target box, kicks off the `/login` REPL command, auto-confirms the auth-method prompt (always option 1), captures the URL, presents it to the user (auto-open new tab where the browser permits, clickable link otherwise), accepts the pasted-back OAuth code, feeds it into the session with the correct confirmation sequence, waits for success, tears down the session; cancel-tears-down semantics on all abandon paths; blanket per-step timeouts with plain error + retry-from-scratch; same-shortcut peek-through wired to the pretty-view peek shortcut reveals the hidden session for diagnostic.
+
+**Requirements**: FRLF-01, FRLF-02, FRLF-03, FRLF-04, FRLF-05, FRLF-06, FRLF-07, FRLF-08 (spec-phase will finalize the requirement list — placeholder derived from the shape file's In-scope enumeration)
+
+**Depends on:** Phase 20
+
+**Design source-of-truth:** `.planning/shapes/shape-fleet-relogin-flow.md` (LOCKED via /open with Ashley 2026-08-03 — do NOT re-litigate the design axis). Companion bounty at `~/.claude/identities/tina/bounties/archive/login-reminders-or-something/` (holds the empirical-watcher data + research trail that informed the shape).
+
+**Non-negotiables from shape file (baked into plans, not open to re-litigation):**
+- **Silence is success.** No always-on auth-status display. No dedicated fleet-wide auth panel. Cards appear ONLY when a box is in the warning window or expired; disappear the moment reauth lands.
+- **Notice and resolve are one loop.** The card is BOTH the warning AND the entry point to the fix; there is no scenario where Skynet notifies without offering the fix, or offers the fix without a warning surfaced.
+- **Auto-confirm the auth-method prompt.** Always option 1 (subscription). No preference toggle, no "let me choose" branch — the three options are auth methods, not accounts.
+- **Modal is full-app-blocking.** Whole app inaccessible until the flow resolves or is cancelled.
+- **Cancel tears down.** Any way the modal goes away — deliberate close, navigation, tab crash, backend restart — results in the hidden session on the target box being cleaned up. No orphaned sessions.
+- **Coarse-grained failure handling.** One blanket timeout per step waiting for its expected signal, generic error on any anomaly, retry from scratch. NOT enumerating per-failure-mode recovery.
+- **Peek-through uses the existing pretty-view peek shortcut.** No new keybinding. No visible peek affordance.
+- **Qualification is by capability, auto-detected.** A box participates iff Linux + tmux + harness installed. No config, no hand-picked list.
+- **Auth-status query must stay read-only.** The check for current-auth-state uses `claude auth status` which is verified read-only against `~/.claude/.credentials.json`. Any plan that introduces token-rotating probes is a plan-checker BLOCK.
+- **No day-zero cron safety net.** Interim gap between now and this phase landing is explicitly accepted — Ashley: "I'm not worried about the short-term insurance."
+- **DM fallback channel is OUT of this phase.** Explicitly deferred — "something to reach out to me, but I think we save that for later."
+
+**Rebase risk:** LOW — additive backend polling loop + additive WebSocket signal + additive frontend card list + additive modal + reuse of existing SSH-remote-command primitive + reuse of existing session-driving primitive + reuse of existing pretty-view peek shortcut. No upstream Skynet surfaces disturbed. Fork severed 2026-07-24 so no upstream to rebase against anyway.
+
+**Plans:** 0 plans yet — spec-phase → discuss-phase → plan-phase will populate.
