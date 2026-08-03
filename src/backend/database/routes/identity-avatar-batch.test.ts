@@ -539,3 +539,111 @@ describe("Test 9: 400 on missing required inputs", () => {
     expect(fetchCalled).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CR-06: candidate cache eviction
+// ---------------------------------------------------------------------------
+
+describe("CR-06: candidate cache eviction", () => {
+  it("evicts oldest global entry when cache size would exceed GLOBAL_CACHE_MAX", async () => {
+    const mod = await import("./identity-avatar-batch.js");
+    const cache = mod._getCandidateCacheForTest()!;
+
+    // Pre-populate exactly 100 entries for various user IDs
+    const stubBytes = Buffer.from("stub");
+    const insertedIds: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      const id = `global-entry-${i}`;
+      cache.set(id, {
+        userId: `user-${i % 5}`, // spread across 5 users so per-user cap isn't hit
+        bytes: stubBytes,
+        createdAt: Date.now() + i, // ascending createdAt
+        mime: "image/png",
+      });
+      insertedIds.push(id);
+    }
+
+    expect(cache.size).toBe(100);
+    const oldestId = insertedIds[0]; // first inserted = oldest in Map order
+    expect(cache.has(oldestId)).toBe(true);
+
+    // Evict then insert one new entry for a user below per-user cap
+    mod._evictIfNeededForTest("user-new");
+    const newId = "new-entry-after-eviction";
+    cache.set(newId, {
+      userId: "user-new",
+      bytes: stubBytes,
+      createdAt: Date.now() + 200,
+      mime: "image/png",
+    });
+
+    // Oldest global entry should be gone
+    expect(cache.has(oldestId)).toBe(false);
+    // New entry should be present
+    expect(cache.has(newId)).toBe(true);
+    // Size should still be 100 (evicted 1, inserted 1)
+    expect(cache.size).toBe(100);
+  });
+
+  it("evicts oldest per-user entry when a user's count would exceed PER_USER_CACHE_MAX", async () => {
+    const mod = await import("./identity-avatar-batch.js");
+    const cache = mod._getCandidateCacheForTest()!;
+
+    const stubBytes = Buffer.from("stub");
+
+    // Pre-populate 15 entries for user-1
+    const user1Ids: string[] = [];
+    for (let i = 0; i < 15; i++) {
+      const id = `user1-entry-${i}`;
+      cache.set(id, {
+        userId: "1",
+        bytes: stubBytes,
+        createdAt: Date.now() + i,
+        mime: "image/png",
+      });
+      user1Ids.push(id);
+    }
+
+    // Pre-populate 5 entries for user-2
+    const user2Ids: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const id = `user2-entry-${i}`;
+      cache.set(id, {
+        userId: "2",
+        bytes: stubBytes,
+        createdAt: Date.now() + i,
+        mime: "image/png",
+      });
+      user2Ids.push(id);
+    }
+
+    expect(cache.size).toBe(20);
+    const oldestUser1Id = user1Ids[0]; // first inserted for user-1
+
+    // Trigger eviction for user-1 (at cap of 15), then insert new entry
+    mod._evictIfNeededForTest("1");
+    const newUser1Id = "user1-new-entry";
+    cache.set(newUser1Id, {
+      userId: "1",
+      bytes: stubBytes,
+      createdAt: Date.now() + 100,
+      mime: "image/png",
+    });
+
+    // User-1's oldest entry should be gone
+    expect(cache.has(oldestUser1Id)).toBe(false);
+    // User-1's newest entry should be present
+    expect(cache.has(newUser1Id)).toBe(true);
+
+    // Count user-1 entries — should be exactly 15
+    const user1Count = [...cache.values()].filter((e) => e.userId === "1").length;
+    expect(user1Count).toBe(15);
+
+    // User-2's 5 entries should ALL still be present (cross-user isolation)
+    for (const id of user2Ids) {
+      expect(cache.has(id)).toBe(true);
+    }
+    const user2Count = [...cache.values()].filter((e) => e.userId === "2").length;
+    expect(user2Count).toBe(5);
+  });
+});

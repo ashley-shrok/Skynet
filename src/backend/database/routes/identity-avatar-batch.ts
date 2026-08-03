@@ -44,6 +44,11 @@ const ARCHETYPE_TIMEOUT_MS = 30_000; // 30s for chat/completions
 const IMAGE_GEN_TIMEOUT_MS = 60_000; // 60s per image generation
 const BATCH_SIZE = 3;
 
+/** Absolute cap on total cache entries across all users. Prevents unbounded memory growth (CR-06). */
+const GLOBAL_CACHE_MAX = 100;
+/** Per-user cap on cache entries. Prevents a single user from monopolizing the global budget (CR-06). */
+const PER_USER_CACHE_MAX = 15;
+
 // ---------------------------------------------------------------------------
 // In-memory candidate cache
 // ---------------------------------------------------------------------------
@@ -70,6 +75,45 @@ if (process.env.NODE_ENV !== "test") {
       }
     }
   }, 60_000);
+}
+
+// ---------------------------------------------------------------------------
+// Cache eviction helper (CR-06)
+// Called before every candidateCache.set() to enforce two-tier size caps.
+// Uses Map insertion order (guaranteed by JS spec) as a proxy for age:
+//   - Per-user eviction: iterate forward and pick the FIRST entry owned by userId
+//   - Global eviction: delete candidateCache.keys().next().value (oldest global)
+// ---------------------------------------------------------------------------
+
+function evictIfNeeded(userId: string): void {
+  // Per-user cap: evict oldest entry for this user if at limit
+  let userCount = 0;
+  let oldestUserKey: string | undefined;
+  for (const [key, entry] of candidateCache) {
+    if (entry.userId === userId) {
+      userCount++;
+      if (oldestUserKey === undefined) {
+        oldestUserKey = key; // first encountered = oldest (insertion order)
+      }
+    }
+  }
+  if (userCount >= PER_USER_CACHE_MAX && oldestUserKey !== undefined) {
+    console.warn(
+      `[identity-avatar-batch] cache eviction: evicting ${oldestUserKey} to make room (per-user cap ${PER_USER_CACHE_MAX} reached for user ${userId})`,
+    );
+    candidateCache.delete(oldestUserKey);
+  }
+
+  // Global cap: evict oldest overall entry if at limit
+  if (candidateCache.size >= GLOBAL_CACHE_MAX) {
+    const oldestGlobalKey = candidateCache.keys().next().value as string | undefined;
+    if (oldestGlobalKey !== undefined) {
+      console.warn(
+        `[identity-avatar-batch] cache eviction: evicting ${oldestGlobalKey} to make room (global cap ${GLOBAL_CACHE_MAX} reached)`,
+      );
+      candidateCache.delete(oldestGlobalKey);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -265,9 +309,11 @@ router.post(
 
     // ------------------------------------------------------------------
     // Step 4: Store in candidate cache, generate IDs
+    // CR-06: evictIfNeeded is called before each set to enforce global + per-user caps.
     // ------------------------------------------------------------------
     const candidates = gammaCorrected.map((bytes) => {
       const id = nanoid();
+      evictIfNeeded(userId);
       candidateCache.set(id, {
         userId,
         bytes,
@@ -379,6 +425,12 @@ export function _getCandidateCacheForTest(): Map<string, CandidateEntry> | undef
 export function _clearCandidateCacheForTest(): void {
   if (process.env.NODE_ENV === "test") {
     candidateCache.clear();
+  }
+}
+
+export function _evictIfNeededForTest(userId: string): void {
+  if (process.env.NODE_ENV === "test") {
+    evictIfNeeded(userId);
   }
 }
 
