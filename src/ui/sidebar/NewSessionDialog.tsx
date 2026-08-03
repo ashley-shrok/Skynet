@@ -528,12 +528,12 @@ export function NewSessionDialog({
   // Whether form fields should be disabled (during birthing OR after failure — user must close to reset)
   const formDisabled = birthing || birthFailedStep !== null;
 
-  const uiTitle = t("nav.newSession", { defaultValue: "New session" });
+  const uiTitle = t("nav.newSession", { defaultValue: "New agent" });
   const startTitle = t("nav.newSessionTitle", {
-    defaultValue: "Start a new conversation",
+    defaultValue: "Start a new agent",
   });
   const startDescription = t("nav.newSessionDescription", {
-    defaultValue: "Pick a host and (optionally) name the session.",
+    defaultValue: "Pick a host and (optionally) name the agent.",
   });
   const searchPlaceholder = t("nav.newSessionSearchHosts", {
     defaultValue: "Search hosts",
@@ -542,14 +542,14 @@ export function NewSessionDialog({
     defaultValue: "auto",
   });
   const nameLabel = t("nav.newSessionNameLabel", {
-    defaultValue: "Session name (optional)",
+    defaultValue: "Agent name (optional)",
   });
   const nameErrorText = t("nav.newSessionNameError", {
     defaultValue:
       "Use letters, numbers, underscores, or dashes (max 64 characters).",
   });
   const cancelLabel = t("common.cancel", { defaultValue: "Cancel" });
-  const openLabel = t("common.open", { defaultValue: "Open" });
+  const openLabel = t("common.create", { defaultValue: "Create" });
   const emptyHostsLabel = t("nav.newSessionNoHosts", {
     defaultValue: "No hosts available",
   });

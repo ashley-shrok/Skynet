@@ -42,7 +42,7 @@ export function PrettyLandingCard(): JSX.Element {
     >
       <div
         role="status"
-        aria-label="Select a conversation"
+        aria-label="Select an agent"
         style={{
           display: "flex",
           alignItems: "center",
@@ -65,7 +65,7 @@ export function PrettyLandingCard(): JSX.Element {
           style={{ color: "rgba(240,235,224,0.75)" }}
           aria-hidden="true"
         />
-        <span>Select a conversation</span>
+        <span>Select an agent</span>
       </div>
     </div>
   );

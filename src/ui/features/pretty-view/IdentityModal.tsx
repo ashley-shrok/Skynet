@@ -935,8 +935,8 @@ export function IdentityModal({
               recipe) but NOT wrapped in DialogClose — does not close the dialog. */}
           <button
             type="button"
-            aria-label={editing ? "Done editing" : "Edit identity"}
-            title={editing ? "Done editing" : "Edit identity"}
+            aria-label={editing ? "Done editing" : "Edit agent"}
+            title={editing ? "Done editing" : "Edit agent"}
             className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center transition-[color,background-color,border-color,box-shadow] duration-200"
             style={{
               background: editing ? "rgba(255, 255, 255, 0.10)" : "rgba(255, 255, 255, 0.04)",
@@ -1019,7 +1019,7 @@ export function IdentityModal({
                 Patch #277: gated behind the pencil toggle (editing state). */}
             {editing && (<div className="mb-6">
               <h3 className="text-xs uppercase tracking-wide text-[var(--color-pv-fg-muted)] mb-3">
-                Edit identity
+                Edit agent
               </h3>
 
               {/* Avatar preview + file picker row */}

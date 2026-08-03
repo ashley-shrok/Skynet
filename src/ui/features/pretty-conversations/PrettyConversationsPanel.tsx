@@ -609,7 +609,7 @@ export function PrettyConversationsPanel({
   const rdpNoopTogglePin = () => {};
 
   const newSessionLabel = t("nav.newSession", {
-    defaultValue: "New session",
+    defaultValue: "New agent",
   });
   const rdpSectionLabel = t("nav.conversations.rdpSection", {
     defaultValue: "Remote desktop",
