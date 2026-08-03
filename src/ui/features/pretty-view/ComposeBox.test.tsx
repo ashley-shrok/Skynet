@@ -888,6 +888,86 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-right dele
     });
     expect(deleteBtn.className).not.toMatch(/\bleft-1\b/);
   });
+
+  // ── Task 2: per-slot overlay chip strip via QueuedRow extraction ─────────
+
+  it("QB-7: queued slot with staged attachments renders overlay chip strip INSIDE the slot's inner textarea wrapper (mirrors Quick A's Test 2b for the primary)", async () => {
+    const getStagedAttachmentsForTarget = vi.fn((target: string) =>
+      target.startsWith("queued:")
+        ? [mkAtt("q1", "queued-file-1.txt"), mkAtt("q2", "queued-file-2.txt")]
+        : [],
+    );
+    render(
+      <ComposeBox
+        {...baseProps({
+          getStagedAttachmentsForTarget,
+          onRemoveAttachment: vi.fn(),
+        })}
+      />,
+    );
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    // At least one chip strip should render — inside the slot.
+    const strips = screen.getAllByTestId("attachment-chip-strip");
+    expect(strips.length).toBeGreaterThanOrEqual(1);
+    // The slot's chip strip lives inside the slot's `.relative.flex-1
+    // .self-stretch` inner wrapper (Task 2's QueuedRow extraction added it).
+    const slotTextarea = (screen.getAllByRole(
+      "textbox",
+    ) as HTMLTextAreaElement[])[0];
+    const slotInnerWrapper = slotTextarea.closest(
+      "div.relative.flex-1.self-stretch",
+    );
+    expect(slotInnerWrapper).not.toBeNull();
+    // At least ONE strip is a descendant of that inner wrapper.
+    const inSlotStrip = strips.find((s) => slotInnerWrapper!.contains(s));
+    expect(inSlotStrip).toBeTruthy();
+    // Overlay positioning check — parent wrapper carries `absolute`.
+    expect(inSlotStrip!.parentElement!.className).toMatch(/absolute/);
+  });
+
+  it("QB-8: queued slot with NO staged attachments renders no chip strip in that slot (empty state adds no DOM element)", async () => {
+    const getStagedAttachmentsForTarget = vi.fn(() => []);
+    render(
+      <ComposeBox
+        {...baseProps({ getStagedAttachmentsForTarget })}
+      />,
+    );
+    await flushMountEffect();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+    const strips = screen.queryAllByTestId("attachment-chip-strip");
+    // Primary is also empty (baseProps doesn't set stagedAttachments), so
+    // AttachmentChipStrip's return-null-when-empty contract yields 0 total.
+    expect(strips.length).toBe(0);
+  });
+
+  it("QB-9: primary chip strip regression guard — extracting QueuedRow does NOT break the primary's Quick A overlay", async () => {
+    render(
+      <ComposeBox
+        {...baseProps({
+          stagedAttachments: [
+            mkAtt("a", "primary-1.txt"),
+            mkAtt("b", "primary-2.txt"),
+          ],
+          onRemoveAttachment: vi.fn(),
+        })}
+      />,
+    );
+    await flushMountEffect();
+    const strip = screen.getByTestId("attachment-chip-strip");
+    const textarea = screen.getByPlaceholderText(/message/i);
+    const stripWrapper = strip.closest("div.relative.flex-1.self-stretch");
+    const textareaWrapper = textarea.closest(
+      "div.relative.flex-1.self-stretch",
+    );
+    expect(stripWrapper).not.toBeNull();
+    expect(textareaWrapper).not.toBeNull();
+    expect(stripWrapper).toBe(textareaWrapper);
+  });
 });
 
 describe("ComposeBox — Phase 9 layout", () => {

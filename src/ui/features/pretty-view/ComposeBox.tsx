@@ -1845,273 +1845,38 @@ export function ComposeBox({
           (adjacent to the primary Row 2 textarea below). */}
       {queueSlots.length > 0 && (
         <div className="flex flex-col gap-2 mb-1">
-          {queueSlots.map((slot) => {
-            const isSlotRecording = voice.state === "recording" && micTarget === slot.id;
-            const isSlotTranscribing = voice.state === "transcribing" && micTarget === slot.id;
-            // Vehicle C v2 (2026-08-01): per-slot arm state. `slotArmed`
-            // gates the disabled Textarea + overlay + Send disable; mic
-            // hides ONLY while this slot is armed (not while ANY source
-            // is armed) — Ashley 260729-3y1 mic-always-reachable lock.
-            // showSlotArmButton mirrors the primary Arm-idle button gate
-            // adapted for slots.
-            //
-            // Quick 260802-uow bounty 1: mic on THIS slot is visible
-            // whenever THIS slot isn't itself the active mic target
-            // (recording OR transcribing). If another textarea is
-            // recording, this slot's mic stays visible but disabled via
-            // the MicButton `disabled` prop below — prevents a second
-            // concurrent recording from starting.
-            //
-            // Quick 260802-uow bounty 1: showSlotArmButton no longer
-            // gates on voice.state — send-when-idle while recording
-            // elsewhere is a valid workflow.
-            //
-            // Quick 260802-uow bounty 2: showSlotTranscribingSend gates
-            // the slot's Loader2 spinner render (parallel to the primary's
-            // showTranscribingSend). Only true when THIS slot is the
-            // transcribing target.
-            const slotArmed = isSourceArmed(slot.id);
-            const slotHasText = slot.text.trim() !== "";
-            const isSlotActiveMic = isSlotRecording || isSlotTranscribing;
-            const showSlotMic =
-              typeof navigator !== "undefined" &&
-              navigator.mediaDevices != null &&
-              !isSlotActiveMic &&
-              !asideActive &&
-              !slotArmed;
-            const showSlotArmButton =
-              !asideActive &&
-              !slotArmed &&
-              slotHasText;
-            const showSlotRecording = isSlotRecording;
-            const showSlotTranscribingSend = isSlotTranscribing;
-            const showSlotSend = !showSlotRecording;
-            // Quick 260802-uow bounty 3: mirror of primaryThreeButtonState
-            // for the slot textarea — bump the slot's right padding when
-            // send + mic + arm-idle all render together.
-            const slotThreeButtonState = showSlotMic && showSlotArmButton;
-            return (
-              <div key={slot.id} className="relative flex-1" data-slot-id={slot.id}>
-                <Textarea
-                  value={slot.text}
-                  disabled={slotArmed}
-                  onChange={(e) => {
-                    const nextText = e.target.value;
-                    const nextSlots = queueSlots.map((s) =>
-                      s.id === slot.id ? { ...s, text: nextText } : s,
-                    );
-                    setQueueSlots(nextSlots);
-                    scheduleAutosave(latestBodyRef.current, nextSlots);
-                  }}
-                  onBlur={() => {
-                    clearDebounce();
-                    void flushDirty();
-                  }}
-                  placeholder="Queued message…"
-                  rows={1}
-                  data-testid={`queue-slot-textarea-${slot.id}`}
-                  className={cn(
-                    "resize-none w-full",
-                    "min-h-8!",
-                    "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
-                    "border border-[rgba(220,225,245,0.07)]",
-                    "rounded-[10px] px-4 py-3",
-                    // Quick 260803-05i: queued textareas always have a
-                    // paperclip at left-1 bottom-0.5 now (parity with
-                    // primary). pl-11 mirrors the primary's paperclip-
-                    // clearance treatment so composed text does not
-                    // underlap the icon.
-                    "pr-10 pl-11",
-                    // Quick 260802-uow bounty 3: bump right padding to
-                    // clear mic (right-11) + arm-idle (right-21) when
-                    // all 3 buttons render. tailwind-merge later-wins
-                    // dedupes pr-10 vs pr-32.
-                    slotThreeButtonState && "pr-32",
-                    "placeholder:text-[var(--color-pv-fg-dim)]",
-                    "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
-                    "transition-[box-shadow,border-color] duration-200",
-                    "focus:border-[rgba(220,225,245,0.28)]",
-                    "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(220,225,245,0.07),_0_0_0_1px_rgba(220,225,245,0.2),_0_0_22px_rgba(220,225,245,0.12)]",
-                    "focus-visible:ring-0 focus-visible:outline-none",
-                  )}
-                />
-                {/* Vehicle C v2 (2026-08-01): per-slot armed overlay.
-                    Renders as a <button> with pointer-events-auto so the
-                    entire scrim is click-to-cancel (source-scoped —
-                    cancels ONLY this slot). rounded-[10px] matches the
-                    slot Textarea's rounding so corners align. Dark
-                    scrim + tight blur reads as "held, waiting" without
-                    hiding the composed text underneath. */}
-                {slotArmed && (
-                  <button
-                    type="button"
-                    onClick={() => cancelSourceArmed(slot.id)}
-                    aria-label="Cancel queued send"
-                    title="Cancel queued send"
-                    className={cn(
-                      "absolute inset-0 flex flex-col items-center justify-center gap-1.5",
-                      "rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]",
-                      "cursor-pointer",
-                    )}
-                  >
-                    <RotateCwFadingClock className="size-5 text-[hsla(38,70%,72%,0.9)]" />
-                    <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
-                      Queued — waiting for idle
-                    </span>
-                  </button>
-                )}
-                {/* Quick 260803-05i: Paperclip attach button — absolute
-                    left-1 bottom-0.5. Physically REPLACES the former delete
-                    × (which moved to the top-right corner tab below). Uses
-                    the SAME visual treatment as the main-composebox
-                    paperclip so Ashley's opacity/hover/pressed animation
-                    feel is identical across primary and queued rows.
-                    handleOpenFilePicker(`queued:${slot.id}`) arms the
-                    activeStagingTargetRef so handleFileInputChange routes
-                    the selected files to the slot's target string via
-                    onAttachFilesForTarget. */}
-                <button
-                  type="button"
-                  onClick={() => handleOpenFilePicker(`queued:${slot.id}`)}
-                  disabled={canSend === false || asideActive === true || recycleActive === true}
-                  aria-label="Attach file to queued message"
-                  title="Attach file"
-                  className={cn(
-                    "absolute left-1 bottom-0.5",
-                    "p-2",
-                    "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-                    "disabled:text-[rgba(240,235,224,0.15)]",
-                    "disabled:cursor-not-allowed",
-                    "transition-[color,transform] duration-120",
-                    "active:scale-95",
-                    "cursor-pointer",
-                  )}
-                >
-                  <Paperclip className="size-6" />
-                </button>
-                {/* Quick 260803-05i: Delete × top-right corner tab. Positioned
-                    OUTSIDE the textarea's rounded-[10px] border via -top-2
-                    -right-2 so it visually protrudes as a small tab (Ashley's
-                    design differentiator vs. the main composebox — which has
-                    no per-message delete affordance). Sibling of the Textarea
-                    + armed overlay + paperclip + Send/mic/arm-idle group, so
-                    it lives OUTSIDE the inner content area (Task 2's inner
-                    wrapper will host the chip-strip overlay; this tab must
-                    NOT be inside it). onClick removes the slot AND clears
-                    that slot's staged attachments via clearStagedForTarget
-                    (the new hook API from Task 1). 30%→90% opacity treatment
-                    matches the paperclip. */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nextSlots = queueSlots.filter((s) => s.id !== slot.id);
-                    setQueueSlots(nextSlots);
-                    scheduleAutosave(latestBodyRef.current, nextSlots);
-                    clearStagedForTarget?.(`queued:${slot.id}`);
-                  }}
-                  aria-label="Delete queued message"
-                  title="Delete queued message"
-                  className={cn(
-                    "absolute -top-2 -right-2 z-20",
-                    "p-1 rounded-full",
-                    "bg-[rgba(10,12,20,0.85)] border border-[rgba(220,225,245,0.12)]",
-                    "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-                    "transition-[color,transform] duration-120",
-                    "active:scale-95",
-                    "cursor-pointer",
-                  )}
-                >
-                  <X className="size-4" aria-hidden="true" />
-                </button>
-                {/* Send / RecordingControls slot — absolute right-1 bottom-0.5 (mutex) */}
-                {showSlotRecording ? (
-                  <RecordingControls
-                    onCancel={handleVoiceCancel}
-                    onAppend={() => { void handleVoiceAppend(slot.id); }}
-                    onSend={() => { void handleVoiceSend(slot.id); }}
-                  />
-                ) : (
-                  <>
-                    {showSlotSend && (
-                      <button
-                        type="button"
-                        onClick={() => handleQueueSlotSend(slot.id)}
-                        disabled={
-                          showSlotTranscribingSend ||
-                          slot.text.trim() === "" ||
-                          slotArmed
-                        }
-                        aria-label="Send queued message"
-                        title="Send queued message"
-                        className={cn(
-                          "absolute right-1 bottom-0.5",
-                          "p-2",
-                          "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-                          "disabled:text-[rgba(240,235,224,0.15)]",
-                          "disabled:cursor-not-allowed",
-                          "transition-[color,transform] duration-120",
-                          "active:scale-95",
-                          "cursor-pointer",
-                        )}
-                      >
-                        {/* Quick 260802-uow bounty 2: when this slot is the
-                            transcribing target, swap the paper-plane for the
-                            Loader2 spinner — mirrors the primary's pattern
-                            (~L2162) so the STT round-trip spinner appears on
-                            the SAME textarea where the mic was pressed, not
-                            always the primary. */}
-                        {showSlotTranscribingSend ? (
-                          <Loader2 className="size-6 animate-spin" aria-hidden="true" />
-                        ) : (
-                          <svg
-                            width="24"
-                            height="24"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            aria-hidden="true"
-                          >
-                            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-                          </svg>
-                        )}
-                      </button>
-                    )}
-                    {/* Vehicle C v2 (2026-08-01): mic + arm-idle COEXIST
-                        on this slot when voice is idle. Mic sits at
-                        right-11 bottom-0.5 (unchanged). Arm-idle sits at
-                        right-21 bottom-0.5 — one slot LEFT of mic —
-                        gated on non-empty slot text and slot-not-armed.
-                        260729-3y1 lock: mic always reachable. */}
-                    {showSlotMic && (
-                      <MicButton
-                        onClick={() => beginRecord(slot.id)}
-                        disabled={voice.state !== "idle"}
-                        title="Record voice"
-                        positionClass="right-11 bottom-0.5"
-                      />
-                    )}
-                    {showSlotArmButton && (
-                      <button
-                        type="button"
-                        onClick={() => armSourceForIdle(slot.id, slot.text)}
-                        aria-label="Send when idle"
-                        title="Send when idle"
-                        className={cn(
-                          "absolute right-21 bottom-0.5",
-                          "p-2",
-                          "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-                          "transition-[color,transform] duration-120",
-                          "active:scale-95",
-                          "cursor-pointer",
-                        )}
-                      >
-                        <RotateCwFadingClock className="size-6" aria-hidden="true" />
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })}
+          {queueSlots.map((slot) => (
+            <QueuedRow
+              key={slot.id}
+              slot={slot}
+              voice={voice}
+              micTarget={micTarget}
+              isSourceArmed={isSourceArmed}
+              asideActive={asideActive}
+              recycleActive={recycleActive}
+              canSend={canSend}
+              queueSlots={queueSlots}
+              onSlotsChange={(next) => {
+                setQueueSlots(next);
+                scheduleAutosave(latestBodyRef.current, next);
+              }}
+              scheduleAutosave={scheduleAutosave}
+              latestBody={latestBodyRef.current}
+              handleQueueSlotSend={handleQueueSlotSend}
+              armSourceForIdle={armSourceForIdle}
+              cancelSourceArmed={cancelSourceArmed}
+              handleVoiceCancel={handleVoiceCancel}
+              handleVoiceAppend={handleVoiceAppend}
+              handleVoiceSend={handleVoiceSend}
+              beginRecord={beginRecord}
+              handleOpenFilePicker={handleOpenFilePicker}
+              getStagedAttachmentsForTarget={getStagedAttachmentsForTarget}
+              clearStagedForTarget={clearStagedForTarget}
+              onRemoveAttachment={onRemoveAttachment}
+              flushDirty={flushDirty}
+              clearDebounce={clearDebounce}
+            />
+          ))}
         </div>
       )}
       {/* Row 2 — compose bar: textarea (flex-1, auto-grows 1→6 rows) +
@@ -2483,6 +2248,343 @@ export function ComposeBox({
       {displayError && (
         <div className="text-xs text-[color:var(--color-pv-code-fg)]">{displayError}</div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Quick 260803-05i (Task 2): QueuedRow — extracted from ComposeBox's inline
+// queueSlots.map body. Extraction is load-bearing because per-slot
+// chipStripRef + chipStripHeight state + ResizeObserver are naturally scoped
+// to each row instance (no Map-of-refs plumbing in the parent). Keeps
+// existing per-slot behavior byte-for-byte; adds an inner `.relative.flex-1
+// .self-stretch` wrapper hosting the overlaid chip strip (mirrors Quick A's
+// primary composebox pattern at ~L2127 of the parent). The top-right delete
+// × corner tab from Task 1 stays a SIBLING of the inner wrapper so it still
+// protrudes OUTSIDE the textarea border.
+// ============================================================================
+
+interface QueuedRowProps {
+  slot: { id: string; text: string };
+  voice: ReturnType<typeof useVoiceRecording>;
+  micTarget: "primary" | string;
+  isSourceArmed: (source: "primary" | string) => boolean;
+  asideActive?: boolean;
+  recycleActive?: boolean;
+  canSend?: boolean;
+  queueSlots: Array<{ id: string; text: string }>;
+  onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
+  scheduleAutosave: (nextBody: string, nextSlots?: Array<{ id: string; text: string }>) => void;
+  latestBody: string;
+  handleQueueSlotSend: (slotId: string) => void;
+  armSourceForIdle: (source: "primary" | string, sourceText: string) => void;
+  cancelSourceArmed: (source: "primary" | string) => void;
+  handleVoiceCancel: () => void;
+  handleVoiceAppend: (target: "primary" | string) => void | Promise<void>;
+  handleVoiceSend: (target: "primary" | string) => void | Promise<void>;
+  beginRecord: (target: "primary" | string) => void;
+  handleOpenFilePicker: (target?: string) => void;
+  getStagedAttachmentsForTarget?: (target: string) => StagedAttachmentLike[];
+  clearStagedForTarget?: (target: string) => void;
+  onRemoveAttachment?: (tempId: string) => void;
+  flushDirty: () => Promise<void> | void;
+  clearDebounce: () => void;
+}
+
+function QueuedRow(props: QueuedRowProps) {
+  const {
+    slot,
+    voice,
+    micTarget,
+    isSourceArmed,
+    asideActive,
+    recycleActive,
+    canSend,
+    queueSlots,
+    onSlotsChange,
+    handleQueueSlotSend,
+    armSourceForIdle,
+    cancelSourceArmed,
+    handleVoiceCancel,
+    handleVoiceAppend,
+    handleVoiceSend,
+    beginRecord,
+    handleOpenFilePicker,
+    getStagedAttachmentsForTarget,
+    clearStagedForTarget,
+    onRemoveAttachment,
+    flushDirty,
+    clearDebounce,
+  } = props;
+
+  // Quick 260803-05i: per-slot chip strip refs + measurement — same pattern
+  // Quick A applied to the primary Textarea (see ComposeBox ~L954-979). Each
+  // QueuedRow instance owns its own chipStripRef / chipStripHeight so there's
+  // no Map-of-refs plumbing in the parent.
+  const chipStripRef = useRef<HTMLDivElement | null>(null);
+  const [chipStripHeight, setChipStripHeight] = useState(0);
+  const target = `queued:${slot.id}`;
+  const stagedForThisSlot = getStagedAttachmentsForTarget?.(target) ?? [];
+  const stagedCount = stagedForThisSlot.length;
+
+  useLayoutEffect(() => {
+    const el = chipStripRef.current;
+    if (!el) {
+      setChipStripHeight(0);
+      return;
+    }
+    setChipStripHeight(Math.ceil(el.getBoundingClientRect().height));
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const h = entry.contentRect?.height ?? 0;
+      setChipStripHeight(Math.ceil(h));
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [stagedCount]);
+
+  const isSlotRecording = voice.state === "recording" && micTarget === slot.id;
+  const isSlotTranscribing = voice.state === "transcribing" && micTarget === slot.id;
+  const slotArmed = isSourceArmed(slot.id);
+  const slotHasText = slot.text.trim() !== "";
+  const isSlotActiveMic = isSlotRecording || isSlotTranscribing;
+  const showSlotMic =
+    typeof navigator !== "undefined" &&
+    navigator.mediaDevices != null &&
+    !isSlotActiveMic &&
+    !asideActive &&
+    !slotArmed;
+  const showSlotArmButton =
+    !asideActive &&
+    !slotArmed &&
+    slotHasText;
+  const showSlotRecording = isSlotRecording;
+  const showSlotTranscribingSend = isSlotTranscribing;
+  const showSlotSend = !showSlotRecording;
+  // Quick 260802-uow bounty 3 (parity with primary): bump right padding
+  // when send + mic + arm-idle all render together.
+  const slotThreeButtonState = showSlotMic && showSlotArmButton;
+
+  return (
+    <div className="relative flex-1" data-slot-id={slot.id}>
+      {/* Quick 260803-05i: Delete × top-right corner tab. SIBLING of the
+          inner content wrapper below so it protrudes OUTSIDE the textarea
+          border (via -top-2 -right-2). Task 1 introduced this; Task 2's
+          extraction preserves the sibling-of-inner-wrapper invariant. */}
+      <button
+        type="button"
+        onClick={() => {
+          const nextSlots = queueSlots.filter((s) => s.id !== slot.id);
+          onSlotsChange(nextSlots);
+          clearStagedForTarget?.(target);
+        }}
+        aria-label="Delete queued message"
+        title="Delete queued message"
+        className={cn(
+          "absolute -top-2 -right-2 z-20",
+          "p-1 rounded-full",
+          "bg-[rgba(10,12,20,0.85)] border border-[rgba(220,225,245,0.12)]",
+          "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+          "transition-[color,transform] duration-120",
+          "active:scale-95",
+          "cursor-pointer",
+        )}
+      >
+        <X className="size-4" aria-hidden="true" />
+      </button>
+      {/* Quick 260803-05i (Task 2): inner wrapper mirrors the primary
+          composebox's `.relative.flex-1.self-stretch` pattern so the
+          absolute-positioned chip strip lives INSIDE the textarea's
+          bounding box (via top-0 left-0 right-0). Hosts: chip strip
+          overlay + Textarea + armed overlay + paperclip + Send/mic/
+          arm-idle group. */}
+      <div className="relative flex-1 self-stretch">
+        {/* Overlay chip strip — mirrors Quick A's primary overlay at
+            ComposeBox ~L2139-2150. AttachmentChipStrip returns null when
+            the list is empty, so chipStripRef.current transitions
+            null↔element as files stage/unstage; the useLayoutEffect above
+            resets chipStripHeight to 0 in the null branch. */}
+        <div
+          ref={chipStripRef}
+          className="absolute top-0 left-0 right-0 z-10 px-2 pt-2 pointer-events-auto"
+        >
+          <AttachmentChipStrip
+            attachments={stagedForThisSlot}
+            onRemove={onRemoveAttachment ?? (() => {})}
+          />
+        </div>
+        <Textarea
+          value={slot.text}
+          disabled={slotArmed}
+          onChange={(e) => {
+            const nextText = e.target.value;
+            const nextSlots = queueSlots.map((s) =>
+              s.id === slot.id ? { ...s, text: nextText } : s,
+            );
+            onSlotsChange(nextSlots);
+          }}
+          onBlur={() => {
+            clearDebounce();
+            void flushDirty();
+          }}
+          placeholder="Queued message…"
+          rows={1}
+          data-testid={`queue-slot-textarea-${slot.id}`}
+          // Quick 260803-05i (Task 2): dynamic paddingTop grows with the
+          // overlaid chip strip's measured height so composed text never
+          // underlaps the chips (same pattern Quick A applied to primary).
+          // Base `py-3` (12px top) is preserved via className; this inline
+          // style only applies when at least one attachment is staged
+          // (chipStripHeight > 0). `+ 12` preserves the base 12px comfort
+          // gap between chips and text.
+          style={
+            chipStripHeight > 0
+              ? { paddingTop: `${chipStripHeight + 12}px` }
+              : undefined
+          }
+          className={cn(
+            "resize-none w-full",
+            "min-h-8!",
+            "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
+            "border border-[rgba(220,225,245,0.07)]",
+            "rounded-[10px] px-4 py-3",
+            // Quick 260803-05i (Task 1): paperclip clearance parity.
+            "pr-10 pl-11",
+            // Quick 260802-uow bounty 3: bump right padding when
+            // send + mic + arm-idle all render.
+            slotThreeButtonState && "pr-32",
+            "placeholder:text-[var(--color-pv-fg-dim)]",
+            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
+            "transition-[box-shadow,border-color] duration-200",
+            "focus:border-[rgba(220,225,245,0.28)]",
+            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(220,225,245,0.07),_0_0_0_1px_rgba(220,225,245,0.2),_0_0_22px_rgba(220,225,245,0.12)]",
+            "focus-visible:ring-0 focus-visible:outline-none",
+          )}
+        />
+        {/* Vehicle C v2 (2026-08-01): per-slot armed overlay. Rendered as
+            a <button> with pointer-events-auto so the entire scrim is
+            click-to-cancel (source-scoped — cancels ONLY this slot).
+            rounded-[10px] matches the slot Textarea's rounding so
+            corners align. */}
+        {slotArmed && (
+          <button
+            type="button"
+            onClick={() => cancelSourceArmed(slot.id)}
+            aria-label="Cancel queued send"
+            title="Cancel queued send"
+            className={cn(
+              "absolute inset-0 flex flex-col items-center justify-center gap-1.5",
+              "rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]",
+              "cursor-pointer",
+            )}
+          >
+            <RotateCwFadingClock className="size-5 text-[hsla(38,70%,72%,0.9)]" />
+            <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
+              Queued — waiting for idle
+            </span>
+          </button>
+        )}
+        {/* Quick 260803-05i (Task 1): Paperclip attach button — absolute
+            left-1 bottom-0.5. Routes to onAttachFilesForTarget via
+            handleOpenFilePicker(`queued:${slot.id}`). */}
+        <button
+          type="button"
+          onClick={() => handleOpenFilePicker(target)}
+          disabled={canSend === false || asideActive === true || recycleActive === true}
+          aria-label="Attach file to queued message"
+          title="Attach file"
+          className={cn(
+            "absolute left-1 bottom-0.5",
+            "p-2",
+            "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+            "disabled:text-[rgba(240,235,224,0.15)]",
+            "disabled:cursor-not-allowed",
+            "transition-[color,transform] duration-120",
+            "active:scale-95",
+            "cursor-pointer",
+          )}
+        >
+          <Paperclip className="size-6" />
+        </button>
+        {/* Send / RecordingControls slot — absolute right-1 bottom-0.5 (mutex) */}
+        {showSlotRecording ? (
+          <RecordingControls
+            onCancel={handleVoiceCancel}
+            onAppend={() => { void handleVoiceAppend(slot.id); }}
+            onSend={() => { void handleVoiceSend(slot.id); }}
+          />
+        ) : (
+          <>
+            {showSlotSend && (
+              <button
+                type="button"
+                onClick={() => handleQueueSlotSend(slot.id)}
+                disabled={
+                  showSlotTranscribingSend ||
+                  slot.text.trim() === "" ||
+                  slotArmed
+                }
+                aria-label="Send queued message"
+                title="Send queued message"
+                className={cn(
+                  "absolute right-1 bottom-0.5",
+                  "p-2",
+                  "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+                  "disabled:text-[rgba(240,235,224,0.15)]",
+                  "disabled:cursor-not-allowed",
+                  "transition-[color,transform] duration-120",
+                  "active:scale-95",
+                  "cursor-pointer",
+                )}
+              >
+                {showSlotTranscribingSend ? (
+                  <Loader2 className="size-6 animate-spin" aria-hidden="true" />
+                ) : (
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+                  </svg>
+                )}
+              </button>
+            )}
+            {showSlotMic && (
+              <MicButton
+                onClick={() => beginRecord(slot.id)}
+                disabled={voice.state !== "idle"}
+                title="Record voice"
+                positionClass="right-11 bottom-0.5"
+              />
+            )}
+            {showSlotArmButton && (
+              <button
+                type="button"
+                onClick={() => armSourceForIdle(slot.id, slot.text)}
+                aria-label="Send when idle"
+                title="Send when idle"
+                className={cn(
+                  "absolute right-21 bottom-0.5",
+                  "p-2",
+                  "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
+                  "transition-[color,transform] duration-120",
+                  "active:scale-95",
+                  "cursor-pointer",
+                )}
+              >
+                <RotateCwFadingClock className="size-6" aria-hidden="true" />
+              </button>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
