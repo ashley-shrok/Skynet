@@ -133,11 +133,11 @@ export function PrettyConversationContextMenu({
             item.onClick();
             onClose();
           }}
+          className="py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
           style={{
             display: "block",
             width: "100%",
             textAlign: "left",
-            padding: "18px 14px",
             fontSize: 14,
             lineHeight: "18px",
             borderRadius: 8,
