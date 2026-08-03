@@ -15,6 +15,7 @@ import networkTopologyRoutes from "./routes/network-topology.js";
 import rbacRoutes from "./routes/rbac.js";
 import openTabsRoutes from "./routes/open-tabs.js";
 import identitiesRoutes from "./routes/identities.js";
+import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -1791,6 +1792,10 @@ app.use("/guacamole", guacamoleRoutes);
 app.use("/network-topology", networkTopologyRoutes);
 app.use("/rbac", rbacRoutes);
 app.use("/open-tabs", openTabsRoutes);
+// Phase 20 (IDUI-04): identity avatar batch — mount BEFORE /identities so
+// /identities/avatar/batch and /identities/avatar/candidate/:id don't collide
+// with the generic /identities/:id/* routes in identitiesRoutes.
+app.use("/identities/avatar", identityAvatarBatchRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);

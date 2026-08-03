@@ -182,6 +182,8 @@ async function startServer(): Promise<http.Server> {
 beforeEach(async () => {
   vi.useFakeTimers();
   mockUserId = "user-1";
+  // Ensure OPENAI_API_KEY is set so routes don't return 503
+  process.env.OPENAI_API_KEY = "test-key-not-real";
   // Dynamic import to get the clear helper
   const mod = await import("./identity-avatar-batch.js");
   if (typeof mod._clearCandidateCacheForTest === "function") {
@@ -191,7 +193,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (server) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+  delete process.env.OPENAI_API_KEY;
   vi.restoreAllMocks();
   vi.useRealTimers();
   vi.resetModules();
@@ -316,9 +321,11 @@ it("Test 4: gamma correction produces expected output for mid-grey fixture", asy
     const { createCanvas } = await import("canvas").catch(() => null) as any ?? {};
     // Fallback: just check the function exists and test with a known value
     const result = await mod._applyCorrectionForTest(128);
-    // (128/255)^0.7 * 255 ≈ 177 (±3 for float rounding)
-    expect(result).toBeGreaterThanOrEqual(174);
-    expect(result).toBeLessThanOrEqual(180);
+    // (128/255)^0.7 * 255 ≈ 157.4 → rounds to 157 (±3 for float rounding)
+    // Note: plan states ≈177 but correct math gives ≈157; verified via
+    // Python numpy: np.power(128/255, 0.7) * 255 = 157.40
+    expect(result).toBeGreaterThanOrEqual(155);
+    expect(result).toBeLessThanOrEqual(160);
   } else {
     // Test via POST: produce a batch, then GET the candidate and check
     // that the returned image bytes differ from the raw base64 PNG
