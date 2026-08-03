@@ -51,6 +51,17 @@ export interface TerminalSession {
   initialStateEmitted: boolean;
   idleCheckTimer: NodeJS.Timeout | null;
   idleCheckInFlight: boolean;
+
+  // Patch (quick 260803-1xw / bounty pv-paste-to-terminal-lands-as-unsent-
+  // bracket-paste): per-PV-submit post-send idle-watchdog handles. Each
+  // isPrettyViewSubmit `tmux send-keys ... Enter` dispatch arms a pair of
+  // setTimeout(...)s (2.5s + 2.5s) that fire a retry Enter and, on second
+  // stagnation, emit a `paste_send_failed` WS event. Handles are tracked
+  // here so `destroySession` and `detachWs` can cancel them before they
+  // fire against a torn-down session or a WS the user has already
+  // navigated away from. Set semantics (cheap delete on per-timer
+  // cancellation from inside its own callback).
+  pvSubmitWatchdogs: Set<NodeJS.Timeout>;
 }
 
 class TerminalSessionManager {
@@ -152,6 +163,7 @@ class TerminalSessionManager {
       initialStateEmitted: false,
       idleCheckTimer: null,
       idleCheckInFlight: false,
+      pvSubmitWatchdogs: new Set(),
     };
     this.sessions.set(id, session);
 
@@ -314,6 +326,17 @@ class TerminalSessionManager {
       session.detachTimeout = null;
     }
 
+    // Cancel PV-submit watchdogs on detach: a detached WS means the
+    // second-watchdog `attachedWs.send(paste_send_failed)` would no-op
+    // anyway (there's nobody to notify), and firing the retry Enter
+    // would land in a pane the user has already navigated away from.
+    if (session.pvSubmitWatchdogs.size > 0) {
+      for (const handle of session.pvSubmitWatchdogs) {
+        clearTimeout(handle);
+      }
+      session.pvSubmitWatchdogs.clear();
+    }
+
     session.attachedWs = null;
     session.lastDetachedAt = Date.now();
 
@@ -348,6 +371,17 @@ class TerminalSessionManager {
     if (session.idleCheckTimer) {
       clearInterval(session.idleCheckTimer);
       session.idleCheckTimer = null;
+    }
+
+    // Cancel any pending PV-submit watchdogs before we tear down the
+    // SSH stream/conn — otherwise a delayed retry-Enter would fire
+    // against a closed sshConn (and the second-watchdog escalation
+    // would attempt to WS-send against a null attachedWs).
+    if (session.pvSubmitWatchdogs.size > 0) {
+      for (const handle of session.pvSubmitWatchdogs) {
+        clearTimeout(handle);
+      }
+      session.pvSubmitWatchdogs.clear();
     }
 
     if (session.sshStream) {
