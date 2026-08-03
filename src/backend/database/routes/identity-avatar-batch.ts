@@ -321,6 +321,53 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
+// Phase 20 (IDUI-06): Birth helpers — used by identity-birth.ts orchestrator wiring.
+// These are production exports (not test-only).
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch avatar candidate bytes for birth flow.
+ *
+ * Returns null when:
+ *   - id not found in cache
+ *   - TTL exceeded
+ *   - userId does not match the candidate's owner (cross-user guard)
+ *
+ * Does NOT delete the entry — call consumeCandidateForBirth() after
+ * successful use to prevent re-use (accidental double-clicks).
+ */
+export function getCandidateForBirth(
+  userId: number,
+  id: string,
+): { bytes: Buffer; mime: string } | null {
+  const entry = candidateCache.get(id);
+  if (!entry) return null;
+
+  // TTL check
+  if (Date.now() - entry.createdAt > CANDIDATE_TTL_MS) {
+    candidateCache.delete(id);
+    return null;
+  }
+
+  // userId scope guard (mirrors GET /candidate/:id pattern)
+  if (entry.userId !== String(userId)) return null;
+
+  return { bytes: entry.bytes, mime: entry.mime };
+}
+
+/**
+ * Delete an avatar candidate from the cache after successful pickup.
+ * Prevents re-use for accidental double-clicks.
+ * Safe to call even if the entry has already expired — it's a no-op.
+ */
+export function consumeCandidateForBirth(userId: number, id: string): void {
+  const entry = candidateCache.get(id);
+  if (entry && entry.userId === String(userId)) {
+    candidateCache.delete(id);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers (only exported in test environment)
 // ---------------------------------------------------------------------------
 
