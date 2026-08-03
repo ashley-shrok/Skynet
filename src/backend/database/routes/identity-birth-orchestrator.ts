@@ -178,6 +178,16 @@ function sanitizeError(err: unknown): string {
 // Regex gate (matches identities.ts IDENTITY_KEY_RE)
 const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
 
+/**
+ * Stricter than IDENTITY_KEY_RE — used as a second gate inside birthIdentity()
+ * to reject names that would be valid identity keys but produce malformed or
+ * ambiguous tmux target arguments. Rejects `=`, `/`, `+`, `.` because tmux
+ * interprets these in target syntax (`-t =name` = exact match, `.name` =
+ * window/pane reference, `+name` = relative pane offset, `/name` = malformed
+ * target). See CR-02 in .planning/phases/20-identity-creation-ui/20-REVIEW.md.
+ */
+const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
+
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
@@ -200,6 +210,15 @@ export async function birthIdentity(
   if (!IDENTITY_KEY_RE.test(opts.name)) {
     throw new Error(
       `identityKey must match [a-z0-9._=/+-]+; got: ${JSON.stringify(opts.name)}`,
+    );
+  }
+
+  // CR-02: Second gate — stricter tmux-safety check. Names containing `=`,
+  // `/`, `+`, or `.` pass IDENTITY_KEY_RE but produce malformed/ambiguous tmux
+  // target arguments. Reject them before any SSH/exec/DB work is done.
+  if (!TMUX_SAFE_NAME_RE.test(opts.name)) {
+    throw new Error(
+      `identity name unsafe for tmux target — must match [a-z][a-z0-9_-]*; got: ${JSON.stringify(opts.name)}`,
     );
   }
 

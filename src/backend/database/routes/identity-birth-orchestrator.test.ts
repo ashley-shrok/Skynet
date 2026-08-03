@@ -983,3 +983,61 @@ it("Test 18: path normalization — backslashes → forward slashes; tilde → $
   // Tilde should become $HOME for shell expansion
   expect(step2Cmd2!).toMatch(/\$HOME/);
 }, 20_000);
+
+// ---------------------------------------------------------------------------
+// CR-02: TMUX_SAFE_NAME_RE stricter gate
+// ---------------------------------------------------------------------------
+
+describe("CR-02: TMUX_SAFE_NAME_RE stricter gate", () => {
+  it.each(["foo=bar", "foo/bar", "foo+bar", "foo.bar"])(
+    "rejects name with tmux-unsafe char '%s' before any dep is called",
+    async (evilName) => {
+      const deps = makeDeps({
+        getCandidateForBirth: vi.fn(),
+        createIdentityRecord: vi.fn(),
+        getIdentityRecord: vi.fn(),
+        connectOneShot: mockConnectOneShot,
+        execCommand: mockExecCommand,
+        execLocal: vi.fn(),
+        isLocalHostId: mockIsLocalHostId,
+        resolveHostById: vi.fn(),
+        fsp: {
+          readFile: vi.fn(),
+          writeFile: vi.fn(),
+        },
+      });
+      const opts = makeOpts({ name: evilName });
+      const { emit } = collectEvents();
+
+      await expect(birthIdentity(opts, emit, deps)).rejects.toThrow(
+        /unsafe for tmux target/,
+      );
+
+      // No SSH/exec/DB deps should have been called
+      expect(deps.getCandidateForBirth).not.toHaveBeenCalled();
+      expect(deps.createIdentityRecord).not.toHaveBeenCalled();
+      expect(mockConnectOneShot).not.toHaveBeenCalled();
+      expect(mockExecCommand).not.toHaveBeenCalled();
+      expect(deps.execLocal).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts a lowercase name with dashes and underscores and reaches getCandidateForBirth", async () => {
+    // A well-formed name like "test_agent-1" must pass both IDENTITY_KEY_RE and
+    // TMUX_SAFE_NAME_RE and proceed to step 1 (where getCandidateForBirth is called).
+    // We short-circuit by returning null from getCandidateForBirth (avatar cache miss)
+    // which causes a step:1:failed — but the key assertion is that getCandidateForBirth
+    // WAS called, proving both validation gates passed.
+    const mockGetCandidate = vi.fn().mockReturnValue(null); // cache miss → step 1 fails
+    const deps = makeDeps({ getCandidateForBirth: mockGetCandidate });
+    const opts = makeOpts({ name: "test-agent1" });
+    const { emit } = collectEvents();
+
+    // Should NOT throw from validation — only from step 1 avatar cache miss
+    // (birthIdentity catches step failures internally and emits events, does not rethrow)
+    await expect(birthIdentity(opts, emit, deps)).resolves.toBeUndefined();
+
+    // getCandidateForBirth was called, confirming we passed both name gates
+    expect(mockGetCandidate).toHaveBeenCalled();
+  });
+});
