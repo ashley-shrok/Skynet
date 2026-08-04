@@ -1058,6 +1058,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
     { content: string | null; error: string | null }
   > = new Map();
   const planPendingFetchInFlightForPath: Set<string> = new Set();
+  // Phase 24 CR-01 fix: per-pending-window token. Bumped at EVERY cache-clear
+  // site (transition-to-closed, teardownPane, session_changed clean-slate).
+  // Captured at fetch kickoff; late-arriving `.then()`/`.catch()` callbacks
+  // compare `fetchToken !== planPendingWindowToken` and drop the result
+  // silently if the window they were dispatched for is no longer current.
+  //
+  // Why this is necessary: the pre-fix guard only checked
+  // `planPendingLastSerialized === "null"` (i.e. pending fully closed). If
+  // the pending window transitioned from PlanA → PlanB (different slug, OR
+  // same slug regenerated after Feedback) WITHOUT an intervening null-tick
+  // that the fetch outlived, that guard is false and a stale PlanA fetch
+  // could overwrite PlanB's cache + emit stale content. The token-compare
+  // covers BOTH the fully-closed case AND the window-transition case with
+  // a single monotonic counter — no need to separately compare planFilePath
+  // against the current pane state.
+  let planPendingWindowToken = 0;
   let stopped = false;
 
   // Phase 3 session-changeover state machine. Per D-30 (two-layer detection):
@@ -1138,10 +1154,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
     planPendingLastSerialized = "null";
     // Phase 24 Plan 03: invalidate the fetched plan-content cache and drop
     // any in-flight fetch trackers. Late arrivals from a pre-teardown fetch
-    // are also short-circuited by the `planPendingLastSerialized === "null"`
-    // guard in the async .then() (T-24-03-03).
+    // are short-circuited by the per-window token compare in .then()/.catch()
+    // (CR-01 fix — token bump on every cache-clear invalidates in-flight
+    // closures regardless of what planPendingLastSerialized currently holds).
     planPendingContentByPath.clear();
     planPendingFetchInFlightForPath.clear();
+    planPendingWindowToken += 1;
     backgroundedAgents.clear();
     backgroundedAgentsLastSerialized = "[]";
     backgroundedShells.clear();
@@ -1837,8 +1855,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
     pendingPlansLastSerialized = "null";
     planPendingLastSerialized = "null";
     // Phase 24 Plan 03: clean-slate the plan-content cache on session recycle.
+    // CR-01 fix: bump the window token so any in-flight fetch dispatched
+    // against the OLD session's pending window drops its result silently.
     planPendingContentByPath.clear();
     planPendingFetchInFlightForPath.clear();
+    planPendingWindowToken += 1;
     hasSeenExit = false;
     holdingTicks = 0;
 
@@ -3436,7 +3457,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
           // Transition-to-closed: clear the per-window content cache and
           // any in-flight tracker. Late-arriving fetches short-circuit via
-          // the `planPendingLastSerialized === "null"` guard in .then().
+          // the per-window token compare in .then()/.catch() (CR-01 fix).
           if (
             !isPending &&
             (planPendingContentByPath.size > 0 ||
@@ -3444,6 +3465,33 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ) {
             planPendingContentByPath.clear();
             planPendingFetchInFlightForPath.clear();
+            planPendingWindowToken += 1;
+          }
+
+          // CR-01 fix: window-transition invalidation. If the pane is still
+          // pending but the planFilePath differs from what any in-flight
+          // fetch was dispatched for, we need to invalidate the prior
+          // window's token too — otherwise a PlanA → PlanB slug swap (or a
+          // same-slug regenerate that never went through a null tick) lets
+          // a stale PlanA fetch write into what the UI has now moved on
+          // from. We detect this by: pane is pending + we have EITHER
+          // in-flight fetches for paths that don't match the current path,
+          // OR cached content for paths that don't match. In either case,
+          // clear caches for stale paths and bump the token so the stale
+          // fetches drop silently on arrival.
+          if (
+            isPending &&
+            planFilePath &&
+            (Array.from(planPendingContentByPath.keys()).some(
+              (p) => p !== planFilePath,
+            ) ||
+              Array.from(planPendingFetchInFlightForPath).some(
+                (p) => p !== planFilePath,
+              ))
+          ) {
+            planPendingContentByPath.clear();
+            planPendingFetchInFlightForPath.clear();
+            planPendingWindowToken += 1;
           }
 
           const cached = planFilePath
@@ -3485,13 +3533,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
             planPendingFetchInFlightForPath.add(planFilePath);
             const targetPath = planFilePath; // capture for the async closure
             const activeSshConn = sshConn; // narrow non-null for the closure
+            // CR-01 fix: capture the current window token at fetch-dispatch
+            // time. Any cache-clear site (transition-to-closed, teardown,
+            // session_changed, slug-swap-during-pending) bumps
+            // planPendingWindowToken; a mismatch in .then()/.catch() means
+            // this fetch was dispatched for a window that no longer exists,
+            // and its result must be discarded rather than written into a
+            // future window's cache (which would flip-flop the UI or make
+            // it stick on a stale plan).
+            const fetchToken = planPendingWindowToken;
             void fetchPlanFile(activeSshConn, targetPath)
               .then((result) => {
                 planPendingFetchInFlightForPath.delete(targetPath);
-                // If the pending window has closed mid-fetch (T-24-03-03
-                // stale-result guard), drop the result silently — do NOT
-                // repopulate the cache and do NOT emit.
-                if (planPendingLastSerialized === "null") return;
+                // CR-01 fix: per-window token guard. Drops the result
+                // silently if the pending window this fetch was dispatched
+                // for is no longer current (closed OR transitioned to a
+                // different slug). Replaces the pre-fix
+                // `planPendingLastSerialized === "null"` guard, which only
+                // caught the fully-closed case.
+                if (fetchToken !== planPendingWindowToken) return;
                 const cacheEntry =
                   "content" in result
                     ? { content: result.content, error: null }
@@ -3521,6 +3581,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               })
               .catch((err) => {
                 planPendingFetchInFlightForPath.delete(targetPath);
+                // CR-01 fix: same per-window token guard on the error path —
+                // if the window is stale we must not cache the error either
+                // (would poison the new window's slot if the slug matches).
+                if (fetchToken !== planPendingWindowToken) return;
                 // Cache the error so subsequent ticks don't re-fire the
                 // fetch until the pending window closes and re-opens.
                 const message =
