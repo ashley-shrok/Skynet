@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-03T05:50:20.000Z"
-last_activity: 2026-08-03
+last_updated: "2026-08-04T07:28:33.297Z"
+last_activity: 2026-08-04
 progress:
-  total_phases: 21
+  total_phases: 23
   completed_phases: 15
-  total_plans: 86
-  completed_plans: 82
-  percent: 71
+  total_plans: 92
+  completed_plans: 83
+  percent: 65
 ---
 
 # Project State
@@ -24,10 +24,12 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 20 (identity-creation-ui) — EXECUTING
-Plan: 4 of 6
+Phase: 22 (skynet-ui-parity-with-the-role-identity-paradigm) — EXECUTING
+Plan: 1 of 6 (complete; Wave 1 sibling 22-02 next)
 Status: Ready to execute
-Last activity: 2026-08-03
+Last activity: 2026-08-04
+
+_(Phase 20 was Plan 4 of 6 at the top of this session — untouched by this run. Phase 22 pointer is set here because Plan 22-01 just completed; it was the target of this execute-plan invocation.)_
 
 Last activity: 2026-08-03 — Completed quick task 260803-7vf: Reset button while recording combines send-while-recording + reset behavior. Closes pinned bounty `reset-button-while-recording-combines-send-and-reset` (Ashley 2026-08-03 verbatim: "if you are recording and you hit the reset button, then it essentially combines the functionality of the send button when you're recording and the functionality of the reset button"). Three atomic commits on `feat/tab-title-from-tmux`: `5e34324` RED (3 new failing tests in ComposeBox.voice.test.tsx: reset-while-recording glues + dispatches as `/id reset (glued)`, STT-error fallback dispatches `/id reset (existing textarea body)` NOT plain reset, transcribing-state disables reset button) + `ccd8658` GREEN (ComposeBox.tsx: extracted `fireResetSyncFx()` + `dispatchResetPayload(body)` helpers from existing `handleResetSend`, added async `handleVoiceResetSend` that fires sync fx BEFORE awaiting `voice.endSend` — preserves patch #122 SessionHoldingOverlay latency guarantee so overlay pops immediately on click even during recording; STT-null fallback dispatches with existing textarea body so reset ALWAYS fires when user pressed reset — voice.errorMessage surfaces separately via hook; added `handleResetClick` router branching on `voice.state === "recording"`; wired button onClick + appended `|| voice.state === "transcribing"` to disabled prop matching Phase 16 send-button transcribing-disable pattern; NO changes to useVoiceRecording.ts or RecordingControls.tsx — reset stays in meter well with unchanged visual per Ashley's "no affordance during recording" call) + `691a9bf` (docs: SUMMARY.md). Verification: `npx tsc --noEmit` clean; `npx vitest run src/ui/features/pretty-view/ComposeBox.voice.test.tsx` = 15/15 pass (12 pre-existing + 3 new); `npx vitest run src/ui/features/pretty-view/ComposeBox` = 95/95 pass across 5 test files (regression-free). NOT pushed / NOT image-built / NOT deployed per code-work-doesn't-authorize-ship rule (Ashley 2026-07-27). Ships as next patch entry (deferred to ship-day per orchestrator-side bookkeeping rule). Deploy queue extends from Phase 20 review-fix tip → +3 commits. Pinned pool: 5 → 4.
 
@@ -136,6 +138,7 @@ Progress: [██████████] 99%
 | Phase 19 P01 | 203 | 2 tasks | 2 files |
 | Phase 20-identity-creation-ui P02 | 15 | 3 tasks | 5 files |
 | Phase 20-identity-creation-ui P05 | 10m | 3 tasks | 3 files |
+| Phase 22 P01 | 24min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -198,6 +201,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 15 Wave 2: Test 30p uses vi.importActual to bypass module mock for real-putPinnedIds coverage
 - [Phase ?]: isLocalHostId imported from identity-artifact-reader.ts; SSH probe uses single-quoted name in if [ -d ] check; 3-tier timeout (3s connect, 3s exec, 10s nginx)
 - [Phase ?]: colorHue default 210 (cyan-blue — midpoint of used-hue clusters)
+- [Phase ?]: Phase 22 Plan 01 (SRIC-01): backend-internal two-step (identity file → role frontmatter → role folder) landed in identity-artifact-reader.ts; resolveRoleForIdentity/extractRoleFromMarkdown/getLocalRolesRoot exported for Wave-2 reuse; all 9 bounty helpers repointed via Rule 2/3 auto-fix; zero UI diff; zero claude-session-server.ts diff; zero new npm packages.
 
 ### Pending Todos
 
@@ -349,6 +353,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-03T04:53:26.873Z
+Last session: 2026-08-04T07:28:26.518Z
 Stopped at: Completed 20-05-PLAN.md
 Resume file: None
