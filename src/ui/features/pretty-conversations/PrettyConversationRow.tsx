@@ -78,6 +78,7 @@ import { useIdentities } from "@/state/identities-store";
 import { useBountyCount } from "@/state/bounty-counts-store";
 import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
+import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
 
 import { PrettyBountyCountBadge } from "./PrettyBountyCountBadge";
 import {
@@ -123,10 +124,11 @@ export function PrettyConversationRow({
   onTogglePin: () => void;
   // quick-260727-gm3: fired when Ashley clicks the red-tinted Deactivate
   // menu item (desktop right-click OR mobile long-press). MUST be provided by
-  // the panel whenever inActiveSet === true && !isRdp — otherwise the menu
-  // item is filtered out at items[] build time. See
+  // the panel whenever inActiveSet === true — otherwise the menu item is
+  // filtered out at items[] build time. See
   // PrettyConversationsPanel.handleRowDeactivate for the store-mutation +
-  // tab-close composition.
+  // tab-close composition. As of quick-260804-uo4, RDP rows also receive this
+  // prop (RDP context menu is now enabled).
   onDeactivate?: () => void;
   // quick-260731-tgg: fired when Ashley clicks Hide (EyeOff) or Show (Eye).
   // When provided, the Hide/Show item appears in the context menu between
@@ -227,9 +229,10 @@ export function PrettyConversationRow({
   );
   const onRowContextMenu = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
-      // Same eligibility rule as the (now-hidden) desktop icons: RDP rows
-      // have no actions, so no menu. Non-active-set rows only have Pin
-      // (Deactivate is filtered out below by the items[] predicate).
+      // quick-260804-uo4: RDP rows now open the context menu — the row-level
+      // isRdp guard on this handler was dropped. Non-active-set rows only have
+      // Pin + Open-in-new-window (Deactivate is filtered out below by the
+      // items[] predicate).
       e.preventDefault();
       e.stopPropagation();
       setCtxMenu({ x: e.clientX, y: e.clientY });
@@ -238,9 +241,11 @@ export function PrettyConversationRow({
   );
 
   // ─── Mobile long-press → context menu (quick-260802-pq2) ──────────────────
-  // Wire only on mobile variant AND non-RDP rows. Desktop variant + RDP rows
-  // get zero touch listeners at the render tree level (see JSX prop wiring
-  // below — the four onTouch* props are `undefined` for those cases).
+  // Wire only on mobile variant (mobile-only). Desktop variant rows get zero
+  // touch listeners at the render tree level (see JSX prop wiring below —
+  // the four onTouch* props are `undefined` for desktop). As of
+  // quick-260804-uo4, RDP rows also receive mobile touch handlers so
+  // long-press opens the same context menu on RDP rows.
   //
   // Contract:
   //   - touchStart arms a 500ms timer capturing (clientX, clientY).
@@ -270,7 +275,7 @@ export function PrettyConversationRow({
 
   const onTouchStart = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
-      if (isRdp || !isMobile) return;
+      if (!isMobile) return;
       const t = e.touches[0];
       if (!t) return;
       const x = t.clientX;
@@ -288,12 +293,12 @@ export function PrettyConversationRow({
         longPressTimerRef.current = null;
       }, 500);
     },
-    [isRdp, isMobile, clearLongPressTimer],
+    [isMobile, clearLongPressTimer],
   );
 
   const onTouchMove = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
-      if (isRdp || !isMobile) return;
+      if (!isMobile) return;
       if (longPressTimerRef.current === null) return;
       if (longPressStartRef.current === null) return;
       const t = e.touches[0];
@@ -307,18 +312,18 @@ export function PrettyConversationRow({
         longPressStartRef.current = null;
       }
     },
-    [isRdp, isMobile, clearLongPressTimer],
+    [isMobile, clearLongPressTimer],
   );
 
   const onTouchEnd = useCallback(() => {
-    if (isRdp || !isMobile) return;
+    if (!isMobile) return;
     // Clear any pending timer (early touchEnd → no menu).
     clearLongPressTimer();
     longPressStartRef.current = null;
     // Deliberately DO NOT touch suppressNextClickRef here — the following
     // click event needs to read it to suppress the trailing tap after a
     // successful long-press.
-  }, [isRdp, isMobile, clearLongPressTimer]);
+  }, [isMobile, clearLongPressTimer]);
 
   // Cleanup on unmount so a pending timer doesn't fire against an unmounted
   // component (setState on unmounted → React warning + potential dangling
@@ -404,20 +409,21 @@ export function PrettyConversationRow({
           layout, background, border, shadow, hover, and state variants via
           the composed className. The only inline style is `--pv-hue` (for
           hue-bearing rows). quick-260802-pq2: onTouchStart/Move/End/Cancel
-          now wire the long-press → context-menu handlers (mobile non-RDP
-          only). Desktop + RDP rows get `undefined` for all four so no timer
-          is ever armed. */}
+          now wire the long-press → context-menu handlers (mobile-only).
+          Desktop rows get `undefined` for all four so no timer is ever armed.
+          quick-260804-uo4: RDP rows now get the full context menu on both
+          desktop (onContextMenu) and mobile (touch handlers). */}
       <div
         role="button"
         tabIndex={0}
         aria-pressed={selected}
         onClick={onBodyClick}
         onKeyDown={onBodyKeyDown}
-        onContextMenu={!isMobile && !isRdp ? onRowContextMenu : undefined}
-        onTouchStart={isMobile && !isRdp ? onTouchStart : undefined}
-        onTouchMove={isMobile && !isRdp ? onTouchMove : undefined}
-        onTouchEnd={isMobile && !isRdp ? onTouchEnd : undefined}
-        onTouchCancel={isMobile && !isRdp ? onTouchEnd : undefined}
+        onContextMenu={!isMobile ? onRowContextMenu : undefined}
+        onTouchStart={isMobile ? onTouchStart : undefined}
+        onTouchMove={isMobile ? onTouchMove : undefined}
+        onTouchEnd={isMobile ? onTouchEnd : undefined}
+        onTouchCancel={isMobile ? onTouchEnd : undefined}
         style={bodyStyle}
         className={rowClassName}
       >
@@ -559,10 +565,13 @@ export function PrettyConversationRow({
         </div>
       </div>
       {/* Right-click menu portal. Items filter by row eligibility: Pin
-          renders for any non-RDP row (always available); Deactivate only
-          when inActiveSet. RDP rows never open the menu (onRowContextMenu
-          is not wired when isRdp), so items[] can safely assume non-RDP. */}
-      {ctxMenu !== null && !isRdp && (
+          renders for any row; Hide/Show only when onToggleHide is provided;
+          Clone only when onClone AND identity resolve (RDP rows have no
+          identity → Clone auto-hidden); Deactivate only when inActiveSet &&
+          onDeactivate; Open/Move in new window renders on desktop for any
+          row where specForTab produces a spec. RDP rows now open the menu
+          (quick-260804-uo4 dropped the row-level isRdp gate). */}
+      {ctxMenu !== null && (
         <PrettyConversationContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
@@ -574,9 +583,8 @@ export function PrettyConversationRow({
               onClick: onTogglePin,
             });
             // quick-260731-tgg: Hide/Show item between Pin/Unpin and Deactivate.
-            // Only rendered when onToggleHide is provided (RDP rows never get it —
-            // onRowContextMenu is not wired for isRdp, so items[] already assumes non-RDP;
-            // the belt-and-suspenders onToggleHide check below handles RDP safety).
+            // Only rendered when onToggleHide is provided (RDP rows never get it
+            // because the panel deliberately doesn't thread onToggleHide for RDP).
             if (onToggleHide) {
               items.push({
                 label: hidden ? "Unhide" : "Hide",
@@ -584,18 +592,37 @@ export function PrettyConversationRow({
               });
             }
             // Phase 22 (SRIC-03): Clone item — inserted between Hide/Show and
-            // Deactivate. Only rendered when onClone is provided AND the row
-            // has a resolvable identity (clone requires a source identity —
-            // meaningless without it). onClone is threaded through by
-            // PrettyConversationsPanel only for non-RDP rows with row.host,
-            // but the identity gate is a belt-and-suspenders check here so a
-            // row without an identity never surfaces the item even if the
-            // panel wiring changes.
+            // Open/Move-in-new-window. Only rendered when onClone is provided AND
+            // the row has a resolvable identity (clone requires a source identity —
+            // meaningless without it). RDP rows have no identity → Clone is
+            // auto-hidden by the identity gate.
             if (onClone && identity) {
               items.push({
                 label: "Clone",
                 onClick: onClone,
               });
+            }
+            // quick-260804-uo4: Open/Move in new window — desktop-only (not rendered
+            // on mobile variant). Bifurcates label on inActiveSet. Builds a TabSpec
+            // via specForTab; skipped for tabs that aren't URL-addressable (specForTab
+            // returns null). The click handler opens the encoded workspace URL in a new
+            // window and, IF window.open returned a non-null handle AND the row was in
+            // the active-set, fires onDeactivate to tear down the current tab (popup-
+            // blocker safety: if the window was blocked, the original tab survives).
+            if (!isMobile) {
+              const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
+              if (spec !== null) {
+                items.push({
+                  label: inActiveSet ? "Move to new window" : "Open in new window",
+                  onClick: () => {
+                    const payload = encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true });
+                    const w = window.open("#" + payload, "_blank", "noopener");
+                    if (w !== null && inActiveSet) {
+                      onDeactivate?.();
+                    }
+                  },
+                });
+              }
             }
             if (inActiveSet && onDeactivate) {
               items.push({
