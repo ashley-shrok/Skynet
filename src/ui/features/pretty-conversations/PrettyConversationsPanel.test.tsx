@@ -2212,8 +2212,12 @@ describe("PrettyConversationsPanel: Hidden section (quick-260731-tgg)", () => {
 describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => {
   const hostA = makeHost("h1", "hostA");
 
-  // (g) Context menu on a non-hidden row shows Hide between Pin/Unpin and Deactivate
-  it("Test (g): context menu on a non-hidden active-set row shows Hide between Pin/Unpin and Deactivate", async () => {
+  // (g) Context menu on a non-hidden row shows Hide between Pin/Unpin and
+  // Move/Open-in-new-window, with Deactivate at the tail. quick-260804-uo4
+  // inserted "Move to new window" between Clone and Deactivate; for a row
+  // without an identity Clone is auto-hidden, so the order collapses to
+  // Pin, Hide, Move to new window, Deactivate.
+  it("Test (g): context menu on a non-hidden active-set row shows Pin/Hide/Move-to-new-window/Deactivate in order", async () => {
     setSnapshot({
       activeSet: [
         makeConversationRow({ id: "active-row-g", label: "active-g", host: hostA }),
@@ -2237,10 +2241,12 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     const menu = screen.getByRole("menu");
     const items = within(menu).getAllByRole("menuitem");
     const labels = items.map((el) => el.textContent ?? "");
-    // Expected order: Pin, Hide, Deactivate
+    // Expected order: Pin, Hide, Move to new window, Deactivate (Clone
+    // hidden — row has no identity).
     expect(labels[0]).toMatch(/pin/i);
     expect(labels[1]).toMatch(/hide/i);
-    expect(labels[2]).toMatch(/deactivate/i);
+    expect(labels[2]).toMatch(/move to new window/i);
+    expect(labels[3]).toMatch(/deactivate/i);
   });
 
   // (h) Context menu on a hidden row shows Unhide in the same slot
