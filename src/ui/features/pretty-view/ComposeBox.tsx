@@ -279,6 +279,22 @@ export interface ComposeBoxProps {
   // `isHolding` here matches the overlay's own visibility gate so the
   // controls disable exactly when the scrim mounts.
   recycleActive?: boolean;
+  // Phase 24: plan-mode approval prompt is pending. When true, every WS-side-
+  // effecting compose control is disabled (Send button STAYS as Send but
+  // disabled=true; reset, ThumbsUp, Recap, Queue all disabled). Textarea
+  // REMAINS typeable so Ashley can pre-draft her feedback message while the
+  // plan-approval prompt is open — matches the recycleActive behavior verbatim.
+  //
+  // Why SEPARATE from asideActive AND recycleActive (per CONTEXT § "Do NOT
+  // collapse"): asideActive MORPHS Send into X/Resume; recycleActive keeps
+  // Send as Send but disabled; planPendingActive follows the recycleActive
+  // treatment. Because the Send-button behavior differs across the three,
+  // props stay independent. For every aux-button disable predicate that
+  // reads `|| recycleActive === true`, also OR-in `|| planPendingActive === true`.
+  //
+  // Value from PrettyView: `planPending !== null` — flipped by the WS
+  // `plan_pending` frame handler.
+  planPendingActive?: boolean;
   className?: string;
 }
 
@@ -307,6 +323,7 @@ export function ComposeBox({
   asideActive,
   onAsideDismiss,
   recycleActive,
+  planPendingActive,
   className,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
@@ -1167,7 +1184,8 @@ export function ComposeBox({
         setText(result.glued);
         scheduleAutosave(result.glued, latestQueueSlotsRef.current);
         // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — Ashley sends manually once the overlay clears.
-        if (!recycleActive) {
+        // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
+        if (!recycleActive && !planPendingActive) {
           // D-16-05: route through the SAME handleSend — attachment branching,
           // D-50 newline collapse, COMPOSE-04 hard-lock all still apply.
           handleSend(result.glued);
@@ -1179,7 +1197,8 @@ export function ComposeBox({
         );
         // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle,
         // text lands in slot, no dispatch, slot not removed — Ashley sends manually once overlay clears.
-        if (!recycleActive) {
+        // Phase 24: same treatment during plan-mode pending — text lands in slot, no dispatch.
+        if (!recycleActive && !planPendingActive) {
           // handleQueueSlotSend reads from queueSlots state, but due to async
           // batching we pass the glued text directly via onSend to avoid stale reads.
           const payload = collapseNewlinesForSend(result.glued.trim());
@@ -1371,7 +1390,9 @@ export function ComposeBox({
     // disabled (via sendDisabled below) but the textarea stays typeable
     // so Ashley can pre-draft the next message. Swallow the Enter-send
     // path too so a bare Enter can't slip past the disabled button.
-    if (recycleActive) return;
+    // Phase 24: same treatment during plan-mode pending — textarea stays
+    // typeable but Enter-send is swallowed.
+    if (recycleActive || planPendingActive) return;
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
@@ -1442,7 +1463,8 @@ export function ComposeBox({
     !asideActive &&
     !primaryArmed &&
     text.trim() !== "" &&
-    !recycleActive;
+    !recycleActive &&
+    !planPendingActive;
   const showRecordingControls = isPrimaryRecording;
   const showTranscribingSend = isPrimaryTranscribing;
   // Quick 260802-uow bounty 3: when 3 buttons render on the primary
@@ -1475,6 +1497,7 @@ export function ComposeBox({
   const sendDisabled =
     primaryArmed ||
     recycleActive === true ||
+    planPendingActive === true ||
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
 
@@ -1611,7 +1634,7 @@ export function ComposeBox({
           <button
             type="button"
             onClick={handleResetClick}
-            disabled={canSend === false || asideActive === true || recycleActive === true || voice.state === "transcribing"}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || voice.state === "transcribing"}
             aria-label="Reset context window"
             title="Reset context window"
             className={cn(
@@ -1833,7 +1856,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="outline"
             onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
-            disabled={canSend === false || asideActive === true || recycleActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true}
             aria-label="Send 'let's go'"
             title="Send 'let's go'"
             className={cn(
@@ -1863,7 +1886,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="outline"
             onClick={() => handleQuickSend("/explain the current situation")}
-            disabled={canSend === false || asideActive === true || recycleActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true}
             aria-label="Recap the current situation"
             title="Recap"
             className={cn(
@@ -1907,6 +1930,7 @@ export function ComposeBox({
               isSourceArmed={isSourceArmed}
               asideActive={asideActive}
               recycleActive={recycleActive}
+              planPendingActive={planPendingActive}
               canSend={canSend}
               queueSlots={queueSlots}
               onSlotsChange={(next) => {
@@ -2346,6 +2370,10 @@ interface QueuedRowProps {
   isSourceArmed: (source: "primary" | string) => boolean;
   asideActive?: boolean;
   recycleActive?: boolean;
+  // Phase 24: OR-in sibling for the plan-mode approval prompt window.
+  // Matches recycleActive verbatim — the queued-row aux buttons that already
+  // read `recycleActive === true` also OR-in `planPendingActive === true`.
+  planPendingActive?: boolean;
   canSend?: boolean;
   queueSlots: Array<{ id: string; text: string }>;
   onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
@@ -2377,6 +2405,7 @@ function QueuedRow(props: QueuedRowProps) {
     isSourceArmed,
     asideActive,
     recycleActive,
+    planPendingActive,
     canSend,
     queueSlots,
     onSlotsChange,
@@ -2440,7 +2469,9 @@ function QueuedRow(props: QueuedRowProps) {
   const showSlotArmButton =
     !asideActive &&
     !slotArmed &&
-    slotHasText;
+    slotHasText &&
+    !recycleActive &&
+    !planPendingActive;
   const showSlotRecording = isSlotRecording;
   const showSlotTranscribingSend = isSlotTranscribing;
   const showSlotSend = !showSlotRecording;
@@ -2593,7 +2624,7 @@ function QueuedRow(props: QueuedRowProps) {
         <button
           type="button"
           onClick={() => handleOpenFilePicker(target)}
-          disabled={canSend === false || asideActive === true || recycleActive === true}
+          disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true}
           aria-label="Attach file to queued message"
           title="Attach file"
           className={cn(
