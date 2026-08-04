@@ -48,7 +48,7 @@
 // retired in Wave 4 and NOT ported forward here.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, Pin, Plus, Server } from "lucide-react";
+import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, Pin, Plus, Server, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -80,6 +80,11 @@ import {
 } from "@/state/bounty-counts-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
+// Phase 22 (SRIC-04): CreateRoleDialog + `+ New role` launcher next to the pencil.
+// Chain-to-create-identity hook (onChainToCreateIdentity) is deferred to Plan 22-05
+// / SRIC-05 — this panel does NOT provide the callback (undefined-safe on the
+// dialog side, verified by CreateRoleDialog.test.tsx Test 17b).
+import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 import { getPinnedIds, getHiddenIds } from "@/api/user-preferences-api";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -369,6 +374,9 @@ export function PrettyConversationsPanel({
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
+  // Phase 22 (SRIC-04): CreateRoleDialog open/closed toggle (opened by the
+  // sibling `+ New role` launcher button, mounted below alongside NewSessionDialog).
+  const [createRoleDialogOpen, setCreateRoleDialogOpen] = useState(false);
 
   // quick-260731-tgg: collapsed by default on every mount per Ashley's design lock.
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
@@ -611,6 +619,10 @@ export function PrettyConversationsPanel({
   const newSessionLabel = t("nav.newSession", {
     defaultValue: "New agent",
   });
+  // Phase 22 (SRIC-04): label for the `+ New role` launcher button.
+  const newRoleLabel = t("nav.newRole", {
+    defaultValue: "New role",
+  });
   const rdpSectionLabel = t("nav.conversations.rdpSection", {
     defaultValue: "Remote desktop",
   });
@@ -691,6 +703,28 @@ export function PrettyConversationsPanel({
                 className="pv-pencil"
               >
                 <Plus />
+              </button>
+            )}
+            {/* Phase 22 (SRIC-04): `+ New role` launcher — placed as a sibling
+                of the pencil, gated on the SAME showPencilButton predicate so
+                both buttons share their onCreateSession-wired visibility. Uses
+                the pv-pencil class treatment for visual parity with the
+                sibling; distinct label "New role" disambiguates for screen
+                readers. Distinct icon (Users from lucide) telegraphs role-
+                creation semantics vs the pencil's session-creation semantics.
+                onClick: opens CreateRoleDialog. Chain-into-create-identity
+                (SRIC-05) is wired in Plan 22-05 — the dialog's callback prop
+                is undefined here (undefined-safe by construction). */}
+            {showPencilButton && (
+              <button
+                type="button"
+                onClick={() => setCreateRoleDialogOpen(true)}
+                aria-label={newRoleLabel}
+                title={newRoleLabel}
+                className="pv-pencil"
+                data-testid="pv-new-role-button"
+              >
+                <Users />
               </button>
             )}
           </div>
@@ -984,6 +1018,22 @@ export function PrettyConversationsPanel({
             onCreateSession!(opts);
             setNewSessionDialogOpen(false);
           }}
+        />
+      )}
+      {/* Phase 22 (SRIC-04): CreateRoleDialog — portal-mounted sibling of
+          NewSessionDialog. Gated on the SAME showPencilButton predicate so
+          both dialogs share their onCreateSession-wired lifecycle.
+          onChainToCreateIdentity is intentionally NOT passed here — Plan
+          22-05 (SRIC-05) wires it to open NewSessionDialog with role+host
+          pre-filled after a role is created. Explicit `undefined` with the
+          plan-reference comment makes the extension point discoverable to
+          reviewers of 22-05. */}
+      {showPencilButton && (
+        <CreateRoleDialog
+          open={createRoleDialogOpen}
+          onClose={() => setCreateRoleDialogOpen(false)}
+          hostTree={hostTree ?? null}
+          onChainToCreateIdentity={undefined /* wired in Plan 22-05 SRIC-05 */}
         />
       )}
     </div>
