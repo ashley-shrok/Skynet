@@ -128,6 +128,42 @@ export async function listRolesForHost(hostId: number): Promise<RoleSummary[]> {
   }
 }
 
+// ─── Phase 22 (SRIC-04): create role on target host ──────────────────────────
+// Backing route: src/backend/database/routes/roles-create.ts
+// POST /roles with body {name, description, hostId} → 201 {name, description}
+// Consumed by CreateRoleDialog's submit handler (see plan 22-04 Task 2).
+//
+// Error handling: 409 collisions surface as a typed error the dialog can
+// render inline ("A role named `<name>` already exists on <host>"). All
+// other non-2xx responses surface via handleApiError.
+
+export class RoleAlreadyExistsError extends Error {
+  constructor(public readonly roleName: string) {
+    super(`role exists on host: ${roleName}`);
+    this.name = "RoleAlreadyExistsError";
+  }
+}
+
+export async function createRole(input: {
+  name: string;
+  description: string;
+  hostId: number;
+}): Promise<{ name: string; description: string }> {
+  try {
+    const response = await authApi.post("/roles", input);
+    return response.data as { name: string; description: string };
+  } catch (error) {
+    // Detect 409 conflict — surface as a typed error so the dialog can
+    // render an inline "role already exists" message rather than throwing
+    // through handleApiError's generic surface.
+    const err = error as { response?: { status?: number } };
+    if (err?.response?.status === 409) {
+      throw new RoleAlreadyExistsError(input.name);
+    }
+    handleApiError(error, "create role");
+  }
+}
+
 // ─── openBirthStream ─────────────────────────────────────────────────────────
 // SSE consumer for POST /identities/birth. EventSource does NOT support POST;
 // we use fetch + ReadableStream instead. Auth is cookie-based (withCredentials

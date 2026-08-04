@@ -19,6 +19,7 @@ import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
 import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
+import rolesCreateRoutes from "./routes/roles-create.js";
 import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -1810,6 +1811,11 @@ app.use("/identities", identityExistsOnHostRoutes);
 // enumeration. Standalone mount; kept ABOVE /identities to preserve match
 // precedence should a future /roles subpath ever collide.
 app.use("/roles", rolesListForHostRoutes);
+// Phase 22 (SRIC-04): POST /roles — target-host-side role folder creation.
+// Same base path as the list router; Express supports multiple routers at the
+// same mount by chaining app.use. The list router only handles GET so POST
+// falls through to this router. Both /roles mounts appear BEFORE /identities.
+app.use("/roles", rolesCreateRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
