@@ -558,9 +558,16 @@ export function NewSessionDialog({
     const normalizedPath = normalizePath(path);
 
     try {
+      // Patch #315: Host.id is typed as `string` (see src/types/ui-types.ts)
+      // and the /identities/birth route validates `typeof hostId === "number"`
+      // strictly (no coercion). The old `as unknown as number` cast was a
+      // compile-time lie that produced instant 400 "hostId must be a positive
+      // integer" on first identity birth. Coerce like the sibling /roles call
+      // above at line ~468 does.
+      const hostIdNum = parseInt(String(selectedHost.id), 10);
       const stream = openBirthStream(
         {
-          hostId: selectedHost.id as unknown as number,
+          hostId: hostIdNum,
           name: name.toLowerCase(),
           title,
           path: normalizedPath,
