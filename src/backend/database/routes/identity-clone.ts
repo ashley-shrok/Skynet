@@ -1,0 +1,586 @@
+/**
+ * Phase 22 (SRIC-03): POST /identities/clone — clone an existing fleet
+ * identity into a new identity on the SAME host, preserving role/host/color
+ * (LOCKED) and letting the user edit only name/title/voice/avatar.
+ *
+ * Endpoint contract:
+ *   POST /identities/clone
+ *     Content-Type: application/json (NOT multipart — sidesteps Phase 20
+ *       patch #77 silent-no-op trap per RESEARCH Pitfall 2; 415 gate below)
+ *     Body: {
+ *       sourceIdentityKey: string,   // must pass IDENTITY_KEY_RE
+ *       hostId: number,              // positive integer, resolveHostById gate
+ *       newName: string,             // must pass IDENTITY_KEY_RE
+ *       title: string,               // required non-empty (≤200 chars)
+ *       voice: string | null,        // optional (≤100 chars)
+ *       avatarCandidateId: string | null   // if provided, uses candidate cache;
+ *                                          // if null, reuses source avatarData
+ *     }
+ *   Responses:
+ *     201 { publicIdentity(newRow) } — created
+ *     400 — validation failure (with distinct error strings)
+ *     401 — missing/invalid JWT
+ *     404 — hostId not owned OR source identity not found in Skynet DB
+ *     409 — newName collides with existing folder on target host
+ *     415 — Content-Type not application/json
+ *     500 — source has no role frontmatter (mirrors resolveRoleForIdentity
+ *           throw) OR unexpected error (sanitized)
+ *     502 — SSH connect failure
+ *
+ * Sequence:
+ *   1. Validate JSON body (IDENTITY_KEY_RE, hostId, title, voice, avatarCandidateId).
+ *   2. Content-Type gate: 415 if not application/json (defense-in-depth on top
+ *      of express.json() body-parser only decoding JSON bodies).
+ *   3. Fetch source row from Skynet DB via (userId, sourceIdentityKey) — 404 on
+ *      not-found (cross-user isolation via userId filter).
+ *   4. Fetch avatar bytes: from candidate cache if avatarCandidateId provided
+ *      (400 if expired), else reuse source.avatarData.
+ *   5. resolveHostById(hostId, userId) — 404 on cross-user / unknown.
+ *   6. SSH connect (5s timeout) — 502 on failure.
+ *   7. resolveRoleForIdentity(conn, sourceIdentityKey) — THROWS on missing
+ *      frontmatter (500 with "source has no role frontmatter"). NO fallback
+ *      branch per Pitfall 8 + D-CONTEXT LOCKED "no such identities exist".
+ *   8. Collision probe: `if [ -d "$HOME/.claude/identities/<newName>" ]` —
+ *      409 if "exists".
+ *   9. Provision new fleet folder (mirrors 22-02 Step 2.5 shape MINUS the
+ *      SSH relay-register block per REVISION 2026-08-04):
+ *      - `mkdir -p ~/.claude/identities/<newName>/wakeups`
+ *      - `touch ~/.claude/identities/<newName>/handoff.md`
+ *      - `echo $HOME` for absolute path resolution
+ *      - writeMarkdownFileAtomic with `role: <sourceRole>` frontmatter +
+ *        SEED COMMENT (wake-up agent registers own relay account on first
+ *        wake per the seed's plain-English instruction).
+ *   10. DB insert (mirrors identity-birth.ts:73-90) with new nanoid id,
+ *       identityKey=newName, colorHue=sourceRow.colorHue (LOCKED, user
+ *       CANNOT override), title/voice=user-edited (fallback to source),
+ *       avatarData=avatarBytes, fresh md5 etag, now timestamps.
+ *   11. Re-select new row for response shape.
+ *   12. consumeCandidateForBirth if avatarCandidateId was provided.
+ *   13. 201 with publicIdentity(newRow) response.
+ *   14. Finally: try conn.end() catch {} — best-effort cleanup on every exit.
+ *
+ * REVISION 2026-08-04 (Ashley at 22-02 checkpoint, applied here per same-
+ * pattern extension): Skynet does NOT invoke the relay-register block via
+ * SSH from this endpoint. Same refinement as 22-02 Task 3 (revised): the
+ * new identity file gets a SEED COMMENT instructing the wake-up agent to
+ * register a Matrix relay account on first wake. Rationale: fewer moving
+ * parts in Skynet, cleaner boundary (Skynet does file setup, agent does
+ * identity setup), same end-state. See CLONE_SEED_COMMENT constant below.
+ *
+ * Security posture (STRIDE T-22-03-* in the plan's threat model):
+ *   T-22-03-01: Shell injection via newName — MITIGATE via IDENTITY_KEY_RE
+ *     gate blocking quotes/backticks/semicolons/spaces.
+ *   T-22-03-02: Shell injection via role in frontmatter — MITIGATE via
+ *     resolveRoleForIdentity's inner IDENTITY_KEY_RE gate (Plan 22-01).
+ *   T-22-03-03: Cross-user clone via spoofed hostId/sourceIdentityKey —
+ *     MITIGATE via resolveHostById(hostId, userId) 404 gate + DB filter
+ *     on userId.
+ *   T-22-03-04: Multipart silent no-op — MITIGATE via 415 content-type gate.
+ *   T-22-03-05: SFTP EEXIST trap — MITIGATE via writeMarkdownFileAtomic
+ *     (ext_openssh_rename per Pitfall 3).
+ *   T-22-03-06: Info disclosure via SSH stderr — MITIGATE via sanitized
+ *     500 responses (never leak upstream detail in response body).
+ *   T-22-03-08: LOCKED-field bypass — MITIGATE by pulling colorHue from
+ *     sourceRow (NOT req.body); role from resolveRoleForIdentity (NOT
+ *     req.body); host from resolveHostById (NOT req.body override).
+ *
+ * Mount point: app.use("/identities/clone", identityCloneRoutes) — MUST be
+ * mounted BEFORE app.use("/identities", identitiesRoutes) so the exact path
+ * wins over the generic identities router (see database.ts adjacent to the
+ * /identities/birth and /identities/exists-on-host mounts).
+ */
+
+import type { AuthenticatedRequest } from "../../../types/index.js";
+import express from "express";
+import type { Request, Response, NextFunction } from "express";
+import { createHash } from "node:crypto";
+import { nanoid } from "nanoid";
+import { db } from "../db/index.js";
+import { identities } from "../db/schema.js";
+import { eq, and } from "drizzle-orm";
+import { AuthManager } from "../../utils/auth-manager.js";
+import { databaseLogger, sshLogger } from "../../utils/logger.js";
+import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { execCommand } from "../../ssh/tmux-helper.js";
+import {
+  writeMarkdownFileAtomic,
+  resolveRoleForIdentity,
+  IDENTITY_KEY_RE,
+} from "../../claude-session/identity-artifact-reader.js";
+import { resolveHostById } from "../../ssh/host-resolver.js";
+import {
+  getCandidateForBirth,
+  consumeCandidateForBirth,
+} from "./identity-avatar-batch.js";
+
+const router = express.Router();
+const authManager = AuthManager.getInstance();
+const authenticateJWT = authManager.createAuthMiddleware();
+
+/** SSH connect timeout — matches other one-shot SSH endpoints. */
+const SSH_CONNECT_TIMEOUT_MS = 5000;
+
+/** SSH exec race timeout — bounded so a hung remote can't stall the route. */
+const SSH_EXEC_TIMEOUT_MS = 5000;
+
+/** Field length caps. */
+const MAX_TITLE_LEN = 200;
+const MAX_VOICE_LEN = 100;
+
+/**
+ * REVISION 2026-08-04 (Ashley at 22-02 checkpoint, applied here per same-
+ * pattern extension). Seed comment embedded in the new identity file
+ * telling the wake-up agent to register a Matrix relay account for this
+ * identity on first wake.
+ *
+ * Style constraints (verbatim from Ashley — enforced by test 8 assertions):
+ *   - Do NOT say "Skynet" (agents don't know what that is)
+ *   - Do NOT reference §2 / §3 / "id skill" / SKILL.md (fragile skill refs)
+ *   - Plain-terms instructions to the wake-up agent
+ *   - Ends with "remove this comment" so the agent knows to clear it
+ *   - MUST contain: "This identity has no relay account yet", "On first wake",
+ *     "register a Matrix relay account", "remove this comment"
+ */
+const CLONE_SEED_COMMENT =
+  "<!-- This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment. -->";
+
+/** Public identity DTO — mirrors identities.ts publicIdentity(). */
+function publicIdentity(row: typeof identities.$inferSelect) {
+  return {
+    id: row.id,
+    identityKey: row.identityKey,
+    displayName: row.displayName,
+    title: row.title,
+    colorHue: row.colorHue,
+    voice: row.voice,
+    avatarMime: row.avatarMime,
+    avatarUrl: `/identities/${row.id}/avatar`,
+    avatarEtag: row.avatarEtag,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/**
+ * Race an exec against a timeout so a hung remote can't stall the route.
+ * Mirrors roles-create.ts execWithTimeout / identity-artifact-reader.
+ * execWithTimeout shape.
+ */
+function execWithTimeout(
+  conn: Awaited<ReturnType<typeof connectOneShot>>,
+  command: string,
+  timeoutMs: number = SSH_EXEC_TIMEOUT_MS,
+): Promise<string> {
+  return Promise.race([
+    execCommand(conn, command),
+    new Promise<string>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`SSH exec timeout after ${timeoutMs}ms`)),
+        timeoutMs,
+      ),
+    ),
+  ]);
+}
+
+/**
+ * POST /
+ * Body: { sourceIdentityKey, hostId, newName, title, voice, avatarCandidateId }
+ * Provisions ~/.claude/identities/<newName>/ + wakeups/ + handoff.md +
+ * <newName>.md (with role: frontmatter and wake-up seed comment) and inserts
+ * a new Skynet DB row that mirrors the source's colorHue.
+ */
+router.post(
+  "/",
+  // Content-Type gate: reject non-JSON with 415 BEFORE body parsing so
+  // multipart requests don't slip through as an empty req.body.
+  (req: Request, res: Response, next: NextFunction) => {
+    if (!req.is("application/json")) {
+      res.status(415).json({ error: "clone requires application/json body" });
+      return;
+    }
+    next();
+  },
+  express.json({ limit: "64kb" }),
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const userIdNum = parseInt(userId, 10);
+
+    // -----------------------------------------------------------------------
+    // 1. Body validation
+    // -----------------------------------------------------------------------
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawSource = body.sourceIdentityKey;
+    const rawNewName = body.newName;
+    const rawHostId = body.hostId;
+    const rawTitle = body.title;
+    const rawVoice = body.voice;
+    const rawCandidateId = body.avatarCandidateId;
+
+    if (typeof rawSource !== "string" || rawSource.length === 0) {
+      res.status(400).json({ error: "sourceIdentityKey is required" });
+      return;
+    }
+    if (!IDENTITY_KEY_RE.test(rawSource)) {
+      res.status(400).json({
+        error: "sourceIdentityKey must match [a-z0-9_-]{1,64}",
+      });
+      return;
+    }
+    if (typeof rawNewName !== "string" || rawNewName.length === 0) {
+      res.status(400).json({ error: "newName is required" });
+      return;
+    }
+    if (!IDENTITY_KEY_RE.test(rawNewName)) {
+      res.status(400).json({
+        error: "newName must match [a-z0-9_-]{1,64}",
+      });
+      return;
+    }
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (typeof rawTitle !== "string" || rawTitle.trim().length === 0) {
+      res.status(400).json({ error: "title is required" });
+      return;
+    }
+    if (rawTitle.length > MAX_TITLE_LEN) {
+      res.status(400).json({ error: `title must be ≤${MAX_TITLE_LEN} chars` });
+      return;
+    }
+    if (rawVoice !== null && rawVoice !== undefined && typeof rawVoice !== "string") {
+      res.status(400).json({ error: "voice must be a string or null" });
+      return;
+    }
+    if (typeof rawVoice === "string" && rawVoice.length > MAX_VOICE_LEN) {
+      res.status(400).json({ error: `voice must be ≤${MAX_VOICE_LEN} chars` });
+      return;
+    }
+    if (
+      rawCandidateId !== null &&
+      rawCandidateId !== undefined &&
+      typeof rawCandidateId !== "string"
+    ) {
+      res.status(400).json({ error: "avatarCandidateId must be a string or null" });
+      return;
+    }
+
+    const sourceIdentityKey = rawSource;
+    const newName = rawNewName;
+    const hostId = rawHostId;
+    const title = rawTitle.trim();
+    const voice: string | null = typeof rawVoice === "string" ? rawVoice : null;
+    const avatarCandidateId: string | null =
+      typeof rawCandidateId === "string" && rawCandidateId.length > 0
+        ? rawCandidateId
+        : null;
+
+    // -----------------------------------------------------------------------
+    // 2. Fetch source row from Skynet DB (userId filter for cross-user gate)
+    // -----------------------------------------------------------------------
+    const sourceRows = db
+      .select()
+      .from(identities)
+      .where(
+        and(
+          eq(identities.userId, userId),
+          eq(identities.identityKey, sourceIdentityKey),
+        ),
+      )
+      .all();
+    if (sourceRows.length === 0) {
+      res.status(404).json({ error: "source not found" });
+      return;
+    }
+    const sourceRow = sourceRows[0];
+
+    // -----------------------------------------------------------------------
+    // 3. Fetch avatar bytes (candidate cache OR source's buffer)
+    // -----------------------------------------------------------------------
+    let avatarBytes: Buffer;
+    if (avatarCandidateId) {
+      const cand = getCandidateForBirth(userIdNum, avatarCandidateId);
+      if (!cand) {
+        res.status(400).json({ error: "avatar candidate expired" });
+        return;
+      }
+      avatarBytes = cand.bytes;
+    } else {
+      // Source's avatarData is a Buffer per drizzle blob mode: "buffer"
+      avatarBytes = sourceRow.avatarData as Buffer;
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. Resolve host (cross-user isolation gate)
+    // -----------------------------------------------------------------------
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. SSH connect (5s timeout) — 502 on failure
+    // -----------------------------------------------------------------------
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("identity-clone: SSH connect failed", {
+          operation: "identity_clone_connect",
+          hostId,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      // ---------------------------------------------------------------------
+      // 6. Resolve source's role via the two-step (throws when identity file
+      //    lacks role: frontmatter — no fallback per Pitfall 8 / D-CONTEXT
+      //    LOCKED "no such identities exist post-migration").
+      // ---------------------------------------------------------------------
+      let sourceRole: string;
+      try {
+        sourceRole = await resolveRoleForIdentity(conn, sourceIdentityKey);
+      } catch (err) {
+        databaseLogger.error(
+          "identity-clone: source has no role frontmatter",
+          err,
+          {
+            operation: "identity_clone_role_resolve",
+            userId,
+            sourceIdentityKey,
+          },
+        );
+        res.status(500).json({ error: "source has no role frontmatter" });
+        return;
+      }
+
+      // ---------------------------------------------------------------------
+      // 7. Collision probe: 409 if new identity folder already exists.
+      //    newName is pre-validated by IDENTITY_KEY_RE so interpolation into
+      //    the double-quoted path is shell-safe (matches identity-exists-on-
+      //    host.ts:118-122 "validate-then-interpolate" pattern).
+      // ---------------------------------------------------------------------
+      let existsStdout: string;
+      try {
+        existsStdout = await execWithTimeout(
+          conn,
+          `if [ -d "$HOME/.claude/identities/${newName}" ]; then echo exists; else echo missing; fi`,
+        );
+      } catch (err) {
+        sshLogger.warn("identity-clone: existence probe failed", {
+          operation: "identity_clone_exists_probe",
+          hostId,
+          newName,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+      if (existsStdout.trim() === "exists") {
+        res.status(409).json({ error: "identity exists on host" });
+        return;
+      }
+
+      // ---------------------------------------------------------------------
+      // 8. Provision new fleet folder — mirrors 22-02 Step 2.5 pattern MINUS
+      //    the SSH relay-register block per REVISION 2026-08-04.
+      //    - mkdir -p new-identity-dir + wakeups (single exec, idempotent)
+      //    - touch handoff.md
+      // ---------------------------------------------------------------------
+      try {
+        await execWithTimeout(
+          conn,
+          `mkdir -p "$HOME/.claude/identities/${newName}/wakeups"`,
+        );
+        await execWithTimeout(
+          conn,
+          `touch "$HOME/.claude/identities/${newName}/handoff.md"`,
+        );
+      } catch (err) {
+        sshLogger.warn("identity-clone: provision exec failed", {
+          operation: "identity_clone_provision",
+          hostId,
+          newName,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      // ---------------------------------------------------------------------
+      // 9. Resolve remote $HOME for absolute path to SFTP write.
+      // ---------------------------------------------------------------------
+      let remoteHome: string;
+      try {
+        remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+        if (!remoteHome) {
+          throw new Error("could not resolve remote $HOME");
+        }
+      } catch (err) {
+        sshLogger.warn("identity-clone: $HOME resolution failed", {
+          operation: "identity_clone_home",
+          hostId,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      // ---------------------------------------------------------------------
+      // 10. Build new identity file body (frontmatter + seed comment) and
+      //     write atomically via SFTP tmp+rename (Pitfall 3 discipline).
+      //     Body shape (REVISION 2026-08-04):
+      //       ---
+      //       role: <sourceRole>
+      //       ---
+      //
+      //       <SEED COMMENT>
+      //
+      //       # <newName>
+      //
+      //       (cloned from <sourceIdentityKey>)
+      // ---------------------------------------------------------------------
+      const identityFileMarkdown =
+        `---\nrole: ${sourceRole}\n---\n\n${CLONE_SEED_COMMENT}\n\n# ${newName}\n\n(cloned from ${sourceIdentityKey})\n`;
+      const targetPath = `${remoteHome}/.claude/identities/${newName}/${newName}.md`;
+      try {
+        await writeMarkdownFileAtomic(conn, targetPath, identityFileMarkdown);
+      } catch (err) {
+        sshLogger.error(
+          "identity-clone: SFTP write failed",
+          err instanceof Error ? err : new Error(String(err)),
+          {
+            operation: "identity_clone_sftp_write",
+            hostId,
+            newName,
+            targetPath,
+          },
+        );
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      // ---------------------------------------------------------------------
+      // 11. Insert new Skynet DB row.
+      //     LOCKED fields (from D-CONTEXT §UX):
+      //       - colorHue: sourceRow.colorHue (NOT req.body — LOCKED)
+      //       - identityKey: newName
+      //       - displayName: newName
+      //     Editable fields:
+      //       - title: user-edited (fallback to source's title if source has
+      //         one; but title is required in the body so this fallback is
+      //         belt-and-suspenders — user always provides one).
+      //       - voice: user-edited (null OK; fallback to source's voice when
+      //         null so cloned identity doesn't lose the voice preference).
+      // ---------------------------------------------------------------------
+      const newId = nanoid();
+      const now = new Date().toISOString();
+      const etag = createHash("md5").update(avatarBytes).digest("hex");
+      const insertRow = {
+        id: newId,
+        userId,
+        identityKey: newName,
+        displayName: newName,
+        title: title.length > 0 ? title : sourceRow.title,
+        colorHue: sourceRow.colorHue, // LOCKED — user CANNOT override
+        voice: voice !== null && voice.length > 0 ? voice : sourceRow.voice,
+        avatarMime: "image/png",
+        avatarData: avatarBytes,
+        avatarEtag: etag,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      try {
+        db.insert(identities).values(insertRow).run();
+      } catch (err) {
+        databaseLogger.error("identity-clone: DB insert failed", err, {
+          operation: "identity_clone_db_insert",
+          userId,
+          newName,
+        });
+        res.status(500).json({ error: "internal" });
+        return;
+      }
+
+      // ---------------------------------------------------------------------
+      // 12. Re-select the new row for the response shape.
+      // ---------------------------------------------------------------------
+      const newRows = db
+        .select()
+        .from(identities)
+        .where(eq(identities.id, newId))
+        .all();
+      if (newRows.length === 0) {
+        databaseLogger.error(
+          "identity-clone: clone row missing after insert",
+          new Error("re-select empty"),
+          {
+            operation: "identity_clone_reselect",
+            newId,
+            userId,
+          },
+        );
+        res.status(500).json({ error: "internal" });
+        return;
+      }
+      const newRow = newRows[0];
+
+      // ---------------------------------------------------------------------
+      // 13. Consume the avatar candidate (idempotent — safe to call twice).
+      // ---------------------------------------------------------------------
+      if (avatarCandidateId) {
+        try {
+          consumeCandidateForBirth(userIdNum, avatarCandidateId);
+        } catch {
+          // Best-effort — cache eviction failure doesn't affect the clone
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // 14. Response 201.
+      // ---------------------------------------------------------------------
+      res.status(201).json(publicIdentity(newRow));
+      return;
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// Generic 500 fallback error handler (mirrors identities.ts:316-333).
+// Sanitizes upstream detail per RESEARCH V7 (never leak stderr/tailnet paths
+// in the response body).
+router.use(
+  (
+    err: Error,
+    _req: Request,
+    res: Response,
+    _next: express.NextFunction,
+  ) => {
+    databaseLogger.error("identity-clone: unhandled error", err, {
+      operation: "identity_clone_error",
+    });
+    return res.status(500).json({ error: "internal" });
+  },
+);
+
+export default router;

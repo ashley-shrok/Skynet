@@ -18,6 +18,9 @@ import identitiesRoutes from "./routes/identities.js";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
+// Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
+// with the same match-precedence discipline (specific paths BEFORE /identities).
+import identityCloneRoutes from "./routes/identity-clone.js";
 import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import rolesCreateRoutes from "./routes/roles-create.js";
 import messageQueueRoutes from "./routes/message-queue.js";
@@ -1804,6 +1807,10 @@ app.use("/identities/avatar", identityAvatarBatchRoutes);
 // at /identities/birth BEFORE the general /identities mount so Express routes
 // the exact path here without falling through to the generic identities handler.
 app.use("/identities/birth", identityBirthRoutes);
+// Phase 22 (SRIC-03): identity clone endpoint — mounted at /identities/clone
+// BEFORE the general /identities mount so the exact path wins. Same mount-
+// order discipline as /identities/birth above.
+app.use("/identities/clone", identityCloneRoutes);
 // Phase 20 (IDUI-05): target-host-side identity name collision probe — mount
 // BEFORE /identities so /identities/exists-on-host resolves here first.
 app.use("/identities", identityExistsOnHostRoutes);

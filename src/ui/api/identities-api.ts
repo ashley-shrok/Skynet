@@ -128,6 +128,48 @@ export async function listRolesForHost(hostId: number): Promise<RoleSummary[]> {
   }
 }
 
+// ─── Phase 22 (SRIC-03): clone identity on same host ─────────────────────────
+// Backing route: src/backend/database/routes/identity-clone.ts
+// POST /identities/clone with JSON body {sourceIdentityKey, hostId, newName,
+//   title, voice, avatarCandidateId} → 201 publicIdentity(newRow)
+// Consumed by CloneAgentDialog's submit handler (see plan 22-03 Task 2).
+//
+// Contract intentionally JSON-only (NOT multipart) — sidesteps Phase 20 patch
+// #77 silent-no-op trap per RESEARCH Pitfall 2; backend enforces via 415 gate.
+//
+// Error handling: 409 collisions surface as a typed error the dialog renders
+// inline (`Name "<name>" already exists on the source host`). All other
+// non-2xx responses surface via handleApiError.
+
+export class IdentityCloneCollisionError extends Error {
+  constructor(public readonly newName: string) {
+    super(`identity clone collision: ${newName}`);
+    this.name = "IdentityCloneCollisionError";
+  }
+}
+
+export interface CloneIdentityInput {
+  sourceIdentityKey: string;
+  hostId: number;
+  newName: string;
+  title: string;
+  voice: string | null;
+  avatarCandidateId: string | null;
+}
+
+export async function cloneIdentity(input: CloneIdentityInput): Promise<Identity> {
+  try {
+    const response = await authApi.post("/identities/clone", input);
+    return response.data as Identity;
+  } catch (error) {
+    const err = error as { response?: { status?: number } };
+    if (err?.response?.status === 409) {
+      throw new IdentityCloneCollisionError(input.newName);
+    }
+    handleApiError(error, "clone identity");
+  }
+}
+
 // ─── Phase 22 (SRIC-04): create role on target host ──────────────────────────
 // Backing route: src/backend/database/routes/roles-create.ts
 // POST /roles with body {name, description, hostId} → 201 {name, description}
