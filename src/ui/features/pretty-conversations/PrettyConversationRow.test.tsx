@@ -288,7 +288,7 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     expect(wrapper.getAttribute("data-rdp-host-row")).toBe("true");
   });
 
-  it("Test 7b: desktop RDP row carries `rdp` class + no PinAction + no onContextMenu wiring", () => {
+  it("Test 7b: desktop RDP row carries `rdp` class + no PinAction + context menu NOW opens (quick-260804-uo4 gate relaxed)", () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
@@ -305,12 +305,11 @@ describe("PrettyConversationRow: RDP-row exclusion (T-Test-34)", () => {
     expect(wrapper.querySelector('[data-testid="pin-action"]')).toBeNull();
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     expect(body.className).toContain("rdp");
-    // quick-260730-o2m: the new unconditional context-menu behavior MUST NOT
-    // reach RDP rows. The `!isRdp` guard survives on the row-body
-    // onContextMenu prop, so dispatching a contextmenu event on a desktop
-    // RDP row's body does NOT open a portal menu.
+    // quick-260804-uo4: the row-level isRdp gate on onContextMenu was dropped.
+    // Dispatching a contextmenu event on a desktop RDP row now DOES open the
+    // portal menu (new invariant — replaces the old "menu stays null" assertion).
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
-    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("menu")).toBeTruthy();
   });
 });
 
@@ -1197,7 +1196,7 @@ describe("PrettyConversationRow: mobile long-press context menu (quick-260802-pq
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
-  it("TL4: mobile RDP row + 500ms hold does NOT open the menu (isRdp guard); no throws", () => {
+  it("TL4: mobile RDP row + 500ms hold DOES open the menu (quick-260804-uo4 touch gates relaxed); no throws", () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
@@ -1213,10 +1212,10 @@ describe("PrettyConversationRow: mobile long-press context menu (quick-260802-pq
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
 
-    // The touch handlers are `undefined` on RDP rows (see row JSX wiring —
-    // onTouchStart={isMobile && !isRdp ? … : undefined}). Dispatching the
-    // touch events is a no-op at the React handler layer; no timer arms;
-    // advancing time changes nothing.
+    // quick-260804-uo4: the isRdp guard was dropped from touch handlers and
+    // handler early-returns. Dispatching a 500ms long-press on a mobile RDP
+    // row now opens the context menu (new invariant — replaces the old
+    // "menu stays null" assertion).
     fireEvent.touchStart(body, {
       touches: [{ clientX: 200, clientY: 100 } as Touch],
     });
@@ -1225,7 +1224,7 @@ describe("PrettyConversationRow: mobile long-press context menu (quick-260802-pq
     });
     fireEvent.touchEnd(body, { changedTouches: [] });
 
-    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("menu")).toBeTruthy();
   });
 
   it("TL5a: navigator.vibrate is called with 10 on successful long-press when the API is present", () => {
@@ -1314,6 +1313,285 @@ describe("PrettyConversationRow: mobile long-press context menu (quick-260802-pq
       if (originalVibrate !== undefined) {
         (navigator as unknown as { vibrate: unknown }).vibrate = originalVibrate;
       }
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UO1-UO6 — Open/Move-in-new-window context-menu item (quick-260804-uo4)
+// ─────────────────────────────────────────────────────────────────────────────
+// Six tests covering the new context-menu item introduced in quick-260804-uo4:
+//   UO1 — desktop, inActiveSet, non-RDP → "Move to new window" + window.open
+//          + onDeactivate called (window handle non-null)
+//   UO2 — desktop, !inActiveSet, non-RDP → "Open in new window" + window.open
+//          + onDeactivate NOT called
+//   UO3 — desktop, RDP row, inActiveSet → menu opens (gate relaxed) + "Move to
+//          new window" + window.open + onDeactivate called
+//   UO4 — desktop, inActiveSet, window.open returns null → onDeactivate NOT
+//          called (popup-blocker safety)
+//   UO5 — mobile long-press → menu opens but "Open/Move in new window" items
+//          NOT present (desktop-only guard)
+//   UO6 — mobile RDP long-press → menu opens (touch gate relaxed); no new-
+//          window item (mobile-only suppression); Pin item present
+
+describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quick-260804-uo4)", () => {
+  let originalOpen: typeof window.open;
+
+  beforeEach(() => {
+    originalOpen = window.open;
+  });
+
+  afterEach(() => {
+    window.open = originalOpen;
+    vi.restoreAllMocks();
+  });
+
+  it("UO1: desktop, inActiveSet=true, non-RDP → menu item labeled 'Move to new window'; click calls window.open with workspace URL + calls onDeactivate once", () => {
+    // Stub window.open to return a non-null Window handle (popup not blocked).
+    window.open = vi.fn(() => ({} as Window));
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const item = within(menu).getByRole("menuitem", { name: /move to new window/i });
+    expect(item).toBeTruthy();
+    fireEvent.click(item);
+
+    // window.open must have been called exactly once.
+    expect(window.open).toHaveBeenCalledTimes(1);
+
+    // Decode the URL argument and assert workspace spec structure.
+    const openCall = (window.open as ReturnType<typeof vi.fn>).mock.calls[0];
+    const urlArg = openCall[0] as string;
+    expect(urlArg.startsWith("#")).toBe(true);
+    const params = new URLSearchParams(urlArg.slice(1));
+    expect(params.getAll("tab").length).toBe(1);
+    // Default makeRow() → type=terminal, host.name=thenasty, targetTmuxSession=nelly
+    // → specForTab produces {protocol:"tmux", host:"thenasty", session:"nelly"}
+    // → encodeTabSpec → "tmux:thenasty:nelly"
+    expect(params.get("tab")).toContain("tmux");
+    expect(decodeURIComponent(params.get("tab")!)).toContain("thenasty");
+    expect(decodeURIComponent(params.get("tab")!)).toContain("nelly");
+    expect(params.get("active")).toBe("0");
+    expect(params.get("only")).toBe("1");
+
+    // onDeactivate called exactly once (row was in active-set + window handle non-null).
+    expect(onDeactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("UO2: desktop, inActiveSet=false, non-RDP → menu item labeled 'Open in new window'; click calls window.open; onDeactivate NOT called", () => {
+    window.open = vi.fn(() => ({} as Window));
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    // inActiveSet=false → label is "Open in new window" (not "Move").
+    const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
+    expect(item).toBeTruthy();
+    // "Move to new window" label must NOT appear.
+    expect(within(menu).queryByRole("menuitem", { name: /move to new window/i })).toBeNull();
+    fireEvent.click(item);
+
+    expect(window.open).toHaveBeenCalledTimes(1);
+
+    // onDeactivate must NOT be called (row was not in active-set).
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("UO3: desktop, RDP row, inActiveSet=true → menu opens (gate relaxed); 'Move to new window' present; click calls window.open + onDeactivate", () => {
+    window.open = vi.fn(() => ({} as Window));
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null, type: "rdp" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    // Menu must open — proves the row-level isRdp gate was dropped.
+    const menu = screen.getByRole("menu");
+    expect(menu).toBeTruthy();
+
+    const item = within(menu).getByRole("menuitem", { name: /move to new window/i });
+    expect(item).toBeTruthy();
+    fireEvent.click(item);
+
+    expect(window.open).toHaveBeenCalledTimes(1);
+
+    // Decode URL: RDP row with host.name=thenasty → specForTab produces
+    // {protocol:"rdp", host:"thenasty"} → encoded as "rdp:thenasty"
+    const openCall = (window.open as ReturnType<typeof vi.fn>).mock.calls[0];
+    const urlArg = openCall[0] as string;
+    expect(urlArg.startsWith("#")).toBe(true);
+    const params = new URLSearchParams(urlArg.slice(1));
+    expect(params.getAll("tab").length).toBe(1);
+    expect(decodeURIComponent(params.get("tab")!)).toContain("rdp");
+    expect(decodeURIComponent(params.get("tab")!)).toContain("thenasty");
+    expect(params.get("active")).toBe("0");
+    expect(params.get("only")).toBe("1");
+
+    // onDeactivate called (inActiveSet=true + window handle non-null).
+    expect(onDeactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("UO4: desktop, inActiveSet=true, window.open returns null (popup blocked) → window.open called but onDeactivate NOT called", () => {
+    // Simulate popup blocker: window.open returns null.
+    window.open = vi.fn(() => null as unknown as Window);
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const item = within(menu).getByRole("menuitem", { name: /move to new window/i });
+    fireEvent.click(item);
+
+    // window.open was attempted.
+    expect(window.open).toHaveBeenCalledTimes(1);
+    // onDeactivate must NOT be called — the new window was blocked, so
+    // the original tab survives (data-loss prevention).
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("UO5: mobile long-press → menu opens but Open/Move-in-new-window items NOT rendered (desktop-only)", () => {
+    vi.useFakeTimers();
+    try {
+      window.open = vi.fn(() => ({} as Window));
+      currentIdentity = makeIdentity(200, "nelly");
+      const { container } = render(
+        <PrettyConversationRow
+          row={makeRow()}
+          selected={false}
+          pinned={false}
+          variant="mobile"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+          inActiveSet={true}
+          onDeactivate={vi.fn()}
+        />,
+      );
+      const wrapper = container.querySelector(
+        '[data-conversation-id="conv-1"]',
+      ) as HTMLElement;
+      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+      fireEvent.touchStart(body, {
+        touches: [{ clientX: 100, clientY: 100 } as Touch],
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      fireEvent.touchEnd(body, { changedTouches: [] });
+
+      // Positive control: menu must open (long-press works on mobile).
+      const pinItem = screen.queryByRole("menuitem", { name: /pin/i });
+      expect(pinItem).not.toBeNull();
+
+      // Mobile-only suppression: neither Open nor Move items render on mobile.
+      expect(
+        screen.queryByRole("menuitem", { name: /new window/i }),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("UO6: mobile RDP row long-press → menu opens (touch gates relaxed); no new-window item (mobile suppression); Pin item present", () => {
+    vi.useFakeTimers();
+    try {
+      window.open = vi.fn(() => ({} as Window));
+      const { container } = render(
+        <PrettyConversationRow
+          row={makeRow({ rdpHostRow: true, targetTmuxSession: null, type: "rdp" })}
+          selected={false}
+          pinned={false}
+          variant="mobile"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+          // No onDeactivate, no onToggleHide, no onClone provided — RDP mobile
+          // menu should show ONLY the Pin item (Open-in-new-window is desktop-only).
+        />,
+      );
+      const wrapper = container.querySelector(
+        '[data-conversation-id="conv-1"]',
+      ) as HTMLElement;
+      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+      fireEvent.touchStart(body, {
+        touches: [{ clientX: 200, clientY: 100 } as Touch],
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      fireEvent.touchEnd(body, { changedTouches: [] });
+
+      // Menu must open — proves the four touch-handler isRdp gates AND
+      // three handler-body early-returns were relaxed (quick-260804-uo4).
+      const menu = screen.getByRole("menu");
+      expect(menu).toBeTruthy();
+
+      // Pin item present (the only item on a mobile RDP row with no extra props).
+      expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
+
+      // No new-window item on mobile (desktop-only suppression).
+      expect(
+        within(menu).queryByRole("menuitem", { name: /new window/i }),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
