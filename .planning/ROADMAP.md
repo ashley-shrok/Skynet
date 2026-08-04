@@ -804,14 +804,14 @@ Plans:
 
 **Requirements**: SRIC-01, SRIC-02, SRIC-03, SRIC-04, SRIC-05, SRIC-06
 
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 - [x] 22-01-PLAN.md — SRIC-01: Repoint IdentityModal Bounties + History reads to role folder via backend two-step (Wave 1, parallel with 22-02)
 - [x] 22-02-PLAN.md — SRIC-02: GET /roles?hostId + birth orchestrator writes `role:` frontmatter (Step 2.5 pre-write per B4b(a)) + required Role dropdown on NewSessionDialog + nginx dual-config (Wave 1, parallel with 22-01)
 - [x] 22-04-PLAN.md — SRIC-04: POST /roles + CreateRoleDialog + `+ New role` launcher (Wave 2, depends on 22-02; parallel with 22-06)
 - [x] 22-06-PLAN.md — SRIC-06: Role tab as FIRST/default in IdentityModal + identity:get-role-file/update-role-file WS ops via two-step (Wave 2, depends on 22-01; parallel with 22-04)
-- [ ] 22-03-PLAN.md — SRIC-03: Clone context menu + CloneAgentDialog (Host/Role/Color LOCKED) + POST /identities/clone (JSON body per Pitfall 2) (Wave 3, depends on 22-01+22-02+22-04)
+- [x] 22-03-PLAN.md — SRIC-03: Clone context menu + CloneAgentDialog (Host/Role/Color LOCKED) + POST /identities/clone (JSON body per Pitfall 2) (Wave 3, depends on 22-01+22-02+22-04)
 - [ ] 22-05-PLAN.md — SRIC-05: Chain create-role → create-identity with role+host pre-filled + editable (Wave 4, depends on 22-02+22-03+22-04)
 
 **Requirement details:**
