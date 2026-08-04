@@ -119,7 +119,16 @@ export function isPlanPending(paneText: string): boolean {
  * by the SFTP layer, and vice versa.
  */
 export function parsePlanFilePath(paneText: string): string | null {
-  const match = paneText.match(
+  // WR-01 fix: anchor to the bottom-30 slice, same rationale as
+  // `isPlanPending` above and `parseContextPct`'s bottom-8 slice — the
+  // Ink footer only ever renders in the pane tail, so a whole-pane match
+  // could false-positive on transcript prose that quotes a plan path
+  // ("look at ~/.claude/plans/old-slug.md"). Prior to this fix, such a
+  // quote could steer the SFTP fetch toward the WRONG slug (i.e. show
+  // Ashley plan contents for a plan she isn't being prompted on), even
+  // though `isPlanPending` correctly returned true for the real footer.
+  const bottomSlice = paneText.split("\n").slice(-30).join("\n");
+  const match = bottomSlice.match(
     /ctrl-g to edit in\s+Vim\s+·\s+(~\/\.claude\/plans\/[a-z0-9-]+\.md)/,
   );
   return match ? match[1] : null;

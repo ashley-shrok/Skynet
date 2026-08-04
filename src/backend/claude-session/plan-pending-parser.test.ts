@@ -136,4 +136,42 @@ describe("parsePlanFilePath — footer path extraction (Phase 24 Plan 01)", () =
       "ctrl-g to edit in  Vim  · ~/.claude/plans/foo.txt";
     expect(parsePlanFilePath(pane)).toBeNull();
   });
+
+  // WR-01 regression tests (Phase 24 code review). Prior to the fix,
+  // `parsePlanFilePath` scanned the whole pane; a prose-earlier decoy
+  // (e.g. a prior transcript turn that quoted a plan path) could win over
+  // the real footer path. Anchoring to the bottom-30 slice — same rationale
+  // as `isPlanPending` — closes that gap.
+  it("WR-01: bottom-slice anchoring picks the FOOTER path over a prose-earlier decoy in the same pane", () => {
+    // Line 1 is a prose "decoy" that references OLD-SLUG. Lines 2..79 are
+    // filler so the decoy sits WELL above the bottom-30 window. The real
+    // footer at the bottom carries REAL-SLUG. The bottom-slice anchor must
+    // return REAL-SLUG, not OLD-SLUG.
+    const decoyLine =
+      "assistant: earlier I generated ~/.claude/plans/old-plan-slug.md but that's stale";
+    const filler: string[] = [];
+    for (let i = 0; i < 78; i++) filler.push(`filler line ${i}`);
+    const pane = [
+      decoyLine,
+      ...filler,
+      "ctrl-g to edit in  Vim  · ~/.claude/plans/real-current-slug.md",
+      "shift+tab to approve with this feedback",
+    ].join("\n");
+    expect(parsePlanFilePath(pane)).toBe(
+      "~/.claude/plans/real-current-slug.md",
+    );
+  });
+
+  it("WR-01: returns null when the plan path only appears as prose above the bottom-30 slice (no real footer)", () => {
+    // The plan path is quoted in transcript prose near the top of the
+    // pane, but there is no footer in the last 30 lines. Presence detection
+    // upstream would also return false; the parser must not extract the
+    // prose path as a fallback.
+    const proseLine =
+      "assistant: check out ~/.claude/plans/prose-only-slug.md if you want the history";
+    const filler: string[] = [];
+    for (let i = 0; i < 60; i++) filler.push(`filler line ${i}`);
+    const pane = [proseLine, ...filler].join("\n");
+    expect(parsePlanFilePath(pane)).toBeNull();
+  });
 });
