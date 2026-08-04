@@ -235,11 +235,25 @@ export function NewSessionDialog({
   onClose,
   hostTree,
   onCreate,
+  initialHost,
+  initialRole,
 }: {
   open: boolean;
   onClose: () => void;
   hostTree: HostFolder | null;
   onCreate: (opts: NewSessionOnCreateOpts) => void;
+  /**
+   * Phase 22 SRIC-05 chain pre-fill: when both `initialHost` and `initialRole`
+   * are provided, the dialog opens with selectedHost + selectedRole seeded
+   * from these props. Both remain EDITABLE per D-CONTEXT §Claude's Discretion
+   * default ("pre-filled but editable"). When only `initialHost` is provided,
+   * host is seeded but role stays empty (user must pick manually). When only
+   * `initialRole` is provided (no host), it is silently ignored — the role
+   * dropdown only renders once a host is picked, and a role without a
+   * matching host has no semantic anchor.
+   */
+  initialHost?: Host | null;
+  initialRole?: string | null;
 }) {
   const { t } = useTranslation();
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
@@ -274,6 +288,12 @@ export function NewSessionDialog({
 
   // Debounce ref for collision precheck (cancel on remount/name change)
   const collisionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Phase 22 SRIC-05: tracks the previously-observed selectedHost.id so the
+  // roles-for-host effect only clears selectedRole on an ACTUAL host change,
+  // not on the initial seeding (which would nuke the chain pre-fill in
+  // useEffect #1 above). null = "no host observed yet" (fresh mount).
+  const prevHostIdRef = useRef<string | number | null>(null);
 
   // Phase 22 SRIC-02: Role dropdown state (populated from GET /roles?hostId=<n>
   // when a host is picked with identity-mode ON). Selection blocks Create until
@@ -323,11 +343,29 @@ export function NewSessionDialog({
     setBirthFailedStep(null);
   }
 
-  // On open: if there's exactly one host in the tree, auto-select it (Test 9).
+  // On open: seed from chain pre-fill props if provided, else auto-select the
+  // sole host when the tree has exactly one (existing Test 9 behavior).
+  // Phase 22 SRIC-05: `initialHost` takes precedence over auto-select. When
+  // both `initialHost` and `initialRole` are provided AND identity-mode is
+  // ON (default), `selectedRole` is also seeded. The roles-for-host effect
+  // (keyed on [selectedHost, identityMode]) will fire on the next render as
+  // a consequence of setSelectedHost — but that effect clears selectedRole
+  // on host change. To make the pre-fill stick we set BOTH here and rely on
+  // a separate validation effect (below) to clear selectedRole later if the
+  // fetched roles do not contain it (Test 6 stale-role safety net).
   // On close: reset all local state so a re-open starts fresh.
   useEffect(() => {
     if (open) {
-      if (flatHosts.length === 1) {
+      if (initialHost) {
+        setSelectedHost(initialHost);
+        // Seed the role too, but only when identity-mode is on (the dropdown
+        // only exists in identity-mode). identityMode default is true; when
+        // the caller opens the dialog with identityMode still at its default,
+        // this branch fires with identityMode=true.
+        if (initialRole && identityMode) {
+          setSelectedRole(initialRole);
+        }
+      } else if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
       }
     } else {
@@ -360,6 +398,9 @@ export function NewSessionDialog({
       setRolesForHost([]);
       setRolesLoading(false);
       setRolesError(null);
+      // Phase 22 SRIC-05: reset the host-change tracker so a subsequent
+      // open with fresh chain pre-fill seed values takes effect (Test 8).
+      prevHostIdRef.current = null;
       // Reset birth state
       resetBirthProgress();
     }
@@ -396,18 +437,32 @@ export function NewSessionDialog({
   // ON starts fresh.
   useEffect(() => {
     if (!selectedHost || !identityMode) {
+      // Only clear selectedRole when we actually had a prior host (i.e.,
+      // host was cleared or identity-mode toggled OFF). On the very first
+      // mount when selectedHost is still null-by-initial-state, DO NOT clear
+      // selectedRole — the on-open useEffect above may have just seeded it
+      // via initialRole and the state update simply hasn't landed yet
+      // (Phase 22 SRIC-05 Test 1).
       setRolesForHost([]);
-      setSelectedRole("");
+      if (prevHostIdRef.current !== null) {
+        setSelectedRole("");
+      }
       setRolesLoading(false);
       setRolesError(null);
+      prevHostIdRef.current = null;
       return;
     }
     let cancelled = false;
     setRolesLoading(true);
     setRolesError(null);
-    // Force re-pick on host change: the previous role's semantics don't
-    // carry across hosts.
-    setSelectedRole("");
+    // Force re-pick on ACTUAL host change (Test 22 regression gate): the
+    // previous role's semantics don't carry across hosts. But do NOT clear
+    // on the first observation of a host — that would nuke a chain pre-fill
+    // seed placed by the on-open effect (Phase 22 SRIC-05 Test 1).
+    if (prevHostIdRef.current !== null && prevHostIdRef.current !== selectedHost.id) {
+      setSelectedRole("");
+    }
+    prevHostIdRef.current = selectedHost.id;
     (async () => {
       try {
         const hostIdNum = parseInt(String(selectedHost.id), 10);
@@ -426,6 +481,20 @@ export function NewSessionDialog({
       cancelled = true;
     };
   }, [selectedHost, identityMode]);
+
+  // Phase 22 SRIC-05 Test 6: stale-role guard. After the roles-for-host fetch
+  // resolves, if selectedRole was seeded from initialRole (chain pre-fill) but
+  // that role name is not actually present on the picked host, clear the
+  // selection so the user sees the empty dropdown state and can't submit with
+  // a phantom role. Only runs when there IS a current selection AND the fetch
+  // has landed (rolesForHost non-empty OR rolesLoading false after a fetch).
+  useEffect(() => {
+    if (!selectedRole || rolesLoading) return;
+    if (rolesForHost.length === 0) return;
+    if (!rolesForHost.some((r) => r.name === selectedRole)) {
+      setSelectedRole("");
+    }
+  }, [rolesForHost, rolesLoading, selectedRole]);
 
   // Collision precheck: fired on name blur (debounced 300ms).
   // Fires both listIdentities + getIdentityExistsOnHost in parallel.
