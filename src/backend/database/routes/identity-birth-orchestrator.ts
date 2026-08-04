@@ -273,11 +273,24 @@ export async function birthIdentity(
   // -------------------------------------------------------------------------
   // 0b. Normalize path
   //   - Replace backslashes with forward slashes
-  //   - Empty string or ~ → "$HOME" for remote shell expansion
+  //   - Empty / bare "~" / "~/" → "$HOME"  (unquoted so remote shell expands)
+  //   - "~/foo/bar"             → "$HOME/foo/bar"  (unquoted prefix)
+  //
+  // Patch #318: previous code only handled the bare-"~" case, so a normal
+  // input like "~/pdf-inspector" fell through to shellSingleQuote() and hit
+  // the remote shell as literal '~/pdf-inspector' — inside single quotes the
+  // tilde does NOT expand. shellPath() only leaves the string unquoted when
+  // it starts with "$HOME", so we have to do the ~-to-$HOME rewrite here.
   // -------------------------------------------------------------------------
   let normalizedPath = opts.path.replace(/\\/g, "/");
-  if (normalizedPath === "" || normalizedPath === "~") {
+  if (
+    normalizedPath === "" ||
+    normalizedPath === "~" ||
+    normalizedPath === "~/"
+  ) {
     normalizedPath = "$HOME";
+  } else if (normalizedPath.startsWith("~/")) {
+    normalizedPath = "$HOME/" + normalizedPath.slice(2);
   }
 
   // -------------------------------------------------------------------------
