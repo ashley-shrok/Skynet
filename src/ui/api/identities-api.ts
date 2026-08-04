@@ -112,6 +112,22 @@ export async function getIdentityExistsOnHost(
   }
 }
 
+// ─── Phase 22 (SRIC-02): roles list per host ─────────────────────────────────
+// Backing route: src/backend/database/routes/roles-list-for-host.ts
+// GET /roles?hostId=<n> → [{name, description}]
+// Consumed by NewSessionDialog's Role dropdown (see plan 22-02 Task 4).
+
+export type RoleSummary = { name: string; description: string };
+
+export async function listRolesForHost(hostId: number): Promise<RoleSummary[]> {
+  try {
+    const response = await authApi.get("/roles", { params: { hostId } });
+    return response.data as RoleSummary[];
+  } catch (error) {
+    handleApiError(error, "list roles for host");
+  }
+}
+
 // ─── openBirthStream ─────────────────────────────────────────────────────────
 // SSE consumer for POST /identities/birth. EventSource does NOT support POST;
 // we use fetch + ReadableStream instead. Auth is cookie-based (withCredentials

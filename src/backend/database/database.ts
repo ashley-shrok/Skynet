@@ -18,6 +18,7 @@ import identitiesRoutes from "./routes/identities.js";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
+import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -1805,6 +1806,10 @@ app.use("/identities/birth", identityBirthRoutes);
 // Phase 20 (IDUI-05): target-host-side identity name collision probe — mount
 // BEFORE /identities so /identities/exists-on-host resolves here first.
 app.use("/identities", identityExistsOnHostRoutes);
+// Phase 22 (SRIC-02): /roles?hostId=<n> — target-host-side role directory
+// enumeration. Standalone mount; kept ABOVE /identities to preserve match
+// precedence should a future /roles subpath ever collide.
+app.use("/roles", rolesListForHostRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
