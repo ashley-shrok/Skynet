@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, Clock, Handshake, Pencil, Target, User, X } from "lucide-react";
+import { AlarmClock, Clock, Handshake, Pencil, Target, User, Users, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -70,11 +70,18 @@ import {
   type IdentityHistoryUpdatedEvent,
   type IdentityUpdateHandoffPayload,
   type IdentityHandoffUpdatedEvent,
+  // Phase 22 SRIC-06 / Plan 22-06: role-file read + update wire types.
+  // Backend does the two-step; frontend contract stays (identityKey, hostId).
+  type IdentityGetRoleFilePayload,
+  type IdentityRoleFileEvent,
+  type IdentityUpdateRoleFilePayload,
+  type IdentityRoleFileUpdatedEvent,
 } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
 import { BountyCard } from "./BountyCard";
 import { cn } from "@/lib/utils";
 import { IdentityFileTab, type TabState } from "./IdentityFileTab";
+import { RoleFileTab } from "./RoleFileTab";
 import { HistoryTab } from "./HistoryTab";
 import { WakeupsTab } from "./WakeupsTab";
 import { HandoffTab } from "./HandoffTab";
@@ -164,7 +171,10 @@ export function IdentityModal({
   const [archivedBounties, setArchivedBounties] = useState<Bounty[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("identity");
+  // Phase 22 SRIC-06 / Plan 22-06: Role tab is FIRST and DEFAULT per D-CONTEXT
+  // §UX rules ("Role tab is FIRST and DEFAULT — not slotted after Identity,
+  // not toggleable in position"). Locked with Ashley 2026-08-04.
+  const [activeTab, setActiveTab] = useState("role");
   // refetchKey increments on Retry to re-trigger the fetch effect.
   const [refetchKey, setRefetchKey] = useState(0);
 
@@ -199,7 +209,11 @@ export function IdentityModal({
   // Tuner arc: list / dropdown / bottombar variants shipped in commit 8e35dae,
   // Ashley UAT'd all three, bottombar picked as the winner; this commit locks
   // it in and drops the tuner + losing variants.
+  // Phase 22 SRIC-06 / Plan 22-06: Role tab inserted at position 0 (FIRST).
+  // Ordering is LOCKED per D-CONTEXT §UX rules — not toggleable in position.
+  // Users icon from lucide-react per D-CONTEXT §Claude's Discretion.
   const NAV_SECTIONS = [
+    { value: "role", label: "Role", Icon: Users },
     { value: "identity", label: "Identity", Icon: User },
     { value: "bounties", label: "Bounties", Icon: Target },
     { value: "history", label: "History", Icon: Clock },
@@ -209,6 +223,10 @@ export function IdentityModal({
 
   // Patch #17g: independent state slots for each new artifact tab.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
+  // Phase 22 SRIC-06 / Plan 22-06: sixth state slot for the Role tab. Backend
+  // does the two-step (identity file → role: frontmatter → role artifact) so
+  // the frontend just observes the wire {markdown, error?} shape.
+  const [roleFileState, setRoleFileState] = useState<TabState<string>>({ status: "loading" });
   // Phase 18 / IDMEDIT-02: widened from TabState<string[]> to carry both
   // entries (read-mode list rendering) and markdown (edit-mode textarea seed).
   const [historyState, setHistoryState] = useState<TabState<{ entries: string[]; markdown: string }>>({ status: "loading" });
@@ -228,8 +246,9 @@ export function IdentityModal({
     setBounties([]);
     setArchivedBounties([]);
 
-    // Reset all 4 new artifact state slots to loading.
+    // Reset all 5 artifact state slots to loading (identity file + Plan 22-06 role file + 3 others).
     setIdentityFileState({ status: "loading" });
+    setRoleFileState({ status: "loading" });
     setHistoryState({ status: "loading" });
     setWakeupsState({ status: "loading" });
     setHandoffState({ status: "loading" });
@@ -328,6 +347,8 @@ export function IdentityModal({
     };
 
     // Patch #17g/#92: fire 4 new artifact fetches in parallel; each carries hostId.
+    // Phase 22 SRIC-06 / Plan 22-06: add sixth parallel fetch for the role file.
+    // Backend does the two-step; frontend only sees the wire {markdown, error?} shape.
     openOneShot<IdentityGetIdentityFilePayload, IdentityIdentityFileEvent>(
       { type: "identity:get-identity-file", identityKey: identity.identityKey, hostId, },
       "identity:identity-file",
@@ -335,6 +356,15 @@ export function IdentityModal({
         ? { status: "error", error: ev.error }
         : { status: "ready", data: ev.markdown }),
       (e) => setIdentityFileState({ status: "error", error: e }),
+    );
+
+    openOneShot<IdentityGetRoleFilePayload, IdentityRoleFileEvent>(
+      { type: "identity:get-role-file", identityKey: identity.identityKey, hostId, },
+      "identity:role-file",
+      (ev) => setRoleFileState(ev.error
+        ? { status: "error", error: ev.error }
+        : { status: "ready", data: ev.markdown }),
+      (e) => setRoleFileState({ status: "error", error: e }),
     );
 
     openOneShot<IdentityGetHistoryPayload, IdentityHistoryEvent>(
@@ -525,6 +555,27 @@ export function IdentityModal({
     );
     if (res.error) throw new Error(res.error);
     setIdentityFileState({ status: "ready", data: res.markdown });
+  }
+
+  // Phase 22 SRIC-06 / Plan 22-06: save handler for the role file
+  // (~/.claude/roles/<role>/<role>.md). Byte-shape mirror of updateIdentityFile
+  // — same sendIdentityMutation, same throw-on-res.error, same
+  // set-from-server-echo. Backend does the two-step + re-read so this frontend
+  // is a mechanical mirror of the identity-file handler.
+  async function updateRoleFile(contents: string): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateRoleFilePayload = {
+      type: "identity:update-role-file",
+      identityKey: identity.identityKey,
+      hostId,
+      contents,
+    };
+    const res = await sendIdentityMutation<IdentityUpdateRoleFilePayload, IdentityRoleFileUpdatedEvent>(
+      payload,
+      "identity:role-file-updated",
+    );
+    if (res.error) throw new Error(res.error);
+    setRoleFileState({ status: "ready", data: res.markdown });
   }
 
   // Phase 18 / IDMEDIT-02: save handler for history.md. Sets historyState
@@ -1000,6 +1051,8 @@ export function IdentityModal({
         </DialogHeader>
 
         {/* Tabs — patch #17g: Identity / Bounties / History / Wakeups / Handoff
+            Phase 22 SRIC-06 / Plan 22-06: Role tab inserted at position 0 (FIRST)
+            per D-CONTEXT §UX rules ("Role tab is FIRST and DEFAULT").
             Patch #191: shadcn TabsList replaced with a bottom icon-bar
             (rendered after the TabsContent blocks below). */}
         <Tabs
@@ -1007,7 +1060,18 @@ export function IdentityModal({
           onValueChange={setActiveTab}
           className="flex-1 min-h-0 flex flex-col"
         >
-          {/* Identity tab — patch #17g: default tab; renders <key>.md as markdown.
+          {/* Role tab — Phase 22 SRIC-06: DEFAULT tab; renders the identity's
+              role file (~/.claude/roles/<role>/<role>.md) via the backend
+              two-step. Missing role: frontmatter surfaces as RoleFileTab's
+              error branch — NO fallback empty state per D-CONTEXT lock. */}
+          <TabsContent
+            value="role"
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+          >
+            <RoleFileTab state={roleFileState} onSave={updateRoleFile} />
+          </TabsContent>
+
+          {/* Identity tab — patch #17g: renders <key>.md as markdown.
               Quick 260731-1c8: adds inline title + avatar editor ABOVE the markdown
               block. Editor exposes exactly two fields (title + avatar); displayName
               and colorHue are NOT exposed as editable here. */}

@@ -50,3 +50,32 @@ Phase 22 Plan 22-04 verified that the new `+ New role` button's test uses
 `/new role/i` (correct match against the actual label) — see
 PrettyConversationsPanel.new-role-button.test.tsx.
 
+## Pre-existing IdentityModal test failures (out of Phase 22 scope)
+
+**Discovered during:** Phase 22 Plan 22-06 Task 3 (2026-08-04)
+
+**Symptom:** `src/ui/features/pretty-view/IdentityModal.test.tsx` (6 tests)
+and `src/ui/features/pretty-view/IdentityModal.voice.test.tsx` (8 tests)
+fail with `Unable to find an accessible element with the role "button" and
+name /edit identity/i`.
+
+**Root cause:** All 14 tests look up the pencil-toggle button by regex
+`/edit identity/i`, but the button's actual `aria-label` was renamed from
+"Edit identity" → "Edit agent" in commit `a6a79aa`
+("feat(ui-copy): terminology sweep round 1 — 'session'/'conversation' →
+'agent'"). See IdentityModal.tsx:989 `aria-label={editing ? "Done editing"
+: "Edit agent"}`. Baseline before Task 3 (verified via `git stash` +
+re-run): 14 failed tests across both files. Post-Task 3: same 14 failed
+tests. Zero net regression from Plan 22-06.
+
+**Impact:** Pre-existing test coverage bug from the earlier terminology
+sweep; the modal chrome + pencil-toggle behavior are correct in
+production. Zero production impact.
+
+**Recommended fix (future work):** Bulk-replace `/edit identity/i` →
+`/edit agent|edit identity/i` (matching either label) across both files.
+Trivial ~14-line diff. Not in scope for SRIC-06 which is about the Role
+tab wiring; the new Role-tab integration tests
+(`IdentityModal.role-tab.test.tsx`, 4 tests) all pass and the RoleFileTab
+component tests (`RoleFileTab.test.tsx`, 4 tests) all pass.
+
