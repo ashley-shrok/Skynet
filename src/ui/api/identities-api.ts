@@ -91,7 +91,16 @@ export async function postGenerateAvatarBatch(input: {
   brief: string;
 }): Promise<AvatarCandidate[]> {
   try {
-    const response = await authApi.post("/identities/avatar/batch", input);
+    // Patch #314: per-call timeout override. Default authApi timeout is
+    // 30s but this endpoint runs an LLM archetype draft (up to 30s) THEN
+    // 3 parallel gpt-image-1 renders (up to 60s each). Wall time can
+    // legitimately reach ~90s; matching the nginx location's
+    // proxy_read_timeout 120s gives headroom without changing the
+    // global default. Do NOT bump the global timeout — every other
+    // route benefits from failing fast on a network hiccup.
+    const response = await authApi.post("/identities/avatar/batch", input, {
+      timeout: 120_000,
+    });
     return (response.data as { candidates: AvatarCandidate[] }).candidates;
   } catch (error) {
     handleApiError(error, "generate avatars");
