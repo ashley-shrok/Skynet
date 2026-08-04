@@ -358,6 +358,68 @@ export async function readIdentityFile(
 }
 
 // ---------------------------------------------------------------------------
+// 1b. readRoleFile — role/<role>.md via two-step (Phase 22 SRIC-06 / Plan 22-06)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the identity's role file (~/.claude/roles/<role>/<role>.md).
+ *
+ * Byte-shape mirror of readIdentityFile: same wire shape `{markdown}`, same
+ * LOCAL vs REMOTE branch structure. The role name is discovered internally
+ * via resolveRoleForIdentity — the caller (WS handler / IdentityModal) never
+ * sees the role, and the frontend contract stays (identityKey, hostId) per
+ * D-CONTEXT § "Backend does the two-step" lock.
+ *
+ * Two-step happens BEFORE the LOCAL/REMOTE branch split so both branches share
+ * the same role → path substitution (matches the pattern established by
+ * readIdentityBounties / readIdentityHistory in Plan 22-01).
+ *
+ * Throws (via resolveRoleForIdentity) when the identity file lacks role:
+ * frontmatter — no fallback per D-CONTEXT § "No no-role fallback branches"
+ * (LOCKED with Ashley 2026-08-04). Returns {markdown: ""} when the role file
+ * itself is missing on disk (LOCAL ENOENT / REMOTE empty stdout via `|| true`)
+ * but the identity did have valid role frontmatter — this is normal for a
+ * freshly-birthed role that hasn't been edited yet.
+ */
+export async function readRoleFile(
+  conn: SSHClientType | null,
+  identityKey: string,
+): Promise<{ markdown: string }> {
+  // Two-step: resolve role BEFORE the branch split. Throws (no fallback) if
+  // role is missing or fails IDENTITY_KEY_RE. Role is IDENTITY_KEY_RE-safe
+  // for shell interpolation after this line (defense-in-depth per T-22-06-01).
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
+  if (conn === null) {
+    // LOCAL branch — reads from ROLES_HOST_DIR (mirrors readIdentityFile
+    // LOCAL pattern rooted at ~/.claude/roles/<role>/<role>.md)
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, role, role + ".md");
+    try {
+      const markdown = await fs.readFile(filePath, "utf-8");
+      return { markdown };
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return { markdown: "" };
+      }
+      throw err;
+    }
+  }
+
+  // REMOTE branch — direct interpolation is safe: role passed
+  // IDENTITY_KEY_RE inside resolveRoleForIdentity (same defense as
+  // readIdentityFile at patch #95 comment above). `|| true` swallows
+  // ENOENT so the response is `{markdown: ""}` on missing role file.
+  const cmd = `cat "$HOME/.claude/roles/${role}/${role}.md" 2>/dev/null || true`;
+  const stdout = await execWithTimeout(conn, cmd);
+  return { markdown: stdout };
+}
+
+// ---------------------------------------------------------------------------
 // 2. readIdentityHistory — <key>/history.md
 // ---------------------------------------------------------------------------
 
@@ -1165,6 +1227,73 @@ export async function writeIdentityHandoff(
   }
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
   const targetPath = `${remoteHome}/.claude/identities/${identityKey}/handoff.md`;
+  await writeMarkdownFileAtomic(conn, targetPath, contents);
+}
+
+/** Write the identity's role file (~/.claude/roles/<role>/<role>.md) atomically.
+ *
+ * Byte-shape mirror of writeIdentityFile: same signature, same LOCAL vs REMOTE
+ * branch structure, same byte-cap constant (IDMEDIT_MAX_MARKDOWN_BYTES), same
+ * IDENTITY_KEY_RE guard. The role name is discovered internally via
+ * resolveRoleForIdentity — frontend contract stays (identityKey, hostId).
+ *
+ * Guards run in this order (defense-in-depth per T-22-06-01/02/03/04):
+ *   1. IDENTITY_KEY_RE.test(identityKey) — rejects before any I/O.
+ *   2. Byte cap (IDMEDIT_MAX_MARKDOWN_BYTES = 2MB) — rejects before any I/O.
+ *   3. resolveRoleForIdentity(conn, identityKey) — throws when identity file
+ *      lacks role: frontmatter (no fallback per D-CONTEXT).
+ *
+ * REMOTE branch uses writeMarkdownFileAtomic (SFTP tmp+rename via
+ * posix-rename@openssh.com) — the SAME helper that carries the EEXIST fix
+ * from quick 260802-qrw / patch #268. The regression test at
+ * identity-artifact-reader.role-file.test.ts installs a throwing trap on
+ * sftp.rename that fires if a future refactor reverts this call site.
+ *
+ * LOCAL branch does defensive mkdir -p on the role folder before the atomic
+ * write — Plan 22-04 creates the folder as part of the create-role flow, so
+ * the folder is expected to already exist for any identity that resolved
+ * a role successfully; the defensive mkdir is cheap and forgiving.
+ */
+export async function writeRoleFile(
+  conn: SSHClientType | null,
+  identityKey: string,
+  contents: string,
+): Promise<void> {
+  // Guard 1 + 2 fire regardless of branch (LOCAL or REMOTE) so a bad key or
+  // oversized payload is rejected without ever touching the network / disk.
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (Buffer.byteLength(contents, "utf-8") > IDMEDIT_MAX_MARKDOWN_BYTES) {
+    throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
+  }
+
+  // Guard 3: two-step BEFORE branch split — resolves role from identity file
+  // frontmatter. Throws (no fallback) on missing / bad role. Role is
+  // IDENTITY_KEY_RE-safe after this line (defense-in-depth per T-22-06-01).
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
+  if (conn === null) {
+    // LOCAL branch — tmp+rename via Node fs, mirrors writeIdentityFile
+    // LOCAL pattern rooted at ~/.claude/roles/<role>/<role>.md
+    const root = getLocalRolesRoot();
+    const roleDir = path.join(root, role);
+    // Defensive mkdir -p — Plan 22-04's create-role flow makes the folder,
+    // but a stale env pointing at a fresh ROLES_HOST_DIR may be missing it.
+    await fs.mkdir(roleDir, { recursive: true });
+    const filePath = path.join(roleDir, role + ".md");
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, contents, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  // REMOTE branch — echo $HOME then SFTP write to
+  // <home>/.claude/roles/<role>/<role>.md via writeMarkdownFileAtomic
+  // (ext_openssh_rename — see writeMarkdownFileAtomic prologue for the
+  // EEXIST rationale that made plain sftp.rename unsafe).
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/.claude/roles/${role}/${role}.md`;
   await writeMarkdownFileAtomic(conn, targetPath, contents);
 }
 
