@@ -865,3 +865,13 @@ Plans:
 - Directory listing / picker (opening arbitrary paths on a host). Whitelist-only.
 
 **Rebase risk:** LOW — additive backend endpoints (`GET /global-files`, `POST /global-files/read`, `PUT /global-files/write`) + additive frontend modal (`GlobalFilesModal`) + additive JSON config file in existing docker volume + refactor of `PrettyConversationsPanel` header to fold buttons under a dropdown (touches Phase 22 SRIC-04's `+ New role` launcher position). No upstream Skynet surfaces disturbed. Fork severed 2026-07-24 so no upstream to rebase against anyway.
+
+### Phase 24: Plan-mode approval bubble — pane-tail detection, expanded bubble with plan contents + Approve/Feedback buttons, compose-box disable while pending
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 23
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 24 to break down)
