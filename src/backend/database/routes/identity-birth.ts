@@ -226,7 +226,10 @@ router.post(
     // -----------------------------------------------------------------------
     // Build real deps object
     // -----------------------------------------------------------------------
-    const userIdNum = parseInt(userId, 10);
+    // Patch #316: userId is the JWT subject string (users.id = text() in
+    // schema). Prior parseInt() produced NaN → String(NaN) = "NaN" downstream,
+    // breaking every birth at step 1's getCandidateForBirth scope guard.
+    // Pass the string through unmodified; dep signatures updated to match.
 
     const deps: BirthDeps = {
       connectOneShot,
@@ -234,12 +237,12 @@ router.post(
       isLocalHostId,
       execLocal,
       createIdentityRecord: async (uid, meta, avatarBytes) =>
-        createIdentityRecord(String(uid), meta, avatarBytes),
+        createIdentityRecord(uid, meta, avatarBytes),
       getIdentityRecord: async (uid, id) =>
-        getIdentityRecord(String(uid), id),
+        getIdentityRecord(uid, id),
       getCandidateForBirth: (uid, id) => getCandidateForBirth(uid, id),
       resolveHostById: async (hostId, uid) =>
-        resolveHostById(hostId, String(uid)),
+        resolveHostById(hostId, uid),
       fsp: {
         readFile: (p: string, enc: "utf8") => fsp.readFile(p, enc),
         writeFile: (p: string, content: string) => fsp.writeFile(p, content),
@@ -255,7 +258,7 @@ router.post(
     try {
       await birthIdentity(
         {
-          userId: userIdNum,
+          userId,
           hostId,
           name: name.trim(),
           title: title.trim(),
@@ -280,7 +283,7 @@ router.post(
     } finally {
       // Consume the candidate to prevent re-use
       try {
-        consumeCandidateForBirth(userIdNum, avatarCandidateId as string);
+        consumeCandidateForBirth(userId, avatarCandidateId as string);
       } catch {
         // Ignore cleanup errors
       }

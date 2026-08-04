@@ -383,7 +383,7 @@ router.get(
  * successful use to prevent re-use (accidental double-clicks).
  */
 export function getCandidateForBirth(
-  userId: number,
+  userId: string,
   id: string,
 ): { bytes: Buffer; mime: string } | null {
   const entry = candidateCache.get(id);
@@ -396,7 +396,10 @@ export function getCandidateForBirth(
   }
 
   // userId scope guard (mirrors GET /candidate/:id pattern)
-  if (entry.userId !== String(userId)) return null;
+  // Patch #316: userId is a STRING (users.id is text() in schema, not integer)
+  // — direct compare, no String() coercion. Previous `number` typing produced
+  // NaN via parseInt upstream and blocked every birth attempt at step 1.
+  if (entry.userId !== userId) return null;
 
   return { bytes: entry.bytes, mime: entry.mime };
 }
@@ -406,9 +409,9 @@ export function getCandidateForBirth(
  * Prevents re-use for accidental double-clicks.
  * Safe to call even if the entry has already expired — it's a no-op.
  */
-export function consumeCandidateForBirth(userId: number, id: string): void {
+export function consumeCandidateForBirth(userId: string, id: string): void {
   const entry = candidateCache.get(id);
-  if (entry && entry.userId === String(userId)) {
+  if (entry && entry.userId === userId) {
     candidateCache.delete(id);
   }
 }

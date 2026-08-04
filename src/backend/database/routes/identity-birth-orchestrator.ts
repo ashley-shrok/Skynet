@@ -98,7 +98,11 @@ export type BirthEvent =
   | { type: "ended"; ok: boolean; failedStep?: number; identityId?: string; sessionName?: string };
 
 export interface BirthOptions {
-  userId: number;
+  // Patch #316: userId is the JWT subject (`users.id` = text() in schema,
+  // nanoid-shaped string like "JqbJ5OmBQhQ-..."). Previous `number` typing
+  // silently parseInt'd it to NaN upstream, blocking every birth at step 1
+  // via getCandidateForBirth's userId scope guard.
+  userId: string;
   hostId: number;
   name: string;
   title: string;
@@ -125,7 +129,7 @@ export interface BirthDeps {
   execLocal: (command: string) => Promise<string>;
   /** Creates an identity record in Skynet DB. */
   createIdentityRecord: (
-    userId: number,
+    userId: string,
     meta: {
       identityKey: string;
       displayName: string;
@@ -141,7 +145,7 @@ export interface BirthDeps {
   }>;
   /** Fetches an identity record for GET-verify. */
   getIdentityRecord: (
-    userId: number,
+    userId: string,
     id: string,
   ) => Promise<{
     id: string;
@@ -150,9 +154,9 @@ export interface BirthDeps {
     avatarEtag: string;
   }>;
   /** Fetches avatar candidate bytes from plan 01's cache. Returns null if expired/missing. */
-  getCandidateForBirth: (userId: number, id: string) => { bytes: Buffer; mime: string } | null;
+  getCandidateForBirth: (userId: string, id: string) => { bytes: Buffer; mime: string } | null;
   /** Resolves a hostId to host connection details. */
-  resolveHostById: (hostId: number, userId: number) => Promise<unknown>;
+  resolveHostById: (hostId: number, userId: string) => Promise<unknown>;
   /** fs/promises subset for trust-flag write (local-branch only). */
   fsp: {
     readFile: (p: string, enc: "utf8") => Promise<string>;

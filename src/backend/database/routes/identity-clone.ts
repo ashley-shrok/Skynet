@@ -204,7 +204,8 @@ router.post(
   authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
-    const userIdNum = parseInt(userId, 10);
+    // Patch #316: getCandidateForBirth / consumeCandidateForBirth now expect
+    // a string (users.id = text() in schema); parseInt→NaN pattern removed.
 
     // -----------------------------------------------------------------------
     // 1. Body validation
@@ -304,7 +305,7 @@ router.post(
     // -----------------------------------------------------------------------
     let avatarBytes: Buffer;
     if (avatarCandidateId) {
-      const cand = getCandidateForBirth(userIdNum, avatarCandidateId);
+      const cand = getCandidateForBirth(userId, avatarCandidateId);
       if (!cand) {
         res.status(400).json({ error: "avatar candidate expired" });
         return;
@@ -543,7 +544,7 @@ router.post(
       // ---------------------------------------------------------------------
       if (avatarCandidateId) {
         try {
-          consumeCandidateForBirth(userIdNum, avatarCandidateId);
+          consumeCandidateForBirth(userId, avatarCandidateId);
         } catch {
           // Best-effort — cache eviction failure doesn't affect the clone
         }
