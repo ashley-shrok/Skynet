@@ -1,65 +1,49 @@
 import { describe, it, expect } from "vitest";
-import { isPlanPending } from "./plan-pending-parser.js";
+import {
+  isPlanPending,
+  parsePlanFilePath,
+} from "./plan-pending-parser.js";
 
 // Test scaffolding: each test constructs a synthetic tmux capture-pane
-// output (single- or multi-line) and asserts the boolean returned by
-// isPlanPending. Cases mirror the plan's <behavior> block for
-// quick 260802-rps — 2 positive variants (3-option with
-// --dangerously-skip-permissions, 2-option default) plus 4 negatives
-// (header-only-no-prompt, options-in-prose, empty/whitespace, random
-// terminal output).
+// output (single- or multi-line) and asserts the boolean-or-string-or-null
+// returned by the pure helpers. Cases mirror the plan's <behavior> block
+// for Phase 24 Plan 01 — the fixtures drive both `isPlanPending` (with the
+// pinned fleet Ink variant strings — the pre-Phase-24 fixtures targeted
+// obsolete strings that never appeared in production) and the new
+// `parsePlanFilePath` helper (footer path extraction).
 //
 // Shape mirrors context-pct-parser.test.ts: synthetic pane strings +
-// boolean assertions, no I/O, no mocks. The pure-helper posture is what
-// makes these cases meaningful — the helper knows nothing about SSH,
+// simple assertions, no I/O, no mocks. The pure-helper posture is what
+// makes these cases meaningful — the helpers know nothing about SSH,
 // tmux, or WS state.
 
-describe("isPlanPending — pane-scrape plan-approval detection (quick 260802-rps)", () => {
-  it("positive: 3-option variant (--dangerously-skip-permissions on)", () => {
-    // Pane text with the "Here is Claude's plan:" header somewhere in the
-    // pane and the 3-option prompt at the bottom. The load-bearing
-    // `No, keep planning` marker is option 3.
+describe("isPlanPending — pane-scrape plan-approval detection (Phase 24 Plan 01, pinned fleet Ink variant)", () => {
+  it("positive: pinned fleet Ink variant (header anywhere + shift+tab footer marker)", () => {
+    // Pane text with the pinned-variant header string somewhere in the
+    // middle/top and the pinned-variant footer marker in the last 30
+    // lines. Optionally includes the footer path line (parsePlanFilePath
+    // parses it, but isPlanPending only needs header + shift+tab marker).
     const pane = [
       "some earlier conversation lines",
-      "Here is Claude's plan:",
-      "```",
-      "1. Do the first thing",
-      "2. Do the second thing",
-      "```",
       "",
-      "╭──────────────────────────────────────────────────╮",
-      "│ Would you like to proceed?                       │",
-      "│                                                  │",
-      "│ ❯ 1. Yes, and bypass permissions                 │",
-      "│   2. Yes, proceed                                │",
-      "│   3. No, keep planning                           │",
-      "╰──────────────────────────────────────────────────╯",
+      "Claude has written up a plan and is ready to execute. Would you like to proceed?",
+      "",
+      "1. Yes",
+      "2. No, and tell Claude what to do differently",
+      "",
+      "ctrl-g to edit in  Vim  · ~/.claude/plans/groovy-watching-leaf.md",
+      "shift+tab to approve with this feedback",
     ].join("\n");
     expect(isPlanPending(pane)).toBe(true);
   });
 
-  it("positive: 2-option variant (default, no --dangerously-skip-permissions)", () => {
-    // Pane text with the "Ready to code?" header and the 2-option prompt
-    // at the bottom. `No, keep planning` is option 2 in this variant.
+  it("negative: header-only (prose paraphrase of header, no shift+tab footer marker)", () => {
+    // A prior turn's transcript paraphrases the header line as prose, but
+    // there is no footer marker in the last 30 lines. The paired-condition
+    // fingerprint (header-anywhere AND bottom-slice marker) must reject.
     const pane = [
-      "some earlier conversation lines",
-      "Ready to code?",
-      "",
-      "╭──────────────────────────────────────────────────╮",
-      "│ ❯ 1. Yes, proceed                                │",
-      "│   2. No, keep planning                           │",
-      "╰──────────────────────────────────────────────────╯",
-    ].join("\n");
-    expect(isPlanPending(pane)).toBe(true);
-  });
-
-  it("negative: header-only-no-prompt (transcript quote of header, no options)", () => {
-    // A prior turn's transcript quotes `Here is Claude's plan:` as prose,
-    // but there is no numbered-options prompt at the bottom and no
-    // `No, keep planning` marker anywhere. Should be false.
-    const pane = [
-      "user: earlier I remember you said 'Here is Claude's plan:' before",
-      "         listing steps, but I want to talk about something else now.",
+      "user: earlier I remember Claude has written up a plan and is ready to execute. Would you like to proceed? was the header",
+      "         but I want to talk about something else now.",
       "",
       "assistant: sure, what would you like to discuss?",
       "",
@@ -69,13 +53,12 @@ describe("isPlanPending — pane-scrape plan-approval detection (quick 260802-rp
     expect(isPlanPending(pane)).toBe(false);
   });
 
-  it("negative: options-in-prose (marker appears earlier but NOT in bottom slice)", () => {
-    // `No, keep planning` appears in the middle of the pane as prose
-    // (e.g. a code-review comment quoting the option), and there is no
-    // header. The bottom-30 slice does NOT contain the marker, so the
-    // fingerprint must reject.
+  it("negative: footer-marker-in-prose but NOT in bottom slice (padded past the 30-line tail)", () => {
+    // `shift+tab to approve with this feedback` appears in the middle of
+    // the pane as prose, and there is no header. The bottom-30 slice does
+    // NOT contain the marker, so the fingerprint must reject.
     const proseLine =
-      "assistant: yeah, I remember the 'No, keep planning' option from earlier";
+      "assistant: yeah, `shift+tab to approve with this feedback` is the Ink footer";
     // Push the prose line WAY above the bottom-30 slice by padding with
     // 60 filler lines afterward.
     const filler: string[] = [];
@@ -103,5 +86,54 @@ describe("isPlanPending — pane-scrape plan-approval detection (quick 260802-rp
       "$ ",
     ].join("\n");
     expect(isPlanPending(pane)).toBe(false);
+  });
+});
+
+describe("parsePlanFilePath — footer path extraction (Phase 24 Plan 01)", () => {
+  it("extracts the tilde-relative plans path from the footer with the exact Ink spacing", () => {
+    // Footer format is verbatim from Amelia's pane 2026-08-04:
+    //   `ctrl-g to edit in  Vim  · ~/.claude/plans/<slug>.md`
+    // Note: DOUBLE space between "in" and "Vim", middle-dot `·` U+00B7
+    // between "Vim" and the path, single-space separators on either side
+    // of the middle dot.
+    const pane = [
+      "some earlier lines",
+      "ctrl-g to edit in  Vim  · ~/.claude/plans/groovy-watching-leaf.md",
+      "shift+tab to approve with this feedback",
+    ].join("\n");
+    expect(parsePlanFilePath(pane)).toBe(
+      "~/.claude/plans/groovy-watching-leaf.md",
+    );
+  });
+
+  it("returns null when the footer is absent (presence detection stays authoritative)", () => {
+    expect(parsePlanFilePath("no footer here")).toBeNull();
+  });
+
+  it("returns null when the slug contains uppercase letters", () => {
+    const pane =
+      "ctrl-g to edit in  Vim  · ~/.claude/plans/FooBar.md";
+    expect(parsePlanFilePath(pane)).toBeNull();
+  });
+
+  it("returns null when the slug contains a slash (traversal attempt at the parser layer)", () => {
+    // Defense-in-depth: even though the SFTP-fetch caller (Plan 02)
+    // re-validates, the parser regex's slug charset `[a-z0-9-]+` already
+    // refuses `/` inside the slug. `foo/bar` looks like a traversal shim.
+    const pane =
+      "ctrl-g to edit in  Vim  · ~/.claude/plans/foo/bar.md";
+    expect(parsePlanFilePath(pane)).toBeNull();
+  });
+
+  it("returns null when the slug contains a backtick (shell-injection shim)", () => {
+    const pane =
+      "ctrl-g to edit in  Vim  · ~/.claude/plans/foo`bar.md";
+    expect(parsePlanFilePath(pane)).toBeNull();
+  });
+
+  it("returns null when the extension is not .md", () => {
+    const pane =
+      "ctrl-g to edit in  Vim  · ~/.claude/plans/foo.txt";
+    expect(parsePlanFilePath(pane)).toBeNull();
   });
 });
