@@ -721,12 +721,11 @@ export function PrettyConversationsPanel({
             />
           </span>
           <div className="pv-header-actions">
-            {/* Patch #167: pinned-bounty filter toggle. Same chrome/size as
-                .pv-pencil so the two buttons align visually; active state
-                (data-active="true") swaps to a warm-cream tinted bg + brighter
-                icon color. aria-pressed follows the toggle so screen readers
-                announce the filter state. Rendered unconditionally — the filter
-                is orthogonal to the new-session gate. */}
+            {/* Patch #317: pinned-bounty filter button HIDDEN TEMPORARILY
+                per Ashley 2026-08-04 (identity-creation UAT session). Un-hide
+                by flipping the `false &&` guard back to just the JSX. State
+                + handler intentionally left intact so nothing else breaks. */}
+            {false && (
             <button
               type="button"
               onClick={() => setFilterPinnedOnly((v) => !v)}
@@ -739,6 +738,7 @@ export function PrettyConversationsPanel({
             >
               <Filter />
             </button>
+            )}
             {showPencilButton && (
               <button
                 type="button"
