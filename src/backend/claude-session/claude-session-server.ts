@@ -24,10 +24,12 @@ import {
   readIdentityHandoff,
   readIdentityBounties,
   readIdentityPinnedBountyCount,
+  readRoleFile,
   writeIdentityWakeupUpdate,
   writeIdentityFile,
   writeIdentityHistory,
   writeIdentityHandoff,
+  writeRoleFile,
   writeIdentityBountyPriority,
   writeIdentityBountyStatus,
   writeIdentityBountyPinned,
@@ -50,6 +52,7 @@ import {
  *     { type: "identity:count-bounties", targets: Array<{ identityKey: string; hostId: number | null }> } // quick 260727-tb1: batched pinned bounty counter for the per-row badge (one WS request per poll)
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
+ *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/.claude/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
  *     { type: "identity:get-history", identityKey: string, hostId?: number }       // patch #17g/#92: fetch history.md
  *     { type: "identity:list-wakeups", identityKey: string, hostId?: number }      // patch #17g/#92: list wakeups/*.json
  *     { type: "identity:get-handoff", identityKey: string, hostId?: number }       // patch #17g/#92: fetch handoff.md
@@ -63,6 +66,7 @@ import {
  *     { type: "identity:delete-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260729-g5r / patch #183: permanent rm -rf of a bounty folder. Applies to BOTH open (bounties/<slug>/) AND archived (bounties/archive/<slug>/) cards — server rm's both candidate paths with force:true so one call covers both locations. No confirmation gate here; window.confirm() lives in BountyCard.
  *     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
  *     { type: "identity:update-identity-file", identityKey: string, hostId: number, contents: string } // Phase 18: full-overwrite <key>/<key>.md via SFTP tmp+rename (REMOTE) or fs tmp+rename (LOCAL)
+ *     { type: "identity:update-role-file", identityKey: string, hostId: number, contents: string }     // Phase 22 SRIC-06: full-overwrite ~/.claude/roles/<role>/<role>.md via backend two-step
  *     { type: "identity:update-history", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/history.md
  *     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/handoff.md
  *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
@@ -86,6 +90,7 @@ import {
  *     { type: "identity:bounty-counts", counts: Array<{ identityKey, hostId, pinnedCount, error? }> } // quick 260727-tb1: response to identity:count-bounties (one-shot; WS closed by client after receipt)
  *     // patch #17g: identity artifact responses (one-shot; WS closed by client after receipt):
  *     { type: "identity:identity-file", markdown: string, error?: string } // patch #17g: response to identity:get-identity-file
+ *     { type: "identity:role-file", markdown: string, error?: string }      // Phase 22 SRIC-06: response to identity:get-role-file
  *     { type: "identity:history", entries: string[], error?: string }       // patch #17g: response to identity:get-history
  *     { type: "identity:wakeups", wakeups: Wakeup[], error?: string }       // patch #17g: response to identity:list-wakeups
  *     { type: "identity:handoff", markdown: string, error?: string }        // patch #17g: response to identity:get-handoff
@@ -99,6 +104,7 @@ import {
  *     { type: "identity:bounty-deleted", bounties, archivedBounties, error?: string } // quick 260729-g5r / patch #183: response to identity:delete-bounty (includes refreshed lists — bounty drops out of BOTH lists since its folder is gone)
  *     // Phase 18 / IDMEDIT-06: post-write echoes — server re-reads after write so client rehydrates from server-side truth:
  *     { type: "identity:identity-file-updated", markdown: string, error?: string } // Phase 18: response to identity:update-identity-file (confirmed markdown post-write)
+ *     { type: "identity:role-file-updated", markdown: string, error?: string }      // Phase 22 SRIC-06: response to identity:update-role-file (confirmed markdown post-write, re-read via two-step)
  *     { type: "identity:history-updated", entries: string[], error?: string }       // Phase 18: response to identity:update-history (server re-reads + re-parses entries)
  *     { type: "identity:handoff-updated", markdown: string, error?: string }        // Phase 18: response to identity:update-handoff (confirmed markdown post-write)
  *
@@ -647,6 +653,163 @@ export async function handleIdentityCountBounties(
 // than spinning up a WebSocketServer + ssh2 pair. Aliased to underscore so
 // production consumers stay clear of the internal handler.
 export const __handleIdentityCountBountiesForTests = handleIdentityCountBounties;
+
+// ─── Phase 22 SRIC-06 / Plan 22-06: identity:get-role-file WS handler ──────────
+//
+// Byte-shape mirror of the identity:get-identity-file handler at L1928+ (which
+// remains inline; extracting it would break the "byte-shape mirror" audit
+// principle established in this plan). The new handlers are extracted to give
+// them the same test seam as handleIdentityCountBounties above — vitest can
+// drive them directly with mocked readRoleFile / resolveHostById / connectOneShot
+// without a full WSS bring-up.
+//
+// Wire shape (mirrors identity:get-identity-file exactly):
+//   request:  { type: "identity:get-role-file", identityKey: string, hostId?: number }
+//   response: { type: "identity:role-file", markdown: string, error?: string }
+//
+// Backend does the two-step (identity file → role: frontmatter → role artifact)
+// inside readRoleFile — the WS handler is a mechanical mirror of the
+// identity-file version and does NOT parse frontmatter itself. Missing role:
+// frontmatter surfaces as {error: "..."} per D-CONTEXT § "No no-role fallback
+// branches" (LOCKED with Ashley 2026-08-04).
+
+export async function handleIdentityGetRoleFile(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const m = (msg ?? {}) as { identityKey?: unknown; hostId?: unknown };
+  const rawKey = m.identityKey;
+  if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+    try {
+      ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: "invalid identityKey" }));
+    } catch { /* ignore */ }
+    return;
+  }
+  const identityKey = rawKey;
+  const rawHostId = m.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+
+  try {
+    let markdown: string;
+    if (useLocal) {
+      ({ markdown } = await readRoleFile(null, identityKey));
+      sshLogger.info("identity:get-role-file", {
+        operation: "identity_get_role_file",
+        userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: markdown.length,
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        ({ markdown } = await readRoleFile(conn, identityKey));
+        sshLogger.info("identity:get-role-file", {
+          operation: "identity_get_role_file",
+          userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
+        });
+      } finally {
+        try { conn.end(); } catch { /* ignore */ }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "identity:role-file", markdown })); } catch { /* ignore */ }
+  } catch (err: unknown) {
+    sshLogger.error(
+      "identity:get-role-file error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_get_role_file_error", userId, identityKey, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: err instanceof Error ? err.message : String(err) }));
+    } catch { /* ignore */ }
+  }
+}
+
+// ─── Phase 22 SRIC-06 / Plan 22-06: identity:update-role-file WS handler ───────
+//
+// Byte-shape mirror of the identity:update-identity-file handler at L2213+.
+// After write, re-reads via readRoleFile so the client rehydrates from
+// server-side truth (T-22-06-05 mitigation — no client-side draft trust,
+// server echo is authoritative). writeRoleFile handles the two-step, byte
+// cap, and IDENTITY_KEY_RE guards internally.
+
+export async function handleIdentityUpdateRoleFile(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const m = (msg ?? {}) as { identityKey?: unknown; hostId?: unknown; contents?: unknown };
+  const rawKey = m.identityKey;
+  const rawContents = m.contents;
+  if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "invalid identityKey" })); } catch { /* ignore */ }
+    return;
+  }
+  if (typeof rawContents !== "string") {
+    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "contents must be a string" })); } catch { /* ignore */ }
+    return;
+  }
+  const identityKey = rawKey;
+  const contents = rawContents;
+  const rawHostId = m.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  try {
+    let markdown: string;
+    if (useLocal) {
+      await writeRoleFile(null, identityKey, contents);
+      ({ markdown } = await readRoleFile(null, identityKey));
+      sshLogger.info("identity:update-role-file", {
+        operation: "identity_update_role_file",
+        userId, identityKey, hostId: hostIdNum, useLocal: true,
+        bytes: Buffer.byteLength(contents, "utf-8"),
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        await writeRoleFile(conn, identityKey, contents);
+        ({ markdown } = await readRoleFile(conn, identityKey));
+        sshLogger.info("identity:update-role-file", {
+          operation: "identity_update_role_file",
+          userId, identityKey, hostId: hostIdNum, useLocal: false,
+          bytes: Buffer.byteLength(contents, "utf-8"),
+        });
+      } finally {
+        try { conn.end(); } catch { /* ignore */ }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown })); } catch { /* ignore */ }
+  } catch (err) {
+    sshLogger.error(
+      "identity:update-role-file unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_update_role_file_error", userId, identityKey, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
+    } catch { /* ignore */ }
+  }
+}
+
+// Test seams — Plan 22-06. Same pattern as __handleIdentityCountBountiesForTests
+// above. Vitest drives the handlers directly with mocked reader/writer helpers.
+export const __handleIdentityGetRoleFileForTests = handleIdentityGetRoleFile;
+export const __handleIdentityUpdateRoleFileForTests = handleIdentityUpdateRoleFile;
 
 // ─── Test seam: discovery-repoll tick logic (Fix A + Fix B, quick 260730-sjf) ──
 //
@@ -1982,6 +2145,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
+    // Phase 22 SRIC-06 / Plan 22-06: identity:get-role-file — byte-shape mirror
+    // of identity:get-identity-file above. Delegates to handleIdentityGetRoleFile
+    // (exported for tests) so the entire byte-shape mirror body is a single
+    // audit surface. See handler prologue at the module-scope function below.
+    if (msg.type === "identity:get-role-file") {
+      await handleIdentityGetRoleFile(ws, msg, userId);
+      return;
+    }
+
     // Patch #17g/#92: identity:get-history — read history.md; reverse lines for most-recent-first.
     // Patch #92: routes via helper; local branch for local hosts, SSH branch for remote hosts.
     if (msg.type === "identity:get-history") {
@@ -2270,6 +2442,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
         } catch { /* ignore */ }
       }
+      return;
+    }
+
+    // Phase 22 SRIC-06 / Plan 22-06: identity:update-role-file — byte-shape
+    // mirror of identity:update-identity-file above. Delegates to
+    // handleIdentityUpdateRoleFile (exported for tests). See handler prologue
+    // at the module-scope function below.
+    if (msg.type === "identity:update-role-file") {
+      await handleIdentityUpdateRoleFile(ws, msg, userId);
       return;
     }
 

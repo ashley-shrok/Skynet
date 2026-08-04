@@ -217,6 +217,10 @@ export type ClaudeSessionServerEvent =
   | ErrorEvent
   | IdentityBountiesEvent
   | IdentityIdentityFileEvent
+  // Phase 22 SRIC-06 / Plan 22-06: role-file read + update events (mirror
+  // shape of IdentityIdentityFileEvent + IdentityIdentityFileUpdatedEvent)
+  | IdentityRoleFileEvent
+  | IdentityRoleFileUpdatedEvent
   | IdentityHistoryEvent
   | IdentityWakeupsEvent
   | IdentityHandoffEvent
@@ -357,6 +361,25 @@ export type IdentityGetIdentityFilePayload = {
 };
 export type IdentityIdentityFileEvent = { type: "identity:identity-file"; markdown: string; error?: string };
 
+// Phase 22 SRIC-06 / Plan 22-06: role-file WS wire types.
+//
+// Byte-shape mirror of the identity-file pair above. Backend does the two-step
+// (identity file → role: frontmatter → open ~/.claude/roles/<role>/<role>.md);
+// the frontend contract stays (identityKey, hostId) — role name never crosses
+// the wire, per D-CONTEXT § "Backend does the two-step" lock.
+//
+// hostId is optional on read for parity with identity-file (LOCAL bind-mount
+// fallback when hostId omitted or in IDENTITIES_LOCAL_HOST_IDS); required on
+// write since a write always targets a specific host.
+
+export type IdentityGetRoleFilePayload = {
+  type: "identity:get-role-file";
+  identityKey: string;
+  /** Pane's SSH host id — backend routes reads to the pane's box. Omit for LOCAL bind-mount. */
+  hostId?: number;
+};
+export type IdentityRoleFileEvent = { type: "identity:role-file"; markdown: string; error?: string };
+
 export type IdentityGetHistoryPayload = {
   type: "identity:get-history";
   identityKey: string;
@@ -474,6 +497,26 @@ export type IdentityUpdateIdentityFilePayload = {
 };
 export type IdentityIdentityFileUpdatedEvent = {
   type: "identity:identity-file-updated";
+  /** Server-echoed confirmed markdown post-write; source of truth for client rehydrate. */
+  markdown: string;
+  error?: string;
+};
+
+// Phase 22 SRIC-06 / Plan 22-06: role-file update wire types. Byte-shape mirror
+// of the identity-file update pair above. Backend does the two-step; frontend
+// contract stays (identityKey, hostId, contents). Same byte cap
+// (IDMEDIT_MAX_MARKDOWN_BYTES = 2MB) enforced server-side.
+
+export type IdentityUpdateRoleFilePayload = {
+  type: "identity:update-role-file";
+  identityKey: string;
+  /** Pane SSH host id — backend uses it to route writes to the pane's box. */
+  hostId: number;
+  /** UTF-8 markdown payload (full-overwrite of ~/.claude/roles/<role>/<role>.md). */
+  contents: string;
+};
+export type IdentityRoleFileUpdatedEvent = {
+  type: "identity:role-file-updated";
   /** Server-echoed confirmed markdown post-write; source of truth for client rehydrate. */
   markdown: string;
   error?: string;
