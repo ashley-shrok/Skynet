@@ -213,7 +213,7 @@ export function PrettyConversationsPanel({
   // selectConversation (silent-no-op at the store level).
   onRdpRowClick?: (row: ConversationRowShape) => void;
   // quick-260727-gm3: fired when Ashley clicks the red-tinted X on an
-  // active-set non-RDP row. AppShell wires this to closeTab(row.id) so
+  // active-set row. AppShell wires this to closeTab(row.id) so
   // the deactivate action reuses the existing tab-close plumbing verbatim
   // (including the confirm-tab-close toast branch). Required — the panel
   // composes removeFromActiveSet(row.id) + onDeactivateRow(row) at the
@@ -937,6 +937,7 @@ export function PrettyConversationsPanel({
                         variant={variant}
                         onSelect={() => handleRowSelect(row)}
                         onTogglePin={rdpNoopTogglePin}
+                        onDeactivate={() => handleRowDeactivate(row)}
                         inActiveSet={activeSet.has(row.id)}
                         sessionKey={sessionWorkingKey(row)}
                       />
