@@ -1,5 +1,5 @@
 # Stage 1: Install dependencies
-FROM node:24-slim AS deps
+FROM node:22-slim AS deps
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
@@ -37,7 +37,7 @@ COPY . .
 RUN npm run build:backend
 
 # Stage 4: Production dependencies only
-FROM node:24-slim AS production-deps
+FROM node:22-slim AS production-deps
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
@@ -53,11 +53,11 @@ COPY scripts/patch-nan.cjs ./scripts/
 
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev && \
     node scripts/patch-guacamole-lite.cjs && \
-    npm_config_build_from_source=true npm rebuild better-sqlite3 && \
+    (cd node_modules/better-sqlite3 && npx --yes node-gyp rebuild --release) && \
     npm cache clean --force
 
 # Stage 5: Final optimized image
-FROM node:24-slim
+FROM node:22-slim
 WORKDIR /app
 
 ENV DATA_DIR=/app/data \
