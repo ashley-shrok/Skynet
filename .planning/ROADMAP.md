@@ -871,11 +871,11 @@ Plans:
 **Goal:** Make the Claude Code plan-approval prompt actionable from pretty view — fix pane-scrape detection for the pinned fleet Ink variant, render plan file contents inline in an expanded bubble with [Approve] and [Feedback] buttons that write raw keystrokes to the PTY (bypassing ComposeBox's Ink-incompatible split-send), and disable compose-box interactions while the prompt is pending.
 **Requirements**: TBD
 **Depends on:** Phase 23
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 - [x] 24-01-PLAN.md — Fix plan-pending-parser fingerprint for pinned fleet Ink variant + add parsePlanFilePath helper (+ updated vitest fixtures)
-- [ ] 24-02-PLAN.md — New backend module `plan-file-fetch.ts` — SFTP side-channel read on existing SSH Client with strict path validation + 500KB cap + full test coverage
+- [x] 24-02-PLAN.md — New backend module `plan-file-fetch.ts` — SFTP side-channel read on existing SSH Client with strict path validation + 500KB cap + full test coverage
 - [ ] 24-03-PLAN.md — Widen WS `plan_pending` frame to {planFilePath, planContent, contentError}, wire async SFTP fetch trigger, add `raw_keystrokes` WS handler (`tmux send-keys -l`), extend frontend wire types
 - [ ] 24-04-PLAN.md — Expand `PlanPendingBubble` in place — header preserved + plan-contents `<pre>` section + Approve/Feedback buttons + inline Feedback modal
 - [ ] 24-05-PLAN.md — Add `planPendingActive` prop to ComposeBox (OR-in at every recycleActive site) + PrettyView wiring (mount bubble with props + supply prop + raw_keystrokes send handlers) + new disable-truth-table vitest suite
