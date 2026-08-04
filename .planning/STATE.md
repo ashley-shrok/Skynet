@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-04T20:13:46.103Z"
+last_updated: "2026-08-04T20:23:20.185Z"
 last_activity: 2026-08-04
 progress:
   total_phases: 24
   completed_phases: 16
   total_plans: 97
-  completed_plans: 90
+  completed_plans: 91
   percent: 67
 ---
 
@@ -91,7 +91,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 96%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -146,6 +146,7 @@ Progress: [██████████] 96%
 | Phase 22 P22-05 | 12min | 2 tasks | 4 files |
 | Phase 24 P01 | 3min | 2 tasks | 2 files |
 | Phase 24 P02 | 15min | 2 tasks | 2 files |
+| Phase 24 P03 | 10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -228,6 +229,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 24 Plan 02: Format validation is SYNCHRONOUS and runs BEFORE any SFTP contact — invalid input NEVER calls .sftp/.realpath/.stat/.readFile. 9 rejection-path tests assert this fail-closed property (T-24-02).
 - [Phase ?]: Phase 24 Plan 02: home dir resolved via sftp.realpath('.') not shell echo HOME — WeakMap<Client,string> cache is GC-safe when pane connection tears down. T-24-04 defense-in-depth.
 - [Phase ?]: Phase 24 Plan 02: Fallback fresh-handshake mode is DOCUMENTED in the plan-file-fetch.ts docblock but NOT built — the raw ssh2 Client IS exposed at claude-session-server.ts L969, so Plan 24-03 can call fetchPlanFile(sshConn, planFilePath) directly.
+- [Phase ?]: 24-03: extended plan_pending WS frame to {planFilePath, planContent, contentError} with presence-emit-then-async-SFTP-refetch flow; new raw_keystrokes WS handler uses tmux send-keys -l (one shot, no split) and connection-captured currentTmuxSession (T-14-02-01 trust boundary); frontend PlanPendingEvent widened + new RawKeystrokesPayload; per-window content cache with fail-closed stale-fetch guard
 
 ### Pending Todos
 
@@ -380,6 +382,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-04T20:13:37.190Z
-Stopped at: Completed 22-03-PLAN.md
+Last session: 2026-08-04T20:23:20.136Z
+Stopped at: Completed 24-03-PLAN.md
 Resume file: None
