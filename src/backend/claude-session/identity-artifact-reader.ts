@@ -365,15 +365,26 @@ export async function readIdentityFile(
  * Phase 18 / IDMEDIT-02: widened to also carry `markdown` (raw file body)
  * so the HistoryTab editor can populate its textarea without a separate read.
  * The `entries` field is unchanged — additive widening, no consumers broken.
+ *
+ * Phase 22 SRIC-01: reads via two-step — identity file → role: frontmatter →
+ * role folder (~/.claude/roles/<role>/history.md). Public signature untouched;
+ * frontend contract stays (identityKey, hostId) per D-CONTEXT lockdown. See
+ * resolveRoleForIdentity above for the no-fallback semantics.
  */
 export async function readIdentityHistory(
   conn: SSHClientType | null,
   identityKey: string,
 ): Promise<{ entries: string[]; markdown: string }> {
+  // Phase 22 SRIC-01: two-step — resolve role from identity file's frontmatter
+  // before any artifact read. Throws (no fallback) if role is missing or fails
+  // the IDENTITY_KEY_RE shell-safety gate. Propagates to WS `error` field.
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   if (conn === null) {
-    // LOCAL branch (mirrors server.ts lines 1275-1281)
-    const root = getLocalIdentitiesRoot();
-    const filePath = path.join(root, identityKey, "history.md");
+    // LOCAL branch — reads from ROLES_HOST_DIR (mirrors identity-folder pattern
+    // pre-SRIC-01 but rooted at ~/.claude/roles/<role>/history.md)
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, role, "history.md");
     try {
       const markdown = await fs.readFile(filePath, "utf-8");
       const entries = markdown
@@ -396,9 +407,11 @@ export async function readIdentityHistory(
 
   // REMOTE branch — patch #94: `|| true` so missing history.md resolves as
   // empty stdout instead of throwing "Command exited with code 1".
-  // Patch #95: direct interpolation (see readIdentityFile for the shellEscape
-  // + outer double-quote bug this replaces).
-  const cmd = `cat "$HOME/.claude/identities/${identityKey}/history.md" 2>/dev/null || true`;
+  // Patch #95: direct interpolation is shell-safe because BOTH identityKey
+  // (via caller) AND role (via resolveRoleForIdentity's IDENTITY_KEY_RE gate)
+  // are validated by /^[a-z0-9_-]{1,64}$/ — none of those characters are
+  // shell-special inside double quotes.
+  const cmd = `cat "$HOME/.claude/roles/${role}/history.md" 2>/dev/null || true`;
   const markdown = await execWithTimeout(conn, cmd);
   if (!markdown) return { entries: [], markdown: "" };
   const entries = markdown
@@ -611,15 +624,30 @@ export async function readIdentityHandoff(
 // 5. readIdentityBounties — <key>/bounties/ (open) + <key>/bounties/archive/ (archived)
 // ---------------------------------------------------------------------------
 
-/** Result shape for bounties reads. Matches the wire shape "identity:bounties". */
+/** Result shape for bounties reads. Matches the wire shape "identity:bounties".
+ *
+ * Phase 22 SRIC-01: reads via two-step — identity file → role: frontmatter →
+ * role folder (~/.claude/roles/<role>/bounties/, plus /archive/). Public
+ * signature untouched; frontend contract stays (identityKey, hostId) per
+ * D-CONTEXT lockdown. Callers in claude-session-server.ts (list-bounties
+ * plus every write-then-refetch bounty-mutation handler) get the two-step
+ * "for free" — no caller-side change. See resolveRoleForIdentity above for
+ * the no-fallback semantics.
+ */
 export async function readIdentityBounties(
   conn: SSHClientType | null,
   identityKey: string,
 ): Promise<{ bounties: unknown[]; archivedBounties: unknown[] }> {
+  // Phase 22 SRIC-01: two-step — resolve role from identity file's frontmatter
+  // before any artifact read. Throws (no fallback) if role is missing or fails
+  // the IDENTITY_KEY_RE shell-safety gate. Propagates to WS `error` field.
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   if (conn === null) {
-    // LOCAL branch (mirrors server.ts lines 1064-1184)
-    const root = getLocalIdentitiesRoot();
-    const baseDir = path.join(root, identityKey, "bounties");
+    // LOCAL branch — reads from ROLES_HOST_DIR (mirrors identity-folder pattern
+    // pre-SRIC-01 but rooted at ~/.claude/roles/<role>/bounties/)
+    const root = getLocalRolesRoot();
+    const baseDir = path.join(root, role, "bounties");
 
     // Read open bounties (all subdirs of baseDir EXCEPT "archive")
     let openEntries: string[];
@@ -700,13 +728,16 @@ export async function readIdentityBounties(
 
   // REMOTE branch — two commands in parallel (open + archive) via Promise.all,
   // delimiter-based dir enumeration (one round-trip per artifact per R5).
-  // Patch #95: direct interpolation (see readIdentityFile for the bug).
+  // Phase 22 SRIC-01: role-scoped path (~/.claude/roles/<role>/bounties/) —
+  // role validated by resolveRoleForIdentity's IDENTITY_KEY_RE gate above,
+  // so direct interpolation inside double quotes is shell-safe (same posture
+  // as identityKey per patch #95's readIdentityFile prologue).
   const openCmd =
-    `cd "$HOME/.claude/identities/${identityKey}/bounties" 2>/dev/null && ` +
+    `cd "$HOME/.claude/roles/${role}/bounties" 2>/dev/null && ` +
     'for d in */; do d="${d%/}"; [ "$d" = "archive" ] && continue; ' +
     '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
   const archiveCmd =
-    `cd "$HOME/.claude/identities/${identityKey}/bounties/archive" 2>/dev/null && ` +
+    `cd "$HOME/.claude/roles/${role}/bounties/archive" 2>/dev/null && ` +
     'for d in */; do d="${d%/}"; ' +
     '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
 
@@ -1153,12 +1184,25 @@ export async function writeIdentityBountyPriority(
     throw new Error("invalid priority");
   }
 
+  // Slug guard at the TOP — fires before the two-step SSH round-trip so an
+  // invalid slug never triggers a real SSH connection. Matches deleteIdentityBounty's
+  // pattern which fixed the drift where slug validation only fired inside the
+  // REMOTE branch (pattern-drift call-out at deleteIdentityBounty line ~1748).
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+
+  // Phase 22 SRIC-01: two-step — bounties live at ~/.claude/roles/<role>/bounties/
+  // post fleet migration, not ~/.claude/identities/<key>/bounties/. Resolve role
+  // from identity file's frontmatter first; throw propagates (no fallback).
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   const nowIso = new Date().toISOString();
   const timelineLine = `${nowIso} priority set to ${priority} via identity modal`;
 
   if (conn === null) {
-    const root = getLocalIdentitiesRoot();
-    const filePath = path.join(root, identityKey, "bounties", bountySlug, "bounty.json");
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, role, "bounties", bountySlug, "bounty.json");
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     parsed.priority = priority;
@@ -1173,9 +1217,8 @@ export async function writeIdentityBountyPriority(
     return;
   }
 
-  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
-    throw new Error("invalid bounty slug");
-  }
+  // Slug guard already hoisted to top of function (defense-in-depth against
+  // pattern drift).
   // Remote branch: python3 script takes the priority + timelineLine via stdin
   // JSON; updated_at is generated in-python from time.time() so the timestamp
   // reflects the box's own clock (matches the id skill's ISO-Z convention).
@@ -1197,7 +1240,7 @@ export async function writeIdentityBountyPriority(
   const payload = JSON.stringify({ priority }).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -1225,12 +1268,23 @@ export async function writeIdentityBountyStatus(
     throw new Error("invalid status");
   }
 
+  // Slug guard at the TOP — fires before the two-step SSH round-trip so an
+  // invalid slug never triggers a real SSH connection (see writeIdentityBountyPriority
+  // for the pattern-drift rationale).
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+
+  // Phase 22 SRIC-01: two-step — writes go to ~/.claude/roles/<role>/bounties/
+  // post fleet migration (see writeIdentityBountyPriority for full rationale).
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   const nowIso = new Date().toISOString();
   const timelineLine = `${nowIso} status set to ${status} via identity modal`;
 
   if (conn === null) {
-    const root = getLocalIdentitiesRoot();
-    const filePath = path.join(root, identityKey, "bounties", bountySlug, "bounty.json");
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, role, "bounties", bountySlug, "bounty.json");
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     parsed.status = status;
@@ -1245,9 +1299,7 @@ export async function writeIdentityBountyStatus(
     return;
   }
 
-  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
-    throw new Error("invalid bounty slug");
-  }
+  // Slug guard already hoisted to top of function.
   // Remote branch: python3 script takes the status via stdin JSON;
   // updated_at is generated in-python from time.time() so the timestamp
   // reflects the box's own clock (matches patch #154's priority writer).
@@ -1269,7 +1321,7 @@ export async function writeIdentityBountyStatus(
   const payload = JSON.stringify({ status }).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -1295,12 +1347,24 @@ export async function writeIdentityBountyPinned(
     throw new Error("invalid pinned");
   }
 
+  // Slug guard at the TOP — fires before the two-step SSH round-trip so an
+  // invalid slug never triggers a real SSH connection. Preserves the
+  // write-bounty-pinned test invariant "invalid slug on the remote branch
+  // rejects before any SSH call" (see writeIdentityBountyPriority for pattern).
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+
+  // Phase 22 SRIC-01: two-step — writes go to ~/.claude/roles/<role>/bounties/
+  // post fleet migration (see writeIdentityBountyPriority for full rationale).
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   const nowIso = new Date().toISOString();
   const timelineLine = `${nowIso} pinned set to ${pinned} via identity modal`;
 
   if (conn === null) {
-    const root = getLocalIdentitiesRoot();
-    const filePath = path.join(root, identityKey, "bounties", bountySlug, "bounty.json");
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, role, "bounties", bountySlug, "bounty.json");
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     parsed.pinned = pinned;
@@ -1315,9 +1379,7 @@ export async function writeIdentityBountyPinned(
     return;
   }
 
-  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
-    throw new Error("invalid bounty slug");
-  }
+  // Slug guard already hoisted to top of function.
   // Remote branch: python3 script takes the pinned bool via stdin JSON;
   // updated_at is generated in-python from utcnow() so the timestamp
   // reflects the box's own clock (matches patch #154's priority writer
@@ -1342,7 +1404,7 @@ export async function writeIdentityBountyPinned(
   const payload = JSON.stringify({ pinned }).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -1485,10 +1547,29 @@ export async function writeIdentityBountyFields(
   const nowIso = new Date().toISOString();
   const timelineLines = changedFields.map((f) => `${nowIso} ${f} updated via identity modal`);
 
+  // Hoisted guards (Phase 22 SRIC-01): identityKey + bountySlug validated at
+  // the TOP so the LOCAL branch's path.join can't traverse outside the role
+  // folder if a bad slug slips past the WS-layer validation. Pre-SRIC-01 the
+  // slug guard fired only inside the REMOTE branch — the LOCAL branch had no
+  // slug validation. Same pattern as deleteIdentityBounty (line ~1748 comment
+  // block) which called out this drift when it added its own top-of-function
+  // guard.
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+
+  // Phase 22 SRIC-01: two-step — bounty.json lives at ~/.claude/roles/<role>/
+  // bounties/<slug>/bounty.json post fleet migration. Resolve role BEFORE the
+  // branch split so both LOCAL and REMOTE reads/writes use the correct path.
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   if (conn === null) {
     // LOCAL branch — fs.readFile → JSON.parse → merge → JSON.stringify → tmp+rename
-    const root = getLocalIdentitiesRoot();
-    const filePath = path.join(root, identityKey, "bounties", bountySlug, "bounty.json");
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, role, "bounties", bountySlug, "bounty.json");
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     // Apply only ALLOWED changed keys (T-18-17: server-owned fields untouched)
@@ -1510,15 +1591,10 @@ export async function writeIdentityBountyFields(
     return;
   }
 
-  // REMOTE branch — SFTP read → Node merge → SFTP tmp+rename write
-  if (!IDENTITY_KEY_RE.test(identityKey)) {
-    throw new Error("invalid identityKey");
-  }
-  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
-    throw new Error("invalid bounty slug");
-  }
+  // REMOTE branch — SFTP read → Node merge → SFTP tmp+rename write.
+  // identityKey + bountySlug guards already hoisted to top of function.
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json`;
+  const targetPath = `${remoteHome}/.claude/roles/${role}/bounties/${bountySlug}/bounty.json`;
   // Read current bounty.json via SFTP into Node process memory
   const currentBytes = await sftpReadFile(conn, targetPath);
   const parsed = JSON.parse(currentBytes.toString("utf-8")) as Record<string, unknown>;
@@ -1581,13 +1657,25 @@ export async function archiveIdentityBounty(
   identityKey: string,
   bountySlug: string,
 ): Promise<void> {
+  // Hoisted slug guard (Phase 22 SRIC-01 + deleteIdentityBounty precedent):
+  // fires before the two-step SSH round-trip and before any LOCAL path.join,
+  // so a bad slug can't traverse the role folder on either branch.
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+
+  // Phase 22 SRIC-01: two-step — bounties live at ~/.claude/roles/<role>/bounties/
+  // post fleet migration. Resolve role BEFORE branch split so both LOCAL and
+  // REMOTE paths use the role folder for the tmp+rename patch and the mv.
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   const nowIso = new Date().toISOString();
 
   if (conn === null) {
-    const root = getLocalIdentitiesRoot();
-    const bountyDir = path.join(root, identityKey, "bounties", bountySlug);
+    const root = getLocalRolesRoot();
+    const bountyDir = path.join(root, role, "bounties", bountySlug);
     const filePath = path.join(bountyDir, "bounty.json");
-    const archiveParentDir = path.join(root, identityKey, "bounties", "archive");
+    const archiveParentDir = path.join(root, role, "bounties", "archive");
     const archiveDestDir = path.join(archiveParentDir, bountySlug);
 
     const raw = await fs.readFile(filePath, "utf-8");
@@ -1631,9 +1719,7 @@ export async function archiveIdentityBounty(
     return;
   }
 
-  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
-    throw new Error("invalid bounty slug");
-  }
+  // Slug guard already hoisted to top of function.
   // Remote branch: python3 script mirrors the local branch step-for-step.
   // updated_at is generated in-python (utcnow) so the timestamp reflects
   // the box's own clock (matches patch #154 / v0b's remote convention).
@@ -1671,7 +1757,7 @@ export async function archiveIdentityBounty(
     'os.rename(bounty_dir,archive_dest)\n';
   const cmd =
     `python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/identities/${identityKey}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -1716,12 +1802,17 @@ export async function deleteIdentityBounty(
     throw new Error("invalid bounty slug");
   }
 
+  // Phase 22 SRIC-01: two-step — bounties (both open + archive) live at
+  // ~/.claude/roles/<role>/bounties/ post fleet migration. Resolve role
+  // before the branch split; both LOCAL and REMOTE rm both candidate paths.
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   if (conn === null) {
-    const root = getLocalIdentitiesRoot();
-    const openDir = path.join(root, identityKey, "bounties", bountySlug);
+    const root = getLocalRolesRoot();
+    const openDir = path.join(root, role, "bounties", bountySlug);
     const archivedDir = path.join(
       root,
-      identityKey,
+      role,
       "bounties",
       "archive",
       bountySlug,
@@ -1747,7 +1838,7 @@ export async function deleteIdentityBounty(
     'shutil.rmtree(os.path.join(base,"archive",slug),ignore_errors=True)\n';
   const cmd =
     `python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/identities/${identityKey}/bounties" ` +
+    `"$HOME/.claude/roles/${role}/bounties" ` +
     `"${bountySlug}"`;
   await execWithTimeout(conn, cmd);
 }
@@ -1788,10 +1879,15 @@ export async function readIdentityPinnedBountyCount(
     throw new Error("invalid identityKey");
   }
 
+  // Phase 22 SRIC-01: two-step — bounties live at ~/.claude/roles/<role>/bounties/
+  // post fleet migration; the row-badge counter must count from there or every
+  // per-row bounty badge would show 0 (the identity folder is empty post-migration).
+  const role = await resolveRoleForIdentity(conn, identityKey);
+
   if (conn === null) {
     // LOCAL branch
-    const root = getLocalIdentitiesRoot();
-    const baseDir = path.join(root, identityKey, "bounties");
+    const root = getLocalRolesRoot();
+    const baseDir = path.join(root, role, "bounties");
 
     let entries: string[];
     try {
@@ -1842,7 +1938,7 @@ export async function readIdentityPinnedBountyCount(
     "print(n)\n";
   const cmd =
     `python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/identities/${identityKey}/bounties"`;
+    `"$HOME/.claude/roles/${role}/bounties"`;
   const stdout = await execWithTimeout(conn, cmd);
   const n = parseInt(stdout.trim(), 10);
   if (!Number.isFinite(n) || n < 0) {

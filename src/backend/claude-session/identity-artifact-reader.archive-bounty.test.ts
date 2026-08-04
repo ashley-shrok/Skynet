@@ -30,8 +30,15 @@ import fs from "fs/promises";
 
 import { archiveIdentityBounty } from "./identity-artifact-reader.js";
 
-let tmpRoot: string;
+// Phase 22 SRIC-01: bounties live at ~/.claude/roles/<role>/bounties/ post
+// fleet migration; archiveIdentityBounty now does the two-step (identity file
+// → role: frontmatter → role folder). Fixtures set up BOTH the identity file
+// (with role: frontmatter) AND the role folder tree so the writer's
+// resolveRoleForIdentity call finds valid data.
+let identitiesRoot: string;
+let rolesRoot: string;
 const KEY = "tina";
+const ROLE = "box-maintainer";
 const SLUG = "test-bounty";
 
 const SEED_LIVE = {
@@ -54,7 +61,7 @@ const SEED_TERMINAL = {
 };
 
 async function seedBounty(seed: typeof SEED_LIVE): Promise<string> {
-  const bountyDir = path.join(tmpRoot, KEY, "bounties", SLUG);
+  const bountyDir = path.join(rolesRoot, ROLE, "bounties", SLUG);
   await fs.mkdir(bountyDir, { recursive: true });
   const filePath = path.join(bountyDir, "bounty.json");
   await fs.writeFile(filePath, JSON.stringify(seed, null, 2), "utf-8");
@@ -88,19 +95,35 @@ async function listTree(dir: string): Promise<string[]> {
 }
 
 beforeEach(async () => {
-  tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wd0-identity-root-"));
-  process.env.IDENTITIES_HOST_DIR = tmpRoot;
+  identitiesRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "wd0-identities-root-"),
+  );
+  rolesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wd0-roles-root-"));
+  process.env.IDENTITIES_HOST_DIR = identitiesRoot;
+  process.env.ROLES_HOST_DIR = rolesRoot;
+
+  // Phase 22 SRIC-01: identity file with role: frontmatter is a hard
+  // prerequisite — resolveRoleForIdentity throws when missing (no fallback).
+  const identityDir = path.join(identitiesRoot, KEY);
+  await fs.mkdir(identityDir, { recursive: true });
+  await fs.writeFile(
+    path.join(identityDir, `${KEY}.md`),
+    `---\nrole: ${ROLE}\n---\n\n# ${KEY}\n`,
+    "utf-8",
+  );
 });
 
 afterEach(async () => {
   delete process.env.IDENTITIES_HOST_DIR;
-  await fs.rm(tmpRoot, { recursive: true, force: true });
+  delete process.env.ROLES_HOST_DIR;
+  await fs.rm(identitiesRoot, { recursive: true, force: true });
+  await fs.rm(rolesRoot, { recursive: true, force: true });
 });
 
 describe("archiveIdentityBounty (local branch)", () => {
   it("live-status: flips to done + bumps updated_at + appends 'flipped from' timeline + moves folder + creates archive/ on demand", async () => {
     const bountyDir = await seedBounty(SEED_LIVE);
-    const bountiesDir = path.join(tmpRoot, KEY, "bounties");
+    const bountiesDir = path.join(rolesRoot, ROLE, "bounties");
     const archiveDir = path.join(bountiesDir, "archive");
     const archiveDest = path.join(archiveDir, SLUG);
 
@@ -151,7 +174,7 @@ describe("archiveIdentityBounty (local branch)", () => {
 
   it("terminal-status (dropped): PRESERVES status (not clobbered to done) + appends 'preserved' timeline + moves folder", async () => {
     await seedBounty(SEED_TERMINAL);
-    const bountiesDir = path.join(tmpRoot, KEY, "bounties");
+    const bountiesDir = path.join(rolesRoot, ROLE, "bounties");
     const archiveDest = path.join(bountiesDir, "archive", SLUG);
 
     await archiveIdentityBounty(null, KEY, SLUG);
@@ -180,13 +203,13 @@ describe("archiveIdentityBounty (local branch)", () => {
   });
 
   it("unparseable bounty.json: fails loud with 'please repair before archiving' + leaves disk state byte-for-byte identical", async () => {
-    const bountyDir = path.join(tmpRoot, KEY, "bounties", SLUG);
+    const bountyDir = path.join(rolesRoot, ROLE, "bounties", SLUG);
     await fs.mkdir(bountyDir, { recursive: true });
     const filePath = path.join(bountyDir, "bounty.json");
     const garbage = "{{{not json";
     await fs.writeFile(filePath, garbage, "utf-8");
 
-    const bountiesDir = path.join(tmpRoot, KEY, "bounties");
+    const bountiesDir = path.join(rolesRoot, ROLE, "bounties");
     const archiveDir = path.join(bountiesDir, "archive");
     // Pre-flight: archive/ does NOT exist.
     const archiveExistedBefore = await fs

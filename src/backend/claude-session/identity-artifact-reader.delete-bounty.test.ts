@@ -28,8 +28,13 @@ import fs from "fs/promises";
 
 import { deleteIdentityBounty } from "./identity-artifact-reader.js";
 
-let tmpRoot: string;
+// Phase 22 SRIC-01: bounties live at ~/.claude/roles/<role>/bounties/ post
+// fleet migration; deleteIdentityBounty now does the two-step. Fixtures set
+// up BOTH the identity file (with role: frontmatter) AND the role folder.
+let identitiesRoot: string;
+let rolesRoot: string;
 const KEY = "tina";
+const ROLE = "box-maintainer";
 const SLUG = "test-bounty";
 
 const SEED = {
@@ -47,7 +52,7 @@ const SEED = {
 };
 
 async function seedOpenBounty(): Promise<string> {
-  const bountyDir = path.join(tmpRoot, KEY, "bounties", SLUG);
+  const bountyDir = path.join(rolesRoot, ROLE, "bounties", SLUG);
   await fs.mkdir(bountyDir, { recursive: true });
   const filePath = path.join(bountyDir, "bounty.json");
   await fs.writeFile(filePath, JSON.stringify(SEED, null, 2), "utf-8");
@@ -55,7 +60,7 @@ async function seedOpenBounty(): Promise<string> {
 }
 
 async function seedArchivedBounty(): Promise<string> {
-  const bountyDir = path.join(tmpRoot, KEY, "bounties", "archive", SLUG);
+  const bountyDir = path.join(rolesRoot, ROLE, "bounties", "archive", SLUG);
   await fs.mkdir(bountyDir, { recursive: true });
   const filePath = path.join(bountyDir, "bounty.json");
   await fs.writeFile(filePath, JSON.stringify(SEED, null, 2), "utf-8");
@@ -93,19 +98,35 @@ async function listTree(dir: string): Promise<string[]> {
 }
 
 beforeEach(async () => {
-  tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "g5r-identity-root-"));
-  process.env.IDENTITIES_HOST_DIR = tmpRoot;
+  identitiesRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "g5r-identities-root-"),
+  );
+  rolesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "g5r-roles-root-"));
+  process.env.IDENTITIES_HOST_DIR = identitiesRoot;
+  process.env.ROLES_HOST_DIR = rolesRoot;
+
+  // Phase 22 SRIC-01: identity file with role: frontmatter is required —
+  // resolveRoleForIdentity throws (no fallback) when frontmatter is missing.
+  const identityDir = path.join(identitiesRoot, KEY);
+  await fs.mkdir(identityDir, { recursive: true });
+  await fs.writeFile(
+    path.join(identityDir, `${KEY}.md`),
+    `---\nrole: ${ROLE}\n---\n\n# ${KEY}\n`,
+    "utf-8",
+  );
 });
 
 afterEach(async () => {
   delete process.env.IDENTITIES_HOST_DIR;
-  await fs.rm(tmpRoot, { recursive: true, force: true });
+  delete process.env.ROLES_HOST_DIR;
+  await fs.rm(identitiesRoot, { recursive: true, force: true });
+  await fs.rm(rolesRoot, { recursive: true, force: true });
 });
 
 describe("deleteIdentityBounty (local branch)", () => {
   it("open bounty: rm -rf bounties/<slug>/ leaves bounties/ dir intact", async () => {
     const bountyDir = await seedOpenBounty();
-    const bountiesDir = path.join(tmpRoot, KEY, "bounties");
+    const bountiesDir = path.join(rolesRoot, ROLE, "bounties");
 
     // Pre-flight: bountyDir + bounty.json exist.
     expect(await exists(bountyDir)).toBe(true);
@@ -126,7 +147,7 @@ describe("deleteIdentityBounty (local branch)", () => {
 
   it("archived bounty: rm -rf bounties/archive/<slug>/ leaves bounties/archive/ dir intact", async () => {
     const bountyDir = await seedArchivedBounty();
-    const bountiesDir = path.join(tmpRoot, KEY, "bounties");
+    const bountiesDir = path.join(rolesRoot, ROLE, "bounties");
     const archiveDir = path.join(bountiesDir, "archive");
 
     // Pre-flight: archive/<slug>/ + bounty.json exist.
@@ -153,8 +174,8 @@ describe("deleteIdentityBounty (local branch)", () => {
     // Pre-seed an innocent slug alongside — it MUST survive the failed call.
     const innocentSlug = "innocent";
     const innocentDir = path.join(
-      tmpRoot,
-      KEY,
+      rolesRoot,
+      ROLE,
       "bounties",
       innocentSlug,
     );

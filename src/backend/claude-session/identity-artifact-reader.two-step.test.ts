@@ -97,7 +97,10 @@ describe("resolveRoleForIdentity", () => {
   });
 
   it("test 6: throws Error including identityKey when identity file is empty", async () => {
-    (execCommand as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce("");
+    // mockResolvedValue (not Once) — the test does two rejects.toThrow assertions
+    // against the SAME behavior, each of which invokes the resolver. Both invocations
+    // must hit the "empty identity file" stub, not just the first.
+    (execCommand as unknown as ReturnType<typeof vi.fn>).mockResolvedValue("");
     const conn = {} as SSHClientType; // remote branch; execCommand mock intercepts
     await expect(resolveRoleForIdentity(conn, "moxie")).rejects.toThrow(/moxie/);
     await expect(resolveRoleForIdentity(conn, "moxie")).rejects.toThrow(/no role/);
@@ -206,8 +209,14 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
     const result = await readIdentityBounties(conn, "moxie");
 
     // Path substitution: role folder is queried, identity folder for bounties is NOT.
-    const bountiesCmd = capturedCommands.find(
-      (c) => c.includes("/bounties") && !c.includes("archive"),
+    // Filter by the path substring the reader interpolates — the openCmd changes
+    // directory into `.../bounties" 2>/dev/null` (no /archive suffix on the cd
+    // target), while the archiveCmd changes into `.../bounties/archive"`. Both
+    // commands mention the literal token "archive" (openCmd inspects entries
+    // for [ "$d" = "archive" ]), so filter on the cd-target path, not on the
+    // word "archive" alone.
+    const bountiesCmd = capturedCommands.find((c) =>
+      c.includes('.claude/roles/box-maintainer/bounties" '),
     );
     expect(bountiesCmd).toBeDefined();
     expect(bountiesCmd).toContain("$HOME/.claude/roles/box-maintainer/bounties");

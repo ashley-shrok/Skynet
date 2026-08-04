@@ -31,8 +31,13 @@ import {
   type BountyStatus,
 } from "./identity-artifact-reader.js";
 
-let tmpRoot: string;
+// Phase 22 SRIC-01: bounties live at ~/.claude/roles/<role>/bounties/ post
+// fleet migration; writeIdentityBountyStatus now does the two-step. Fixtures
+// set up BOTH the identity file (with role: frontmatter) AND the role folder.
+let identitiesRoot: string;
+let rolesRoot: string;
 const KEY = "tina";
+const ROLE = "box-maintainer";
 const SLUG = "test-bounty";
 
 const SEED_BOUNTY = {
@@ -50,7 +55,7 @@ const SEED_BOUNTY = {
 };
 
 async function seedBounty(): Promise<string> {
-  const bountyDir = path.join(tmpRoot, KEY, "bounties", SLUG);
+  const bountyDir = path.join(rolesRoot, ROLE, "bounties", SLUG);
   await fs.mkdir(bountyDir, { recursive: true });
   const filePath = path.join(bountyDir, "bounty.json");
   await fs.writeFile(filePath, JSON.stringify(SEED_BOUNTY, null, 2), "utf-8");
@@ -58,13 +63,29 @@ async function seedBounty(): Promise<string> {
 }
 
 beforeEach(async () => {
-  tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "v0b-identity-root-"));
-  process.env.IDENTITIES_HOST_DIR = tmpRoot;
+  identitiesRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "v0b-identities-root-"),
+  );
+  rolesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "v0b-roles-root-"));
+  process.env.IDENTITIES_HOST_DIR = identitiesRoot;
+  process.env.ROLES_HOST_DIR = rolesRoot;
+
+  // Phase 22 SRIC-01: identity file with role: frontmatter is required —
+  // resolveRoleForIdentity throws (no fallback) when frontmatter is missing.
+  const identityDir = path.join(identitiesRoot, KEY);
+  await fs.mkdir(identityDir, { recursive: true });
+  await fs.writeFile(
+    path.join(identityDir, `${KEY}.md`),
+    `---\nrole: ${ROLE}\n---\n\n# ${KEY}\n`,
+    "utf-8",
+  );
 });
 
 afterEach(async () => {
   delete process.env.IDENTITIES_HOST_DIR;
-  await fs.rm(tmpRoot, { recursive: true, force: true });
+  delete process.env.ROLES_HOST_DIR;
+  await fs.rm(identitiesRoot, { recursive: true, force: true });
+  await fs.rm(rolesRoot, { recursive: true, force: true });
 });
 
 describe("writeIdentityBountyStatus (local branch)", () => {
@@ -126,7 +147,7 @@ describe("writeIdentityBountyStatus (local branch)", () => {
 
     for (const status of validStatuses) {
       // Re-seed a fresh bounty for each status so the writes are independent.
-      const bountyDir = path.join(tmpRoot, KEY, "bounties", `slug-${status}`);
+      const bountyDir = path.join(rolesRoot, ROLE, "bounties", `slug-${status}`);
       await fs.mkdir(bountyDir, { recursive: true });
       await fs.writeFile(
         path.join(bountyDir, "bounty.json"),
@@ -151,7 +172,7 @@ describe("writeIdentityBountyStatus (local branch)", () => {
 
   it("does not create or rename any sibling folder (folder untouched even for done)", async () => {
     await seedBounty();
-    const bountiesDir = path.join(tmpRoot, KEY, "bounties");
+    const bountiesDir = path.join(rolesRoot, ROLE, "bounties");
     const before = (await fs.readdir(bountiesDir)).sort();
 
     await writeIdentityBountyStatus(null, KEY, SLUG, "done");

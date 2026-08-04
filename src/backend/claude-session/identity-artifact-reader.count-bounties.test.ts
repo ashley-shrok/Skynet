@@ -7,9 +7,13 @@
 // duplicate that surface without adding signal.
 //
 // Local branch is deterministic and fs-only, so we drive it with a real temp
-// directory tree instead of a stub. The tree matches what the tina bind-mount
-// looks like: identityHostDir/<key>/bounties/<slug>/bounty.json, with an
-// archive/ directory that must be skipped.
+// directory tree instead of a stub.
+//
+// Phase 22 SRIC-01: bounties live at ~/.claude/roles/<role>/bounties/ (rooted
+// at ROLES_HOST_DIR) — the counter now does the two-step (identity file →
+// role: frontmatter → role folder) so fixtures set up BOTH the identity file
+// (with role: frontmatter) AND the role folder tree. Layout mirrors the fleet
+// on-disk shape post-migration.
 //
 // Patch #168 schema update: `pinned` is now an independent boolean field
 // orthogonal to the lifecycle `status` field. Fixtures use `pinned:boolean`
@@ -22,8 +26,10 @@ import fs from "fs/promises";
 
 import { readIdentityPinnedBountyCount } from "./identity-artifact-reader.js";
 
-let tmpRoot: string;
+let identitiesRoot: string;
+let rolesRoot: string;
 const KEY = "tina";
+const ROLE = "box-maintainer";
 
 async function writeBounty(
   slug: string,
@@ -35,8 +41,8 @@ async function writeBounty(
   } = {},
 ): Promise<void> {
   const base = opts.archived
-    ? path.join(tmpRoot, KEY, "bounties", "archive", slug)
-    : path.join(tmpRoot, KEY, "bounties", slug);
+    ? path.join(rolesRoot, ROLE, "bounties", "archive", slug)
+    : path.join(rolesRoot, ROLE, "bounties", slug);
   await fs.mkdir(base, { recursive: true });
   const contents = opts.malformed
     ? "{ not valid json"
@@ -49,13 +55,29 @@ async function writeBounty(
 }
 
 beforeEach(async () => {
-  tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "tb1-identity-root-"));
-  process.env.IDENTITIES_HOST_DIR = tmpRoot;
+  identitiesRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "tb1-identities-root-"),
+  );
+  rolesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "tb1-roles-root-"));
+  process.env.IDENTITIES_HOST_DIR = identitiesRoot;
+  process.env.ROLES_HOST_DIR = rolesRoot;
+
+  // Phase 22 SRIC-01: identity file with role: frontmatter is required —
+  // resolveRoleForIdentity throws (no fallback) when frontmatter is missing.
+  const identityDir = path.join(identitiesRoot, KEY);
+  await fs.mkdir(identityDir, { recursive: true });
+  await fs.writeFile(
+    path.join(identityDir, `${KEY}.md`),
+    `---\nrole: ${ROLE}\n---\n\n# ${KEY}\n`,
+    "utf-8",
+  );
 });
 
 afterEach(async () => {
   delete process.env.IDENTITIES_HOST_DIR;
-  await fs.rm(tmpRoot, { recursive: true, force: true });
+  delete process.env.ROLES_HOST_DIR;
+  await fs.rm(identitiesRoot, { recursive: true, force: true });
+  await fs.rm(rolesRoot, { recursive: true, force: true });
 });
 
 describe("readIdentityPinnedBountyCount — local branch", () => {
@@ -97,8 +119,9 @@ describe("readIdentityPinnedBountyCount — local branch", () => {
   });
 
   it("returns 0 when pinned field is absent (treated as not pinned)", async () => {
-    // Bounty JSON with no `pinned` key — should NOT be counted
-    const base = path.join(tmpRoot, KEY, "bounties", "no-pinned-field");
+    // Bounty JSON with no `pinned` key — should NOT be counted.
+    // Phase 22 SRIC-01: bounty lives at ROLES_HOST_DIR/<role>/bounties/…
+    const base = path.join(rolesRoot, ROLE, "bounties", "no-pinned-field");
     await fs.mkdir(base, { recursive: true });
     await fs.writeFile(
       path.join(base, "bounty.json"),
