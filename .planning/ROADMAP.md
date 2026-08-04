@@ -818,3 +818,50 @@ Plans:
 **Rebase risk:** LOW — additive backend endpoints (`roles:list-for-host`, `roles:create`, `identity:clone`, `identity:get-role-file`, `identity:update-role-file`) + additive frontend modals (`CreateRoleDialog`, clone modal) + additive tab (Role) + repoint of existing IdentityModal tab data-sources (Bounties, History) + reuse of Phase 20's identity-birth code path + reuse of NewSessionDialog host picker. No upstream Skynet surfaces disturbed. Fork severed 2026-07-24 so no upstream to rebase against anyway.
 
 **Plans:** 0 plans yet — plan-phase will populate.
+
+### Phase 23: Skynet editable global files + panel header menu consolidation
+
+**Goal:** Give Ashley a UI-driven way to edit configurable per-host files that live outside the roles/identities paradigm — starting with each host's `~/.claude/CLAUDE.md` and extensible to any file the deployment operator lists in a per-Skynet-instance config. Uses the same two-step SSH read/write pattern as Phase 22 SRIC-06's Role tab. Coupled with a panel-header menu consolidation: as the pretty-conversations panel header has accumulated action buttons (New session, `+ New role` from SRIC-04, and now Edit-global-files), collapse everything except the Filter button under a single dropdown menu to keep the header clean. Config file lives in the Skynet docker volume (portable across deploys — Ashley's Skynet gets one file listed, Stacey's ceo-skynet gets a different set); edited via SSH for MVP.
+
+**Requirements**: GEFM-01, GEFM-02, GEFM-03, GEFM-04, GEFM-05, GEFM-06
+
+**Plans:** 0 plans yet — plan-phase will populate.
+
+**Requirement details:**
+- **GEFM-01 (Panel header menu consolidation).** Filter button stays separate in `PrettyConversationsPanel`'s header. Existing action buttons (`+ New agent` pencil, `+ New role` from Phase 22 SRIC-04, and the new Edit-global-files entry from GEFM-05) collapse into ONE dropdown menu button (icon TBD by planner — likely `MoreHorizontal` / `MoreVertical` / `Plus` menu). Menu items open their respective modals as they do now. Header ends up: `[Panel title] ... [Filter] [Menu-dropdown]`. Pinned count badge stays where it is (it's a badge, not a button). Same visual language as existing panel header (`--color-pv-*` tokens, mock v4 aesthetic — do NOT reintroduce Skynet chrome).
+- **GEFM-02 (Config schema + volume mount).** JSON file at `/app/data/global-files.json` in the Skynet container (backed by the `skynet-data` docker volume — same volume as the crown-jewel encrypted SQLite, so it's already backed up by AWS DLM snapshots). Shape: `{ "hosts": { "<hostName-or-hostId>": [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" }, ... ] } }`. Host key format: planner picks either host name string (human-readable, human-editable) or hostId int (survives host rename). Label is optional (defaults to basename of path). Absence of the file OR absence of a host key means "no files configured for this host" — modal shows an empty-state. Never fabricate a file that isn't in the config. Bootstrap: for MVP the config is edited via SSH into skynet-ec2 (`sudo vim /var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json` or similar — planner confirms exact volume host-path); meta-UI (editing the config file via the same UI, self-referentially) is deferred.
+- **GEFM-03 (`GET /global-files?hostId=<n>` backend endpoint).** Reads `global-files.json` from the volume, returns the configured file list for the given host. Response shape: `{ files: [{ path, label }] }`. Empty array if no config or host not in config. Dual nginx location blocks (docker/nginx.conf + docker/nginx-https.conf per fleet caveat). Cookie auth (existing admin cookie — no new auth surface).
+- **GEFM-04 (`POST /global-files/read` + `PUT /global-files/write` backend endpoints).** `read` takes `{ hostId, path }`, whitelist-checks the path against the config (rejects any path not listed for that host with 403 to prevent arbitrary-file access), SSHes to host, `cat`s the file, returns `{ content, mtime, size }`. `write` takes `{ hostId, path, content, expectedMtime }` — same whitelist enforcement, optional expectedMtime for optimistic-concurrency conflict detection (if expectedMtime present and file has changed since, return 409). Writes via the same SSH exec-channel plumbing SRIC-06 uses. Dual nginx location blocks. Cookie auth. Anyone with the admin cookie can read/write (no per-user gating — matches Ashley's `anyone could edit` decision 2026-08-04).
+- **GEFM-05 (`GlobalFilesModal` frontend component).** New modal opened from GEFM-01's dropdown menu. Layout: optional host picker (defaults to the currently-selected session's host if any, else prompts to pick from the same host list NewSessionDialog uses) → tabs across the top for each file the current host has configured (via `GET /global-files?hostId=<n>`) → each tab renders a textarea (plain, monospace, whole-file edit — same shape as Phase 22 SRIC-06's RoleFileTab) + a Save button. Save fires `PUT /global-files/write`. Loading + error + empty states mirror IdentityModal patterns. Uses `--color-pv-*` tokens. Sized like other modals.
+- **GEFM-06 (Config bootstrap + skynet-ec2 initial population).** Ship an example `global-files.json` in the docker volume for skynet-ec2 pre-populated with `~/.claude/CLAUDE.md` for each of the current fleet hosts (thenasty, workstation, ashley-beelink, GIGAASHLEYPC, ZoeyBattlestation, aither-cloud, aither-cloud2, aither-sftp, skynet-ec2 — Windows hosts that don't have `~/.claude/CLAUDE.md` should be omitted, not left in with an error state). Document the SSH-edit workflow in a doc — location TBD by planner (probably `.planning/phases/23-*/23-BOOTSTRAP.md` or an entry in `box-map.md`).
+
+**Depends on:** Phase 22 SRIC-06 (reuses the two-step SSH read/write pattern for role file → generalizes it to configured file paths). Panel header consolidation touches Phase 22 SRIC-04's `+ New role` launcher position (folds it into the menu).
+
+**Design source-of-truth:** Verbal design session with Ashley 2026-08-04 (see role's history.md for the timestamp). No shape file — Ashley skipped `/open` after the axes were settled inline ("I feel like we've pretty much got what we need on it"). Key exchange:
+- Q: per-host vs per-Skynet-instance files? A: "you would want to be able to put in the config pointing to files on any host because there are different files on different hosts you would want to edit."
+- Q: UI location? A: "top of conversation list like the other buttons, But we're kind of getting crowded on the buttons, so we might want to collapse them into a single button at this point."
+- Q: access? A: "anyone could edit"
+- Q: filter button? A: "I figure the filter button could stay in the header separate, but the others could go under one button now"
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+- **Files are per-host, config is per-Skynet-instance.** Ashley's Skynet has one list; Stacey's ceo-skynet has a different list. Both configs live in each deployment's own docker volume. Any plan that hardcodes a fleet-wide file list into the source code is a plan-checker BLOCK.
+- **Whitelist enforcement on read + write.** Backend MUST reject any path not present in `global-files.json` for the given host (403). Any plan that trusts the frontend's path parameter is a plan-checker BLOCK.
+- **No new auth surface.** Existing Skynet admin cookie is the sole gate. No per-user ACLs, no read-only vs read-write split. Any plan that adds an auth layer is a plan-checker BLOCK.
+- **Anyone with admin cookie edits.** On Ashley's single-tenant Skynet this is just her; on Stacey's multi-user ceo-skynet all their users can. That's intentional — matches Ashley's `anyone could edit` call and mirrors how Skynet's other cross-cutting edits (host CRUD, identity CRUD, roles) already work.
+- **Menu consolidation includes the existing `+ New agent` + `+ New role` buttons.** Not just the new Edit-global-files entry. The whole point of consolidating is to make the header less crowded. Any plan that leaves the existing buttons alongside the new dropdown is a plan-checker BLOCK.
+- **Filter button stays separate in the header.** Ashley called this out explicitly. Any plan that folds Filter into the dropdown is a plan-checker BLOCK.
+- **Config file is edited via SSH for MVP.** Meta-UI (editing `global-files.json` via the modal itself) is explicitly deferred. Any plan that adds a self-referential edit path is a plan-checker BLOCK for this phase.
+- **Same two-step SSH read/write pattern as SRIC-06.** Backend does the SSH; frontend never touches file paths beyond passing them through. Any plan that has the frontend do direct file access (e.g. via a WebSocket file protocol) is a plan-checker BLOCK.
+
+**Deferred (out of scope for THIS phase — future bounties if needed):**
+- Meta-UI for editing `global-files.json` itself (self-referentially via the modal).
+- Diff view / three-way merge / conflict resolution UI. MVP is textarea + save + optimistic-concurrency 409 on stale writes.
+- Auto-save. MVP is explicit Save button.
+- File-add / file-remove UI (config management via the app). SSH-edit only for MVP.
+- Per-user ACLs (read-only vs read-write split).
+- File history / diff-since-last-save.
+- Filesystem watch / auto-refresh on external changes.
+- Non-text files (binary editing, image previews). MVP is text-file textarea only.
+- Directory listing / picker (opening arbitrary paths on a host). Whitelist-only.
+
+**Rebase risk:** LOW — additive backend endpoints (`GET /global-files`, `POST /global-files/read`, `PUT /global-files/write`) + additive frontend modal (`GlobalFilesModal`) + additive JSON config file in existing docker volume + refactor of `PrettyConversationsPanel` header to fold buttons under a dropdown (touches Phase 22 SRIC-04's `+ New role` launcher position). No upstream Skynet surfaces disturbed. Fork severed 2026-07-24 so no upstream to rebase against anyway.
