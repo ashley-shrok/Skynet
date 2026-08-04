@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-04T07:28:33.297Z"
+last_updated: "2026-08-04T08:38:43.286Z"
 last_activity: 2026-08-04
 progress:
   total_phases: 23
   completed_phases: 15
   total_plans: 92
-  completed_plans: 83
+  completed_plans: 84
   percent: 65
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 22 (skynet-ui-parity-with-the-role-identity-paradigm) — EXECUTING
-Plan: 1 of 6 (complete; Wave 1 sibling 22-02 next)
+Plan: 2 of 6 (complete; Wave 1 sibling 22-02 next)
 Status: Ready to execute
 Last activity: 2026-08-04
 
@@ -91,7 +91,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -139,6 +139,7 @@ Progress: [██████████] 99%
 | Phase 20-identity-creation-ui P02 | 15 | 3 tasks | 5 files |
 | Phase 20-identity-creation-ui P05 | 10m | 3 tasks | 3 files |
 | Phase 22 P01 | 24min | 2 tasks | 8 files |
+| Phase 22 P02 | 22min | 4 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,8 @@ Recent decisions affecting current work:
 - [Phase ?]: isLocalHostId imported from identity-artifact-reader.ts; SSH probe uses single-quoted name in if [ -d ] check; 3-tier timeout (3s connect, 3s exec, 10s nginx)
 - [Phase ?]: colorHue default 210 (cyan-blue — midpoint of used-hue clusters)
 - [Phase ?]: Phase 22 Plan 01 (SRIC-01): backend-internal two-step (identity file → role frontmatter → role folder) landed in identity-artifact-reader.ts; resolveRoleForIdentity/extractRoleFromMarkdown/getLocalRolesRoot exported for Wave-2 reuse; all 9 bounty helpers repointed via Rule 2/3 auto-fix; zero UI diff; zero claude-session-server.ts diff; zero new npm packages.
+- [Phase ?]: 22-02: Adopted seed-comment approach per Ashley checkpoint refinement — Skynet writes identity file + role frontmatter + wake-up seed; agent registers its own Matrix relay on first wake.
+- [Phase ?]: 22-02: writeMarkdownFileAtomic exported from identity-artifact-reader (was private) for Step 2.5 arbitrary-path pre-write; existing writeIdentity{File,History,Handoff} keep locked-shape semantics.
 
 ### Pending Todos
 
@@ -353,6 +356,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-04T07:28:26.518Z
+Last session: 2026-08-04T08:38:25.978Z
 Stopped at: Completed 20-05-PLAN.md
 Resume file: None
