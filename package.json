@@ -45,7 +45,7 @@
     "@tailwindcss/typography": "^0.5.20",
     "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "12.9.0",
     "body-parser": "^2.2.2",
     "chalk": "^5.6.2",
     "cookie-parser": "^1.4.7",
