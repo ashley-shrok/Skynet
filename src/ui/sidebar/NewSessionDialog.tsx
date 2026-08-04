@@ -61,6 +61,7 @@ import {
   type BirthEvent,
   type RoleSummary,
 } from "@/api/identities-api";
+import { refreshIdentities } from "@/state/identities-store";
 
 // Client-side session-name pattern — defense-in-depth (T-06-04-01). Word
 // characters and dashes, 0-64 chars. Empty string matches (Open enabled +
@@ -603,6 +604,18 @@ export function NewSessionDialog({
       }
 
       if (endedEvent && endedEvent.type === "ended" && endedEvent.ok) {
+        // Patch #319: refresh the identities store BEFORE opening the tab.
+        // The store loads once on first useIdentities() mount and never
+        // auto-refreshes; without this the just-born identity isn't in
+        // identitiesByKey when PrettyConversationRow resolves the session's
+        // targetTmuxSession → identity — the row renders as a plain host
+        // session (no avatar, hostname sublabel, no pretty-view routing).
+        // Best-effort — a fetch failure shouldn't block the tab from opening;
+        // the next mount's fetchOnce still eventually catches up.
+        try {
+          await refreshIdentities();
+        } catch { /* best-effort — row will resolve on next store refresh */ }
+
         // Success: call onCreate for focus-follow, then close modal
         onCreate({
           host: selectedHost,
