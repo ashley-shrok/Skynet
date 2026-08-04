@@ -1,8 +1,17 @@
 /**
- * Pure helper for detecting Claude Code's plan-approval Ink prompt from a
+ * Pure helpers for observing Claude Code's plan-approval Ink prompt from a
  * `tmux capture-pane -p` output. Wired into the setInterval pane-scrape in
  * claude-session-server.ts alongside `parseContextPct` so PlanPendingBubble
  * can render live while Ashley is deciding on a proposed plan.
+ *
+ * Two exports:
+ *   - `isPlanPending(paneText)` — presence detection (was here since
+ *     quick 260802-rps; strings corrected in Phase 24 Plan 01 to match
+ *     the pinned fleet Ink variant, which had never actually fired in
+ *     production).
+ *   - `parsePlanFilePath(paneText)` — tilde-relative plan-file path
+ *     extraction from the prompt footer (added Phase 24 Plan 01, feeds
+ *     the SFTP side-channel fetch in Plan 02).
  *
  * WHY A PANE-SCRAPE INSTEAD OF THE JSONL:
  *
@@ -21,33 +30,32 @@
  * contrast, showed the Ink prompt continuously for those 57 minutes.
  *
  * The pane is therefore the authoritative live signal for this state, and
- * this helper is what makes it observable.
+ * these helpers are what make it observable.
  *
- * FINGERPRINT:
+ * FINGERPRINT (Phase 24 Plan 01 correction):
  *
- * We combine two conditions to keep the signal robust against transcript
- * quotes and prose that happen to mention plan-mode text elsewhere in the
- * scrollback:
+ * The fleet is pinned to a single Claude Code Ink variant (Ashley verified
+ * 2026-08-04). The correct anchor strings for THAT variant — verbatim from
+ * Amelia's pane on the same day — are:
  *
- *   (a) BOTTOM ~30 LINES: the load-bearing reject-option marker
- *       `No, keep planning` MUST appear in the bottom slice of the pane.
- *       Anchoring at the bottom mirrors `parseContextPct`'s bottom-8 slice
- *       rationale — the Ink prompt always renders in the pane footer, so
- *       transcript quotes elsewhere can't false-positive. The
- *       `No, keep planning` string is the reject-option line in EVERY
- *       plan-approval prompt variant regardless of whether Claude Code was
- *       launched with `--dangerously-skip-permissions` (that flag changes
- *       options 1/2 between "Yes, and bypass permissions"/"Yes, proceed"
- *       vs "Yes, proceed" alone — but the keep-planning line is always
- *       the last numbered option).
+ *   Header (anywhere in pane):
+ *     `Claude has written up a plan and is ready to execute. Would you like to proceed?`
  *
- *   (b) HEADER ANYWHERE: at least one of `Here is Claude's plan:` OR
- *       `Ready to code?` must appear anywhere in the full pane text.
- *       These are the two header variants of the plan-approval box that
- *       Claude Code renders — header-anywhere is acceptable because the
- *       combination of (a) bottom-slice keep-planning marker AND
- *       (b) header-anywhere is a reliable signal. Either condition alone
- *       is materially weaker.
+ *   Bottom-slice marker (last ~30 lines):
+ *     `shift+tab to approve with this feedback`
+ *
+ * The two-condition SHAPE stays (bottom-slice marker AND header-anywhere).
+ * Anchoring the marker to the bottom slice mirrors `parseContextPct`'s
+ * bottom-8 slice rationale — the Ink prompt always renders in the pane
+ * footer, so transcript quotes elsewhere in the scrollback can't
+ * false-positive. Header-anywhere is safe because it's paired with the
+ * bottom-slice check. Neither condition alone would be strong enough.
+ *
+ * The previous (dead) fingerprint targeted the reject-option label and
+ * two header variants from an OLD Ink revision. None of those strings
+ * appear in the pinned fleet variant, so `isPlanPending` had been silently
+ * returning `false` on every live pane since it landed in quick 260802-rps
+ * two days before this correction.
  *
  * Returns `false` immediately for empty/whitespace input as a fast path.
  * Zero imports, zero I/O — same pure-helper posture as
@@ -59,24 +67,60 @@ export function isPlanPending(paneText: string): boolean {
   // Fast path: empty or whitespace-only pane has no prompt.
   if (paneText.trim() === "") return false;
 
-  // (a) Bottom ~30 lines must contain the reject-option marker. Anchoring
-  //     at the bottom keeps prose/transcript quotes of "No, keep planning"
+  // (a) Bottom ~30 lines must contain the footer-only marker. Anchoring
+  //     at the bottom keeps prose/transcript quotes of the marker
   //     elsewhere in the pane from causing false positives — same
   //     rationale as parseContextPct's bottom-8 slice.
   const bottomSlice = paneText.split("\n").slice(-30).join("\n");
-  if (!bottomSlice.includes("No, keep planning")) return false;
+  if (!bottomSlice.includes("shift+tab to approve with this feedback"))
+    return false;
 
-  // (b) One of the two header variants must appear anywhere in the pane.
-  //     `Here is Claude's plan:` is the header when
-  //     --dangerously-skip-permissions is on (3-option variant);
-  //     `Ready to code?` is the default (2-option variant). Header-
-  //     anywhere is safe because (a) is already anchored to the bottom.
+  // (b) The single pinned-variant header must appear anywhere in the
+  //     pane. Header-anywhere is safe because (a) is already anchored to
+  //     the bottom, so the pair `(a) AND (b)` remains prose-quote-proof.
   if (
-    !paneText.includes("Here is Claude's plan:") &&
-    !paneText.includes("Ready to code?")
+    !paneText.includes(
+      "Claude has written up a plan and is ready to execute. Would you like to proceed?",
+    )
   ) {
     return false;
   }
 
   return true;
+}
+
+/**
+ * Extract the plan file's tilde-relative path from the pane footer.
+ *
+ * The plan-approval prompt renders a footer line of the form:
+ *
+ *     ctrl-g to edit in  Vim  · ~/.claude/plans/<slug>.md
+ *
+ * (Verbatim from Amelia's pane 2026-08-04: DOUBLE space between "in" and
+ * "Vim", middle-dot `·` U+00B7 between "Vim" and the path, single-space
+ * separators on either side of the middle dot.)
+ *
+ * Slugs are always kebab-case English words joined by hyphens, e.g.
+ * `groovy-watching-leaf.md`, `twinkling-strolling-eclipse.md`. The regex
+ * accepts only the slug charset `[a-z0-9-]+` — uppercase letters, dots
+ * (other than the `.md` extension), slashes, backticks, quotes, `$`, and
+ * any other character all cause the extraction to fall through to `null`.
+ *
+ * Returns `null` when the footer is absent, when the slug fails the
+ * charset check, when the extension is not `.md`, or when the path prefix
+ * is not `~/.claude/plans/`. Never throws.
+ *
+ * SECURITY NOTE: Path validation for the SFTP-fetch caller (Plan 02)
+ * lives in the fetch module, NOT in this parser. This function is pure
+ * text extraction. The parser's slug regex is a first-pass sanity check;
+ * the SFTP layer re-validates by string-comparing the full resolved path
+ * against `<resolvedHome>/.claude/plans/<slug>.md`. Defense-in-depth: an
+ * attacker who somehow got past the parser regex would still be blocked
+ * by the SFTP layer, and vice versa.
+ */
+export function parsePlanFilePath(paneText: string): string | null {
+  const match = paneText.match(
+    /ctrl-g to edit in\s+Vim\s+·\s+(~\/\.claude\/plans\/[a-z0-9-]+\.md)/,
+  );
+  return match ? match[1] : null;
 }
