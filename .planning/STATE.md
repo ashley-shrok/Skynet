@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-08-04T10:11:48.526Z"
+status: verifying
+last_updated: "2026-08-04T20:07:13.377Z"
 last_activity: 2026-08-04
 progress:
-  total_phases: 23
+  total_phases: 24
   completed_phases: 16
-  total_plans: 92
-  completed_plans: 88
-  percent: 70
+  total_plans: 97
+  completed_plans: 89
+  percent: 67
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 22 (skynet-ui-parity-with-the-role-identity-paradigm) — EXECUTING
 Plan: 6 of 6 (complete; Wave 1 sibling 22-02 next)
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-04
 
 _(Phase 20 was Plan 4 of 6 at the top of this session — untouched by this run. Phase 22 pointer is set here because Plan 22-01 just completed; it was the target of this execute-plan invocation.)_
@@ -91,7 +91,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -144,6 +144,7 @@ Progress: [██████████] 99%
 | Phase 22 P06 | 22min | 3 tasks | 10 files |
 | Phase 22-skynet-ui-parity-with-the-role-identity-paradigm P03 | 16min | 2 tasks | 10 files |
 | Phase 22 P22-05 | 12min | 2 tasks | 4 files |
+| Phase 24 P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -220,6 +221,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 22-03 REVISION 2026-08-04 (Ashley): clone endpoint does NOT invoke SSH relay-register — new identity file gets a wake-up seed comment. Third caller of the seed-comment pattern (22-02 birth + 22-04 role stub + 22-03 clone) proves the pattern generalizes.
 - [Phase ?]: 22-03 clone endpoint is JSON-only with 415 content-type gate — sidesteps Phase 20 patch #77 multipart silent-no-op trap (RESEARCH Pitfall 2).
 - [Phase ?]: 22-03 CloneAgentDialog Host/Role/Color LOCKED (not rendered as editable UI). Backend defense-in-depth: colorHue from sourceRow (not req.body); role from resolveRoleForIdentity; host from resolveHostById.
+- [Phase ?]: Phase 24 Plan 01: Fingerprint SHAPE (bottom-slice + header-anywhere) preserved verbatim; only anchor strings + variant count changed. Single-header pinned-fleet Ink variant per Ashley 2026-08-04 lock. Old 2-variant OR-branch collapsed to single-string check.
+- [Phase ?]: Phase 24 Plan 01: parsePlanFilePath applies slug-charset regex ([a-z0-9-]+) at parser layer as first-pass sanity filter; full-path validation delegated to SFTP-fetch caller (Plan 02) per CONTEXT Path validation. Defense-in-depth per T-24-01-01.
+- [Phase ?]: Phase 24 Plan 01: Regex requires middle-dot U+00B7 verbatim (with whitespace tolerance around it) — Ink-footer format lock from Amelia pane 2026-08-04. If Ink ever changes the separator, parsePlanFilePath returns null and content-fetch skips; presence detection stays authoritative for bubble mount.
 
 ### Pending Todos
 
@@ -372,6 +376,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-04T10:11:38.439Z
+Last session: 2026-08-04T20:07:03.711Z
 Stopped at: Completed 22-03-PLAN.md
 Resume file: None
