@@ -2470,7 +2470,6 @@ function QueuedRow(props: QueuedRowProps) {
     !asideActive &&
     !slotArmed &&
     slotHasText &&
-    !recycleActive &&
     !planPendingActive;
   const showSlotRecording = isSlotRecording;
   const showSlotTranscribingSend = isSlotTranscribing;
