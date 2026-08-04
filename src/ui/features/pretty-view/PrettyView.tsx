@@ -203,12 +203,30 @@ export function PrettyView({
   // Currently-pending ExitPlanMode prompt from the parent JSONL
   // (patch #63). Backend emits `pending: {...}` when Claude is
   // waiting on the user's "1"/"2" Plan Mode reply, and `pending:
-  // null` when the tool_result closes the pair. Only the presence
-  // of a pending value drives the indicator — `planFilePath` is
-  // tracked but not displayed (Plan Mode is between Ashley and
-  // Claude Code; pretty view surfaces only THAT the prompt is open).
+  // null` when the tool_result closes the pair.
+  //
+  // Phase 24: presence detection still authoritative for bubble mount/
+  // unmount, but the bubble now RENDERS the plan file contents (fetched
+  // async by the backend via SFTP side-channel per Plan 03) plus
+  // [Approve] + [Feedback] buttons. Approve fires raw_keystrokes with
+  // "1\r"; Feedback Submit fires raw_keystrokes with "3<text>\r". Both
+  // bypass ComposeBox's split-send because Ink Plan Mode does not
+  // recognize split-send as a keystroke selection (patch #67 retraction
+  // lesson — verified by Ashley 2026-07-18 on Amelia's pane).
+  //
+  // Shape widened from `{planFilePath: string}` to
+  // `{planFilePath|null, planContent|null, contentError|null}` to match
+  // Plan 03's widened PlanPendingEvent wire type — see claude-session-
+  // api.ts. When planFilePath is null the bubble skips the middle
+  // section entirely (buttons still work); when planContent is null
+  // AND contentError is null the bubble shows "Loading plan…" italic;
+  // when contentError is non-null the bubble shows the error dim.
   const [planPending, setPlanPending] = useState<
-    { planFilePath: string } | null
+    {
+      planFilePath: string | null;
+      planContent: string | null;
+      contentError: string | null;
+    } | null
   >(null);
   // Phase 14 (plain-language-translation-asides) Wave 3: currently-
   // displayed plain-language aside for this session. `null` = no aside;
@@ -368,6 +386,38 @@ export function PrettyView({
       }
     }
   }, [hostId, tmuxSession]);
+
+  // Phase 24: plan-mode replies use a NEW WS frame `raw_keystrokes` that
+  // writes bytes to the PTY in one shot (no split-send). The split-send
+  // ComposeBox uses is NOT recognized by Ink Plan Mode (patch #67 lesson).
+  // Backend calls `tmux send-keys -l` (literal) so \r, 1, 3 are treated
+  // as bytes, not tmux key-names. Trust-boundary: backend ignores any
+  // client-supplied hostId/tmuxSession — uses connection-captured state
+  // (T-14-02-01 pattern) — so we send bytes only.
+  //
+  // Both handlers mirror handleAsideDismiss's swallow-on-error shape:
+  // best-effort dispatch, no retry, WS may be mid-close.
+  const handlePlanApprove = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(JSON.stringify({ type: "raw_keystrokes", bytes: "1\r" }));
+    } catch {
+      /* swallow — best-effort; ws may be mid-close */
+    }
+  }, []);
+
+  const handlePlanFeedback = useCallback((feedback: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(
+        JSON.stringify({ type: "raw_keystrokes", bytes: `3${feedback}\r` }),
+      );
+    } catch {
+      /* swallow — best-effort; ws may be mid-close */
+    }
+  }, []);
   // Phase 14 quick-task 260726-vbd: onSend wrapper that detects /btw
   // submissions and arms the asidePending flag + 60s safety timer.
   //
@@ -1269,7 +1319,15 @@ export function PrettyView({
               </div>
             ))}
             {(wipActive || backgroundedAgents.length > 0 || backgroundedShells.length > 0) && <WipBubble />}
-            {planPending && <PlanPendingBubble />}
+            {planPending && (
+              <PlanPendingBubble
+                planFilePath={planPending.planFilePath}
+                planContent={planPending.planContent}
+                contentError={planPending.contentError}
+                onApprove={handlePlanApprove}
+                onFeedback={handlePlanFeedback}
+              />
+            )}
             {/* Phase 14 Wave 3: aside bubble mounts as the last child of
                 the contentRef flex column so useAutoScroll's ResizeObserver
                 pins the viewport to it on mount (in-flow, per ASIDE-05 —
@@ -1377,6 +1435,18 @@ export function PrettyView({
           // flash a disabled state that the user never sees the
           // reason for.
           recycleActive={showOverlay}
+          // Phase 24: same disable treatment as recycleActive but for
+          // the plan-mode approval-prompt window. When the WS
+          // plan_pending state is non-null (the [Approve]/[Feedback]
+          // bubble is up), ComposeBox greys out every WS-side-effect
+          // control (Send stays as Send but disabled=true; reset,
+          // ThumbsUp, Recap, Queue all disabled) while the textarea
+          // stays typeable so Ashley can pre-draft feedback. Kept
+          // INDEPENDENT of recycleActive per CONTEXT § "Do NOT
+          // collapse" — Send-button behavior differs across the
+          // three disable modes (asideActive morphs; recycle + plan
+          // keep Send as Send).
+          planPendingActive={planPending !== null}
           contextPct={contextPct}
           isIdle={isIdle}
           hostId={hostId}
