@@ -1197,7 +1197,17 @@ export function AppShell({
         // bright ring + glow from patch #175) stays anchored to the dead id
         // and the survivor gains no visible selection indicator. Dashboard is
         // not a conversation, so fall back to null (clears the ring entirely).
-        selectConversation(nextId === "dashboard" ? null : nextId);
+        //
+        // Mobile guard: on touch devices this sync also drives the patch #111
+        // F3 effect (~L582) that fires navigateToView() on any
+        // selectedConversationId change — which yanks Ashley off the list
+        // screen and into whatever tab got promoted, when all she wanted was
+        // to deactivate one row and stay put. Skip the sync on mobile; the
+        // deactivated row's ring disappears with the row anyway, and the
+        // survivor gets its ring the next time she taps it.
+        if (!isTouchDevice) {
+          selectConversation(nextId === "dashboard" ? null : nextId);
+        }
       }
       setPaneTabIds((prev) => prev.map((p) => (p === id ? null : p)));
       setTabs((prev) => {
