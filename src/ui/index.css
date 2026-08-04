@@ -322,11 +322,7 @@ html.fs-xl {
 
 /* Patch #163 supersedes #162 — no-patchwork mobile font strategy.
  * Instead of per-surface .prose-sm overrides, a single html font-size bump
- * to 24px on mobile does the work uniformly. .prose-sm naturally cascades to
- * 0.875rem × 24px = 21px (Telegram iOS parity, same target as #162) via the
- * normal rem cascade. The 27 pre-emptive max-md:* chrome overrides in
- * pretty-view that compensated for html=16px are stripped in that patch; at
- * html=24 they would become oversized.
+ * on mobile does the work uniformly via the rem cascade.
  *
  * Patch #164 fix: `!important` is LOAD-BEARING. Skynet's font-size scale
  * system (see src/ui/lib/theme.ts `applyFontSize` — adds one of `.fs-xs`
@@ -335,12 +331,24 @@ html.fs-xl {
  * that BEAT plain `html{}` at 0-0-1 regardless of source order — the media
  * query rule silently loses the cascade and mobile never scales. Same lesson
  * as patch #81 (shadcn dark: variant). Mobile intent is unconditional
- * Telegram-parity, so overriding the user's fs-* desktop preference on
+ * scale-uniform, so overriding the user's fs-* desktop preference on
  * mobile is correct here — mobile is a separate context, not a proportional
- * scale of desktop. */
+ * scale of desktop.
+ *
+ * Patch #309 (Ashley 2026-08-04): drops mobile html base 24px → 18px. The
+ * 24px shipped in #163 turned out to be too big — Ashley had been counter-
+ * scaling with a Safari per-domain zoom preference set 2 steps below default
+ * and hadn't realized we'd been iterating design against that zoomed-out
+ * view. Fresh browser + Stacey's ceo-skynet instance surfaced the gap. 18px
+ * matches fs-xl and approximates Safari-2-steps-down of 24px, aligning the
+ * default with what Ashley has actually been designing at. Some previously-
+ * shipped mobile px chrome overrides (patch #165 composebox buttons, .pv-
+ * speak-btn 52px, other px tap targets) may look proportionally too large
+ * against the new smaller rem base and need individual trimming — parked as
+ * `mobile-scale-18px-outlier-tweaks` bounty. */
 @media (max-width: 768px) {
   html {
-    font-size: 24px !important;
+    font-size: 18px !important;
   }
 }
 
