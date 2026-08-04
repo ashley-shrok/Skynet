@@ -386,6 +386,16 @@ export function PrettyConversationsPanel({
   // Phase 22 (SRIC-04): CreateRoleDialog open/closed toggle (opened by the
   // sibling `+ New role` launcher button, mounted below alongside NewSessionDialog).
   const [createRoleDialogOpen, setCreateRoleDialogOpen] = useState(false);
+  // Phase 22 (SRIC-05): chain-into-create-identity pre-fill payload. Set when
+  // CreateRoleDialog fires onChainToCreateIdentity ({role, host}); consumed by
+  // the NewSessionDialog mount as its initialHost + initialRole props. Cleared
+  // when NewSessionDialog closes (either via successful submit or user cancel)
+  // so subsequent manual opens via the pencil don't inherit stale chain state
+  // (regression gate — Test 13).
+  const [chainPrefill, setChainPrefill] = useState<{
+    role: string;
+    host: Host;
+  } | null>(null);
   // Phase 22 (SRIC-03): CloneAgentDialog state — captures the row's source
   // identity + hostId when Ashley clicks the Clone context-menu item, so the
   // dialog opens pre-wired for that specific row. Set to null when closed.
@@ -1051,28 +1061,47 @@ export function PrettyConversationsPanel({
       {showPencilButton && (
         <NewSessionDialog
           open={newSessionDialogOpen}
-          onClose={() => setNewSessionDialogOpen(false)}
+          onClose={() => {
+            setNewSessionDialogOpen(false);
+            // Phase 22 SRIC-05: clear chainPrefill on close so a subsequent
+            // manual open (via pencil) does NOT inherit stale chain state.
+            setChainPrefill(null);
+          }}
           hostTree={hostTree ?? null}
           onCreate={(opts) => {
             onCreateSession!(opts);
             setNewSessionDialogOpen(false);
+            // Also clear on successful submit path (matches close semantics).
+            setChainPrefill(null);
           }}
+          // Phase 22 SRIC-05: chain pre-fill props. Null when chainPrefill
+          // has not been set (fresh manual pencil open); populated when
+          // CreateRoleDialog's onChainToCreateIdentity fired.
+          initialHost={chainPrefill?.host ?? null}
+          initialRole={chainPrefill?.role ?? null}
         />
       )}
-      {/* Phase 22 (SRIC-04): CreateRoleDialog — portal-mounted sibling of
-          NewSessionDialog. Gated on the SAME showPencilButton predicate so
-          both dialogs share their onCreateSession-wired lifecycle.
-          onChainToCreateIdentity is intentionally NOT passed here — Plan
-          22-05 (SRIC-05) wires it to open NewSessionDialog with role+host
-          pre-filled after a role is created. Explicit `undefined` with the
-          plan-reference comment makes the extension point discoverable to
-          reviewers of 22-05. */}
+      {/* Phase 22 (SRIC-04 + SRIC-05): CreateRoleDialog — portal-mounted
+          sibling of NewSessionDialog. Gated on the SAME showPencilButton
+          predicate so both dialogs share their onCreateSession-wired
+          lifecycle. Phase 22 SRIC-05 wires onChainToCreateIdentity: when
+          CreateRoleDialog submits with the chain checkbox CHECKED (default),
+          this callback fires with {role, host} — we close CRD, stash the
+          pre-fill in chainPrefill state, and open NewSessionDialog which
+          then reads chainPrefill via its new initialHost + initialRole
+          props (Plan 22-05 Task 1). */}
       {showPencilButton && (
         <CreateRoleDialog
           open={createRoleDialogOpen}
           onClose={() => setCreateRoleDialogOpen(false)}
           hostTree={hostTree ?? null}
-          onChainToCreateIdentity={undefined /* wired in Plan 22-05 SRIC-05 */}
+          onChainToCreateIdentity={(opts) => {
+            // Phase 22 SRIC-05: on CRD chain fire → close CRD, stash pre-fill,
+            // open NSD with initialHost + initialRole seeded.
+            setCreateRoleDialogOpen(false);
+            setChainPrefill(opts);
+            setNewSessionDialogOpen(true);
+          }}
         />
       )}
       {/* Phase 22 (SRIC-03): CloneAgentDialog — portal-mounted sibling of the
