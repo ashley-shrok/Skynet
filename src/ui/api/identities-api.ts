@@ -152,6 +152,8 @@ export interface BirthRequest {
   colorHue: number | null;
   voice: string | null;
   avatarCandidateId: string;
+  /** Phase 22 SRIC-02: kebab-case-lowercase role name from the target host. */
+  role: string;
 }
 
 export type BirthEvent =

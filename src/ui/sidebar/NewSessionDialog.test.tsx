@@ -30,6 +30,13 @@ const mockListIdentities = vi.fn().mockResolvedValue([]);
 const mockPostGenerateAvatarBatch = vi.fn();
 const mockGetIdentityExistsOnHost = vi.fn().mockResolvedValue(false);
 const mockOpenBirthStream = vi.fn();
+// Phase 22 SRIC-02: listRolesForHost is now called on every host select in
+// identity-mode. Default to a single role so identity-mode tests can pick it
+// via the dropdown; tests that turn identity-mode OFF are unaffected because
+// the effect skips the fetch when identityMode is false.
+const mockListRolesForHost = vi.fn().mockResolvedValue([
+  { name: "box-maintainer", description: "" },
+]);
 
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -39,6 +46,7 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
     postGenerateAvatarBatch: (...args: unknown[]) => mockPostGenerateAvatarBatch(...args),
     getIdentityExistsOnHost: (...args: unknown[]) => mockGetIdentityExistsOnHost(...args),
     openBirthStream: (...args: unknown[]) => mockOpenBirthStream(...args),
+    listRolesForHost: (...args: unknown[]) => mockListRolesForHost(...args),
   };
 });
 
@@ -600,6 +608,11 @@ describe("NewSessionDialog: Test G — valid name + all requirements enables Cre
     const { getByLabelText, getByRole, getByText } = renderDialog();
     // Select host
     fireEvent.click(getByText("alpha"));
+    // Phase 22 SRIC-02: wait for role dropdown, pick a role
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    fireEvent.change(getByLabelText(/^role$/i), {
+      target: { value: "box-maintainer" },
+    });
     // Fill name
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
     // Fill title
@@ -856,6 +869,11 @@ describe("NewSessionDialog: Test Q — Create disabled without avatar pick", () 
     ]);
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
+    // Phase 22 SRIC-02: pick a role
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    fireEvent.change(getByLabelText(/^role$/i), {
+      target: { value: "box-maintainer" },
+    });
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "agent1" } });
     fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Title" } });
     fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "brief" } });
@@ -891,6 +909,11 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
     const onCreate = vi.fn();
     const { getByLabelText, getByRole } = renderDialog({ onCreate });
     fireEvent.click(screen.getByText("alpha"));
+    // Phase 22 SRIC-02: pick a role
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    fireEvent.change(getByLabelText(/^role$/i), {
+      target: { value: "box-maintainer" },
+    });
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
     fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Alicia Agent" } });
     fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "A brief description" } });
@@ -964,6 +987,11 @@ describe("NewSessionDialog: Test T — brief field is EPHEMERAL", () => {
     // No UI text about saving/draft/localStorage
     expect(screen.queryByText(/save.*draft|draft.*saved|localStorage/i)).toBeNull();
     fireEvent.click(screen.getByText("alpha"));
+    // Phase 22 SRIC-02: pick a role
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    fireEvent.change(getByLabelText(/^role$/i), {
+      target: { value: "box-maintainer" },
+    });
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
     fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Agent" } });
     fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "SECRET_MARKER" } });
@@ -1042,6 +1070,12 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
 async function fillIdentityFormAndPick(utils: ReturnType<typeof renderDialog>) {
   const { getByLabelText, getByRole } = utils;
   fireEvent.click(screen.getByText("alpha"));
+  // Phase 22 SRIC-02: wait for the role dropdown to appear and pick the
+  // default mocked role. Then continue filling the rest of the form.
+  await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+  fireEvent.change(getByLabelText(/^role$/i), {
+    target: { value: "box-maintainer" },
+  });
   fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
   fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Alicia Agent" } });
   fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "A test identity" } });

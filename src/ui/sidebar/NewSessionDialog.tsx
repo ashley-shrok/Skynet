@@ -56,8 +56,10 @@ import {
   postGenerateAvatarBatch,
   getIdentityExistsOnHost,
   openBirthStream,
+  listRolesForHost,
   type AvatarCandidate,
   type BirthEvent,
+  type RoleSummary,
 } from "@/api/identities-api";
 
 // Client-side session-name pattern — defense-in-depth (T-06-04-01). Word
@@ -273,6 +275,14 @@ export function NewSessionDialog({
   // Debounce ref for collision precheck (cancel on remount/name change)
   const collisionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Phase 22 SRIC-02: Role dropdown state (populated from GET /roles?hostId=<n>
+  // when a host is picked with identity-mode ON). Selection blocks Create until
+  // the user actively picks a role. Reset on host change AND on modal close.
+  const [selectedRole, setSelectedRole] = useState<string>("");
+  const [rolesForHost, setRolesForHost] = useState<RoleSummary[]>([]);
+  const [rolesLoading, setRolesLoading] = useState<boolean>(false);
+  const [rolesError, setRolesError] = useState<string | null>(null);
+
   // Birth stream state (plan 06)
   const [birthing, setBirthing] = useState(false);
   const [birthProgress, setBirthProgress] = useState<BirthStepState[]>(
@@ -345,6 +355,11 @@ export function NewSessionDialog({
         clearTimeout(collisionTimerRef.current);
         collisionTimerRef.current = null;
       }
+      // Phase 22 SRIC-02: reset role dropdown state on modal close.
+      setSelectedRole("");
+      setRolesForHost([]);
+      setRolesLoading(false);
+      setRolesError(null);
       // Reset birth state
       resetBirthProgress();
     }
@@ -369,6 +384,48 @@ export function NewSessionDialog({
       setPickedCandidateId(null);
     }
   }, [identityMode]);
+
+  // Phase 22 SRIC-02: Role dropdown effect — fires whenever the selected host
+  // OR identity-mode changes. Populates rolesForHost via GET /roles?hostId=<n>.
+  // Clears selectedRole on every host change (force re-pick — a role scoped to
+  // host A is not necessarily valid on host B).
+  //
+  // Effect DOES NOT fire when identity-mode is OFF (Role is CREATE-only per
+  // D-CONTEXT §UX rules). When identity-mode toggles OFF or the host clears,
+  // we reset rolesForHost + selectedRole to defaults so a subsequent toggle
+  // ON starts fresh.
+  useEffect(() => {
+    if (!selectedHost || !identityMode) {
+      setRolesForHost([]);
+      setSelectedRole("");
+      setRolesLoading(false);
+      setRolesError(null);
+      return;
+    }
+    let cancelled = false;
+    setRolesLoading(true);
+    setRolesError(null);
+    // Force re-pick on host change: the previous role's semantics don't
+    // carry across hosts.
+    setSelectedRole("");
+    (async () => {
+      try {
+        const hostIdNum = parseInt(String(selectedHost.id), 10);
+        const roles = await listRolesForHost(hostIdNum);
+        if (cancelled) return;
+        setRolesForHost(roles);
+      } catch (err) {
+        if (cancelled) return;
+        setRolesError(err instanceof Error ? err.message : "role fetch failed");
+        setRolesForHost([]);
+      } finally {
+        if (!cancelled) setRolesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedHost, identityMode]);
 
   // Collision precheck: fired on name blur (debounced 300ms).
   // Fires both listIdentities + getIdentityExistsOnHost in parallel.
@@ -441,6 +498,8 @@ export function NewSessionDialog({
           colorHue,
           voice: voice || null,
           avatarCandidateId: pickedCandidateId,
+          // Phase 22 SRIC-02: required role from the dropdown.
+          role: selectedRole,
         },
         abortControllerRef.current.signal,
       );
@@ -516,7 +575,9 @@ export function NewSessionDialog({
       pickedCandidateId !== null &&
       !skynetCollision &&
       !hostCollision &&
-      !collisionChecking
+      !collisionChecking &&
+      // Phase 22 SRIC-02: role is REQUIRED and CREATE-only.
+      selectedRole !== ""
     : selectedHost !== null && nameValid);
 
   // Whether birth failed (show progress even after birthing completes if failed)
@@ -700,6 +761,62 @@ export function NewSessionDialog({
           {/* Identity-birth field cluster — visible when identity-mode is ON */}
           {identityMode && (
             <div className="flex flex-col gap-3 pt-1 border-t border-[color:var(--color-pv-border-quiet)]">
+
+              {/* Phase 22 SRIC-02: REQUIRED Role dropdown — positioned near the
+                  host picker (first field in the identity cluster). Populates
+                  via GET /roles?hostId=<n> whenever the selected host changes.
+                  Zero-roles response renders an inline hint with a no-op stub
+                  click (wired to CreateRoleDialog in plan 22-04 / SRIC-04). */}
+              {selectedHost !== null && (
+                <div className="flex flex-col gap-1.5">
+                  <label
+                    htmlFor="new-identity-role"
+                    className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+                  >
+                    Role
+                  </label>
+                  <select
+                    id="new-identity-role"
+                    aria-label="Role"
+                    value={selectedRole}
+                    onChange={(e) => setSelectedRole(e.target.value)}
+                    disabled={formDisabled || rolesLoading}
+                    className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] outline-none disabled:opacity-50"
+                  >
+                    <option value="" disabled>
+                      {rolesLoading ? "Loading roles..." : "Pick a role…"}
+                    </option>
+                    {rolesForHost.map((r) => (
+                      <option key={r.name} value={r.name}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                  {/* Role fetch error */}
+                  {rolesError && (
+                    <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                      {rolesError}
+                    </span>
+                  )}
+                  {/* Zero-roles inline hint — click handler is a no-op stub in
+                      this plan; will be wired to CreateRoleDialog in Plan 22-04
+                      / SRIC-04. Preserves the UX affordance per D-CONTEXT
+                      §Failure modes even before CreateRoleDialog exists. */}
+                  {!rolesLoading &&
+                    !rolesError &&
+                    rolesForHost.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          /* no-op stub — wired in 22-04 / SRIC-04 */
+                        }}
+                        className="text-xs text-left text-[color:var(--color-pv-code-fg)] underline underline-offset-2 hover:opacity-80"
+                      >
+                        no roles on this host — create one first
+                      </button>
+                    )}
+                </div>
+              )}
 
               {/* Identity name field */}
               <div className="flex flex-col gap-1.5">
