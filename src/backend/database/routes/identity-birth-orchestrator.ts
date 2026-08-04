@@ -133,6 +133,7 @@ export interface BirthDeps {
     meta: {
       identityKey: string;
       displayName: string;
+      title: string | null;
       colorHue: number | null;
       voice: string | null;
     },
@@ -346,12 +347,28 @@ export async function birthIdentity(
         throw new Error("avatar candidate expired or not found");
       }
 
+      // Patch #320: the Identity schema has THREE distinct slots
+      // (identityKey / displayName / title) but the birth POST body only
+      // sends `name` + `title`. The previous mapping collapsed those into
+      // (identityKey := name, displayName := title) and left `title` NULL —
+      // so the sidebar row showed `title-string` in both name+subtitle
+      // positions and the pretty-view badge showed only the title-string
+      // with no role subtitle. Correct mapping:
+      //   identityKey := opts.name                (lowercased key, e.g. "patricia")
+      //   displayName := capitalize(opts.name)    (human-friendly, e.g. "Patricia")
+      //   title       := opts.title               (role/subtitle, e.g. "PDF Inspector")
+      const displayName =
+        opts.name.length > 0
+          ? opts.name[0].toUpperCase() + opts.name.slice(1)
+          : opts.name;
+
       // Create the identity record
       const created = await deps.createIdentityRecord(
         opts.userId,
         {
           identityKey: opts.name,
-          displayName: opts.title,
+          displayName,
+          title: opts.title,
           colorHue: opts.colorHue,
           voice: opts.voice,
         },

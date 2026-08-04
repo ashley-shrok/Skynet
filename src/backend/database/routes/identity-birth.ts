@@ -59,6 +59,7 @@ async function createIdentityRecord(
   meta: {
     identityKey: string;
     displayName: string;
+    title: string | null;
     colorHue: number | null;
     voice: string | null;
   },
@@ -79,6 +80,7 @@ async function createIdentityRecord(
       userId,
       identityKey: meta.identityKey,
       displayName: meta.displayName,
+      title: meta.title,
       colorHue: meta.colorHue ?? null,
       voice: meta.voice ?? null,
       avatarMime: "image/png",
