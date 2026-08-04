@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-04T20:30:13.496Z"
+last_updated: "2026-08-04T20:41:04.194Z"
 last_activity: 2026-08-04
 progress:
   total_phases: 24
-  completed_phases: 16
+  completed_phases: 17
   total_plans: 97
-  completed_plans: 92
-  percent: 67
+  completed_plans: 93
+  percent: 71
 ---
 
 # Project State
@@ -91,7 +91,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -148,6 +148,7 @@ Progress: [██████████] 98%
 | Phase 24 P02 | 15min | 2 tasks | 2 files |
 | Phase 24 P03 | 10min | 2 tasks | 2 files |
 | Phase 24 P04 | 8min | 1 tasks | 1 files |
+| Phase 24 P05 | 6min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,7 @@ Progress: [██████████] 98%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- 2026-08-04 (24-05): OR-in-in-every-recycleActive-site pattern established for the third ComposeBox disable prop — `planPendingActive` keeps independence rather than collapsing into a combined `interactionsDisabled` flag because Send-button behavior differs across the three modes (asideActive morphs Send into X/Resume; recycleActive + planPendingActive keep Send-as-Send but disabled). Slot-arm-idle button gate updated to include BOTH `!recycleActive` AND `!planPendingActive` (Rule 2 auto-fix — closed a pre-existing latent parity gap from quick 260803-05i's QueuedRow extraction).
 - 2026-07-17: Adopt GSD for the fork — patch #43 is large enough (~500+ lines, backend session-file tail + WS bridge + new pane component + compose box + layout refactor) to justify one-time GSD bootstrap
 - 2026-07-17: Vertical-MVP phase mode (phase = user-visible slice) — matches how the fork has always worked
 - 2026-07-17 (roadmap): Two-phase split — Phase 1 delivers the backend session-stream pipeline plus a minimal read-only view so the pipe is observable end-to-end before layering on toggle/compose/ergonomics ergonomic payoff in Phase 2
@@ -383,6 +385,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-04T20:29:58.333Z
+Last session: 2026-08-04T20:41:04.142Z
 Stopped at: Completed 24-03-PLAN.md
 Resume file: None
