@@ -3218,6 +3218,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (!sshConn || !currentTmuxSession) return;
       const bytes = String((msg as { bytes?: unknown }).bytes ?? "");
       if (bytes.length === 0) return;
+      // WR-03 fix: cap the payload size before it hits `tmux send-keys -l`.
+      // A misbehaving/buggy client (or forced payload) with a multi-megabyte
+      // feedback string would otherwise flow straight to a single-argv shell
+      // command that guaranteed-fails at POSIX ARG_MAX, wasting a channel
+      // open + a serialize pass. 16KB is comfortably above any legitimate
+      // plan-approval feedback (Claude Code's own input is smaller).
+      const MAX_RAW_KEYSTROKES_BYTES = 16 * 1024;
+      if (bytes.length > MAX_RAW_KEYSTROKES_BYTES) {
+        sshLogger.warn("raw_keystrokes rejected: payload too large", {
+          operation: "raw_keystrokes_reject_size",
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          bytesLength: bytes.length,
+          maxBytes: MAX_RAW_KEYSTROKES_BYTES,
+        });
+        return;
+      }
       try {
         await execCommand(
           sshConn,
