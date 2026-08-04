@@ -53,6 +53,7 @@ COPY scripts/patch-nan.cjs ./scripts/
 
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev && \
     node scripts/patch-guacamole-lite.cjs && \
+    npm rebuild better-sqlite3 --build-from-source && \
     npm cache clean --force
 
 # Stage 5: Final optimized image
