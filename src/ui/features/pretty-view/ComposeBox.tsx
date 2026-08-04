@@ -1350,7 +1350,13 @@ export function ComposeBox({
     } else {
       setErrorMessage("Not connected — try again in a moment");
     }
-    textareaRef.current?.focus();
+    // Patch #313: skip re-focus on touch devices — .focus() on a textarea
+    // pops the on-screen keyboard, which is exactly what Ashley doesn't
+    // want after tapping ThumbsUp/Recap (quick-replies are meant to fire
+    // WITHOUT dragging the user into text composition). Desktop keeps the
+    // re-focus so a mouse click doesn't lose the caret from an in-progress
+    // draft.
+    if (isTouchDevice !== true) textareaRef.current?.focus();
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
