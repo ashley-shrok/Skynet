@@ -85,6 +85,11 @@ import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSess
 // / SRIC-05 — this panel does NOT provide the callback (undefined-safe on the
 // dialog side, verified by CreateRoleDialog.test.tsx Test 17b).
 import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
+// Phase 22 (SRIC-03): CloneAgentDialog mounted here; opened by row-level
+// context-menu "Clone" click via handleRowClone below. Panel owns the source-
+// identity + hostId capture so the dialog stays pure (identity/host in props).
+import { CloneAgentDialog } from "@/sidebar/CloneAgentDialog";
+import type { Identity } from "@/api/identities-api";
 import { getPinnedIds, getHiddenIds } from "@/api/user-preferences-api";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -130,6 +135,10 @@ function PrettyConversationRowLive(props: {
   onDeactivate?: () => void;
   // quick-260731-tgg: forwarded to PrettyConversationRow for Hide/Show wiring.
   onToggleHide?: () => void;
+  // Phase 22 (SRIC-03): forwarded to PrettyConversationRow for the Clone
+  // context-menu item. Only wired at non-RDP render sites where the row has
+  // an identity + host. RDP + no-identity rows omit the prop.
+  onClone?: () => void;
   // quick-260802-pq2: onSwipeOpenChange / forceClosed removed — the row's
   // swipe machinery was retired; mobile now uses long-press → context menu.
   inActiveSet: boolean;
@@ -377,6 +386,13 @@ export function PrettyConversationsPanel({
   // Phase 22 (SRIC-04): CreateRoleDialog open/closed toggle (opened by the
   // sibling `+ New role` launcher button, mounted below alongside NewSessionDialog).
   const [createRoleDialogOpen, setCreateRoleDialogOpen] = useState(false);
+  // Phase 22 (SRIC-03): CloneAgentDialog state — captures the row's source
+  // identity + hostId when Ashley clicks the Clone context-menu item, so the
+  // dialog opens pre-wired for that specific row. Set to null when closed.
+  const [cloneDialogState, setCloneDialogState] = useState<{
+    sourceIdentity: Identity;
+    hostId: number;
+  } | null>(null);
 
   // quick-260731-tgg: collapsed by default on every mount per Ashley's design lock.
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
@@ -606,6 +622,25 @@ export function PrettyConversationsPanel({
     hideConversation(row.id);
   };
 
+  // Phase 22 (SRIC-03): panel-level clone handler. Given a row, resolve the
+  // identity via the already-hoisted useIdentities() byKey lookup (identity
+  // resolution is shared with the row itself — same sessionMatchKey key
+  // shape). If identity resolves AND row.host is set, capture both into
+  // cloneDialogState so CloneAgentDialog opens pre-wired. If either is null
+  // (RDP rows, unresolved identity), no-op — the row-level items[] gate
+  // (see PrettyConversationRow.tsx items builder) already prevents the menu
+  // item from surfacing in that case, so this is belt-and-suspenders.
+  const handleRowClone = (row: ConversationRowShape) => {
+    const matchKey = sessionMatchKey(row.targetTmuxSession);
+    if (!matchKey) return;
+    const identity = identitiesByKey.get(matchKey);
+    if (!identity) return;
+    if (!row.host) return;
+    const hostIdNum = parseInt(row.host.id, 10);
+    if (!Number.isFinite(hostIdNum)) return;
+    setCloneDialogState({ sourceIdentity: identity, hostId: hostIdNum });
+  };
+
   // quick-260802-pq2: handleSwipeOpenChange + forceClosedFor removed —
   // the row's swipe machinery was retired; there is no per-row open-state
   // to coordinate. Mobile actions flow through the long-press context menu.
@@ -786,6 +821,7 @@ export function PrettyConversationsPanel({
                     onTogglePin={() => handleTogglePin(row.id)}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onToggleHide={() => handleToggleHide(row)}
+                    onClone={() => handleRowClone(row)}
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
                     subtitleMode="identityTitle"
@@ -840,6 +876,7 @@ export function PrettyConversationsPanel({
                   onTogglePin={() => handleTogglePin(row.id)}
                   onDeactivate={() => handleRowDeactivate(row)}
                   onToggleHide={() => handleToggleHide(row)}
+                  onClone={() => handleRowClone(row)}
                   inActiveSet={activeSet.has(row.id)}
                   sessionKey={sessionWorkingKey(row)}
                   subtitleMode="identityTitle"
@@ -939,6 +976,7 @@ export function PrettyConversationsPanel({
                       onTogglePin={() => handleTogglePin(row.id)}
                       onDeactivate={() => handleRowDeactivate(row)}
                       onToggleHide={() => handleToggleHide(row)}
+                      onClone={() => handleRowClone(row)}
                       inActiveSet={activeSet.has(row.id)}
                       sessionKey={sessionWorkingKey(row)}
                       subtitleMode="identityTitle"
@@ -996,6 +1034,7 @@ export function PrettyConversationsPanel({
                       onSelect={() => handleRowSelect(row)}
                       onTogglePin={() => handleTogglePin(row.id)}
                       onToggleHide={() => handleToggleHide(row)}
+                      onClone={() => handleRowClone(row)}
                       inActiveSet={activeSet.has(row.id)}
                       sessionKey={sessionWorkingKey(row)}
                       subtitleMode="identityTitle"
@@ -1036,6 +1075,19 @@ export function PrettyConversationsPanel({
           onChainToCreateIdentity={undefined /* wired in Plan 22-05 SRIC-05 */}
         />
       )}
+      {/* Phase 22 (SRIC-03): CloneAgentDialog — portal-mounted sibling of the
+          NewSessionDialog + CreateRoleDialog mounts. Not gated on
+          showPencilButton because the Clone flow is reachable from any row's
+          context menu regardless of whether the pencil is wired (the row's
+          onClone prop is only threaded when handleRowClone can capture the
+          source identity + hostId — so the guard lives at the wiring layer,
+          not the mount layer). */}
+      <CloneAgentDialog
+        open={cloneDialogState !== null}
+        onClose={() => setCloneDialogState(null)}
+        sourceIdentity={cloneDialogState?.sourceIdentity ?? null}
+        hostId={cloneDialogState?.hostId ?? null}
+      />
     </div>
   );
 }

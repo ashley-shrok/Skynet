@@ -104,6 +104,7 @@ export function PrettyConversationRow({
   onTogglePin,
   onDeactivate,
   onToggleHide,
+  onClone,
   isWorking = null,
   isRecycling = false,
   hasQueuePending = false,
@@ -131,6 +132,13 @@ export function PrettyConversationRow({
   // When provided, the Hide/Show item appears in the context menu between
   // Pin/Unpin and Deactivate. RDP rows never receive this prop.
   onToggleHide?: () => void;
+  // Phase 22 (SRIC-03): fired when Ashley clicks the Clone context menu
+  // item. Provided by PrettyConversationsPanel when the row has an identity
+  // AND row.host !== null. Undefined otherwise (RDP rows never get it —
+  // onRowContextMenu is not wired for isRdp). See
+  // PrettyConversationsPanel.handleRowClone for the source-identity + hostId
+  // capture that opens CloneAgentDialog.
+  onClone?: () => void;
   // Patch #137: WS-published working state for the row's (host, tmux)
   // pair. `true` = agent busy, `false` = idle, `null` = unknown
   // (backend hasn't published yet). Only `false` allows the ready-dot
@@ -573,6 +581,20 @@ export function PrettyConversationRow({
               items.push({
                 label: hidden ? "Unhide" : "Hide",
                 onClick: onToggleHide,
+              });
+            }
+            // Phase 22 (SRIC-03): Clone item — inserted between Hide/Show and
+            // Deactivate. Only rendered when onClone is provided AND the row
+            // has a resolvable identity (clone requires a source identity —
+            // meaningless without it). onClone is threaded through by
+            // PrettyConversationsPanel only for non-RDP rows with row.host,
+            // but the identity gate is a belt-and-suspenders check here so a
+            // row without an identity never surfaces the item even if the
+            // panel wiring changes.
+            if (onClone && identity) {
+              items.push({
+                label: "Clone",
+                onClick: onClone,
               });
             }
             if (inActiveSet && onDeactivate) {
