@@ -430,7 +430,12 @@ it("Test 16: call ordering — createIdentityRecord → tmux new-session → wri
     if (s.includes("mkdir") && s.includes("tmux new-session")) {
       executionLog.push("tmux-new-session");
     } else if (s.includes("mkdir -p") && s.includes("wakeups")) {
+      // Implementations may combine mkdir+touch into one exec — record both
+      // in that case so the ordering assertions still work.
       executionLog.push("mkdir-wakeups");
+      if (s.includes("touch") && s.includes("handoff.md")) {
+        executionLog.push("touch-handoff");
+      }
     } else if (s.includes("touch") && s.includes("handoff.md")) {
       executionLog.push("touch-handoff");
     } else if (s.includes("hasTrustDialogAccepted")) {

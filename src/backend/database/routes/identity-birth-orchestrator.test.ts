@@ -43,6 +43,7 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn(),
+  writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("node:child_process", () => ({
@@ -96,6 +97,8 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     execCommand: mockExecCommand,
     isLocalHostId: mockIsLocalHostId,
     execLocal: mockExecLocal,
+    // Phase 22 SRIC-02: pre-write dep for Step 2.5 (mocked as no-op in existing tests)
+    writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
     createIdentityRecord: vi.fn().mockResolvedValue({
       id: "created-id-123",
       identityKey: "testkey",
@@ -140,6 +143,8 @@ function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
     colorHue: 210,
     voice: "Elena.wav",
     avatarCandidateId: "cand-abc",
+    // Phase 22 SRIC-02: role is required
+    role: "box-maintainer",
     ...overrides,
   };
 }
@@ -159,8 +164,14 @@ beforeEach(() => {
   // Default: SSH connect returns a stub connection
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: execCommand succeeds
-  mockExecCommand.mockResolvedValue("");
+  // Default: execCommand succeeds — Phase 22 SRIC-02 requires `echo $HOME`
+  // to resolve during Step 2.5, so make that return a plausible path.
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 });
 
 afterEach(() => {
@@ -215,7 +226,13 @@ it("Test 1: happy path, remote host, emits all 5 steps in order", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockResolvedValue("");
+  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
   const deps = makeDeps();
   const opts = makeOpts();
@@ -287,7 +304,13 @@ it("Test 3: step 1 calls createIdentityRecord with correct meta and avatar bytes
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockResolvedValue("");
+  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
   const avatarBytes = Buffer.from("avatar-png-bytes");
   const mockGetCandidate = vi.fn().mockReturnValue({ bytes: avatarBytes, mime: "image/png" });
@@ -422,7 +445,13 @@ it("Test 6: step 2 command is mkdir -p + tmux new-session with correct flags", a
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockResolvedValue("");
+  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
   const deps = makeDeps();
   const opts = makeOpts({ name: "testkey", path: "/workspace/testkey" });
@@ -468,6 +497,9 @@ it("Test 7: step 3 does NOT dispatch until >=3000ms after step 2 completion", as
 
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     callLog.push({ type: "exec", cmd, t: virtualTime });
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     return Promise.resolve("");
   });
 
@@ -523,6 +555,9 @@ it("Test 8: step 3 pre-writes hasTrustDialogAccepted=true BEFORE claude launch",
 
   const callOrder: string[] = [];
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     if ((cmd as string).includes("hasTrustDialogAccepted")) {
       callOrder.push("trust-flag");
     } else if ((cmd as string).includes("dangerously-skip-permissions")) {
@@ -556,11 +591,20 @@ it("Test 9: send-keys uses plain -t testkey, NEVER -t \"=\" syntax", async () =>
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockResolvedValue("");
+  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
   const allCmds: string[] = [];
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     allCmds.push(cmd as string);
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     return Promise.resolve("");
   });
 
@@ -593,11 +637,20 @@ it("Test 10: step 3 claude launch includes both env-vars and uses -l flag + sepa
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockResolvedValue("");
+  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
   const allCmds: string[] = [];
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     allCmds.push(cmd as string);
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     return Promise.resolve("");
   });
 
@@ -648,6 +701,9 @@ it("Test 11: step 4 Enter train fires EXACTLY 7 times at 3s spacing", async () =
   let virtualMs = 0;
 
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     // Track when Enter is fired (step 4 specific — no -l flag)
     const cmdStr = cmd as string;
     if (
@@ -715,11 +771,20 @@ it("Test 12: step 4 has NO capture-pane, grep-bypass, or list-panes content scra
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockResolvedValue("");
+  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
   const allCmds: string[] = [];
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     allCmds.push(cmd as string);
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     return Promise.resolve("");
   });
 
@@ -756,11 +821,20 @@ it("Test 13: step 5 sends /id testkey (-l) then Enter", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockResolvedValue("");
+  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
   const allCmds: string[] = [];
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     allCmds.push(cmd as string);
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     return Promise.resolve("");
   });
 
@@ -803,6 +877,9 @@ it("Test 14: step 3 SSH failure → step:3:failed, steps 4-5 never dispatched", 
 
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     allCmds.push(cmd as string);
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     // Fail when step 3 tries to launch claude
     if ((cmd as string).includes("dangerously-skip-permissions")) {
       step3Reached = true;
@@ -940,11 +1017,20 @@ it("Test 18: path normalization — backslashes → forward slashes; tilde → $
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockResolvedValue("");
+  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
   const allCmds: string[] = [];
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     allCmds.push(cmd as string);
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
     return Promise.resolve("");
   });
 

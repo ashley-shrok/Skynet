@@ -922,7 +922,10 @@ export async function writeIdentityWakeupUpdate(
 // ---------------------------------------------------------------------------
 //
 // Three exported writers (writeIdentityFile, writeIdentityHistory,
-// writeIdentityHandoff) plus one private SFTP helper (writeMarkdownFileAtomic)
+// writeIdentityHandoff) plus one exported SFTP helper (writeMarkdownFileAtomic —
+// exported in Phase 22 Plan 22-02 SRIC-02 for the identity-birth Step 2.5
+// pre-write, which needs to write a role-frontmatter-seeded identity file
+// before the id skill's load-existing branch fires. Previously private.)
 // and a byte-cap constant (IDMEDIT_MAX_MARKDOWN_BYTES).
 //
 // LOCAL branch (conn === null): tmp+rename via fs.writeFile + fs.rename —
@@ -955,12 +958,14 @@ export const IDMEDIT_MAX_MARKDOWN_BYTES = 2_000_000;
 export const IDMEDIT_MAX_BOUNTY_JSON_BYTES = 100_000;
 
 /**
- * Private SFTP helper — promise-wraps conn.sftp → sftp.writeFile(tmp) →
+ * SFTP helper — promise-wraps conn.sftp → sftp.writeFile(tmp) →
  * sftp.ext_openssh_rename(tmp, target). On any error: best-effort
  * sftp.unlink(tmp) cleanup (fire-and-forget) then re-throw. Always closes
  * SFTP in finally.
  *
- * Called exclusively from the three REMOTE-branch writers below so the
+ * Called from the three REMOTE-branch identity writers below AND from the
+ * Phase 22 Plan 22-02 identity-birth Step 2.5 pre-write (needs to write a
+ * role-frontmatter-seeded identity file BEFORE the id skill fires). The
  * SFTP tmp+rename byte-shape is defined in one place (one audit surface per
  * D-IDMEDIT-06).
  *
@@ -989,7 +994,7 @@ export const IDMEDIT_MAX_BOUNTY_JSON_BYTES = 100_000;
  *   installs a throwing trap on sftp.rename that fails loudly with a
  *   diagnostic naming the fix if a future refactor reverts this call site.
  */
-async function writeMarkdownFileAtomic(
+export async function writeMarkdownFileAtomic(
   conn: SSHClientType,
   targetPath: string,
   contents: string,

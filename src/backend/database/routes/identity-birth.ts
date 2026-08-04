@@ -26,10 +26,14 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
+import {
+  isLocalHostId,
+  writeMarkdownFileAtomic,
+} from "../../claude-session/identity-artifact-reader.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import {
   birthIdentity,
+  ROLE_NAME_PATTERN,
   type BirthEvent,
   type BirthDeps,
 } from "./identity-birth-orchestrator.js";
@@ -152,6 +156,7 @@ router.post(
       colorHue,
       voice,
       avatarCandidateId,
+      role,
     } = req.body as Record<string, unknown>;
 
     if (
@@ -175,6 +180,15 @@ router.post(
 
     if (typeof avatarCandidateId !== "string" || !avatarCandidateId.trim()) {
       res.status(400).json({ error: "avatarCandidateId is required" });
+      return;
+    }
+
+    // Phase 22 SRIC-02: role is REQUIRED and must be kebab-case-lowercase.
+    // Defense in depth — the orchestrator re-validates before shell interpolation.
+    if (typeof role !== "string" || !ROLE_NAME_PATTERN.test(role.trim())) {
+      res.status(400).json({
+        error: "role is required and must be kebab-case-lowercase",
+      });
       return;
     }
 
@@ -230,6 +244,9 @@ router.post(
         readFile: (p: string, enc: "utf8") => fsp.readFile(p, enc),
         writeFile: (p: string, content: string) => fsp.writeFile(p, content),
       },
+      // Phase 22 SRIC-02: SFTP tmp+rename helper for Step 2.5 pre-write.
+      writeMarkdownFileAtomic: async (conn, targetPath, contents) =>
+        writeMarkdownFileAtomic(conn, targetPath, contents),
     };
 
     // -----------------------------------------------------------------------
@@ -246,6 +263,7 @@ router.post(
           colorHue: parsedColorHue,
           voice: parsedVoice,
           avatarCandidateId: avatarCandidateId.trim(),
+          role: role.trim(),
         },
         emit,
         deps,

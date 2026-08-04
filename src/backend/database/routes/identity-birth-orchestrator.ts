@@ -61,6 +61,34 @@ export const CLAUDE_LAUNCH_CMD_PREFIX =
 /** tmux new-session terminal sizing flags (Nelly §3 terminal-sizing gotcha). */
 export const TMUX_NEW_SESSION_FLAGS = "-x 220 -y 50";
 
+/**
+ * Role name validator — kebab-case-lowercase per D-CONTEXT §Frontend surfaces
+ * (Phase 22 Plan 22-02 / SRIC-02). Stricter subset of IDENTITY_KEY_RE.
+ * Applied inside birthIdentity as defense-in-depth on top of the HTTP-handler
+ * validation at identity-birth.ts (T-22-02-01 shell-injection mitigation:
+ * the role name is interpolated into SSH exec commands that build the
+ * identity file target path).
+ */
+export const ROLE_NAME_PATTERN = /^[a-z0-9-]+$/;
+
+/**
+ * Phase 22 SRIC-02 seed comment embedded in the pre-written identity file.
+ *
+ * REVISION 2026-08-04 (Ashley, at Task 2 checkpoint): Skynet no longer
+ * SSH-invokes the relay-register block. Instead, we seed the identity file
+ * with a plain-text HTML comment telling the wake-up agent to register a
+ * Matrix relay account itself on first wake, then remove the comment.
+ *
+ * Style constraints (verbatim from Ashley):
+ *   - Do NOT say "Skynet" — agents don't know what that is (they see
+ *     themselves as a fresh Claude Code agent on some box).
+ *   - Do NOT reference id-skill section numbers (§2, §3) or the id-skill
+ *     file path — those refs could change.
+ *   - Speak in plain terms.
+ */
+export const IDENTITY_FILE_SEED_COMMENT =
+  "<!-- This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment. -->";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -78,6 +106,12 @@ export interface BirthOptions {
   colorHue: number | null;
   voice: string | null;
   avatarCandidateId: string;
+  /**
+   * Phase 22 SRIC-02: kebab-case-lowercase role name from ~/.claude/roles/<role>/
+   * on the target host. Validated at HTTP handler (identity-birth.ts) AND
+   * re-validated at Step 2.5 entry (defense in depth per T-22-02-01).
+   */
+  role: string;
 }
 
 export interface BirthDeps {
@@ -124,6 +158,16 @@ export interface BirthDeps {
     readFile: (p: string, enc: "utf8") => Promise<string>;
     writeFile: (p: string, content: string) => Promise<void>;
   };
+  /**
+   * Phase 22 SRIC-02: SFTP tmp+rename helper for the Step 2.5 identity file
+   * pre-write. Wraps identity-artifact-reader.writeMarkdownFileAtomic so the
+   * ext_openssh_rename discipline (Pitfall 3 / #2924) is preserved.
+   */
+  writeMarkdownFileAtomic: (
+    conn: SSHClient,
+    targetPath: string,
+    contents: string,
+  ) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +398,22 @@ export async function birthIdentity(
 
     // -----------------------------------------------------------------------
     // Step 2: mkdir -p + tmux new-session (Nelly §1(a) + terminal sizing)
+    //
+    // Phase 22 SRIC-02 addendum (B4b(a), REVISION 2026-08-04):
+    //   Step 2 now ALSO pre-writes ~/.claude/identities/<name>/<name>.md with
+    //   role: frontmatter + a wake-up seed comment, creates the wakeups/ dir,
+    //   and touches handoff.md — BEFORE Step 5's `/id <name>` fires. This
+    //   causes the id skill on the box to take its load-existing branch
+    //   instead of the interactive create branch (so no human prompt is
+    //   needed on the box side for role selection). Piggybacked on Step 2's
+    //   number so the frontend BirthProgress checklist stays untouched.
+    //
+    //   Skynet does NOT invoke the relay-register block — that's the fresh
+    //   agent's own responsibility at first wake (per the seed comment).
+    //
+    //   Local branch (isLocalHostId=true) is currently NOT covered — this
+    //   phase's UAT scope is remote fleet hosts only. Local-branch self-birth
+    //   remains a pre-Phase-22 workflow and skips the pre-write silently.
     // -----------------------------------------------------------------------
     await runStep(2, async () => {
       await exec(
@@ -361,6 +421,51 @@ export async function birthIdentity(
       );
       // Sleep 3s: login shell needs to source its profile (Nelly §1(b))
       await sleep(STEP_2_SLEEP_MS);
+
+      // Phase 22 SRIC-02 Step 2.5: identity file pre-write (remote branch only).
+      if (!useLocal && conn) {
+        // Defense in depth: HTTP handler validates opts.role, but re-check
+        // here because role is shell-interpolated below (T-22-02-01).
+        if (!opts.role || !ROLE_NAME_PATTERN.test(opts.role)) {
+          throw new Error(
+            `role must match ${ROLE_NAME_PATTERN}; got: ${JSON.stringify(opts.role)}`,
+          );
+        }
+
+        // Resolve $HOME on the target host — one SSH round-trip.
+        const remoteHome = (await deps.execCommand(conn, "echo $HOME")).trim();
+        if (!remoteHome || remoteHome.includes("\n")) {
+          throw new Error("could not resolve remote $HOME");
+        }
+
+        // Build the identity folder path. opts.name is already gated by
+        // IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE above, so it's shell-safe.
+        const identityDir = `${remoteHome}/.claude/identities/${opts.name}`;
+        const identityFilePath = `${identityDir}/${opts.name}.md`;
+
+        // 1. Create the identity folder tree (mkdir wakeups also creates parent).
+        //    touch handoff.md to satisfy id skill's load-existing branch.
+        await deps.execCommand(
+          conn,
+          `mkdir -p "${identityDir}/wakeups" && touch "${identityDir}/handoff.md"`,
+        );
+
+        // 2. Compose the identity file body:
+        //    - frontmatter with role: <opts.role>
+        //    - seed comment (Ashley-locked verbatim text) telling the wake-up
+        //      agent to register its own Matrix relay account
+        //    - H1 heading with the identity name (id skill just needs the
+        //      file to exist with role: frontmatter — body content is minimal).
+        const identityFileBody =
+          `---\nrole: ${opts.role}\n---\n\n` +
+          `${IDENTITY_FILE_SEED_COMMENT}\n\n` +
+          `# ${opts.name}\n`;
+
+        // 3. Write via SFTP tmp+rename (ext_openssh_rename per Pitfall 3 /
+        //    #2924 — sftp.rename cannot atomically overwrite existing files
+        //    on some SFTP servers).
+        await deps.writeMarkdownFileAtomic(conn, identityFilePath, identityFileBody);
+      }
     });
 
     // -----------------------------------------------------------------------

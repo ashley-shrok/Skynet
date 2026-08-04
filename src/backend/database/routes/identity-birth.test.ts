@@ -36,6 +36,8 @@ vi.mock("./identity-birth-orchestrator.js", () => ({
   CLAUDE_LAUNCH_CMD_PREFIX:
     "CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999",
   TMUX_NEW_SESSION_FLAGS: "-x 220 -y 50",
+  // Phase 22 SRIC-02 — kebab-case-lowercase; must match orchestrator export
+  ROLE_NAME_PATTERN: /^[a-z0-9-]+$/,
 }));
 
 // Mock SSH dependencies
@@ -53,6 +55,7 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn(),
+  writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./identity-avatar-batch.js", () => ({
@@ -194,7 +197,7 @@ function httpPost(
   });
 }
 
-// Valid request body
+// Valid request body — Phase 22 SRIC-02 adds required `role` field
 const VALID_BODY = {
   hostId: 7,
   name: "testkey",
@@ -203,6 +206,7 @@ const VALID_BODY = {
   colorHue: 210,
   voice: "Elena.wav",
   avatarCandidateId: "cand-abc",
+  role: "box-maintainer",
 };
 
 // ---------------------------------------------------------------------------
@@ -370,6 +374,9 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   expect(o.avatarCandidateId).toBe(VALID_BODY.avatarCandidateId);
   expect(o.userId).toBeDefined();
 
+  // Phase 22 SRIC-02: role passed through
+  expect(o.role).toBe(VALID_BODY.role);
+
   // Verify deps has all required keys
   const d = capturedDeps as Record<string, unknown>;
   expect(typeof d.connectOneShot).toBe("function");
@@ -380,4 +387,37 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   expect(typeof d.getIdentityRecord).toBe("function");
   expect(typeof d.getCandidateForBirth).toBe("function");
   expect(typeof d.resolveHostById).toBe("function");
+  // Phase 22 SRIC-02: writeMarkdownFileAtomic dep for Step 2.5 pre-write
+  expect(typeof d.writeMarkdownFileAtomic).toBe("function");
+});
+
+// ---------------------------------------------------------------------------
+// Test 18: Phase 22 SRIC-02 — missing role → 400, orchestrator not called
+// ---------------------------------------------------------------------------
+
+it("Test 18: missing role field → 400, orchestrator not called", async () => {
+  const invalidBody = { ...VALID_BODY };
+  delete (invalidBody as Partial<typeof VALID_BODY>).role;
+
+  const result = await httpPost(port, "/identities/birth", invalidBody);
+
+  expect(result.status).toBe(400);
+  const parsed = JSON.parse(result.body);
+  expect(parsed.error).toMatch(/role/i);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// Test 19: Phase 22 SRIC-02 — role fails kebab-case-lowercase → 400
+// ---------------------------------------------------------------------------
+
+it("Test 19: role fails ROLE_NAME_PATTERN → 400, orchestrator not called", async () => {
+  const invalidBody = { ...VALID_BODY, role: "Box_Maintainer" }; // uppercase + underscore
+
+  const result = await httpPost(port, "/identities/birth", invalidBody);
+
+  expect(result.status).toBe(400);
+  const parsed = JSON.parse(result.body);
+  expect(parsed.error).toMatch(/role/i);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
 });
