@@ -864,30 +864,37 @@ Not applicable — Phase 22 layers on Phase 18/20 infrastructure entirely; no do
 
 **If this table is empty:** N/A — this table is not empty. All A1-A9 items above will need user or planner confirmation as they enter execution. **A4 is the load-bearing one** — the SRIC-02 wave should not start until A4 is settled.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All five questions raised during research have been resolved and are consumed by the plans below. Resolution markers per Dimension 11:
 
 1. **How does the birth orchestrator write the `role:` frontmatter into `<name>.md` when the current flow delegates identity-file creation to the /id skill on the box?**
    - What we know: Birth Step 5 is `/id <name>` which triggers the id skill's interactive create-flow (§2 of id skill). The identity file is written by the id skill on the box, AFTER an interactive human prompt for role. Skynet cannot pre-inject role: without pre-creating the file.
    - What's unclear: Which resolution the planner picks (B4b(a) modify birth to pre-write the file, vs B4b(b) modify id skill to accept role param).
    - Recommendation: Adopt B4b(a). It's Skynet-contained and testable. Adds ~40 lines to the birth orchestrator.
+   - **RESOLVED:** B4b(a) locked. Plan 22-02 Task 2 is a `checkpoint:human-verify` where Ashley confirms the ~40-line birth-orchestrator change before it lands; Task 3 implements the pre-write of `<name>.md` + `wakeups/` + `handoff.md` + relay-register via SSH inside Step 2's completion path (silent — no new SSE event type).
 
 2. **Where does the "brief" for regen-avatar during clone come from?**
    - What we know: OpenAI's archetype prompt (identity-avatar-batch.ts L155-170) requires `name`, `title`, `brief`. Clone edits title but the design doesn't ship a brief input.
    - What's unclear: What to seed brief with.
    - Recommendation: Use the source's ROLE description (`## Role` section of `<role>.md`) — matches clone-as-same-role semantics.
+   - **RESOLVED:** Plan 22-03 Task 2 wires the regen-avatar button to seed `brief` with `editedTitle` from the clone modal input (simplest ergonomic path — matches text the user just typed). The role-description alternative was considered and rejected as adding a role-file-read at avatar-regen time for marginal archetype-quality gain.
 
 3. **Does the id skill's on-wake receiver/scheduler startup break if we pre-populate the identity folder (per B4b(a)) with `<name>.md` + `handoff.md` + `wakeups/` but WITHOUT `relay.json`?**
    - What we know: id skill L347-353 warns "Do NOT write a placeholder relay.json — the on-wake receiver setup checks for it and starting the receiver against a fake cred file produces silent-deafness zombies."
    - What's unclear: Whether `/id <name>` loading (§3) on a folder that has no relay.json but IS otherwise complete produces the register-failed announce line vs a silent-deafness zombie.
    - Recommendation: Have the birth orchestrator RUN the relay-register block via SSH (mirroring the id skill snippet at L317-346) BEFORE Step 5. This way the on-wake receiver has real creds. Same for the clone endpoint.
+   - **RESOLVED:** Plan 22-02 Task 3 wires the relay-register block via SSH into the pre-write step so `relay.json` exists BEFORE `/id <name>` fires. Plan 22-03 Task 1 reuses the same shared birth logic for clones.
 
 4. **Should the description text in the create-role stub `<role>.md` be single-line or preserve user's line breaks?**
    - What we know: CONTEXT.md says "Description (required)" — no format constraint.
    - Recommendation: Preserve line breaks (`<textarea>` in CreateRoleDialog), write verbatim under `## Role` heading.
+   - **RESOLVED:** Plan 22-04 Task 1 preserves newlines — CreateRoleDialog uses a `<textarea>` for description input, backend writes verbatim under the `## Role` heading in `~/.claude/roles/<name>/<name>.md`.
 
 5. **Clone modal — where does the color-locked-to-source signal come from at render time?**
    - What we know: Row's identity comes from `useIdentities().byKey.get(sessionMatchKey(row.targetTmuxSession))` at PrettyConversationRow.tsx:185-187. The source identity's `colorHue` is on the returned Identity object.
    - No open question; just confirming the load-bearing lookup chain.
+   - **RESOLVED:** No decision needed — this was a lookup-chain confirmation, not an open design question. Plan 22-03 Task 2 uses the `useIdentities()` lookup to lift `colorHue` (and title/voice defaults) from the source Identity object. Color is NEVER rendered as an editable UI element in the clone modal per non-negotiable #4.
 
 ## Environment Availability
 
