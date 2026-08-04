@@ -105,9 +105,22 @@ export interface BackgroundedShellsEvent {
   shells: BackgroundedShell[]; // currently-running only; empty = none
 }
 
+// Phase 24 Plan 03: widened frame shape. Backend emits presence + path
+// immediately (planContent=null) then re-emits with populated planContent
+// OR contentError after the async SFTP side-channel fetch resolves. All
+// three inner fields are nullable so the frontend renders defensively:
+//   - planFilePath === null → skip the middle plan-contents section
+//   - planContent === null && !contentError → "Loading plan…" italic
+//   - contentError !== null → dim "Plan contents unavailable ({error})"
+//   - planContent !== null → render in <pre> monospace block
+// The outer `pending: null` still means "no plan-approval prompt visible".
 export type PlanPendingEvent = {
   type: "plan_pending";
-  pending: { planFilePath: string } | null;
+  pending: {
+    planFilePath: string | null;
+    planContent: string | null;
+    contentError: string | null;
+  } | null;
 };
 
 export type SessionHoldingEvent = {
@@ -268,6 +281,22 @@ export type AsideDismissedPayload = {
   type: "aside_dismissed";
   hostId: number;
   tmuxSession: string;
+};
+
+// Phase 24 — client -> server. One-shot write to the PTY of raw keystroke
+// bytes. Used by PlanPendingBubble Approve ("1\r") + Feedback modal Submit
+// ("3<feedback>\r"). Deliberately NOT the ComposeBox split-send path
+// (patch #44's body+\r-with-60ms-gap) — Ink Plan Mode does NOT recognize
+// split-send as a keystroke selection (see PlanPendingBubble.tsx L14-21).
+// Backend writes via `tmux send-keys -l` in a single call.
+//
+// Trust boundary (mirrors AsideDismissedPayload per T-14-02-01): the
+// backend derives the send target from the connection's captured
+// currentTmuxSession, NOT from any client-supplied field. This payload
+// carries only the bytes to send; the pane binding is implicit.
+export type RawKeystrokesPayload = {
+  type: "raw_keystrokes";
+  bytes: string;
 };
 
 // Patch #87: identity bounties WS wire types.
