@@ -36,6 +36,7 @@ import path from "path";
 import fs from "fs/promises";
 import type { Client as SSHClientType } from "ssh2";
 type SFTPWrapper = import("ssh2").SFTPWrapper;
+import yaml from "js-yaml";
 import { sshLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 
@@ -132,6 +133,114 @@ export function getLocalIdentitiesRoot(): string {
     process.env.IDENTITIES_HOST_DIR ||
     path.join(os.homedir(), ".claude", "identities")
   );
+}
+
+// ---------------------------------------------------------------------------
+// Local roles root — Phase 22 SRIC-01 (byte-shape mirror of getLocalIdentitiesRoot)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the local roles root directory.
+ * Prefer ROLES_HOST_DIR env var (parallel to IDENTITIES_HOST_DIR bind-mount) over
+ * os.homedir() fallback (dev path). Mirrors getLocalIdentitiesRoot semantics.
+ *
+ * Consumed by readIdentityBounties + readIdentityHistory LOCAL branch (Task 2)
+ * plus future Wave-2 plans (22-06 role tab, 22-03 clone) that need the roles
+ * root for LOCAL-branch reads.
+ */
+export function getLocalRolesRoot(): string {
+  return (
+    process.env.ROLES_HOST_DIR ||
+    path.join(os.homedir(), ".claude", "roles")
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Two-step role resolution — Phase 22 SRIC-01
+// ---------------------------------------------------------------------------
+//
+// The fleet-side role/identity paradigm stores role assignment as YAML
+// frontmatter (`role: <name>`) at the top of ~/.claude/identities/<key>/<key>.md.
+// Role-scoped artifacts (bounties, history, role-file) live at
+// ~/.claude/roles/<role>/... — so any backend op that needs a role artifact
+// must first read the identity file, parse the frontmatter, and extract role.
+//
+// This helper pair (extractRoleFromMarkdown + resolveRoleForIdentity) is the
+// SINGLE source of truth for that two-step. Per D-CONTEXT §"No no-role
+// fallback branches" (LOCKED with Ashley 2026-08-04), resolveRoleForIdentity
+// THROWS when role is missing or fails the shell-safety gate — never returns
+// null / undefined / empty. Callers propagate the throw to the WS `error`
+// field via the existing claude-session-server.ts error-envelope pattern.
+
+/**
+ * Extract the role name from an identity markdown file's YAML frontmatter block.
+ *
+ * Returns the role string when present + non-empty + string-typed. Returns null
+ * on any of: missing `---...---` frontmatter delimiters, missing `role:` key,
+ * empty-string value, non-string value, or js-yaml parse error.
+ *
+ * The caller decides whether null is fatal — resolveRoleForIdentity below
+ * treats it as fatal (throws) per D-CONTEXT no-fallback rule. Direct callers
+ * (Wave 2 plans that need role-if-present logic) can null-check without
+ * catching an exception.
+ *
+ * Regex bounds the frontmatter to the block between the top-of-file `---`
+ * and the next `---` — parser sees a well-formed YAML snippet, not the whole
+ * markdown body (which could contain hostile YAML-shaped lines elsewhere).
+ * `\r?\n` handles both LF and CRLF line endings (rare but valid on identity
+ * files touched by Windows editors).
+ */
+export function extractRoleFromMarkdown(markdown: string): string | null {
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return null;
+  try {
+    const parsed = yaml.load(match[1]) as Record<string, unknown> | null;
+    if (parsed === null || typeof parsed !== "object") return null;
+    const role = parsed.role;
+    return typeof role === "string" && role.length > 0 ? role : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the role name for a given identity by reading the identity file and
+ * extracting `role:` from its YAML frontmatter.
+ *
+ * THROWS Error (never returns null) when:
+ *   - identity file body has no frontmatter block, OR
+ *   - frontmatter has no `role:` key, OR
+ *   - role: value fails the IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/ gate.
+ *
+ * The second gate is defense-in-depth: role is shell-interpolated into
+ * SSH exec commands by callers (readIdentityBounties, readIdentityHistory,
+ * and future role-scoped writers), so re-validating role with the same
+ * regex that guards identityKey shell-safety is required. See threat model
+ * T-22-01-01 / T-22-01-02.
+ *
+ * Per D-CONTEXT (LOCKED 2026-08-04): "No no-role fallback branches anywhere.
+ * Ashley confirmed no fleet identity lacks `role:` frontmatter post-migration.
+ * Any plan that adds 'graceful (no role)' fallback branches or empty-state
+ * handling is a plan-checker BLOCK (dead code)." A throw here is correct
+ * behavior for a data-integrity violation, not a bug.
+ */
+export async function resolveRoleForIdentity(
+  conn: SSHClientType | null,
+  identityKey: string,
+): Promise<string> {
+  const { markdown } = await readIdentityFile(conn, identityKey);
+  const role = extractRoleFromMarkdown(markdown);
+  if (role === null) {
+    throw new Error(
+      `identity ${identityKey} has no role: frontmatter in identity file`,
+    );
+  }
+  if (!IDENTITY_KEY_RE.test(role)) {
+    throw new Error(
+      `identity ${identityKey}: role ${role} fails IDENTITY_KEY_RE gate`,
+    );
+  }
+  return role;
 }
 
 // ---------------------------------------------------------------------------
