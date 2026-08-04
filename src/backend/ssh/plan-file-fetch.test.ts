@@ -258,6 +258,54 @@ describe("plan-file-fetch — Phase 24 SFTP side-channel + path validation", () 
 
   /* ---------------- Truncation ---------------- */
 
+  it("WR-04: truncation backs off to a UTF-8 codepoint boundary when the cap lands mid-codepoint", async () => {
+    // Construct a buffer that lands the MAX_PLAN_BYTES cut in the middle
+    // of a 4-byte UTF-8 codepoint. Layout:
+    //   bytes [0 .. MAX_PLAN_BYTES - 2)    → 'a' repeated (single-byte)
+    //   bytes [MAX_PLAN_BYTES - 2 .. + 4)  → one U+1F600 (😀), 4 bytes
+    //                                        0xF0 0x9F 0x98 0x80
+    //   remaining bytes                    → 'b' padding to exceed the cap
+    //
+    // Byte index MAX_PLAN_BYTES itself (i.e. 512000) is 0x98 — the third
+    // byte of the emoji, a UTF-8 continuation byte (`10xxxxxx`). The
+    // pre-fix `subarray(0, MAX_PLAN_BYTES).toString("utf8")` would decode
+    // an incomplete codepoint at the tail and yield either U+FFFD or a
+    // silent garble.  The utf8SafeCutoff walks back to the lead-byte
+    // offset (MAX_PLAN_BYTES - 2) and cuts BEFORE the incomplete emoji,
+    // so the decoded content ends cleanly on the preceding 'a'.
+    const ascii = MAX_PLAN_BYTES - 2;
+    const asciiBuf = Buffer.alloc(ascii, "a".charCodeAt(0));
+    const emojiBuf = Buffer.from([0xf0, 0x9f, 0x98, 0x80]);
+    const padBuf = Buffer.alloc(1024, "b".charCodeAt(0));
+    const big = Buffer.concat([asciiBuf, emojiBuf, padBuf]);
+    // Sanity: byte at the cap should be a continuation byte (0x98).
+    expect(big[MAX_PLAN_BYTES] & 0xc0).toBe(0x80);
+    const sftp = makeMockSftp({
+      "/home/ashley/.claude/plans/utf8-edge-plan.md": big,
+    });
+    const client = makeMockSshClient(sftp);
+    const result = await fetchPlanFile(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      client as any,
+      "~/.claude/plans/utf8-edge-plan.md",
+    );
+    expect("content" in result).toBe(true);
+    if ("content" in result) {
+      // Truncation suffix present.
+      expect(result.content.endsWith("[truncated]")).toBe(true);
+      // Body ends cleanly on the ASCII 'a', with NO U+FFFD replacement
+      // char and NO partial emoji bytes. Strip the suffix and check the
+      // trailing char.
+      const suffix = "\n\n[truncated]";
+      const body = result.content.slice(0, -suffix.length);
+      expect(body.endsWith("a")).toBe(true);
+      // No replacement character anywhere.
+      expect(body.includes("�")).toBe(false);
+      // No leading emoji character (dropped by the safe cutoff).
+      expect(body.includes("😀")).toBe(false);
+    }
+  });
+
   it("truncates content larger than MAX_PLAN_BYTES with a [truncated] suffix", async () => {
     // 600KB payload: bigger than the 500KB cap.
     const big = Buffer.alloc(600 * 1024, "a".charCodeAt(0));

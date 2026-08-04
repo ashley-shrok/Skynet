@@ -49,6 +49,34 @@ const SLUG_RE = /^[a-z0-9-]+$/;
 /** Suffix appended when the source file exceeds MAX_PLAN_BYTES. */
 const TRUNCATED_SUFFIX = "\n\n[truncated]";
 
+/**
+ * WR-04 fix: back off from a byte-offset that lands mid-codepoint to the
+ * nearest UTF-8 codepoint boundary. `Buffer.subarray(0, MAX_PLAN_BYTES)`
+ * on a plan file with non-ASCII bytes (smart quotes, em-dashes, non-ASCII
+ * paths) can slice through a multi-byte codepoint, and Node's `.toString
+ * ("utf8")` then either inserts U+FFFD or garbles the final characters
+ * silently.
+ *
+ * Algorithm: if the cut offset points at a UTF-8 continuation byte
+ * (top-2 bits `10xxxxxx`), walk backward until we're at either a lead
+ * byte or an ASCII byte — that's the previous codepoint's start, so we
+ * cut BEFORE it (the incomplete final codepoint is dropped rather than
+ * decoded as U+FFFD).
+ *
+ * Boundary bytes: `(byte & 0xc0) === 0x80` identifies a continuation
+ * byte; anything else (ASCII 0xxxxxxx or lead 11xxxxxx) is a codepoint
+ * start. If `maxBytes >= buf.length`, no truncation needed.
+ */
+export function utf8SafeCutoff(buf: Buffer, maxBytes: number): number {
+  if (buf.length <= maxBytes) return buf.length;
+  let cut = maxBytes;
+  // Walk back over continuation bytes; stop at the first non-continuation
+  // byte (lead byte OR ASCII). That IS the incomplete-codepoint's start,
+  // so return `cut` — everything at index < cut is complete codepoints.
+  while (cut > 0 && (buf[cut] & 0xc0) === 0x80) cut -= 1;
+  return cut;
+}
+
 /* -------------------- Minimal SFTP shape (duck) ------------------------ */
 
 // ssh2's SFTPWrapper types don't neatly expose the two callback methods we
@@ -221,8 +249,17 @@ async function sftpReadFileCapped(
   const stats = await sftpStat(sftp, path);
   const data = await sftpReadFile(sftp, path);
   if (stats.size > MAX_PLAN_BYTES || data.length > MAX_PLAN_BYTES) {
+    // WR-04 fix: back off to a UTF-8 codepoint boundary BEFORE decoding.
+    // The prior `data.subarray(0, MAX_PLAN_BYTES).toString("utf8")` cut
+    // at exactly 512000 bytes, which — for any plan file containing
+    // non-ASCII characters (smart quotes, em-dashes, non-ASCII paths) —
+    // could slice through a multi-byte codepoint, producing U+FFFD or
+    // silently garbling the final characters. The safe-cutoff walks
+    // backward from the cap to the nearest codepoint boundary so the
+    // truncated content always ends on a complete codepoint.
+    const safeCut = utf8SafeCutoff(data, MAX_PLAN_BYTES);
     return {
-      content: data.subarray(0, MAX_PLAN_BYTES).toString("utf8") + TRUNCATED_SUFFIX,
+      content: data.subarray(0, safeCut).toString("utf8") + TRUNCATED_SUFFIX,
       truncated: true,
     };
   }
