@@ -6,7 +6,7 @@
 //
 // Behavior spec (from 22-04-PLAN.md <behavior>):
 //   Test 11: renders Name (input), Description (textarea), Host picker,
-//     `Then create an identity with this role` checkbox (CHECKED by default)
+//     `Then create an agent with this role` checkbox (CHECKED by default)
 //   Test 12: Name validation — kebab-case-lowercase gate; invalid inline error;
 //     Create disabled while invalid
 //   Test 13: Description validation — empty disables Create
@@ -106,7 +106,7 @@ afterEach(() => {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("CreateRoleDialog", () => {
-  it("Test 11: renders Name input, Description textarea, Host picker, and 'Then create an identity' checkbox CHECKED by default", () => {
+  it("Test 11: renders Name input, Description textarea, Host picker, and 'Then create an agent with this role' checkbox CHECKED by default", () => {
     render(
       <CreateRoleDialog
         open={true}
@@ -131,7 +131,7 @@ describe("CreateRoleDialog", () => {
     expect(screen.getByRole("option", { name: /hostB/ })).toBeTruthy();
     // Chain-checkbox present + CHECKED by default (D-CONTEXT §UX rules)
     const checkbox = screen.getByRole("checkbox", {
-      name: /then create an identity/i,
+      name: /then create an agent with this role/i,
     }) as HTMLInputElement;
     expect(checkbox).toBeTruthy();
     expect(checkbox.checked).toBe(true);
@@ -312,7 +312,7 @@ describe("CreateRoleDialog", () => {
 
     // Uncheck the chain checkbox
     const checkbox = screen.getByRole("checkbox", {
-      name: /then create an identity/i,
+      name: /then create an agent with this role/i,
     }) as HTMLInputElement;
     fireEvent.click(checkbox);
     expect(checkbox.checked).toBe(false);
@@ -373,7 +373,7 @@ describe("CreateRoleDialog", () => {
     fireEvent.change(screen.getByLabelText(/description/i), { target: { value: "d1" } });
     fireEvent.click(screen.getByRole("option", { name: /hostB/ }));
     const checkbox = screen.getByRole("checkbox", {
-      name: /then create an identity/i,
+      name: /then create an agent with this role/i,
     }) as HTMLInputElement;
     fireEvent.click(checkbox); // uncheck
     expect(checkbox.checked).toBe(false);
@@ -411,7 +411,7 @@ describe("CreateRoleDialog", () => {
     expect(screen.getByRole("option", { name: /hostB/ }).getAttribute("aria-selected")).toBe("false");
     // Checkbox back to CHECKED default
     expect(
-      (screen.getByRole("checkbox", { name: /then create an identity/i }) as HTMLInputElement).checked,
+      (screen.getByRole("checkbox", { name: /then create an agent with this role/i }) as HTMLInputElement).checked,
     ).toBe(true);
   });
 });

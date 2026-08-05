@@ -474,7 +474,7 @@ describe("NewSessionDialog chain: Test 9 — initialRole ignored when identity-m
       expect(sel.value).toBe("box-maintainer");
     });
     // Toggle identity-mode OFF
-    const checkbox = screen.getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = screen.getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
     // Role dropdown must be gone (CREATE-only surface per D-CONTEXT §UX rules)
     await waitFor(() => {

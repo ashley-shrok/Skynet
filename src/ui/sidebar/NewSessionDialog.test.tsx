@@ -238,7 +238,7 @@ describe("NewSessionDialog: empty name accepted", () => {
     );
 
     // Turn off identity-mode to use the regular-session path
-    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
 
     // Pre-select-host: Open is disabled
@@ -279,7 +279,7 @@ describe("NewSessionDialog: non-empty name passthrough", () => {
     );
 
     // Turn off identity-mode to use the regular-session path
-    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
 
     fireEvent.click(getByText("alpha"));
@@ -317,7 +317,7 @@ describe("NewSessionDialog: invalid name disables Open", () => {
       />,
     );
     // Turn off identity-mode to reveal the session-name input
-    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
 
     fireEvent.click(getByText("alpha"));
@@ -371,7 +371,7 @@ describe("NewSessionDialog: single-host auto-select", () => {
       />,
     );
     // Turn off identity-mode so single-host auto-selection enables Open
-    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
 
     // Open button should be enabled immediately (sole host pre-selected + no extra fields needed)
@@ -509,7 +509,7 @@ describe("NewSessionDialog: Test A — path field visible in both modes", () => 
     // Identity-mode is ON by default → path should be visible
     expect(getByLabelText(/^path$/i)).toBeTruthy();
     // Toggle identity-mode OFF
-    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
     // Path still present
     expect(getByLabelText(/^path$/i)).toBeTruthy();
@@ -535,7 +535,7 @@ describe("NewSessionDialog: Test C — path normalizes backslashes", () => {
     const onCreate = vi.fn();
     const { getByLabelText, getByRole, getByText } = renderDialog({ onCreate });
     // Switch to regular mode (uncheck identity-mode)
-    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
     // Set backslash path
     const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
@@ -557,7 +557,7 @@ describe("NewSessionDialog: Test C — path normalizes backslashes", () => {
 describe("NewSessionDialog: Test D — identity-mode defaults ON", () => {
   it("Test D: initial render → identity-mode checkbox is checked", () => {
     const { getByRole } = renderDialog();
-    const checkbox = getByRole("checkbox", { name: /create new identity/i }) as HTMLInputElement;
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i }) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
   });
 });
@@ -568,7 +568,7 @@ describe("NewSessionDialog: Test D — identity-mode defaults ON", () => {
 describe("NewSessionDialog: Test E — identity-mode OFF hides birth fields", () => {
   it("Test E: unchecking identity-mode → title/brief/avatar/voice/color absent from DOM", () => {
     const { getByRole, queryByLabelText, queryByRole } = renderDialog();
-    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
     // Birth fields should be gone
     expect(queryByLabelText(/^title$/i)).toBeNull();
@@ -950,7 +950,7 @@ describe("NewSessionDialog: Test S — onCreate payload with identity-mode OFF",
     const onCreate = vi.fn();
     const { getByLabelText, getByRole } = renderDialog({ onCreate });
     // Turn off identity-mode
-    const checkbox = getByRole("checkbox", { name: /create new identity/i });
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
     // Select host
     fireEvent.click(screen.getByText("bravo"));
@@ -1057,7 +1057,7 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
     // No candidates rendered
     expect(document.querySelectorAll("img").length).toBe(0);
     // Identity-mode checkbox should be ON (default)
-    const checkbox = getByRole("checkbox", { name: /create new identity/i }) as HTMLInputElement;
+    const checkbox = getByRole("checkbox", { name: /create with new identity/i }) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
   });
 });
@@ -1438,7 +1438,7 @@ describe("NewSessionDialog: Test GG — regular session mode does NOT call openB
     const onCreate = vi.fn();
     const { getByRole } = renderDialog({ onCreate });
     // Turn off identity-mode
-    fireEvent.click(getByRole("checkbox", { name: /create new identity/i }));
+    fireEvent.click(getByRole("checkbox", { name: /create with new identity/i }));
     // Select host
     fireEvent.click(screen.getByText("bravo"));
     // Click Create

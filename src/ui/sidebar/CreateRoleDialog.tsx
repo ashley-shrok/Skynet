@@ -231,7 +231,7 @@ export function CreateRoleDialog({
     defaultValue: "What is this role responsible for?",
   });
   const chainCheckboxLabel = t("nav.createRoleChainLabel", {
-    defaultValue: "Then create an identity with this role",
+    defaultValue: "Then create an agent with this role",
   });
   const cancelLabel = t("common.cancel", { defaultValue: "Cancel" });
   const openLabel = t("common.create", { defaultValue: "Create" });

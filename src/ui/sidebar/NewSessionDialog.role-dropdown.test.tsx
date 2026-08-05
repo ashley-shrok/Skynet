@@ -382,7 +382,7 @@ describe("NewSessionDialog role dropdown: Test 27 — hidden when identity-mode 
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
     // Now uncheck identity-mode
     const checkbox = getByRole("checkbox", {
-      name: /create new identity/i,
+      name: /create with new identity/i,
     });
     fireEvent.click(checkbox);
     // Role dropdown must disappear

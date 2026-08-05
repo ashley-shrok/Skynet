@@ -843,7 +843,7 @@ export function NewSessionDialog({
               htmlFor="new-session-identity-mode"
               className="text-xs text-[color:var(--color-pv-fg)] cursor-pointer select-none"
             >
-              Create new identity
+              Create with new identity
             </label>
           </div>
 
