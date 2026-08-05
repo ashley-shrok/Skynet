@@ -451,6 +451,68 @@ describe("NewSessionDialog chain: Test 8 — seed values do not persist across c
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test 10 (2026-08-05): initialBrief pre-fills the Brief textarea
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog chain: Test 10 — initialBrief pre-fills brief", () => {
+  it("Test 10a: open with initialBrief='desc-from-role' + identity-mode ON → Brief textarea contains it", async () => {
+    render(
+      <NewSessionDialog
+        open
+        onClose={vi.fn()}
+        hostTree={twoHostTree}
+        onCreate={vi.fn()}
+        initialHost={hostA}
+        initialRole="box-maintainer"
+        initialBrief="desc-from-role"
+      />,
+    );
+    await waitFor(() => {
+      const brief = screen.getByLabelText(/^brief$/i) as HTMLTextAreaElement;
+      expect(brief.value).toBe("desc-from-role");
+    });
+    // Brief is still editable — not disabled
+    const brief = screen.getByLabelText(/^brief$/i) as HTMLTextAreaElement;
+    expect(brief.disabled).toBe(false);
+    fireEvent.change(brief, { target: { value: "user-edit" } });
+    expect(brief.value).toBe("user-edit");
+  });
+
+  it("Test 10b: open with no initialBrief → Brief textarea starts empty (regression gate)", async () => {
+    render(
+      <NewSessionDialog
+        open
+        onClose={vi.fn()}
+        hostTree={twoHostTree}
+        onCreate={vi.fn()}
+      />,
+    );
+    await waitFor(() => {
+      const brief = screen.getByLabelText(/^brief$/i) as HTMLTextAreaElement;
+      expect(brief.value).toBe("");
+    });
+  });
+
+  it("Test 10c: identity-mode OFF → initialBrief ignored (brief field is identity-mode-only)", async () => {
+    render(
+      <NewSessionDialog
+        open
+        onClose={vi.fn()}
+        hostTree={twoHostTree}
+        onCreate={vi.fn()}
+        initialHost={hostA}
+        initialBrief="desc-from-role"
+      />,
+    );
+    // Toggle identity-mode OFF
+    const checkbox = screen.getByRole("checkbox", { name: /create with new identity/i });
+    fireEvent.click(checkbox);
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/^brief$/i)).toBeFalsy();
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test 9: identity-mode OFF → initialRole is IGNORED
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 9 — initialRole ignored when identity-mode OFF", () => {

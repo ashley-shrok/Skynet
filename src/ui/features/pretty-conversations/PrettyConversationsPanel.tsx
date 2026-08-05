@@ -397,6 +397,7 @@ export function PrettyConversationsPanel({
   const [chainPrefill, setChainPrefill] = useState<{
     role: string;
     host: Host;
+    description: string;
   } | null>(null);
   // Phase 22 (SRIC-03): CloneAgentDialog state — captures the row's source
   // identity + hostId when Ashley clicks the Clone context-menu item, so the
@@ -1098,6 +1099,7 @@ export function PrettyConversationsPanel({
           // CreateRoleDialog's onChainToCreateIdentity fired.
           initialHost={chainPrefill?.host ?? null}
           initialRole={chainPrefill?.role ?? null}
+          initialBrief={chainPrefill?.description ?? null}
         />
       )}
       {/* Phase 22 (SRIC-04 + SRIC-05): CreateRoleDialog — portal-mounted

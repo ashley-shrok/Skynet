@@ -277,6 +277,7 @@ describe("CreateRoleDialog", () => {
     expect(chainSpy).toHaveBeenCalledWith({
       role: "box-maintainer",
       host: expect.objectContaining({ id: "42", name: "hostA" }),
+      description: "d1",
     });
     expect(onClose).toHaveBeenCalled();
 

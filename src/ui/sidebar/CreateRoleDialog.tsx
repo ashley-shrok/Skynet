@@ -87,13 +87,17 @@ export interface CreateRoleDialogProps {
    */
   onCreated?: (result: { name: string; description: string; host: Host }) => void;
   /**
-   * Phase 22 SRIC-05 chain hook — invoked with {role, host} after 201 IFF
-   * the `Then create an identity with this role` checkbox is CHECKED at
+   * Phase 22 SRIC-05 chain hook — invoked with {role, host, description} after
+   * 201 IFF the `Then create an identity with this role` checkbox is CHECKED at
    * submit time. Plan 22-04 does NOT provide this callback from the panel
    * mount (the wiring lives in Plan 22-05). The prop is optional and
    * undefined-safe (guard-checked before invocation).
+   *
+   * `description` is the same text captured in the role's description field —
+   * pre-fills the agent brief in NewSessionDialog since they're usually the
+   * same thing (Ashley 2026-08-05).
    */
-  onChainToCreateIdentity?: (opts: { role: string; host: Host }) => void;
+  onChainToCreateIdentity?: (opts: { role: string; host: Host; description: string }) => void;
 }
 
 export function CreateRoleDialog({
@@ -184,7 +188,7 @@ export function CreateRoleDialog({
       // SRIC-05 chain hook: only fire when the checkbox is CHECKED AND the
       // callback prop is provided. Undefined-safe per Test 17b.
       if (thenCreateIdentity && onChainToCreateIdentity) {
-        onChainToCreateIdentity({ role: name, host: selectedHost });
+        onChainToCreateIdentity({ role: name, host: selectedHost, description });
       }
       if (onCreated) {
         onCreated({ name, description, host: selectedHost });

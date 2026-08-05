@@ -98,17 +98,19 @@ const nsdMockPropsRef: {
   open: boolean;
   initialHost: Host | null | undefined;
   initialRole: string | null | undefined;
+  initialBrief: string | null | undefined;
   onClose?: () => void;
 } = {
   open: false,
   initialHost: undefined,
   initialRole: undefined,
+  initialBrief: undefined,
 };
 
 const crdMockPropsRef: {
   open: boolean;
   onClose?: () => void;
-  onChainToCreateIdentity?: (opts: { role: string; host: Host }) => void;
+  onChainToCreateIdentity?: (opts: { role: string; host: Host; description: string }) => void;
 } = {
   open: false,
 };
@@ -119,10 +121,12 @@ vi.mock("@/sidebar/NewSessionDialog", () => ({
     onClose: () => void;
     initialHost?: Host | null;
     initialRole?: string | null;
+    initialBrief?: string | null;
   }) => {
     nsdMockPropsRef.open = props.open;
     nsdMockPropsRef.initialHost = props.initialHost;
     nsdMockPropsRef.initialRole = props.initialRole;
+    nsdMockPropsRef.initialBrief = props.initialBrief;
     nsdMockPropsRef.onClose = props.onClose;
     if (!props.open) return null;
     return (
@@ -132,6 +136,7 @@ vi.mock("@/sidebar/NewSessionDialog", () => ({
         data-initial-host-id={props.initialHost?.id ?? ""}
         data-initial-host-name={props.initialHost?.name ?? ""}
         data-initial-role={props.initialRole ?? ""}
+        data-initial-brief={props.initialBrief ?? ""}
       >
         <button
           type="button"
@@ -149,7 +154,7 @@ vi.mock("@/sidebar/CreateRoleDialog", () => ({
   CreateRoleDialog: (props: {
     open: boolean;
     onClose: () => void;
-    onChainToCreateIdentity?: (opts: { role: string; host: Host }) => void;
+    onChainToCreateIdentity?: (opts: { role: string; host: Host; description: string }) => void;
   }) => {
     crdMockPropsRef.open = props.open;
     crdMockPropsRef.onClose = props.onClose;
@@ -175,6 +180,7 @@ vi.mock("@/sidebar/CreateRoleDialog", () => ({
             props.onChainToCreateIdentity?.({
               role: "new-role",
               host: HOST_A,
+              description: "maintainer of the fleet",
             });
           }}
         >
@@ -251,6 +257,7 @@ beforeEach(() => {
   nsdMockPropsRef.open = false;
   nsdMockPropsRef.initialHost = undefined;
   nsdMockPropsRef.initialRole = undefined;
+  nsdMockPropsRef.initialBrief = undefined;
   crdMockPropsRef.open = false;
 });
 
@@ -293,6 +300,8 @@ describe("PrettyConversationsPanel chain: Test 10 — chain wires role+host into
     expect(nsd.getAttribute("data-initial-host-id")).toBe("h1");
     expect(nsd.getAttribute("data-initial-host-name")).toBe("box-a");
     expect(nsd.getAttribute("data-initial-role")).toBe("new-role");
+    // 2026-08-05: description → brief pre-fill also threads through.
+    expect(nsd.getAttribute("data-initial-brief")).toBe("maintainer of the fleet");
   });
 });
 

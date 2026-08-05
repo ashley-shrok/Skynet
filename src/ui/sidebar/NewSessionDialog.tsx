@@ -238,6 +238,7 @@ export function NewSessionDialog({
   onCreate,
   initialHost,
   initialRole,
+  initialBrief,
 }: {
   open: boolean;
   onClose: () => void;
@@ -252,9 +253,15 @@ export function NewSessionDialog({
    * `initialRole` is provided (no host), it is silently ignored — the role
    * dropdown only renders once a host is picked, and a role without a
    * matching host has no semantic anchor.
+   *
+   * `initialBrief` (2026-08-05): seeds the agent brief field when the dialog
+   * opens via the CreateRoleDialog chain. Editable. Independent of host/role
+   * — a caller could seed brief alone, but in practice it's paired with the
+   * chain that provides host + role too.
    */
   initialHost?: Host | null;
   initialRole?: string | null;
+  initialBrief?: string | null;
 }) {
   const { t } = useTranslation();
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
@@ -368,6 +375,12 @@ export function NewSessionDialog({
         }
       } else if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
+      }
+      // 2026-08-05: seed brief from CreateRoleDialog description when the
+      // chain provides one. Only in identity-mode (brief field only renders
+      // there). Editable.
+      if (initialBrief && identityMode) {
+        setBrief(initialBrief);
       }
     } else {
       // Abort any in-flight birth stream
