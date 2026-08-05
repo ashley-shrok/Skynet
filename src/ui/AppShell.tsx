@@ -55,6 +55,7 @@ import {
   updateOpenTabs,
   updateFleetSessions,
   updateHostsFlat,
+  updateIdentitiesByKey,
   useSelectedConversationId,
   selectConversation,
   selectConversationDeferred,
@@ -500,6 +501,9 @@ export function AppShell({
   useEffect(() => {
     updateHostsFlat(hostsById);
   }, [hostsById]);
+  useEffect(() => {
+    updateIdentitiesByKey(identitiesByKey);
+  }, [identitiesByKey]);
 
   const selectedConversationId = useSelectedConversationId();
   const activeSet = useActiveSet();

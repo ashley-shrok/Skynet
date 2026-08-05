@@ -35,6 +35,8 @@
 import { useSyncExternalStore } from "react";
 import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
 import { putPinnedIds, putHiddenIds } from "@/api/user-preferences-api";
+import type { Identity } from "@/api/identities-api";
+import { sessionMatchKey } from "@/features/terminal/session-hue";
 
 // ─── Public derived types ────────────────────────────────────────────────────
 
@@ -64,6 +66,13 @@ export type ConversationRow = {
   // AppShell → openTab(host, "rdp"). Never present on openTabs-derived rows
   // or fleet-only rows.
   rdpHostRow?: boolean;
+  // Phase 25 (Plan 25-02): identity role resolved from identity file frontmatter
+  // at row-construction time. Used as the middle sort key in compareByHostRoleLabel
+  // (host outer, role middle, label inner). Deliberately OMITTED (not set to null)
+  // when the row has no identity resolution — same "omit-when-null" convention as
+  // `fleetOnly` and `rdpHostRow`. `undefined` and `null` both sort last in
+  // compareByHostRoleLabel via the `a.role ?? null` normalization.
+  role?: string | null;
 };
 
 export type HostGroup = {
@@ -175,6 +184,11 @@ type State = {
   // (see computeSnapshot) AND — pending Plan 07-02 — for RDP row derivation
   // filtered on `host.enableRdp === true`.
   hostsFlat: Map<number, Host>;
+  // Phase 25 (Plan 25-02): identityKey.toLowerCase() → Identity lookup for
+  // role resolution at row-construction time. Fed by AppShell via
+  // updateIdentitiesByKey on identity-store change — mirrors the hostsFlat
+  // pattern. keyed identically to identities-store.ts byKey (identityKey.toLowerCase()).
+  identitiesByKey: Map<string, Identity>;
   // Patch #137: sessionStorage-backed set of conversation ids Ashley has
   // selected in this browser-tab session. Persisted under key
   // "pv-conv-active-set" as a JSON array. Rehydrated on module load;
@@ -196,6 +210,7 @@ let state: State = {
   fleetSessions: [],
   fleetSessionsLoaded: false,
   hostsFlat: new Map<number, Host>(),
+  identitiesByKey: new Map<string, Identity>(),
   activeSet: hydrateActiveSetFromStorage(),
 };
 
@@ -235,12 +250,15 @@ function subscribe(cb: () => void): () => void {
 // ─── Derivation ──────────────────────────────────────────────────────────────
 
 function rowFromTab(tab: Tab): ConversationRow {
+  const matchKey = sessionMatchKey(tab.targetTmuxSession);
+  const role = matchKey ? (state.identitiesByKey.get(matchKey)?.role ?? null) : null;
   return {
     id: tab.id,
     type: tab.type,
     label: tab.label,
     host: tab.host,
     targetTmuxSession: tab.targetTmuxSession ?? null,
+    ...(role !== null ? { role } : {}),
   };
 }
 
@@ -326,6 +344,8 @@ function computeSnapshot(): ConversationList {
     const key = dedupKey(hostIdStr, session.sessionName);
     if (openTabsSessionKeys.has(key)) continue; // openTabs-entry-wins
     const resolvedHost = state.hostsFlat.get(session.hostId);
+    const matchKey = sessionMatchKey(session.sessionName);
+    const role = matchKey ? (state.identitiesByKey.get(matchKey)?.role ?? null) : null;
     const syntheticRow: ConversationRow = {
       id: fleetRowId(session.hostId, session.sessionName),
       type: "terminal",
@@ -333,6 +353,7 @@ function computeSnapshot(): ConversationList {
       host: resolvedHost,
       targetTmuxSession: session.sessionName,
       fleetOnly: true,
+      ...(role !== null ? { role } : {}),
     };
     fleetSyntheticRows.push({ hostIdStr, row: syntheticRow });
     if (!fleetHostNameFallback.has(hostIdStr)) {
@@ -740,6 +761,20 @@ export function updateFleetSessions(sessions: FleetSession[]): void {
 export function updateHostsFlat(hostsById: Map<number, Host>): void {
   if (hostsById === state.hostsFlat) return; // reference-equal no-op
   state = { ...state, hostsFlat: hostsById };
+  notify();
+}
+
+// Phase 25 (Plan 25-02): plumb identity.role onto ConversationRow at row-construction
+// time for the (host, role, label) sort comparator (compareByHostRoleLabel).
+// Mirrors the hostsFlat pattern: AppShell drives the Map here on identity-store change
+// via a useEffect; computeSnapshot reads from state.identitiesByKey directly inside
+// rowFromTab() and fleetSyntheticRows construction.
+// Reference-equal no-op guard: if byKey is the same Map reference that was previously
+// pushed in (identities-store rebuilds byKey on setIdentities — same ref = no change),
+// skip the snapshot invalidation.
+export function updateIdentitiesByKey(byKey: Map<string, Identity>): void {
+  if (byKey === state.identitiesByKey) return; // reference-equal no-op
+  state = { ...state, identitiesByKey: byKey };
   notify();
 }
 
