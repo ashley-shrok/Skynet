@@ -24,6 +24,7 @@ import identityCloneRoutes from "./routes/identity-clone.js";
 import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import rolesCreateRoutes from "./routes/roles-create.js";
 import globalFilesListRoutes from "./routes/global-files.js";
+import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -1828,6 +1829,11 @@ app.use("/roles", rolesCreateRoutes);
 // configured file list from /app/data/global-files.json. Wave-2 plan
 // adds a second router on the same base path for POST /read + PUT /write.
 app.use("/global-files", globalFilesListRoutes);
+// Phase 23 GEFM-04: POST /global-files/read + PUT /global-files/write —
+// SSH read/write of whitelisted files. Same base path as the wave-1 list
+// router; Express chains routers so GET falls through to the list router
+// and POST/PUT fall through to this read/write router.
+app.use("/global-files", globalFilesReadWriteRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
