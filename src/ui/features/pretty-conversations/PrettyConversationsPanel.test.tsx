@@ -1731,12 +1731,8 @@ describe("PrettyConversationsPanel (quick-260727-kbw): mount hydration gated on 
 // Patch #167 — pinned-bounty filter
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Patch #317 (2026-08-04): filter button intentionally hidden by wrapping
-// `.pv-filter` in `{false && (...)}` per Ashley's temporary ask. These 6 tests
-// exercise the filter's rendered chrome + click behavior, so they cannot run
-// while the button is gated off. Flip .skip → runnable when the un-hide lands
-// (bounty: filter-button-temp-hide-in-panel-header).
-describe.skip("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
+// quick-260805-70q: un-skipped after Fix A un-hid the filter button.
+describe("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
   it("Test 23: filter button renders with data-active=false + aria-pressed=false by default", () => {
     setSnapshot({ activeSet: [], pinned: [], grouped: [] });
     const { getByTestId } = render(

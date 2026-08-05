@@ -758,11 +758,7 @@ export function PrettyConversationsPanel({
             />
           </span>
           <div className="pv-header-actions">
-            {/* Patch #317: pinned-bounty filter button HIDDEN TEMPORARILY
-                per Ashley 2026-08-04 (identity-creation UAT session). Un-hide
-                by flipping the `false &&` guard back to just the JSX. State
-                + handler intentionally left intact so nothing else breaks. */}
-            {false && (
+            {/* quick-260805-70q: filter button un-hidden per Ashley 2026-08-05 (reverses patch #317 gate). */}
             <button
               type="button"
               onClick={() => setFilterPinnedOnly((v) => !v)}
@@ -775,7 +771,6 @@ export function PrettyConversationsPanel({
             >
               <Filter />
             </button>
-            )}
             {/* Phase 23 (GEFM-01): pencil + `+ New role` collapsed into one
                 MoreVertical menu button. Three items: New agent, New role,
                 Edit global files…. Gated on the same showPencilButton
