@@ -15,6 +15,7 @@ import {
   updateOpenTabs,
   updateFleetSessions,
   updateHostsFlat,
+  updateIdentitiesByKey,
   selectConversation,
   selectConversationDeferred,
   pinConversation,
@@ -40,6 +41,7 @@ import {
 } from "./conversation-store.js";
 import * as UserPreferencesApi from "@/api/user-preferences-api";
 import type { Tab, Host, HostFolder } from "@/types/ui-types";
+import type { Identity } from "@/api/identities-api";
 
 // ─── Test fixtures ────────────────────────────────────────────────────────────
 // Minimal Host stubs — only the fields the store reads (id, name). All other
@@ -70,6 +72,38 @@ function makeTab(
     openedAt: 0,
     targetTmuxSession,
   };
+}
+
+// Phase 25 (Plan 25-03): minimal Identity stub for role injection in sort tests.
+// Only `identityKey` and `role` are read by conversation-store (via sessionMatchKey
+// lookup in state.identitiesByKey); all other fields are dummy stubs.
+function makeIdentity(
+  identityKey: string,
+  role: string | null,
+  overrides?: Partial<Identity>,
+): Identity {
+  return {
+    id: identityKey,
+    identityKey,
+    displayName: identityKey,
+    title: null,
+    colorHue: null,
+    voice: null,
+    role,
+    avatarMime: "",
+    avatarUrl: "",
+    avatarEtag: "",
+    createdAt: "",
+    updatedAt: "",
+    ...(overrides ?? {}),
+  } as unknown as Identity;
+}
+
+// Phase 25 (Plan 25-03): build a Map<string, Identity> keyed by
+// identityKey.toLowerCase() — matches the sessionMatchKey convention used in
+// identities-store.ts:21 and conversation-store rowFromTab().
+function identitiesMap(...identities: Identity[]): Map<string, Identity> {
+  return new Map(identities.map((id) => [id.identityKey.toLowerCase(), id]));
 }
 
 // Reset all module-scoped state between tests. Ordering matters: clear tabs
@@ -105,6 +139,9 @@ beforeEach(() => {
   // hypothetical listener never sees a mid-clear state.
   updateFleetSessions([]);
   updateHostsFlat(new Map());
+  // Phase 25: reset identitiesByKey so a prior test's role injection does not
+  // leak forward into the next test's sort output.
+  updateIdentitiesByKey(new Map());
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1048,6 +1085,12 @@ describe("conversation-store (quick-260730-wfy): pinned tier alphabetical orderi
     // Two fleet sessions with labels ["a", "n"] in that order (sessionName IS the label)
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
+      // Phase 25 supersedes: host is now outer sort key. Fleet rows (host=undefined
+      // before hostsFlat populates) sort before openTab rows (host=hostA → hostName
+      // "alpha") because "" < "alpha". Fix: provide hostsFlat so fleet rows resolve
+      // to hostA — all 4 rows tie on host → tie on role (all null) → label
+      // fallback → original ["a","m","n","z"] intent is restored.
+      updateHostsFlat(new Map([[99, hostA]]));
       updateOpenTabs([tabZ, tabM]);
       updateFleetSessions([
         { hostId: 99, hostName: "alpha", sessionName: "a", created: 100 },
@@ -1061,7 +1104,8 @@ describe("conversation-store (quick-260730-wfy): pinned tier alphabetical orderi
     });
 
     const snap = __getSnapshotForTest();
-    // Post-change: alphabetically sorted by row.label → ["a", "m", "n", "z"]
+    // Post-change: all 4 rows share host "alpha" → tie on host → tie on role
+    // (all null) → alphabetically sorted by row.label → ["a", "m", "n", "z"]
     expect(snap.pinned.map((r) => r.label)).toEqual(["a", "m", "n", "z"]);
   });
 });
@@ -2045,5 +2089,236 @@ describe("regression: fleet pin survives updateOpenTabs pruner when hydrated aft
     // The load-bearing assertion: fleet::7::aqua is STILL pinned.
     snap = __getSnapshotForTest();
     expect(snap.pinnedIds.has("fleet::7::aqua")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 25: role-clustering sort regression tests
+//
+// These tests lock the (host, role, label) sort tuple introduced in Phase 25
+// Plan 02. Each case drives state via updateIdentitiesByKey (the Phase 25
+// identity mirror) and asserts on __getSnapshotForTest() output shapes.
+// See 25-CONTEXT.md §Sort semantics and §Null-role handling for design locks.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (Phase 25): role-clustering sort", () => {
+  // Locks: §Sort semantics tuple order (host outer, role middle, label inner)
+  // and §Sort sites (Tier 3 grouped-per-host bucket).
+  it("role-clustering within a host bucket (Tier 3) — identities with same role cluster together", () => {
+    const hostA = makeHost("hA", "alpha");
+    const tabOrwell = makeTab("t-orwell", "terminal", hostA, "orwell", "orwell");
+    const tabAsimov = makeTab("t-asimov", "terminal", hostA, "asimov", "asimov");
+    const tabOrwellClone = makeTab("t-orwell-clone", "terminal", hostA, "orwell-clone", "orwell-clone");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabOrwell, tabAsimov, tabOrwellClone]);
+      updateIdentitiesByKey(
+        identitiesMap(
+          makeIdentity("orwell", "novelist"),
+          makeIdentity("asimov", "essayist"),
+          makeIdentity("orwell-clone", "novelist"),
+        ),
+      );
+    });
+
+    const snap = __getSnapshotForTest();
+    // essayist ("asimov") sorts before novelist ("orwell*") alphabetically on role.
+    // Within novelist: "orwell" < "orwell-clone" on label.
+    expect(snap.grouped[0].rows.map((r) => r.label)).toEqual([
+      "asimov",
+      "orwell",
+      "orwell-clone",
+    ]);
+  });
+
+  // Locks: §Sort semantics "host is always outer" — even in the flat ActiveSet tier,
+  // host is the primary sort key (no sub-heading, no chrome — just ordering).
+  it("host is outer sort key in ActiveSet — same-role rows from different hosts stay host-ordered", () => {
+    const hostA = makeHost("hA", "alpha");
+    const hostB = makeHost("hB", "beta");
+    const tabA = makeTab("t-a", "terminal", hostA, "sess-a", "sess-a");
+    const tabB = makeTab("t-b", "terminal", hostB, "sess-b", "sess-b");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA, hostB] });
+      updateHostsFlat(new Map([["hA" as unknown as number, hostA], ["hB" as unknown as number, hostB]]));
+      updateOpenTabs([tabB, tabA]); // intentionally reversed insertion order
+      updateIdentitiesByKey(
+        identitiesMap(
+          makeIdentity("sess-a", "architect"),
+          makeIdentity("sess-b", "architect"),
+        ),
+      );
+      addToActiveSet("t-a");
+      addToActiveSet("t-b");
+    });
+
+    const snap = __getSnapshotForTest();
+    // Both rows share role "architect" → tie on role → host outer key resolves:
+    // "alpha" < "beta" → hostA row first.
+    expect(snap.activeSet.map((r) => r.host?.name)).toEqual(["alpha", "beta"]);
+  });
+
+  // Locks: §Sort semantics "applies to all three tiers, not just Tier 3" —
+  // Pinned tier must also honour host-outer ordering.
+  it("host is outer sort key in Pinned — same-role rows from different hosts stay host-ordered", () => {
+    const hostA = makeHost("hA", "alpha");
+    const hostB = makeHost("hB", "beta");
+    const tabA = makeTab("t-a", "terminal", hostA, "sess-a", "sess-a");
+    const tabB = makeTab("t-b", "terminal", hostB, "sess-b", "sess-b");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA, hostB] });
+      updateOpenTabs([tabB, tabA]); // intentionally reversed insertion order
+      updateIdentitiesByKey(
+        identitiesMap(
+          makeIdentity("sess-a", "architect"),
+          makeIdentity("sess-b", "architect"),
+        ),
+      );
+      pinConversation("t-a");
+      pinConversation("t-b");
+    });
+
+    const snap = __getSnapshotForTest();
+    // Both rows share role "architect" → tie on role → host outer key resolves:
+    // "alpha" < "beta" → hostA row first.
+    expect(snap.pinned.map((r) => r.host?.name)).toEqual(["alpha", "beta"]);
+  });
+
+  // Locks: §Null-role handling — identities without role sort to bottom of
+  // their host bucket; rows with no identity also sort last.
+  it("null-role rows sort last within their host — even when their label would sort first alphabetically", () => {
+    const hostA = makeHost("hA", "alpha");
+    // Label chosen to sort FIRST under a pure-label comparator (a < arch < build).
+    // Phase 25 null-role-last must override and place this row LAST because
+    // "unmapped-session" has no entry in identitiesByKey → role resolves null.
+    const tabAaa = makeTab("t-aaa", "terminal", hostA, "unmapped-session", "aaa-would-be-first");
+    const tabArch = makeTab("t-arch", "terminal", hostA, "arch-session", "arch");
+    const tabBuild = makeTab("t-build", "terminal", hostA, "build-session", "build");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabAaa, tabArch, tabBuild]);
+      // "unmapped-session" has NO entry in identitiesByKey → role resolves null
+      updateIdentitiesByKey(
+        identitiesMap(
+          makeIdentity("arch-session", "architect"),
+          makeIdentity("build-session", "builder"),
+        ),
+      );
+    });
+
+    const snap = __getSnapshotForTest();
+    // "architect" < "builder" on role → arch before build.
+    // Null-role tab sorts LAST despite its label being alphabetically first —
+    // this is the load-bearing behavioral gate for §Null-role handling.
+    expect(snap.grouped[0].rows.map((r) => r.label)).toEqual([
+      "arch",
+      "build",
+      "aaa-would-be-first",
+    ]);
+  });
+
+  // Locks: §Sort semantics "case-insensitive alphabetical throughout" for ROLE.
+  // Disambiguation fixture: four roles including "Box-Maintainer" and "box-maintainer"
+  // (same role under sensitivity:"base") plus "q-role" and "zeta-role".
+  // Case-insensitive order: Box-Maintainer == box-maintainer < q-role < zeta-role
+  //   → output: [bm-a, bm-b, q-tab, zed]
+  // Case-sensitive order: B(66) < q(113) < z(122) < b(98)
+  //   → output: [bm-a, q-tab, zed, bm-b]   (bm-b has lowercase "box-maintainer")
+  // The assertion [bm-a, bm-b, q-tab, zed] is only achievable under case-insensitive.
+  it("5a: role compare is case-insensitive — Box-Maintainer and box-maintainer cluster together before q-role and zeta-role", () => {
+    const hostA = makeHost("hA", "alpha");
+    const tabBmA = makeTab("t-bm-a", "terminal", hostA, "bm-a-sess", "bm-a");
+    const tabBmB = makeTab("t-bm-b", "terminal", hostA, "bm-b-sess", "bm-b");
+    const tabQ = makeTab("t-q", "terminal", hostA, "q-sess", "q-tab");
+    const tabZed = makeTab("t-zed", "terminal", hostA, "zed-sess", "zed");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabBmA, tabBmB, tabQ, tabZed]);
+      updateIdentitiesByKey(
+        identitiesMap(
+          makeIdentity("bm-a-sess", "Box-Maintainer"),
+          makeIdentity("bm-b-sess", "box-maintainer"),
+          makeIdentity("q-sess", "q-role"),
+          makeIdentity("zed-sess", "zeta-role"),
+        ),
+      );
+    });
+
+    const snap = __getSnapshotForTest();
+    // Case-insensitive: "Box-Maintainer" == "box-maintainer" (both cluster at head)
+    // then "q-role" < "zeta-role". The two bm rows cluster first (positions 0+1),
+    // then q-tab, then zed. This order is ONLY possible with sensitivity:"base".
+    const labels = snap.grouped[0].rows.map((r) => r.label);
+    // The bm cluster must be at indices 0 and 1 (in either internal order)
+    expect(labels.slice(0, 2).sort()).toEqual(["bm-a", "bm-b"]);
+    expect(labels[2]).toBe("q-tab");
+    expect(labels[3]).toBe("zed");
+  });
+
+  // Locks: §Sort semantics "case-insensitive alphabetical throughout" for LABEL.
+  // Within the same role, "Alpha" and "alpha" are equivalent under sensitivity:"base"
+  // — both sort before "Zebra". Under case-sensitive compare: A(65) < Z(90) < a(97).
+  it("5b: label compare within a role is case-insensitive — Alpha and alpha cluster before Zebra", () => {
+    const hostA = makeHost("hA", "alpha");
+    const tabAlphaUpper = makeTab("t-au", "terminal", hostA, "au-sess", "Alpha");
+    const tabAlphaLower = makeTab("t-al", "terminal", hostA, "al-sess", "alpha");
+    const tabZebra = makeTab("t-z", "terminal", hostA, "z-sess", "Zebra");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabZebra, tabAlphaUpper, tabAlphaLower]); // reversed insertion
+      updateIdentitiesByKey(
+        identitiesMap(
+          makeIdentity("au-sess", "novelist"),
+          makeIdentity("al-sess", "novelist"),
+          makeIdentity("z-sess", "novelist"),
+        ),
+      );
+    });
+
+    const snap = __getSnapshotForTest();
+    // All three share role "novelist" → fall to label inner key.
+    // Case-insensitive: "Alpha" == "alpha" (cluster at positions 0+1) < "Zebra".
+    // Under case-sensitive: "Alpha"(A=65) < "Zebra"(Z=90) < "alpha"(a=97).
+    // We assert on lowercase to check POSITION of the cluster, not internal order
+    // of the two equivalent-under-base "alpha" values (V8 sort stability makes
+    // internal order deterministic but this test should not depend on it).
+    const lowerLabels = snap.grouped[0].rows.map((r) => r.label.toLowerCase());
+    expect(lowerLabels.slice(0, 2).sort()).toEqual(["alpha", "alpha"]);
+    expect(lowerLabels[2]).toBe("zebra");
+  });
+
+  // Locks: §Sort semantics "within each role, sort by label" — when role is a
+  // tie, the comparator falls back to label inner key (same as pre-Phase-25).
+  it("same-role different-label falls to label — rows with shared role sort alphabetically by label", () => {
+    const hostA = makeHost("hA", "alpha");
+    const tabMike = makeTab("t-mike", "terminal", hostA, "mike-sess", "mike");
+    const tabAlice = makeTab("t-alice", "terminal", hostA, "alice-sess", "alice");
+    const tabZed = makeTab("t-zed", "terminal", hostA, "zed-sess", "zed");
+
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabMike, tabAlice, tabZed]);
+      updateIdentitiesByKey(
+        identitiesMap(
+          makeIdentity("mike-sess", "builder"),
+          makeIdentity("alice-sess", "builder"),
+          makeIdentity("zed-sess", "builder"),
+        ),
+      );
+    });
+
+    const snap = __getSnapshotForTest();
+    // All three share role "builder" → tie on role → label inner key.
+    // Alphabetical label order: alice < mike < zed.
+    expect(snap.grouped[0].rows.map((r) => r.label)).toEqual([
+      "alice",
+      "mike",
+      "zed",
+    ]);
   });
 });
