@@ -140,7 +140,13 @@ export default function GlobalFilesModal({
     return () => {
       cancelled = true;
     };
-  }, [selectedHostId, activeTab, tabData]);
+    // Intentional exhaustive-deps violation: including `tabData` re-runs this effect after
+    // `setTabData({loading})`, whose cleanup sets `cancelled = true` on the still-in-flight
+    // `readGlobalFile` (see plan 260805-7rq). The `tabData.has(activeTab)` gate inside the
+    // body is a deliberate stale-closure read — "if the currently-known map already tracks
+    // this tab, skip".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHostId, activeTab]);
 
   // Save handler with 409 → confirm + reload UX (planner-locked: minimal alert + refetch)
   const handleSave = useCallback(
