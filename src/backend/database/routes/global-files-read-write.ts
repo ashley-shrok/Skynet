@@ -192,7 +192,31 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 5. Read the file via exec channel.
+      // 5. Tilde expansion — single-quote escaping (step 6) suppresses shell
+      //    tilde expansion, so `~/.claude/CLAUDE.md` would be passed literally
+      //    to cat/stat and fail. Mirror the WRITE handler (L400-417): resolve
+      //    $HOME via echo first, then splice into an absolute path.
+      // ---------------------------------------------------------------------
+      let absPath = path;
+      if (path.startsWith("~/")) {
+        const remoteHome = (
+          await execWithTimeout(conn, "echo $HOME")
+        ).trim();
+        if (!remoteHome || remoteHome.startsWith("~")) {
+          // echo $HOME failed to resolve — bail rather than read from a bogus path.
+          sshLogger.warn("global-files-read: could not resolve remote HOME", {
+            operation: "global_files_read_home",
+            hostId,
+            remoteHome,
+          });
+          res.status(502).json({ error: "could not resolve remote HOME" });
+          return;
+        }
+        absPath = `${remoteHome}/${path.slice(2)}`;
+      }
+
+      // ---------------------------------------------------------------------
+      // 6. Read the file via exec channel.
       //    escapedPath uses single-quote escaping (PATTERNS trap #3):
       //    the whitelist is an AUTH gate; escaping is the INJECTION gate.
       //    `cat ... || true` returns empty string for missing files (empty
@@ -200,7 +224,7 @@ router.post(
       //    `stat -c '%Y'` is GNU stat (Linux mtime in epoch seconds — safe
       //    for the Debian/Ubuntu fleet; Windows omitted per GEFM-06).
       // ---------------------------------------------------------------------
-      const escapedPath = shellEscape(path);
+      const escapedPath = shellEscape(absPath);
       const contentCmd = `cat ${escapedPath} 2>/dev/null || true`;
       const mtimeCmd = `stat -c '%Y' ${escapedPath} 2>/dev/null || echo 0`;
       const sizeCmd = `stat -c '%s' ${escapedPath} 2>/dev/null || echo 0`;
