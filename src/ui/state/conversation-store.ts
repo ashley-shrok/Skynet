@@ -132,9 +132,40 @@ const ACTIVE_SET_STORAGE_KEY = "pv-conv-active-set";
 // errors, or an absent sessionStorage (SSR/JSDOM edge) ALL silently fall
 // back to an empty Set — a corrupt persistence layer must never crash the
 // UI thread.
+//
+// Ashley 2026-08-05 (fix chain 70q→7rq→53a36a6→ea0098c→THIS): Move-to-new-
+// window / Open-in-new-window URLs carry `only=1` in the hash. Since we drop
+// `noopener` on window.open (PrettyConversationRow.tsx uo4-noopener-fix so
+// the null-check for popup-blocker safety works), the child window inherits
+// the opener's sessionStorage — including this key. Without the guard below,
+// the new window's hydrate would pull the opener's whole activeSet in on
+// module load, causing Move-to-new-window to bring along every origin-active
+// row alongside the target row. Detect `only=1` in the URL hash and start
+// fresh: return an empty Set AND remove the storage key so any later
+// addToActiveSet calls persist onto a clean slate. AppShell's URL-restore
+// path (patch #230) enrolls the URL-supplied tabs into the active set via
+// its normal enroll logic, so the new window ends up with only the URL's
+// tabs active — matching what `only=1` was designed to promise.
 function hydrateActiveSetFromStorage(): Set<string> {
   try {
     if (typeof sessionStorage === "undefined") return new Set<string>();
+
+    // only=1 sessionStorage-bleed guard — see block comment above.
+    if (typeof window !== "undefined" && window.location?.hash) {
+      const hash = window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : window.location.hash;
+      const params = new URLSearchParams(hash);
+      if (params.get("only") === "1") {
+        try {
+          sessionStorage.removeItem(ACTIVE_SET_STORAGE_KEY);
+        } catch {
+          /* best-effort clear */
+        }
+        return new Set<string>();
+      }
+    }
+
     const raw = sessionStorage.getItem(ACTIVE_SET_STORAGE_KEY);
     if (!raw) return new Set<string>();
     const parsed = JSON.parse(raw);

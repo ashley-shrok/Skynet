@@ -1565,6 +1565,116 @@ describe("conversation-store (patch #137): module-init hydrates activeSet from s
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Ashley 2026-08-05: only=1 sessionStorage-bleed guard.
+//
+// When window.open drops `noopener` (PrettyConversationRow.tsx
+// uo4-noopener-fix), the child window inherits the opener's sessionStorage —
+// including the pv-conv-active-set key. Without the guard, the child window's
+// hydrate pulls in the opener's whole activeSet on module load, causing
+// Move-to-new-window to bring along every origin-active row alongside the
+// target row. The guard detects `only=1` in location.hash and starts fresh:
+// returns empty Set AND clears the storage key so any later addToActiveSet
+// calls persist onto a clean slate.
+//
+// Uses vi.resetModules() to force a fresh hydrate against test-controlled
+// sessionStorage + location.hash — mirrors the patch #137 module-init test
+// pattern above.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (2026-08-05 uo4 followup): only=1 sessionStorage-bleed guard on hydrate", () => {
+  // Restore hash after each test — window.location.hash writes persist across
+  // vitest tests since JSDOM's window is shared. Explicit reset avoids leakage.
+  const originalHash = window.location.hash;
+
+  beforeEach(() => {
+    window.location.hash = "";
+  });
+
+  it("hash contains only=1 → hydrate returns empty Set AND removes the storage key (fresh-slate for new window)", async () => {
+    // Pre-seed as if inherited from opener via window.open sessionStorage clone.
+    sessionStorage.setItem(
+      "pv-conv-active-set",
+      JSON.stringify(["opener-tina", "opener-nelly"]),
+    );
+    // Simulate the Move-to-new-window URL landing.
+    window.location.hash = "#tab=tmux:thenasty:nelly&active=0&only=1";
+
+    vi.resetModules();
+    const reImported = await import("./conversation-store.js");
+
+    const { result } = renderHook(() => reImported.useActiveSet());
+    // Load-bearing: the opener's ids must NOT have leaked in.
+    expect(result.current.has("opener-tina")).toBe(false);
+    expect(result.current.has("opener-nelly")).toBe(false);
+    expect(result.current.size).toBe(0);
+
+    // Storage key must have been cleared so any subsequent addToActiveSet
+    // writes persist onto a clean slate (not merged with the opener's set).
+    expect(sessionStorage.getItem("pv-conv-active-set")).toBeNull();
+
+    window.location.hash = originalHash;
+  });
+
+  it("hash without only param → hydrate returns stored values unchanged (patch #137 regression guard)", async () => {
+    sessionStorage.setItem(
+      "pv-conv-active-set",
+      JSON.stringify(["kept-1", "kept-2"]),
+    );
+    // A hash without only=1 (e.g. a normal restored URL, or empty hash) must
+    // NOT trigger the clear — the guard is strictly for the Move-to-new-window
+    // origin URL.
+    window.location.hash = "#tab=tmux:thenasty:tina&active=0";
+
+    vi.resetModules();
+    const reImported = await import("./conversation-store.js");
+
+    const { result } = renderHook(() => reImported.useActiveSet());
+    expect(result.current.has("kept-1")).toBe(true);
+    expect(result.current.has("kept-2")).toBe(true);
+    expect(result.current.size).toBe(2);
+
+    // Storage must still hold the seeded value (not cleared).
+    expect(sessionStorage.getItem("pv-conv-active-set")).not.toBeNull();
+
+    window.location.hash = originalHash;
+  });
+
+  it("empty hash → hydrate returns stored values unchanged (patch #137 regression guard, empty-hash edge)", async () => {
+    sessionStorage.setItem(
+      "pv-conv-active-set",
+      JSON.stringify(["kept-1"]),
+    );
+    window.location.hash = "";
+
+    vi.resetModules();
+    const reImported = await import("./conversation-store.js");
+
+    const { result } = renderHook(() => reImported.useActiveSet());
+    expect(result.current.has("kept-1")).toBe(true);
+    expect(result.current.size).toBe(1);
+    expect(sessionStorage.getItem("pv-conv-active-set")).not.toBeNull();
+  });
+
+  it("hash contains other params but no only → hydrate returns stored values (only=1 is a strict match, not a substring)", async () => {
+    sessionStorage.setItem(
+      "pv-conv-active-set",
+      JSON.stringify(["kept-only-lonely"]),
+    );
+    // "lonely" contains the substring "only" but is NOT the URL param `only`;
+    // guard must use URLSearchParams parsing, not substring match.
+    window.location.hash = "#tab=lonely&active=0";
+
+    vi.resetModules();
+    const reImported = await import("./conversation-store.js");
+
+    const { result } = renderHook(() => reImported.useActiveSet());
+    expect(result.current.has("kept-only-lonely")).toBe(true);
+    expect(sessionStorage.getItem("pv-conv-active-set")).not.toBeNull();
+
+    window.location.hash = originalHash;
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Patch #150 C — URL-restore multi-tab glow (store-level contract).
 // Ashley's followup-3 UAT (2026-07-24): a URL that captured 2 (or more)
 // active sessions restored with .active-set glow on ONLY the first restored
