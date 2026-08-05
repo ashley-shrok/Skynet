@@ -304,11 +304,43 @@ export function fleetRowId(hostId: number, sessionName: string): string {
   return `fleet::${hostId}::${sessionName}`;
 }
 
-// Shared alphabetical comparator for all four row-bucket sort sites in
-// computeSnapshot. Locale-aware, case-insensitive, numeric-natural —
-// so "host10" sorts after "host9" and "Alpha" equals "alpha".
-const compareByLabel = (a: ConversationRow, b: ConversationRow): number =>
-  a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
+// Phase 25 (Plan 25-02) — three-key sort comparator for all five row-bucket
+// sort sites in computeSnapshot. Implements the LOCKED tuple from
+// 25-CONTEXT.md §Sort semantics: (host, role, label) case-insensitive
+// alphabetical with null-role-last (25-CONTEXT.md §Null-role handling).
+//
+// Key order:
+//   Outer  — host.name (case-insensitive, no numeric-natural: host names rarely
+//             have "host10 vs host9" ordering needs, and host-tree walk order
+//             governs Tier 3's outer bucket structure anyway — the comparator's
+//             host key is defense-in-depth for Tier 1 + Tier 2).
+//   Middle — role (null/undefined sorts AFTER any real role per CONTEXT.md
+//             §Null-role handling). `a.role ?? null` normalises both `undefined`
+//             (field omitted per §ConversationRow-omit convention) and `null` to
+//             a single null value before comparison.
+//   Inner  — label (case-insensitive, numeric-natural — same as the pre-Phase-25
+//             label-only sort so ordering within (host, role) tuples matches the
+//             prior behaviour exactly).
+const compareByHostRoleLabel = (a: ConversationRow, b: ConversationRow): number => {
+  // Outer: host name (case-insensitive)
+  const hostA = a.host?.name ?? "";
+  const hostB = b.host?.name ?? "";
+  const hostCmp = hostA.localeCompare(hostB, undefined, { sensitivity: "base" });
+  if (hostCmp !== 0) return hostCmp;
+
+  // Middle: role (null/undefined sorts AFTER any real role)
+  const roleA = a.role ?? null;
+  const roleB = b.role ?? null;
+  if (roleA !== roleB) {
+    if (roleA === null) return 1;  // null role → sort later
+    if (roleB === null) return -1;
+    const roleCmp = roleA.localeCompare(roleB, undefined, { sensitivity: "base" });
+    if (roleCmp !== 0) return roleCmp;
+  }
+
+  // Inner: label (case-insensitive, numeric-natural — identical to the pre-Phase-25 label sort)
+  return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
+};
 
 function computeSnapshot(): ConversationList {
   const conversationTabs = state.openTabs.filter(isConversationTab);
@@ -383,7 +415,7 @@ function computeSnapshot(): ConversationList {
     activeSetRows.push(row);
     emittedIds.add(row.id);
   }
-  activeSetRows.sort(compareByLabel);
+  activeSetRows.sort(compareByHostRoleLabel);
 
   // ── Tier 2 (pinned, not in activeSet): rows in pinnedIds and NOT emitted ────
   // Patch #149 B: previously iterated only conversationTabs; now ALSO iterates
@@ -421,7 +453,7 @@ function computeSnapshot(): ConversationList {
     pinned.push(row);
     emittedIds.add(row.id);
   }
-  pinned.sort(compareByLabel);
+  pinned.sort(compareByHostRoleLabel);
 
   // ── Tier 3 (grouped): everything else, bucketed by host ─────────────────────
   // Iterate conversationTabs, bucket non-emitted rows by host id.
@@ -449,7 +481,7 @@ function computeSnapshot(): ConversationList {
     seenHostIds.add(id);
     const rows = byHostId.get(id);
     if (rows && rows.length > 0) {
-      rows.sort(compareByLabel);
+      rows.sort(compareByHostRoleLabel);
       grouped.push({ hostId: id, hostName: name, rows });
     }
   }
@@ -476,7 +508,7 @@ function computeSnapshot(): ConversationList {
       firstRow.host?.name ??
       fleetHostNameFallback.get(hostId) ??
       hostId;
-    rows.sort(compareByLabel);
+    rows.sort(compareByHostRoleLabel);
     grouped.push({ hostId, hostName, rows });
   }
 
@@ -541,7 +573,7 @@ function computeSnapshot(): ConversationList {
       rdpHostRow: true,
     });
   }
-  rdpRows.sort(compareByLabel);
+  rdpRows.sort(compareByHostRoleLabel);
   if (rdpRows.length > 0) {
     grouped.push({ hostId: "__rdp__", hostName: "", rows: rdpRows });
   }
