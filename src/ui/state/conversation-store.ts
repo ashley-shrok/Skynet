@@ -805,6 +805,87 @@ export function updateFleetSessions(sessions: FleetSession[]): void {
   notify();
 }
 
+// ─── FleetSession localStorage cache (quick-260805-tub) ──────────────────────
+// Persist the fleet snapshot across page refreshes so the first paint after a
+// reload shows the last-known conversation-list row set instead of an empty
+// list for the ~200ms it takes getSessionList() to return. Row EXISTENCE only
+// — activeSet, WIP, pin state, hostTree are still live-derived and NOT cached
+// (Ashley 2026-08-05).
+//
+// Versioned key so a shape change to FleetSession can invalidate every
+// client's cache in one deploy just by bumping the suffix.
+const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v1";
+
+function isFleetSession(x: unknown): x is FleetSession {
+  if (!x || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  return (
+    typeof r.hostId === "number" &&
+    typeof r.hostName === "string" &&
+    typeof r.sessionName === "string" &&
+    typeof r.created === "number"
+  );
+}
+
+/**
+ * Read the cached fleet snapshot from localStorage. Returns `[]` on any
+ * failure mode (missing key, malformed JSON, non-array top level, elements
+ * that don't match FleetSession shape) — the caller treats an empty cache
+ * identically to a cold start, so the store's Phase 6 openTabs-only fallback
+ * still handles it.
+ *
+ * Silent by contract: no throws, no console noise, no toasts.
+ */
+export function readFleetSessionsCache(): FleetSession[] {
+  try {
+    const raw = typeof localStorage !== "undefined"
+      ? localStorage.getItem(FLEET_CACHE_KEY)
+      : null;
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const valid: FleetSession[] = [];
+    for (const item of parsed) {
+      if (isFleetSession(item)) {
+        // Defensive filter: only the 4 canonical fields make it back into
+        // memory even if a future writer accidentally serialized more.
+        valid.push({
+          hostId: item.hostId,
+          hostName: item.hostName,
+          sessionName: item.sessionName,
+          created: item.created,
+        });
+      }
+    }
+    return valid;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Write the fleet snapshot to localStorage. Overwrites; no TTL, no merge.
+ * Silent on any storage error (QuotaExceededError, disabled storage,
+ * private-mode failures) — losing the cache is not a user-visible failure.
+ *
+ * Serializes only the 4 canonical `FleetSession` fields so future field
+ * additions on FleetSession don't silently leak to storage.
+ */
+export function writeFleetSessionsCache(sessions: FleetSession[]): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const canonical = sessions.map((s) => ({
+      hostId: s.hostId,
+      hostName: s.hostName,
+      sessionName: s.sessionName,
+      created: s.created,
+    }));
+    localStorage.setItem(FLEET_CACHE_KEY, JSON.stringify(canonical));
+  } catch {
+    // Silent — cache-write failure is non-fatal.
+  }
+}
+
 // Plan 07-01 (TG-14): hostId → Host flat lookup. AppShell maintains a memo
 // keyed on stableHostTreeKey (the NOTE-05 thrash-guard from Phase 6) and
 // pushes the Map here whenever the memo re-derives.

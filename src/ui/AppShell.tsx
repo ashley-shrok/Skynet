@@ -61,6 +61,8 @@ import {
   selectConversationDeferred,
   addToActiveSet,
   useActiveSet,
+  readFleetSessionsCache,
+  writeFleetSessionsCache,
 } from "@/state/conversation-store";
 import { getSessionList } from "@/api/sessions-api";
 import {
@@ -463,15 +465,32 @@ export function AppShell({
   // fleetSessions empty; the list falls back to Phase 6 openTabs-only
   // rendering. No toast, no retry, no user-visible surface.
   useEffect(() => {
+    // quick-260805-tub: seed the store from the localStorage cache BEFORE
+    // the network fetch fires. This paints the last-known conversation-list
+    // row set immediately on refresh; when the fetch returns it overwrites
+    // with the fresh snapshot (see writeFleetSessionsCache below). On a cold
+    // cache (first ever visit, cleared storage, corrupted JSON), read returns
+    // [] — identical to today's cold-start behavior, no user-visible diff.
+    const cached = readFleetSessionsCache();
+    if (cached.length > 0) {
+      updateFleetSessions(cached);
+    }
+
     let cancelled = false;
     (async () => {
       try {
         const sessions = await getSessionList();
         if (cancelled) return;
-        updateFleetSessions(Array.isArray(sessions) ? sessions : []);
+        const fresh = Array.isArray(sessions) ? sessions : [];
+        updateFleetSessions(fresh);
+        // quick-260805-tub: persist the fresh snapshot for the next refresh.
+        // Silent on write failure (see writeFleetSessionsCache).
+        writeFleetSessionsCache(fresh);
       } catch {
         // Silent — fleetSessions stays empty; openTabs-only rendering
         // (Phase 6 behavior) takes over. T-07-01-04 mitigation.
+        // Cache is deliberately NOT touched on fetch failure — the last
+        // known-good snapshot survives the network hiccup.
       }
     })();
     return () => {
