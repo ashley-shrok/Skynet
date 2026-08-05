@@ -825,10 +825,10 @@ Plans:
 
 **Requirements**: GEFM-01, GEFM-02, GEFM-03, GEFM-04, GEFM-05, GEFM-06
 
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 Plans:
-- [ ] 23-01-PLAN.md — Backend config-loader + `GET /global-files?hostId=<n>` + dual nginx blocks (GEFM-02, GEFM-03)
+- [x] 23-01-PLAN.md — Backend config-loader + `GET /global-files?hostId=<n>` + dual nginx blocks (GEFM-02, GEFM-03)
 - [ ] 23-02-PLAN.md — Backend `POST /global-files/read` + `PUT /global-files/write` with whitelist enforcement + SSH SFTP atomic write (GEFM-04)
 - [ ] 23-03-PLAN.md — Frontend `GlobalFilesModal` + `GlobalFileTab` + `global-files-api.ts` helpers (GEFM-05)
 - [ ] 23-04-PLAN.md — Panel-header menu consolidation (pencil + `+ New role` + Edit global files into ONE MoreVertical dropdown) + human UAT (GEFM-01)
