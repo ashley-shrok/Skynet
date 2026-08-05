@@ -23,6 +23,7 @@ import identityBirthRoutes from "./routes/identity-birth.js";
 import identityCloneRoutes from "./routes/identity-clone.js";
 import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import rolesCreateRoutes from "./routes/roles-create.js";
+import globalFilesListRoutes from "./routes/global-files.js";
 import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -1823,6 +1824,10 @@ app.use("/roles", rolesListForHostRoutes);
 // same mount by chaining app.use. The list router only handles GET so POST
 // falls through to this router. Both /roles mounts appear BEFORE /identities.
 app.use("/roles", rolesCreateRoutes);
+// Phase 23 GEFM-03: GET /global-files?hostId=<n> — reads the per-host
+// configured file list from /app/data/global-files.json. Wave-2 plan
+// adds a second router on the same base path for POST /read + PUT /write.
+app.use("/global-files", globalFilesListRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
