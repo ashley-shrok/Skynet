@@ -1506,6 +1506,47 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     expect(onDeactivate).not.toHaveBeenCalled();
   });
 
+  it("UO4b: window.open features arg must NOT include 'noopener' (regression guard, 2026-08-05 fix) — per spec, window.open with noopener always returns null, which would defeat the popup-blocker null-check and stop Move-to-new-window from ever deactivating the origin tab", () => {
+    window.open = vi.fn(() => ({} as Window));
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const item = within(menu).getByRole("menuitem", {
+      name: /move to new window/i,
+    });
+    fireEvent.click(item);
+
+    expect(window.open).toHaveBeenCalledTimes(1);
+    const call = (window.open as ReturnType<typeof vi.fn>).mock.calls[0];
+    // features arg (index 2). Must be absent or a string that does NOT contain
+    // "noopener" — anything else and every real-browser Move-to-new-window
+    // click leaves the origin tab active regardless of the null-check logic.
+    const features = call[2] as string | undefined;
+    if (features !== undefined) {
+      expect(features).not.toContain("noopener");
+    }
+    // Sanity: onDeactivate DID fire (matching UO1's contract — proves the
+    // regression this test protects would otherwise silently break UO1's
+    // real-browser behavior without failing UO1 in vitest).
+    expect(onDeactivate).toHaveBeenCalledTimes(1);
+  });
+
   it("UO5: mobile long-press → menu opens but Open/Move-in-new-window items NOT rendered (desktop-only)", () => {
     vi.useFakeTimers();
     try {

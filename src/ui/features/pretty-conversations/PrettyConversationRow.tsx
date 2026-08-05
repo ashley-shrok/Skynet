@@ -605,10 +605,20 @@ export function PrettyConversationRow({
             // quick-260804-uo4: Open/Move in new window — desktop-only (not rendered
             // on mobile variant). Bifurcates label on inActiveSet. Builds a TabSpec
             // via specForTab; skipped for tabs that aren't URL-addressable (specForTab
-            // returns null). The click handler opens the encoded workspace URL in a new
-            // window and, IF window.open returned a non-null handle AND the row was in
-            // the active-set, fires onDeactivate to tear down the current tab (popup-
-            // blocker safety: if the window was blocked, the original tab survives).
+            // returns null). The click handler opens the encoded workspace URL in a
+            // new window and, IF window.open returned a non-null Window handle AND
+            // the row was in the active-set, fires onDeactivate to tear down the
+            // current tab. The null-check is the popup-blocker safety: a blocked
+            // popup returns null, so the original tab survives.
+            //
+            // ⚠️ Do NOT add "noopener" to the features string (fixed 2026-08-05
+            // after Ashley UAT — original quick-260804-uo4 impl had it). Per spec,
+            // window.open() with the noopener feature ALWAYS returns null even
+            // when the popup opens successfully, so the null-check would never
+            // fire onDeactivate and Move-to-new-window would leave the original
+            // tab active. The new window is same-origin Skynet, so the
+            // noopener guard (preventing untrusted popup from mutating
+            // window.opener) doesn't apply — both windows are our own trusted code.
             if (!isMobile) {
               const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
               if (spec !== null) {
@@ -616,7 +626,7 @@ export function PrettyConversationRow({
                   label: inActiveSet ? "Move to new window" : "Open in new window",
                   onClick: () => {
                     const payload = encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true });
-                    const w = window.open("#" + payload, "_blank", "noopener");
+                    const w = window.open("#" + payload, "_blank");
                     if (w !== null && inActiveSet) {
                       onDeactivate?.();
                     }
