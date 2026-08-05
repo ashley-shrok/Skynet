@@ -245,6 +245,24 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionWorking: () => null,
 }));
 
+// Phase 23 (GEFM-01): mock GlobalFilesModal so the panel-level test suite
+// does not pull in the full modal's dep tree (radix Dialog, Tabs, global-files-api).
+// The panel mounts it as a controlled component gated on globalFilesModalOpen state
+// (initially false). This stub renders nothing when closed, which is the observed
+// state in every test that doesn't explicitly open it.
+vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
+  default: (props: { open: boolean }) => (props.open ? <div data-testid="global-files-modal-stub" /> : null),
+}));
+
+// Phase 23 (GEFM-01): mock global-files-api in case any import resolves it in
+// the test environment before the GlobalFilesModal mock suppresses the real module.
+vi.mock("@/api/global-files-api", () => ({
+  listGlobalFiles: vi.fn().mockResolvedValue([]),
+  readGlobalFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, size: 0 }),
+  writeGlobalFile: vi.fn().mockResolvedValue({ mtime: 0 }),
+  GlobalFileMtimeConflictError: class GlobalFileMtimeConflictError extends Error {},
+}));
+
 // ─── Component under test (import AFTER mocks) ──────────────────────────────
 
 import { PrettyConversationsPanel } from "./PrettyConversationsPanel";
@@ -1145,9 +1163,15 @@ describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
 // Test 5 — Header pencil opens NewSessionDialog
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: header pencil opens dialog", () => {
-  it("Test 5: clicking the pencil opens the NewSessionDialog + carries pv-pencil class (Phase 13 lift-from-mock)", () => {
-    const { getByRole } = render(
+describe("PrettyConversationsPanel: header menu opens NewSessionDialog", () => {
+  it("Test 5 (Phase 23 GEFM-01 repoint): clicking the MoreVertical menu button + selecting 'New agent' opens the NewSessionDialog; menu button carries pv-pencil class + data-testid=pv-header-menu-button", async () => {
+    // Phase 23: the pencil + `+ New role` buttons are collapsed into a single
+    // MoreVertical menu (data-testid="pv-header-menu-button", aria-label="More actions").
+    // The "New agent" flow is: click menu button → menu portal appears → click "New agent"
+    // → NewSessionDialog opens. This test re-points the OLD Test 5 assertion at the
+    // new two-step flow (plan 23-04 instruction: re-point tests at new selectors or
+    // skip with note referencing this plan — re-pointing preferred to preserve coverage).
+    const { getByRole, getByTestId } = render(
       <PrettyConversationsPanel
         variant="desktop"
         hostTree={ONE_HOST_TREE}
@@ -1156,20 +1180,29 @@ describe("PrettyConversationsPanel: header pencil opens dialog", () => {
       />,
     );
 
-    const pencilBtn = getByRole("button", { name: /new agent/i });
-    // Phase 13 Wave 2 SHAPE-02: pencil button carries the mock's `.pv-pencil`
-    // class-toggle treatment (32x32 transparent + border-radius 8px +
-    // --color-pv-fg-muted icon). Retired: `w-[34px] h-[34px] rounded-full
-    // bg-white/[0.04]` filled-glass pill.
-    expect(pencilBtn.className).toContain("pv-pencil");
-    fireEvent.click(pencilBtn);
+    // Step 1: menu trigger button exists with pv-pencil class + correct testid.
+    const menuBtn = getByTestId("pv-header-menu-button");
+    expect(menuBtn.className).toContain("pv-pencil");
+    expect(menuBtn.getAttribute("aria-label")).toBe("More actions");
+    expect(menuBtn.getAttribute("aria-haspopup")).toBe("menu");
+
+    // Step 2: click the menu trigger → portal menu appears.
+    fireEvent.click(menuBtn);
+    const menu = getByRole("menu");
+    expect(menu).toBeTruthy();
+
+    // Step 3: menu has "New agent" as first item.
+    const newAgentItem = within(menu).getByRole("menuitem", { name: /new agent/i });
+    expect(newAgentItem).toBeTruthy();
+
+    // Step 4: click "New agent" → NewSessionDialog opens.
+    fireEvent.click(newAgentItem);
 
     // NewSessionDialog uses shadcn Dialog which renders inside a portal.
-    // getByRole("dialog") queries the whole document body.
+    // document.querySelector('[role="dialog"]') queries the whole document body.
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(dialog).toBeTruthy();
-    // The dialog also contains the "Start a new conversation" title text
-    // (NewSessionDialog i18n defaultValue) — sanity check.
+    // The dialog contains "Start a new agent" title text (i18n defaultValue).
     expect(dialog!.textContent).toMatch(/start a new agent/i);
   });
 });
@@ -1178,12 +1211,17 @@ describe("PrettyConversationsPanel: header pencil opens dialog", () => {
 // Test 6 — Header pencil NOT rendered when onCreateSession is undefined
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: pencil gate", () => {
-  it("Test 6: pencil button is absent when onCreateSession is undefined", () => {
-    const { queryByRole } = render(
+describe("PrettyConversationsPanel: menu button gate", () => {
+  it("Test 6 (Phase 23 GEFM-01 repoint): the MoreVertical menu button (data-testid=pv-header-menu-button) is absent when onCreateSession is undefined", () => {
+    // Phase 23: the two individual action buttons (pencil + new role) are replaced
+    // by a single MoreVertical menu button. The showPencilButton gate (gated on
+    // typeof onCreateSession === "function") controls the new menu button exactly as
+    // it controlled the old individual buttons. When onCreateSession is undefined,
+    // the menu button must NOT appear.
+    const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
-    expect(queryByRole("button", { name: /new agent/i })).toBeNull();
+    expect(container.querySelector('[data-testid="pv-header-menu-button"]')).toBeNull();
   });
 });
 
@@ -1267,11 +1305,12 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
     // Header row container still carries `.pv-panel-header` even on mobile.
     expect(container.querySelector(".pv-panel-header")).toBeTruthy();
 
-    // Pencil still present when onCreateSession is provided; carries the
-    // mock's `.pv-pencil` class-toggle treatment.
-    const pencil = queryByRole("button", { name: /new agent/i });
-    expect(pencil).toBeTruthy();
-    expect(pencil!.className).toContain("pv-pencil");
+    // Phase 23 (GEFM-01): the individual pencil button is replaced by a single
+    // MoreVertical menu button (data-testid="pv-header-menu-button", aria-label="More
+    // actions"). Carries the pv-pencil class for chrome parity.
+    const menuBtn = container.querySelector('[data-testid="pv-header-menu-button"]') as HTMLElement | null;
+    expect(menuBtn).toBeTruthy();
+    expect(menuBtn!.className).toContain("pv-pencil");
   });
 });
 

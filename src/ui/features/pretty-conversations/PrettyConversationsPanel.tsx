@@ -47,8 +47,10 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, Pin, Plus, Server, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Pin, Server } from "lucide-react";
+import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -404,8 +406,43 @@ export function PrettyConversationsPanel({
     hostId: number;
   } | null>(null);
 
+  // Phase 23 (GEFM-01): panel-header MoreVertical menu state.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  // Phase 23 (GEFM-05): GlobalFilesModal open/closed toggle (opened from menu item).
+  const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
+
   // quick-260731-tgg: collapsed by default on every mount per Ashley's design lock.
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
+
+  // Phase 23 (GEFM-01): open the header menu anchored below the trigger button.
+  const openMenu = useCallback(() => {
+    const rect = menuButtonRef.current?.getBoundingClientRect();
+    if (rect) setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setMenuOpen(true);
+  }, []);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
+  // Phase 23 (GEFM-01): Escape + click-outside dismiss handlers for the menu.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleDocClick(e: MouseEvent) {
+      const t = e.target as Node | null;
+      if (menuRef.current?.contains(t) || menuButtonRef.current?.contains(t)) return;
+      setMenuOpen(false);
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleDocClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleDocClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [menuOpen]);
 
   // Patch #167: pinned-bounty filter toggle (header funnel button). Local
   // state only — NOT persisted (Ashley 2026-07-28: "no remembering filter
@@ -739,37 +776,23 @@ export function PrettyConversationsPanel({
               <Filter />
             </button>
             )}
+            {/* Phase 23 (GEFM-01): pencil + `+ New role` collapsed into one
+                MoreVertical menu button. Three items: New agent, New role,
+                Edit global files…. Gated on the same showPencilButton
+                predicate; uses pv-pencil class for chrome parity with the
+                removed individual buttons. */}
             {showPencilButton && (
               <button
+                ref={menuButtonRef}
                 type="button"
-                onClick={() => setNewSessionDialogOpen(true)}
-                aria-label={newSessionLabel}
-                title={newSessionLabel}
                 className="pv-pencil"
+                onClick={openMenu}
+                data-testid="pv-header-menu-button"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
               >
-                <Plus />
-              </button>
-            )}
-            {/* Phase 22 (SRIC-04): `+ New role` launcher — placed as a sibling
-                of the pencil, gated on the SAME showPencilButton predicate so
-                both buttons share their onCreateSession-wired visibility. Uses
-                the pv-pencil class treatment for visual parity with the
-                sibling; distinct label "New role" disambiguates for screen
-                readers. Distinct icon (Users from lucide) telegraphs role-
-                creation semantics vs the pencil's session-creation semantics.
-                onClick: opens CreateRoleDialog. Chain-into-create-identity
-                (SRIC-05) is wired in Plan 22-05 — the dialog's callback prop
-                is undefined here (undefined-safe by construction). */}
-            {showPencilButton && (
-              <button
-                type="button"
-                onClick={() => setCreateRoleDialogOpen(true)}
-                aria-label={newRoleLabel}
-                title={newRoleLabel}
-                className="pv-pencil"
-                data-testid="pv-new-role-button"
-              >
-                <Users />
+                <MoreVertical size={18} />
               </button>
             )}
           </div>
@@ -1118,6 +1141,73 @@ export function PrettyConversationsPanel({
         sourceIdentity={cloneDialogState?.sourceIdentity ?? null}
         hostId={cloneDialogState?.hostId ?? null}
       />
+      {/* Phase 23 (GEFM-05): GlobalFilesModal — portal-mounted sibling of the
+          existing dialog mounts. Opened via the header MoreVertical menu's
+          "Edit global files…" item. defaultHostId={null} is deliberate: the
+          panel-header trigger has no active-conversation context (it renders
+          a list), so the modal falls through to its own host picker. */}
+      <GlobalFilesModal
+        open={globalFilesModalOpen}
+        onOpenChange={setGlobalFilesModalOpen}
+        hostTree={hostTree ?? null}
+        defaultHostId={null}
+      />
+      {/* Phase 23 (GEFM-01): glass portal menu — keyboard-Escape + click-outside
+          dismiss. Portal-mounted to document.body to escape overflow clipping
+          from .pv-panel-header. Chrome mirrors PrettyConversationContextMenu.tsx
+          (same glass gradient, border, backdrop-filter, color tokens). */}
+      {menuOpen && menuAnchor && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{
+            position: "fixed",
+            top: menuAnchor.top,
+            right: menuAnchor.right,
+            minWidth: 200,
+            zIndex: 200,
+            padding: 4,
+            borderRadius: 12,
+            background: "linear-gradient(160deg, rgba(20,21,32,0.94), rgba(10,11,18,0.94))",
+            border: "1px solid rgba(255,240,215,0.12)",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,240,215,0.08)",
+            backdropFilter: "blur(20px) saturate(1.6)",
+            WebkitBackdropFilter: "blur(20px) saturate(1.6)",
+            color: "#e8e4d8",
+          }}
+        >
+          {[
+            { label: "New agent", onClick: () => setNewSessionDialogOpen(true) },
+            { label: "New role", onClick: () => setCreateRoleDialogOpen(true) },
+            { label: "Edit global files…", onClick: () => setGlobalFilesModalOpen(true) },
+          ].map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={(e) => { e.stopPropagation(); item.onClick(); closeMenu(); }}
+              className="py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                fontSize: 14,
+                lineHeight: "18px",
+                borderRadius: 8,
+                background: "transparent",
+                border: "none",
+                color: "#e8e4d8",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,240,215,0.08)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

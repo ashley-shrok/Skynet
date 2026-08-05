@@ -13,7 +13,7 @@
 // (identity-artifact-reader.two-step.test.tsx).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen } from "@testing-library/react";
+import { render, fireEvent, screen, within } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
@@ -82,6 +82,19 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionWorking: () => null,
 }));
 
+// Phase 23 (GEFM-01): mock GlobalFilesModal so this test suite does not pull in
+// the full modal dep tree. The modal is open=false in every test here.
+vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
+  default: (props: { open: boolean }) => (props.open ? <div data-testid="global-files-modal-stub" /> : null),
+}));
+
+vi.mock("@/api/global-files-api", () => ({
+  listGlobalFiles: vi.fn().mockResolvedValue([]),
+  readGlobalFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, size: 0 }),
+  writeGlobalFile: vi.fn().mockResolvedValue({ mtime: 0 }),
+  GlobalFileMtimeConflictError: class GlobalFileMtimeConflictError extends Error {},
+}));
+
 // ─── Component under test (import AFTER mocks) ──────────────────────────────
 
 import { PrettyConversationsPanel } from "./PrettyConversationsPanel";
@@ -126,8 +139,19 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("PrettyConversationsPanel: + New role button", () => {
-  it("Test 21a: renders a `New role` button in the header when onCreateSession is wired", () => {
+// Phase 23 (GEFM-01): helper to open the header menu and click a named item.
+function openMenuAndClickItem(itemNamePattern: RegExp) {
+  const menuBtn = screen.getByTestId("pv-header-menu-button");
+  fireEvent.click(menuBtn);
+  const menu = screen.getByRole("menu");
+  const item = within(menu).getByRole("menuitem", { name: itemNamePattern });
+  fireEvent.click(item);
+}
+
+describe("PrettyConversationsPanel: + New role button (Phase 23 GEFM-01 repoint)", () => {
+  it("Test 21a (repoint): 'New role' is a menu item in the MoreVertical dropdown when onCreateSession is wired", () => {
+    // Phase 23: the `+ New role` button is no longer a standalone header button.
+    // It lives as the second item in the MoreVertical menu (after "New agent").
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -137,11 +161,16 @@ describe("PrettyConversationsPanel: + New role button", () => {
       />,
     );
 
-    const newRoleBtn = screen.getByRole("button", { name: /new role/i });
-    expect(newRoleBtn).toBeTruthy();
+    // Open the menu first
+    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
+    const menu = screen.getByRole("menu");
+    // "New role" item is present in the menu
+    expect(within(menu).getByRole("menuitem", { name: /new role/i })).toBeTruthy();
   });
 
-  it("Test 21b: `New role` button is absent when onCreateSession is undefined (same gate as pencil)", () => {
+  it("Test 21b (repoint): the MoreVertical menu button (and thus 'New role') is absent when onCreateSession is undefined", () => {
+    // Phase 23: showPencilButton gate applies to the whole menu button, not individual items.
+    // When onCreateSession is undefined, the menu button does not render → no menu → no items.
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -149,10 +178,12 @@ describe("PrettyConversationsPanel: + New role button", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /new role/i })).toBeNull();
+    expect(screen.queryByTestId("pv-header-menu-button")).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("Test 21c: clicking `New role` opens CreateRoleDialog", () => {
+  it("Test 21c (repoint): clicking 'New role' from the menu opens CreateRoleDialog", () => {
+    // Phase 23: the flow is: click menu button → click "New role" → CreateRoleDialog opens.
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -163,18 +194,12 @@ describe("PrettyConversationsPanel: + New role button", () => {
     );
 
     // Dialog is not open before click
-    const dialogsBefore = document.querySelectorAll('[role="dialog"]');
-    // NewSessionDialog might be present but closed. CreateRoleDialog must not
-    // be present at all. Both dialogs live behind shadcn's Dialog wrapper which
-    // does NOT render into the DOM when `open=false`, so dialogsBefore is 0.
-    expect(dialogsBefore.length).toBe(0);
+    expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
 
-    const newRoleBtn = screen.getByRole("button", { name: /new role/i });
-    fireEvent.click(newRoleBtn);
+    // Open menu and click "New role"
+    openMenuAndClickItem(/new role/i);
 
-    // CreateRoleDialog is now rendered — look for its distinctive title text
-    // "Create a role" (or similar — asserted loosely so the dialog renderer
-    // can pick a title string that fits its style guide).
+    // CreateRoleDialog is now rendered — look for its distinctive content.
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(dialog).toBeTruthy();
     // Look for the chain checkbox — unique to CreateRoleDialog vs NewSessionDialog.

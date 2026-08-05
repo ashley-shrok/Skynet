@@ -22,7 +22,7 @@
 // test files) and focused on the panel's wiring contract.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen, act } from "@testing-library/react";
+import { render, fireEvent, screen, act, within } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
@@ -190,6 +190,19 @@ vi.mock("@/sidebar/CloneAgentDialog", () => ({
   CloneAgentDialog: () => null,
 }));
 
+// Phase 23 (GEFM-01): mock GlobalFilesModal + API so chain test doesn't pull
+// in the full modal dep tree. The modal is open=false in every test here.
+vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
+  default: (props: { open: boolean }) => (props.open ? <div data-testid="global-files-modal-stub" /> : null),
+}));
+
+vi.mock("@/api/global-files-api", () => ({
+  listGlobalFiles: vi.fn().mockResolvedValue([]),
+  readGlobalFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, size: 0 }),
+  writeGlobalFile: vi.fn().mockResolvedValue({ mtime: 0 }),
+  GlobalFileMtimeConflictError: class GlobalFileMtimeConflictError extends Error {},
+}));
+
 // ─── Component under test (import AFTER mocks) ──────────────────────────────
 
 import { PrettyConversationsPanel } from "./PrettyConversationsPanel";
@@ -255,9 +268,10 @@ describe("PrettyConversationsPanel chain: Test 10 — chain wires role+host into
       />,
     );
 
-    // Open CreateRoleDialog via the launcher button
-    const newRoleBtn = screen.getByRole("button", { name: /new role/i });
-    fireEvent.click(newRoleBtn);
+    // Phase 23 (GEFM-01): open CreateRoleDialog via the MoreVertical menu → "New role".
+    const menuBtn = screen.getByTestId("pv-header-menu-button");
+    fireEvent.click(menuBtn);
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /new role/i }));
     // CRD is now open
     expect(screen.getByTestId("fake-create-role-dialog")).toBeTruthy();
     // NSD is closed
@@ -296,8 +310,9 @@ describe("PrettyConversationsPanel chain: Test 11 — cancel path does not open 
       />,
     );
 
-    // Open CRD
-    fireEvent.click(screen.getByRole("button", { name: /new role/i }));
+    // Phase 23 (GEFM-01): Open CRD via the menu.
+    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /new role/i }));
     expect(screen.getByTestId("fake-create-role-dialog")).toBeTruthy();
 
     // Close CRD without firing the chain (simulates checkbox=false OR user
@@ -326,18 +341,19 @@ describe("PrettyConversationsPanel chain: Test 12 — chain overwrites when NSD 
       />,
     );
 
-    // Open NSD via pencil
-    const pencil = screen.getByRole("button", { name: /new agent/i });
-    fireEvent.click(pencil);
+    // Phase 23 (GEFM-01): Open NSD via the menu → "New agent".
+    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /new agent/i }));
     expect(screen.getByTestId("fake-new-session-dialog")).toBeTruthy();
     // Before chain fires, NSD has no pre-fill
     const nsdBefore = screen.getByTestId("fake-new-session-dialog");
     expect(nsdBefore.getAttribute("data-initial-host-id")).toBe("");
     expect(nsdBefore.getAttribute("data-initial-role")).toBe("");
 
-    // Now open CRD too (in normal UX flow these are mutually exclusive, but
-    // the panel state model must not crash if both wind up open)
-    fireEvent.click(screen.getByRole("button", { name: /new role/i }));
+    // Now open CRD too via the menu again (menu closes after selecting an item,
+    // so we need to reopen it for the second selection).
+    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /new role/i }));
     expect(screen.getByTestId("fake-create-role-dialog")).toBeTruthy();
 
     // Fire chain from CRD
@@ -368,8 +384,9 @@ describe("PrettyConversationsPanel chain: Test 13 — chainPrefill cleared on NS
       />,
     );
 
-    // Open CRD, fire chain → NSD opens with pre-fill
-    fireEvent.click(screen.getByRole("button", { name: /new role/i }));
+    // Phase 23 (GEFM-01): Open CRD via the menu, fire chain → NSD opens with pre-fill.
+    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /new role/i }));
     act(() => {
       fireEvent.click(screen.getByTestId("fake-crd-fire-chain"));
     });
@@ -383,9 +400,9 @@ describe("PrettyConversationsPanel chain: Test 13 — chainPrefill cleared on NS
     });
     expect(screen.queryByTestId("fake-new-session-dialog")).toBeFalsy();
 
-    // Reopen NSD via pencil — must have NO pre-fill (chainPrefill cleared)
-    const pencil = screen.getByRole("button", { name: /new agent/i });
-    fireEvent.click(pencil);
+    // Phase 23 (GEFM-01): Reopen NSD via the menu → "New agent". Must have NO pre-fill.
+    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /new agent/i }));
     const nsdSecond = screen.getByTestId("fake-new-session-dialog");
     expect(nsdSecond).toBeTruthy();
     // data-initial-host-id is empty ("" when initialHost is null/undefined)

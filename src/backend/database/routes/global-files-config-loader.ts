@@ -85,7 +85,7 @@ export async function loadGlobalFilesConfig(
     // Check size before reading full content to guard against large files.
     const stat = await fs.stat(configPath);
     if (stat.size > MAX_CONFIG_BYTES) {
-      sshLogger.error({
+      sshLogger.error("global-files-config-loader: config file exceeds size cap", {
         operation: "global_files_config_size",
         error: `Config file is ${stat.size} bytes (max ${MAX_CONFIG_BYTES}) — returning empty state`,
         path: configPath,
@@ -99,7 +99,7 @@ export async function loadGlobalFilesConfig(
       // Missing file is normal for hosts that haven't been configured yet.
       return { hosts: {} };
     }
-    sshLogger.error({
+    sshLogger.error("global-files-config-loader: config file read error", {
       operation: "global_files_config_read",
       error: err instanceof Error ? err.message : String(err),
       path: configPath,
@@ -111,7 +111,7 @@ export async function loadGlobalFilesConfig(
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    sshLogger.error({
+    sshLogger.error("global-files-config-loader: JSON parse error", {
       operation: "global_files_config_parse",
       error: err instanceof Error ? err.message : String(err),
       path: configPath,
@@ -128,7 +128,7 @@ export async function loadGlobalFilesConfig(
     (parsed as Record<string, unknown>).hosts === null ||
     Array.isArray((parsed as Record<string, unknown>).hosts)
   ) {
-    sshLogger.error({
+    sshLogger.error("global-files-config-loader: unexpected config shape", {
       operation: "global_files_config_parse",
       error: "Config does not have expected shape { hosts: {...} }",
       path: configPath,
@@ -176,7 +176,7 @@ export function getFilesForHost(
       item === null ||
       typeof (item as Record<string, unknown>).path !== "string"
     ) {
-      sshLogger.error({
+      sshLogger.error("global-files-config-loader: entry missing path — skipping", {
         operation: "global_files_config_entry",
         error: "Entry missing required `path` string — skipping",
         entry: JSON.stringify(item),

@@ -85,6 +85,19 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
 }));
 
+// Phase 23 (GEFM-01): mock GlobalFilesModal + API so Test 10 (which renders
+// PrettyConversationsPanel) does not pull in the full modal dep tree.
+vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
+  default: (props: { open: boolean }) => (props.open ? <div data-testid="global-files-modal-stub" /> : null),
+}));
+
+vi.mock("@/api/global-files-api", () => ({
+  listGlobalFiles: vi.fn().mockResolvedValue([]),
+  readGlobalFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, size: 0 }),
+  writeGlobalFile: vi.fn().mockResolvedValue({ mtime: 0 }),
+  GlobalFileMtimeConflictError: class GlobalFileMtimeConflictError extends Error {},
+}));
+
 import { NewSessionDialog } from "./NewSessionDialog";
 // Phase 10 Wave 3: Test 10 retargeted from the retiring ConversationsPanel
 // to the new PrettyConversationsPanel. Tests 2-9 in this file cover
@@ -439,11 +452,12 @@ describe("PrettyConversationsPanel: header pencil renders before rows", () => {
       />,
     );
 
-    // The button and rows both live under the same scroller. Query for the
-    // button by aria-label and rows by data-conversation-id, then compare
-    // absolute DOM-tree order via a walker across the whole container.
+    // Phase 23 (GEFM-01): the individual "New agent" pencil button is replaced
+    // by a single MoreVertical menu button (data-testid="pv-header-menu-button").
+    // The ordering test still applies: the menu trigger must precede conversation
+    // rows in document order (same guarantee the old pencil provided).
     const button = container.querySelector(
-      'button[aria-label="New agent"]',
+      'button[data-testid="pv-header-menu-button"]',
     ) as HTMLElement | null;
     const row1 = container.querySelector(
       '[data-conversation-id="t1"]',
