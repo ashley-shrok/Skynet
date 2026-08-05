@@ -329,28 +329,44 @@ export default function GlobalFilesModal({
                   WebkitBackdropFilter: "blur(12px)",
                 }}
               >
-                {files.data.map((file) => (
-                  <button
-                    key={file.path}
-                    type="button"
-                    onClick={() => setActiveTab(file.path)}
-                    className={cn(
-                      // min-w-0 lets the button shrink below intrinsic content
-                      // width so the span's `truncate` can kick in; without it
-                      // the flex-1 share is overridden by the label's nowrap
-                      // min-content and truncation never fires.
-                      "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors flex-1 min-w-0",
-                      activeTab === file.path
-                        ? "text-[#f0ebe0]"
-                        : "text-[#a89a80] hover:text-[#e8e4d8]",
-                    )}
-                  >
-                    <FileText size={18} />
-                    <span className="truncate w-full text-center">
-                      {file.label ?? file.path.split("/").pop()}
-                    </span>
-                  </button>
-                ))}
+                {files.data.map((file) => {
+                  const selected = activeTab === file.path;
+                  return (
+                    <button
+                      key={file.path}
+                      type="button"
+                      onClick={() => setActiveTab(file.path)}
+                      className={cn(
+                        // min-w-0 lets the button shrink below intrinsic content
+                        // width so the span's `truncate` can kick in; without it
+                        // the flex-1 share is overridden by the label's nowrap
+                        // min-content and truncation never fires.
+                        "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors flex-1 min-w-0",
+                        selected
+                          ? "text-[#f0ebe0] font-semibold"
+                          : "text-[#a89a80] hover:text-[#e8e4d8]",
+                      )}
+                      // 2026-08-05: hue-tinted glassy pill on the selected tab
+                      // matches the IdentityModal treatment (hardcoded hue 220
+                      // here — no per-identity context in this modal, blue is
+                      // the modal's ambient color per L210 background).
+                      style={
+                        selected
+                          ? {
+                              background: "hsla(220, 80%, 60%, 0.18)",
+                              boxShadow:
+                                "inset 0 0 0 1px hsla(220, 80%, 70%, 0.28)",
+                            }
+                          : undefined
+                      }
+                    >
+                      <FileText size={18} />
+                      <span className="truncate w-full text-center">
+                        {file.label ?? file.path.split("/").pop()}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </Tabs>
           )}

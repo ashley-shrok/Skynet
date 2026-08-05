@@ -174,7 +174,9 @@ export function IdentityModal({
   // Phase 22 SRIC-06 / Plan 22-06: Role tab is FIRST and DEFAULT per D-CONTEXT
   // §UX rules ("Role tab is FIRST and DEFAULT — not slotted after Identity,
   // not toggleable in position"). Locked with Ashley 2026-08-04.
-  const [activeTab, setActiveTab] = useState("role");
+  // 2026-08-05: default to Bounties on open (Ashley) — the tab you actually
+  // want to see first when clicking an identity badge.
+  const [activeTab, setActiveTab] = useState("bounties");
   // refetchKey increments on Retry to re-trigger the fetch effect.
   const [refetchKey, setRefetchKey] = useState(0);
 
@@ -1407,22 +1409,37 @@ export function IdentityModal({
               WebkitBackdropFilter: "blur(12px)",
             }}
           >
-            {NAV_SECTIONS.map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setActiveTab(value)}
-                className={cn(
-                  "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors flex-1",
-                  activeTab === value
-                    ? "text-[#f0ebe0]"
-                    : "text-[#a89a80] hover:text-[#e8e4d8]",
-                )}
-              >
-                <Icon size={18} />
-                {label}
-              </button>
-            ))}
+            {NAV_SECTIONS.map(({ value, label, Icon }) => {
+              const selected = activeTab === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setActiveTab(value)}
+                  className={cn(
+                    "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors flex-1",
+                    selected
+                      ? "text-[#f0ebe0] font-semibold"
+                      : "text-[#a89a80] hover:text-[#e8e4d8]",
+                  )}
+                  // 2026-08-05: hue-tinted glassy pill on the selected tab so
+                  // it reads at-a-glance — brightness alone was too subtle.
+                  style={
+                    selected
+                      ? {
+                          background:
+                            "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.18)",
+                          boxShadow:
+                            "inset 0 0 0 1px hsla(var(--pv-id-hue, 220), 80%, 70%, 0.28)",
+                        }
+                      : undefined
+                  }
+                >
+                  <Icon size={18} />
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </Tabs>
         </DialogPrimitive.Content>

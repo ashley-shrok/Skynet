@@ -165,24 +165,21 @@ afterAll(() => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Test 21 — default activeTab is "role"
+// Test 21 — default activeTab is "bounties" (Ashley 2026-08-05: bounties
+// is the tab you actually want to see first on identity-badge click,
+// changed from "role" which was the SRIC-06 default).
 // ──────────────────────────────────────────────────────────────────────
-describe("IdentityModal — Role tab default and position (Phase 22 SRIC-06)", () => {
-  it("test 21: opens with activeTab === 'role' (Role tab pane visible on initial render)", () => {
+describe("IdentityModal — default tab and position", () => {
+  it("test 21: opens with exactly one active tab pane on initial render (default = 'bounties')", () => {
     renderModal();
 
-    // The Role tab pane (TabsContent value="role") is the only one with
-    // data-state="active" in the DOM when activeTab === "role". Radix Tabs
-    // uses aria + data attributes; the active tab panel has
-    // `data-state="active"` on the corresponding TabsContent element.
+    // Exactly one TabsContent has data-state="active" on initial render.
+    // The active pane is Bounties per the 2026-08-05 default change.
     const tabPanels = document.querySelectorAll('[role="tabpanel"]');
     const activePanels = Array.from(tabPanels).filter(
       (el) => el.getAttribute("data-state") === "active",
     );
     expect(activePanels).toHaveLength(1);
-    // The active panel's value attr should be "role"
-    // Radix marks the TabsContent with data-value in dev; test the wrapper
-    // presence + the loading skeleton for the role file (the initial state).
     expect(activePanels[0].getAttribute("data-state")).toBe("active");
   });
 
@@ -216,6 +213,16 @@ describe("IdentityModal — role-file fetch on open (Phase 22 SRIC-06)", () => {
     // Give the queueMicrotask a chance to fire the onopen handlers so send
     // is invoked on each fake socket.
     await new Promise((r) => setTimeout(r, 0));
+
+    // 2026-08-05: default tab changed from "role" to "bounties" — click the
+    // Role nav button so the Role pane is active and RoleFileTab renders.
+    // The get-role-file WS request itself fires on modal MOUNT regardless of
+    // the active tab, so this click only affects the "render the markdown"
+    // assertion further down.
+    const roleNavBtn = Array.from(
+      document.querySelectorAll(".shrink-0.flex.items-stretch button"),
+    ).find((b) => b.textContent?.includes("Role")) as HTMLButtonElement;
+    fireEvent.click(roleNavBtn);
 
     // Find the socket that sent identity:get-role-file
     const roleFileSock = findSocketForRequestType("identity:get-role-file");
@@ -256,6 +263,14 @@ describe("IdentityModal — updateRoleFile save handler (Phase 22 SRIC-06)", () 
   it("test 24: clicking Save after edit sends identity:update-role-file; response identity:role-file-updated re-hydrates state", async () => {
     renderModal();
     await new Promise((r) => setTimeout(r, 0));
+
+    // 2026-08-05: default tab changed from "role" to "bounties" — click the
+    // Role nav button so the Role pane is active and RoleFileTab renders
+    // (Edit + Save buttons only exist when the pane is mounted).
+    const roleNavBtn = Array.from(
+      document.querySelectorAll(".shrink-0.flex.items-stretch button"),
+    ).find((b) => b.textContent?.includes("Role")) as HTMLButtonElement;
+    fireEvent.click(roleNavBtn);
 
     // First, hydrate the role file state with an initial payload so the
     // edit flow can proceed (Edit button requires state.status === "ready").
