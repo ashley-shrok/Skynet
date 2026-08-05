@@ -349,12 +349,17 @@ it("Test 3: step 1 calls createIdentityRecord with correct meta and avatar bytes
   // getCandidateForBirth was called with (userId, avatarCandidateId)
   expect(mockGetCandidate).toHaveBeenCalledWith(opts.userId, opts.avatarCandidateId);
 
-  // createIdentityRecord was called with userId, meta object, avatar bytes
+  // createIdentityRecord was called with userId, meta object, avatar bytes.
+  // Patch #320 (2026-08-04) split the DB slots: identityKey (key), displayName
+  // (Capitalize(key)), title (user-provided). Prior mapping put opts.title into
+  // displayName; the corrected mapping keeps title separate and derives
+  // displayName from the key.
   expect(mockCreateIdentity).toHaveBeenCalledWith(
     opts.userId,
     expect.objectContaining({
       identityKey: "testkey",
-      displayName: "Test Title",
+      displayName: "Testkey",
+      title: "Test Title",
       colorHue: 210,
       voice: "Elena.wav",
     }),

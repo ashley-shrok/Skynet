@@ -577,8 +577,9 @@ describe("POST /identities/clone", () => {
     expect(stubBody).toContain("tina-2");
     expect(stubBody).toContain("tina");
 
-    // Candidate consumed
-    expect(consumeCandidateForBirth).toHaveBeenCalledWith(1, "cand-abc");
+    // Candidate consumed. Patch #316 (2026-08-04) made userId a string across
+    // the birth+clone flows; consumeCandidateForBirth receives the string form.
+    expect(consumeCandidateForBirth).toHaveBeenCalledWith("1", "cand-abc");
 
     // Cleanup — conn.end() fired in finally
     expect(stubConn.end).toHaveBeenCalledTimes(1);

@@ -1156,7 +1156,7 @@ describe("PrettyConversationsPanel: header pencil opens dialog", () => {
       />,
     );
 
-    const pencilBtn = getByRole("button", { name: /new session/i });
+    const pencilBtn = getByRole("button", { name: /new agent/i });
     // Phase 13 Wave 2 SHAPE-02: pencil button carries the mock's `.pv-pencil`
     // class-toggle treatment (32x32 transparent + border-radius 8px +
     // --color-pv-fg-muted icon). Retired: `w-[34px] h-[34px] rounded-full
@@ -1170,7 +1170,7 @@ describe("PrettyConversationsPanel: header pencil opens dialog", () => {
     expect(dialog).toBeTruthy();
     // The dialog also contains the "Start a new conversation" title text
     // (NewSessionDialog i18n defaultValue) — sanity check.
-    expect(dialog!.textContent).toMatch(/start a new conversation/i);
+    expect(dialog!.textContent).toMatch(/start a new agent/i);
   });
 });
 
@@ -1183,7 +1183,7 @@ describe("PrettyConversationsPanel: pencil gate", () => {
     const { queryByRole } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
-    expect(queryByRole("button", { name: /new session/i })).toBeNull();
+    expect(queryByRole("button", { name: /new agent/i })).toBeNull();
   });
 });
 
@@ -1269,7 +1269,7 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
 
     // Pencil still present when onCreateSession is provided; carries the
     // mock's `.pv-pencil` class-toggle treatment.
-    const pencil = queryByRole("button", { name: /new session/i });
+    const pencil = queryByRole("button", { name: /new agent/i });
     expect(pencil).toBeTruthy();
     expect(pencil!.className).toContain("pv-pencil");
   });
@@ -1692,7 +1692,12 @@ describe("PrettyConversationsPanel (quick-260727-kbw): mount hydration gated on 
 // Patch #167 — pinned-bounty filter
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
+// Patch #317 (2026-08-04): filter button intentionally hidden by wrapping
+// `.pv-filter` in `{false && (...)}` per Ashley's temporary ask. These 6 tests
+// exercise the filter's rendered chrome + click behavior, so they cannot run
+// while the button is gated off. Flip .skip → runnable when the un-hide lands
+// (bounty: filter-button-temp-hide-in-panel-header).
+describe.skip("PrettyConversationsPanel: pinned-bounty filter (Patch #167)", () => {
   it("Test 23: filter button renders with data-active=false + aria-pressed=false by default", () => {
     setSnapshot({ activeSet: [], pinned: [], grouped: [] });
     const { getByTestId } = render(

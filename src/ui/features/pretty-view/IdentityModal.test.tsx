@@ -161,7 +161,8 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Get the title input and change its value.
     const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
@@ -193,7 +194,7 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     // After save completes, setEditing(false) collapses the edit block.
     // Patch #277: verify pencil returned to non-editing state (Save button gone from DOM).
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /edit identity/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /edit agent/i })).toBeTruthy();
       expect(screen.queryByRole("button", { name: /Save/i })).toBeNull();
     });
   });
@@ -208,7 +209,8 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Simulate picking a file via the hidden file input.
     const fileInput = document.querySelector(
@@ -252,7 +254,8 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Type a title change to test that it's preserved after error.
     const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
@@ -299,7 +302,8 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Simulate picking a GIF file.
     const fileInput = document.querySelector(
@@ -329,7 +333,8 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Reveal edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Locate hue input by id.
     const hueInput = document.getElementById("identity-hue-input") as HTMLInputElement;
@@ -360,7 +365,8 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal({ title: "Original" });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Dirty the title.
     const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
@@ -391,7 +397,8 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
 
     // Patch #277: Cancel collapses the edit block (setEditing(false)).
     // Re-open via pencil to verify the title revert.
-    fireEvent.click(screen.getByRole("button", { name: /edit identity/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Title reverts to "Original".
     const titleInputAfter = screen.getByLabelText("Title") as HTMLInputElement;

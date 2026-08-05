@@ -178,6 +178,6 @@ describe("PrettyConversationsPanel: + New role button", () => {
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(dialog).toBeTruthy();
     // Look for the chain checkbox — unique to CreateRoleDialog vs NewSessionDialog.
-    expect(dialog!.textContent).toMatch(/then create an identity/i);
+    expect(dialog!.textContent).toMatch(/then create an agent with this role/i);
   });
 });

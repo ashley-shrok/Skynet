@@ -242,14 +242,14 @@ describe("NewSessionDialog: empty name accepted", () => {
     fireEvent.click(checkbox);
 
     // Pre-select-host: Open is disabled
-    let openBtn = getByRole("button", { name: /^open$/i }) as HTMLButtonElement;
+    let openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
     expect(openBtn.disabled).toBe(true);
 
     // Select a host
     fireEvent.click(getByText("bravo"));
 
     // Now Open is enabled (empty name is valid)
-    openBtn = getByRole("button", { name: /^open$/i }) as HTMLButtonElement;
+    openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
     expect(openBtn.disabled).toBe(false);
 
     fireEvent.click(openBtn);
@@ -283,10 +283,10 @@ describe("NewSessionDialog: non-empty name passthrough", () => {
     fireEvent.click(checkbox);
 
     fireEvent.click(getByText("alpha"));
-    const nameInput = getByLabelText(/session name/i) as HTMLInputElement;
+    const nameInput = getByLabelText(/agent name/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "my-session" } });
 
-    const openBtn = getByRole("button", { name: /^open$/i }) as HTMLButtonElement;
+    const openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
     expect(openBtn.disabled).toBe(false);
     fireEvent.click(openBtn);
 
@@ -321,10 +321,10 @@ describe("NewSessionDialog: invalid name disables Open", () => {
     fireEvent.click(checkbox);
 
     fireEvent.click(getByText("alpha"));
-    const nameInput = getByLabelText(/session name/i) as HTMLInputElement;
+    const nameInput = getByLabelText(/agent name/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "bad;name`chars" } });
 
-    const openBtn = getByRole("button", { name: /^open$/i }) as HTMLButtonElement;
+    const openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
     expect(openBtn.disabled).toBe(true);
 
     // Error message surfaced under the input
@@ -349,7 +349,7 @@ describe("NewSessionDialog: no host disables Open", () => {
         onCreate={vi.fn()}
       />,
     );
-    const openBtn = getByRole("button", { name: /^open$/i }) as HTMLButtonElement;
+    const openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
     expect(openBtn.disabled).toBe(true);
   });
 });
@@ -375,7 +375,7 @@ describe("NewSessionDialog: single-host auto-select", () => {
     fireEvent.click(checkbox);
 
     // Open button should be enabled immediately (sole host pre-selected + no extra fields needed)
-    const openBtn = getByRole("button", { name: /^open$/i }) as HTMLButtonElement;
+    const openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
     expect(openBtn.disabled).toBe(false);
 
     fireEvent.click(openBtn);
@@ -443,7 +443,7 @@ describe("PrettyConversationsPanel: header pencil renders before rows", () => {
     // button by aria-label and rows by data-conversation-id, then compare
     // absolute DOM-tree order via a walker across the whole container.
     const button = container.querySelector(
-      'button[aria-label="New session"]',
+      'button[aria-label="New agent"]',
     ) as HTMLElement | null;
     const row1 = container.querySelector(
       '[data-conversation-id="t1"]',
