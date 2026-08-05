@@ -7,6 +7,7 @@ export interface Identity {
   title: string | null;
   colorHue: number | null;
   voice: string | null;
+  role: string | null;
   avatarMime: string;
   avatarUrl: string;
   avatarEtag: string;
