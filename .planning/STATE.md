@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-08-04T20:41:04.194Z"
-last_activity: 2026-08-04
+status: executing
+last_updated: "2026-08-05T00:36:41.326Z"
+last_activity: 2026-08-05
 progress:
-  total_phases: 24
+  total_phases: 25
   completed_phases: 17
-  total_plans: 97
-  completed_plans: 93
-  percent: 71
+  total_plans: 100
+  completed_plans: 94
+  percent: 68
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 20 — identity-creation-ui
+**Current focus:** Phase 25 — sidebar-role-clustering-group-identities-by-role-within-host
 
 ## Current Position
 
-Phase: 22 (skynet-ui-parity-with-the-role-identity-paradigm) — EXECUTING
-Plan: 6 of 6 (complete; Wave 1 sibling 22-02 next)
-Status: Phase complete — ready for verification
-Last activity: 2026-08-04
+Phase: 25 (sidebar-role-clustering-group-identities-by-role-within-host) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-08-05
 
 _(Phase 20 was Plan 4 of 6 at the top of this session — untouched by this run. Phase 22 pointer is set here because Plan 22-01 just completed; it was the target of this execute-plan invocation.)_
 
@@ -93,7 +93,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -388,6 +388,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-04T20:41:04.142Z
+Last session: 2026-08-05T00:36:41.276Z
 Stopped at: Completed 24-03-PLAN.md
 Resume file: None
