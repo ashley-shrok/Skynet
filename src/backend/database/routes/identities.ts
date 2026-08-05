@@ -9,6 +9,7 @@ import { eq, and } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
+import { resolveRoleForIdentity } from "../../claude-session/identity-artifact-reader.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -49,7 +50,7 @@ function parseMultipartMetadata(req: Request): IdentityMetadata | null {
   }
 }
 
-function publicIdentity(row: typeof identities.$inferSelect) {
+function publicIdentity(row: typeof identities.$inferSelect, role: string | null = null) {
   return {
     id: row.id,
     identityKey: row.identityKey,
@@ -62,6 +63,7 @@ function publicIdentity(row: typeof identities.$inferSelect) {
     avatarEtag: row.avatarEtag,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    role,
   };
 }
 
@@ -73,7 +75,22 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
       .from(identities)
       .where(eq(identities.userId, userId))
       .all();
-    return res.json(rows.map(publicIdentity));
+    const enriched = await Promise.all(
+      rows.map(async (row) => {
+        let role: string | null = null;
+        try {
+          role = await resolveRoleForIdentity(null, row.identityKey);
+        } catch {
+          databaseLogger.warn("Failed to resolve role for identity", {
+            operation: "list_identities_resolve_role",
+            userId,
+            identityKey: row.identityKey,
+          });
+        }
+        return publicIdentity(row, role);
+      }),
+    );
+    return res.json(enriched);
   } catch (e) {
     databaseLogger.error("Failed to list identities", e, {
       operation: "list_identities",

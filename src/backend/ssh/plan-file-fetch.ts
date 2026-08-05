@@ -294,7 +294,7 @@ export async function fetchPlanFile(
       length: planFilePath.length,
       hasDotDot: planFilePath.includes(".."),
     });
-    return { error: format.error };
+    return { error: (format as { ok: false; error: string }).error };
   }
 
   try {
