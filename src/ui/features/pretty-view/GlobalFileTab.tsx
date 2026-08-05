@@ -74,16 +74,12 @@ export default function GlobalFileTab({
     );
   }
 
-  // Empty content state — mirrors RoleFileTab L78-84 pattern
-  if (!state.data.content && state.data.mtime === 0) {
-    return (
-      <div className="text-sm text-[var(--color-pv-fg-muted)]">
-        No content in this file yet.
-      </div>
-    );
-  }
-
   // Ready branch — plain monospace textarea (always editable, no view/edit toggle).
+  // 2026-08-05: no early-return for empty (content="" && mtime===0) — the
+  // textarea below renders empty and the user can type + save to CREATE the
+  // file via the write handler's SFTP tmp+rename path. The disable predicate
+  // (`draft === state.data.content`) keeps the save button off until the user
+  // actually types something, so an unchanged-empty file still can't save.
   // Textarea styling copied VERBATIM from RoleFileTab.tsx L134 per CONTEXT §specifics
   // "do NOT reinvent, it's tuned". No Cancel button — modal-close is cancel.
   return (
