@@ -161,7 +161,6 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Get the title input and change its value.
@@ -209,7 +208,6 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Simulate picking a file via the hidden file input.
@@ -254,7 +252,6 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Type a title change to test that it's preserved after error.
@@ -302,7 +299,6 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Simulate picking a GIF file.
@@ -333,7 +329,6 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal();
 
     // Reveal edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Locate hue input by id.
@@ -365,7 +360,6 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     renderModal({ title: "Original" });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Dirty the title.
@@ -397,7 +391,6 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
 
     // Patch #277: Cancel collapses the edit block (setEditing(false)).
     // Re-open via pencil to verify the title revert.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Title reverts to "Original".

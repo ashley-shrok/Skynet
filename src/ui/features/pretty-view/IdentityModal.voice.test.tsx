@@ -162,7 +162,6 @@ describe("IdentityModal voice picker (patch #223)", () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     await waitFor(() => {
@@ -183,7 +182,6 @@ describe("IdentityModal voice picker (patch #223)", () => {
     renderModal({ voice: null });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     await waitFor(() => {
@@ -196,7 +194,6 @@ describe("IdentityModal voice picker (patch #223)", () => {
     renderModal({ voice: "Elena.wav" });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     await waitFor(() => {
@@ -209,7 +206,6 @@ describe("IdentityModal voice picker (patch #223)", () => {
     renderModal({ voice: null });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Wait for voices to load
@@ -229,7 +225,6 @@ describe("IdentityModal voice picker (patch #223)", () => {
     renderModal({ voice: null });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Wait for voices to load
@@ -258,7 +253,6 @@ describe("IdentityModal voice picker (patch #223)", () => {
     renderModal({ voice: null });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Leave dropdown at "(default)" — value is ""
@@ -280,7 +274,6 @@ describe("IdentityModal voice picker (patch #223)", () => {
     renderModal({ voice: null });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Wait for voices to load
@@ -314,7 +307,6 @@ describe("IdentityModal voice picker (patch #223)", () => {
     renderModal({ voice: "Elena.wav" });
 
     // Patch #277: reveal the edit block via pencil toggle.
-    fireEvent.click(screen.getByRole("button", { name: /^Identity$/ }));
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     // Wait for voices to load

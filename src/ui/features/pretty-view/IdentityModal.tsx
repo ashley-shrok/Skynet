@@ -1050,6 +1050,133 @@ export function IdentityModal({
           </DialogClose>
         </DialogHeader>
 
+        {/* Header-level edit drawer (2026-08-05): the pencil in DialogHeader
+            toggles this block. Lives ABOVE <Tabs> so editing works regardless
+            of the active tab. Previous placement was inside <TabsContent
+            value="identity">, which made the pencil appear to do nothing when
+            clicked from the Role tab (Phase 22 SRIC-06 made Role the default). */}
+        {editing && (
+          <div
+            className="shrink-0 px-6 pt-3 pb-4 border-b"
+            style={{ borderBottomColor: "rgba(220, 225, 245, 0.10)" }}
+          >
+            <h3 className="text-xs uppercase tracking-wide text-[var(--color-pv-fg-muted)] mb-3">
+              Edit agent
+            </h3>
+
+            {/* Avatar preview + file picker row */}
+            <div className="flex items-center gap-3 mb-3">
+              <img
+                src={avatarPreviewUrl ?? `${identity.avatarUrl}?v=${identity.avatarEtag}`}
+                alt=""
+                className="shrink-0 object-cover"
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
+                }}
+                draggable={false}
+              />
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={onAvatarPick}
+                  disabled={saving}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild={false}
+                  type="button"
+                  className="cursor-pointer"
+                  disabled={saving}
+                  onClick={(e) => {
+                    // Delegate click to the hidden file input inside the label.
+                    // Prevent the label's default click from double-firing.
+                    (e.currentTarget.parentElement?.querySelector("input[type='file']") as HTMLInputElement | null)?.click();
+                  }}
+                >
+                  Change avatar…
+                </Button>
+              </label>
+            </div>
+
+            {/* Title input */}
+            <div className="mb-3">
+              <label
+                className="block text-xs text-[var(--color-pv-fg-muted)] mb-1"
+                htmlFor="identity-title-input"
+              >
+                Title
+              </label>
+              <input
+                id="identity-title-input"
+                type="text"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                disabled={saving}
+                style={{
+                  width: "100%",
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(220,225,245,0.15)",
+                  borderRadius: 6,
+                  padding: "6px 10px",
+                  color: "#f0ebe0",
+                  fontSize: "0.875rem",
+                  outline: "none",
+                }}
+              />
+            </div>
+
+            {/* Patch #223: Voice picker (extracted to VoicePicker component) */}
+            <div className="mb-3">
+              <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-voice-select">Voice</label>
+              <VoicePicker id="identity-voice-select" value={voiceDraft} onChange={setVoiceDraft} disabled={saving} />
+            </div>
+
+            {/* Patch #279: colorHue picker (extracted to ColorPicker component) */}
+            <div className="mb-3">
+              <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-hue-input">Color</label>
+              <ColorPicker id="identity-hue-input" value={hueDraft} onChange={setHueDraft} disabled={saving} />
+            </div>
+
+            {/* Inline error */}
+            {saveError && (
+              <p className="text-sm text-[color:var(--color-pv-code-fg)] mb-3">
+                Couldn&apos;t save: {saveError}
+              </p>
+            )}
+
+            {/* Save + Cancel buttons */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="cursor-pointer"
+                disabled={
+                  saving ||
+                  (titleDraft === committedTitle && avatarFile === null && (voiceDraft || null) === committedVoice && hueDraft === committedHue)
+                }
+                onClick={() => { void onSave(); }}
+              >
+                {saving ? "Saving…" : "Save"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="cursor-pointer"
+                disabled={saving}
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Tabs — patch #17g: Identity / Bounties / History / Wakeups / Handoff
             Phase 22 SRIC-06 / Plan 22-06: Role tab inserted at position 0 (FIRST)
             per D-CONTEXT §UX rules ("Role tab is FIRST and DEFAULT").
@@ -1079,125 +1206,6 @@ export function IdentityModal({
             value="identity"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            {/* Quick 260731-1c8: inline editor block — title + avatar
-                Patch #277: gated behind the pencil toggle (editing state). */}
-            {editing && (<div className="mb-6">
-              <h3 className="text-xs uppercase tracking-wide text-[var(--color-pv-fg-muted)] mb-3">
-                Edit agent
-              </h3>
-
-              {/* Avatar preview + file picker row */}
-              <div className="flex items-center gap-3 mb-3">
-                <img
-                  src={avatarPreviewUrl ?? `${identity.avatarUrl}?v=${identity.avatarEtag}`}
-                  alt=""
-                  className="shrink-0 object-cover"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: "50%",
-                    boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
-                  }}
-                  draggable={false}
-                />
-                <label className="cursor-pointer">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    className="sr-only"
-                    onChange={onAvatarPick}
-                    disabled={saving}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    asChild={false}
-                    type="button"
-                    className="cursor-pointer"
-                    disabled={saving}
-                    onClick={(e) => {
-                      // Delegate click to the hidden file input inside the label.
-                      // Prevent the label's default click from double-firing.
-                      (e.currentTarget.parentElement?.querySelector("input[type='file']") as HTMLInputElement | null)?.click();
-                    }}
-                  >
-                    Change avatar…
-                  </Button>
-                </label>
-              </div>
-
-              {/* Title input */}
-              <div className="mb-3">
-                <label
-                  className="block text-xs text-[var(--color-pv-fg-muted)] mb-1"
-                  htmlFor="identity-title-input"
-                >
-                  Title
-                </label>
-                <input
-                  id="identity-title-input"
-                  type="text"
-                  value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  disabled={saving}
-                  style={{
-                    width: "100%",
-                    background: "rgba(255,255,255,0.06)",
-                    border: "1px solid rgba(220,225,245,0.15)",
-                    borderRadius: 6,
-                    padding: "6px 10px",
-                    color: "#f0ebe0",
-                    fontSize: "0.875rem",
-                    outline: "none",
-                  }}
-                />
-              </div>
-
-              {/* Patch #223: Voice picker (extracted to VoicePicker component) */}
-              <div className="mb-3">
-                <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-voice-select">Voice</label>
-                <VoicePicker id="identity-voice-select" value={voiceDraft} onChange={setVoiceDraft} disabled={saving} />
-              </div>
-
-              {/* Patch #279: colorHue picker (extracted to ColorPicker component) */}
-              <div className="mb-3">
-                <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-hue-input">Color</label>
-                <ColorPicker id="identity-hue-input" value={hueDraft} onChange={setHueDraft} disabled={saving} />
-              </div>
-
-              {/* Inline error */}
-              {saveError && (
-                <p className="text-sm text-[color:var(--color-pv-code-fg)] mb-3">
-                  Couldn&apos;t save: {saveError}
-                </p>
-              )}
-
-              {/* Save + Cancel buttons */}
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="cursor-pointer"
-                  disabled={
-                    saving ||
-                    (titleDraft === committedTitle && avatarFile === null && (voiceDraft || null) === committedVoice && hueDraft === committedHue)
-                  }
-                  onClick={() => { void onSave(); }}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="cursor-pointer"
-                  disabled={saving}
-                  onClick={onCancel}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>)}
-
             {/* Existing identity.md markdown preview — Phase 18 / IDMEDIT-01: onSave threaded */}
             <IdentityFileTab state={identityFileState} onSave={updateIdentityFile} />
           </TabsContent>
