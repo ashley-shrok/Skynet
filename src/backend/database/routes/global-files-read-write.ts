@@ -382,11 +382,39 @@ router.put(
         return;
       }
 
-      // escapedPath for all exec-channel commands (shell injection gate).
-      const escapedPath = shellEscape(filePath);
+      // ---------------------------------------------------------------------
+      // 5. Tilde expansion — SFTP does NOT tilde-expand paths, AND single-quote
+      //    escaping (used for all shell interpolation below) suppresses shell
+      //    tilde expansion too. Resolve $HOME first so every downstream
+      //    command (mtime check, currentContent cat, SFTP write, re-stat) sees
+      //    the actual file, not a literal `~/...` that stat/cat can't find.
+      //    Runs BEFORE the optimistic-concurrency check on purpose: a raw
+      //    `~/...` in the mtime check would silently return 0, false-triggering
+      //    a 409 on every save (caught 2026-08-05 during quick-260805-70q UAT).
+      // ---------------------------------------------------------------------
+      let absPath = filePath;
+      if (filePath.startsWith("~/")) {
+        const remoteHome = (
+          await execWithTimeout(conn, "echo $HOME")
+        ).trim();
+        if (!remoteHome || remoteHome.startsWith("~")) {
+          // echo $HOME failed to resolve — bail rather than write to a bogus path.
+          sshLogger.warn("global-files-write: could not resolve remote HOME", {
+            operation: "global_files_write_home",
+            hostId,
+            remoteHome,
+          });
+          res.status(502).json({ error: "could not resolve remote HOME" });
+          return;
+        }
+        absPath = `${remoteHome}/${filePath.slice(2)}`;
+      }
+
+      // escapedPath wraps the resolved absPath (not raw filePath) — see step 5.
+      const escapedPath = shellEscape(absPath);
 
       // ---------------------------------------------------------------------
-      // 5. Optimistic concurrency check (only when expectedMtime is provided).
+      // 6. Optimistic concurrency check (only when expectedMtime is provided).
       //    If the file has changed since the client read it, return 409 with
       //    the current mtime + content so the client can offer reload+retry.
       //    409 shape locked per CONTEXT §specifics:
@@ -417,30 +445,6 @@ router.put(
       }
 
       // ---------------------------------------------------------------------
-      // 6. Tilde expansion — SFTP does NOT tilde-expand paths.
-      //    If the whitelisted path starts with ~/ we must resolve $HOME first
-      //    (mirrors roles-create.ts L289 idiom and PATTERNS §GEFM-04 write
-      //    pattern).
-      // ---------------------------------------------------------------------
-      let absPath = filePath;
-      if (filePath.startsWith("~/")) {
-        const remoteHome = (
-          await execWithTimeout(conn, "echo $HOME")
-        ).trim();
-        if (!remoteHome || remoteHome.startsWith("~")) {
-          // echo $HOME failed to resolve — bail rather than write to a bogus path.
-          sshLogger.warn("global-files-write: could not resolve remote HOME", {
-            operation: "global_files_write_home",
-            hostId,
-            remoteHome,
-          });
-          res.status(502).json({ error: "could not resolve remote HOME" });
-          return;
-        }
-        absPath = `${remoteHome}/${filePath.slice(2)}`;
-      }
-
-      // ---------------------------------------------------------------------
       // 7. SFTP atomic write — reuse writeMarkdownFileAtomic (do NOT re-impl).
       //    Uses ext_openssh_rename for atomic overwrite (avoids the EEXIST
       //    SSH2_FX_FAILURE trap of plain sftp.rename — see writeMarkdownFileAtomic
@@ -463,8 +467,8 @@ router.put(
       // 8. Re-stat for server-authoritative new mtime.
       //    Client uses the returned mtime as expectedMtime on the NEXT write
       //    (mirrors the server-echo-authoritative pattern from identity updates).
-      //    Use escapedPath (the original path) not absPath here — stat works
-      //    with either the tilde or the absolute form after the write.
+      //    escapedPath wraps absPath (see step 5), the same path SFTP just
+      //    wrote — so stat sees the file we just created/updated.
       // ---------------------------------------------------------------------
       const newMtimeStr = (
         await execWithTimeout(
