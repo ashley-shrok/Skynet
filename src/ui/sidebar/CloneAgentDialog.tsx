@@ -447,6 +447,26 @@ export function CloneAgentDialog({
             )}
           </div>
 
+          {/* quick-260806-dwe: subtext during the slow await so the modal
+              doesn't feel hung. cloneIdentity now blocks for ~25s while the
+              backend runs the harness-start sequence (trust-flag pre-write,
+              claude launch, 2s sleep, 7-Enter train × 3s, /id <newName>).
+              role="status" + aria-live="polite" so screen readers announce
+              it without stealing focus. Mutually exclusive with submitError
+              (both live in the same visual slot; error only renders after
+              submitting flips false). Positioned BEFORE the error span so
+              on failure the error is what remains visible. */}
+          {submitting && (
+            <span
+              role="status"
+              aria-live="polite"
+              className="text-xs text-[color:var(--color-pv-fg-muted)]"
+            >
+              Preparing session… (this can take ~25s while the new agent's
+              Claude harness starts up)
+            </span>
+          )}
+
           {/* Inline submit error (Test 22 collision surface + generic errors) */}
           {submitError && (
             <span className="text-xs text-[color:var(--color-pv-code-fg)]">

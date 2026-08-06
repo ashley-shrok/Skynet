@@ -467,4 +467,53 @@ describe("CloneAgentDialog", () => {
     fireEvent.change(screen.getByLabelText(/^path/i), { target: { value: "~/projects/foo" } });
     expect(submit.disabled).toBe(false);
   });
+
+  it("Test 25: shows 'Preparing session…' status while cloneIdentity is pending, clears on resolve [260806-dwe]", async () => {
+    // The clone endpoint now blocks ~25s on the backend running startHarness-
+    // OnIdentity before responding 201. Without a visible signal during that
+    // gap, the modal looks hung — user retries, second POST collides with
+    // half-created state, cascade. This test guards the accessible status
+    // line (role="status" aria-live="polite") that renders under the modal
+    // body while `submitting === true`.
+    const source = makeIdentity();
+    let resolveClone: (v: Identity) => void = () => {};
+    mockCloneIdentity.mockReturnValueOnce(
+      new Promise<Identity>((r) => {
+        resolveClone = r;
+      }),
+    );
+
+    render(
+      <CloneAgentDialog
+        open={true}
+        onClose={() => {}}
+        sourceIdentity={source}
+        hostId={5}
+      />,
+    );
+
+    // Fill required fields + click Clone (title/voice/path already pre-filled).
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: "tina-2" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: /clone|submit|create/i }),
+    );
+
+    // Preparing text appears while the cloneIdentity promise is pending.
+    await waitFor(() => {
+      expect(screen.getByText(/preparing session/i)).toBeTruthy();
+    });
+
+    // Resolve the promise → submitting flips false → preparing text clears.
+    resolveClone(
+      makeIdentity({
+        id: "new-id",
+        identityKey: "tina-2",
+        displayName: "tina-2",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/preparing session/i)).toBeNull();
+    });
+  });
 });

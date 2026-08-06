@@ -112,6 +112,7 @@ import {
   getCandidateForBirth,
   consumeCandidateForBirth,
 } from "./identity-avatar-batch.js";
+import { startHarnessOnIdentity } from "./identity-harness-start.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -498,6 +499,23 @@ router.post(
           conn,
           `mkdir -p ${escWorkingPath} && (tmux has-session -t ${newName} 2>/dev/null || tmux new-session -d -s ${newName} -c ${escWorkingPath} ${TMUX_NEW_SESSION_FLAGS})`,
         );
+
+        // quick-260806-dwe: launch the Claude harness on the freshly-created
+        // tmux session so cloneIdentity does not return 201 until the Claude
+        // REPL is live AND /id <newName> has been sent. Without this, patch
+        // #321's auto-route callback (CloneAgentDialog.onCreateSession) fires
+        // on a bare login shell and pretty-view renders "no active Claude
+        // session" for the newly-cloned identity's tab. Same helper birth
+        // uses for its own steps 3-5. Latency added: ~25s (2s post-launch
+        // sleep + 6 × 3s Enter-train gaps + exec RTT overhead). If the helper
+        // rejects (e.g. SSH exec failure mid-Enter-train), the outer catch
+        // below returns 502 "SSH exec failed" — same class as an mkdir
+        // failure, so no new error-shape surface for the frontend.
+        await startHarnessOnIdentity({
+          exec: (cmd) => execWithTimeout(conn!, cmd),
+          name: newName,
+          remotePath: escWorkingPath,
+        });
       } catch (err) {
         sshLogger.warn("identity-clone: provision exec failed", {
           operation: "identity_clone_provision",

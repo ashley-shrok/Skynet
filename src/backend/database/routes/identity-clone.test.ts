@@ -102,6 +102,13 @@ vi.mock("./identity-avatar-batch.js", () => ({
   default: express.Router(),
 }));
 
+// quick-260806-dwe: mock the extracted harness-start helper so clone tests
+// don't have to simulate the ~25s tmux+sleep dance. Behavioral parity of the
+// actual sequence is covered by identity-harness-start.test.ts.
+vi.mock("./identity-harness-start.js", () => ({
+  startHarnessOnIdentity: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ---------------------------------------------------------------------------
 // In-memory DB shim — mirrors the drizzle chain surface the route uses.
 // State is reset per-test via beforeEach so cross-test isolation holds.
@@ -211,6 +218,7 @@ import {
   getCandidateForBirth,
   consumeCandidateForBirth,
 } from "./identity-avatar-batch.js";
+import { startHarnessOnIdentity } from "./identity-harness-start.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -307,9 +315,14 @@ import router from "./identity-clone.js";
 
 let server: http.Server;
 
+// quick-260806-dwe: typed mock reference for the harness-start helper. Casted
+// to Mock so tests can .mockRejectedValueOnce and inspect .mock.calls.
+const mockStartHarness = startHarnessOnIdentity as unknown as Mock;
+
 beforeEach(() => {
   vi.clearAllMocks();
   stubConn.end.mockClear();
+  mockStartHarness.mockReset().mockResolvedValue(undefined);
   dbState.rows = [];
   dbState.lastFilter = {};
   filterAccum = {};
@@ -591,6 +604,29 @@ describe("POST /identities/clone", () => {
     // the birth+clone flows; consumeCandidateForBirth receives the string form.
     expect(consumeCandidateForBirth).toHaveBeenCalledWith("1", "cand-abc");
 
+    // quick-260806-dwe: startHarnessOnIdentity was called EXACTLY once with the
+    // new session's name + normalized remotePath. It must be invoked AFTER the
+    // tmux new-session exec (ordering invariant — the harness can only start on
+    // an already-created tmux session).
+    expect(mockStartHarness).toHaveBeenCalledTimes(1);
+    expect(mockStartHarness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "tina-2",
+        remotePath: expect.any(String),
+      }),
+    );
+    const provisionCallIdx = (execCommand as Mock).mock.calls.findIndex(
+      (c) =>
+        typeof c[1] === "string" &&
+        (c[1] as string).includes("tmux new-session"),
+    );
+    expect(provisionCallIdx).toBeGreaterThanOrEqual(0);
+    const provisionInvocation = (execCommand as Mock).mock.invocationCallOrder[
+      provisionCallIdx
+    ];
+    const harnessInvocation = mockStartHarness.mock.invocationCallOrder[0];
+    expect(harnessInvocation).toBeGreaterThan(provisionInvocation);
+
     // Cleanup — conn.end() fired in finally
     expect(stubConn.end).toHaveBeenCalledTimes(1);
   });
@@ -815,5 +851,47 @@ describe("POST /identities/clone", () => {
     );
     expect(provisionExec).toBeDefined();
     expect(provisionExec).toContain("tmux new-session -d -s tina-abs -c '/opt/projects/thing'");
+  });
+
+  it("Test 18: startHarnessOnIdentity rejection → 502 AND DB insert does NOT run [260806-dwe]", async () => {
+    // The helper's failure surface widens the clone endpoint's 502 case: any
+    // rejection during the ~25s harness-start dance (trust-flag write, claude
+    // launch, Enter train, /id) now returns 502 "SSH exec failed" — same
+    // class as an mkdir failure, so the frontend's error UX is unchanged.
+    // Critically, the DB insert must NOT run when the harness fails: a
+    // half-state ("identity registered but harness dead") would leave the
+    // sidebar with a row whose pretty-view shows "no active Claude session"
+    // and no clean recovery path (Ashley's Rule: never leave the fleet in an
+    // observable half-state).
+    mockStartHarness.mockRejectedValueOnce(new Error("harness send-keys failed"));
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-harnessfail",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+      }),
+    });
+
+    expect(res.status).toBe(502);
+    expect((res.body as { error: string }).error).toBe("SSH exec failed");
+
+    // No DB row for the failed clone — only the seeded source row remains.
+    expect(dbState.rows.length).toBe(1);
+    expect(dbState.rows.filter((r) => r.identityKey === "tina-harnessfail")).toEqual([]);
+
+    // writeMarkdownFileAtomic must NOT have been called — SFTP identity-file
+    // write is downstream of harness-start in the endpoint's ordering.
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+
+    // conn.end() still fires in the outer finally — connection cleanup is
+    // best-effort and unconditional.
+    expect(stubConn.end).toHaveBeenCalledTimes(1);
   });
 });
