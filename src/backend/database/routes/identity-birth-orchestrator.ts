@@ -22,6 +22,7 @@
  */
 
 import type { Client as SSHClient } from "ssh2";
+import { startHarnessOnIdentity } from "./identity-harness-start.js";
 
 // ---------------------------------------------------------------------------
 // Nelly-verbatim constants (audited against agent-supervisor.sh + DM §1)
@@ -503,74 +504,36 @@ export async function birthIdentity(
     });
 
     // -----------------------------------------------------------------------
-    // Step 3: pre-write hasTrustDialogAccepted + launch claude CLI
-    // Nelly §1(c-f): trust flag MUST be pre-set BEFORE claude launch
+    // Steps 3-5: post-tmux Claude-harness bootstrap.
+    //
+    // quick-260806-dwe: The verbatim body of steps 3-5 was extracted into
+    // identity-harness-start.ts so clone can reuse the exact same sequence
+    // (trust-flag pre-write → claude launch → 2s sleep → 7-Enter train →
+    // /id <name> + Enter). Birth delegates the whole sequence to the helper.
+    //
+    // SSE contract preservation: the frontend's BirthProgress checklist
+    // ticks 5 items (steps 1..5), so after the helper completes we still
+    // emit synthetic started+completed events for steps 4 and 5. The actual
+    // work all happens inside runStep(3); a helper rejection surfaces as
+    // step:3:failed (Test 14 expects that attribution for the claude-launch
+    // failure case, which is inside the helper). Failure attribution for a
+    // rejection during the Enter train or /id would also surface as step 3,
+    // which is acceptable — the frontend's failure UX just shows "step
+    // failed at N" and offers no per-step recovery.
     // -----------------------------------------------------------------------
     await runStep(3, async () => {
-      // Build the trust-flag write command.
-      // For remote: the node one-liner runs on the target host (cribbed from
-      // agent-supervisor.sh:125 accept_trust_for_workdir() — structure preserved verbatim).
-      // The path inside the JS one-liner is passed via process.argv[1] to avoid
-      // shell-escape complexity in the outer double-quoted node -e string.
-      //
-      // For local: same one-liner, but we could also use fsp.readFile/writeFile.
-      // We keep the same node one-liner for both branches so behavior is identical.
-      //
-      // Path for trust-flag: use normalizedPath (already has $HOME or absolute)
-      // Note: we pass the path as process.argv[1] to the node one-liner using
-      // a shell argument — this avoids embedding the path inside the JS string,
-      // which would require complex escaping. The outer shell single-quotes the path arg.
-      const trustCmd =
-        `node -e ` +
-        shellSingleQuote(
-          `const fs=require("fs"),os=require("os"),p=require("path");` +
-          `const f=p.join(os.homedir(),".claude.json");` +
-          `const wd=process.argv[1];` +
-          `let d={};try{d=JSON.parse(fs.readFileSync(f,"utf8"));}catch(e){}` +
-          `if(typeof d!=="object"||!d||Array.isArray(d))d={};` +
-          `d.projects=(d.projects&&typeof d.projects==="object")?d.projects:{};` +
-          `d.projects[wd]=(d.projects[wd]&&typeof d.projects[wd]==="object")?d.projects[wd]:{};` +
-          `d.projects[wd].hasTrustDialogAccepted=true;` +
-          `try{fs.writeFileSync(f,JSON.stringify(d,null,2)+"\\n");console.log("set");}catch(e){console.log("skip");}`,
-        ) +
-        ` ${escPath}`;
-
-      await exec(trustCmd);
-
-      // Claude launch via tmux send-keys -t <name> -l "..." (literal mode so
-      // the env-vars don't get interpreted by the shell before tmux sees them)
-      const claudeCmd = `${CLAUDE_LAUNCH_CMD_PREFIX} claude --dangerously-skip-permissions`;
-      await exec(`tmux send-keys -t ${opts.name} -l ${shellSingleQuote(claudeCmd)}`);
-
-      // Separate Enter (Nelly §1(e): two distinct send-keys calls)
-      await exec(`tmux send-keys -t ${opts.name} Enter`);
-
-      // Sleep 2s before starting the Enter train (Nelly §1(f))
-      await sleep(STEP_3_SLEEP_MS);
+      await startHarnessOnIdentity({
+        exec,
+        name: opts.name,
+        remotePath: escPath,
+      });
     });
-
-    // -----------------------------------------------------------------------
-    // Step 4: Blind Enter train × ENTER_TRAIN_COUNT at ENTER_TRAIN_SPACING_MS
-    // Deliberately fire-and-forget, timing-based, NOT scrape-based (Nelly §1(g)).
-    // Overshoot at an empty REPL is a no-op. Scrape detection is explicitly
-    // excluded — sequence is deliberately dumb per Nelly: timing-based only.
-    // -----------------------------------------------------------------------
-    await runStep(4, async () => {
-      for (let i = 0; i < ENTER_TRAIN_COUNT; i++) {
-        await exec(`tmux send-keys -t ${opts.name} Enter`);
-        if (i < ENTER_TRAIN_COUNT - 1) {
-          await sleep(ENTER_TRAIN_SPACING_MS);
-        }
-      }
-    });
-
-    // -----------------------------------------------------------------------
-    // Step 5: Send /id <name> then Enter (Nelly §1(h-i))
-    // -----------------------------------------------------------------------
-    await runStep(5, async () => {
-      await exec(`tmux send-keys -t ${opts.name} -l ${shellSingleQuote(`/id ${opts.name}`)}`);
-      await exec(`tmux send-keys -t ${opts.name} Enter`);
-    });
+    // Preserve the SSE 5-event contract for the frontend checklist. These are
+    // informational only — the actual work happened inside runStep(3).
+    emit({ type: "step", n: 4, phase: "started" });
+    emit({ type: "step", n: 4, phase: "completed" });
+    emit({ type: "step", n: 5, phase: "started" });
+    emit({ type: "step", n: 5, phase: "completed" });
 
     // All 5 steps completed successfully
     emit({ type: "ended", ok: true, identityId, sessionName: opts.name });
