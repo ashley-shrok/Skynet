@@ -17,7 +17,7 @@ import os from "os";
 import path from "path";
 import crypto from "crypto";
 
-import { handleConsoleLog } from "./debug.js";
+import { DEFAULT_LOG_PATH, getLogPath, handleConsoleLog } from "./debug.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Express mock (enough to drive the handler)
@@ -82,6 +82,19 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("getLogPath default", () => {
+  // Regression guard: the log-forwarder's whole point is post-hoc inspection
+  // across container restarts, so its default MUST NOT live under /tmp inside
+  // the container (wiped on every --force-recreate). Bit us 2026-08-06 when
+  // a deploy wiped voice-diag evidence Ashley had just produced.
+  it("default is not under /tmp", () => {
+    delete process.env.SKYNET_CONSOLE_FORWARD_LOG_PATH;
+    const p = getLogPath();
+    expect(p.startsWith("/tmp/")).toBe(false);
+    expect(p).toBe(DEFAULT_LOG_PATH);
+  });
+});
 
 describe("handleConsoleLog", () => {
   it("returns 204 and writes one JSON line to the mirror file for a valid entry", () => {

@@ -9,12 +9,17 @@ import { AuthManager } from "../../utils/auth-manager.js";
 //
 // Accepts batched frontend console log entries, stores them in an
 // in-process ring buffer (last 1000), and mirrors each entry as a
-// JSON line to a server-side file greppable via:
-//   sudo docker exec skynet cat /tmp/skynet-console-forward.log
+// JSON line to a server-side file greppable via (host-side, since the
+// default path is a bind-mount from /opt/skynet/console-forward-logs):
+//   sudo cat /opt/skynet/console-forward-logs/console-forward.log
 //
 // File path is configured via SKYNET_CONSOLE_FORWARD_LOG_PATH (env var
 // read lazily inside the handler, not at module load, so tests can
-// override per test without module-reset gymnastics).
+// override per test without module-reset gymnastics). Default lives
+// under /var/log/skynet/console-forward/ so the compose bind-mount
+// makes it durable across container recreates — /tmp inside the
+// container is wiped on every --force-recreate and the whole point of
+// forwarding logs is post-hoc inspection across restarts.
 //
 // File writes are best-effort: errors are logged but never surfaced to
 // the caller. File rotates at 5 MB with a [LOG_ROTATED at <ts>] marker.
@@ -54,8 +59,11 @@ export const ring: LogEntry[] = [];
 
 // --- lazy log path accessor (called inside handler so tests can override env) ---
 
+export const DEFAULT_LOG_PATH =
+  "/var/log/skynet/console-forward/console-forward.log";
+
 export function getLogPath(): string {
-  return process.env.SKYNET_CONSOLE_FORWARD_LOG_PATH ?? "/tmp/skynet-console-forward.log";
+  return process.env.SKYNET_CONSOLE_FORWARD_LOG_PATH ?? DEFAULT_LOG_PATH;
 }
 
 // --- core handler (exported for direct testing without Express harness) ---
