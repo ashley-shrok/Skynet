@@ -488,6 +488,12 @@ describe("usePrettyViewUploads", () => {
     expect(result.current.pendingSendWaitingForWs).toBe(true);
   });
 
+  // Timeout bump: this test awaits startBatch() which resolves only after
+  // ALL 100 chunks (5 files × 20) fully drain through jsdom Blob.arrayBuffer
+  // + base64 + WS send + microtask yield — real IO in the test loop, not
+  // fake-timer-driven, so it takes several seconds under load. Default 5 s
+  // isn't safe; 20 s is comfortable and the axis under test is concurrency,
+  // not timing.
   it("Test 11: concurrent upload limit — 5 large files, only 3 have chunks in flight at once", async () => {
     const { result } = renderHook(() =>
       usePrettyViewUploads({
@@ -553,7 +559,7 @@ describe("usePrettyViewUploads", () => {
     expect(inProgressCount).toBeLessThanOrEqual(
       MAX_CONCURRENT_UPLOADS_PER_BATCH,
     );
-  });
+  }, 20000);
 
   it("Test 12: backpressure — throttled by getBufferedAmount above 4MB", async () => {
     let buffered = 5 * 1024 * 1024; // 5MB — above threshold
