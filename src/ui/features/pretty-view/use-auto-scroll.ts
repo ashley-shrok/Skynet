@@ -126,14 +126,23 @@ export function useAutoScroll(paneKey?: string): UseAutoScrollResult {
     };
   }, [scrollEl, paneKey, enterStick, jumpToBottom]);
 
-  // ResizeObserver → if sticky, jump to bottom on every content growth.
-  // Also recomputes pill visibility (distance-from-bottom check for the
-  // pill state, NOT for stickiness — stickiness only changes on gesture).
+  // ResizeObserver → if sticky, jump to bottom on content GROWTH only.
+  // Skip the jump on shrink (WipBubble unmount, aside close, etc.) — when
+  // truly at the bottom the browser auto-clamps scrollTop on shrink so the
+  // extra jumpToBottom is redundant, and in the near-bottom-but-not-quite
+  // case (say 30px above) forcing a jump drags the viewport further than
+  // the user intended, which reads as "content jumps down when WIP
+  // disappears."
+  const prevScrollHeightRef = useRef<number>(0);
   useEffect(() => {
     if (!scrollEl || !contentEl) return;
+    prevScrollHeightRef.current = scrollEl.scrollHeight;
     const ro = new ResizeObserver(() => {
+      const nextHeight = scrollEl.scrollHeight;
+      const shrunk = nextHeight < prevScrollHeightRef.current;
+      prevScrollHeightRef.current = nextHeight;
       if (stickToBottomRef.current) {
-        jumpToBottom(scrollEl);
+        if (!shrunk) jumpToBottom(scrollEl);
         // Keep pill hidden while sticky.
         if (!isPinnedToBottom) setIsPinnedToBottom(true);
       } else {
