@@ -165,6 +165,10 @@ export interface CloneIdentityInput {
   title: string;
   voice: string | null;
   avatarCandidateId: string | null;
+  /** Working directory for the new identity on the target host. Backend
+   *  mkdir -p's this path. Required (default "~" in CloneAgentDialog).
+   *  Mirrors birth's `path` param — supports "~", "~/foo", or absolute. */
+  path: string;
 }
 
 export async function cloneIdentity(input: CloneIdentityInput): Promise<Identity> {

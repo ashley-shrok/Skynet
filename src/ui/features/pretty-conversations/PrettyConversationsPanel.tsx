@@ -69,8 +69,10 @@ import {
   hideConversation,
   unhideConversation,
   hydrateHiddenIdsFromServer,
+  updateFleetSessions,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
+import { getSessionList } from "@/api/sessions-api";
 import { useSessionWorking } from "@/state/session-working-store";
 import { useSessionRecycling } from "@/state/session-recycling-store";
 import { useSessionQueuePending } from "@/state/session-queue-pending-store";
@@ -1138,13 +1140,30 @@ export function PrettyConversationsPanel({
         sourceIdentity={cloneDialogState?.sourceIdentity ?? null}
         hostId={cloneDialogState?.hostId ?? null}
         onCloned={() => {
-          // Mirror NewSessionDialog's post-birth refresh: the identities-store
-          // loads once on first useIdentities() mount and never re-fetches on
-          // its own, so a fresh clone row is absent from byKey lookups until
-          // this fires. Without it the sidebar row renders with empty title,
-          // no colorHue, and the default avatar even though the DB row is
-          // fully populated.
+          // Two-part refresh so the new clone appears in the sidebar without
+          // requiring an app reopen:
+          //
+          // 1) identities-store: title/color/avatar lookups for the new row
+          //    (byKey.get(identityKey) must return the fresh Identity).
+          //
+          // 2) fleetSessions: the sidebar ROWS come from getSessionList()'s
+          //    fleet-scan snapshot, NOT identities-store. AppShell.tsx fetches
+          //    this ONCE per mount ("TG-17 shape lock: exactly once per mount")
+          //    so a newly-cloned identity is absent from sidebar rows until
+          //    the app reopens — bad UX. Re-fetch here so patricia (or whoever
+          //    was just cloned) surfaces immediately. Same helpers AppShell
+          //    uses: getSessionList → updateFleetSessions.
+          //
+          // Both best-effort — a failure shouldn't block the modal close.
           void refreshIdentities();
+          void (async () => {
+            try {
+              const sessions = await getSessionList();
+              updateFleetSessions(Array.isArray(sessions) ? sessions : []);
+            } catch {
+              // Silent — next natural refresh (or reopen) will catch up.
+            }
+          })();
         }}
       />
       {/* Phase 23 (GEFM-05): GlobalFilesModal — portal-mounted sibling of the

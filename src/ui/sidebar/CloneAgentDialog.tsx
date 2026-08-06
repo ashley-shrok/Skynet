@@ -86,6 +86,11 @@ export function CloneAgentDialog({
   const [name, setName] = useState<string>("");
   const [title, setTitle] = useState<string>("");
   const [voice, setVoice] = useState<string>("");
+  // Working directory on the target host for the new identity's sessions.
+  // Required; defaults to "~" (mirrors birth's NewSessionDialog default) so
+  // clones don't inherit the source identity's cwd (patty from poppy was
+  // silently landing in poppy's project dir before this field existed).
+  const [path, setPath] = useState<string>("~");
 
   const [candidates, setCandidates] = useState<AvatarCandidate[]>([]);
   const [pickedCandidateId, setPickedCandidateId] = useState<string | null>(null);
@@ -103,6 +108,7 @@ export function CloneAgentDialog({
       setName("");
       setTitle(sourceIdentity?.title ?? "");
       setVoice(sourceIdentity?.voice ?? "");
+      setPath("~");
       setCandidates([]);
       setPickedCandidateId(null);
       setGenLoading(false);
@@ -113,6 +119,7 @@ export function CloneAgentDialog({
       setName("");
       setTitle("");
       setVoice("");
+      setPath("~");
       setCandidates([]);
       setPickedCandidateId(null);
       setGenLoading(false);
@@ -125,10 +132,12 @@ export function CloneAgentDialog({
   // ─── Validation ───────────────────────────────────────────────────────────
   const nameValid = name.length > 0 && CLONE_NAME_PATTERN.test(name);
   const titleValid = title.trim().length > 0;
+  const pathValid = path.trim().length > 0;
   const canSubmit =
     !submitting &&
     nameValid &&
     titleValid &&
+    pathValid &&
     sourceIdentity !== null &&
     hostId !== null;
 
@@ -169,6 +178,7 @@ export function CloneAgentDialog({
         title: title.trim(),
         voice: voice.length > 0 ? voice : null,
         avatarCandidateId: pickedCandidateId,
+        path: path.trim(),
       });
       if (onCloned) {
         try {
@@ -266,6 +276,32 @@ export function CloneAgentDialog({
               placeholder="e.g. Research Assistant"
               disabled={submitting}
             />
+          </div>
+
+          {/* Path input (required, defaults to "~"). Working dir for the new
+              identity on the target host — mirrors birth's path field. Without
+              this the new session inherits the source's cwd (e.g. a poppy
+              clone would silently land in poppy's project dir). */}
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="clone-path"
+              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+            >
+              Path
+            </label>
+            <Input
+              id="clone-path"
+              aria-label="Path"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="~"
+              disabled={submitting}
+            />
+            {!pathValid && (
+              <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                Path is required.
+              </span>
+            )}
           </div>
 
           {/* Voice picker — reused from pretty-view/pickers */}
@@ -377,12 +413,14 @@ export function CloneAgentDialog({
             {cancelLabel}
           </Button>
           <Button
+            variant="outline"
+            className="text-[color:var(--color-pv-code-fg)] hover:opacity-90 disabled:opacity-50"
             onClick={() => {
               void handleSubmit();
             }}
             disabled={!canSubmit}
           >
-            {createLabel}
+            {submitting ? "Creating..." : createLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

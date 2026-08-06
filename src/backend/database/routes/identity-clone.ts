@@ -126,6 +126,39 @@ const SSH_EXEC_TIMEOUT_MS = 5000;
 /** Field length caps. */
 const MAX_TITLE_LEN = 200;
 const MAX_VOICE_LEN = 100;
+/** Working-directory path cap. Typical PATH_MAX is 4096; keep generous. */
+const MAX_PATH_LEN = 4096;
+
+/** tmux new-session terminal sizing (mirrors identity-birth-orchestrator's
+ *  TMUX_NEW_SESSION_FLAGS — Nelly §3 terminal-sizing gotcha). */
+const TMUX_NEW_SESSION_FLAGS = "-x 220 -y 50";
+
+/** POSIX single-quote escape. Wraps s in '...' and escapes embedded ' as '\''.
+ *  Mirrors identity-birth-orchestrator's shellSingleQuote — same trap class
+ *  (user string interpolated into a remote shell) needs the same discipline. */
+function shellSingleQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
+/** Shell-safe path helper: leave "$HOME" or "$HOME/..." UNQUOTED so the remote
+ *  shell expands the var, single-quote everything else. Mirrors birth's shellPath.
+ *  Caller must normalize "~" / "~/foo" to "$HOME" / "$HOME/foo" first. */
+function shellPath(p: string): string {
+  if (p === "$HOME" || p.startsWith("$HOME/")) return p;
+  return shellSingleQuote(p);
+}
+
+/** Normalize a user-supplied path for remote shell use. Mirrors the same
+ *  helper in identity-birth-orchestrator.ts step 0b (patch #318): "~" / "~/"
+ *  → "$HOME"; "~/foo" → "$HOME/foo"; everything else passes through unchanged.
+ *  Without this, single-quoted "~/foo" hits the remote shell literally and
+ *  tilde does NOT expand — mkdir would create a directory called "~". */
+function normalizeRemotePath(p: string): string {
+  let n = p.replace(/\\/g, "/");
+  if (n === "" || n === "~" || n === "~/") return "$HOME";
+  if (n.startsWith("~/")) return "$HOME/" + n.slice(2);
+  return n;
+}
 
 /**
  * REVISION 2026-08-04 (Ashley at 22-02 checkpoint, applied here per same-
@@ -217,6 +250,7 @@ router.post(
     const rawTitle = body.title;
     const rawVoice = body.voice;
     const rawCandidateId = body.avatarCandidateId;
+    const rawPath = body.path;
 
     if (typeof rawSource !== "string" || rawSource.length === 0) {
       res.status(400).json({ error: "sourceIdentityKey is required" });
@@ -270,6 +304,14 @@ router.post(
       res.status(400).json({ error: "avatarCandidateId must be a string or null" });
       return;
     }
+    if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
+      res.status(400).json({ error: "path is required" });
+      return;
+    }
+    if (rawPath.length > MAX_PATH_LEN) {
+      res.status(400).json({ error: `path must be ≤${MAX_PATH_LEN} chars` });
+      return;
+    }
 
     const sourceIdentityKey = rawSource;
     const newName = rawNewName;
@@ -280,6 +322,7 @@ router.post(
       typeof rawCandidateId === "string" && rawCandidateId.length > 0
         ? rawCandidateId
         : null;
+    const path = rawPath.trim();
 
     // -----------------------------------------------------------------------
     // 2. Fetch source row from Skynet DB (userId filter for cross-user gate)
@@ -424,6 +467,12 @@ router.post(
       //    the SSH relay-register block per REVISION 2026-08-04.
       //    - mkdir -p new-identity-dir + wakeups (single exec, idempotent)
       //    - touch handoff.md
+      //    - mkdir -p <working-dir> for the identity's sessions. Idempotent;
+      //      supports "~", "~/foo", absolute paths — normalizeRemotePath()
+      //      rewrites tilde to $HOME so the remote shell expands it (single-
+      //      quoted "~/foo" doesn't expand — same trap birth caught in
+      //      patch #318). shellPath() leaves "$HOME..." unquoted, single-
+      //      quotes everything else for injection safety.
       // ---------------------------------------------------------------------
       try {
         await execWithTimeout(
@@ -434,11 +483,27 @@ router.post(
           conn,
           `touch "$HOME/.claude/identities/${newName}/handoff.md"`,
         );
+        const escWorkingPath = shellPath(normalizeRemotePath(path));
+        // mkdir + tmux new-session in one exec (mirrors identity-birth-
+        // orchestrator step 2's shape). tmux has-session gate makes the
+        // create idempotent — a re-clone with the same name after prior
+        // cleanup is safe; a live conflicting session prevents accidental
+        // clobber. newName is already gated by IDENTITY_KEY_RE so it's
+        // shell-safe to interpolate into `-s <name>`. Without this step
+        // the tmux session that starts when the user clicks the new row
+        // in the sidebar lands in $HOME (Skynet's default cwd for a fresh
+        // tmux) instead of the path — exactly the "clone lands in poppy's
+        // cwd" problem this patch was meant to fix.
+        await execWithTimeout(
+          conn,
+          `mkdir -p ${escWorkingPath} && (tmux has-session -t ${newName} 2>/dev/null || tmux new-session -d -s ${newName} -c ${escWorkingPath} ${TMUX_NEW_SESSION_FLAGS})`,
+        );
       } catch (err) {
         sshLogger.warn("identity-clone: provision exec failed", {
           operation: "identity_clone_provision",
           hostId,
           newName,
+          path,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH exec failed" });

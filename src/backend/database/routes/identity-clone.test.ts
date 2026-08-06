@@ -380,6 +380,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
     expect(res.status).toBe(400);
@@ -398,6 +399,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
     expect(res.status).toBe(400);
@@ -416,6 +418,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
     expect(res.status).toBe(404);
@@ -433,6 +436,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
     expect(res.status).toBe(404);
@@ -455,6 +459,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
     expect(res.status).toBe(500);
@@ -484,6 +489,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
     expect(res.status).toBe(409);
@@ -506,6 +512,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: "Nathan.wav",
         avatarCandidateId: "cand-abc",
+        path: "~",
       }),
     });
 
@@ -599,6 +606,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
 
@@ -634,6 +642,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
     expect(res.status).toBe(502);
@@ -655,6 +664,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
     expect(res.status).toBe(401);
@@ -703,6 +713,7 @@ describe("POST /identities/clone", () => {
         title: "Cloned Op",
         voice: null,
         avatarCandidateId: null,
+        path: "~",
       }),
     });
 
@@ -714,5 +725,95 @@ describe("POST /identities/clone", () => {
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
     // No insert happened — still just source + seeded collision row
     expect(dbState.rows.length).toBe(2);
+  });
+
+  it("Test 14: missing path → 400", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "clone-nopath",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        // no path field
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/path is required/i);
+    // Path validation runs BEFORE any SSH work
+    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  it("Test 15: empty-string path → 400", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "clone-emptypath",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "   ",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/path is required/i);
+  });
+
+  it("Test 16: mkdir -p AND tmux new-session fire with the given path (tilde expanded to $HOME)", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-mkdir",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~/foo/bar",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const execCalls = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    // "~/foo/bar" normalizes to "$HOME/foo/bar" and is left UNQUOTED so the
+    // remote shell expands $HOME. Assert both mkdir and tmux new-session are
+    // in the same provisioning exec (single round-trip, matches birth's step 2).
+    const provisionExec = execCalls.find(
+      (c) => c.includes("mkdir -p $HOME/foo/bar") && c.includes("tmux new-session"),
+    );
+    expect(provisionExec).toBeDefined();
+    expect(provisionExec).toContain("tmux new-session -d -s tina-mkdir -c $HOME/foo/bar");
+    // has-session gate for idempotency
+    expect(provisionExec).toContain("tmux has-session -t tina-mkdir");
+  });
+
+  it("Test 17: absolute path → mkdir -p AND tmux new-session are single-quoted for injection safety", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-abs",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "/opt/projects/thing",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const execCalls = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    const provisionExec = execCalls.find(
+      (c) => c.includes("mkdir -p '/opt/projects/thing'") && c.includes("tmux new-session"),
+    );
+    expect(provisionExec).toBeDefined();
+    expect(provisionExec).toContain("tmux new-session -d -s tina-abs -c '/opt/projects/thing'");
   });
 });
