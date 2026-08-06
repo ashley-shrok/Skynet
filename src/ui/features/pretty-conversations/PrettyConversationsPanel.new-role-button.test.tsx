@@ -79,7 +79,7 @@ vi.mock("@/api/user-preferences-api", () => ({
 }));
 
 vi.mock("@/state/session-working-store", () => ({
-  useSessionWorking: () => null,
+  useSessionIsWorking: () => false,
 }));
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal so this test suite does not pull in

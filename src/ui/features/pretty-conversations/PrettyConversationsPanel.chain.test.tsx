@@ -88,7 +88,7 @@ vi.mock("@/api/user-preferences-api", () => ({
 }));
 
 vi.mock("@/state/session-working-store", () => ({
-  useSessionWorking: () => null,
+  useSessionIsWorking: () => false,
 }));
 
 // ─── Dialog fakes ────────────────────────────────────────────────────────────

@@ -236,13 +236,14 @@ vi.mock("@/api/user-preferences-api", () => ({
   putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
-// Patch #137: PrettyConversationsPanel calls useSessionWorking(sessionKey)
-// inside its per-row PrettyConversationRowLive micro-component. Mock
-// returns null for every key so the ready-dot render condition is never
-// satisfied — matches this test file's pre-patch-#137 behavior of never
-// rendering a dot at any render site.
+// Patch #137 / #260806-ixl: PrettyConversationsPanel calls
+// useSessionIsWorking(sessionKey) inside its per-row
+// PrettyConversationRowLive micro-component. Mock returns false for
+// every key so the ready-dot render condition is never satisfied —
+// matches the pre-patch-#137 behavior; false is the "not working"
+// boolean equivalent of the old null return.
 vi.mock("@/state/session-working-store", () => ({
-  useSessionWorking: () => null,
+  useSessionIsWorking: () => false,
 }));
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal so the panel-level test suite

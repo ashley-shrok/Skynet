@@ -73,7 +73,7 @@ import {
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 import { getSessionList } from "@/api/sessions-api";
-import { useSessionWorking } from "@/state/session-working-store";
+import { useSessionIsWorking } from "@/state/session-working-store";
 import { useSessionRecycling } from "@/state/session-recycling-store";
 import { useSessionQueuePending } from "@/state/session-queue-pending-store";
 import { useIdentities, refreshIdentities } from "@/state/identities-store";
@@ -155,7 +155,7 @@ function PrettyConversationRowLive(props: {
   subtitleMode?: "hostname" | "identityTitle";
 }) {
   const { sessionKey, inActiveSet, ...rowProps } = props;
-  const isWorking = useSessionWorking(sessionKey);
+  const isWorking = useSessionIsWorking(sessionKey);
   // quick-260730-qbl: recycling-store consumption. Keyed identically to the
   // working-store subscription above — both stores share the exact same
   // `${hostId}:${tmuxSession ?? ""}` shape (PrettyView.tsx and Terminal.tsx
