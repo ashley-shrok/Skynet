@@ -124,6 +124,13 @@ export interface PrettyViewProps {
   // flows through the existing split-and-delay path (patch #100) under
   // the same lifecycle key.
   onInjectedTurnReady?: (text: string, messageQueueItemId: string) => void;
+  // Quick 260806-lzd — long-press-to-toggle-pretty-view. Terminal.tsx passes
+  // `() => setIsPrettyMode(v => !v)` so the pretty-view-surface IdentityBadge
+  // can flip back to terminal mode via the same tap-and-hold gesture the
+  // terminal-surface badge uses. Optional so callers that don't own the
+  // isPrettyMode state (e.g. tests, standalone previews) can omit it — the
+  // badge then simply doesn't wire pointer handlers (see IdentityBadge).
+  onTogglePrettyMode?: () => void;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -166,6 +173,7 @@ export function PrettyView({
   isIdle,
   terminalWs,
   onInjectedTurnReady,
+  onTogglePrettyMode,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
@@ -1201,8 +1209,8 @@ export function PrettyView({
       {pvIdentityKey && (
         <IdentityBadge
           identityKey={pvIdentityKey}
-          size="lg"
           onClick={() => setIsIdentityModalOpen(true)}
+          onLongPress={onTogglePrettyMode}
         />
       )}
       {/* Patch #87: identity bounties modal. Portals to document.body via

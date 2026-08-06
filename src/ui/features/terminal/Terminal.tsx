@@ -42,6 +42,7 @@ import {
 import "./terminal-global-styles.ts";
 import { sessionMatchKey, hueFromSessionName } from "./session-hue.ts";
 import { IdentityBadge } from "./IdentityBadge.tsx";
+import { IdentityModal } from "@/features/pretty-view/IdentityModal";
 import { MessageQueueDrawer } from "./MessageQueueDrawer.tsx";
 import { PrettyView } from "@/features/pretty-view/PrettyView";
 import { listMessageQueueItems } from "@/api/message-queue-api";
@@ -235,6 +236,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const [isPrettyMode, setIsPrettyMode] = useState(false);
+    // Quick 260806-lzd — terminal-mode IdentityBadge tap opens this modal.
+    // Parity with PrettyView.tsx's identity-badge affordance so the identity
+    // modal is reachable from BOTH surfaces (previously PrettyView-only).
+    const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
     // Auto-activate pretty view once per tab when the tab's tmux session
     // resolves to a registered identity. A ref (not state) tracks the
     // one-shot flag so a later Ctrl+Shift+O off is respected forever after —
@@ -3055,6 +3060,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }}
             terminalWs={webSocketRef.current}
             onInjectedTurnReady={handleInjectedTurnReady}
+            // Quick 260806-lzd — long-press-to-toggle-pretty-view. Threads
+            // through to PrettyView's IdentityBadge so the pretty-view
+            // surface badge can flip back to terminal mode via the same
+            // tap-and-hold gesture the terminal-surface badge uses.
+            // Semantically equivalent to AppShell's Ctrl+Shift+O.
+            onTogglePrettyMode={() => setIsPrettyMode((v) => !v)}
           />
         )}
         {isPrettyMode && (hostConfig.id == null || !tmuxSessionName) && (
@@ -3097,7 +3108,40 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           <div className="session-tint" aria-hidden="true" />
         )}
 
-        {isConnected && identityKey && !isPrettyMode && <IdentityBadge identityKey={identityKey} />}
+        {isConnected && identityKey && !isPrettyMode && (
+          <IdentityBadge
+            identityKey={identityKey}
+            // Quick 260806-lzd — tap opens the identity modal (parity with
+            // pretty-view surface); long-press toggles pretty-view mode
+            // (semantically equivalent to Ctrl+Shift+O on desktop, and the
+            // only path to toggle on mobile / gamepad).
+            onClick={() => setIsIdentityModalOpen(true)}
+            onLongPress={() => setIsPrettyMode((v) => !v)}
+          />
+        )}
+        {/* Quick 260806-lzd — terminal-mode identity modal. Mount guarded
+            by identityKey non-null AND hostConfig.id non-null (Modal needs
+            the full Identity object AND the numeric hostId for its 5
+            parallel WS artifact fetches). Portals to document.body via
+            shadcn Dialog — the terminal surface has no equivalent of
+            PrettyView's chatRegionEl container. Root-body portal is
+            behaviorally correct: modal is app-modal at z-[500], overlay
+            at z-[110], both above the xterm surface. Ashley wants modal
+            reachability from terminal mode, not a specific portal target. */}
+        {isConnected &&
+          identityKey &&
+          !isPrettyMode &&
+          hostConfig.id != null &&
+          identitiesByKey.get(identityKey) && (
+            <IdentityModal
+              open={isIdentityModalOpen}
+              onOpenChange={setIsIdentityModalOpen}
+              identity={identitiesByKey.get(identityKey)!}
+              hue={sessionHue ?? 35}
+              hostId={hostConfig.id}
+              container={null}
+            />
+          )}
 
         {isMobile && isConnected && !isPrettyMode && (
           <Toolbar
