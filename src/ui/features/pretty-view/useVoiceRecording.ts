@@ -121,12 +121,15 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
     return new Promise((resolve) => {
       const recorder = recorderRef.current;
       if (!recorder) {
+        console.warn("[voice-diag] stopRecording: recorderRef null, resolving null");
         resolve(null);
         return;
       }
+      console.warn(`[voice-diag] stopRecording: calling recorder.stop() (recorder.state=${recorder.state})`);
       recorder.onstop = () => {
         const type = recorder.mimeType || "audio/webm";
         const blob = new Blob(chunksRef.current, { type });
+        console.warn(`[voice-diag] stopRecording: onstop fired, blob size=${blob.size} type=${type}`);
         chunksRef.current = [];
         // Stop all stream tracks and clear refs.
         if (streamRef.current) {
@@ -158,16 +161,21 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
     const fd = new FormData();
     fd.append("file", blob, `clip.${ext}`);
 
+    console.warn(`[voice-diag] transcribeBlob: POST ${TRANSCRIBE_URL} blobSize=${blob.size} ext=${ext}`);
+
     let res: Response;
     try {
       res = await fetch(TRANSCRIBE_URL, { method: "POST", body: fd });
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "fetch error";
+      console.warn(`[voice-diag] transcribeBlob: fetch threw: ${msg}`);
       playSound(errorAudioRef.current);
       setErrorMessage(`STT error: ${msg}`);
       return null;
     }
+
+    console.warn(`[voice-diag] transcribeBlob: fetch resolved status=${res.status} ok=${res.ok}`);
 
     if (!res.ok) {
       playSound(errorAudioRef.current);
@@ -177,8 +185,11 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
 
     try {
       const json = (await res.json()) as { text?: string };
+      console.warn(`[voice-diag] transcribeBlob: parsed json textLen=${(json.text ?? "").length}`);
       return json.text ?? "";
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[voice-diag] transcribeBlob: json parse threw: ${msg}`);
       playSound(errorAudioRef.current);
       setErrorMessage("STT error: invalid response");
       return null;
@@ -248,9 +259,14 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
    * No-op if state !== "recording".
    */
   async function cancel(): Promise<void> {
-    if (state !== "recording") return;
+    console.warn(`[voice-diag] cancel: entry state=${state}`);
+    if (state !== "recording") {
+      console.warn(`[voice-diag] cancel: gate rejected (state !== recording), returning`);
+      return;
+    }
     playSound(cancelAudioRef.current);
     await stopRecording();
+    console.warn(`[voice-diag] cancel: stopRecording resolved, setting state=idle`);
     // Blob is discarded — no fetch.
     setState("idle");
   }
@@ -264,18 +280,25 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
   async function endAppend(
     currentText: string,
   ): Promise<VoiceRecordingResult | null> {
-    if (state !== "recording") return null;
+    console.warn(`[voice-diag] endAppend: entry state=${state} currentTextLen=${currentText.length}`);
+    if (state !== "recording") {
+      console.warn(`[voice-diag] endAppend: gate rejected (state !== recording), returning null`);
+      return null;
+    }
 
     playSound(stopAudioRef.current);
     const blob = await stopRecording();
+    console.warn(`[voice-diag] endAppend: stopRecording resolved, blob=${blob ? `size=${blob.size}` : "null"}, setting state=transcribing`);
     setState("transcribing");
 
     if (!blob) {
+      console.warn(`[voice-diag] endAppend: blob null, setting state=idle, returning null`);
       setState("idle");
       return null;
     }
 
     const transcript = await transcribeBlob(blob);
+    console.warn(`[voice-diag] endAppend: transcribeBlob resolved, transcript=${transcript === null ? "null" : `"${transcript.slice(0, 40)}..."(${transcript.length}ch)`}, setting state=idle`);
     setState("idle");
 
     if (transcript === null) return null;
@@ -298,18 +321,25 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
   async function endSend(
     currentText: string,
   ): Promise<VoiceRecordingResult | null> {
-    if (state !== "recording") return null;
+    console.warn(`[voice-diag] endSend: entry state=${state} currentTextLen=${currentText.length}`);
+    if (state !== "recording") {
+      console.warn(`[voice-diag] endSend: gate rejected (state !== recording), returning null`);
+      return null;
+    }
 
     playSound(stopAudioRef.current);
     const blob = await stopRecording();
+    console.warn(`[voice-diag] endSend: stopRecording resolved, blob=${blob ? `size=${blob.size}` : "null"}, setting state=transcribing`);
     setState("transcribing");
 
     if (!blob) {
+      console.warn(`[voice-diag] endSend: blob null, setting state=idle, returning null`);
       setState("idle");
       return null;
     }
 
     const transcript = await transcribeBlob(blob);
+    console.warn(`[voice-diag] endSend: transcribeBlob resolved, transcript=${transcript === null ? "null" : `"${transcript.slice(0, 40)}..."(${transcript.length}ch)`}, setting state=idle`);
     setState("idle");
 
     if (transcript === null) return null;
