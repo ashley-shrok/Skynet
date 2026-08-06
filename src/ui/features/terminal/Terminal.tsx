@@ -352,9 +352,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // handles restoration, no user-visible harm. Deliberately does NOT clear
     // the xterm buffer (tmux repaint on reattach handles restoration;
     // clearing was the visible-flicker cause in the manual overlay path).
-    // Target-terminated cases (wasDisconnectedBySSH === true) still require
-    // manual Reconnect via the overlay at lines ~3014-3049 — that affordance
-    // is intentional and unchanged.
+    // Target-terminated cases (wasDisconnectedBySSH === true) also attempt
+    // reconnect on foreground rather than requiring a manual click: the
+    // backend sends `{type:"disconnected"}` for both real target death AND
+    // for the WS-idle-timeout that fires when a mobile tab suspends, and
+    // the caller cannot distinguish them. On foreground we optimistically
+    // reconnect — if the tmux session is still alive (the common case) we
+    // reattach silently; if the target truly is dead, connectToHost fails
+    // exactly like the manual Reconnect button would have.
     useEffect(() => {
       if (!isIosPwa()) return;
       const handleVisibilityChange = () => {
@@ -369,7 +374,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         }
         // visible branch
         if (isUnmountingRef.current) return;
-        if (wasDisconnectedBySSH.current) return;
         shouldNotReconnectRef.current = false;
         isReconnectingRef.current = false;
         isConnectingRef.current = false;
@@ -1184,6 +1188,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       });
 
       ws.addEventListener("message", (event) => {
+        // Ignore messages from a stale socket. On mobile foreground the
+        // visibility handler opens a fresh WS via connectToHost, which closes
+        // the previous one — but a queued `{type:"disconnected"}` from the
+        // old socket can still fire and would pop the Connection Lost overlay
+        // AFTER the new socket has already reconnected and rendered content.
+        if (ws !== webSocketRef.current) return;
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "pong") {
@@ -1417,7 +1427,24 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               if (onClose) onClose();
             } else if (wasConnectedRef.current) {
               wasConnectedRef.current = false;
-              setShowDisconnectedOverlay(true);
+              // On iOS PWA, a non-graceful `disconnected` is almost always
+              // the WS-idle teardown triggered by a mobile-tab suspend, not
+              // real target death. Skip the manual Connection Lost overlay
+              // and auto-reconnect: if the tab is currently visible, kick
+              // connectToHost immediately; if still hidden, clear the
+              // "don't reconnect" flags so the visibilitychange handler
+              // reconnects on foreground. If the target is genuinely dead
+              // the fresh WS will fail and the connection-error banner will
+              // surface it.
+              if (isIosPwa()) {
+                shouldNotReconnectRef.current = false;
+                wasDisconnectedBySSH.current = false;
+                if (!document.hidden && terminal) {
+                  connectToHost(terminal.cols, terminal.rows);
+                }
+              } else {
+                setShowDisconnectedOverlay(true);
+              }
             } else if (!connectionErrorRef.current) {
               updateConnectionError(
                 msg.message || t("terminal.connectionRejected"),
@@ -3100,6 +3127,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             </p>
             <div className="flex gap-2">
               <Button
+                variant="secondary"
+                className="bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))] text-[#dfe3ee] border-[rgba(120,140,180,0.35)] shadow-[0_4px_12px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(220,230,255,0.14),0_0_16px_rgba(120,140,180,0.18)] hover:brightness-110"
                 onClick={() => {
                   setShowDisconnectedOverlay(false);
                   isUnmountingRef.current = false;
