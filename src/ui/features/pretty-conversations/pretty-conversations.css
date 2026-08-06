@@ -342,7 +342,7 @@
   border-color: hsla(var(--pv-hue), 65%, 55%, 0.42);
 }
 
-.pv-row.selected {
+.pv-row.pv-row--desktop.selected {
   transform: translateY(-1px);
   border-color: hsla(var(--pv-hue), 70%, 60%, 0.55);
   box-shadow:
