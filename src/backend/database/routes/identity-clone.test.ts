@@ -289,7 +289,10 @@ const stubSourceRow: IdentityRow = {
   title: "Fleet Operator",
   colorHue: 128,
   voice: "Elena.wav",
-  avatarMime: "image/png",
+  // Deliberately NOT image/png — exercises the mime-preservation path so a
+  // regression to hardcoded "image/png" for the source-verbatim reuse case
+  // (root cause of the default-terminal-icon render bug) breaks Test 9.
+  avatarMime: "image/webp",
   avatarData: sourceAvatarBytes,
   avatarEtag: "src-etag-md5",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -608,7 +611,10 @@ describe("POST /identities/clone", () => {
     const newRow = dbState.rows.find((r) => r.identityKey === "tina-3");
     expect(newRow).toBeDefined();
     expect(newRow!.avatarData.equals(sourceAvatarBytes)).toBe(true);
-    expect(newRow!.avatarMime).toBe("image/png");
+    // avatarMime mirrors source (image/webp per stub) — NOT hardcoded PNG.
+    // Regression guard for the default-terminal-icon bug where reusing a
+    // WebP buffer verbatim with a PNG mime blocked browser render.
+    expect(newRow!.avatarMime).toBe("image/webp");
     // colorHue still locked to source
     expect(newRow!.colorHue).toBe(128);
   });
@@ -675,5 +681,38 @@ describe("POST /identities/clone", () => {
     // Never reaches the SSH path
     expect(connectOneShot).not.toHaveBeenCalled();
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("Test 13: newName already exists in DB for this user → 409 BEFORE any SSH work", async () => {
+    // Seed a second identity row for the same user with the target newName.
+    // Precheck (step 2b) must catch this and return 409 without touching SSH.
+    dbState.rows.push({
+      ...stubSourceRow,
+      id: "existing-collision-id",
+      identityKey: "patty",
+      displayName: "patty",
+    });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "patty",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+      }),
+    });
+
+    expect(res.status).toBe(409);
+    expect((res.body as { error: string }).error).toMatch(/already in use/i);
+    // Precheck short-circuits before any SSH primitive fires
+    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+    // No insert happened — still just source + seeded collision row
+    expect(dbState.rows.length).toBe(2);
   });
 });

@@ -301,6 +301,31 @@ router.post(
     const sourceRow = sourceRows[0];
 
     // -----------------------------------------------------------------------
+    // 2b. Precheck: DB (userId, newName) uniqueness. Prevents the halfway-
+    //     through state where SFTP creates the identity folder on the target
+    //     but the DB insert then trips the (user_id, identity_key) UNIQUE
+    //     constraint — surfaced as a generic 500 the frontend renders as
+    //     "server error occurred please try again later." The FE already maps
+    //     409 → IdentityCloneCollisionError → inline "name already exists"
+    //     modal error, so returning 409 here gives the user an actionable
+    //     message and short-circuits before any SSH work.
+    // -----------------------------------------------------------------------
+    const existingRows = db
+      .select()
+      .from(identities)
+      .where(
+        and(
+          eq(identities.userId, userId),
+          eq(identities.identityKey, newName),
+        ),
+      )
+      .all();
+    if (existingRows.length > 0) {
+      res.status(409).json({ error: "identity name already in use" });
+      return;
+    }
+
+    // -----------------------------------------------------------------------
     // 3. Fetch avatar bytes (candidate cache OR source's buffer)
     // -----------------------------------------------------------------------
     let avatarBytes: Buffer;
@@ -489,6 +514,12 @@ router.post(
       const newId = nanoid();
       const now = new Date().toISOString();
       const etag = createHash("md5").update(avatarBytes).digest("hex");
+      // Mime discipline: candidate bytes are gpt-image-1 PNGs (see identity-
+      // avatar-batch); source-verbatim reuse must preserve source's original
+      // mime (may be image/webp for older avatars). Hardcoding "image/png"
+      // when reusing a WebP buffer produced a Content-Type/body mismatch that
+      // rendered as the default terminal-icon fallback on every clone.
+      const clonedAvatarMime = avatarCandidateId ? "image/png" : sourceRow.avatarMime;
       const insertRow = {
         id: newId,
         userId,
@@ -497,7 +528,7 @@ router.post(
         title: title.length > 0 ? title : sourceRow.title,
         colorHue: sourceRow.colorHue, // LOCKED — user CANNOT override
         voice: voice !== null && voice.length > 0 ? voice : sourceRow.voice,
-        avatarMime: "image/png",
+        avatarMime: clonedAvatarMime,
         avatarData: avatarBytes,
         avatarEtag: etag,
         createdAt: now,
@@ -507,6 +538,24 @@ router.post(
       try {
         db.insert(identities).values(insertRow).run();
       } catch (err) {
+        // Race backstop for the step-2b precheck: two concurrent clones with
+        // the same newName can both pass the precheck and reach the insert.
+        // better-sqlite3 tags UNIQUE-index violations with
+        // .code === "SQLITE_CONSTRAINT_UNIQUE"; surface as 409 so the FE
+        // inline-error path fires instead of the misleading generic 500.
+        const code = (err as { code?: string } | undefined)?.code;
+        if (code === "SQLITE_CONSTRAINT_UNIQUE") {
+          databaseLogger.warn(
+            "identity-clone: DB insert collided after precheck (race)",
+            {
+              operation: "identity_clone_db_insert_collision",
+              userId,
+              newName,
+            },
+          );
+          res.status(409).json({ error: "identity name already in use" });
+          return;
+        }
         databaseLogger.error("identity-clone: DB insert failed", err, {
           operation: "identity_clone_db_insert",
           userId,

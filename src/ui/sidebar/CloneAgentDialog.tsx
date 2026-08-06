@@ -180,8 +180,13 @@ export function CloneAgentDialog({
       onClose();
     } catch (err) {
       if (err instanceof IdentityCloneCollisionError) {
+        // 409 covers two collision surfaces: a matching (userId, identityKey)
+        // row already in the Skynet DB (backend step 2b precheck), or a
+        // matching folder already on the target host (backend step 7 FS
+        // probe). Either way the user's next move is the same — pick a
+        // different name — so keep the message location-agnostic.
         setSubmitError(
-          `Name "${name}" already exists on the source host`,
+          `Name "${name}" is already in use — pick a different name.`,
         );
       } else {
         setSubmitError(err instanceof Error ? err.message : "clone failed");

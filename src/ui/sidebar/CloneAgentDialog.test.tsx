@@ -17,7 +17,7 @@
 //   Test 21: On submit, calls cloneIdentity({sourceIdentityKey, hostId,
 //     newName, title, voice, avatarCandidateId}); dialog closes on success
 //   Test 22: On 409, dialog stays open + inline error
-//     `Name "<name>" already exists on the source host`
+//     `Name "<name>" is already in use — pick a different name.`
 //   Test 23: On modal close, all state resets (name, title, voice, avatar,
 //     candidates)
 //
@@ -254,7 +254,7 @@ describe("CloneAgentDialog", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it("Test 22: On 409 collision, dialog stays open and renders inline 'already exists on the source host' error", async () => {
+  it("Test 22: On 409 collision, dialog stays open and renders inline 'already in use' error", async () => {
     mockCloneIdentity.mockRejectedValueOnce(
       new IdentityCloneCollisionError("tina-2"),
     );
@@ -274,7 +274,7 @@ describe("CloneAgentDialog", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Name.*tina-2.*already exists on the source host/i),
+        screen.getByText(/Name.*tina-2.*already in use/i),
       ).toBeTruthy();
     });
     expect(onClose).not.toHaveBeenCalled();

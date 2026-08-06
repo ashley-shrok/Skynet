@@ -74,7 +74,7 @@ import {
 import { useSessionWorking } from "@/state/session-working-store";
 import { useSessionRecycling } from "@/state/session-recycling-store";
 import { useSessionQueuePending } from "@/state/session-queue-pending-store";
-import { useIdentities } from "@/state/identities-store";
+import { useIdentities, refreshIdentities } from "@/state/identities-store";
 import {
   bountyCountsCompositeKey,
   startBountyCountPoller,
@@ -1137,6 +1137,15 @@ export function PrettyConversationsPanel({
         onClose={() => setCloneDialogState(null)}
         sourceIdentity={cloneDialogState?.sourceIdentity ?? null}
         hostId={cloneDialogState?.hostId ?? null}
+        onCloned={() => {
+          // Mirror NewSessionDialog's post-birth refresh: the identities-store
+          // loads once on first useIdentities() mount and never re-fetches on
+          // its own, so a fresh clone row is absent from byKey lookups until
+          // this fires. Without it the sidebar row renders with empty title,
+          // no colorHue, and the default avatar even though the DB row is
+          // fully populated.
+          void refreshIdentities();
+        }}
       />
       {/* Phase 23 (GEFM-05): GlobalFilesModal — portal-mounted sibling of the
           existing dialog mounts. Opened via the header MoreVertical menu's
