@@ -56,12 +56,18 @@ export type RelayInboundBubbleProps = Pick<
 > & {
   /** hostId from PrettyViewProps — drilled from the PrettyView render site. */
   hostId: number;
+  /** ms-epoch timestamp of the inbound event; when present, rendered as a
+   * hover `title` on the bubble so desktop users can see when the send
+   * happened. Optional at the type level so existing tests that don't care
+   * about the timestamp keep compiling; PrettyView always passes it. */
+  ts?: number;
 };
 
 export function RelayInboundBubble({
   room,
   sender,
   body,
+  ts,
   hostId,
 }: RelayInboundBubbleProps) {
   const { byKey } = useIdentities();
@@ -107,6 +113,7 @@ export function RelayInboundBubble({
   return (
     <div className="flex justify-end">
       <div
+        title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
         className={cn(
           // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",

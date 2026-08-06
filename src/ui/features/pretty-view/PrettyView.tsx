@@ -1309,12 +1309,14 @@ export function PrettyView({
                   <RelayOutboundBubble
                     room={m.room}
                     rawCommand={m.rawCommand}
+                    ts={m.ts}
                   />
                 ) : m.type === "relay_inbound" ? (
                   <RelayInboundBubble
                     room={m.room}
                     sender={m.sender}
                     body={m.body}
+                    ts={m.ts}
                     hostId={hostId}
                   />
                 ) : (
@@ -1322,6 +1324,7 @@ export function PrettyView({
                     role={m.role}
                     content={m.content}
                     identityVoice={pvIdentity?.voice ?? null}
+                    ts={m.ts}
                   />
                 )}
               </div>

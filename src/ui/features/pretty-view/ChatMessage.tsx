@@ -51,10 +51,12 @@ export function ChatMessage({
   role,
   content,
   identityVoice = null,
+  ts,
 }: {
   role: "user" | "assistant";
   content: string;
   identityVoice?: string | null;
+  ts?: number;
 }) {
   const isUser = role === "user";
   const bubbleIdRef = useRef(Symbol("speak-bubble"));
@@ -186,6 +188,7 @@ export function ChatMessage({
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
         ref={containerRef}
+        title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
         style={{ position: "relative" }}
         className={cn(
           // Phase 4 Glass: raised-object bubble treatment.

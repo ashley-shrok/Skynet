@@ -28,15 +28,23 @@ import type { RelayOutboundEvent } from "@/api/claude-session-api";
 export type RelayOutboundBubbleProps = Pick<
   RelayOutboundEvent,
   "room" | "rawCommand"
->;
+> & {
+  /** ms-epoch timestamp of the outbound event; when present, rendered as a
+   * hover `title` on the bubble so desktop users can see when the send
+   * happened. Optional at the type level so existing tests that don't care
+   * about the timestamp keep compiling; PrettyView always passes it. */
+  ts?: number;
+};
 
 export function RelayOutboundBubble({
   room,
   rawCommand,
+  ts,
 }: RelayOutboundBubbleProps) {
   return (
     <div className="flex justify-start">
       <div
+        title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
         className={cn(
           // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",

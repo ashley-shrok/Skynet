@@ -55,6 +55,7 @@ export function ImageBubble({
   return (
     <div className="flex justify-start">
       <div
+        title={new Date(ts).toLocaleString()}
         className={cn(
           // Layout — 12px padding tighter than ChatMessage per scope_detail.
           "max-w-[min(85%,640px)]",
