@@ -159,6 +159,11 @@ body {
  * is migrated to inline styles or its own CSS. */
 
 .dark {
+  /* App-wide accent hue. Every hsla(var(--pv-hue, 35), ...) expression
+     across the codebase inherits this value unless an ancestor sets its
+     own --pv-hue (per-identity rows use the identity's colorHue). Value
+     190 matches the login page + create-role/new-session dialogs. */
+  --pv-hue: 190;
   --background: #0a0b12;
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.21 0.004 128.68);
