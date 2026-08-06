@@ -75,7 +75,41 @@ vi.mock("@/features/pretty-view/pickers/VoicePicker", () => ({
 
 import { IdentityCloneCollisionError } from "@/api/identities-api";
 import type { Identity } from "@/api/identities-api";
+import type { Host } from "@/types/ui-types";
 import { CloneAgentDialog } from "./CloneAgentDialog";
+
+// ─── Fixture helper: Host stub (mirrors PrettyConversationsPanel.clone-dialog.test.tsx) ──
+
+function makeHost(overrides: Partial<Host> = {}): Host {
+  return {
+    id: "5",
+    name: "thenasty",
+    username: "root",
+    ip: "10.0.0.1",
+    port: 22,
+    folder: "",
+    online: true,
+    cpu: null,
+    ram: null,
+    lastAccess: "",
+    authType: "password",
+    enableTerminal: true,
+    enableTunnel: false,
+    serverTunnels: [],
+    enableFileManager: false,
+    enableDocker: false,
+    quickActions: [],
+    enableSsh: true,
+    enableRdp: false,
+    enableVnc: false,
+    enableTelnet: false,
+    sshPort: 22,
+    rdpPort: 3389,
+    vncPort: 5900,
+    telnetPort: 23,
+    ...overrides,
+  } as Host;
+}
 
 // ─── Fixture helper: source Identity ────────────────────────────────────────
 
@@ -226,12 +260,16 @@ describe("CloneAgentDialog", () => {
   it("Test 21: On submit, calls cloneIdentity({sourceIdentityKey, hostId, newName, title, voice, avatarCandidateId}); dialog closes on success", async () => {
     const source = makeIdentity();
     const onClose = vi.fn();
+    const onCreateSession = vi.fn();
+    const stubHost = makeHost();
     render(
       <CloneAgentDialog
         open={true}
         onClose={onClose}
         sourceIdentity={source}
         hostId={5}
+        sourceHost={stubHost}
+        onCreateSession={onCreateSession}
       />,
     );
 
@@ -252,7 +290,81 @@ describe("CloneAgentDialog", () => {
       path: "~",
     });
 
+    // quick-260806-bz7: auto-route into new session fires EXACTLY once with
+    // the widened identityMode:"existing" opts shape derived from the resolved
+    // Identity, BEFORE onClose.
+    await waitFor(() => expect(onCreateSession).toHaveBeenCalledTimes(1));
+    expect(onCreateSession).toHaveBeenCalledWith({
+      host: stubHost,
+      sessionName: "tina-2",
+      path: "~",
+      identityMode: "existing",
+      identityName: "tina-2",
+      identityId: "new-id",
+    });
+
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+
+    // Ordering: onCreateSession must have been invoked BEFORE onClose.
+    const createOrder = onCreateSession.mock.invocationCallOrder[0];
+    const closeOrder = onClose.mock.invocationCallOrder[0];
+    expect(createOrder).toBeLessThan(closeOrder);
+    // onClose called exactly once.
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test 21c: onCreateSession undefined → existing success path (onCloned → onClose) still fires unchanged", async () => {
+    const source = makeIdentity();
+    const onClose = vi.fn();
+    const onCloned = vi.fn();
+    // No onCreateSession, no sourceHost — belt-and-suspenders backward-compat.
+    render(
+      <CloneAgentDialog
+        open={true}
+        onClose={onClose}
+        sourceIdentity={source}
+        hostId={5}
+        onCloned={onCloned}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: "tina-2" } });
+    fireEvent.click(screen.getByRole("button", { name: /clone|submit|create/i }));
+
+    await waitFor(() => expect(mockCloneIdentity).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onCloned).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    // onCloned fires before onClose (existing invariant).
+    const clonedOrder = onCloned.mock.invocationCallOrder[0];
+    const closeOrder = onClose.mock.invocationCallOrder[0];
+    expect(clonedOrder).toBeLessThan(closeOrder);
+  });
+
+  it("Test 21d: onCreateSession throws → onClose still fires (try/catch swallow)", async () => {
+    const source = makeIdentity();
+    const onClose = vi.fn();
+    const stubHost = makeHost();
+    const onCreateSession = vi.fn(() => {
+      throw new Error("route failed");
+    });
+    render(
+      <CloneAgentDialog
+        open={true}
+        onClose={onClose}
+        sourceIdentity={source}
+        hostId={5}
+        sourceHost={stubHost}
+        onCreateSession={onCreateSession}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: "tina-2" } });
+    fireEvent.click(screen.getByRole("button", { name: /clone|submit|create/i }));
+
+    await waitFor(() => expect(mockCloneIdentity).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onCreateSession).toHaveBeenCalledTimes(1));
+    // Even though onCreateSession threw synchronously, onClose STILL fires.
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("Test 22: On 409 collision, dialog stays open and renders inline 'already in use' error", async () => {

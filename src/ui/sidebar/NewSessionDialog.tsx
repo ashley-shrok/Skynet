@@ -99,9 +99,16 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
   return out;
 }
 
-// TODO (plan 06): Update AppShell.tsx onCreate handler to accept this new discriminated union
-// shape. Until plan 06 ships, AppShell.tsx will fail to compile if it references
-// the old single-object shape.
+// Three-way discriminated union on `identityMode`:
+//   - `false`   → regular-session open (Ashley picks a host + optional session name).
+//   - `true`    → identity-birth success (the birth stream finished; the new identity
+//                 has a fresh tmux session on `host` keyed by `name`).
+//   - `"existing"` → open a session on an identity that is ALREADY BORN server-side
+//                 (quick-260806-bz7 clone-modal auto-route). The clone flow creates
+//                 the tmux session as part of the backend clone step, so the
+//                 frontend just needs to attach (allowCreateTmux false). No birth
+//                 stream runs, so no brief / avatarCandidateId / colorHue / voice
+//                 / title fields — those are birth-only concerns.
 export type NewSessionOnCreateOpts =
   | { host: Host; sessionName?: string; path: string; identityMode: false }
   | {
@@ -115,6 +122,14 @@ export type NewSessionOnCreateOpts =
       avatarCandidateId: string;
       voice: string | null;
       colorHue: number | null;
+    }
+  | {
+      host: Host;
+      sessionName: string;
+      path: string;
+      identityMode: "existing";
+      identityName: string;
+      identityId: string;
     };
 
 // ─── BirthProgress ─────────────────────────────────────────────────────────

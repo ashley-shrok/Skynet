@@ -8,7 +8,7 @@
 // as PrettyConversationsPanel.new-role-button.test.tsx.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 import type { Identity } from "@/api/identities-api";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
@@ -145,6 +145,43 @@ vi.mock("@/state/session-queue-pending-store", () => ({
   useSessionQueuePending: () => null,
 }));
 
+// quick-260806-bz7: mock the identities-api surface so CloneAgentDialog can
+// actually submit inside jsdom without pulling the real network. Mirrors
+// CloneAgentDialog.test.tsx's pattern. Kept module-top so vi.mock hoists it.
+const mockCloneIdentity = vi.fn();
+const mockPostGenerateAvatarBatch = vi.fn();
+
+vi.mock("@/api/identities-api", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    cloneIdentity: (...args: unknown[]) => mockCloneIdentity(...args),
+    postGenerateAvatarBatch: (...args: unknown[]) =>
+      mockPostGenerateAvatarBatch(...args),
+  };
+});
+
+// Mock VoicePicker to a simple <input> so the dialog renders in jsdom without
+// pulling the real picker (which fetches voices over the network).
+vi.mock("@/features/pretty-view/pickers/VoicePicker", () => ({
+  VoicePicker: (props: {
+    value: string;
+    onChange: (v: string) => void;
+    id?: string;
+    ariaLabel?: string;
+    disabled?: boolean;
+  }) => (
+    <input
+      data-testid="voice-picker-mock"
+      id={props.id}
+      aria-label={props.ariaLabel ?? "Voice"}
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value)}
+      disabled={props.disabled}
+    />
+  ),
+}));
+
 // ─── Component under test (import AFTER mocks) ──────────────────────────────
 
 import { PrettyConversationsPanel } from "./PrettyConversationsPanel";
@@ -187,6 +224,22 @@ const ONE_HOST_TREE: HostFolder = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Seed the mock clone response so a successful submit resolves with a
+  // fresh Identity whose identityKey doubles as the tmux session name.
+  mockCloneIdentity.mockResolvedValue({
+    id: "new-id",
+    identityKey: "tina-2",
+    displayName: "tina-2",
+    title: "Fleet Operator",
+    colorHue: 128,
+    voice: "Elena.wav",
+    avatarMime: "image/png",
+    avatarUrl: "/identities/new-id/avatar",
+    avatarEtag: "e",
+    createdAt: "",
+    updatedAt: "",
+  });
+  mockPostGenerateAvatarBatch.mockResolvedValue([]);
 });
 
 describe("PrettyConversationsPanel: Clone dialog wiring", () => {
@@ -230,5 +283,53 @@ describe("PrettyConversationsPanel: Clone dialog wiring", () => {
     // the header mentions the source's name for context — see Test 17 in
     // CloneAgentDialog.test.tsx for the full dialog contract).
     expect(dialog!.textContent?.toLowerCase()).toContain("clone");
+  });
+
+  it("Test 16b (quick-260806-bz7): successful clone fires panel's onCreateSession with identityMode:'existing' opts BEFORE onClose", async () => {
+    const onCreateSessionMock = vi.fn();
+    render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={ONE_HOST_TREE}
+        onCreateSession={onCreateSessionMock}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    // Right-click row → open context menu → click Clone
+    const rowWrapper = document.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /clone/i }));
+
+    // Dialog opens — fill the name and click Create.
+    // (Title is pre-filled from source's title; path defaults to "~".)
+    fireEvent.change(screen.getByLabelText(/^name/i), {
+      target: { value: "tina-2" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /clone|submit|create/i }),
+    );
+
+    // cloneIdentity resolves → dialog fires onCreateSession → onClose.
+    await waitFor(() => expect(mockCloneIdentity).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(onCreateSessionMock).toHaveBeenCalledTimes(1),
+    );
+
+    // The panel forwarded its onCreateSession by reference and the dialog
+    // called it with the widened identityMode:"existing" opts shape derived
+    // from the mock resolved Identity. `host` must be the stubHost the panel
+    // captured off row.host (referentially equal — same object reference).
+    expect(onCreateSessionMock).toHaveBeenCalledWith({
+      host: stubHost,
+      sessionName: "tina-2",
+      path: "~",
+      identityMode: "existing",
+      identityName: "tina-2",
+      identityId: "new-id",
+    });
   });
 });

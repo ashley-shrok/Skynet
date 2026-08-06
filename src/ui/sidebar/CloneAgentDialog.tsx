@@ -46,6 +46,8 @@ import {
   type AvatarCandidate,
   type Identity,
 } from "@/api/identities-api";
+import type { NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
+import type { Host } from "@/types/ui-types";
 
 // Identity name pattern — matches backend IDENTITY_KEY_RE at
 // identity-artifact-reader.ts:88 exactly (/^[a-z0-9_-]{1,64}$/).
@@ -69,8 +71,33 @@ export interface CloneAgentDialogProps {
    * host picker). Threaded through as-is to the backend.
    */
   hostId: number | null;
+  /**
+   * Source Host object — same origin as `hostId` (both come from the panel's
+   * row.host). Threaded so the auto-route-into-new-session callback
+   * (`onCreateSession` below) can build a full NewSessionOnCreateOpts payload
+   * without the panel having to re-resolve the host. Optional so callers that
+   * don't want auto-routing (or don't have the host yet) can omit it.
+   *
+   * quick-260806-bz7: added for clone-modal auto-route parity with birth's
+   * focus-follow.
+   */
+  sourceHost?: Host | null;
   /** Optional callback invoked with the new Identity after successful clone. */
   onCloned?: (result: Identity) => void;
+  /**
+   * Optional callback fired after a successful clone (AFTER `onCloned` runs,
+   * BEFORE `onClose`). AppShell's onCreateSession consumes this to open a
+   * terminal tab on the newly-cloned identity's tmux session — parity with
+   * identity-birth's focus-follow. Fires only when BOTH this callback and
+   * `sourceHost` are provided (both are needed to build a valid opts payload
+   * with the widened `identityMode: "existing"` variant).
+   *
+   * Wrapped in try/catch at the call site so a routing failure never blocks
+   * the modal close — the user can still find the new row in the sidebar.
+   *
+   * quick-260806-bz7.
+   */
+  onCreateSession?: (opts: NewSessionOnCreateOpts) => void;
 }
 
 export function CloneAgentDialog({
@@ -78,7 +105,9 @@ export function CloneAgentDialog({
   onClose,
   sourceIdentity,
   hostId,
+  sourceHost,
   onCloned,
+  onCreateSession,
 }: CloneAgentDialogProps) {
   const { t } = useTranslation();
 
@@ -170,6 +199,10 @@ export function CloneAgentDialog({
     if (!canSubmit || !sourceIdentity || hostId === null) return;
     setSubmitting(true);
     setSubmitError(null);
+    // Normalize path once — reused for both the cloneIdentity call and the
+    // auto-route onCreateSession payload (quick-260806-bz7) so they can't
+    // disagree.
+    const normalizedPath = path.trim();
     try {
       const result = await cloneIdentity({
         sourceIdentityKey: sourceIdentity.identityKey,
@@ -178,13 +211,33 @@ export function CloneAgentDialog({
         title: title.trim(),
         voice: voice.length > 0 ? voice : null,
         avatarCandidateId: pickedCandidateId,
-        path: path.trim(),
+        path: normalizedPath,
       });
       if (onCloned) {
         try {
           onCloned(result);
         } catch {
           // Callback failures don't block close
+        }
+      }
+      // quick-260806-bz7: auto-route into a new terminal tab on the cloned
+      // identity's tmux session — parity with identity-birth's focus-follow.
+      // Fires only when both onCreateSession AND sourceHost are provided
+      // (both are required to build a valid identityMode:"existing" opts
+      // payload). Wrapped in try/catch so a routing failure never blocks the
+      // modal close — the user can still click the new sidebar row manually.
+      if (onCreateSession && sourceHost) {
+        try {
+          onCreateSession({
+            host: sourceHost,
+            sessionName: result.identityKey,
+            path: normalizedPath,
+            identityMode: "existing",
+            identityName: result.identityKey,
+            identityId: result.id,
+          });
+        } catch {
+          // Best-effort — swallow so onClose still fires.
         }
       }
       onClose();

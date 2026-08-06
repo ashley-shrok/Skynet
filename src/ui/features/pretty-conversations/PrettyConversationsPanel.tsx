@@ -404,9 +404,15 @@ export function PrettyConversationsPanel({
   // Phase 22 (SRIC-03): CloneAgentDialog state — captures the row's source
   // identity + hostId when Ashley clicks the Clone context-menu item, so the
   // dialog opens pre-wired for that specific row. Set to null when closed.
+  //
+  // quick-260806-bz7: extended with `sourceHost` so the dialog can forward a
+  // full Host object into its onCreateSession payload (the widened
+  // NewSessionOnCreateOpts.identityMode:"existing" variant expects a Host,
+  // not a bare hostId — parity with birth's opts shape).
   const [cloneDialogState, setCloneDialogState] = useState<{
     sourceIdentity: Identity;
     hostId: number;
+    sourceHost: Host;
   } | null>(null);
 
   // Phase 23 (GEFM-01): panel-header MoreVertical menu state.
@@ -688,7 +694,13 @@ export function PrettyConversationsPanel({
     if (!row.host) return;
     const hostIdNum = parseInt(row.host.id, 10);
     if (!Number.isFinite(hostIdNum)) return;
-    setCloneDialogState({ sourceIdentity: identity, hostId: hostIdNum });
+    // quick-260806-bz7: capture row.host so the dialog's onCreateSession
+    // auto-route callback can forward a full Host object into its payload.
+    setCloneDialogState({
+      sourceIdentity: identity,
+      hostId: hostIdNum,
+      sourceHost: row.host,
+    });
   };
 
   // quick-260802-pq2: handleSwipeOpenChange + forceClosedFor removed —
@@ -1139,6 +1151,15 @@ export function PrettyConversationsPanel({
         onClose={() => setCloneDialogState(null)}
         sourceIdentity={cloneDialogState?.sourceIdentity ?? null}
         hostId={cloneDialogState?.hostId ?? null}
+        // quick-260806-bz7: forward the source Host + the panel's existing
+        // onCreateSession prop by reference. AppShell's onCreateSession
+        // callback handles the widened identityMode:"existing" variant
+        // identically to identityMode:true for openTab (allowCreateTmux:
+        // false, sessionName sourced from the identity). onCloned still
+        // fires FIRST (see below) so the identities-store + fleetSessions
+        // refresh completes before the new tab tries to resolve the row.
+        sourceHost={cloneDialogState?.sourceHost ?? null}
+        onCreateSession={onCreateSession}
         onCloned={() => {
           // Two-part refresh so the new clone appears in the sidebar without
           // requiring an app reopen:
