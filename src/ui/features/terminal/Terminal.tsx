@@ -47,7 +47,7 @@ import { MessageQueueDrawer } from "./MessageQueueDrawer.tsx";
 import { PrettyView } from "@/features/pretty-view/PrettyView";
 import { listMessageQueueItems } from "@/api/message-queue-api";
 import { useIdentities } from "@/state/identities-store";
-import { publishSessionWorking } from "@/state/session-working-store";
+import { publishSessionTtyBusy } from "@/state/session-working-store";
 import { useTheme } from "@/components/theme-provider.tsx";
 import { useCommandTracker } from "@/features/terminal/command-history/useCommandTracker.ts";
 import { highlightTerminalOutput } from "@/lib/terminal-syntax-highlighter.ts";
@@ -251,7 +251,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // consumers treat null as "unknown / do not show WIP indicator" so a
     // fresh open doesn't false-positive before the first ticker fires.
     const [isIdle, setIsIdle] = useState<boolean | null>(null);
-    // Patch #137: publish per-(host, tmuxSession) working state to the
+    // Patch #137: publish per-(host, tmuxSession) ttyBusy field of the
     // session-working-store so PrettyConversationsPanel's rows can flip
     // their ready-for-attention dot when the agent goes idle. Effect fires
     // on any change to isIdle / hostConfig.id / tmuxSessionName; deliberately
@@ -261,7 +261,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       const hostId = hostConfig.id;
       if (hostId == null) return;
       const key = `${hostId}:${tmuxSessionName ?? ""}`;
-      publishSessionWorking(key, isIdle === null ? null : isIdle === false);
+      publishSessionTtyBusy(key, isIdle === null ? null : isIdle === false);
     }, [isIdle, hostConfig.id, tmuxSessionName]);
     const autoOpenCheckedKeysRef = useRef<Set<string>>(new Set());
     useEffect(() => {
