@@ -2619,11 +2619,17 @@ function QueuedRow(props: QueuedRowProps) {
         )}
         {/* Quick 260803-05i (Task 1): Paperclip attach button — absolute
             left-1 bottom-0.5. Routes to onAttachFilesForTarget via
-            handleOpenFilePicker(`queued:${slot.id}`). */}
+            handleOpenFilePicker(`queued:${slot.id}`).
+            2026-08-06 (composebox-queued-recycle-disable-inverted): mirrors
+            the primary attach's disable expression (canSend + asideActive
+            only). Recycle/plan-pending do NOT disable attach — same rule
+            as primary: attach stages locally, no WS side-effect, safe to
+            prep during the recycle/approval window so the fire that lands
+            after the window can carry attachments. */}
         <button
           type="button"
           onClick={() => handleOpenFilePicker(target)}
-          disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true}
+          disabled={canSend === false || asideActive === true}
           aria-label="Attach file to queued message"
           title="Attach file"
           className={cn(
@@ -2655,7 +2661,9 @@ function QueuedRow(props: QueuedRowProps) {
                 disabled={
                   showSlotTranscribingSend ||
                   slot.text.trim() === "" ||
-                  slotArmed
+                  slotArmed ||
+                  recycleActive === true ||
+                  planPendingActive === true
                 }
                 aria-label="Send queued message"
                 title="Send queued message"
