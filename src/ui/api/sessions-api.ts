@@ -5,6 +5,7 @@ export interface RemoteTmuxSession {
   hostName: string;
   sessionName: string;
   created: number;
+  role: string | null;
 }
 
 export async function getSessionList(): Promise<RemoteTmuxSession[]> {

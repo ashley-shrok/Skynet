@@ -98,6 +98,7 @@ export type FleetSession = {
   hostName: string;
   sessionName: string;
   created: number;
+  role: string | null;
 };
 
 type SnapshotForTest = ConversationList & {
@@ -280,9 +281,20 @@ function subscribe(cb: () => void): () => void {
 
 // ─── Derivation ──────────────────────────────────────────────────────────────
 
-function rowFromTab(tab: Tab): ConversationRow {
-  const matchKey = sessionMatchKey(tab.targetTmuxSession);
-  const role = matchKey ? (state.identitiesByKey.get(matchKey)?.role ?? null) : null;
+function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): ConversationRow {
+  // Role lookup: prefer fleet-authoritative session.role (resolved on the identity's home box
+  // via same SSH conn as tmux list-sessions), fall back to identitiesByKey as defense-in-depth.
+  let role: string | null = null;
+  if (tab.host && tab.targetTmuxSession) {
+    const hostIdStr = String(parseInt(tab.host.id));
+    const dedupK = dedupKey(hostIdStr, tab.targetTmuxSession);
+    if (sessionRoleByKey.has(dedupK)) {
+      role = sessionRoleByKey.get(dedupK) ?? null;
+    } else {
+      const matchKey = sessionMatchKey(tab.targetTmuxSession);
+      role = matchKey ? (state.identitiesByKey.get(matchKey)?.role ?? null) : null;
+    }
+  }
   return {
     id: tab.id,
     type: tab.type,
@@ -376,6 +388,16 @@ const compareByHostRoleLabel = (a: ConversationRow, b: ConversationRow): number 
 function computeSnapshot(): ConversationList {
   const conversationTabs = state.openTabs.filter(isConversationTab);
 
+  // Build a (hostId, sessionName) → role Map from fleet sessions FIRST so rowFromTab
+  // can prefer fleet-authoritative role (resolved on the identity's home box via same
+  // SSH conn as tmux list-sessions) over the pre-fix identitiesByKey fallback.
+  // Keyed on dedupKey(hostIdStr, sessionName) — same key space as openTabsSessionKeys.
+  const sessionRoleByKey = new Map<string, string | null>();
+  for (const session of state.fleetSessions) {
+    const hostIdStr = String(session.hostId);
+    sessionRoleByKey.set(dedupKey(hostIdStr, session.sessionName), session.role);
+  }
+
   // Plan 07-01: build the openTabs session-identity set for dedup FIRST (own
   // pass over conversationTabs) so the tier-assignment loops below can iterate
   // from scratch with clean semantics. A null/empty targetTmuxSession tab does
@@ -407,8 +429,10 @@ function computeSnapshot(): ConversationList {
     const key = dedupKey(hostIdStr, session.sessionName);
     if (openTabsSessionKeys.has(key)) continue; // openTabs-entry-wins
     const resolvedHost = state.hostsFlat.get(session.hostId);
-    const matchKey = sessionMatchKey(session.sessionName);
-    const role = matchKey ? (state.identitiesByKey.get(matchKey)?.role ?? null) : null;
+    // Role is now authoritative from the backend session row (resolved on same SSH conn
+    // as tmux list-sessions). The pre-fix identitiesByKey lookup returned null for every
+    // non-tina identity because /identities used LOCAL-only resolveRoleForIdentity.
+    const role = session.role;
     const syntheticRow: ConversationRow = {
       id: fleetRowId(session.hostId, session.sessionName),
       type: "terminal",
@@ -438,7 +462,7 @@ function computeSnapshot(): ConversationList {
   const activeSetRows: ConversationRow[] = [];
   for (const tab of conversationTabs) {
     if (!state.activeSet.has(tab.id)) continue;
-    activeSetRows.push(rowFromTab(tab));
+    activeSetRows.push(rowFromTab(tab, sessionRoleByKey));
     emittedIds.add(tab.id);
   }
   for (const { row } of fleetSyntheticRows) {
@@ -475,7 +499,7 @@ function computeSnapshot(): ConversationList {
       (shadowFleetId !== null && state.pinnedIds.has(shadowFleetId));
     if (!isPinned) continue;
     if (emittedIds.has(tab.id)) continue; // already in Tier 1
-    pinned.push(rowFromTab(tab));
+    pinned.push(rowFromTab(tab, sessionRoleByKey));
     emittedIds.add(tab.id);
   }
   for (const { row } of fleetSyntheticRows) {
@@ -493,8 +517,8 @@ function computeSnapshot(): ConversationList {
     if (emittedIds.has(tab.id)) continue; // already in Tier 1 or Tier 2
     if (!tab.host) continue; // defense-in-depth; isConversationTab already filtered
     const bucket = byHostId.get(tab.host.id);
-    if (bucket) bucket.push(rowFromTab(tab));
-    else byHostId.set(tab.host.id, [rowFromTab(tab)]);
+    if (bucket) bucket.push(rowFromTab(tab, sessionRoleByKey));
+    else byHostId.set(tab.host.id, [rowFromTab(tab, sessionRoleByKey)]);
   }
   // Iterate fleetSyntheticRows, bucket non-emitted fleet rows by hostIdStr.
   for (const { hostIdStr, row } of fleetSyntheticRows) {
@@ -823,7 +847,8 @@ function isFleetSession(x: unknown): x is FleetSession {
     typeof r.hostId === "number" &&
     typeof r.hostName === "string" &&
     typeof r.sessionName === "string" &&
-    typeof r.created === "number"
+    typeof r.created === "number" &&
+    (r.role === null || typeof r.role === "string")
   );
 }
 
@@ -847,13 +872,14 @@ export function readFleetSessionsCache(): FleetSession[] {
     const valid: FleetSession[] = [];
     for (const item of parsed) {
       if (isFleetSession(item)) {
-        // Defensive filter: only the 4 canonical fields make it back into
+        // Defensive filter: only the canonical fields make it back into
         // memory even if a future writer accidentally serialized more.
         valid.push({
           hostId: item.hostId,
           hostName: item.hostName,
           sessionName: item.sessionName,
           created: item.created,
+          role: item.role,
         });
       }
     }
@@ -879,6 +905,7 @@ export function writeFleetSessionsCache(sessions: FleetSession[]): void {
       hostName: s.hostName,
       sessionName: s.sessionName,
       created: s.created,
+      role: s.role,
     }));
     localStorage.setItem(FLEET_CACHE_KEY, JSON.stringify(canonical));
   } catch {

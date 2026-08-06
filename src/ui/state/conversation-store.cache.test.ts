@@ -31,6 +31,7 @@ const SAMPLE_A: FleetSession = {
   hostName: "thenasty",
   sessionName: "tina",
   created: 1_700_000_000,
+  role: "box-maintainer",
 };
 
 const SAMPLE_B: FleetSession = {
@@ -38,6 +39,7 @@ const SAMPLE_B: FleetSession = {
   hostName: "workstation",
   sessionName: "nelly",
   created: 1_700_000_100,
+  role: null,
 };
 
 describe("FleetSession localStorage cache (quick-260805-tub)", () => {
@@ -78,7 +80,7 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     expect(readFleetSessionsCache()).toEqual([SAMPLE_A, SAMPLE_B]);
   });
 
-  it("write-only-4-fields: extra fields are stripped on write (defensive filter)", () => {
+  it("write-only-canonical-fields: extra fields are stripped on write (defensive filter)", () => {
     const withExtra = {
       ...SAMPLE_A,
       extraField: "should not persist",
@@ -94,6 +96,7 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
       "created",
       "hostId",
       "hostName",
+      "role",
       "sessionName",
     ]);
   });

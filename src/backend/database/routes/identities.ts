@@ -9,7 +9,6 @@ import { eq, and } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
-import { resolveRoleForIdentity } from "../../claude-session/identity-artifact-reader.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -75,21 +74,11 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
       .from(identities)
       .where(eq(identities.userId, userId))
       .all();
-    const enriched = await Promise.all(
-      rows.map(async (row) => {
-        let role: string | null = null;
-        try {
-          role = await resolveRoleForIdentity(null, row.identityKey);
-        } catch {
-          databaseLogger.warn("Failed to resolve role for identity", {
-            operation: "list_identities_resolve_role",
-            userId,
-            identityKey: row.identityKey,
-          });
-        }
-        return publicIdentity(row, role);
-      }),
-    );
+    // Role is authoritative from /sessions/list (per-host SSH conn reads frontmatter
+    // on the identity's home box). The LOCAL-only resolveRoleForIdentity(null, ...) call
+    // that was here returned null for every non-tina identity (skynet-ec2 only has tina's
+    // identity file). Retiring that broken call; wire shape preserved (role: null on wire).
+    const enriched = rows.map((row) => publicIdentity(row, null));
     return res.json(enriched);
   } catch (e) {
     databaseLogger.error("Failed to list identities", e, {
