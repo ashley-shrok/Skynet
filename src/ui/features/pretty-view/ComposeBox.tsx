@@ -1793,20 +1793,21 @@ export function ComposeBox({
               Plus icon to "Queue a message" / ListPlus icon. */}
           <Button
             size="icon-sm"
-            variant="outline"
+            variant="secondary"
             onClick={() => setQueueSlots((prev) => [...prev, { id: makeSlotId(), text: "" }])}
             aria-label="Queue a message"
             title="Queue a message"
             className={cn(
-              "rounded-md cursor-pointer",
-              "border-white/10",
-              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
-              "text-[#e8e4d8]",
-              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
-              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-              "hover:border-[rgba(255,240,215,0.22)]",
-              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-              "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+              // Same dark blue-gray treatment as the mobile back-to-list
+              // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
+              // 25% sat — "part of the scheme" per Ashley, ambient chrome
+              // that doesn't compete with blue-190 CTAs.
+              "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
+              "text-[color:var(--color-pv-fg)]",
+              "border-[hsla(218,35%,55%,0.35)]",
+              "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
+              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
             )}
           >
             <ListPlus className="size-4" />
@@ -1822,24 +1823,22 @@ export function ComposeBox({
           {onInterrupt && (
             <Button
               size="icon-sm"
-              variant="outline"
+              variant="secondary"
               onClick={() => onInterrupt?.()}
               aria-label="Interrupt"
               title="Interrupt"
               className={cn(
-                "rounded-md cursor-pointer",
-                "border-white/10",
-                "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
-                "text-[#e8e4d8]",
-                "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
-                "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-                "hover:border-[rgba(255,240,215,0.22)]",
-                "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-                // #165: mobile-only size bump — 72px button + 36px icon at
-                // html=24 (matches the 3em pv-row--mobile avatar for visual
-                // consistency in the "chat surface primary chrome" group).
-                "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
-              )}
+              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+              // Same dark blue-gray treatment as the mobile back-to-list
+              // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
+              // 25% sat — "part of the scheme" per Ashley, ambient chrome
+              // that doesn't compete with blue-190 CTAs.
+              "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
+              "text-[color:var(--color-pv-fg)]",
+              "border-[hsla(218,35%,55%,0.35)]",
+              "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
+              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
+            )}
             >
               <Square className="size-4" />
             </Button>
@@ -1854,23 +1853,22 @@ export function ComposeBox({
               dominates the composer visually. */}
           <Button
             size="icon-sm"
-            variant="outline"
+            variant="secondary"
             onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
             disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true}
             aria-label="Send 'let's go'"
             title="Send 'let's go'"
             className={cn(
-              "rounded-md cursor-pointer",
-              "border-white/10",
-              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
-              "text-[#e8e4d8]",
-              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
-              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-              "hover:border-[rgba(255,240,215,0.22)]",
-              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-              // #165: mobile-only size bump (see explanation on the other
-              // buttons above).
-              "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+              // Same dark blue-gray treatment as the mobile back-to-list
+              // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
+              // 25% sat — "part of the scheme" per Ashley, ambient chrome
+              // that doesn't compete with blue-190 CTAs.
+              "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
+              "text-[color:var(--color-pv-fg)]",
+              "border-[hsla(218,35%,55%,0.35)]",
+              "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
+              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
             )}
           >
             <ThumbsUp className="size-4" />
@@ -1884,23 +1882,22 @@ export function ComposeBox({
               and shortened prompt payload per Vehicle B. */}
           <Button
             size="icon-sm"
-            variant="outline"
+            variant="secondary"
             onClick={() => handleQuickSend("/explain the current situation")}
             disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true}
             aria-label="Recap the current situation"
             title="Recap"
             className={cn(
-              "rounded-md cursor-pointer",
-              "border-white/10",
-              "bg-[linear-gradient(180deg,rgba(70,66,58,0.5),rgba(38,34,28,0.6))]",
-              "text-[#e8e4d8]",
-              "shadow-[0_2px_4px_rgba(0,0,0,0.4),_inset_0_1px_0_rgba(255,240,210,0.12)]",
-              "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.7),rgba(60,50,32,0.8))]",
-              "hover:border-[rgba(255,240,215,0.22)]",
-              "hover:shadow-[0_4px_8px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.2),_0_0_20px_rgba(255,240,215,0.14)]",
-              // #165: mobile-only size bump (see explanation on the other
-              // buttons above).
-              "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
+              // Same dark blue-gray treatment as the mobile back-to-list
+              // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
+              // 25% sat — "part of the scheme" per Ashley, ambient chrome
+              // that doesn't compete with blue-190 CTAs.
+              "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
+              "text-[color:var(--color-pv-fg)]",
+              "border-[hsla(218,35%,55%,0.35)]",
+              "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
+              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
             )}
           >
             <CircleHelp className="size-4" />
