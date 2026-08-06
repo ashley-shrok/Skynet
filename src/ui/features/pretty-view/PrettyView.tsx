@@ -39,6 +39,10 @@ import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { publishSessionRecycling } from "@/state/session-recycling-store";
+import {
+  publishSessionHasBackgroundedWork,
+  useSessionIsWorking,
+} from "@/state/session-working-store";
 
 // Patch #148: mirror Terminal.tsx's proven WebSocket auto-reconnect pattern.
 // When the claude-session bridge WS closes unexpectedly (deploy container
@@ -466,12 +470,14 @@ export function PrettyView({
     return onSend ? onSend(text) : false;
   }, [onSend]);
 
-  // WIP indicator is driven by the PTY-side `isIdle` prop from Terminal
-  // (patch #51 rework — was previously state fed by a JSONL classifier
-  // over the claude-session WS, which turned out to be unreliable
-  // because Claude Code 2.1 emits many `type:"user"` events that are
-  // not real user speech).
-  const wipActive = isIdle === false;
+  // WIP indicator: composite isWorking from session-working-store.
+  // Patch #260806-ixl: both the PTY-side ttyBusy signal (Terminal.tsx) and
+  // the backgrounded-work signal (PrettyView WS frames) now converge in the
+  // shared store; useSessionIsWorking derives the OR. The key format MUST
+  // match Terminal.tsx's `${hostId}:${tmuxSessionName ?? ""}` exactly —
+  // single colon, not the double-colon paneKey used for auto-scroll.
+  const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
+  const isWorking = useSessionIsWorking(sessionWorkingKey);
 
   const wsRef = useRef<WebSocket | null>(null);
   // Patch #148 reconnect state — mirrors Terminal.tsx's pattern.
@@ -585,6 +591,13 @@ export function PrettyView({
       setHarnessTasks([]);
       setBackgroundedAgents([]);
       setBackgroundedShells([]);
+      // Composite store: clear hasBgWork for this key on fresh-pane mount.
+      // Guard on hostId being non-null — matches Terminal.tsx's pattern;
+      // PrettyView is always mounted with a hostId in practice, but defensive.
+      if (hostId != null) {
+        const key = `${hostId}:${tmuxSession ?? ""}`;
+        publishSessionHasBackgroundedWork(key, false);
+      }
       setPlanPending(null);
       setIsHolding(false);
       setShowOverlay(false);
@@ -692,10 +705,32 @@ export function PrettyView({
         }
         case "backgrounded_agents": {
           setBackgroundedAgents(parsed.agents);
+          // Publish composite has-bg-work flag. Use the functional-setter
+          // trick to read the CURRENT backgroundedShells synchronously —
+          // the WS onmessage closure captures stale state, but the setter
+          // callback receives the latest value from React.
+          setBackgroundedShells((currentShells) => {
+            const key = `${hostId}:${tmuxSession ?? ""}`;
+            publishSessionHasBackgroundedWork(
+              key,
+              parsed.agents.length > 0 || currentShells.length > 0,
+            );
+            return currentShells; // no state change to shells
+          });
           break;
         }
         case "backgrounded_shells": {
           setBackgroundedShells(parsed.shells);
+          // Mirror: read the CURRENT backgroundedAgents to compute the
+          // composite flag correctly when only shells arrive.
+          setBackgroundedAgents((currentAgents) => {
+            const key = `${hostId}:${tmuxSession ?? ""}`;
+            publishSessionHasBackgroundedWork(
+              key,
+              parsed.shells.length > 0 || currentAgents.length > 0,
+            );
+            return currentAgents; // no state change to agents
+          });
           break;
         }
         case "plan_pending": {
@@ -787,6 +822,13 @@ export function PrettyView({
           setContextPct(null);
           setBackgroundedAgents([]);
           setBackgroundedShells([]);
+          // Composite store: clear hasBgWork on session_changed (recycle).
+          // A recycled session cannot carry backgrounded work from the OLD
+          // session. Same hostId guard as the fresh-pane reset above.
+          if (hostId != null) {
+            const key = `${hostId}:${tmuxSession ?? ""}`;
+            publishSessionHasBackgroundedWork(key, false);
+          }
           setPlanPending(null);
           setIsHolding(false);
           // Patch #122: safe reset — if user clicks reset again after
@@ -1329,7 +1371,7 @@ export function PrettyView({
                 )}
               </div>
             ))}
-            {(wipActive || backgroundedAgents.length > 0 || backgroundedShells.length > 0) && <WipBubble />}
+            {isWorking && <WipBubble />}
             {planPending && (
               <PlanPendingBubble
                 planFilePath={planPending.planFilePath}
