@@ -10,6 +10,7 @@ import { sshLogger, databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
+import { resolveRoleForIdentity } from "../../claude-session/identity-artifact-reader.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -22,6 +23,7 @@ interface TmuxSessionRow {
   hostName: string;
   sessionName: string;
   created: number;
+  role: string | null;
 }
 
 /**
@@ -85,7 +87,7 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
               ),
             ]);
             if (!output) return [];
-            return output
+            const rows = output
               .split("\n")
               .map((line) => line.trim())
               .filter(Boolean)
@@ -96,8 +98,39 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                   hostName,
                   sessionName: name,
                   created: parseInt(created, 10) || 0,
+                  role: null as string | null,
                 };
               });
+
+            // Resolve role for each session on the SAME already-open conn, in parallel.
+            // Each per-identity call is wrapped in its own Promise.race(PER_HOST_TIMEOUT_MS)
+            // + try/catch — one hung/failed frontmatter read must not kill the whole host.
+            await Promise.all(
+              rows.map(async (row) => {
+                try {
+                  row.role = await Promise.race([
+                    resolveRoleForIdentity(conn, row.sessionName),
+                    new Promise<string>((_, reject) =>
+                      setTimeout(
+                        () => reject(new Error("per-identity role resolve timeout")),
+                        PER_HOST_TIMEOUT_MS,
+                      ),
+                    ),
+                  ]);
+                } catch (e) {
+                  sshLogger.debug("sessions/list: role resolve skipped for session", {
+                    operation: "sessions_list_role_resolve_skip",
+                    hostId,
+                    hostName,
+                    sessionName: row.sessionName,
+                    error: e instanceof Error ? e.message : "unknown",
+                  });
+                  row.role = null;
+                }
+              }),
+            );
+
+            return rows;
           } finally {
             try {
               conn.end();
