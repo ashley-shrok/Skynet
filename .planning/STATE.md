@@ -6,11 +6,11 @@ status: verifying
 last_updated: "2026-08-06T15:55:00.000Z"
 last_activity: 2026-08-06
 progress:
-  total_phases: 25
+  total_phases: 26
   completed_phases: 18
   total_plans: 105
   completed_plans: 100
-  percent: 72
+  percent: 69
 ---
 
 # Project State
@@ -273,6 +273,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 
 ### Roadmap Evolution
 
+- 2026-08-06: Phase 26 added — Conversation-list needs-desk count + filter menu. Add per-row needs-desk bounty count (schema field added 2026-08-06) alongside existing pinned count as a combined `pin·desk` pill. Filter icon becomes a Radix popover with two toggles (pinned-only / needs-desk-only, AND intersection). Filter icon gets a small dot when any toggle is on. Needs-desk filter exempts active-set symmetric with pinned. Design locked with Ashley 2026-08-06 (see ROADMAP entry for full lock). Mechanism: widen `readIdentityPinnedBountyCount` to return `{pinnedCount, needsDeskCount}` on same fs walk; WS `identity:bounty-counts` carries both; bounty-counts-store keys a pair per identity. `PrettyBountyCountBadge` renders the combined pill; `PrettyConversationsPanel` filter button gets popover. Bounty pointer: `conversation-list-needs-desk-count-and-filter-menu`.
 - 2026-08-05: Phase 25 added — Sidebar role-clustering. Silent secondary sort key that clusters rows of the same role together in the sidebar (so clones show up adjacent), applied to all three tiers of PrettyConversationsPanel. Sort tuple `(host, role, label)` everywhere per Ashley: "host is above role always." Case-insensitive alphabetical. Null-role rows → bottom of host bucket. NO visible chrome (subheadings/indents/color-bands rejected — Ashley: "not interested in adding extra info to those list items"; colorHue inheritance on clones already carries the visual cue). Mechanism per Ashley "stay out of the database, read when all sessions in the list are enumerated": role resolved fs-side at list-enumeration time via existing `resolveRoleForIdentity` (identity-artifact-reader.ts:227), plumbed through the identity list payload (GET /identities → publicIdentity() → Identity → useIdentities().byKey). Reads happen once per page load. Sort sites: 3 spots in `src/ui/state/conversation-store.ts` (:365, :403, :431 — currently `compareByLabel`), change to (host, role, label) tuple. Out of scope: any visible chrome, role-editing UI, DB migration, role-clusters-across-hosts. Rebase risk LOW — additive.
 - 2026-08-04: Phase 24 added — Plan-mode approval bubble. Detection swap from unreliable session-file ExitPlanMode tool-call scan to pane-tail regex anchored on the two-line combo ("Claude has written up a plan and is ready to execute…" + "shift+tab to approve with this feedback"). Expanded bubble renders plan contents inline (fetched via side SFTP channel on the tab's existing SSH conn, path aggressively validated to `<home>/.claude/plans/<slug>.md`, 500KB cap, cached until prompt clears) with [Approve] (sends `1\r`) + [Feedback] (opens modal → textarea → sends `3<feedback>\r`). Compose-box disabled while pending — matches existing compose-disable pattern (reuse, do NOT invent new affordance); disabled controls: reset, send, mic, send-while-idle, thumbs up, recap. Out of scope: option 2 button, markdown rendering upgrades, multi-plan edge cases. Motivation: users can approve plans from the browser without touching a keyboard, and Enter-to-send muscle memory no longer accidentally approves.
 - 2026-08-03: Phase 20 added — Identity creation UI. Shape agreed via `/open identity-creation-ui` with Ashley; full shape file at `~/.claude/identities/tina/bounties/identity-creation-ui/shape-identity-creation-ui.md` (LOCKED). Companion bounty at `~/.claude/identities/tina/bounties/identity-creation-ui/`. Extends the New-Session modal to birth a whole new fleet identity in one motion (Skynet record + tmux + agent CLI + bootstrap dance + `/id <name>`), modal stays open with per-step progress, focus follows to the new session on success so the user is present for the identity's opening onboarding question. Coordination dependency: Nelly (agent-supervisor maintainer) supplies the reliable REPL-bringup sequence during discuss/plan — do NOT re-derive.
