@@ -15,10 +15,24 @@ function notify() {
   for (const l of listeners) l();
 }
 
+// displayName is display-only (identityKey is the canonical id); normalize
+// to first-letter-capitalized at store-load time so every consumer — sidebar
+// rows, chat headers, badges, modals — reads a consistent shape regardless
+// of whether the row was birthed with a capitalized name or cloned (clone
+// sets displayName=newName which is lowercase per IDENTITY_KEY_RE).
+function withDisplayCap(i: Identity): Identity {
+  if (!i.displayName || i.displayName.length === 0) return i;
+  const first = i.displayName.charAt(0);
+  const capped = first.toUpperCase();
+  if (capped === first) return i;
+  return { ...i, displayName: capped + i.displayName.slice(1) };
+}
+
 function setIdentities(list: Identity[]) {
+  const normalized = list.map(withDisplayCap);
   state = {
-    identities: list,
-    byKey: new Map(list.map((i) => [i.identityKey.toLowerCase(), i])),
+    identities: normalized,
+    byKey: new Map(normalized.map((i) => [i.identityKey.toLowerCase(), i])),
     loaded: true,
   };
   notify();
