@@ -41,7 +41,7 @@ vi.mock("@/state/identities-store", () => ({
 }));
 
 vi.mock("@/state/bounty-counts-store", () => ({
-  useBountyCount: () => undefined,
+  useBountyCounts: () => undefined,
   useAllBountyCounts: () => new Map(),
   bountyCountsCompositeKey: (identityKey: string, hostId: number | null) =>
     `${identityKey}:${hostId ?? "local"}`,
