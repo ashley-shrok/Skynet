@@ -1651,7 +1651,7 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests A-F — [Phase 26 Plan 03] Bounty badge visibility — useBountyCounts
-//             pair consumption (replaces old single useBountyCount mock)
+//             pair consumption (widened from Plan 26-02 singular hook)
 // ─────────────────────────────────────────────────────────────────────────────
 // PrettyConversationRow now consumes useBountyCounts (plural) returning the
 // {pinnedCount, needsDeskCount} pair (undefined when no fetch has landed or

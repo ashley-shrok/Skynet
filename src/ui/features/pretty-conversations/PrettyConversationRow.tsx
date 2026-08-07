@@ -75,7 +75,7 @@ import { Server } from "lucide-react";
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
-import { useBountyCount } from "@/state/bounty-counts-store";
+import { useBountyCounts } from "@/state/bounty-counts-store";
 import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
@@ -198,15 +198,16 @@ export function PrettyConversationRow({
   const hue: number | null = identity?.colorHue ?? null;
   const isRdp = row.rdpHostRow === true;
 
-  // Quick 260727-tb1: per-row pinned bounty count for the .pv-meta badge.
-  // useBountyCount(null, ...) short-circuits to undefined, so non-identity
-  // rows carry no subscription cost. Host.id is a string in the fork's
-  // ui-types; we convert with parseInt (same shape AppShell uses at
-  // openTab hostId derivation). Result is undefined until the panel's
-  // poller lands a refresh; the badge component renders null for
-  // undefined AND 0 (Key design decision #7).
+  // Phase 26 Plan 03: per-row bounty counts pair for the .pv-meta badge.
+  // useBountyCounts(null, ...) short-circuits to undefined (identityKey null
+  // means no identity resolved — no subscription cost for non-identity rows).
+  // Host.id is a string in the fork's ui-types; we convert with parseInt
+  // (same shape AppShell uses at openTab hostId derivation). Result is
+  // undefined until the panel's poller lands a refresh; the badge component
+  // renders null for undefined pair OR both-zero (Key design decision #7).
+  // The pair is always published atomically — both halves land together.
   const rowHostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
-  const pinnedCount = useBountyCount(
+  const bountyCounts = useBountyCounts(
     identity?.identityKey ?? null,
     Number.isFinite(rowHostIdNum) ? rowHostIdNum : null,
   );
@@ -499,18 +500,22 @@ export function PrettyConversationRow({
             pretty-conversations.css. Mobile PinAction lives in the swipe
             strip (above); RDP rows skip PinAction entirely. */}
         <div className="pv-meta">
-          {/* Quick 260727-tb1: per-row pinned bounty count badge. Renders
+          {/* Phase 26 Plan 03: combined pin·desk bounty count badge. Renders
               INSIDE .pv-meta immediately BEFORE the ready-dot (final left-
               to-right order: [deactivate] [pin] [bounty-badge] [ready-dot]).
-              The badge component itself returns null when count is
-              undefined (pre-fetch) or 0 (absence is the correct signal),
-              so nothing else guards visibility here — non-identity rows
-              short-circuit inside useBountyCount above. Coexists with the
-              ready-dot: a row that is BOTH in-active-set-and-idle AND has
-              pinned bounties shows BOTH indicators side by side per
-              spec verification #4. Hue tinting inherits from .pv-row's
-              --pv-hue via the .pv-bounty-badge CSS rule. */}
-          <PrettyBountyCountBadge count={pinnedCount} />
+              The badge component returns null when the pair is undefined
+              (pre-fetch) or both halves are zero (absence is the correct
+              signal), so nothing else guards visibility here — non-identity
+              rows short-circuit inside useBountyCounts above (identityKey
+              null returns undefined). Coexists with the ready-dot: a row
+              that is BOTH in-active-set-and-idle AND has bounties shows
+              BOTH indicators side by side per spec verification #4. Hue
+              tinting inherits from .pv-row's --pv-hue via .pv-bounty-badge
+              CSS rule. Null-safety via optional chaining on the pair. */}
+          <PrettyBountyCountBadge
+            pinnedCount={bountyCounts?.pinnedCount}
+            needsDeskCount={bountyCounts?.needsDeskCount}
+          />
 
           {/* Ready-dot — signals "engaged AND agent idle, ready for
               Ashley's next input." Rendered iff inActiveSet &&
