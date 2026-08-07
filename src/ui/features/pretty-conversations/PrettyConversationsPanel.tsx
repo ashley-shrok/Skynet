@@ -36,9 +36,9 @@
 //
 // Store consumption is verbatim from ConversationsPanel.tsx — same three
 // hooks (useConversations / useSelectedConversationId / usePinnedIds) and
-// the same two action imports (selectConversation / togglePinConversation).
-// No store reshape. No new derivations. The panel is a thin composition
-// layer.
+// the same core action imports (selectConversation, plus pin/unpin — see
+// handleTogglePin below for the both-shape write). No store reshape. No new
+// derivations. The panel is a thin composition layer.
 //
 // Wave 3 (AppShell cutover) does the mount-site swap; this panel is NOT
 // yet mounted anywhere. Wave 4 retires ConversationsPanel.tsx +
@@ -64,7 +64,8 @@ import {
   addToActiveSet,
   removeFromActiveSet,
   fleetRowId,
-  togglePinConversation,
+  pinConversation,
+  unpinConversation,
   hydratePinnedIdsFromServer,
   hideConversation,
   unhideConversation,
@@ -669,10 +670,31 @@ export function PrettyConversationsPanel({
   };
 
   // quick-260731-tgg: panel-level togglePin with mutual exclusion — unhide before pin.
-  // Replaces direct togglePinConversation calls at the render sites.
-  const handleTogglePin = (rowId: string) => {
-    if (hiddenIds.has(rowId)) unhideConversation(rowId);
-    togglePinConversation(rowId);
+  // quick-260807 followup to e4s: takes the whole row and handles BOTH pin
+  // id shapes symmetrically (openTab id + fleet-synthetic shadow id). e4s
+  // fixed only the READ side (isRowPinned) — this closes the WRITE side:
+  // when the pin was persisted under the fleet-synthetic shape but the row
+  // renders in the active-set/grouped tier under its openTab id, a click on
+  // Unpin used to hit togglePinConversation(openTabId), find openTabId NOT
+  // in pinnedIds, and treat it as a PIN (adding a second stale entry) —
+  // leaving the fleet-shadow pin in place forever. Now: if EITHER shape is
+  // pinned, remove BOTH; if NEITHER, pin the canonical (fleet-synthetic
+  // when host+targetTmuxSession are available so the pin survives openTab
+  // id churn across URL-restores).
+  const handleTogglePin = (row: ConversationRowShape) => {
+    if (hiddenIds.has(row.id)) unhideConversation(row.id);
+    const shadowFleetId =
+      row.host && row.targetTmuxSession
+        ? fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession)
+        : null;
+    const openTabPinned = pinnedIds.has(row.id);
+    const shadowPinned = shadowFleetId !== null && pinnedIds.has(shadowFleetId);
+    if (openTabPinned || shadowPinned) {
+      if (openTabPinned) unpinConversation(row.id);
+      if (shadowPinned && shadowFleetId !== null) unpinConversation(shadowFleetId);
+    } else {
+      pinConversation(shadowFleetId ?? row.id);
+    }
   };
 
   // quick-260731-tgg: panel-level hide/show handler.
@@ -917,7 +939,7 @@ export function PrettyConversationsPanel({
                     hidden={hiddenIds.has(row.id)}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
-                    onTogglePin={() => handleTogglePin(row.id)}
+                    onTogglePin={() => handleTogglePin(row)}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onToggleHide={() => handleToggleHide(row)}
                     onClone={() => handleRowClone(row)}
@@ -972,7 +994,7 @@ export function PrettyConversationsPanel({
                   hidden={hiddenIds.has(row.id)}
                   variant={variant}
                   onSelect={() => handleRowSelect(row)}
-                  onTogglePin={() => handleTogglePin(row.id)}
+                  onTogglePin={() => handleTogglePin(row)}
                   onDeactivate={() => handleRowDeactivate(row)}
                   onToggleHide={() => handleToggleHide(row)}
                   onClone={() => handleRowClone(row)}
@@ -1073,7 +1095,7 @@ export function PrettyConversationsPanel({
                       hidden={hiddenIds.has(row.id)}
                       variant={variant}
                       onSelect={() => handleRowSelect(row)}
-                      onTogglePin={() => handleTogglePin(row.id)}
+                      onTogglePin={() => handleTogglePin(row)}
                       onDeactivate={() => handleRowDeactivate(row)}
                       onToggleHide={() => handleToggleHide(row)}
                       onClone={() => handleRowClone(row)}
@@ -1132,7 +1154,7 @@ export function PrettyConversationsPanel({
                       hidden={true}
                       variant={variant}
                       onSelect={() => handleRowSelect(row)}
-                      onTogglePin={() => handleTogglePin(row.id)}
+                      onTogglePin={() => handleTogglePin(row)}
                       onToggleHide={() => handleToggleHide(row)}
                       onClone={() => handleRowClone(row)}
                       inActiveSet={activeSet.has(row.id)}

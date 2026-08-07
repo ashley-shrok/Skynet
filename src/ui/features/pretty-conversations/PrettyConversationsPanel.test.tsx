@@ -144,7 +144,12 @@ function setSnapshot(next: Partial<MockSnapshot>): void {
 }
 
 const selectConversationSpy = vi.fn();
-const togglePinConversationSpy = vi.fn();
+// quick-260807 followup to e4s: panel-level handleTogglePin now calls
+// pinConversation / unpinConversation directly (was: togglePinConversation
+// with a single id) so it can symmetrically toggle BOTH the openTab id and
+// the fleet-synthetic shadow id when either is pinned.
+const pinConversationSpy = vi.fn();
+const unpinConversationSpy = vi.fn();
 // Patch #144 Fix (d): converted the previously no-op addToActiveSet mock
 // into a spy so Tests 16/17 below can verify the panel's useEffect on
 // [selectedId] enrolls the id in the active set.
@@ -201,7 +206,8 @@ vi.mock("@/state/conversation-store", () => ({
   // rerenders to exercise the gate.
   useFleetSessionsLoaded: () => mockFleetSessionsLoaded,
   selectConversation: (id: string | null) => selectConversationSpy(id),
-  togglePinConversation: (id: string) => togglePinConversationSpy(id),
+  pinConversation: (id: string) => pinConversationSpy(id),
+  unpinConversation: (id: string) => unpinConversationSpy(id),
   addToActiveSet: (id: string) => addToActiveSetSpy(id),
   removeFromActiveSet: (id: string) => removeFromActiveSetSpy(id),
   // quick-260727-s8g: Panel imports fleetRowId to construct the fleet-
@@ -1138,6 +1144,93 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
     expect(
       within(menu).queryByRole("menuitem", { name: /^pin$/i }),
     ).toBeNull();
+  });
+
+  // quick-260807 followup: E4S-01 fixed the READ side (menu label). This
+  // locks in the WRITE side — clicking Unpin on the same fixture must
+  // remove the fleet-synthetic pin from pinnedIds (via unpinConversation)
+  // rather than ADDING the openTab-id shape (which was the pre-fix bug:
+  // togglePinConversation(openTabId) found openTabId NOT in pinnedIds and
+  // added it, leaving the fleet-shadow pin in place forever).
+  it("Test E4S-02: clicking Unpin on an active-set row whose pin lives under fleet::HOSTID::SESSIONNAME calls unpinConversation with the fleet id (not pinConversation with the openTab id)", async () => {
+    const hostA = makeHost("1", "hostA");
+    const activeRow = makeConversationRow({
+      id: "active-alpha",
+      label: "alpha",
+      host: hostA,
+      targetTmuxSession: "alpha",
+    });
+    setSnapshot({
+      activeSet: [activeRow],
+      pinned: [],
+      grouped: [],
+      pinnedIds: new Set(["fleet::1::alpha"]),
+    });
+    mockActiveSet = new Set<string>(["active-alpha"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="active-alpha"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const unpinItem = within(menu).getByRole("menuitem", { name: /^unpin$/i });
+    fireEvent.click(unpinItem);
+
+    await waitFor(() => {
+      expect(unpinConversationSpy).toHaveBeenCalledWith("fleet::1::alpha");
+    });
+    // Must NOT have added the openTab id as a stale second pin.
+    expect(pinConversationSpy).not.toHaveBeenCalled();
+    // And must NOT have called unpin on the openTab id (which isn't in
+    // pinnedIds — the store's unpinConversation would no-op anyway, but
+    // spec-wise the click's only side effect is removing the fleet id).
+    expect(unpinConversationSpy).not.toHaveBeenCalledWith("active-alpha");
+  });
+
+  // Complementary: fresh pin from an active-set row with a resolvable fleet
+  // id must land the pin under the CANONICAL (fleet-synthetic) shape so the
+  // pin survives openTab-id churn across URL-restores.
+  it("Test E4S-03: clicking Pin on an unpinned active-set row with host+targetTmuxSession pins under the fleet-synthetic canonical id (not the openTab id)", async () => {
+    const hostA = makeHost("1", "hostA");
+    const activeRow = makeConversationRow({
+      id: "active-alpha",
+      label: "alpha",
+      host: hostA,
+      targetTmuxSession: "alpha",
+    });
+    setSnapshot({
+      activeSet: [activeRow],
+      pinned: [],
+      grouped: [],
+      pinnedIds: new Set(),
+    });
+    mockActiveSet = new Set<string>(["active-alpha"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="active-alpha"]',
+    ) as HTMLElement | null;
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    const pinItem = within(menu).getByRole("menuitem", { name: /^pin$/i });
+    fireEvent.click(pinItem);
+
+    await waitFor(() => {
+      expect(pinConversationSpy).toHaveBeenCalledWith("fleet::1::alpha");
+    });
+    expect(pinConversationSpy).not.toHaveBeenCalledWith("active-alpha");
+    expect(unpinConversationSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -2303,10 +2396,13 @@ describe("PrettyConversationsPanel: Hidden section (quick-260731-tgg)", () => {
 
   // (f) Pin on a hidden row unhides first then pins (mutual exclusion)
   // Tests the handleTogglePin panel-level orchestration: the panel must call
-  // unhideConversation(rowId) BEFORE togglePinConversation(rowId) when the
-  // row is in hiddenIds. We trigger this via right-click → context menu → Pin
-  // on a row in the grouped tier that is also in hiddenIds.
-  it("Test (f): handleTogglePin on a hidden row calls unhideConversation THEN togglePinConversation", async () => {
+  // unhideConversation(rowId) BEFORE the pin write when the row is in
+  // hiddenIds. We trigger this via right-click → context menu → Pin on a row
+  // in the grouped tier that is also in hiddenIds. Post-260807-followup the
+  // pin write is pinConversation() (not togglePinConversation) — for a row
+  // with no targetTmuxSession, shadowFleetId is null and the canonical pin
+  // id falls back to row.id.
+  it("Test (f): handleTogglePin on a hidden row calls unhideConversation THEN pinConversation", async () => {
     const row = makeConversationRow({ id: "row-to-pin-unhide", label: "test-row", host: hostA });
     setSnapshot({
       grouped: [{ hostId: "h1", hostName: "hostA", rows: [row] }],
@@ -2337,13 +2433,13 @@ describe("PrettyConversationsPanel: Hidden section (quick-260731-tgg)", () => {
 
     await waitFor(() => {
       expect(unhideConversationSpy).toHaveBeenCalledWith("row-to-pin-unhide");
-      expect(togglePinConversationSpy).toHaveBeenCalledWith("row-to-pin-unhide");
+      expect(pinConversationSpy).toHaveBeenCalledWith("row-to-pin-unhide");
     });
 
-    // Verify call ORDER: unhide must come before togglePin.
+    // Verify call ORDER: unhide must come before pin.
     const unhideOrder = unhideConversationSpy.mock.invocationCallOrder[0];
-    const togglePinOrder = togglePinConversationSpy.mock.invocationCallOrder[0];
-    expect(unhideOrder).toBeLessThan(togglePinOrder);
+    const pinOrder = pinConversationSpy.mock.invocationCallOrder[0];
+    expect(unhideOrder).toBeLessThan(pinOrder);
   });
 });
 
