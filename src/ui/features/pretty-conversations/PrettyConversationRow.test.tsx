@@ -105,6 +105,17 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
 }));
 
+// Per-test override handle for useBountyCounts. Tests set
+// `currentBountyCounts` to control the pair returned by the mocked hook.
+// Default is undefined (pre-fetch / no pair landed).
+let currentBountyCounts:
+  | { pinnedCount: number; needsDeskCount: number }
+  | undefined = undefined;
+
+vi.mock("@/state/bounty-counts-store", () => ({
+  useBountyCounts: () => currentBountyCounts,
+}));
+
 // tabIcon is a real dep — no need to mock. tabUtils.tsx does pull in a wide
 // dependency graph via renderTabContent, but for tabIcon-only usage the graph
 // is tree-shaken irrelevant during test runs.
@@ -177,6 +188,7 @@ function makeIdentity(hue: number, name = "nelly"): Identity {
 beforeEach(() => {
   vi.clearAllMocks();
   currentIdentity = null;
+  currentBountyCounts = undefined;
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1634,5 +1646,126 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests A-F — [Phase 26 Plan 03] Bounty badge visibility — useBountyCounts
+//             pair consumption (replaces old single useBountyCount mock)
+// ─────────────────────────────────────────────────────────────────────────────
+// PrettyConversationRow now consumes useBountyCounts (plural) returning the
+// {pinnedCount, needsDeskCount} pair (undefined when no fetch has landed or
+// when the row has no identity). The badge shows the combined pin·desk pill
+// per the 4-case rendering rule (see PrettyBountyCountBadge.tsx).
+//
+// currentBountyCounts is reset to undefined in beforeEach; each test overrides
+// it to the relevant pair shape. currentIdentity is set for identity rows
+// (session match drives the useBountyCounts call site in the row).
+
+describe("PrettyConversationRow: bounty badge visibility — useBountyCounts pair (Phase 26 Plan 03)", () => {
+  it("Test A: identity row + pinnedCount=3, needsDeskCount=0 → badge textContent '3·'", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 0 };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    const badge = screen.getByTestId("pv-bounty-badge");
+    expect(badge.textContent).toBe("3·");
+  });
+
+  it("Test B: identity row + pinnedCount=0, needsDeskCount=1 → badge textContent '·1'", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentBountyCounts = { pinnedCount: 0, needsDeskCount: 1 };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    const badge = screen.getByTestId("pv-bounty-badge");
+    expect(badge.textContent).toBe("·1");
+  });
+
+  it("Test C: identity row + pinnedCount=3, needsDeskCount=1 → badge textContent '3·1'", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 1 };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    const badge = screen.getByTestId("pv-bounty-badge");
+    expect(badge.textContent).toBe("3·1");
+  });
+
+  it("Test D: identity row + pinnedCount=0, needsDeskCount=0 → no badge (null)", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentBountyCounts = { pinnedCount: 0, needsDeskCount: 0 };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
+  });
+
+  it("Test E: no-identity row (sessionMatchKey → null) → no badge regardless of mock", () => {
+    // currentIdentity is null (reset in beforeEach) — identity doesn't resolve.
+    // useBountyCounts short-circuits to undefined when identityKey is null.
+    currentBountyCounts = undefined; // explicit — hook returns undefined
+    render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={false}
+      />,
+    );
+    expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
+  });
+
+  it("Test F: pre-fetch state — hook returns undefined → no badge", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentBountyCounts = undefined; // pre-fetch, pair hasn't landed yet
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
   });
 });
