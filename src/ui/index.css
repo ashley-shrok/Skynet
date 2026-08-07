@@ -41,6 +41,36 @@ body {
   background-color: var(--background);
 }
 
+/* Fleet-wide mobile tap responsiveness (2026-08-07, Ashley: "sometimes I
+   press things on mobile ... and they don't press so I have to touch
+   them again"). iOS Safari's default `touch-action: auto` keeps a ~300ms
+   double-tap-zoom arbitration window even on `user-scalable=no` pages;
+   during it, a small finger movement can flip the browser's tap → scroll
+   classification and silently suppress the click. `manipulation` opts
+   the element out of double-tap-zoom so the browser commits to a click
+   at touchend without waiting. Applied by SEMANTIC ROLE so every button
+   / menu item / tab / option is covered without enumerating class names,
+   plus <a role="button"> and form controls. Deliberately NOT applied to
+   scroll containers or the app root — vertical scroll still bubbles from
+   a `manipulation` child up to the parent scroller. Long-press behaviors
+   (identity badge + conversation row → context menu) are JS timers on
+   touchstart and are unaffected by touch-action. */
+button,
+a[role="button"],
+[role="menuitem"],
+[role="tab"],
+[role="option"],
+[role="switch"],
+[role="checkbox"],
+[role="radio"],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"] {
+  touch-action: manipulation;
+}
+
 @custom-variant dark (&:is(.dark *));
 @custom-variant dracula (&:is(.dracula *));
 
