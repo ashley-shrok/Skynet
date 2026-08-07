@@ -1165,3 +1165,50 @@
     padding-bottom: max(env(safe-area-inset-bottom), 36px);
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   quick-260807-igo: PRETTY CONTEXT-MENU ITEM — tap-flash on both mouse and
+   touch. The React component (PrettyConversationContextMenu.tsx) previously
+   used inline onMouseEnter/onMouseLeave handlers to swap the button
+   background, which produced zero perceivable feedback on mobile (touch
+   never fires mouse-enter) and effectively no feedback on desktop either
+   (the portal used to tear down synchronously on click, so :active had no
+   chance to paint). The component now defers onClose by FLASH_DISMISS_MS
+   (~120ms) so the flash below actually gets seen.
+
+   :active is the ONLY cross-input tap-down affordance (fires on both mouse
+   press and touch press), so we drive both :hover AND :active from this
+   single class — no user-agent sniffing, no mobile-only branching.
+
+   -webkit-tap-highlight-color: transparent kills the default iOS blue tap
+   flash; our :active rule replaces it. Matches the pattern already used on
+   .pv-pencil, .pv-filter, .pv-pin-action, .pv-deactivate-action, .pv-hide-action.
+
+   No color override here — the inline color (item.danger ? "#ff9a8a"
+   : "#e8e4d8") on the button remains authoritative. Nothing here touches
+   the .pv-context-menu-item's parent (the menu root's --pv-id-hue border
+   is set inline in the component and is unaffected).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-context-menu-item {
+  background: transparent;
+  /* Short transition so the flash appears and clears fast enough to not
+     feel laggy on a rapid tap. */
+  transition: background 90ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Desktop hover — same warm-cream tint the retired inline mouseEnter used
+   (rgba(255,240,215,0.08)) so hover feel is unchanged. */
+.pv-context-menu-item:hover {
+  background: rgba(255, 240, 215, 0.08);
+}
+
+/* Tap-down flash — roughly 2x the hover alpha (0.18 vs 0.08) so the flash
+   reads DISTINCTLY louder than idle hover. This is what mobile touch will
+   trigger via :active; desktop click also hits it briefly between press
+   and release, which combined with the FLASH_DISMISS_MS delay gives the
+   perceivable feedback flash on both inputs. */
+.pv-context-menu-item:active {
+  background: rgba(255, 240, 215, 0.18);
+}

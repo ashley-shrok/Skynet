@@ -37,6 +37,15 @@ export interface PrettyConversationContextMenuProps {
 const MENU_MIN_WIDTH = 168;
 const VIEWPORT_MARGIN = 8;
 
+// quick-260807-igo: delay between an item's onClick firing and the parent's
+// onClose so the CSS :active tap-flash on `.pv-context-menu-item` has time to
+// paint at least one frame before the portal tears down. 120ms is the shortest
+// value that reliably survives a 60Hz paint cycle (~16.7ms/frame) with margin
+// for slower mobile devices, while staying short enough that the menu still
+// feels responsive on desktop mouse click. Guarded by a mounted-ref + timer
+// clear on unmount so onClose never fires against a torn-down parent.
+const FLASH_DISMISS_MS = 120;
+
 export function PrettyConversationContextMenu({
   x,
   y,
@@ -49,6 +58,25 @@ export function PrettyConversationContextMenu({
     left: x,
     top: y,
   });
+
+  // quick-260807-igo: mounted-ref guards the deferred onClose (see
+  // FLASH_DISMISS_MS above). React 18+ StrictMode double-invokes effects, but
+  // the ref is initialized to true and flipped to false only in the cleanup
+  // path, so the guard is invariant across re-renders. The pending-timeout
+  // ref lets the same cleanup effect clearTimeout on unmount so a torn-down
+  // parent never gets a delayed onClose call.
+  const mountedRef = useRef(true);
+  const pendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (pendingTimeoutRef.current !== null) {
+        clearTimeout(pendingTimeoutRef.current);
+        pendingTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Clamp menu into viewport once we know its measured size.
   useLayoutEffect(() => {
@@ -130,10 +158,20 @@ export function PrettyConversationContextMenu({
           role="menuitem"
           onClick={(e) => {
             e.stopPropagation();
+            // Fire the action synchronously so parent state updates happen
+            // right away. onClose is DEFERRED by FLASH_DISMISS_MS so the CSS
+            // :active tap-flash on .pv-context-menu-item paints at least one
+            // frame before the portal tears down. Deferred call is guarded by
+            // the mounted-ref (see the mount/unmount effect above) so a
+            // parent that unmounts mid-delay never receives a stale onClose.
             item.onClick();
-            onClose();
+            const t = setTimeout(() => {
+              pendingTimeoutRef.current = null;
+              if (mountedRef.current) onClose();
+            }, FLASH_DISMISS_MS);
+            pendingTimeoutRef.current = t;
           }}
-          className="py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
+          className="pv-context-menu-item py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
           style={{
             display: "block",
             width: "100%",
@@ -141,18 +179,9 @@ export function PrettyConversationContextMenu({
             fontSize: 14,
             lineHeight: "18px",
             borderRadius: 8,
-            background: "transparent",
             border: "none",
             color: item.danger ? "#ff9a8a" : "#e8e4d8",
             cursor: "pointer",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "rgba(255,240,215,0.08)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "transparent";
           }}
         >
           {item.label}

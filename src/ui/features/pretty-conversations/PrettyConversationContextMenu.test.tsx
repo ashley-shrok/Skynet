@@ -256,11 +256,20 @@ describe("PrettyConversationContextMenu: inside-click preserves menu", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 8 — Item click invokes item.onClick AND onClose
+// Test 8 — Item click invokes item.onClick synchronously AND onClose after the
+// 120ms flash delay. Scoped fake timers so the other 9 describe blocks keep
+// real timers (afterEach restores).
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationContextMenu: item click", () => {
-  it("clicking a menu item fires that item's onClick + onClose, and no sibling item's onClick", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("clicking a menu item fires that item's onClick synchronously; onClose fires only after 120ms; no sibling item's onClick", () => {
     const itemPinClick = vi.fn();
     const itemDeactivateClick = vi.fn();
     const onClose = vi.fn();
@@ -277,12 +286,16 @@ describe("PrettyConversationContextMenu: item click", () => {
     );
     const pinItem = screen.getByRole("menuitem", { name: /pin/i });
     fireEvent.click(pinItem);
+    // item.onClick is called immediately (parent state updates right away).
     expect(itemPinClick).toHaveBeenCalledTimes(1);
     expect(itemDeactivateClick).not.toHaveBeenCalled();
+    // onClose is DEFERRED so :active can paint before the menu unmounts.
+    expect(onClose).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(120);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("clicking the danger item fires its onClick + onClose", () => {
+  it("clicking the danger item fires its onClick synchronously; onClose fires only after 120ms", () => {
     const itemPinClick = vi.fn();
     const itemDeactivateClick = vi.fn();
     const onClose = vi.fn();
@@ -303,6 +316,8 @@ describe("PrettyConversationContextMenu: item click", () => {
     fireEvent.click(deactivateItem);
     expect(itemDeactivateClick).toHaveBeenCalledTimes(1);
     expect(itemPinClick).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(120);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
@@ -377,5 +392,48 @@ describe("PrettyConversationContextMenu: hue custom property", () => {
     const menu = screen.getByRole("menu");
     const rawStyle = menu.getAttribute("style") ?? "";
     expect(rawStyle).not.toContain("--pv-id-hue");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 11 — Unmount during the 120ms flash-delay MUST NOT call onClose after
+// the component has torn down. Proves the mounted-ref guard + timer cleanup.
+// Portal parents (rows) can unmount for reasons unrelated to menu selection
+// (route change, row prop churn, etc.). Firing onClose on a torn-down parent
+// would be a use-after-unmount React warning at best, a crash at worst.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationContextMenu: unmount during flash-delay", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("unmounting the menu mid-flash-delay does NOT call onClose (mounted-ref guards the deferred onClose)", () => {
+    const itemPinClick = vi.fn();
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={[{ label: "Pin", onClick: itemPinClick }]}
+        onClose={onClose}
+      />,
+    );
+    const pinItem = screen.getByRole("menuitem", { name: /pin/i });
+    fireEvent.click(pinItem);
+    // item.onClick was called synchronously — parent state (like closing the
+    // menu itself via a state flip) may have already caused an unmount by the
+    // time the deferred onClose would fire. Simulate that by unmounting NOW.
+    unmount();
+    // Advance PAST the 120ms flash delay; the guarded setTimeout must NOT
+    // invoke onClose because the mounted ref is false + timer was cleared.
+    vi.advanceTimersByTime(120);
+    expect(onClose).not.toHaveBeenCalled();
+    // Belt-and-braces: keep advancing to prove no delayed re-entry either.
+    vi.advanceTimersByTime(1000);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
