@@ -721,20 +721,23 @@ export type IdentityBountyDeletedEvent = {
   error?: string;
 };
 
-// ─── Quick 260727-tb1: batched pinned bounty count ──────────────────────────
+// ─── Quick 260727-tb1 / Phase 26: batched bounty counts (pinned + needs-desk) ─
 //
 // Piggybacks on the patch #92 identity-artifact reader to power the per-row
 // bounty badge in pretty-conversations. ONE WS request carrying every visible
 // identity's (identityKey, hostId), ONE response with per-target counts.
 // Response uses Promise.allSettled server-side so one dead SSH host cannot
-// block the batch — dead-host entries carry {pinnedCount: 0, error: string}
+// block the batch — dead-host entries carry {pinnedCount: 0, needsDeskCount: 0, error: string}
 // while other targets still return live counts.
+//
+// Phase 26 widening: per-target results carry BOTH pinnedCount and needsDeskCount
+// from the same single fs walk (no double backend IO).
 //
 //   client -> server:
 //     { type: "identity:count-bounties", targets: [{identityKey, hostId}, ...] }
 //
 //   server -> client:
-//     { type: "identity:bounty-counts", counts: [{identityKey, hostId, pinnedCount, error?}, ...] }
+//     { type: "identity:bounty-counts", counts: [{identityKey, hostId, pinnedCount, needsDeskCount, error?}, ...] }
 //
 // hostId=null means "read from skynet-ec2 local bind-mount" (patch #92 D-4).
 
@@ -752,6 +755,7 @@ export type BountyCountResult = {
   identityKey: string;
   hostId: number | null;
   pinnedCount: number;
+  needsDeskCount: number;
   error?: string;
 };
 
@@ -761,11 +765,14 @@ export type IdentityBountyCountsEvent = {
 };
 
 /**
- * Fire a one-shot batched pinned bounty count request. Opens its own WS,
- * sends one identity:count-bounties frame on open, resolves on the first
- * matching identity:bounty-counts response, then closes the socket. Follows
- * the same one-shot request/response pattern IdentityModal uses for
+ * Fire a one-shot batched bounty count request. Opens its own WS, sends one
+ * identity:count-bounties frame on open, resolves on the first matching
+ * identity:bounty-counts response, then closes the socket. Follows the same
+ * one-shot request/response pattern IdentityModal uses for
  * identity:list-bounties.
+ *
+ * Phase 26: per-target results carry BOTH pinnedCount and needsDeskCount —
+ * the server computes both on a single fs walk (single-walk invariant).
  *
  * Rejects on onerror / onclose-before-response with "Connection failed" so
  * callers can distinguish transport failures from per-target errors (the

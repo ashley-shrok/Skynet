@@ -1,7 +1,10 @@
-// ─── claude-session-api — countIdentityBounties wire shape (quick 260727-tb1) ─
+// ─── claude-session-api — countIdentityBounties wire shape (quick 260727-tb1 / Phase 26) ─
 //
-// Type-level + one-shot-transport assertions for the new WS request/response
-// pair that Task 2 adds. Runs under vitest's jsdom env because
+// Phase 26 widening: BountyCountResult now carries needsDeskCount alongside pinnedCount.
+// Test I2 asserts orthogonality through the wire (needsDeskCount is a distinct field).
+//
+// Type-level + one-shot-transport assertions for the WS request/response
+// pair. Runs under vitest's jsdom env because
 // countIdentityBounties opens a WebSocket via openClaudeSessionSocket. We
 // swap window.WebSocket for a manual test stub so we can drive .onopen /
 // .onmessage / .send / .close without a real server.
@@ -76,12 +79,12 @@ describe("countIdentityBounties one-shot helper", () => {
       targets,
     });
 
-    // Simulate server response.
+    // Simulate server response — Phase 26 widening includes needsDeskCount.
     const responsePayload = {
       type: "identity:bounty-counts",
       counts: [
-        { identityKey: "tina", hostId: null, pinnedCount: 3 },
-        { identityKey: "moxie", hostId: 42, pinnedCount: 0, error: "boom" },
+        { identityKey: "tina", hostId: null, pinnedCount: 3, needsDeskCount: 2 },
+        { identityKey: "moxie", hostId: 42, pinnedCount: 0, needsDeskCount: 0, error: "boom" },
       ],
     };
     lastSocket!.onmessage?.call(
@@ -91,6 +94,8 @@ describe("countIdentityBounties one-shot helper", () => {
 
     const resolved = await promise;
     expect(resolved).toEqual(responsePayload);
+    // assert needsDeskCount is present and correct
+    expect(resolved.counts[0].needsDeskCount).toBe(2);
     // Helper closes the socket after receiving the response.
     expect(lastSocket!.close).toHaveBeenCalledTimes(1);
   });
@@ -121,7 +126,7 @@ describe("countIdentityBounties one-shot helper", () => {
       new MessageEvent("message", {
         data: JSON.stringify({
           type: "identity:bounty-counts",
-          counts: [{ identityKey: "tina", hostId: null, pinnedCount: 1 }],
+          counts: [{ identityKey: "tina", hostId: null, pinnedCount: 1, needsDeskCount: 0 }],
         }),
       }),
     );
@@ -129,5 +134,37 @@ describe("countIdentityBounties one-shot helper", () => {
     const resolved = await promise;
     expect(resolved.counts).toHaveLength(1);
     expect(resolved.counts[0].pinnedCount).toBe(1);
+    expect(resolved.counts[0].needsDeskCount).toBe(0);
+  });
+
+  // Test I2 NEW: orthogonality preserved through the wire — needsDeskCount is a distinct field from pinnedCount
+  it("orthogonality preserved through the wire — needsDeskCount is a distinct field from pinnedCount", async () => {
+    const { countIdentityBounties } = await import("./claude-session-api.js");
+
+    const promise = countIdentityBounties([{ identityKey: "x", hostId: null }]);
+    lastSocket!.onopen?.call(
+      lastSocket as unknown as WebSocket,
+      new Event("open"),
+    );
+
+    // Server emits frame with pinnedCount=5, needsDeskCount=1 (distinct values).
+    lastSocket!.onmessage?.call(
+      lastSocket as unknown as WebSocket,
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "identity:bounty-counts",
+          counts: [{ identityKey: "x", hostId: null, pinnedCount: 5, needsDeskCount: 1 }],
+        }),
+      }),
+    );
+
+    const resolved = await promise;
+    expect(resolved.counts[0].pinnedCount).toBe(5);
+    expect(resolved.counts[0].needsDeskCount).toBe(1);
+    // Neither field is undefined.
+    expect(resolved.counts[0].pinnedCount).not.toBeUndefined();
+    expect(resolved.counts[0].needsDeskCount).not.toBeUndefined();
+    // And they are distinct values (5 ≠ 1).
+    expect(resolved.counts[0].pinnedCount).not.toBe(resolved.counts[0].needsDeskCount);
   });
 });

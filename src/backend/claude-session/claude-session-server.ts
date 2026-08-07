@@ -24,7 +24,7 @@ import {
   readIdentityWakeups,
   readIdentityHandoff,
   readIdentityBounties,
-  readIdentityPinnedBountyCount,
+  readIdentityBountyCounts,
   readRoleFile,
   writeIdentityWakeupUpdate,
   writeIdentityFile,
@@ -50,7 +50,7 @@ import {
  *   client -> server:
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
  *     { type: "identity:list-bounties", identityKey: string, hostId?: number }    // patch #87/#92: fetch identity bounties; hostId routes to pane's box (omit = local bind-mount)
- *     { type: "identity:count-bounties", targets: Array<{ identityKey: string; hostId: number | null }> } // quick 260727-tb1: batched pinned bounty counter for the per-row badge (one WS request per poll)
+ *     { type: "identity:count-bounties", targets: Array<{ identityKey: string; hostId: number | null }> } // quick 260727-tb1 / Phase 26: batched bounty counter (pinned + needs-desk) for the per-row badge (one WS request per poll)
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
  *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/.claude/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
@@ -89,7 +89,7 @@ import {
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
  *     { type: "identity:bounties", bounties, archivedBounties, error? } // patch #87: response to identity:list-bounties (one-shot; WS closed by client after receipt)
- *     { type: "identity:bounty-counts", counts: Array<{ identityKey, hostId, pinnedCount, error? }> } // quick 260727-tb1: response to identity:count-bounties (one-shot; WS closed by client after receipt)
+ *     { type: "identity:bounty-counts", counts: Array<{ identityKey, hostId, pinnedCount, needsDeskCount, error? }> } // quick 260727-tb1 / Phase 26: response to identity:count-bounties (one-shot; WS closed by client after receipt)
  *     // patch #17g: identity artifact responses (one-shot; WS closed by client after receipt):
  *     { type: "identity:identity-file", markdown: string, error?: string } // patch #17g: response to identity:get-identity-file
  *     { type: "identity:role-file", markdown: string, error?: string }      // Phase 22 SRIC-06: response to identity:get-role-file
@@ -480,7 +480,7 @@ export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 // vitest suite can drive it without a real WebSocketServer. Wire shape:
 //
 //   in:  { type: "identity:count-bounties", targets: [{identityKey, hostId}, ...] }
-//   out: { type: "identity:bounty-counts", counts:  [{identityKey, hostId, pinnedCount, error?}, ...] }
+//   out: { type: "identity:bounty-counts", counts:  [{identityKey, hostId, pinnedCount, needsDeskCount, error?}, ...] }
 //
 // Semantics:
 //   - hostId=null OR hostId in IDENTITIES_LOCAL_HOST_IDS → local (bind-mount) branch.
@@ -496,16 +496,17 @@ type CountBountiesResult = {
   identityKey: string;
   hostId: number | null;
   pinnedCount: number;
+  needsDeskCount: number;
   error?: string;
 };
 
 async function readOneTarget(
   conn: SSHClientType | null,
   identityKey: string,
-): Promise<number> {
+): Promise<{ pinnedCount: number; needsDeskCount: number }> {
   // The reader itself validates identityKey; forwarding invalid keys is fine
   // — the rejection lands in the per-target error field via allSettled.
-  return readIdentityPinnedBountyCount(conn, identityKey);
+  return readIdentityBountyCounts(conn, identityKey);
 }
 
 export async function handleIdentityCountBounties(
@@ -568,13 +569,15 @@ export async function handleIdentityCountBounties(
               return {
                 identityKey: t.identityKey,
                 hostId: t.hostId,
-                pinnedCount: s.value,
+                pinnedCount: s.value.pinnedCount,
+                needsDeskCount: s.value.needsDeskCount,
               };
             }
             return {
               identityKey: t.identityKey,
               hostId: t.hostId,
               pinnedCount: 0,
+              needsDeskCount: 0,
               error: String((s.reason as Error)?.message ?? s.reason),
             };
           });
@@ -592,6 +595,7 @@ export async function handleIdentityCountBounties(
                 identityKey: t.identityKey,
                 hostId: t.hostId,
                 pinnedCount: 0,
+                needsDeskCount: 0,
                 error: "host not found",
               }));
             }
@@ -608,13 +612,15 @@ export async function handleIdentityCountBounties(
                 return {
                   identityKey: t.identityKey,
                   hostId: t.hostId,
-                  pinnedCount: s.value,
+                  pinnedCount: s.value.pinnedCount,
+                  needsDeskCount: s.value.needsDeskCount,
                 };
               }
               return {
                 identityKey: t.identityKey,
                 hostId: t.hostId,
                 pinnedCount: 0,
+                needsDeskCount: 0,
                 error: String((s.reason as Error)?.message ?? s.reason),
               };
             });
@@ -625,6 +631,7 @@ export async function handleIdentityCountBounties(
               identityKey: t.identityKey,
               hostId: t.hostId,
               pinnedCount: 0,
+              needsDeskCount: 0,
               error: msgStr,
             }));
           } finally {
