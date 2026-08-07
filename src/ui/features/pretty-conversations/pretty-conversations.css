@@ -181,6 +181,61 @@
   stroke-width: 2;
 }
 
+/* Phase 26 D-03: small dot indicator on the Filter button when any toggle is on.
+   Absolute-positioned in the top-right corner of the .pv-filter button; inherits
+   --pv-hue from the panel-header context. Presence-of-dot is the ONLY affordance
+   change on the button — no icon variant swap (Ashley's presence-is-signal rule). */
+.pv-panel-header .pv-filter {
+  position: relative; /* enable absolute-positioned .pv-filter-dot child */
+}
+.pv-panel-header .pv-filter .pv-filter-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: hsla(var(--pv-hue, 210), 60%, 60%, 0.95);
+  pointer-events: none;
+}
+/* Mobile bump: ~14px dot to match the enlarged 60x60 button. */
+@media (max-width: 767.98px) {
+  .pv-panel-header .pv-filter .pv-filter-dot {
+    top: 8px;
+    right: 8px;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+/* Phase 26 D-05: popover surface + toggle rows.
+   Popover chrome inherits shadcn's default token treatment (bg-popover /
+   text-popover-foreground / border / rounded-md / shadow) from the primitive;
+   these rules add layout + a subtle pretty-view accent so it reads as part of
+   the panel-header not a generic dropdown. */
+.pv-filter-popover {
+  /* shadcn PopoverContent provides base chrome; we add pretty-view spacing. */
+  min-width: 240px;
+  padding: 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pv-filter-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-pv-fg);
+  user-select: none;
+}
+.pv-filter-toggle-row:hover {
+  background: rgba(220, 225, 245, 0.06);
+}
+
 /* Header logo (Skynet triangle SVG left of the wordmark).
    Extracted from an inline style on the <img> so a mobile media query can
    override without inline-style specificity fighting it. No border-radius —

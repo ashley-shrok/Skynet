@@ -82,6 +82,8 @@ import {
   startBountyCountPoller,
   useAllBountyCounts,
 } from "@/state/bounty-counts-store";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
+import { Checkbox } from "@/components/checkbox";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
 // Phase 22 (SRIC-04): CreateRoleDialog + `+ New role` launcher next to the pencil.
@@ -453,25 +455,36 @@ export function PrettyConversationsPanel({
     };
   }, [menuOpen]);
 
-  // Patch #167: pinned-bounty filter toggle (header funnel button). Local
-  // state only — NOT persisted (Ashley 2026-07-28: "no remembering filter
-  // state"). Each fresh panel mount starts with filter off.
-  const [filterPinnedOnly, setFilterPinnedOnly] = useState(false);
+  // Phase 26 D-02: two independent bounty-count filter toggles (header funnel
+  // button → popover). Local state only — NOT persisted (Ashley 2026-07-28:
+  // "no remembering filter state"). Each fresh panel mount starts with both
+  // toggles off. filterPopoverOpen controls the Popover controlled binding
+  // required for Test 30 Escape-closes semantics.
+  const [pinnedOnly, setPinnedOnly] = useState(false);
+  const [needsDeskOnly, setNeedsDeskOnly] = useState(false);
+  const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
+  const anyFilterOn = pinnedOnly || needsDeskOnly;
 
   // Patch #167: subscribes to the full bounty-counts map so the filter
   // re-runs when the 60s poller lands a new count OR when the IdentityModal
   // fires invalidateIdentity() post-priority-change. Same store the row-level
-  // badge subscribes to via useBountyCount — this is a whole-map read that
+  // badge subscribes to via useBountyCounts — this is a whole-map read that
   // powers the panel-level filter helper below.
   const bountyCounts = useAllBountyCounts();
 
-  // Patch #167: "does this row's identity have at least one pinned bounty?"
-  // Semantics match the row-level PrettyBountyCountBadge exactly: host-scoped
-  // (`(identityKey, hostId)`), status=pinned only (backend already narrows),
-  // rows without a resolvable identity → false (filtered out when filter is
-  // on). Wrapped in useMemo so the helper identity is stable across renders
-  // that don't change identitiesByKey or the counts snapshot.
-  const hasPinnedForRow = useMemo(() => {
+  // Phase 26 D-02: AND-intersection filter helper. "Does this row satisfy ALL
+  // active filter predicates?" Formula per CONTEXT.md §specifics:
+  //   matchesFilterForRow(row) = (!pinnedOnly || pair.pinnedCount > 0)
+  //                             && (!needsDeskOnly || pair.needsDeskCount > 0)
+  // Rows with no resolvable identity or no count pair → false (filtered out
+  // when any toggle is on). Wrapped in useMemo so the helper identity is
+  // stable across renders that don't change identitiesByKey, bountyCounts,
+  // pinnedOnly, or needsDeskOnly.
+  //
+  // Phase 26 D-06: symmetric active-set exemption — active-set tier is
+  // never passed through this filter (displayedActiveSetRows = activeSetRows
+  // below). The exemption is tier-scoped, not identity-scoped.
+  const matchesFilterForRow = useMemo(() => {
     return (row: ConversationRowShape): boolean => {
       const matchKey = sessionMatchKey(row.targetTmuxSession);
       if (!matchKey) return false;
@@ -480,30 +493,29 @@ export function PrettyConversationsPanel({
       const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
       const hostId = Number.isFinite(hostIdNum) ? hostIdNum : null;
       const key = bountyCountsCompositeKey(ident.identityKey, hostId);
-      return (bountyCounts.get(key) ?? 0) > 0;
+      const pair = bountyCounts.get(key);
+      const pinnedOk = !pinnedOnly || (pair !== undefined && pair.pinnedCount > 0);
+      const needsDeskOk = !needsDeskOnly || (pair !== undefined && pair.needsDeskCount > 0);
+      return pinnedOk && needsDeskOk;
     };
-  }, [identitiesByKey, bountyCounts]);
+  }, [identitiesByKey, bountyCounts, pinnedOnly, needsDeskOnly]);
 
-  // Patch #167: apply the filter to each render collection when active.
-  // Groups with 0 rows post-filter are dropped so we don't render empty
-  // host-divider chips. RDP-sentinel group is filtered the same way; if all
-  // RDP rows fall out (they typically will — RDP rows don't map to identities
-  // with bounties), the whole "Remote desktop" section disappears from the
-  // list, matching Ashley's directive that filter applies "to the entire
+  // Phase 26 D-02: apply the AND-intersect filter to each render collection
+  // when EITHER toggle is on. Groups with 0 rows post-filter are dropped so
+  // we don't render empty host-divider chips. RDP-sentinel group is filtered
+  // the same way; if all RDP rows fall out, the whole "Remote desktop" section
+  // disappears, matching Ashley's directive that filter applies "to the entire
   // conversation list."
   //
-  // Exception (Ashley 2026-07-28): the active-set tier is exempt from the
-  // filter — active sessions always show through, regardless of pinned-bounty
-  // count. Conversation-store's tier partition guarantees active-set rows
-  // never appear in the pinned or grouped tiers, so this exemption doesn't
-  // leak: pinned-only conversations (not in active-set) still get filtered.
+  // Phase 26 D-06 symmetric active-set exemption: the active-set tier is
+  // always shown regardless of filter state — active sessions never hide.
   const displayedActiveSetRows = activeSetRows;
-  const displayedPinned = filterPinnedOnly
-    ? pinned.filter(hasPinnedForRow)
+  const displayedPinned = anyFilterOn
+    ? pinned.filter(matchesFilterForRow)
     : pinned;
-  const displayedGrouped = filterPinnedOnly
+  const displayedGrouped = anyFilterOn
     ? grouped
-        .map((g) => ({ ...g, rows: g.rows.filter(hasPinnedForRow) }))
+        .map((g) => ({ ...g, rows: g.rows.filter(matchesFilterForRow) }))
         .filter((g) => g.rows.length > 0)
     : grouped;
 
@@ -773,19 +785,48 @@ export function PrettyConversationsPanel({
             />
           </span>
           <div className="pv-header-actions">
-            {/* quick-260805-70q: filter button un-hidden per Ashley 2026-08-05 (reverses patch #317 gate). */}
-            <button
-              type="button"
-              onClick={() => setFilterPinnedOnly((v) => !v)}
-              aria-label={filterLabel}
-              aria-pressed={filterPinnedOnly}
-              title={filterLabel}
-              className="pv-filter"
-              data-active={filterPinnedOnly ? "true" : "false"}
-              data-testid="pv-filter-pinned-bounties"
-            >
-              <Filter />
-            </button>
+            {/* Phase 26 D-03/D-05: Filter button → shadcn Popover with two
+                Checkbox toggles (pinned + needs-desk). Popover handles Escape,
+                click-outside, and Tab navigation via Radix primitives. The
+                button's aria-label is hardcoded as the literal English string
+                "Filter conversations" — NOT the stale filterLabel i18n key
+                which reads "Filter by pinned bounties" and would mislead
+                screen readers after the popover offers a needs-desk toggle. */}
+            <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Filter conversations"
+                  aria-haspopup="dialog"
+                  aria-expanded={filterPopoverOpen}
+                  title="Filter conversations"
+                  className="pv-filter"
+                  data-active={anyFilterOn ? "true" : "false"}
+                  data-testid="pv-filter-toggles"
+                >
+                  <Filter />
+                  {anyFilterOn && <span className="pv-filter-dot" aria-hidden="true" />}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" sideOffset={6} className="pv-filter-popover" data-testid="pv-filter-toggles-popover">
+                <label className="pv-filter-toggle-row">
+                  <Checkbox
+                    checked={pinnedOnly}
+                    onCheckedChange={(v) => setPinnedOnly(v === true)}
+                    data-testid="pv-filter-toggle-pinned"
+                  />
+                  <span>Only rows with pinned bounties</span>
+                </label>
+                <label className="pv-filter-toggle-row">
+                  <Checkbox
+                    checked={needsDeskOnly}
+                    onCheckedChange={(v) => setNeedsDeskOnly(v === true)}
+                    data-testid="pv-filter-toggle-needs-desk"
+                  />
+                  <span>Only rows with needs-desk bounties</span>
+                </label>
+              </PopoverContent>
+            </Popover>
             {/* Phase 23 (GEFM-01): pencil + `+ New role` collapsed into one
                 MoreVertical menu button. Three items: New agent, New role,
                 Edit global files…. Gated on the same showPencilButton
