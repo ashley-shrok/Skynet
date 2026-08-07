@@ -984,7 +984,7 @@
 }
 
 .pv-bounty-badge {
-  min-width: 20px;
+  min-width: 28px;
   height: 18px;
   padding: 0 6px;
   border-radius: 999px;
@@ -1000,6 +1000,28 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+}
+
+/* Phase 26 Plan 03: combined pin·desk pill inner half + separator layout.
+   Outer .pv-bounty-badge chrome (height, padding, border-radius, colors,
+   font) preserved; only min-width bumped (20px → 28px) to accommodate
+   two-half content at desktop scale. Both halves inherit --pv-hue from
+   the .pv-row parent — no per-half color treatment. */
+.pv-bounty-badge-half {
+  display: inline-block;
+  min-width: 8px;
+  text-align: center;
+}
+.pv-bounty-badge-half--pinned {
+  text-align: right;
+}
+.pv-bounty-badge-half--needs-desk {
+  text-align: left;
+}
+.pv-bounty-badge-sep {
+  display: inline-block;
+  margin: 0 1px;
+  opacity: 0.7;
 }
 
 /* Patch #168 (Ashley's companion ask 2026-07-28): bump .pv-bounty-badge on
@@ -1041,7 +1063,7 @@
   }
 
   .pv-bounty-badge {
-    min-width: 32px;
+    min-width: 44px;
     height: 28px;
     padding: 0 9px;
     font-size: 19px;
