@@ -194,4 +194,16 @@ describe("parseContextPct — new statusline hook (2026-08-06)", () => {
   it("tolerates a tab before the head (defensive — any \\s covered by \\s*)", () => {
     expect(parseContextPct("\t17 ██░░░░░░░░")).toBe(17);
   });
+
+  it("parses truncated narrow-pane statusline (Nicole 2026-08-07, pane width 8)", () => {
+    // At ~8-column pane widths Claude Code truncates the bar glyph strip
+    // to a horizontal ellipsis (U+2026), producing `  35 …` with NO bar
+    // glyphs on the line. Before the fix, BAR_GLYPH_ANYWHERE_RE required
+    // `[█░]` and returned null — the backend then never emitted, so the
+    // frontend's initial null contextPct stayed null and the meter
+    // rendered as 0-lit (visually identical to a real 0%). Fix accepts
+    // `…` as an equivalent truncation cue.
+    const pane = "  35 …\n  ⏵⏵ ·\n  new…";
+    expect(parseContextPct(pane)).toBe(35);
+  });
 });

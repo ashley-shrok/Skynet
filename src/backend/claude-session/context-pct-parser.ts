@@ -61,7 +61,12 @@ const NEW_STATUS_HEAD_RE = /^\s*(\d\d|!!) /;
 // Bar-glyph presence check for the new-statusline disambiguation. Kept
 // narrow to the two glyphs Claude Code actually renders (`█` and `░`) —
 // the wider partial-fill set below is defensive against future variants.
-const BAR_GLYPH_ANYWHERE_RE = /[█░]/;
+// U+2026 HORIZONTAL ELLIPSIS accepted too: at narrow pane widths (~8 cols
+// and below, observed 2026-08-07 on Nicole's meter reading 0) Claude Code
+// truncates the bar strip and renders `NN …` — losing all bar glyphs.
+// The head match `^\s*(\d\d|!!) ` in the last 8 lines of footer is
+// specific enough that a truncation marker is a safe additional cue.
+const BAR_GLYPH_ANYWHERE_RE = /[█░…]/;
 
 // Bar-anchored: `%` must be immediately preceded (with optional
 // whitespace) by a Claude Code meter glyph. `█` and `░` are the two
