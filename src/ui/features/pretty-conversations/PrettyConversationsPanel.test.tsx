@@ -1099,6 +1099,48 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   });
 });
 
+// quick-260807-e4s: locks in the id-shape-mismatch fix. Panel-side
+// isRowPinned(row) must mirror the store's Tier 2 shadow-fleet-id
+// pinned computation (conversation-store.ts:493-499) at the two
+// active-set-tier render sites (active-set map + grouped host map).
+describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognition (quick-260807-e4s)", () => {
+  it("Test E4S-01: active-set row whose pin lives under fleet::HOSTID::SESSIONNAME shows Unpin (not Pin) in the right-click context menu", () => {
+    const hostA = makeHost("1", "hostA");
+    const activeRow = makeConversationRow({
+      id: "active-alpha",
+      label: "alpha",
+      host: hostA,
+      targetTmuxSession: "alpha",
+    });
+    setSnapshot({
+      activeSet: [activeRow],
+      pinned: [],
+      grouped: [],
+      pinnedIds: new Set(["fleet::1::alpha"]),
+    });
+    mockActiveSet = new Set<string>(["active-alpha"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="active-alpha"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu).getByRole("menuitem", { name: /^unpin$/i }),
+    ).toBeTruthy();
+    expect(
+      within(menu).queryByRole("menuitem", { name: /^pin$/i }),
+    ).toBeNull();
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 4 — RDP-sentinel HostGroup renders at bottom with a "Remote desktop"
 //          divider chip; RDP row follows the identity-tmux row in DOM order

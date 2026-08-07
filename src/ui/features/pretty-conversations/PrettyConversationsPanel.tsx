@@ -715,6 +715,21 @@ export function PrettyConversationsPanel({
     });
   };
 
+  // quick-260807-e4s (patch #149 followup-1 pin-nuke): mirror the store's
+  // Tier 2 shadow-fleet-id pinned check (conversation-store.ts:493-499) so
+  // active-set + grouped rows render "Unpin" when the pin was persisted
+  // under the fleet-synthetic id shape.
+  const isRowPinned = (row: ConversationRowShape): boolean => {
+    const shadowFleetId =
+      row.host && row.targetTmuxSession
+        ? fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession)
+        : null;
+    return (
+      pinnedIds.has(row.id) ||
+      (shadowFleetId !== null && pinnedIds.has(shadowFleetId))
+    );
+  };
+
   // quick-260802-pq2: handleSwipeOpenChange + forceClosedFor removed —
   // the row's swipe machinery was retired; there is no per-row open-state
   // to coordinate. Mobile actions flow through the long-press context menu.
@@ -898,7 +913,7 @@ export function PrettyConversationsPanel({
                     key={row.id}
                     row={row}
                     selected={row.id === selectedId}
-                    pinned={pinnedIds.has(row.id)}
+                    pinned={isRowPinned(row)}
                     hidden={hiddenIds.has(row.id)}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
@@ -1054,7 +1069,7 @@ export function PrettyConversationsPanel({
                       key={row.id}
                       row={row}
                       selected={row.id === selectedId}
-                      pinned={pinnedIds.has(row.id)}
+                      pinned={isRowPinned(row)}
                       hidden={hiddenIds.has(row.id)}
                       variant={variant}
                       onSelect={() => handleRowSelect(row)}
