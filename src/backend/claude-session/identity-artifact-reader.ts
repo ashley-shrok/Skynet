@@ -1978,13 +1978,14 @@ export async function deleteIdentityBounty(
 }
 
 // ---------------------------------------------------------------------------
-// 10. readIdentityPinnedBountyCount — count of non-archived pinned bounties
+// 10. readIdentityBountyCounts — counts of non-archived pinned + needs-desk bounties
 // ---------------------------------------------------------------------------
 //
-// Quick 260727-tb1: cheap counter used by the per-row bounty badge in the
-// pretty-conversations panel. Piggybacks on the readIdentityBounties layout
-// convention (bounties/<slug>/bounty.json, with an archive/ subdir that must
-// be skipped). Returns an integer.
+// Phase 26 widening of the quick 260727-tb1 counter. Returns both
+// {pinnedCount, needsDeskCount} from a SINGLE fs walk — no second readdir
+// pass. Used by the per-row bounty badge in pretty-conversations (renders
+// the combined `pin·desk` pill) and by the filter popover (AND-intersect on
+// either predicate).
 //
 // Schema note (patch #168): `pinned` is now an independent boolean field
 // orthogonal to the lifecycle `status` field. Every previously-pinned bounty
@@ -1992,21 +1993,27 @@ export async function deleteIdentityBounty(
 // migration. The counter reads `parsed.pinned === true` — NOT
 // `parsed.status === "pinned"` (that value no longer exists in the enum).
 //
-// Local branch: fs.readdir the bounties dir, skip "archive", read each
-// entry's bounty.json, count where parsed.pinned === true. Per-file
-// parse errors are swallowed as "not pinned" — a single poisoned file
-// must not fail the whole count.
+// Schema note (Phase 26, 2026-08-06): `needs_desk` is an independent boolean
+// field orthogonal to both `status` and `pinned`. Absent means false, same
+// optional-boolean-absent-means-false shape as `pinned`. The counter reads
+// `parsed.needs_desk === true`. A single bounty can have both `pinned:true`
+// AND `needs_desk:true` — it increments BOTH counters on the same pass
+// (single-walk invariant: exactly one fs.readdir per call).
 //
-// Remote branch: python3 one-liner over SSH — grep on the raw JSON is
-// fragile (pretty-printed vs single-line vs whitespace variants), so we
-// json.load + check the `pinned` boolean field in-process on the far end
-// and print an integer to stdout. python3 is universally present on identity
-// boxes (the wakeup scheduler itself is python3).
+// Local branch: fs.readdir the bounties dir ONCE, skip "archive", read each
+// entry's bounty.json, accumulate pinnedCount and needsDeskCount in the same
+// loop. Per-file parse errors are swallowed as "counted in neither" — a
+// single poisoned file must not fail the whole count.
+//
+// Remote branch: python3 script over SSH — emits a single JSON line
+// {"pinnedCount":P,"needsDeskCount":D} so both counters travel in one
+// stdout read. python3 is universally present on identity boxes (the wakeup
+// scheduler itself is python3).
 
-export async function readIdentityPinnedBountyCount(
+export async function readIdentityBountyCounts(
   conn: SSHClientType | null,
   identityKey: string,
-): Promise<number> {
+): Promise<{ pinnedCount: number; needsDeskCount: number }> {
   // Validation guard — reuse the same regex readIdentityBounties uses via
   // the server-side IDENTITY_KEY_RE. Path traversal is the concrete threat.
   if (!IDENTITY_KEY_RE.test(identityKey)) {
@@ -2019,7 +2026,7 @@ export async function readIdentityPinnedBountyCount(
   const role = await resolveRoleForIdentity(conn, identityKey);
 
   if (conn === null) {
-    // LOCAL branch
+    // LOCAL branch — single-walk invariant: exactly ONE await fs.readdir.
     const root = getLocalRolesRoot();
     const baseDir = path.join(root, role, "bounties");
 
@@ -2032,51 +2039,69 @@ export async function readIdentityPinnedBountyCount(
         err !== null &&
         (err as NodeJS.ErrnoException).code === "ENOENT"
       ) {
-        return 0;
+        return { pinnedCount: 0, needsDeskCount: 0 };
       }
       throw err;
     }
 
-    let count = 0;
+    let pinnedCount = 0;
+    let needsDeskCount = 0;
     for (const entry of entries) {
       const filePath = path.join(baseDir, entry, "bounty.json");
       try {
         const raw = await fs.readFile(filePath, "utf-8");
         const parsed = JSON.parse(raw) as Record<string, unknown>;
-        if (parsed.pinned === true) count += 1;
+        if (parsed.pinned === true) pinnedCount += 1;
+        if (parsed.needs_desk === true) needsDeskCount += 1;
       } catch {
-        // Per-file parse/read error → count as "not pinned" (do NOT throw).
+        // Per-file parse/read error → counted in neither (do NOT throw).
       }
     }
-    return count;
+    return { pinnedCount, needsDeskCount };
   }
 
-  // REMOTE branch — one round-trip; python3 emits a single integer to stdout.
+  // REMOTE branch — one round-trip; python3 emits a single JSON line to stdout.
   // The identityKey is validated above; the remote path interpolation is
   // safe because the regex forbids shell-special characters.
   const script =
     "import os,json,sys\n" +
     "r=os.path.expanduser(sys.argv[1])\n" +
-    "n=0\n" +
+    "p=0; d=0\n" +
     "try:\n" +
     "  ents=os.listdir(r)\n" +
     "except FileNotFoundError:\n" +
-    "  print(0); sys.exit(0)\n" +
-    "for d in ents:\n" +
-    '  if d=="archive": continue\n' +
-    '  p=os.path.join(r,d,"bounty.json")\n' +
+    '  print(json.dumps({"pinnedCount":0,"needsDeskCount":0})); sys.exit(0)\n' +
+    "for e in ents:\n" +
+    '  if e=="archive": continue\n' +
+    '  fp=os.path.join(r,e,"bounty.json")\n' +
     "  try:\n" +
-    "    with open(p) as f: j=json.load(f)\n" +
-    '    if j.get("pinned") is True: n+=1\n' +
+    "    with open(fp) as f: j=json.load(f)\n" +
+    '    if j.get("pinned") is True: p+=1\n' +
+    '    if j.get("needs_desk") is True: d+=1\n' +
     "  except Exception: pass\n" +
-    "print(n)\n";
+    'print(json.dumps({"pinnedCount":p,"needsDeskCount":d}))\n';
   const cmd =
     `python3 -c ${shellEscape(script)} ` +
     `"$HOME/.claude/roles/${role}/bounties"`;
   const stdout = await execWithTimeout(conn, cmd);
-  const n = parseInt(stdout.trim(), 10);
-  if (!Number.isFinite(n) || n < 0) {
-    throw new Error(`remote pinned count returned non-integer: ${stdout}`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout.trim());
+  } catch {
+    throw new Error(`remote bounty counts returned malformed payload: ${stdout}`);
   }
-  return n;
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !Number.isFinite((parsed as Record<string, unknown>).pinnedCount as number) ||
+    ((parsed as Record<string, unknown>).pinnedCount as number) < 0 ||
+    !Number.isFinite((parsed as Record<string, unknown>).needsDeskCount as number) ||
+    ((parsed as Record<string, unknown>).needsDeskCount as number) < 0
+  ) {
+    throw new Error(`remote bounty counts returned malformed payload: ${stdout}`);
+  }
+  return {
+    pinnedCount: (parsed as Record<string, unknown>).pinnedCount as number,
+    needsDeskCount: (parsed as Record<string, unknown>).needsDeskCount as number,
+  };
 }
