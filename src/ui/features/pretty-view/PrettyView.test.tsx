@@ -1172,8 +1172,8 @@ describe("quick 260808-cd6 dormancy overlay integration", () => {
     const wakeSent = sentPayloads.find((p: { type: string }) => p.type === 'wake');
     expect(wakeSent).toBeTruthy();
 
-    // Overlay should now show waking state (Wake button hidden, "waking…" text).
-    expect(container.textContent).toContain('waking…');
+    // Overlay should now show waking state (Wake button hidden, "Waking up…" text).
+    expect(container.textContent).toContain('Waking up…');
     expect(container.querySelector('button[aria-label="Wake identity"]')).toBeNull();
   });
 
@@ -1188,7 +1188,7 @@ describe("quick 260808-cd6 dormancy overlay integration", () => {
       fireEvent.click(wakeBtn);
     });
     // Now waking.
-    expect(container.textContent).toContain('waking…');
+    expect(container.textContent).toContain('Waking up…');
 
     // Backend returns wake_result error.
     act(() => {
@@ -1201,7 +1201,7 @@ describe("quick 260808-cd6 dormancy overlay integration", () => {
 
     // Overlay should still be mounted (dormant is still true).
     // Error copy should appear.
-    expect(container.textContent).toContain('wake failed — rm failed');
+    expect(container.textContent).toContain("Couldn't wake — rm failed");
     // Wake button should be re-enabled for retry.
     const retryBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
     expect(retryBtn).toBeTruthy();

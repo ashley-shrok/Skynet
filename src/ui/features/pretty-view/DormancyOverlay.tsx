@@ -131,16 +131,16 @@ export function DormancyOverlay({
           />
           <span>
             {showError
-              ? `wake failed — ${error}`
+              ? `Couldn't wake — ${error}`
               : waking
-                ? "waking…"
-                : "session is asleep"}
+                ? "Waking up…"
+                : "This session is asleep"}
           </span>
         </div>
 
         {/* Elapsed-hint: only when waking and >= 15s have elapsed */}
         {waking && elapsedSeconds >= 15 && (
-          <span className="text-white/50 text-xs">this can take up to 60s</span>
+          <span className="text-white/50 text-xs">This can take up to a minute.</span>
         )}
 
         {/* Wake button: visible only in asleep state (not waking, not waking-error-retry) */}
