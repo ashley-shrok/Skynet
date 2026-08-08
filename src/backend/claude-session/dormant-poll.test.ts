@@ -260,13 +260,18 @@ describe("Test F: wake message with execCommand throw → wake_result ok:false w
 //   deps: { connSnapshot, escapedName, execCommand, discoverSession, wsSend, startActiveFlow }
 //   state: { dormantLastEmitted: () => boolean|null, setDormantLastEmitted: (v) => void }
 
-// Helper: make a mutable dormantLastEmitted state pair.
-function makeDormantState(initial: boolean | null = null) {
+// Helper: make a mutable dormantLastEmitted + wakeTriggerTs state pair.
+// quick 260808-fgf: added initialWakeTriggerTs (default null = natural resume path).
+function makeDormantState(initial: boolean | null = null, initialWakeTriggerTs: number | null = null) {
   let val: boolean | null = initial;
+  let wts: number | null = initialWakeTriggerTs;
   return {
     dormantLastEmitted: () => val,
     setDormantLastEmitted: (v: boolean | null) => { val = v; },
     get current() { return val; },
+    wakeTriggerTs: () => wts,
+    setWakeTriggerTs: (v: number | null) => { wts = v; },
+    get currentWts() { return wts; },
   };
 }
 
@@ -288,6 +293,8 @@ describe("Test G: inactive-branch dormancy probe — stat=yes → emits dormant:
         discoverSession,
         wsSend,
         startActiveFlow,
+        markerCommand: vi.fn().mockResolvedValue(null), // unused: wakeTriggerTs null → natural-resume path
+        now: () => 0,                                   // unused: wakeTriggerTs null → natural-resume path
       },
       state,
     );
@@ -321,7 +328,7 @@ describe("Test H: dormant-poll sentinel-disappearance — stat=no → emits dorm
     // discoverSession returns inactive/not_claude (sentinel removed but claude not yet back)
     const exec = vi.fn().mockResolvedValue("no\n");
     const discoverSession = vi.fn().mockResolvedValue({ status: "inactive", reason: "not_claude" });
-    const state = makeDormantState(true); // cached as dormant:true from prior tick
+    const state = makeDormantState(true); // cached as dormant:true from prior tick; wakeTriggerTs null = natural-resume
 
     await __applyDormantPollWithRediscoveryForTests(
       {
@@ -331,6 +338,8 @@ describe("Test H: dormant-poll sentinel-disappearance — stat=no → emits dorm
         discoverSession,
         wsSend,
         startActiveFlow,
+        markerCommand: vi.fn().mockResolvedValue(null), // unused: wakeTriggerTs null → natural-resume path
+        now: () => 0,                                   // unused: wakeTriggerTs null → natural-resume path
       },
       state,
     );
@@ -362,7 +371,7 @@ describe("Test I: dormant-poll re-discovery yields active → invokes startActiv
       pid: 12345,
       sessionFile: "/home/x/.claude/projects/foo/bar.jsonl",
     });
-    const state = makeDormantState(true); // starting from dormant:true
+    const state = makeDormantState(true); // starting from dormant:true; wakeTriggerTs null = natural-resume
 
     await __applyDormantPollWithRediscoveryForTests(
       {
@@ -372,6 +381,8 @@ describe("Test I: dormant-poll re-discovery yields active → invokes startActiv
         discoverSession,
         wsSend,
         startActiveFlow,
+        markerCommand: vi.fn().mockResolvedValue(null), // unused: wakeTriggerTs null → natural-resume path
+        now: () => 0,                                   // unused: wakeTriggerTs null → natural-resume path
       },
       state,
     );
@@ -395,7 +406,7 @@ describe("Test J: dormant-poll re-discovery still inactive → no startActiveFlo
     const startActiveFlow = vi.fn();
     const exec = vi.fn().mockResolvedValue("no\n"); // sentinel gone
     const discoverSession = vi.fn().mockResolvedValue({ status: "inactive", reason: "not_claude" });
-    // Start with dormantLastEmitted = false (already emitted dormant:false on a prior tick)
+    // Start with dormantLastEmitted = false (already emitted dormant:false on a prior tick); wakeTriggerTs null = natural-resume
     const state = makeDormantState(false);
 
     await __applyDormantPollWithRediscoveryForTests(
@@ -406,6 +417,8 @@ describe("Test J: dormant-poll re-discovery still inactive → no startActiveFlo
         discoverSession,
         wsSend,
         startActiveFlow,
+        markerCommand: vi.fn().mockResolvedValue(null), // unused: wakeTriggerTs null → natural-resume path
+        now: () => 0,                                   // unused: wakeTriggerTs null → natural-resume path
       },
       state,
     );
@@ -454,5 +467,184 @@ describe("Test K: wake handler stays reachable in dormant-poll state (regression
     expect(wsSend).toHaveBeenCalledTimes(1);
     const frame = JSON.parse(wsSend.mock.calls[0][0]);
     expect(frame).toEqual({ type: "wake_result", ok: true });
+  });
+});
+
+// ─── Tests L-O: marker-consumption behaviors (quick 260808-fgf) ──────────────
+//
+// These tests exercise __applyDormantPollWithRediscoveryForTests with the
+// new Nelly .resume-complete freshness contract (wakeTriggerTs non-null).
+// Tests L-O only fire the freshness path (user-initiated wake).
+// Tests G-J (wakeTriggerTs null) cover the natural-resume path (unchanged).
+
+// ─── Test L ───────────────────────────────────────────────────────────────────
+
+describe("Test L: marker present + fresh → dismiss + rediscover + startActiveFlow", () => {
+  it("markerCommand called once; wsSend dormant:false; discoverSession called; startActiveFlow called", async () => {
+    const wakeTs = 1_000_000;
+    const markerTs = wakeTs + 5_000;
+    const markerBody = new Date(markerTs).toISOString();
+    const wsSend = vi.fn();
+    const startActiveFlow = vi.fn();
+    const exec = vi.fn().mockResolvedValue("no\n"); // sentinel gone
+    const discoverSession = vi.fn().mockResolvedValue({ status: "active", pid: 999, sessionFile: "/x/y.jsonl" });
+    const markerCommand = vi.fn().mockResolvedValue(markerBody);
+    const state = makeDormantState(true, wakeTs);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession,
+        wsSend,
+        startActiveFlow,
+        markerCommand,
+        now: () => wakeTs + 6_000,
+      },
+      state,
+    );
+
+    // markerCommand called exactly once
+    expect(markerCommand).toHaveBeenCalledTimes(1);
+
+    // dormant:false emitted once
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame).toEqual({ type: "dormant", dormant: false });
+
+    // discoverSession called once
+    expect(discoverSession).toHaveBeenCalledTimes(1);
+
+    // startActiveFlow called with correct args (active discovery)
+    expect(startActiveFlow).toHaveBeenCalledTimes(1);
+    expect(startActiveFlow).toHaveBeenCalledWith(999, "/x/y.jsonl");
+  });
+});
+
+// ─── Test M ───────────────────────────────────────────────────────────────────
+
+describe("Test M: marker present + STALE (before wake_trigger_ts) → keep waiting", () => {
+  it("markerCommand called once; wsSend NOT called; discoverSession NOT called; dormantLastEmitted unchanged", async () => {
+    const wakeTs = 1_000_000;
+    const staleMarkerTs = wakeTs - 5_000; // STALE: written before the wake
+    const markerBody = new Date(staleMarkerTs).toISOString();
+    const wsSend = vi.fn();
+    const startActiveFlow = vi.fn();
+    const exec = vi.fn().mockResolvedValue("no\n"); // sentinel gone
+    const discoverSession = vi.fn(); // must not be called
+    const markerCommand = vi.fn().mockResolvedValue(markerBody);
+    const state = makeDormantState(true, wakeTs);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession,
+        wsSend,
+        startActiveFlow,
+        markerCommand,
+        now: () => wakeTs + 1_000, // well within fallback window
+      },
+      state,
+    );
+
+    // markerCommand called exactly once
+    expect(markerCommand).toHaveBeenCalledTimes(1);
+
+    // No emit — stale marker + within window
+    expect(wsSend).not.toHaveBeenCalled();
+
+    // discoverSession NOT called
+    expect(discoverSession).not.toHaveBeenCalled();
+
+    // startActiveFlow NOT called
+    expect(startActiveFlow).not.toHaveBeenCalled();
+
+    // dormantLastEmitted unchanged (still true)
+    expect(state.current).toBe(true);
+  });
+});
+
+// ─── Test N ───────────────────────────────────────────────────────────────────
+
+describe("Test N: marker absent + 90s elapsed → fallback dismiss (mixed-fleet compat)", () => {
+  it("markerCommand called once; wsSend dormant:false; discoverSession called; startActiveFlow NOT called (inactive)", async () => {
+    const wakeTs = 1_000_000;
+    const wsSend = vi.fn();
+    const startActiveFlow = vi.fn();
+    const exec = vi.fn().mockResolvedValue("no\n"); // sentinel gone
+    const discoverSession = vi.fn().mockResolvedValue({ status: "inactive", reason: "not_claude" });
+    const markerCommand = vi.fn().mockResolvedValue(null); // absent
+    const state = makeDormantState(true, wakeTs);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession,
+        wsSend,
+        startActiveFlow,
+        markerCommand,
+        now: () => wakeTs + 91_000, // 91s elapsed → past MARKER_FALLBACK_MS (90000)
+      },
+      state,
+    );
+
+    // markerCommand called exactly once
+    expect(markerCommand).toHaveBeenCalledTimes(1);
+
+    // dormant:false emitted once (fallback dismiss)
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame).toEqual({ type: "dormant", dormant: false });
+
+    // discoverSession called once
+    expect(discoverSession).toHaveBeenCalledTimes(1);
+
+    // startActiveFlow NOT called (still inactive)
+    expect(startActiveFlow).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Test O ───────────────────────────────────────────────────────────────────
+
+describe("Test O: marker absent + within 90s window → keep waiting", () => {
+  it("markerCommand called once; wsSend NOT called; discoverSession NOT called; startActiveFlow NOT called", async () => {
+    const wakeTs = 1_000_000;
+    const wsSend = vi.fn();
+    const startActiveFlow = vi.fn();
+    const exec = vi.fn().mockResolvedValue("no\n"); // sentinel gone
+    const discoverSession = vi.fn(); // must not be called
+    const markerCommand = vi.fn().mockResolvedValue(null); // absent
+    const state = makeDormantState(true, wakeTs);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession,
+        wsSend,
+        startActiveFlow,
+        markerCommand,
+        now: () => wakeTs + 30_000, // 30s elapsed — still within 90s window
+      },
+      state,
+    );
+
+    // markerCommand called exactly once
+    expect(markerCommand).toHaveBeenCalledTimes(1);
+
+    // No emit — marker absent + within window
+    expect(wsSend).not.toHaveBeenCalled();
+
+    // discoverSession NOT called
+    expect(discoverSession).not.toHaveBeenCalled();
+
+    // startActiveFlow NOT called
+    expect(startActiveFlow).not.toHaveBeenCalled();
   });
 });

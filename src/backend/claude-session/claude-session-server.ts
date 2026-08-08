@@ -159,6 +159,10 @@ const DISCOVERY_REPOLL_INTERVAL_MS = 3000;
 // inline block so the setupHarnessTasksPoller helper (per BLOCKER fix from
 // plan-checker 2026-07-18) can reference them without re-allocating per call.
 const HARNESS_TASKS_INTERVAL_MS = 3000;
+// quick 260808-fgf — Nelly's .resume-complete marker freshness contract.
+// If marker never appears within 90s of wake_trigger_ts, fall back to
+// sentinel-gone-alone dismiss (mixed-fleet compat for pre-marker supervisor boxes).
+const MARKER_FALLBACK_MS = 90_000;
 const UUID_RE =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
@@ -1024,14 +1028,23 @@ export type __DiscoveryResultForTests =
  * Apply one dormant-poll tick with sentinel check + optional re-discovery.
  * Called by the 3s setInterval in the inactive→dormant branch.
  *
+ * quick 260808-fgf: extended with markerCommand (stat .resume-complete),
+ * state.wakeTriggerTs (getter for the wake-handler-set timestamp), and
+ * deps.now (injectable clock for deterministic tests). When wakeTriggerTs
+ * is non-null, dismiss requires EITHER a fresh marker (marker_ts > triggerTs)
+ * OR the 90s MARKER_FALLBACK_MS window to have elapsed.
+ *
  * @param deps.connSnapshot        - SSH connection (stub in tests)
  * @param deps.escapedName         - tmux session name (already validated)
  * @param deps.execCommand         - injectable SSH exec helper
  * @param deps.discoverSession     - injectable discoverClaudeSession callback
  * @param deps.wsSend              - injectable ws.send stub
  * @param deps.startActiveFlow     - injectable callback to transition to active flow
+ * @param deps.markerCommand       - injectable: cat .resume-complete; returns trimmed body or null
+ * @param deps.now                 - injectable clock; defaults to Date.now
  * @param state.dormantLastEmitted - getter for current dormantLastEmitted closure value
  * @param state.setDormantLastEmitted - setter for dormantLastEmitted
+ * @param state.wakeTriggerTs      - getter for wake_trigger_ts closure value (null = natural resume)
  */
 export async function __applyDormantPollWithRediscoveryForTests(
   deps: {
@@ -1042,13 +1055,17 @@ export async function __applyDormantPollWithRediscoveryForTests(
     discoverSession: (conn: unknown, session: string) => Promise<__DiscoveryResultForTests>;
     wsSend: (data: string) => void;
     startActiveFlow: (pid: number, sessionFile: string) => void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    markerCommand: (conn: any, name: string) => Promise<string | null>;
+    now: () => number;
   },
   state: {
     dormantLastEmitted: () => boolean | null;
     setDormantLastEmitted: (v: boolean | null) => void;
+    wakeTriggerTs: () => number | null;
   },
 ): Promise<void> {
-  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow } = deps;
+  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow, markerCommand, now } = deps;
   try {
     // Poll the .dormant sentinel (reuse exact command from seam line 956-961)
     const statOut = await exec(
@@ -1064,7 +1081,41 @@ export async function __applyDormantPollWithRediscoveryForTests(
       }
       return; // keep polling
     }
-    // Sentinel disappeared — emit dormant:false (state-change guard)
+    // Sentinel disappeared. Apply Nelly's freshness contract when this was a
+    // user-initiated wake (wakeTriggerTs non-null). Natural resumes (wakeTriggerTs
+    // null) skip the check entirely — preserves Test H / prior behavior.
+    const triggerTs = state.wakeTriggerTs();
+    if (triggerTs !== null) {
+      // User-initiated wake path: require fresh marker OR 90s fallback.
+      const markerBody = await markerCommand(connSnapshot, escapedName);
+      let markerFresh = false;
+      let fellBack = false;
+      if (markerBody !== null) {
+        const markerTs = Date.parse(markerBody.trim());
+        if (Number.isFinite(markerTs) && markerTs > triggerTs) {
+          markerFresh = true;
+        }
+      }
+      if (!markerFresh) {
+        const elapsed = now() - triggerTs;
+        if (elapsed >= MARKER_FALLBACK_MS) {
+          markerFresh = true;
+          fellBack = true;
+        }
+      }
+      if (!markerFresh) {
+        // Neither fresh marker nor fallback window elapsed — keep polling.
+        return;
+      }
+      if (fellBack) {
+        sshLogger.info("Dormancy marker fallback — supervisor pre-dates .resume-complete contract", {
+          operation: "dormancy_marker_fallback",
+          escapedName,
+        });
+      }
+    }
+    // Sentinel disappeared (and freshness check passed if applicable).
+    // Emit dormant:false (state-change guard).
     if (state.dormantLastEmitted() !== false) {
       state.setDormantLastEmitted(false);
       wsSend(JSON.stringify({ type: "dormant", dormant: false }));
@@ -1183,6 +1234,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // pattern for lifecycle (cleared in teardownPane, guarded against pileups).
   let dormantPollTimer: NodeJS.Timeout | null = null;
   let dormantPollInFlight = false;
+  // quick 260808-fgf — Nelly's .resume-complete freshness contract.
+  // Set to Date.now() when the wake handler successfully SSH-execs rm -f .dormant.
+  // Read by the dormant-poll seam via a getter accessor. Null means natural resume
+  // (no user-initiated Wake click) → skip freshness check entirely.
+  // Cleared inside startActiveFlow callback to avoid leaking into a subsequent
+  // dormancy cycle on the same WS connection.
+  let wakeTriggerTs: number | null = null;
   // Phase 14 Wave 2: per-connection aside extraction bookkeeping. These
   // are per-connection (not cross-tab-shared) so closure-scope is correct.
   // Only `armed`/`displayed` MUST live in module-scope asideState — per
@@ -3492,15 +3550,29 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // (T-cd6-03: path hard-coded to ~/.claude/identities/<name>/.dormant).
     // Does NOT try to fast-poke the supervisor; next CHECK_INTERVAL tick picks it up.
     if (msg.type === "wake") {
+      // quick 260808-fgf: intercept wsSend to detect a successful wake_result
+      // and record wakeTriggerTs at the moment the rm -f exec succeeded.
+      // We wrap wsSend (not the seam itself) so __applyWakeMessageForTests's
+      // signature contract (Tests E/F/K) is preserved unchanged.
+      let lastWakeOk = false;
       await __applyWakeMessageForTests({
         sshConn,
         currentTmuxSession,
         isIdentityShapedCached,
         execCommand,
         wsSend: (data: string) => {
+          try {
+            const frame = JSON.parse(data);
+            if (frame.type === "wake_result" && frame.ok === true) {
+              lastWakeOk = true;
+            }
+          } catch { /* ignore parse failures — still forward the frame */ }
           try { ws.send(data); } catch { /* ws may be mid-close */ }
         },
       });
+      if (lastWakeOk) {
+        wakeTriggerTs = Date.now();
+      }
       return;
     }
 
@@ -4373,6 +4445,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
                           // Transition from dormant-poll to active flow.
                           // Clear dormant-poll timer — contextPctTimer takes over from here.
                           if (dormantPollTimer) { clearInterval(dormantPollTimer); dormantPollTimer = null; }
+                          // Belt-and-suspenders: clear wakeTriggerTs so a subsequent
+                          // dormancy+wake cycle on this same WS doesn't see a stale ts.
+                          wakeTriggerTs = null;
                           startActiveSessionFlow({ pid, sessionFile, tmuxSession: currentTmuxSession!, hostId: currentHostId! });
                           // Aside subsystem registration for the wake path.
                           // Dormant panes had no active aside connection — register now.
@@ -4382,10 +4457,26 @@ wss.on("connection", async (ws: WebSocket, req) => {
                             activeViewers.get(wakeAsideKey)!.add(ws);
                           }
                         },
+                        // quick 260808-fgf: cat .resume-complete; returns trimmed body or null.
+                        markerCommand: async (conn: unknown, name: string): Promise<string | null> => {
+                          try {
+                            const out = await execCommand(
+                              conn as import("ssh2").Client,
+                              `cat ~/.claude/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
+                            );
+                            const trimmed = out.trim();
+                            return trimmed.length > 0 ? trimmed : null;
+                          } catch {
+                            return null;
+                          }
+                        },
+                        // Injectable clock — Date.now in production, deterministic in tests.
+                        now: () => Date.now(),
                       },
                       {
                         dormantLastEmitted: () => dormantLastEmitted,
                         setDormantLastEmitted: (v) => { dormantLastEmitted = v; },
+                        wakeTriggerTs: () => wakeTriggerTs,
                       },
                     );
                   } finally {
