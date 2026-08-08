@@ -211,6 +211,11 @@ export type ErrorEvent = {
   code?: string;
 };
 
+/** quick 260808-cd6 — dormancy overlay + wake button */
+export type DormantEvent = { type: "dormant"; dormant: boolean };
+/** quick 260808-cd6 — dormancy overlay + wake button */
+export type WakeResultEvent = { type: "wake_result"; ok: boolean; error?: string };
+
 export type ClaudeSessionServerEvent =
   | SessionMetaEvent
   | MessageEvent
@@ -228,6 +233,9 @@ export type ClaudeSessionServerEvent =
   | AsideDismissedEvent
   | TailErrorEvent
   | ErrorEvent
+  // quick 260808-cd6 — dormancy overlay + wake button
+  | DormantEvent
+  | WakeResultEvent
   | IdentityBountiesEvent
   | IdentityIdentityFileEvent
   // Phase 22 SRIC-06 / Plan 22-06: role-file read + update events (mirror
