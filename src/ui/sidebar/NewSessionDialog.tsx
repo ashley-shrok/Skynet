@@ -296,7 +296,7 @@ export function NewSessionDialog({
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState(""); // EPHEMERAL: never persisted anywhere. Only sent to avatar batch.
   const [voice, setVoice] = useState<string>("");
-  const [colorHue, setColorHue] = useState<number>(210); // 210 = cyan-blue, midpoint of used-hue clusters
+  const [colorHue, setColorHue] = useState<number>(() => Math.floor(Math.random() * 360)); // random hue per open, so never-touched identities aren't all cyan-blue
 
   // Avatar batch state
   const [candidates, setCandidates] = useState<AvatarCandidate[]>([]);
@@ -410,7 +410,7 @@ export function NewSessionDialog({
       setTitle("");
       setBrief("");
       setVoice("");
-      setColorHue(210);
+      setColorHue(Math.floor(Math.random() * 360));
       setCandidates([]);
       setPickedCandidateId(null);
       setGenLoading(false);
