@@ -24,6 +24,7 @@ import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
 import { AsideBubble } from "./AsideBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
+import { DormancyOverlay } from "./DormancyOverlay";
 import { IdentityModal } from "./IdentityModal";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
@@ -314,6 +315,14 @@ export function PrettyView({
   // handler). Persists until `isHolding` flips back to false (via
   // `session_changed`, another reset click, or user-initiated refresh).
   const [holdingTimeoutError, setHoldingTimeoutError] = useState(false);
+  // quick 260808-cd6 — dormancy overlay + wake button.
+  // Per-pane dormant state. Set by the WS {type:"dormant"} frame handler;
+  // auto-dismissed when live JSONL frames resume (supervisor recover path).
+  const [dormant, setDormant] = useState(false);
+  const [waking, setWaking] = useState(false);
+  const [wakingStartTs, setWakingStartTs] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [wakeError, setWakeError] = useState<string | null>(null);
   // Patch #122: synchronous session-holding trigger fired by the meter
   // well's Reset button BEFORE `/id reset` reaches the WS. Flipping
   // isHolding here starts the SessionHoldingOverlay's 350ms delay-arm
@@ -406,6 +415,23 @@ export function PrettyView({
       }
     }
   }, [hostId, tmuxSession]);
+
+  // quick 260808-cd6: wake handler. Sends {type:"wake"} to the backend
+  // which SSH exec's rm -f on the .dormant sentinel. Backend trust-boundary
+  // (T-cd6-01): uses connection-scoped currentTmuxSession, NOT any payload field.
+  // Sets local waking=true + wakingStartTs so the elapsed-seconds ticker starts.
+  const handleWake = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(JSON.stringify({ type: "wake" }));
+    } catch {
+      /* swallow — best-effort; ws may be mid-close */
+    }
+    setWaking(true);
+    setWakingStartTs(Date.now());
+    setWakeError(null);
+  }, []);
 
   // Phase 24: plan-mode replies use a NEW WS frame `raw_keystrokes` that
   // writes bytes to the PTY in one shot (no split-send). The split-send
@@ -516,6 +542,11 @@ export function PrettyView({
   // tear down and rebuild the WS on every visibility flip — we want the dedicated
   // WS-pause effect to own that cleanly). Pattern mirrors statusRef above.
   const isVisibleRef = useRef<boolean>(isVisible);
+  // quick 260808-cd6: dormantRef mirrors `dormant` state for stale-closure
+  // protection inside the WS onmessage handler. The WS onmessage closure
+  // captures state at closure-creation time; reading from a ref gives the
+  // current value without re-creating the socket. Pattern mirrors isVisibleRef.
+  const dormantRef = useRef<boolean>(false);
   // Phase 14 Wave 3: previous-value ref for the isIdle-transition
   // arm-emitter useEffect below. Holds the isIdle value from the
   // previous render so we can detect a real false→true transition
@@ -666,6 +697,29 @@ export function PrettyView({
       } catch {
         return;
       }
+      // quick 260808-cd6: live-frame auto-dismiss. When the dormant overlay is
+      // up and a live-shape JSONL frame arrives, the supervisor's recover path
+      // has relaunched claude + /id ran — dismiss the overlay immediately.
+      // Uses dormantRef (not dormant state) to avoid stale-closure inside the WS
+      // onmessage handler. Hidden-pane suppression is inherited from patch #344's
+      // WS-pause on !isVisible; no additional gate needed here — a hidden pane's
+      // WS is closed so dormant frames are never received.
+      if (
+        dormantRef.current &&
+        (parsed.type === "message" ||
+          parsed.type === "image" ||
+          parsed.type === "relay_inbound" ||
+          parsed.type === "relay_outbound" ||
+          parsed.type === "context_pct" ||
+          parsed.type === "harness_tasks" ||
+          parsed.type === "session")
+      ) {
+        setDormant(false);
+        setWaking(false);
+        setWakingStartTs(null);
+        setElapsedSeconds(0);
+        setWakeError(null);
+      }
       switch (parsed.type) {
         case "session": {
           // Session-info frame — flip to streaming; not rendered.
@@ -721,6 +775,36 @@ export function PrettyView({
         }
         case "context_pct": {
           setContextPct(parsed.pct);
+          break;
+        }
+        // quick 260808-cd6 — dormancy overlay + wake button.
+        // Hidden-pane suppression is inherited from patch #344's WS-pause on
+        // !isVisible; no additional gate needed here — a hidden pane's WS is
+        // closed so dormant frames are never received.
+        case "dormant": {
+          setDormant(parsed.dormant);
+          if (!parsed.dormant) {
+            // Natural resume path: supervisor path 1/2 auto-wake, or race
+            // with our own wake. Clear all waking state.
+            setWaking(false);
+            setWakingStartTs(null);
+            setElapsedSeconds(0);
+            setWakeError(null);
+          }
+          break;
+        }
+        case "wake_result": {
+          if (parsed.ok) {
+            // Wake succeeded on the SSH side — wait for live-frame auto-dismiss.
+            // Do nothing; overlay stays in "waking…" state until a live JSONL
+            // frame arrives (supervisor recover path relaunched claude + /id ran).
+          } else {
+            // Wake failed: show warm-red error variant in the overlay.
+            setWaking(false);
+            setWakingStartTs(null);
+            setElapsedSeconds(0);
+            setWakeError(parsed.error ?? "wake failed");
+          }
           break;
         }
         case "harness_tasks": {
@@ -1014,6 +1098,28 @@ export function PrettyView({
   useEffect(() => {
     isVisibleRef.current = isVisible;
   }, [isVisible]);
+
+  // quick 260808-cd6: dormantRef mirror — keeps dormantRef.current in sync
+  // with the `dormant` state so the WS onmessage auto-dismiss hook can read
+  // current dormant state without stale-closure issues. Pattern mirrors isVisibleRef.
+  useEffect(() => {
+    dormantRef.current = dormant;
+  }, [dormant]);
+
+  // quick 260808-cd6: elapsed-seconds ticker for the waking overlay.
+  // Counts elapsed seconds since Wake was clicked (wakingStartTs).
+  // Renders "this can take up to 60s" hint in DormancyOverlay after 15s.
+  // Cleanup: clearInterval on unmount or when waking flips off.
+  useEffect(() => {
+    if (!waking || wakingStartTs === null) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - wakingStartTs) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [waking, wakingStartTs]);
 
   // Quick 260808-b74 — WS-pause lifecycle effect (hidden-pane-cost-mitigation-
   // empirical-rotation, iteration 1).
@@ -1448,6 +1554,18 @@ export function PrettyView({
           Replaces the previous sticky top-of-scroll banner (retired
           in patch #74) per Ashley's live 2026-07-19 design read. */}
       {showOverlay && <SessionHoldingOverlay error={holdingTimeoutError} />}
+      {/* quick 260808-cd6: DormancyOverlay mirrors SessionHoldingOverlay geometry;
+          independent mount gate; the two overlays cannot both be true at once by
+          supervisor invariant (dormant-only-when-alive), but the mounts are
+          independent for wire simplicity. */}
+      {dormant && (
+        <DormancyOverlay
+          waking={waking}
+          elapsedSeconds={elapsedSeconds}
+          onWake={handleWake}
+          error={wakeError}
+        />
+      )}
       {status === "connecting" && (
         <div className="flex-1 flex items-center justify-center p-4 text-sm text-[var(--color-pv-fg-muted)]">
           Connecting…
@@ -1652,6 +1770,10 @@ export function PrettyView({
           // tap. Textarea, mic, attach stay live. Independent from
           // recycleActive/planPendingActive per the same CONTEXT rule.
           reconnectingActive={status === "error"}
+          // quick 260808-cd6: disable ComposeBox WS-side-effecting controls during
+          // dormant/waking window. Both dormant (asleep) and waking (wake in flight)
+          // states disable Send; only live-frame auto-dismiss re-enables it.
+          dormantActive={dormant || waking}
           contextPct={contextPct}
           isIdle={isIdle}
           hostId={hostId}

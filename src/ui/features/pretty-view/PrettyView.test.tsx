@@ -1062,3 +1062,149 @@ describe("PrettyView — reconnect window preserves bubbles and disables Send", 
     expect(sendAfter.disabled).toBe(true);
   });
 });
+
+// ── quick 260808-cd6 dormancy integration tests ────────────────────────────
+
+describe("quick 260808-cd6 dormancy overlay integration", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function mountDormancyPV() {
+    // Must be a function/class (not arrow fn) so `new ResizeObserver(...)` works.
+    const resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+    const onSend = vi.fn(() => true);
+    const utils = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    // Flip to streaming first (dormant overlay only makes sense when live).
+    flipToStreaming(ws);
+    return { ...utils, onSend, ws };
+  }
+
+  function sendDormantFrame(ws: WsStub, dormant: boolean): void {
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'dormant', dormant }),
+        }),
+      );
+    });
+  }
+
+  it("Test 1: WS emits {type:'dormant', dormant:true} → DormancyOverlay mounts, ComposeBox Send disabled", () => {
+    const { container, ws } = mountDormancyPV();
+
+    // Initially no overlay.
+    expect(container.querySelector('[aria-label="Session is asleep — tap Wake to restart"]')).toBeNull();
+
+    sendDormantFrame(ws, true);
+
+    // Overlay should now be in the DOM.
+    const overlay = container.querySelector('[role="status"]');
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute('aria-label')).toContain('asleep');
+
+    // ComposeBox Send button should be disabled (dormantActive=true).
+    const sendBtn = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
+    expect(sendBtn).toBeTruthy();
+    expect(sendBtn.disabled).toBe(true);
+  });
+
+  it("Test 2: {type:'dormant', dormant:true} then a live message frame → DormancyOverlay auto-dismisses", () => {
+    const { container, ws } = mountDormancyPV();
+
+    sendDormantFrame(ws, true);
+    // Overlay is up.
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+
+    // A live message frame arrives.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'message',
+            eventId: 'live-1',
+            role: 'assistant',
+            content: 'I am awake now',
+            ts: Date.now(),
+          }),
+        }),
+      );
+    });
+
+    // DormancyOverlay should have dismissed (the status overlay for "asleep" is gone).
+    // Note: there may be other role="status" elements, so check specifically for the
+    // dormancy overlay's distinctive aria-label.
+    const dormancyOverlay = container.querySelector('[aria-label*="asleep"]') ??
+                            container.querySelector('[aria-label*="Waking"]');
+    expect(dormancyOverlay).toBeNull();
+  });
+
+  it("Test 3: {type:'dormant', dormant:true} then Wake click → ws.send called with {type:'wake'}, overlay shows waking state", () => {
+    const { container, ws } = mountDormancyPV();
+
+    sendDormantFrame(ws, true);
+
+    // Click the Wake button.
+    const wakeBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
+    expect(wakeBtn).toBeTruthy();
+    act(() => {
+      fireEvent.click(wakeBtn);
+    });
+
+    // ws.send should have been called with {type:"wake"}.
+    const sentPayloads = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([data]: [string]) => JSON.parse(data),
+    );
+    const wakeSent = sentPayloads.find((p: { type: string }) => p.type === 'wake');
+    expect(wakeSent).toBeTruthy();
+
+    // Overlay should now show waking state (Wake button hidden, "waking…" text).
+    expect(container.textContent).toContain('waking…');
+    expect(container.querySelector('button[aria-label="Wake identity"]')).toBeNull();
+  });
+
+  it("Test 4: wake_result error → overlay stays, shows warm-red error variant, Wake button re-enabled", () => {
+    const { container, ws } = mountDormancyPV();
+
+    sendDormantFrame(ws, true);
+
+    // Click Wake to enter waking state.
+    const wakeBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
+    act(() => {
+      fireEvent.click(wakeBtn);
+    });
+    // Now waking.
+    expect(container.textContent).toContain('waking…');
+
+    // Backend returns wake_result error.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'wake_result', ok: false, error: 'rm failed' }),
+        }),
+      );
+    });
+
+    // Overlay should still be mounted (dormant is still true).
+    // Error copy should appear.
+    expect(container.textContent).toContain('wake failed — rm failed');
+    // Wake button should be re-enabled for retry.
+    const retryBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
+    expect(retryBtn).toBeTruthy();
+    expect(retryBtn.disabled).toBe(false);
+  });
+});
