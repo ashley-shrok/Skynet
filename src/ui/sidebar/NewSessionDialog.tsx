@@ -1029,7 +1029,12 @@ export function NewSessionDialog({
                     className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
                     aria-label={hasGeneratedOnce ? "Regenerate" : "Generate"}
                   >
-                    {hasGeneratedOnce ? "Regenerate" : "Generate"}
+                    {genLoading ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Loader2 className="size-3 animate-spin" />
+                        Generating…
+                      </span>
+                    ) : (hasGeneratedOnce ? "Regenerate" : "Generate")}
                   </button>
                 </div>
 

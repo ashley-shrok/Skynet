@@ -25,6 +25,7 @@
 // VoicePicker (@/features/pretty-view/pickers/VoicePicker), and the newly-
 // added cloneIdentity API client with IdentityCloneCollisionError typed 409.
 
+import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -395,7 +396,12 @@ export function CloneAgentDialog({
                 className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
                 aria-label={hasCandidates ? "Regenerate" : "Regenerate"}
               >
-                {hasCandidates ? "Regenerate" : "Regenerate"}
+                {genLoading ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="size-3 animate-spin" />
+                    Generating…
+                  </span>
+                ) : (hasCandidates ? "Regenerate" : "Regenerate")}
               </button>
             </div>
 
