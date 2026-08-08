@@ -108,6 +108,22 @@ export async function postGenerateAvatarBatch(input: {
   }
 }
 
+export async function postManualAvatarCandidate({
+  file,
+}: {
+  file: File;
+}): Promise<{ id: string }> {
+  try {
+    const fd = new FormData();
+    fd.append("avatar", file);
+    // Do NOT set Content-Type manually — let axios set it with the boundary.
+    const response = await authApi.post("/identities/avatar/candidate/manual", fd);
+    return response.data as { id: string };
+  } catch (error) {
+    handleApiError(error, "upload manual avatar");
+  }
+}
+
 export async function getIdentityExistsOnHost(
   hostId: number,
   name: string,

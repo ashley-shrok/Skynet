@@ -54,6 +54,7 @@ import { ColorPicker } from "@/features/pretty-view/pickers/ColorPicker";
 import {
   listIdentities,
   postGenerateAvatarBatch,
+  postManualAvatarCandidate,
   getIdentityExistsOnHost,
   openBirthStream,
   listRolesForHost,
@@ -306,6 +307,13 @@ export function NewSessionDialog({
   const [genLoading, setGenLoading] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
+  // Manual avatar upload state
+  const [manualPreviewUrl, setManualPreviewUrl] = useState<string | null>(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Ref to track latest manualPreviewUrl for cleanup on unmount (avoids stale-closure)
+  const manualUrlRef = useRef<string | null>(null);
+
   // Collision precheck state
   const [skynetCollision, setSkynetCollision] = useState(false);
   const [hostCollision, setHostCollision] = useState(false);
@@ -417,6 +425,14 @@ export function NewSessionDialog({
       setPickedCandidateId(null);
       setGenLoading(false);
       setGenError(null);
+      // Revoke any live manual object URL on close
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+        manualUrlRef.current = null;
+      }
+      setManualPreviewUrl(null);
+      setUploadLoading(false);
+      setUploadError(null);
       setSkynetCollision(false);
       setHostCollision(false);
       setCollisionChecking(false);
@@ -444,8 +460,19 @@ export function NewSessionDialog({
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
+      // Revoke any live manual object URL on unmount (no stale-closure risk
+      // because we read from the ref, not from state).
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+        manualUrlRef.current = null;
+      }
     };
   }, []);
+
+  // Keep manualUrlRef in sync so the unmount effect always revokes the latest URL.
+  useEffect(() => {
+    manualUrlRef.current = manualPreviewUrl;
+  }, [manualPreviewUrl]);
 
   // When identity-mode toggles OFF, clear avatar candidates + picked candidate.
   // D-CONTEXT § "Stale-avatar handling": do NOT auto-reset on name/title/brief field edits
@@ -563,6 +590,13 @@ export function NewSessionDialog({
   // Generate/Regenerate handler
   async function handleGenerate() {
     if (genLoading) return;
+    // Mutual exclusion: clear any manual upload state when generating
+    if (manualUrlRef.current) {
+      URL.revokeObjectURL(manualUrlRef.current);
+      manualUrlRef.current = null;
+    }
+    setManualPreviewUrl(null);
+    setUploadError(null);
     setGenLoading(true);
     setGenError(null);
     try {
@@ -575,6 +609,34 @@ export function NewSessionDialog({
       setGenError(e instanceof Error ? e.message : "generation failed");
     } finally {
       setGenLoading(false);
+    }
+  }
+
+  // Manual avatar upload handler
+  async function handleManualUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset the input value so re-picking the same file re-fires the change event
+    e.target.value = "";
+    setUploadLoading(true);
+    setUploadError(null);
+    try {
+      const data = await postManualAvatarCandidate({ file });
+      // Mutual exclusion: clear generated candidates
+      setCandidates([]);
+      setGenError(null);
+      // Revoke prior object URL before creating a new one
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+      }
+      const objectUrl = URL.createObjectURL(file);
+      manualUrlRef.current = objectUrl;
+      setManualPreviewUrl(objectUrl);
+      setPickedCandidateId(data.id);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "upload failed");
+    } finally {
+      setUploadLoading(false);
     }
   }
 
@@ -685,13 +747,16 @@ export function NewSessionDialog({
     ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
     : SESSION_NAME_PATTERN.test(sessionName);
 
+  // avatarReady: either generated candidates exist with a pick, OR a manual upload set pickedCandidateId
+  const avatarReady = (candidates.length > 0 && pickedCandidateId !== null) ||
+    (manualPreviewUrl !== null && pickedCandidateId !== null);
+
   const canOpen = !birthing && (identityMode
     ? selectedHost !== null &&
       nameValid &&
       title.trim().length > 0 &&
       brief.trim().length > 0 &&
-      candidates.length > 0 &&
-      pickedCandidateId !== null &&
+      avatarReady &&
       !skynetCollision &&
       !hostCollision &&
       !collisionChecking &&
@@ -1036,12 +1101,47 @@ export function NewSessionDialog({
                       </span>
                     ) : (hasGeneratedOnce ? "Regenerate" : "Generate")}
                   </button>
+
+                  {/* Upload… button — label+sr-only input pattern (IdentityModal:1083-1106) */}
+                  <label className="flex">
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="sr-only"
+                      disabled={formDisabled || uploadLoading}
+                      onChange={(e) => { void handleManualUpload(e); }}
+                    />
+                    <button
+                      type="button"
+                      disabled={formDisabled || uploadLoading}
+                      aria-label="Upload avatar"
+                      onClick={(e) => {
+                        const input = (e.currentTarget.parentElement as HTMLLabelElement)?.querySelector("input[type='file']") as HTMLInputElement | null;
+                        input?.click();
+                      }}
+                      className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
+                    >
+                      {uploadLoading ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="size-3 animate-spin" />
+                          Uploading…
+                        </span>
+                      ) : "Upload…"}
+                    </button>
+                  </label>
                 </div>
 
                 {/* Inline generation error */}
                 {genError && (
                   <span className="text-xs text-[color:var(--color-pv-code-fg)]">
                     {genError}
+                  </span>
+                )}
+
+                {/* Inline upload error */}
+                {uploadError && (
+                  <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                    {uploadError}
                   </span>
                 )}
 
@@ -1069,6 +1169,25 @@ export function NewSessionDialog({
                         />
                       </button>
                     ))}
+                  </div>
+                )}
+
+                {/* Manual upload preview — shown when no generated candidates */}
+                {candidates.length === 0 && manualPreviewUrl && (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      aria-selected={true}
+                      data-manual-avatar="true"
+                      disabled={formDisabled}
+                      className="flex-1 rounded overflow-hidden border-2 border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)] transition-all disabled:opacity-50 max-w-[80px]"
+                    >
+                      <img
+                        src={manualPreviewUrl}
+                        alt="Manual avatar preview"
+                        className="w-full aspect-square object-cover"
+                      />
+                    </button>
                   </div>
                 )}
               </div>

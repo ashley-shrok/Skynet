@@ -40,6 +40,7 @@ vi.mock("react-i18next", () => ({
 // IdentityCloneCollisionError + postGenerateAvatarBatch reuse.
 const mockCloneIdentity = vi.fn();
 const mockPostGenerateAvatarBatch = vi.fn();
+const mockPostManualAvatarCandidate = vi.fn();
 
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
@@ -48,6 +49,8 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
     cloneIdentity: (...args: unknown[]) => mockCloneIdentity(...args),
     postGenerateAvatarBatch: (...args: unknown[]) =>
       mockPostGenerateAvatarBatch(...args),
+    postManualAvatarCandidate: (...args: unknown[]) =>
+      mockPostManualAvatarCandidate(...args),
   };
 });
 
@@ -140,6 +143,13 @@ beforeEach(() => {
     { id: "cand-2", url: "data:image/png;base64,BBBB" },
     { id: "cand-3", url: "data:image/png;base64,CCCC" },
   ]);
+  mockPostManualAvatarCandidate.mockResolvedValue({ id: "manual-99" });
+  // Stub URL.createObjectURL / revokeObjectURL in jsdom
+  (globalThis as unknown as Record<string, unknown>).URL = {
+    ...(globalThis as unknown as Record<string, { createObjectURL?: unknown; revokeObjectURL?: unknown }>).URL,
+    createObjectURL: vi.fn(() => "blob:mock-clone-url"),
+    revokeObjectURL: vi.fn(),
+  };
 });
 
 afterEach(() => {
@@ -466,6 +476,72 @@ describe("CloneAgentDialog", () => {
     // Refill — submit re-enables
     fireEvent.change(screen.getByLabelText(/^path/i), { target: { value: "~/projects/foo" } });
     expect(submit.disabled).toBe(false);
+  });
+
+  it("RTL-C1: Upload button visible; picking a file calls postManualAvatarCandidate, shows manual preview, hides source avatar", async () => {
+    const source = makeIdentity();
+    render(
+      <CloneAgentDialog
+        open={true}
+        onClose={() => {}}
+        sourceIdentity={source}
+        hostId={5}
+      />,
+    );
+
+    // Upload button should be present
+    expect(screen.getByRole("button", { name: /upload avatar/i })).toBeTruthy();
+
+    // Source avatar is visible before upload
+    expect(screen.getByAltText(/Avatar for tina/i)).toBeTruthy();
+
+    // Trigger file upload
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
+    const testFile = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [testFile] } });
+
+    await waitFor(() => expect(mockPostManualAvatarCandidate).toHaveBeenCalledTimes(1));
+    expect(mockPostManualAvatarCandidate).toHaveBeenCalledWith({ file: testFile });
+
+    // Manual preview should appear
+    await waitFor(() => expect(screen.getByAltText(/manual avatar preview/i)).toBeTruthy());
+
+    // Source avatar preview should no longer be showing (manual wins)
+    expect(screen.queryByAltText(/Avatar for tina/i)).toBeNull();
+  });
+
+  it("RTL-C2: manual upload → Clone calls cloneIdentity with the manual id as avatarCandidateId", async () => {
+    mockPostManualAvatarCandidate.mockResolvedValueOnce({ id: "manual-99" });
+    const source = makeIdentity();
+    const onClose = vi.fn();
+    render(
+      <CloneAgentDialog
+        open={true}
+        onClose={onClose}
+        sourceIdentity={source}
+        hostId={5}
+      />,
+    );
+
+    // Fill name
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: "tina-2" } });
+
+    // Upload file
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    const testFile = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [testFile] } });
+    await waitFor(() => expect(mockPostManualAvatarCandidate).toHaveBeenCalledTimes(1));
+
+    // Click Clone
+    const cloneBtn = screen.getByRole("button", { name: /clone|submit|create/i });
+    fireEvent.click(cloneBtn);
+
+    await waitFor(() => expect(mockCloneIdentity).toHaveBeenCalledTimes(1));
+    expect(mockCloneIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ avatarCandidateId: "manual-99" }),
+    );
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("Test 25: shows 'Preparing session…' status while cloneIdentity is pending, clears on resolve [260806-dwe]", async () => {

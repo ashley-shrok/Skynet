@@ -30,6 +30,7 @@ const mockListIdentities = vi.fn().mockResolvedValue([]);
 const mockPostGenerateAvatarBatch = vi.fn();
 const mockGetIdentityExistsOnHost = vi.fn().mockResolvedValue(false);
 const mockOpenBirthStream = vi.fn();
+const mockPostManualAvatarCandidate = vi.fn();
 // Phase 22 SRIC-02: listRolesForHost is now called on every host select in
 // identity-mode. Default to a single role so identity-mode tests can pick it
 // via the dropdown; tests that turn identity-mode OFF are unaffected because
@@ -47,6 +48,7 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
     getIdentityExistsOnHost: (...args: unknown[]) => mockGetIdentityExistsOnHost(...args),
     openBirthStream: (...args: unknown[]) => mockOpenBirthStream(...args),
     listRolesForHost: (...args: unknown[]) => mockListRolesForHost(...args),
+    postManualAvatarCandidate: (...args: unknown[]) => mockPostManualAvatarCandidate(...args),
   };
 });
 
@@ -1461,5 +1463,120 @@ describe("NewSessionDialog: Test GG — regular session mode does NOT call openB
     expect(mockOpenBirthStream).not.toHaveBeenCalled();
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(onCreate.mock.calls[0][0].identityMode).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Manual avatar upload tests (quick-260808-rtl)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("NewSessionDialog: manual avatar upload", () => {
+  beforeEach(() => {
+    // Stub URL.createObjectURL / revokeObjectURL in jsdom (not implemented natively)
+    (globalThis as unknown as Record<string, unknown>).URL = {
+      ...(globalThis as unknown as Record<string, { createObjectURL?: unknown; revokeObjectURL?: unknown }>).URL,
+      createObjectURL: vi.fn(() => "blob:mock-url"),
+      revokeObjectURL: vi.fn(),
+    };
+    mockPostManualAvatarCandidate.mockResolvedValue({ id: "manual-1" });
+    mockPostGenerateAvatarBatch.mockResolvedValue([
+      { id: "c1", url: "/c/c1" },
+      { id: "c2", url: "/c/c2" },
+      { id: "c3", url: "/c/c3" },
+    ]);
+  });
+
+  it("RTL-01: Upload button visible in identity-mode; picking a file calls postManualAvatarCandidate, shows preview, clears generated candidates", async () => {
+    renderDialog();
+    // Upload button should be visible in identity-mode (default ON)
+    const uploadBtn = screen.getByRole("button", { name: /upload avatar/i });
+    expect(uploadBtn).toBeTruthy();
+
+    // Grab the file input (sr-only)
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
+
+    const testFile = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [testFile] } });
+
+    await waitFor(() => {
+      expect(mockPostManualAvatarCandidate).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPostManualAvatarCandidate).toHaveBeenCalledWith({ file: testFile });
+
+    // Manual preview img should now be visible
+    await waitFor(() => {
+      expect(screen.getByAltText(/manual avatar preview/i)).toBeTruthy();
+    });
+
+    // Generated candidate row should be empty (no candidate imgs present)
+    expect(screen.queryByAltText(/avatar candidate/i)).toBeNull();
+  });
+
+  it("RTL-02: Upload then Generate clears manual preview and shows 3 candidate images", async () => {
+    const { getByLabelText } = renderDialog();
+
+    // Fill required fields so Generate button is enabled
+    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "agent-rtl" } });
+    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "RTL Agent" } });
+    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "rtl brief" } });
+
+    // Upload a file first
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    const testFile = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [testFile] } });
+
+    await waitFor(() => expect(mockPostManualAvatarCandidate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByAltText(/manual avatar preview/i)).toBeTruthy());
+
+    // Now click Generate — should clear manual preview and show 3 candidates
+    const generateBtn = screen.getByRole("button", { name: /generate/i });
+    fireEvent.click(generateBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByAltText(/manual avatar preview/i)).toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getAllByAltText(/avatar candidate/i).length).toBe(3);
+    });
+  });
+
+  it("RTL-03: manual upload → Create calls openBirthStream with the manual id as avatarCandidateId", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "ended", ok: true, identityId: "new-id", sessionName: "agent-x" },
+    ]));
+    const onCreate = vi.fn();
+    const { getByLabelText, getByRole } = renderDialog({ onCreate });
+
+    // Select host
+    fireEvent.click(screen.getByText("alpha"));
+    // Pick role
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    fireEvent.change(getByLabelText(/^role$/i), { target: { value: "box-maintainer" } });
+
+    // Fill required identity fields
+    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "agent-x" } });
+    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Agent X" } });
+    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "A great agent" } });
+
+    // Upload a file (returns id "manual-42")
+    mockPostManualAvatarCandidate.mockResolvedValueOnce({ id: "manual-42" });
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    const testFile = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [testFile] } });
+    await waitFor(() => expect(mockPostManualAvatarCandidate).toHaveBeenCalledTimes(1));
+
+    // Wait for Create button to become enabled (manual avatar sets pickedCandidateId)
+    await waitFor(() => {
+      const createBtn = getByRole("button", { name: /^(create|open|creating)/i }) as HTMLButtonElement;
+      expect(createBtn.disabled).toBe(false);
+    });
+
+    // Click Create
+    fireEvent.click(getByRole("button", { name: /^(create|open|creating)/i }));
+
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.avatarCandidateId).toBe("manual-42");
   });
 });

@@ -26,7 +26,7 @@
 // added cloneIdentity API client with IdentityCloneCollisionError typed 409.
 
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -43,6 +43,7 @@ import { VoicePicker } from "@/features/pretty-view/pickers/VoicePicker";
 import {
   cloneIdentity,
   postGenerateAvatarBatch,
+  postManualAvatarCandidate,
   IdentityCloneCollisionError,
   type AvatarCandidate,
   type Identity,
@@ -127,6 +128,13 @@ export function CloneAgentDialog({
   const [genLoading, setGenLoading] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
+  // Manual avatar upload state
+  const [manualPreviewUrl, setManualPreviewUrl] = useState<string | null>(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Ref to track latest manualPreviewUrl for cleanup on unmount (avoids stale-closure)
+  const manualUrlRef = useRef<string | null>(null);
+
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -143,6 +151,14 @@ export function CloneAgentDialog({
       setPickedCandidateId(null);
       setGenLoading(false);
       setGenError(null);
+      // Revoke any prior manual URL on re-open
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+        manualUrlRef.current = null;
+      }
+      setManualPreviewUrl(null);
+      setUploadLoading(false);
+      setUploadError(null);
       setSubmitError(null);
       setSubmitting(false);
     } else {
@@ -154,10 +170,33 @@ export function CloneAgentDialog({
       setPickedCandidateId(null);
       setGenLoading(false);
       setGenError(null);
+      // Revoke any live manual URL on close
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+        manualUrlRef.current = null;
+      }
+      setManualPreviewUrl(null);
+      setUploadLoading(false);
+      setUploadError(null);
       setSubmitError(null);
       setSubmitting(false);
     }
   }, [open, sourceIdentity]);
+
+  // Keep manualUrlRef in sync for unmount cleanup (avoids stale closures).
+  useEffect(() => {
+    manualUrlRef.current = manualPreviewUrl;
+  }, [manualPreviewUrl]);
+
+  // Unmount cleanup: revoke any live manual object URL.
+  useEffect(() => {
+    return () => {
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+        manualUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // ─── Validation ───────────────────────────────────────────────────────────
   const nameValid = name.length > 0 && CLONE_NAME_PATTERN.test(name);
@@ -178,6 +217,13 @@ export function CloneAgentDialog({
     // Guard: generate requires name + title (brief seeds from title per
     // plan Action step 1 decision — simpler than fetching role description).
     if (!name || !title.trim()) return;
+    // Mutual exclusion: clear manual upload state when generating
+    if (manualUrlRef.current) {
+      URL.revokeObjectURL(manualUrlRef.current);
+      manualUrlRef.current = null;
+    }
+    setManualPreviewUrl(null);
+    setUploadError(null);
     setGenLoading(true);
     setGenError(null);
     try {
@@ -193,6 +239,34 @@ export function CloneAgentDialog({
       setGenError(e instanceof Error ? e.message : "generation failed");
     } finally {
       setGenLoading(false);
+    }
+  }
+
+  // Manual avatar upload handler
+  async function handleManualUpload(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset the input value so re-picking the same file re-fires the change event
+    e.target.value = "";
+    setUploadLoading(true);
+    setUploadError(null);
+    try {
+      const data = await postManualAvatarCandidate({ file });
+      // Mutual exclusion: clear generated candidates
+      setCandidates([]);
+      setGenError(null);
+      // Revoke prior object URL before creating a new one
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+      }
+      const objectUrl = URL.createObjectURL(file);
+      manualUrlRef.current = objectUrl;
+      setManualPreviewUrl(objectUrl);
+      setPickedCandidateId(data.id);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "upload failed");
+    } finally {
+      setUploadLoading(false);
     }
   }
 
@@ -375,34 +449,64 @@ export function CloneAgentDialog({
             />
           </div>
 
-          {/* Avatar preview + Regenerate button. Source avatar is shown by
-              default; if user hits Regenerate, a candidate row appears and
-              they pick one to override. If no candidate picked, backend
-              reuses source's avatarData buffer verbatim (Test 9 in the
-              backend suite). */}
+          {/* Avatar preview + Regenerate + Upload… buttons.
+              Source avatar is shown by default; if user hits Regenerate, a
+              candidate row appears and they pick one to override. If user
+              hits Upload…, a manually-chosen image is used instead.
+              Manual and generated are mutually exclusive. */}
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-1">
               <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
                 Avatar
               </span>
-              <button
-                type="button"
-                disabled={
-                  submitting || genLoading || !name || !title.trim()
-                }
-                onClick={() => {
-                  void handleGenerate();
-                }}
-                className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
-                aria-label={hasCandidates ? "Regenerate" : "Regenerate"}
-              >
-                {genLoading ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 className="size-3 animate-spin" />
-                    Generating…
-                  </span>
-                ) : (hasCandidates ? "Regenerate" : "Regenerate")}
-              </button>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  disabled={
+                    submitting || genLoading || !name || !title.trim()
+                  }
+                  onClick={() => {
+                    void handleGenerate();
+                  }}
+                  className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
+                  aria-label={hasCandidates ? "Regenerate" : "Regenerate"}
+                >
+                  {genLoading ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="size-3 animate-spin" />
+                      Generating…
+                    </span>
+                  ) : (hasCandidates ? "Regenerate" : "Regenerate")}
+                </button>
+
+                {/* Upload… button — label+sr-only input pattern */}
+                <label className="flex">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="sr-only"
+                    disabled={submitting || uploadLoading}
+                    onChange={(e) => { void handleManualUpload(e); }}
+                  />
+                  <button
+                    type="button"
+                    disabled={submitting || uploadLoading}
+                    aria-label="Upload avatar"
+                    onClick={(e) => {
+                      const input = (e.currentTarget.parentElement as HTMLLabelElement)?.querySelector("input[type='file']") as HTMLInputElement | null;
+                      input?.click();
+                    }}
+                    className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
+                  >
+                    {uploadLoading ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Loader2 className="size-3 animate-spin" />
+                        Uploading…
+                      </span>
+                    ) : "Upload…"}
+                  </button>
+                </label>
+              </div>
             </div>
 
             {genError && (
@@ -411,9 +515,34 @@ export function CloneAgentDialog({
               </span>
             )}
 
-            {/* Default preview — source's avatar (rendered whenever no
-                candidate is picked) */}
-            {!hasCandidates && sourceIdentity && (
+            {uploadError && (
+              <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                {uploadError}
+              </span>
+            )}
+
+            {/* Manual upload preview — takes priority over source avatar when set */}
+            {manualPreviewUrl && !hasCandidates && (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  aria-selected={true}
+                  data-manual-avatar="true"
+                  disabled={submitting}
+                  className="w-16 h-16 rounded overflow-hidden border-2 border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)] transition-all disabled:opacity-50"
+                >
+                  <img
+                    src={manualPreviewUrl}
+                    alt="Manual avatar preview"
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              </div>
+            )}
+
+            {/* Default preview — source's avatar (rendered when no candidate
+                and no manual upload) */}
+            {!hasCandidates && !manualPreviewUrl && sourceIdentity && (
               <div className="flex justify-center">
                 <img
                   src={sourceIdentity.avatarUrl}
