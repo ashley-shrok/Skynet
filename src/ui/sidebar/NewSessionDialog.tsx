@@ -284,8 +284,10 @@ export function NewSessionDialog({
   const [search, setSearch] = useState("");
 
   // Path field — visible in BOTH modes, placed below host+name and above identity-mode checkbox.
-  // Default "~" (tilde-expanded server-side). Accepts "/" or "\" and normalizes to "/" on submit.
-  const [path, setPath] = useState("~");
+  // Default "~/" (tilde-expanded server-side). Accepts "/" or "\" and normalizes to "/" on submit.
+  // Trailing slash is deliberate: typing after the default naturally produces "~/foo" rather than
+  // "~foo" (which POSIX reads as "home of user foo" and is almost never what's meant).
+  const [path, setPath] = useState("~/");
 
   // Identity-mode checkbox (defaults ON per IDUI-01).
   // When on, reveals the identity-birth field cluster.
@@ -404,7 +406,7 @@ export function NewSessionDialog({
       setSelectedHost(null);
       setSessionName("");
       setSearch("");
-      setPath("~");
+      setPath("~/");
       setIdentityMode(true);
       setName("");
       setTitle("");
@@ -852,7 +854,7 @@ export function NewSessionDialog({
               aria-label="Path"
               value={path}
               onChange={(e) => setPath(e.target.value)}
-              placeholder="~"
+              placeholder="~/"
               disabled={formDisabled}
             />
           </div>

@@ -327,7 +327,7 @@ describe("PrettyConversationsPanel: Clone dialog wiring", () => {
     expect(onCreateSessionMock).toHaveBeenCalledWith({
       host: stubHost,
       sessionName: "tina-2",
-      path: "~",
+      path: "~/",
       identityMode: "existing",
       identityName: "tina-2",
       identityId: "new-id",

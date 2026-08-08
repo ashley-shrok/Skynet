@@ -287,7 +287,7 @@ describe("CloneAgentDialog", () => {
       title: "Fleet Operator",
       voice: "Elena.wav",
       avatarCandidateId: null,
-      path: "~",
+      path: "~/",
     });
 
     // quick-260806-bz7: auto-route into new session fires EXACTLY once with
@@ -297,7 +297,7 @@ describe("CloneAgentDialog", () => {
     expect(onCreateSession).toHaveBeenCalledWith({
       host: stubHost,
       sessionName: "tina-2",
-      path: "~",
+      path: "~/",
       identityMode: "existing",
       identityName: "tina-2",
       identityId: "new-id",
@@ -433,8 +433,8 @@ describe("CloneAgentDialog", () => {
 
     expect((screen.getByLabelText(/^name/i) as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText(/^title/i) as HTMLInputElement).value).toBe("Fleet Operator");
-    // Path resets to the "~" default (mirrors birth's default)
-    expect((screen.getByLabelText(/^path/i) as HTMLInputElement).value).toBe("~");
+    // Path resets to the "~/" default (mirrors birth's default)
+    expect((screen.getByLabelText(/^path/i) as HTMLInputElement).value).toBe("~/");
     // No candidate images (only the source avatar preview) — count is either 0
     // avatar candidates rendered or the candidate row is absent
     expect(screen.queryByAltText(/Avatar candidate/i)).toBeNull();
@@ -455,7 +455,7 @@ describe("CloneAgentDialog", () => {
     fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: "tina-2" } });
     const submit = screen.getByRole("button", { name: /clone|submit|create/i }) as HTMLButtonElement;
 
-    // Baseline: path defaults to "~" so submit is enabled
+    // Baseline: path defaults to "~/" so submit is enabled
     expect(submit.disabled).toBe(false);
 
     // Blank the path — submit disables + inline "Path is required." shows

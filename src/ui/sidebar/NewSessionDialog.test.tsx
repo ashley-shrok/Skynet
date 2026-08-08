@@ -531,13 +531,13 @@ describe("NewSessionDialog: Test A — path field visible in both modes", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test B: path defaults to ~
+// Test B: path defaults to ~/
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test B — path defaults to ~", () => {
-  it("Test B: initial render → path input value is '~'", () => {
+describe("NewSessionDialog: Test B — path defaults to ~/", () => {
+  it("Test B: initial render → path input value is '~/'", () => {
     const { getByLabelText } = renderDialog();
     const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
-    expect(pathInput.value).toBe("~");
+    expect(pathInput.value).toBe("~/");
   });
 });
 
@@ -1067,7 +1067,7 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
     expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
     expect((getByLabelText(/^title$/i) as HTMLInputElement).value).toBe("");
     expect((getByLabelText(/^brief$/i) as HTMLTextAreaElement).value).toBe("");
-    expect((getByLabelText(/^path$/i) as HTMLInputElement).value).toBe("~");
+    expect((getByLabelText(/^path$/i) as HTMLInputElement).value).toBe("~/");
     // No candidates rendered
     expect(document.querySelectorAll("img").length).toBe(0);
     // Identity-mode checkbox should be ON (default)

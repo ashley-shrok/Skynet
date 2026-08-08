@@ -116,10 +116,10 @@ export function CloneAgentDialog({
   const [title, setTitle] = useState<string>("");
   const [voice, setVoice] = useState<string>("");
   // Working directory on the target host for the new identity's sessions.
-  // Required; defaults to "~" (mirrors birth's NewSessionDialog default) so
+  // Required; defaults to "~/" (mirrors birth's NewSessionDialog default) so
   // clones don't inherit the source identity's cwd (patty from poppy was
   // silently landing in poppy's project dir before this field existed).
-  const [path, setPath] = useState<string>("~");
+  const [path, setPath] = useState<string>("~/");
 
   const [candidates, setCandidates] = useState<AvatarCandidate[]>([]);
   const [pickedCandidateId, setPickedCandidateId] = useState<string | null>(null);
@@ -137,7 +137,7 @@ export function CloneAgentDialog({
       setName("");
       setTitle(sourceIdentity?.title ?? "");
       setVoice(sourceIdentity?.voice ?? "");
-      setPath("~");
+      setPath("~/");
       setCandidates([]);
       setPickedCandidateId(null);
       setGenLoading(false);
@@ -148,7 +148,7 @@ export function CloneAgentDialog({
       setName("");
       setTitle("");
       setVoice("");
-      setPath("~");
+      setPath("~/");
       setCandidates([]);
       setPickedCandidateId(null);
       setGenLoading(false);
@@ -331,7 +331,7 @@ export function CloneAgentDialog({
             />
           </div>
 
-          {/* Path input (required, defaults to "~"). Working dir for the new
+          {/* Path input (required, defaults to "~/"). Working dir for the new
               identity on the target host — mirrors birth's path field. Without
               this the new session inherits the source's cwd (e.g. a poppy
               clone would silently land in poppy's project dir). */}
@@ -347,7 +347,7 @@ export function CloneAgentDialog({
               aria-label="Path"
               value={path}
               onChange={(e) => setPath(e.target.value)}
-              placeholder="~"
+              placeholder="~/"
               disabled={submitting}
             />
             {!pathValid && (
