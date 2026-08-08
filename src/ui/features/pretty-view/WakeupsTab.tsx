@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Pencil, X } from "lucide-react";
+import { Check, ChevronDown, Pencil, X } from "lucide-react";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
 import { cn } from "@/lib/utils";
@@ -226,6 +226,11 @@ function WakeupRow({
 }) {
   const detectedTz = useMemo(detectBrowserTimezone, []);
 
+  // Quick 260808-<slug>: card collapsed by default to make the list scannable —
+  // mirrors BountyCard's disclosure pattern. Header row (name + enabled chip +
+  // schedule human + chevron) is a <button> that toggles this; instruction
+  // prose + edit pencil + form editor are hidden until expanded.
+  const [expanded, setExpanded] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(false);
   const [nameDraft, setNameDraft] = useState(wakeup.name);
   const [enabledDraft, setEnabledDraft] = useState(wakeup.enabled);
@@ -321,10 +326,13 @@ function WakeupRow({
         boxShadow: "0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.10)",
       }}
     >
-      {/* Row 1: name (span or input) + always-visible enabled toggle chip.
-          The chip is patch #154's one-click toggle — untouched in edit mode. */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {editingSchedule ? (
+      {/* Row 1: disclosure header. Whole row toggles expanded; enabled chip
+          uses stopPropagation so toggling on/off doesn't fold the card.
+          When editing the schedule the row is NOT a disclosure toggle
+          (the form is inline below and the name is an input, both of which
+          need clicks to reach without collapsing). */}
+      {editingSchedule ? (
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             type="text"
             value={nameDraft}
@@ -336,46 +344,84 @@ function WakeupRow({
               "focus:outline-none focus:border-white/25",
             )}
           />
-        ) : (
-          <span className="font-semibold text-[15px] text-[#f0ebe0] flex-1">
-            {wakeup.name}
-          </span>
-        )}
+          <button
+            type="button"
+            onClick={toggleEnabled}
+            disabled={saving === "enabled"}
+            aria-label={wakeup.enabled ? "Disable this wakeup" : "Enable this wakeup"}
+            title={wakeup.enabled ? "Disable" : "Enable"}
+            className={cn(
+              "cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity",
+              saving === "enabled" && "opacity-50 cursor-wait",
+              wakeup.enabled
+                ? "bg-emerald-500/25 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/35"
+                : "bg-slate-500/25 text-slate-300 border-slate-500/40 hover:bg-slate-500/35",
+            )}
+          >
+            {wakeup.enabled ? "on" : "off"}
+          </button>
+        </div>
+      ) : (
         <button
           type="button"
-          onClick={toggleEnabled}
-          disabled={saving === "enabled"}
-          aria-label={wakeup.enabled ? "Disable this wakeup" : "Enable this wakeup"}
-          title={wakeup.enabled ? "Disable" : "Enable"}
-          className={cn(
-            "cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity",
-            saving === "enabled" && "opacity-50 cursor-wait",
-            wakeup.enabled
-              ? "bg-emerald-500/25 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/35"
-              : "bg-slate-500/25 text-slate-300 border-slate-500/40 hover:bg-slate-500/35",
-          )}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="flex items-center gap-2 flex-wrap w-full text-left cursor-pointer"
         >
-          {wakeup.enabled ? "on" : "off"}
-        </button>
-      </div>
-
-      {/* Row 2: schedule human OR form editor. Pencil expands the row into
-          a 2-column grid (form + live JSON) on ≥620px viewports. */}
-      {!editingSchedule ? (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-[var(--color-pv-fg-muted)] font-mono flex-1">
-            {wakeup.scheduleHuman}
+          <span className="flex flex-col min-w-0 flex-1 text-left">
+            <span className="font-semibold text-[15px] text-[#f0ebe0] truncate">
+              {wakeup.name}
+            </span>
+            <span className="text-xs text-[var(--color-pv-fg-muted)] font-mono truncate leading-tight">
+              {wakeup.scheduleHuman}
+            </span>
           </span>
           <button
             type="button"
-            onClick={() => setEditingSchedule(true)}
-            aria-label="Edit schedule"
-            title="Edit schedule"
-            className="cursor-pointer text-[#a89a80] hover:text-[#f0ebe0] p-1 rounded transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              void toggleEnabled();
+            }}
+            disabled={saving === "enabled"}
+            aria-label={wakeup.enabled ? "Disable this wakeup" : "Enable this wakeup"}
+            title={wakeup.enabled ? "Disable" : "Enable"}
+            className={cn(
+              "shrink-0 cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity",
+              saving === "enabled" && "opacity-50 cursor-wait",
+              wakeup.enabled
+                ? "bg-emerald-500/25 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/35"
+                : "bg-slate-500/25 text-slate-300 border-slate-500/40 hover:bg-slate-500/35",
+            )}
           >
-            <Pencil className="size-3.5" />
+            {wakeup.enabled ? "on" : "off"}
           </button>
-        </div>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-[#a89a80] transition-transform duration-150",
+              expanded && "rotate-180",
+            )}
+          />
+        </button>
+      )}
+
+      {/* Row 2: edit-schedule pencil (view-mode, only when expanded) OR form
+          editor. Schedule human already lives in the header row, so we don't
+          repeat it here — just the affordance to enter edit mode. */}
+      {!editingSchedule ? (
+        expanded && (
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => setEditingSchedule(true)}
+              aria-label="Edit schedule"
+              title="Edit schedule"
+              className="cursor-pointer text-[#a89a80] hover:text-[#f0ebe0] p-1 rounded transition-colors flex items-center gap-1 text-xs"
+            >
+              <Pencil className="size-3.5" />
+              <span>Edit schedule</span>
+            </button>
+          </div>
+        )
       ) : (
         <div className="flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-[1fr_220px]">
@@ -670,8 +716,11 @@ function WakeupRow({
         <div className="text-xs text-rose-300 whitespace-pre-wrap">{error}</div>
       )}
 
-      {/* Row 3: instruction prose (view mode only; edit mode has textarea above). */}
-      {!editingSchedule && wakeup.instruction && (
+      {/* Row 3: instruction prose (view mode only; edit mode has textarea
+          above). Only shown when the card is expanded — the point of the
+          collapse is that the instruction is the tallest content in the
+          card and hiding it is what makes the list scannable. */}
+      {!editingSchedule && expanded && wakeup.instruction && (
         <div className="whitespace-pre-wrap text-sm text-[#e8e4d8]/90 leading-relaxed">
           {wakeup.instruction}
         </div>

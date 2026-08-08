@@ -53,6 +53,15 @@ function renderTab(wakeupOverrides?: Partial<Wakeup>): {
   return { onUpdate };
 }
 
+// Quick 260808-<slug>: cards are collapsed by default. The pencil + form + instruction
+// prose only render once the disclosure header is toggled open. Every test that
+// exercises the form must first expand the card via this helper.
+function expandCard(): void {
+  // Header row's accessible name is "<name> <scheduleHuman> ..." — matching the
+  // wakeup name is the stable anchor.
+  fireEvent.click(screen.getByRole("button", { name: /daily-box-check/i }));
+}
+
 describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -63,24 +72,34 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     vi.restoreAllMocks();
   });
 
-  it("1: view mode renders the wakeup's human line + a pencil edit button", () => {
+  it("1: collapsed by default — header shows name + schedule human; instruction + pencil hidden until expanded", () => {
     renderTab();
 
-    // Human line visible.
+    // Header row shows name + schedule human even when collapsed (they're the
+    // scan signal for picking which wakeup to expand).
+    expect(screen.getByText("daily-box-check")).toBeTruthy();
     expect(screen.getByText("daily @ 09:00 America/New_York")).toBeTruthy();
 
-    // Pencil button present (aria-label "Edit schedule").
-    const pencil = screen.getByRole("button", { name: /Edit schedule/i });
-    expect(pencil).toBeTruthy();
+    // Instruction prose is hidden when collapsed.
+    expect(screen.queryByText("Check the box.")).toBeNull();
 
-    // No form fields visible in view mode.
+    // Pencil is hidden when collapsed.
+    expect(screen.queryByRole("button", { name: /Edit schedule/i })).toBeNull();
+
+    // No form fields either.
     expect(screen.queryByLabelText(/Schedule type/i)).toBeNull();
+
+    // Expand: instruction + pencil appear.
+    expandCard();
+    expect(screen.getByText("Check the box.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Edit schedule/i })).toBeTruthy();
   });
 
   it("2: pencil click → form renders; daily wakeup hydrates schedule-type=daily + time=09:00", () => {
     renderTab();
 
-    // Enter edit mode.
+    // Expand card, then enter edit mode.
+    expandCard();
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Schedule-type select shows "daily".
@@ -99,7 +118,8 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
   it("3: change type dropdown to interval → interval fields render; NO tz hint", () => {
     renderTab();
 
-    // Enter edit mode.
+    // Expand card, then enter edit mode.
+    expandCard();
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Change type to interval.
@@ -117,7 +137,8 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
   it("4: type=one_shot with a past datetime → 'fires this immediately' hint appears", () => {
     renderTab();
 
-    // Enter edit mode.
+    // Expand card, then enter edit mode.
+    expandCard();
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Change type to one_shot.
@@ -141,7 +162,8 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
   it("5: daily/weekly/one_shot render the browser-detected (or fallback) tz hint", () => {
     renderTab();
 
-    // Enter edit mode — starts as daily.
+    // Expand card, then enter edit mode — starts as daily.
+    expandCard();
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Timezone hint present on daily (matches the "Timezone (auto-detected from browser):" prefix).
@@ -163,6 +185,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     // --- Case A: interval save — schedule has NO timezone ---
     const { onUpdate: onUpdateInterval } = renderTab();
 
+    expandCard();
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Change type to interval. Defaults are n=30, u='m' per the type-swap handler.
@@ -192,6 +215,7 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     // --- Case B: daily save — schedule INCLUDES timezone ---
     const { onUpdate: onUpdateDaily } = renderTab();
 
+    expandCard();
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
     // Still daily by default; just click Save.
     fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
@@ -212,7 +236,8 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
   it("7: Cancel reverts drafts + hides form; re-open re-hydrates from wakeup.schedule", () => {
     const { onUpdate } = renderTab();
 
-    // Enter edit mode.
+    // Expand card, then enter edit mode.
+    expandCard();
     fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
 
     // Dirty the name and instruction drafts.
