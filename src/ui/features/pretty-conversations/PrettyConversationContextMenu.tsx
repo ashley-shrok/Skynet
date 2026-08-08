@@ -97,6 +97,27 @@ export function PrettyConversationContextMenu({
   }, [x, y]);
 
   // Dismiss on Escape or outside click.
+  //
+  // ⚠️ Outside-click listener MUST be `click` in the BUBBLING phase, NOT
+  // `mousedown` in capture. Prior implementation used capture-phase mousedown
+  // and hit a fleet-wide iOS Safari class of bug: a capture-phase
+  // mousedown/pointerdown listener on a parent scope (window, document)
+  // causes iOS to silently DROP the tap→click synthesis for taps on
+  // descendant tap targets — even when the listener itself does nothing
+  // observable. Symptom: user taps a menu item, :active flash paints from
+  // touchstart, but the synthesized click never fires so item.onClick
+  // never runs and nothing happens. Ashley confirmed via UAT ("touch pin
+  // twice before it actually pins") — matched tiffany's independent
+  // 30%-no-op signal on the compose textarea (patch #181 delegated
+  // pointerdown-capture had the same effect on textarea taps). Diagnosed
+  // 2026-08-08 via tiffany's textarea-tap-coordinate-mismatch-ios-diag
+  // instrumentation. Fix pattern (this file's half): `click` bubbling on
+  // window fires AFTER iOS has committed the click synth, so it doesn't
+  // interfere with the synth path. Same pattern Radix/Floating UI use.
+  // Inside-click bubbling is stopped on the menu container's own onClick
+  // (see the div below), so a click inside the menu does not reach this
+  // window listener and does not fire onClose. Keydown is unaffected —
+  // iOS has no key-synth mechanism, so capture-phase keydown is fine.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -104,17 +125,15 @@ export function PrettyConversationContextMenu({
         onClose();
       }
     };
-    const onDown = (e: MouseEvent) => {
+    const onClick = (e: MouseEvent) => {
       const el = menuRef.current;
       if (el && !el.contains(e.target as Node)) onClose();
     };
     window.addEventListener("keydown", onKey, true);
-    // Use pointerdown/mousedown at the capture phase so we catch the click
-    // that would otherwise fall through to a row body and re-open a menu.
-    window.addEventListener("mousedown", onDown, true);
+    window.addEventListener("click", onClick);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("click", onClick);
     };
   }, [onClose]);
 
@@ -129,6 +148,16 @@ export function PrettyConversationContextMenu({
       role="menu"
       aria-orientation="vertical"
       onContextMenu={(e) => e.preventDefault()}
+      // stopPropagation on the menu's own click so an inside-click bubbles
+      // to this handler and STOPS — never reaches the window `click` listener
+      // above (which would otherwise call onClose). Load-bearing: without
+      // this, tapping a menu item would fire the item's onClick AND then
+      // bubble up through the menu to window → dismiss → correct behavior
+      // by accident (menu closes after item fires, same as before). WITH
+      // this, dismiss only happens on OUTSIDE clicks reaching window, and
+      // menu-item clicks let their own onClick's deferred setTimeout(onClose,
+      // 120ms) drive dismiss so the :active flash paints (patch #330).
+      onClick={(e) => e.stopPropagation()}
       style={{
         position: "fixed",
         left: pos.left,

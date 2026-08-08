@@ -210,12 +210,17 @@ describe("PrettyConversationContextMenu: Escape dismiss", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 6 — Outside-click (mousedown on document.body) dismisses
+// Test 6 — Outside-click (click on document.body) dismisses
+// Post-fix (2026-08-08): switched from mousedown-capture to click-bubbling
+// to avoid the iOS Safari class of bug where a capture-phase mousedown
+// listener on window silently drops the tap→click synthesis for taps on
+// descendant tap targets. See PrettyConversationContextMenu.tsx dismiss
+// effect comment for full rationale.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationContextMenu: outside-click dismiss", () => {
-  it("mousedown on document.body (outside the menu) fires onClose exactly once", () => {
-    // The component's onDown handler checks !el.contains(e.target as Node).
+  it("click on document.body (outside the menu) fires onClose exactly once", () => {
+    // The component's onClick handler checks !el.contains(e.target as Node).
     // document.body is NOT inside menuRef.current (menu is a child of body,
     // not the other way around), so the check passes and onClose fires.
     const onClose = vi.fn();
@@ -227,19 +232,21 @@ describe("PrettyConversationContextMenu: outside-click dismiss", () => {
         onClose={onClose}
       />,
     );
-    fireEvent.mouseDown(document.body);
+    fireEvent.click(document.body);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 7 — Inside-click (mousedown ON the menu) does NOT dismiss
+// Test 7 — Inside-click (click ON the menu) does NOT dismiss
+// Post-fix: dismiss is now bubbling `click` on window; the menu container's
+// own onClick calls stopPropagation, so an inside-click bubbles to the menu
+// handler and STOPS — never reaches the window click listener that would
+// otherwise fire onClose.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationContextMenu: inside-click preserves menu", () => {
-  it("mousedown on the menu element itself does NOT fire onClose", () => {
-    // menuRef.current.contains(menu) is true (it contains itself), so the
-    // outside-click predicate fails and onClose is not called.
+  it("click on the menu element itself does NOT fire onClose (stopPropagation)", () => {
     const onClose = vi.fn();
     render(
       <PrettyConversationContextMenu
@@ -250,7 +257,7 @@ describe("PrettyConversationContextMenu: inside-click preserves menu", () => {
       />,
     );
     const menu = screen.getByRole("menu");
-    fireEvent.mouseDown(menu);
+    fireEvent.click(menu);
     expect(onClose).not.toHaveBeenCalled();
   });
 });
