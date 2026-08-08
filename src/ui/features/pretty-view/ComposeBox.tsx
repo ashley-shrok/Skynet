@@ -509,7 +509,7 @@ export function ComposeBox({
   }, [clearDrainTimers]);
 
   // Patch #181: press feedback on every composebox button. Delegated
-  // pointerdown on the compose root adds `.pv-btn-pressed` to whatever
+  // handler on the compose root adds `.pv-btn-pressed` to whatever
   // <button> was tapped for a fixed 250ms window, regardless of how long
   // the tap is held or when :active drops. Rationale: pretty-view buttons
   // like ThumbsUp ("let's go") produce message bubbles asynchronously —
@@ -519,10 +519,28 @@ export function ComposeBox({
   // on mobile), so we drive the styling from a JS-added class with a
   // fixed decay window. Skip disabled buttons — no action fired, no
   // reason to flash.
+  //
+  // PATCH #339 (textarea-tap-coordinate-mismatch-ios-diag arc):
+  // Original patch #181 listener used `pointerdown` at CAPTURE phase.
+  // Diagnostic (patch #338) confirmed a shared iOS PWA symptom class
+  // with tanya's context-menu-item-first-tap-suppressed-on-ios bug:
+  // capture-phase mousedown/pointerdown listeners at parent scope cause
+  // iOS Safari to silently drop the native tap→action synthesis (caret
+  // positioning for textareas; click synthesis for buttons/menu items)
+  // some percentage of the time (30% no-op rate captured across 20
+  // pointerdowns on the compose textarea). Fix: move to `pointerup` at
+  // BUBBLE phase — fires AFTER iOS has already committed its native
+  // tap action, so it can't sit in the intercept path. Flash timing
+  // shifts from press-down (pointerdown) to press-release (pointerup),
+  // a delta of typically 50-150ms — indistinguishable from the caller's
+  // perspective for the "immediate ack" use case since :active from
+  // browser default still fires on press-down as usual. Same delegation
+  // pattern, same 250ms fixed decay, same button.closest + disabled
+  // guard — only the event name + capture flag change.
   useEffect(() => {
     const root = composeRootRef.current;
     if (!root) return;
-    const onDown = (e: PointerEvent) => {
+    const onUp = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target || typeof target.closest !== "function") return;
       const btn = target.closest("button") as HTMLButtonElement | null;
@@ -533,9 +551,9 @@ export function ComposeBox({
         btn.classList.remove("pv-btn-pressed");
       }, 250);
     };
-    root.addEventListener("pointerdown", onDown, true);
+    root.addEventListener("pointerup", onUp);
     return () => {
-      root.removeEventListener("pointerdown", onDown, true);
+      root.removeEventListener("pointerup", onUp);
     };
   }, []);
 
