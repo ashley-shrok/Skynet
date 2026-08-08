@@ -1031,6 +1031,10 @@ export function Auth({ onLogin }: AuthProps) {
                         onChange={(e) => setUsername(e.target.value)}
                         placeholder="your_username"
                         disabled={loading}
+                        autoComplete="username"
+                        autoCorrect="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
                       />
                     </Field>
                     <Button
@@ -1186,6 +1190,10 @@ export function Auth({ onLogin }: AuthProps) {
                           className="pl-8"
                           disabled={loading}
                           autoFocus
+                          autoComplete="username"
+                          autoCorrect="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
                         />
                       </div>
                     </Field>
@@ -1244,6 +1252,10 @@ export function Auth({ onLogin }: AuthProps) {
                           className="pl-8"
                           disabled={loading}
                           autoFocus
+                          autoComplete="username"
+                          autoCorrect="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
                         />
                       </div>
                     </Field>

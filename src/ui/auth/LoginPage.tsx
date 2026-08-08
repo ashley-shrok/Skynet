@@ -1396,6 +1396,10 @@ export function Auth({
                                           id="reset-username"
                                           type="text"
                                           required
+                                          autoComplete="username"
+                                          autoCorrect="off"
+                                          autoCapitalize="none"
+                                          spellCheck={false}
                                           className="h-11 text-base"
                                           value={localUsername}
                                           onChange={(e) =>
@@ -1565,6 +1569,10 @@ export function Auth({
                                 id="username"
                                 type="text"
                                 required
+                                autoComplete="username"
+                                autoCorrect="off"
+                                autoCapitalize="none"
+                                spellCheck={false}
                                 className="h-11 text-base"
                                 value={localUsername}
                                 onChange={(e) =>
