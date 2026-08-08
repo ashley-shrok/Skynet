@@ -1248,3 +1248,32 @@
 .pv-context-menu-item:active {
   background: rgba(255, 240, 215, 0.18);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Swipe-to-act visual feedback (quick-260808-fkg)
+   ─────────────────────────────────────────────────────────────────────────
+   Past-threshold visual affordance for the mobile row-swipe composite gesture
+   (see PrettyConversationRow.tsx swipe state machine header comment). The
+   glow is painted INSIDE the row body via `box-shadow inset` — NEVER as a
+   sibling element painted behind the row (retired quick-260802-pq2 bleed-
+   through bug). Two directional variants:
+     - swipe-past-threshold-right: hue-tinted glow reusing --pv-hue, signals
+       "would pin+activate" (composite fires on release past threshold).
+     - swipe-past-threshold-left:  muted-cream glow (hsla 35,20%,60%,0.30 —
+       sits inside the existing --color-pv-fg-dim adjacency), signals "would
+       unpin+deactivate".
+   Both classes are mobile-only (gated on `.pv-row--mobile`) — desktop rows
+   never receive them (variant gate in the row component).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-row.pv-row--mobile.swipe-past-threshold-right {
+  box-shadow:
+    inset 0 0 0 2px hsla(var(--pv-hue), 65%, 55%, 0.35),
+    inset 0 0 24px hsla(var(--pv-hue), 70%, 55%, 0.28);
+}
+
+.pv-row.pv-row--mobile.swipe-past-threshold-left {
+  box-shadow:
+    inset 0 0 0 2px hsla(35, 20%, 60%, 0.30),
+    inset 0 0 24px hsla(35, 20%, 60%, 0.22);
+}

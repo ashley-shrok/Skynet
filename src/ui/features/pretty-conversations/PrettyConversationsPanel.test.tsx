@@ -25,8 +25,9 @@
 // pinned/grouped/selectedId/pinnedIds directly rather than driving the
 // real derivation. This mirrors the plan's decision (Task 2 §action).
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  act,
   render,
   fireEvent,
   waitFor,
@@ -2590,4 +2591,89 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
   // by transitivity with tests (g)/(h)/(i)/(j) above (which exercise the
   // context menu on desktop right-click paths — same builder feeds both
   // entry points).
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TS-P1 — Mobile row-swipe composite wiring (quick-260808-fkg)
+// ─────────────────────────────────────────────────────────────────────────────
+// The row's swipe-right composite (pin+activate) MUST flow through the panel-
+// level handleTogglePin + handleRowSelect handlers — not through any direct
+// store bypass on the row side. This integration test proves the wiring by
+// dispatching a swipe-right gesture on a mobile-variant panel row and
+// asserting on the store-level spies (pinConversation + addToActiveSet +
+// selectConversation) that the panel's composite handlers actually invoke.
+// Row-level TS1-TS7 in PrettyConversationRow.test.tsx cover the gesture
+// mechanics; this panel-level test locks the swipe composite wiring end-to-
+// end (row callback → panel handler → store mutator). Uses fake timers to
+// flush the 200ms snap-back window without hanging.
+
+describe("PrettyConversationsPanel: mobile row-swipe composite wiring (quick-260808-fkg)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("TS-P1: swipe composite — swipe-right past threshold on a mobile row wires through handleTogglePin + handleRowSelect (pinConversation + addToActiveSet + selectConversation fire)", () => {
+    // Host id "1" (not "h1") so parseInt(host.id, 10) resolves to a finite
+    // integer — matches the panel's fleet-shadow id shape at
+    // PrettyConversationsPanel.tsx:688 (fleetRowId consumes a numeric hostId).
+    const hostA = makeHost("1", "hostA");
+    const plainRow = makeConversationRow({
+      id: "swipe-row-1",
+      label: "swipe-target",
+      host: hostA,
+      targetTmuxSession: "swipetgt",
+    });
+    setSnapshot({
+      pinned: [],
+      grouped: [{ hostId: "1", hostName: "hostA", rows: [plainRow] }],
+      pinnedIds: new Set(),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+
+    const wrapper = container.querySelector(
+      '[data-conversation-id="swipe-row-1"]',
+    ) as HTMLElement;
+    expect(wrapper).toBeTruthy();
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    // Clear any mount-time invocations of the store spies so we only observe
+    // the swipe-driven calls below (panel useEffect on [selectedId] would
+    // fire addToActiveSet if selectedId were non-null; it's null here so
+    // this is defensive-only).
+    pinConversationSpy.mockClear();
+    addToActiveSetSpy.mockClear();
+    selectConversationSpy.mockClear();
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 100, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 150, clientY: 102 } as Touch], // arms swipe
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 210, clientY: 105 } as Touch], // dx=110 > 90 threshold
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    act(() => {
+      vi.advanceTimersByTime(200); // flush snap-back
+    });
+
+    // Panel-level composite: handleTogglePin routes to pinConversation with
+    // the canonical shadow-fleet id (fleet::HOSTID::SESSIONNAME) when the row
+    // has host + targetTmuxSession — matches PrettyConversationsPanel.tsx:696.
+    expect(pinConversationSpy).toHaveBeenCalledTimes(1);
+    expect(pinConversationSpy).toHaveBeenCalledWith("fleet::1::swipetgt");
+    // handleRowSelect adds row.id to the active set and calls
+    // selectConversation(row.id) (matches lines 622 + 633).
+    expect(addToActiveSetSpy).toHaveBeenCalledTimes(1);
+    expect(addToActiveSetSpy).toHaveBeenCalledWith("swipe-row-1");
+    expect(selectConversationSpy).toHaveBeenCalledTimes(1);
+    expect(selectConversationSpy).toHaveBeenCalledWith("swipe-row-1");
+  });
 });

@@ -274,6 +274,130 @@ export function PrettyConversationRow({
     }
   }, []);
 
+  // ─── Mobile swipe-to-act state machine (quick-260808-fkg) ─────────────────
+  // Adds a horizontal swipe-to-ACT gesture layer alongside the long-press →
+  // context-menu layer above. Both machines share the SAME onTouchStart/Move/
+  // End/Cancel handlers on the row body (see JSX prop wiring below) — they
+  // coexist by cancelling each other on their own movement gates.
+  //
+  // Retirement history: the earlier swipe-to-REVEAL machinery (retired in
+  // quick-260802-pq2) rendered PinAction / DeactivateAction / HideAction
+  // inside a strip painted BEHIND the translucent row body. Ambient / hidden
+  // rows have low-alpha backgrounds, so the strip's action glyphs bled
+  // visually through the row surface (bounty
+  // `swipe-actions-visible-through-translucent-rows`). This machine takes a
+  // different shape entirely: swipe-to-ACT, not swipe-to-reveal. When the
+  // threshold is crossed, the composite fires IMMEDIATELY and the row snaps
+  // back — nothing is ever painted behind the row, no persistent action strip
+  // exists, and no PinAction/DeactivateAction imports are re-added here.
+  //
+  // Six locked design decisions:
+  //
+  //   1. THRESHOLD: Math.max(90, rowWidth * 0.35). 35% of the row width for
+  //      typical mobile column widths (~360-420px → ~126-147px), floored at
+  //      90px so unusually narrow rows still require a real deliberate drag.
+  //      rowWidth is measured once per gesture via
+  //      body.getBoundingClientRect().width inside touchStart (width does not
+  //      change mid-drag). Constants inlined per the tokens.ts naming rule
+  //      (single call site → no PC_SWIPE_* token).
+  //
+  //   2. VERTICAL-vs-HORIZONTAL DISAMBIGUATION: on the FIRST touchmove that
+  //      exceeds the 8px |dx| gate, evaluate |dx| >= 8 && |dx| > |dy|. If
+  //      both true → arm the swipe (armedRef = true) AND clear the long-
+  //      press timer so the two paths don't double-fire. If NOT both true →
+  //      set disarmedRef = true and NEVER arm the swipe for the rest of this
+  //      touch sequence (vertical scroll wins forever for this touch). If
+  //      already armed OR already disarmed on subsequent touchmoves, skip the
+  //      gate.
+  //
+  //   3. VISUAL FEEDBACK DURING DRAG: while armed, translate the row body via
+  //      transform: translateX(dx * 0.6) capped at ±rowWidth. The 0.6 factor
+  //      matches iOS native swipe-to-delete's viscous / resistive feel. At-or-
+  //      past threshold, add a `swipe-past-threshold-right` OR `swipe-past-
+  //      threshold-left` class to the row body — CSS paints a hue-tinted glow
+  //      (right) or muted-cream glow (left) via box-shadow INSET, INSIDE the
+  //      row body. NO element painted behind the row. NO persistent strip.
+  //
+  //   4. CANCELLATION UX: on touchEnd, if |dx| < threshold OR swipe was never
+  //      armed, snap back with `transition: transform 180ms cubic-bezier
+  //      (.2,.9,.3,1)` applied inline (only during snap-back — not during
+  //      drag, which would fight the raw translate). isSnappingRef guards
+  //      new touchStart from arming during the 200ms snap-back window. Same
+  //      180ms transition applies AFTER a threshold-cross fires — snap-back +
+  //      composite fire in the same touchEnd branch.
+  //
+  //   5. IDEMPOTENCY: after threshold-cross, check wouldChangeState:
+  //        - swipe-right (dx > 0): !pinned || !inActiveSet
+  //        - swipe-left  (dx < 0): pinned  ||  inActiveSet
+  //      If FALSE → snap back silently, fire NO callbacks, NO vibrate.
+  //      If TRUE → fire the composite AND navigator.vibrate?.(10) (same
+  //      feature-check pattern as the long-press above) AND snap back.
+  //
+  //   6. TAP-vs-SWIPE DISAMBIGUATION: touchEnd where armedRef stayed false
+  //      leaves the existing tap path 100% intact — onClick continues to
+  //      fire onSelect via onBodyClick. When the swipe DID arm and fire a
+  //      composite, the trailing synthesized click (real browsers; jsdom
+  //      does not synthesize) is suppressed via the SHARED
+  //      suppressNextClickRef the long-press already uses.
+  //
+  // Composite action semantics:
+  //   - Swipe-RIGHT = "make it pinned AND active":
+  //       if (!pinned)      props.onTogglePin();
+  //       if (!inActiveSet) props.onSelect();
+  //     Order: onTogglePin FIRST so pinned state lands before onSelect
+  //     triggers any re-render that would depend on it.
+  //   - Swipe-LEFT = "remove pin AND deactivate":
+  //       if (pinned)      props.onTogglePin();
+  //       if (inActiveSet) props.onDeactivate?.();
+  //     Optional-chained onDeactivate mirrors the menu-side pattern where
+  //     the Deactivate menuitem is filtered out when onDeactivate is
+  //     undefined (RDP had this shape pre-uo4).
+  //
+  // RDP EXEMPTION: every swipe touch handler early-returns if isRdp === true.
+  // Mirrors the panel-level rdpNoopTogglePin exemption at
+  // PrettyConversationsPanel.tsx:1050. RDP rows still get the long-press →
+  // context menu path (per quick-260804-uo4).
+  //
+  // NON-RDP MOBILE-ONLY GATE: the swipe handlers early-return on !isMobile
+  // (same gate the long-press already uses).
+  const swipeStartRef = useRef<{ x: number; y: number; rowWidth: number } | null>(
+    null,
+  );
+  const armedRef = useRef<boolean>(false);
+  const disarmedRef = useRef<boolean>(false);
+  const isSnappingRef = useRef<boolean>(false);
+  const snapTimerRef = useRef<number | null>(null);
+  const [dxLive, setDxLive] = useState<number | null>(null);
+
+  const clearSnapTimer = useCallback(() => {
+    if (snapTimerRef.current !== null) {
+      window.clearTimeout(snapTimerRef.current);
+      snapTimerRef.current = null;
+    }
+  }, []);
+
+  const resetSwipeGesture = useCallback(() => {
+    swipeStartRef.current = null;
+    armedRef.current = false;
+    disarmedRef.current = false;
+    setDxLive(null);
+  }, []);
+
+  const beginSnapBack = useCallback(() => {
+    // Enter the 200ms snap-back window: keep dxLive at 0 with the transition
+    // applied so the row springs back to origin. New touchStart during this
+    // window is gated via isSnappingRef so a rapid double-swipe cannot re-
+    // arm the machine mid-snap.
+    isSnappingRef.current = true;
+    setDxLive(0);
+    clearSnapTimer();
+    snapTimerRef.current = window.setTimeout(() => {
+      isSnappingRef.current = false;
+      snapTimerRef.current = null;
+      setDxLive(null);
+    }, 200);
+  }, [clearSnapTimer]);
+
   const onTouchStart = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
       if (!isMobile) return;
@@ -281,6 +405,8 @@ export function PrettyConversationRow({
       if (!t) return;
       const x = t.clientX;
       const y = t.clientY;
+
+      // ── long-press arm ────────────────────────────────────────────────
       longPressStartRef.current = { x, y };
       // Clear any stale timer (defensive — should be null already after prior
       // touchEnd/Cancel; belt-and-suspenders).
@@ -293,47 +419,182 @@ export function PrettyConversationRow({
         suppressNextClickRef.current = true;
         longPressTimerRef.current = null;
       }, 500);
+
+      // ── swipe arm ─────────────────────────────────────────────────────
+      // RDP rows: no swipe machinery (long-press path above still fires).
+      if (isRdp) return;
+      // Guard against arming during the snap-back window.
+      if (isSnappingRef.current) return;
+      const rowWidth = (e.currentTarget as HTMLDivElement)
+        .getBoundingClientRect()
+        .width;
+      swipeStartRef.current = { x, y, rowWidth };
+      armedRef.current = false;
+      disarmedRef.current = false;
     },
-    [isMobile, clearLongPressTimer],
+    [isMobile, isRdp, clearLongPressTimer],
   );
 
   const onTouchMove = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
       if (!isMobile) return;
-      if (longPressTimerRef.current === null) return;
-      if (longPressStartRef.current === null) return;
       const t = e.touches[0];
       if (!t) return;
-      const dx = t.clientX - longPressStartRef.current.x;
-      const dy = t.clientY - longPressStartRef.current.y;
-      if (Math.hypot(dx, dy) > 10) {
-        // Movement wins over long-press — cancel the pending timer so
-        // vertical scroll / swipe fling can proceed uninterrupted.
-        clearLongPressTimer();
-        longPressStartRef.current = null;
+
+      // ── long-press movement cancellation ──────────────────────────────
+      if (longPressTimerRef.current !== null && longPressStartRef.current !== null) {
+        const lpDx = t.clientX - longPressStartRef.current.x;
+        const lpDy = t.clientY - longPressStartRef.current.y;
+        if (Math.hypot(lpDx, lpDy) > 10) {
+          // Movement wins over long-press — cancel the pending timer so
+          // vertical scroll / swipe fling can proceed uninterrupted.
+          clearLongPressTimer();
+          longPressStartRef.current = null;
+        }
       }
+
+      // ── swipe machine ─────────────────────────────────────────────────
+      if (isRdp) return;
+      if (swipeStartRef.current === null) return;
+      const dx = t.clientX - swipeStartRef.current.x;
+      const dy = t.clientY - swipeStartRef.current.y;
+
+      // Disarmed for this touch sequence → vertical scroll wins forever.
+      if (disarmedRef.current) return;
+
+      if (!armedRef.current) {
+        // Vertical-vs-horizontal disambiguation gate. Wait until we have at
+        // least 8px of movement on either axis before deciding.
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dx) >= 8 && Math.abs(dx) > Math.abs(dy)) {
+          // Arm the swipe. Clear the long-press timer so the two paths
+          // don't both fire on this touch sequence.
+          armedRef.current = true;
+          clearLongPressTimer();
+          longPressStartRef.current = null;
+        } else {
+          // Vertical wins — disarm the swipe for the rest of this touch.
+          disarmedRef.current = true;
+          return;
+        }
+      }
+
+      // Armed → translate the row (viscous 0.6 factor, capped at ±rowWidth).
+      const rowWidth = swipeStartRef.current.rowWidth;
+      const cap = rowWidth > 0 ? rowWidth : Number.POSITIVE_INFINITY;
+      const dragged = Math.max(-cap, Math.min(cap, dx * 0.6));
+      setDxLive(dragged);
     },
-    [isMobile, clearLongPressTimer],
+    [isMobile, isRdp, clearLongPressTimer],
   );
 
   const onTouchEnd = useCallback(() => {
     if (!isMobile) return;
+    // ── long-press drain ────────────────────────────────────────────────
     // Clear any pending timer (early touchEnd → no menu).
     clearLongPressTimer();
     longPressStartRef.current = null;
     // Deliberately DO NOT touch suppressNextClickRef here — the following
     // click event needs to read it to suppress the trailing tap after a
     // successful long-press.
-  }, [isMobile, clearLongPressTimer]);
+
+    // ── swipe drain ─────────────────────────────────────────────────────
+    if (isRdp) {
+      resetSwipeGesture();
+      return;
+    }
+    const start = swipeStartRef.current;
+    if (start === null) {
+      resetSwipeGesture();
+      return;
+    }
+    if (!armedRef.current) {
+      // Never armed → nothing to fire, nothing to snap. Tap path handles it.
+      resetSwipeGesture();
+      return;
+    }
+
+    // Use the last translated dx (dxLive / 0.6) as the "user-visible"
+    // horizontal offset. Compare against the same threshold shape as the
+    // arming gate: max(90, rowWidth * 0.35). Threshold is measured against
+    // the RAW pointer dx (dxLive is already scaled by 0.6, so undo the
+    // scale) so users don't need to drag ~1.67× further than the visual
+    // affordance suggests.
+    const rowWidth = start.rowWidth;
+    const threshold = Math.max(90, rowWidth * 0.35);
+    const scaled = dxLive ?? 0;
+    const rawDx = scaled / 0.6;
+
+    if (Math.abs(rawDx) < threshold) {
+      // Below threshold → snap back only.
+      swipeStartRef.current = null;
+      armedRef.current = false;
+      disarmedRef.current = false;
+      beginSnapBack();
+      return;
+    }
+
+    // Past threshold → evaluate wouldChangeState per direction.
+    const isRight = rawDx > 0;
+    const wouldChange = isRight
+      ? (!pinned || !inActiveSet)
+      : (pinned || inActiveSet);
+
+    swipeStartRef.current = null;
+    armedRef.current = false;
+    disarmedRef.current = false;
+
+    if (!wouldChange) {
+      // Silent no-op — snap back with no callbacks + no vibrate. Bounce
+      // would falsely imply action fired.
+      beginSnapBack();
+      return;
+    }
+
+    // Fire the composite. Order: onTogglePin FIRST so pinned state lands
+    // before onSelect / onDeactivate trigger any re-render that depends on
+    // it (matches menu-side flow).
+    if (isRight) {
+      if (!pinned) onTogglePin();
+      if (!inActiveSet) onSelect();
+    } else {
+      if (pinned) onTogglePin();
+      if (inActiveSet) onDeactivate?.();
+    }
+    // Feature-checked haptic (same pattern as long-press).
+    navigator.vibrate?.(10);
+    // Suppress the trailing synthesized click so the composite doesn't
+    // also fire onSelect via the tap path (jsdom doesn't synthesize; this
+    // matters in real browsers).
+    suppressNextClickRef.current = true;
+    beginSnapBack();
+  }, [
+    isMobile,
+    isRdp,
+    clearLongPressTimer,
+    resetSwipeGesture,
+    beginSnapBack,
+    dxLive,
+    pinned,
+    inActiveSet,
+    onTogglePin,
+    onSelect,
+    onDeactivate,
+  ]);
 
   // Cleanup on unmount so a pending timer doesn't fire against an unmounted
   // component (setState on unmounted → React warning + potential dangling
-  // navigator.vibrate call).
+  // navigator.vibrate call). quick-260808-fkg extends the cleanup to also
+  // drain the swipe snap-back timer.
   useEffect(() => {
     return () => {
       if (longPressTimerRef.current !== null) {
         window.clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
+      }
+      if (snapTimerRef.current !== null) {
+        window.clearTimeout(snapTimerRef.current);
+        snapTimerRef.current = null;
       }
     };
   }, []);
@@ -366,6 +627,29 @@ export function PrettyConversationRow({
   // conversations.css) handles all visual response. `isAmbient` is derived
   // from `!isRdp && !inActiveSet` — same logic as pre-Phase-13, moved from
   // JS-computed style branches to a CSS class.
+  //
+  // quick-260808-fkg: `swipe-past-threshold-right` / `-left` classes toggled
+  // on when the armed swipe crosses the threshold. CSS paints a hue-tinted
+  // (right) or muted-cream (left) INSET ring on the row body — never behind
+  // it, so the retired quick-260802-pq2 bleed-through class of bug is not
+  // reintroduced. Threshold: max(90, rowWidth * 0.35) — same shape as the
+  // touchEnd threshold check above so the visual affordance and the fire
+  // gate are locked in sync. When rowWidth is 0 (jsdom / pre-first-render),
+  // the max floor of 90 applies.
+  const swipeRowWidth = swipeStartRef.current?.rowWidth ?? 0;
+  const swipeThreshold = Math.max(90, swipeRowWidth * 0.35);
+  const swipeRawDx = (dxLive ?? 0) / 0.6;
+  const swipePastRight =
+    armedRef.current &&
+    dxLive !== null &&
+    dxLive > 0 &&
+    swipeRawDx >= swipeThreshold;
+  const swipePastLeft =
+    armedRef.current &&
+    dxLive !== null &&
+    dxLive < 0 &&
+    swipeRawDx <= -swipeThreshold;
+
   const rowClassName = cn(
     "pv-row",
     variantClass,
@@ -377,16 +661,26 @@ export function PrettyConversationRow({
     isAmbient && "ambient",
     isRdp && "rdp",
     hidden && "hidden",
+    swipePastRight && "swipe-past-threshold-right",
+    swipePastLeft && "swipe-past-threshold-left",
   );
 
-  // ─── Hue custom property ──────────────────────────────────────────────────
-  // The ONLY inline style on `.pv-row` is `--pv-hue: {hue}` for hue-bearing
-  // rows. Post-pq2: no swipe transform / transition (retired). CSS reads
-  // `--pv-hue` in every `hsla(var(--pv-hue), ...)` expression. When hue is
-  // null, the CSS fallback (`--pv-hue: 216` on `.pv-row`) applies but the
-  // .ambient / .rdp branches use non-hue backgrounds so no visual leak.
-  const bodyStyle: CSSProperties =
-    hue !== null ? ({ "--pv-hue": hue } as CSSProperties) : ({} as CSSProperties);
+  // ─── Hue custom property + swipe transform ───────────────────────────────
+  // The ONLY structural inline style on `.pv-row` is `--pv-hue: {hue}` for
+  // hue-bearing rows. quick-260808-fkg re-introduces an inline transform +
+  // (conditionally) transition for the swipe-to-act gesture: while a swipe
+  // is armed, `transform: translateX(dxLive)` follows the finger; during the
+  // 180ms snap-back window, `transition: transform 180ms cubic-bezier
+  // (.2,.9,.3,1)` is applied so the row springs back to origin. Absent both
+  // conditions, no transform / transition keys are emitted so the default
+  // CSS applies unchanged.
+  const bodyStyle: CSSProperties = {
+    ...(hue !== null ? ({ "--pv-hue": hue } as CSSProperties) : {}),
+    ...(dxLive !== null ? { transform: `translateX(${dxLive}px)` } : {}),
+    ...(isSnappingRef.current
+      ? { transition: "transform 180ms cubic-bezier(.2,.9,.3,1)" }
+      : {}),
+  };
 
   // ─── Render tree ───────────────────────────────────────────────────────────
   // Outer wrapper is `relative` in BOTH variants — post-pq2 there's no swipe

@@ -1769,3 +1769,319 @@ describe("PrettyConversationRow: bounty badge visibility — useBountyCounts pai
     expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TS1-TS7 — Mobile swipe-to-act composite (quick-260808-fkg)
+// ─────────────────────────────────────────────────────────────────────────────
+// The row grew a swipe-to-ACT gesture layer that coexists with the TL* long-
+// press layer. Swipe-right past threshold fires composite pin+activate;
+// swipe-left past threshold fires composite unpin+deactivate. Both composites
+// are guarded by !pinned / !inActiveSet / pinned / inActiveSet so repeated
+// same-direction swipes are idempotent. Nothing is painted behind the row
+// (the retired quick-260802-pq2 reveal-strip bleed-through class of bug is
+// NOT reintroduced). Coverage:
+//   TS1 — Swipe-right past threshold on ambient-unpinned row fires BOTH
+//         composites (onTogglePin + onSelect).
+//   TS2 — Swipe-right past threshold on already-pinned-AND-inActiveSet row
+//         is a silent no-op (idempotency).
+//   TS3 — Swipe-left past threshold on active-pinned row fires BOTH
+//         composites (onTogglePin + onDeactivate).
+//   TS4 — Release BELOW threshold fires NEITHER action (snap back only).
+//   TS5 — Vertical drag NEVER arms the swipe (|dy| > |dx| gate).
+//   TS6 — Small horizontal jitter during a tap still fires onSelect via the
+//         existing tap-to-activate path (swipe never armed).
+//   TS7 — RDP row swipe handlers early-return (matches the panel-side
+//         rdpNoopTogglePin exemption policy).
+//
+// Fixture note: rowWidth defaults to 0 in jsdom (no layout engine), so the
+// swipe threshold `Math.max(90, rowWidth * 0.35)` collapses to 90 in tests.
+// dx values are chosen with the 90 constant in mind (past = 100+, below = 40
+// or less). vi.useFakeTimers() is required because the snap-back path uses
+// setTimeout(200) to clear isSnappingRef.
+
+describe("PrettyConversationRow: mobile swipe-to-act (quick-260808-fkg)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("TS1: swipe-right past threshold on ambient-unpinned row fires BOTH composites (onTogglePin + onSelect)", () => {
+    currentIdentity = makeIdentity(200, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 100, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 150, clientY: 102 } as Touch], // dx=50, dy=2 → arms
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 210, clientY: 105 } as Touch], // dx=110 > 90 threshold
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    act(() => {
+      vi.advanceTimersByTime(200); // flush snap-back timer
+    });
+
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("TS2: swipe-right past threshold on already-pinned-AND-inActiveSet row is a silent no-op", () => {
+    currentIdentity = makeIdentity(45, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={true}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 100, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 150, clientY: 102 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 210, clientY: 105 } as Touch],
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("TS3: swipe-left past threshold on active-pinned row fires BOTH composites (onTogglePin + onDeactivate)", () => {
+    currentIdentity = makeIdentity(120, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={true}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 200, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 150, clientY: 102 } as Touch], // dx=-50, dy=2 → arms
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 90, clientY: 105 } as Touch], // dx=-110, past-left
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
+    expect(onDeactivate).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("TS4: release BELOW threshold fires NEITHER action, row snaps back", () => {
+    currentIdentity = makeIdentity(60, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 100, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 135, clientY: 102 } as Touch], // dx=35, arms but < 90 threshold
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("TS5: vertical drag NEVER arms the swipe machine, no action fires, no menu opened", () => {
+    currentIdentity = makeIdentity(60, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 100, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 105, clientY: 150 } as Touch], // dx=5, dy=50 → vertical wins
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 200, clientY: 150 } as Touch], // dx=100 but disarmed sticks
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("TS6: small horizontal jitter during a tap still fires onSelect (swipe never armed)", () => {
+    currentIdentity = makeIdentity(60, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 100, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 104, clientY: 101 } as Touch], // dx=4 < 8 → gate fails, NOT armed
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    // jsdom does not synthesize a click on touchEnd — fire it explicitly
+    // to exercise the standard tap path (matching TL3 pattern).
+    fireEvent.click(body);
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("TS7: RDP row swipe handlers early-return — no composite action fires", () => {
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 100, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 150, clientY: 100 } as Touch],
+    });
+    fireEvent.touchMove(body, {
+      touches: [{ clientX: 210, clientY: 100 } as Touch], // dx=110 past threshold on non-RDP
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
