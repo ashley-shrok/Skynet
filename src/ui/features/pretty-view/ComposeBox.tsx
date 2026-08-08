@@ -306,6 +306,18 @@ export interface ComposeBoxProps {
   //
   // Value from PrettyView: `status === "error"`.
   reconnectingActive?: boolean;
+  // quick 260808-cd6 — dormancy overlay + wake button.
+  // Identity pane is dormant OR the local 'waking…' window is active (after
+  // the user clicks Wake, until a live JSONL frame auto-dismisses the overlay).
+  // Disables all WS-side-effecting controls (Send, reset, ThumbsUp, Recap, Queue)
+  // while textarea, mic, and attach remain live — same guarantee as recycleActive.
+  // Value from PrettyView: `dormant || waking` — flipped by the WS `dormant`
+  // frame handler + the local waking state set by handleWake.
+  // INDEPENDENT-from-other-props: same "Do NOT collapse" rule as recycleActive
+  // (per CONTEXT § "Do NOT collapse") — the disable topology is intentionally
+  // symmetric with reconnectingActive (dormantActive mirrors it 1:1; every site
+  // that reads reconnectingActive also OR-in dormantActive).
+  dormantActive?: boolean;
   className?: string;
 }
 
@@ -336,6 +348,7 @@ export function ComposeBox({
   recycleActive,
   planPendingActive,
   reconnectingActive,
+  dormantActive,
   className,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
@@ -1294,7 +1307,8 @@ export function ComposeBox({
         // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — Ashley sends manually once the overlay clears.
         // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
         // Reconnect window: same treatment — text lands, no auto-send while WS is between sockets.
-        if (!recycleActive && !planPendingActive && !reconnectingActive) {
+        // quick 260808-cd6: same treatment during dormant/waking — text lands, no auto-send.
+        if (!recycleActive && !planPendingActive && !reconnectingActive && !dormantActive) {
           // D-16-05: route through the SAME handleSend — attachment branching,
           // D-50 newline collapse, COMPOSE-04 hard-lock all still apply.
           handleSend(result.glued);
@@ -1308,7 +1322,8 @@ export function ComposeBox({
         // text lands in slot, no dispatch, slot not removed — Ashley sends manually once overlay clears.
         // Phase 24: same treatment during plan-mode pending — text lands in slot, no dispatch.
         // Reconnect window: same treatment — text lands in slot, no dispatch while WS is between sockets.
-        if (!recycleActive && !planPendingActive && !reconnectingActive) {
+        // quick 260808-cd6: same treatment during dormant/waking — text lands in slot, no dispatch.
+        if (!recycleActive && !planPendingActive && !reconnectingActive && !dormantActive) {
           // handleQueueSlotSend reads from queueSlots state, but due to async
           // batching we pass the glued text directly via onSend to avoid stale reads.
           const payload = collapseNewlinesForSend(result.glued.trim());
@@ -1503,7 +1518,7 @@ export function ComposeBox({
     // Phase 24: same treatment during plan-mode pending — textarea stays
     // typeable but Enter-send is swallowed.
     // Reconnect window: same treatment — Enter can't slip past disabled Send.
-    if (recycleActive || planPendingActive || reconnectingActive) return;
+    if (recycleActive || planPendingActive || reconnectingActive || dormantActive) return;
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
@@ -1576,7 +1591,8 @@ export function ComposeBox({
     text.trim() !== "" &&
     !recycleActive &&
     !planPendingActive &&
-    !reconnectingActive;
+    !reconnectingActive &&
+    !dormantActive;
   const showRecordingControls = isPrimaryRecording;
   const showTranscribingSend = isPrimaryTranscribing;
   // Quick 260802-uow bounty 3: when 3 buttons render on the primary
@@ -1611,6 +1627,7 @@ export function ComposeBox({
     recycleActive === true ||
     planPendingActive === true ||
     reconnectingActive === true ||
+    dormantActive === true ||
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
 
@@ -1747,7 +1764,7 @@ export function ComposeBox({
           <button
             type="button"
             onClick={handleResetClick}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || voice.state === "transcribing"}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || dormantActive === true || voice.state === "transcribing"}
             aria-label="Reset context window"
             title="Reset context window"
             className={cn(
@@ -1968,7 +1985,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="secondary"
             onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || dormantActive === true}
             aria-label="Send 'let's go'"
             title="Send 'let's go'"
             className={cn(
@@ -1997,7 +2014,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="secondary"
             onClick={() => handleQuickSend("/explain the current situation")}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || dormantActive === true}
             aria-label="Recap the current situation"
             title="Recap"
             className={cn(
@@ -2042,6 +2059,7 @@ export function ComposeBox({
               recycleActive={recycleActive}
               planPendingActive={planPendingActive}
               reconnectingActive={reconnectingActive}
+              dormantActive={dormantActive}
               canSend={canSend}
               queueSlots={queueSlots}
               onSlotsChange={(next) => {
@@ -2488,6 +2506,8 @@ interface QueuedRowProps {
   // Reconnect window: same OR-in treatment — queued-row Send is disabled
   // while the pretty-view WS is between sockets.
   reconnectingActive?: boolean;
+  // quick 260808-cd6: dormantActive mirrors reconnectingActive 1:1 in QueuedRow.
+  dormantActive?: boolean;
   canSend?: boolean;
   queueSlots: Array<{ id: string; text: string }>;
   onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
@@ -2521,6 +2541,7 @@ function QueuedRow(props: QueuedRowProps) {
     recycleActive,
     planPendingActive,
     reconnectingActive,
+    dormantActive,
     canSend,
     queueSlots,
     onSlotsChange,
@@ -2586,7 +2607,8 @@ function QueuedRow(props: QueuedRowProps) {
     !slotArmed &&
     slotHasText &&
     !planPendingActive &&
-    !reconnectingActive;
+    !reconnectingActive &&
+    !dormantActive;
   const showSlotRecording = isSlotRecording;
   const showSlotTranscribingSend = isSlotTranscribing;
   const showSlotSend = !showSlotRecording;
@@ -2780,7 +2802,8 @@ function QueuedRow(props: QueuedRowProps) {
                   slotArmed ||
                   recycleActive === true ||
                   planPendingActive === true ||
-                  reconnectingActive === true
+                  reconnectingActive === true ||
+                  dormantActive === true
                 }
                 aria-label="Send queued message"
                 title="Send queued message"
