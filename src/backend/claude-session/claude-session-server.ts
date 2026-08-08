@@ -9,6 +9,7 @@ import { discoverClaudeSession } from "./session-file-discovery.js";
 import { parseSessionLine } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 import { parseContextPct } from "./context-pct-parser.js";
+import { readContextPctFromJsonl } from "./context-pct-from-jsonl.js";
 import { isPlanPending, parsePlanFilePath } from "./plan-pending-parser.js";
 import { fetchPlanFile } from "../ssh/plan-file-fetch.js";
 import { execCommand } from "../ssh/tmux-helper.js";
@@ -3444,15 +3445,47 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (contextPctInFlight) return; // guard against slow SSH pileups
       contextPctInFlight = true;
       const connSnapshot = sshConn;
-      execCommand(connSnapshot, captureCmd)
-        .then((output) => {
+      // Read currentSessionFile at poll-fire time (not up-front) so a
+      // session recycle after connect is picked up on the next tick —
+      // matches how other closure-scoped fields are consulted inside
+      // this callback.
+      const sessionFileSnapshot = currentSessionFile;
+      // TODO(post-260808-11l): once JSONL is confirmed stable in prod,
+      // the capture-pane call could be skipped in the pct-only path when
+      // plan-pending is disabled. Deferred — keep behavior symmetric
+      // while validating the swap.
+      (async () => {
+        try {
+          // PRIMARY: JSONL read (authoritative, pane-width-independent).
+          // See ./context-pct-from-jsonl.ts docblock for the WHY / the
+          // 16.5% autocompact normalization mirror / the ±1 rounding
+          // note. Returns null on any error — helper never throws.
+          let pct: number | null = null;
+          if (sessionFileSnapshot) {
+            pct = await readContextPctFromJsonl(
+              connSnapshot,
+              sessionFileSnapshot,
+            );
+          }
+          // Get pane output once — needed for parseContextPct fallback
+          // AND for isPlanPending / parsePlanFilePath below (they still
+          // key off the pane's overlay text, not the JSONL).
+          let output = "";
+          try {
+            output = await execCommand(connSnapshot, captureCmd);
+          } catch {
+            // Silent — scrape failure is nice-to-have, not load-bearing.
+            // pct stays whatever the JSONL path produced; plan-pending
+            // simply sees "" and reports null.
+          }
+          // FALLBACK: only invoke the scrape parser if JSONL yielded no
+          // value (no sessionFile resolved yet, or fresh session with
+          // no assistant turn). context-pct-parser.ts is preserved as
+          // the fallback path per quick-260808-11l.
+          if (pct === null && output !== "") {
+            pct = parseContextPct(output);
+          }
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
-          // Delegate to the pure bar-anchored parser (patch #187 /
-          // quick 260729-ig7). Helper already applies the 0-100 range
-          // clamp and returns null for out-of-range or unparseable
-          // inputs — a single null-check replaces the inline
-          // Number.isFinite / < 0 / > 100 chain.
-          const pct = parseContextPct(output);
           if (pct !== null) {
             try {
               ws.send(JSON.stringify({ type: "context_pct", pct }));
@@ -3619,15 +3652,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 });
               });
           }
-        })
-        .catch(() => {
-          /* Silent on scrape failure — the tail's error handler covers
-             connection health; this is a nice-to-have signal, not
-             load-bearing. */
-        })
-        .finally(() => {
+        } finally {
           contextPctInFlight = false;
-        });
+        }
+      })();
     }, CONTEXT_PCT_INTERVAL_MS);
 
     // Phase 14 Wave 2: aside subsystem — register this WS in the fan-out
