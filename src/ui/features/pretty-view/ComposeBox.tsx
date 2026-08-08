@@ -826,6 +826,84 @@ export function ComposeBox({
     textareaRef.current?.focus();
   }, []);
 
+  // PATCH #338 DIAG (TEMPORARY): textarea-tap-coordinate-mismatch-ios-diag.
+  // Ashley reports 3 correlated iOS PWA symptoms: (a) bottom 2 of 5 lines
+  // dismiss the keyboard on tap-to-reposition, (b) cursor lands INSIDE a
+  // letter on multi-line, (c) single-line ignores tap-to-reposition but
+  // keeps the keyboard open. All point to a coordinate-system mismatch
+  // between iOS's tap-to-caret math and the textarea's actual rendered
+  // box. Passive listeners only — NO preventDefault, NO state writes.
+  // Logs go through the console-forwarder (patch #146) → durable path at
+  // /opt/skynet/console-forward-logs/console-forward.log (patch #326).
+  // Revert after Ashley reproduces + we have data on the actual offset.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const snap = () => {
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      const vv = typeof window !== "undefined" ? window.visualViewport : null;
+      return {
+        rect: { t: Math.round(r.top), l: Math.round(r.left), r: Math.round(r.right), b: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) },
+        styleH: el.style.height,
+        compH: cs.height,
+        scrollH: el.scrollHeight,
+        lh: cs.lineHeight,
+        fs: cs.fontSize,
+        pt: cs.paddingTop,
+        pb: cs.paddingBottom,
+        lines: (el.value.match(/\n/g)?.length ?? 0) + 1,
+        textLen: el.value.length,
+        sel: [el.selectionStart, el.selectionEnd],
+        vv: vv ? { w: Math.round(vv.width), h: Math.round(vv.height), ot: Math.round(vv.offsetTop), ol: Math.round(vv.offsetLeft), pt: Math.round(vv.pageTop), pl: Math.round(vv.pageLeft), scale: vv.scale } : null,
+        scrollY: Math.round(window.scrollY),
+        docFocus: document.activeElement === el,
+      };
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      const targetTag = (e.target as Element | null)?.tagName ?? "?";
+      // eslint-disable-next-line no-console
+      console.log("[tap-diag] pointerdown", {
+        client: { x: Math.round(e.clientX), y: Math.round(e.clientY) },
+        pointerType: e.pointerType,
+        target: targetTag,
+        selfTarget: e.target === el,
+        ...snap(),
+      });
+      setTimeout(() => {
+        // eslint-disable-next-line no-console
+        console.log("[tap-diag] post-30ms", snap());
+      }, 30);
+      setTimeout(() => {
+        // eslint-disable-next-line no-console
+        console.log("[tap-diag] post-300ms", snap());
+      }, 300);
+    };
+    const onFocus = () => {
+      // eslint-disable-next-line no-console
+      console.log("[tap-diag] focus", snap());
+    };
+    const onBlur = () => {
+      // eslint-disable-next-line no-console
+      console.log("[tap-diag] blur", snap());
+    };
+    const onSelChange = () => {
+      if (document.activeElement !== el) return;
+      // eslint-disable-next-line no-console
+      console.log("[tap-diag] selchange", { sel: [el.selectionStart, el.selectionEnd] });
+    };
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("focus", onFocus);
+    el.addEventListener("blur", onBlur);
+    document.addEventListener("selectionchange", onSelChange);
+    return () => {
+      el.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("focus", onFocus);
+      el.removeEventListener("blur", onBlur);
+      document.removeEventListener("selectionchange", onSelChange);
+    };
+  }, []);
+
   // Patch #83: how many meter-well segments should be lit right now.
   // Null contextPct → 0 (well mounts all-dim so the row geometry is
   // stable, and role="meter"'s aria-valuenow stays undefined so
