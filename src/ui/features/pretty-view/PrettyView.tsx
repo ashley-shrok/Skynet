@@ -1346,7 +1346,7 @@ export function PrettyView({
           in patch #74) per Ashley's live 2026-07-19 design read. */}
       {showOverlay && <SessionHoldingOverlay error={holdingTimeoutError} />}
       {status === "connecting" && (
-        <div className="p-4 text-sm text-[var(--color-pv-fg-muted)]">
+        <div className="flex-1 flex items-center justify-center p-4 text-sm text-[var(--color-pv-fg-muted)]">
           Connecting…
         </div>
       )}
@@ -1358,7 +1358,7 @@ export function PrettyView({
       )}
 
       {status === "error" && errorMessage && (
-        <div className="p-4 text-sm text-[color:var(--color-pv-code-fg)]">{errorMessage}</div>
+        <div className="flex-1 flex items-center justify-center p-4 text-sm text-[color:var(--color-pv-code-fg)]">{errorMessage}</div>
       )}
 
       {(status === "streaming" ||
