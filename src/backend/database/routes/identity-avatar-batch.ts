@@ -20,7 +20,8 @@
  */
 
 import express from "express";
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
+import multer from "multer";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -327,6 +328,92 @@ router.post(
     // Step 5: Return candidate list
     // ------------------------------------------------------------------
     res.status(200).json({ candidates });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /candidate/manual
+// Manual avatar upload — stores an uploaded image in the existing candidateCache
+// and returns { id } so birth/clone endpoints remain UNCHANGED.
+//
+// Security:
+//   T-QUICK-04: authenticateJWT wired BEFORE multer (body never parsed on 401)
+//   T-QUICK-01: 5 MB fileSize cap
+//   T-QUICK-02: fileFilter restricts to PNG/JPEG/WebP only
+//   T-QUICK-05: evictIfNeeded enforces per-user + global cache caps
+// ---------------------------------------------------------------------------
+
+const ALLOWED_MANUAL_AVATAR_MIMES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+
+const manualUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MANUAL_AVATAR_MIMES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Avatar must be PNG, JPEG, or WebP"));
+    }
+  },
+});
+
+router.post(
+  "/candidate/manual",
+  authenticateJWT,
+  manualUpload.single("avatar"),
+  (req: Request, res: Response): void => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    if (!req.file) {
+      res.status(400).json({ error: "missing avatar field" });
+      return;
+    }
+
+    const id = nanoid();
+    evictIfNeeded(userId);
+    candidateCache.set(id, {
+      userId,
+      bytes: req.file.buffer,
+      createdAt: Date.now(),
+      mime: req.file.mimetype,
+    });
+
+    res.status(200).json({ id });
+  },
+);
+
+// Express error handler for /candidate/manual multer errors.
+// Turns LIMIT_FILE_SIZE into 413, mime-rejection errors into 400,
+// LIMIT_UNEXPECTED_FILE into 400 "missing avatar field".
+// Placed after the route so it only catches errors from this router.
+router.use(
+  "/candidate/manual",
+  (
+    err: Error & { code?: string },
+    _req: Request,
+    res: Response,
+    _next: NextFunction,
+  ): void => {
+    if (err?.code === "LIMIT_FILE_SIZE") {
+      res.status(413).json({ error: "file too large (max 5 MB)" });
+      return;
+    }
+    if (err?.code === "LIMIT_UNEXPECTED_FILE") {
+      res.status(400).json({ error: "missing avatar field" });
+      return;
+    }
+    if (
+      err instanceof Error &&
+      err.message.includes("Avatar must be PNG, JPEG, or WebP")
+    ) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: "upload failed" });
   },
 );
 

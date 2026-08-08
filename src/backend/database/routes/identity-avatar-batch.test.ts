@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import sharp from "sharp";
 
 // ---------------------------------------------------------------------------
 // Auth manager mock — controls whether a request is authenticated
@@ -104,6 +105,83 @@ function httpRequest(
     );
     req.on("error", reject);
     if (bodyStr !== undefined) req.write(bodyStr);
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Multipart helper — emits a simple multipart/form-data body
+// without requiring a separate npm dep (form-data is not in devDependencies).
+// ---------------------------------------------------------------------------
+
+function buildMultipartBody(
+  fieldName: string,
+  filename: string,
+  contentType: string,
+  fileBytes: Buffer,
+  boundary: string,
+): Buffer {
+  const parts: Buffer[] = [
+    Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n`,
+    ),
+    fileBytes,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ];
+  return Buffer.concat(parts);
+}
+
+function multipartRequest(
+  server: http.Server,
+  opts: {
+    path: string;
+    fieldName: string;
+    filename: string;
+    fileContentType: string;
+    fileBytes: Buffer;
+  },
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const { port } = server.address() as AddressInfo;
+    const boundary = "test-boundary-42";
+    const body = buildMultipartBody(
+      opts.fieldName,
+      opts.filename,
+      opts.fileContentType,
+      opts.fileBytes,
+      boundary,
+    );
+
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        method: "POST",
+        path: opts.path,
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": String(body.length),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks);
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(raw.toString());
+          } catch {
+            parsed = raw.toString();
+          }
+          resolve({ status: res.statusCode ?? 0, body: parsed });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.write(body);
     req.end();
   });
 }
@@ -645,5 +723,130 @@ describe("CR-06: candidate cache eviction", () => {
     }
     const user2Count = [...cache.values()].filter((e) => e.userId === "2").length;
     expect(user2Count).toBe(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /candidate/manual tests
+// ---------------------------------------------------------------------------
+
+describe("POST /candidate/manual", () => {
+  it("happy: multipart PNG → 200 { id }, cache entry scoped to userId, GET /candidate/:id returns same bytes", async () => {
+    // Build a real 1x1 PNG using sharp (same dep used by the route)
+    const pngBytes = await sharp({
+      create: { width: 1, height: 1, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    })
+      .png()
+      .toBuffer();
+
+    const res = await multipartRequest(server, {
+      path: "/identities/avatar/candidate/manual",
+      fieldName: "avatar",
+      filename: "a.png",
+      fileContentType: "image/png",
+      fileBytes: pngBytes,
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { id?: string };
+    expect(typeof body.id).toBe("string");
+    expect(body.id!.length).toBeGreaterThan(0);
+
+    // Verify the entry landed in candidateCache scoped to user-1
+    const mod = await import("./identity-avatar-batch.js");
+    const cache = mod._getCandidateCacheForTest()!;
+    expect(cache.has(body.id!)).toBe(true);
+    const entry = cache.get(body.id!)!;
+    expect(entry.userId).toBe("user-1");
+    expect(Buffer.compare(entry.bytes, pngBytes)).toBe(0);
+    expect(entry.mime).toBe("image/png");
+
+    // Verify GET /candidate/:id returns the same bytes
+    const getRes = await httpRequest(server, {
+      method: "GET",
+      path: `/identities/avatar/candidate/${body.id}`,
+    });
+    expect(getRes.status).toBe(200);
+    expect(Buffer.compare(getRes.rawBuffer!, pngBytes)).toBe(0);
+  });
+
+  it("auth: POST with mockUserId=null → 401, no cache entry created", async () => {
+    mockUserId = null;
+
+    const mod = await import("./identity-avatar-batch.js");
+    const cache = mod._getCandidateCacheForTest()!;
+    const sizeBefore = cache.size;
+
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]); // fake PNG bytes
+
+    const res = await multipartRequest(server, {
+      path: "/identities/avatar/candidate/manual",
+      fieldName: "avatar",
+      filename: "a.png",
+      fileContentType: "image/png",
+      fileBytes: pngBytes,
+    });
+
+    expect(res.status).toBe(401);
+    // No new entry in cache
+    expect(cache.size).toBe(sizeBefore);
+  });
+
+  it("mime: POST with text/plain → 400 with error mentioning PNG/JPEG/WebP, no cache entry", async () => {
+    const mod = await import("./identity-avatar-batch.js");
+    const cache = mod._getCandidateCacheForTest()!;
+    const sizeBefore = cache.size;
+
+    const res = await multipartRequest(server, {
+      path: "/identities/avatar/candidate/manual",
+      fieldName: "avatar",
+      filename: "a.txt",
+      fileContentType: "text/plain",
+      fileBytes: Buffer.from("not an image"),
+    });
+
+    expect(res.status).toBe(400);
+    const body = res.body as { error?: string };
+    expect(body.error).toMatch(/PNG|JPEG|WebP/i);
+    expect(cache.size).toBe(sizeBefore);
+  });
+
+  it("oversize: POST > 5 MB PNG → 413, no cache entry", async () => {
+    const mod = await import("./identity-avatar-batch.js");
+    const cache = mod._getCandidateCacheForTest()!;
+    const sizeBefore = cache.size;
+
+    const oversizeBytes = Buffer.alloc(6 * 1024 * 1024, 0xff);
+
+    const res = await multipartRequest(server, {
+      path: "/identities/avatar/candidate/manual",
+      fieldName: "avatar",
+      filename: "big.png",
+      fileContentType: "image/png",
+      fileBytes: oversizeBytes,
+    });
+
+    expect(res.status).toBe(413);
+    expect(cache.size).toBe(sizeBefore);
+  });
+
+  it("missing-field: POST with no 'avatar' field → 400 'missing avatar field', no cache entry", async () => {
+    const mod = await import("./identity-avatar-batch.js");
+    const cache = mod._getCandidateCacheForTest()!;
+    const sizeBefore = cache.size;
+
+    // Send a multipart body with a different field name
+    const res = await multipartRequest(server, {
+      path: "/identities/avatar/candidate/manual",
+      fieldName: "wrong_field",
+      filename: "a.png",
+      fileContentType: "image/png",
+      fileBytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    });
+
+    expect(res.status).toBe(400);
+    const body = res.body as { error?: string };
+    expect(body.error).toMatch(/missing avatar field/i);
+    expect(cache.size).toBe(sizeBefore);
   });
 });
