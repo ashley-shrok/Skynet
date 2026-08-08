@@ -37,6 +37,7 @@ function makeState(
     changeoverState: "active",
     currentSessionFile: "/home/ubuntu/.claude/projects/-home-ubuntu-proj/abc123.jsonl",
     holdingTicks: 0,
+    holdingReason: null,
     ...overrides,
   };
 }
@@ -155,6 +156,100 @@ describe("discovery repoll branch — case (b): active + same file + state=holdi
     expect(state.changeoverState).toBe("active");
     expect(state.holdingTicks).toBe(0);
     // WS received the correct frame:
+    expect(wsSend).toHaveBeenCalledOnce();
+    expect(JSON.parse(wsSend.mock.calls[0][0] as string)).toEqual({ type: "session_holding_cleared" });
+  });
+});
+
+// ── Case (b') — same-file-active during holding armed by id_reset ───────────
+// Regression: patch #358 (follow-up to #356). When Layer 1 armed the overlay
+// via /id reset, the 3-second same-file-active repoll tick MUST NOT clear the
+// overlay — Claude is still running its /id save flow, discovery correctly
+// reports the OLD session file as active, and the real recycle is coming. The
+// clear must be deferred to transitionToActiveNew when the NEW UUID appears.
+
+describe("discovery repoll branch — case (b'): active + same file + state=holding + reason=id_reset → NO clear", () => {
+  it("real helper with holdingReason='id_reset' guard is a no-op; state stays holding; WS receives nothing", () => {
+    const wsSend = vi.fn();
+    const mockWs = { readyState: 1, send: wsSend }; // WebSocket.OPEN
+    const state = makeState({
+      changeoverState: "holding",
+      currentSessionFile: SESSION_FILE,
+      holdingTicks: 1,
+      holdingReason: "id_reset", // Layer 1 armed via real /id reset
+    });
+
+    // Inline the real helper WITH the patch-#358 guard (mirrors
+    // transitionFromHoldingToActiveSameFile in claude-session-server.ts).
+    const transitionFromHoldingToActiveSameFile = vi.fn(() => {
+      if (state.changeoverState !== "holding") return;
+      if (state.holdingReason === "id_reset") return; // ← patch #358 guard
+      state.changeoverState = "active";
+      state.holdingReason = null;
+      state.holdingTicks = 0;
+      if (mockWs.readyState === 1) {
+        try { mockWs.send(JSON.stringify({ type: "session_holding_cleared" })); } catch { /* ignore */ }
+      }
+    });
+
+    const { stubs } = makeHelpers();
+    stubs.transitionFromHoldingToActiveSameFile = transitionFromHoldingToActiveSameFile;
+
+    __applyRepollResultForTests(
+      { status: "active", pid: 100, sessionFile: SESSION_FILE },
+      state,
+      stubs,
+    );
+
+    // Reducer still dispatches (it doesn't know about the reason):
+    expect(transitionFromHoldingToActiveSameFile).toHaveBeenCalledOnce();
+    // But the helper's guard means the OVERLAY state is UNCHANGED (still holding, still id_reset):
+    expect(state.changeoverState).toBe("holding");
+    expect(state.holdingReason).toBe("id_reset");
+    // holdingTicks DOES bump — that's the reducer's timeout bookkeeping,
+    // orthogonal to the clear-path guard. If the /id reset gets stuck and
+    // the new session file never appears, HOLDING_TIMEOUT_TICKS still fires
+    // transitionToDead as the safety valve. Initial 1 + this tick = 2.
+    expect(state.holdingTicks).toBe(2);
+    // And NO WS frame was sent — nothing clears the overlay client-side:
+    expect(wsSend).not.toHaveBeenCalled();
+  });
+
+  it("holdingReason='discovery_diff' still clears normally (patch #244 behavior preserved)", () => {
+    const wsSend = vi.fn();
+    const mockWs = { readyState: 1, send: wsSend };
+    const state = makeState({
+      changeoverState: "holding",
+      currentSessionFile: SESSION_FILE,
+      holdingTicks: 2,
+      holdingReason: "discovery_diff", // Layer 2 false-alarm arm
+    });
+
+    const transitionFromHoldingToActiveSameFile = vi.fn(() => {
+      if (state.changeoverState !== "holding") return;
+      if (state.holdingReason === "id_reset") return;
+      state.changeoverState = "active";
+      state.holdingReason = null;
+      state.holdingTicks = 0;
+      if (mockWs.readyState === 1) {
+        try { mockWs.send(JSON.stringify({ type: "session_holding_cleared" })); } catch { /* ignore */ }
+      }
+    });
+
+    const { stubs } = makeHelpers();
+    stubs.transitionFromHoldingToActiveSameFile = transitionFromHoldingToActiveSameFile;
+
+    __applyRepollResultForTests(
+      { status: "active", pid: 100, sessionFile: SESSION_FILE },
+      state,
+      stubs,
+    );
+
+    // False-alarm self-clear MUST still fire (Fix B / patch #244 preserved):
+    expect(transitionFromHoldingToActiveSameFile).toHaveBeenCalledOnce();
+    expect(state.changeoverState).toBe("active");
+    expect(state.holdingReason).toBeNull();
+    expect(state.holdingTicks).toBe(0);
     expect(wsSend).toHaveBeenCalledOnce();
     expect(JSON.parse(wsSend.mock.calls[0][0] as string)).toEqual({ type: "session_holding_cleared" });
   });

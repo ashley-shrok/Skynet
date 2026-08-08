@@ -855,6 +855,14 @@ export type __RepollStateForTests = {
   changeoverState: "active" | "holding" | "dead";
   currentSessionFile: string | null;
   holdingTicks: number;
+  // Follow-up to patch #356: the reason we entered holding. Used by the
+  // real transitionFromHoldingToActiveSameFile helper to skip the same-file
+  // self-clear when the overlay was armed by a real /id reset (Layer 1).
+  // The reducer __applyRepollResultForTests does NOT read this field —
+  // it belongs to the helper's guard, not the reducer's dispatch. Kept on
+  // the shared state box so tests that inline the real helper's shape
+  // (see case (b) in claude-session-server.repoll.test.ts) can drive it.
+  holdingReason: "id_reset" | "discovery_diff" | null;
 };
 
 /** Helpers injected into the repoll tick logic. */
@@ -1375,6 +1383,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // fresh tail is about to start. See layer1-detect.ts for the reducer
   // + rationale. Replaces the pre-refactor `hasSeenExit` boolean.
   let layer1: Layer1State = { mostRecentUserTurnIsIdReset: null };
+  // Follow-up to patch #356 (2026-08-08): the reason we entered holding.
+  // Layer 2's transitionFromHoldingToActiveSameFile helper reads this to
+  // decide whether a "same-file active" repoll tick should self-clear the
+  // overlay. When holdingReason === "id_reset" the overlay stays up until
+  // the NEW session file appears (transitionToActiveNew) — because Claude
+  // is still running its /id save flow before the real recycle, and
+  // Layer 2's same-file reading is stale.
+  let holdingReason: "id_reset" | "discovery_diff" | null = null;
   let holdingTicks = 0; // # of 3s ticks in `holding`; timeout at HOLDING_TIMEOUT_TICKS
   let discoveryRepollInFlight = false; // guard against slow SSH pileups (mirrors contextPctInFlight)
   let discoveryRepollTimer: NodeJS.Timeout | null = null;
@@ -1464,6 +1480,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     currentSessionFile = null;
     sessionIdFromFile = null;
     layer1 = { mostRecentUserTurnIsIdReset: null };
+    holdingReason = null;
     holdingTicks = 0;
     discoveryRepollInFlight = false;
     currentHostId = null;
@@ -2068,6 +2085,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   ): void => {
     if (changeoverState !== "active") return;
     changeoverState = "holding";
+    holdingReason = reason;
     holdingTicks = 0;
     if (!stopped && ws.readyState === WebSocket.OPEN) {
       try {
@@ -2107,7 +2125,31 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // first tick's WS send completes).
   const transitionFromHoldingToActiveSameFile = (): void => {
     if (changeoverState !== "holding") return;
+    // Follow-up to patch #356 (2026-08-08): if we entered holding because
+    // Layer 1 saw a real /id reset in the tail, the 3-second repoll tick's
+    // "same-file active" reading is STALE — Claude is still running its
+    // /id save flow (many tool invocations) before exit, so discovery
+    // correctly reports the OLD session file as active. Clearing here
+    // would flash the SessionHoldingOverlay off within ~1-3s of Ashley
+    // typing /id reset even though the real recycle is still coming.
+    // Skip the clear; wait for transitionToActiveNew when the new session
+    // file appears (Layer 2's real-recycle path, unchanged).
+    if (holdingReason === "id_reset") {
+      sshLogger.debug(
+        "Layer 2 same-file-active during id_reset holding — deferring clear to transitionToActiveNew",
+        {
+          operation: "claude_session_holding_same_file_id_reset_deferred",
+          userId,
+          sessionId,
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          sessionFile: currentSessionFile,
+        },
+      );
+      return;
+    }
     changeoverState = "active";
+    holdingReason = null;
     holdingTicks = 0;
     if (!stopped && ws.readyState === WebSocket.OPEN) {
       try {
@@ -2163,6 +2205,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // quick 260808-ohn: reset Layer 1 tail-state on session recycle so the
     // new tail's -n +1 replay converges on clean bookkeeping.
     layer1 = { mostRecentUserTurnIsIdReset: null };
+    holdingReason = null;
     holdingTicks = 0;
 
     // Derive the new UUID basename using the same slug logic the initial-
