@@ -38,12 +38,21 @@ class MockMediaRecorder {
   static instances: MockMediaRecorder[] = [];
 
   mimeType = "audio/webm";
+  // Mirrors the real MediaRecorder.state — starts "inactive", flips to
+  // "recording" on start(), flips to "inactive" on stop(). The hook's
+  // stopRecording() guard reads this field to short-circuit when the
+  // recorder is already inactive (iOS Safari dropped-onstop cascade fix,
+  // quick-260808-1pa).
+  state: "inactive" | "recording" | "paused" = "inactive";
   ondataavailable: ((e: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
 
-  start = vi.fn();
+  start = vi.fn().mockImplementation(() => {
+    this.state = "recording";
+  });
   stop = vi.fn().mockImplementation(() => {
     // Automatically fire onstop after stop() is called (mirrors real behavior).
+    this.state = "inactive";
     if (this.onstop) this.onstop();
   });
 
@@ -567,6 +576,133 @@ describe("useVoiceRecording", () => {
     expect(returnValue).not.toBeNull();
     expect(returnValue!.transcript).toBe("bounty");
     expect(returnValue!.glued).toBe("bounty");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Regression tests for the stopRecording() guard + watchdog (quick-260808-1pa)
+  //
+  // Context: On iOS Safari the browser's MediaRecorder `onstop` event can drop.
+  // Before this fix, that hang cascaded — every subsequent button press
+  // reassigned `recorder.onstop` and called `recorder.stop()` again on an
+  // already-inactive recorder, hanging identically. Fix is two additions:
+  //   G — state guard: when recorder.state !== "recording", resolve(null)
+  //       immediately WITHOUT touching onstop (kills the cascade).
+  //   H — 8s watchdog: if onstop never fires, force cleanup + resolve(null)
+  //       (recovers even the first hang).
+  // ---------------------------------------------------------------------------
+
+  it("Test G: stopRecording no-ops when recorder.state !== 'recording' — second call does not reassign onstop", async () => {
+    // Simulates the exact iOS Safari cascade-of-hangs: the browser transitions
+    // MediaRecorder.state to "inactive" even when the `onstop` event drops,
+    // leaving React state stuck at "recording" and recorderRef pointing at
+    // an inactive recorder. Any subsequent stopRecording() call would (before
+    // this fix) reassign `onstop` on the inactive recorder and call `.stop()`
+    // again — hanging identically. The guard bails without touching onstop.
+    //
+    // Test structure:
+    //   1. Start → recorder created (state="recording").
+    //   2. Manually flip recorder.state to "inactive" (mimics browser having
+    //      dropped onstop after prior stop attempt — React state stays
+    //      "recording" because our hook never saw onstop fire).
+    //   3. Call cancel() — outer React-state gate passes (state==="recording"),
+    //      stopRecording's inner guard sees recorder.state==="inactive" and
+    //      bails without assigning onstop.
+    //   4. Assert onstop assignment count === 0 (guard never reached the
+    //      assignment line). This is stricter than the plan's ">=1 across
+    //      two calls" formulation but locks in the same invariant: after the
+    //      state transitions to non-recording, no further onstop reassignments
+    //      happen. Any regression that removes the guard would trip this.
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    const recorder = MockMediaRecorder.instances[0];
+
+    // Install accessor spies on `onstop` to count assignments. Every `set`
+    // bumps the counter. Baseline: 0 (hook has not entered stopRecording yet).
+    let onstopAssignCount = 0;
+    let currentOnstop: (() => void) | null = recorder.onstop;
+    Object.defineProperty(recorder, "onstop", {
+      configurable: true,
+      get() {
+        return currentOnstop;
+      },
+      set(v: (() => void) | null) {
+        onstopAssignCount += 1;
+        currentOnstop = v;
+      },
+    });
+
+    // Simulate the browser having transitioned the recorder to "inactive"
+    // (as happens on iOS Safari after a dropped onstop event) while React
+    // state is still "recording". Give the recorder a `state` field so the
+    // guard can read it.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (recorder as any).state = "inactive";
+
+    await act(async () => {
+      await result.current.cancel();
+    });
+
+    // React state recovered to idle via cancel's normal path (cancel awaits
+    // stopRecording, then setState("idle") unconditionally).
+    expect(result.current.state).toBe("idle");
+    // Onstop was NEVER reassigned — the guard bailed before touching it.
+    // Without the guard, this would be 1 (or higher on subsequent presses).
+    expect(onstopAssignCount).toBe(0);
+  });
+
+  it("Test H: watchdog resolves null and cleans up after 8s if onstop never fires", async () => {
+    // Use fake timers to advance the 8000ms watchdog deterministically.
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useVoiceRecording());
+
+      act(() => { result.current.start(); });
+      // waitFor uses real-time internals; with fake timers we need to flush
+      // pending microtasks (the getUserMedia .then chain) manually before
+      // asserting state.
+      await vi.waitFor(() => {
+        expect(result.current.state).toBe("recording");
+      });
+
+      const recorder = MockMediaRecorder.instances[0];
+      const stream = recorder.stream as unknown as ReturnType<typeof makeMockStream>;
+
+      // Override this instance's stop() so it does NOT auto-fire onstop
+      // AND does NOT flip state to "inactive" — per-instance mutation to
+      // avoid leaking into sibling tests. Note: this leaves recorder.state
+      // === "recording" (as set by the mock's start()) so the guard passes
+      // and stopRecording arms the watchdog.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (recorder as any).stop = vi.fn();
+
+      // Kick off endSend without awaiting, then advance fake timers by 8s
+      // so the watchdog fires. `advanceTimersByTimeAsync` flushes queued
+      // microtasks between timer ticks so the awaits inside endSend/
+      // stopRecording/transcribeBlob unwind correctly.
+      let endSendResult: Awaited<ReturnType<typeof result.current.endSend>> | undefined;
+      await act(async () => {
+        const p = result.current.endSend("text");
+        await vi.advanceTimersByTimeAsync(8000);
+        endSendResult = await p;
+      });
+
+      // Watchdog resolved null → endSend's null-blob branch set state=idle.
+      expect(endSendResult).toBeNull();
+      await vi.waitFor(() => {
+        expect(result.current.state).toBe("idle");
+      });
+
+      // The stream tracks were stopped by the watchdog cleanup path.
+      expect(stream._track.stop).toHaveBeenCalled();
+
+      // Fetch was NOT called — null blob short-circuits before transcribeBlob.
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("Test F: failed .play() Promise does not throw or break the recording flow", async () => {

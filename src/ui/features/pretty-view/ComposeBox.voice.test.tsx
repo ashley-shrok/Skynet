@@ -67,12 +67,19 @@ class MockMediaRecorder {
   static instances: MockMediaRecorder[] = [];
 
   mimeType = "audio/webm";
+  // Mirrors real MediaRecorder.state — starts "inactive", flips to "recording"
+  // on start(), flips to "inactive" on stop(). useVoiceRecording's stopRecording()
+  // guard reads this field (iOS Safari dropped-onstop cascade fix, quick-260808-1pa).
+  state: "inactive" | "recording" | "paused" = "inactive";
   ondataavailable: ((e: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
 
-  start = vi.fn();
+  start = vi.fn().mockImplementation(() => {
+    this.state = "recording";
+  });
   stop = vi.fn().mockImplementation(() => {
     // Automatically fire onstop after stop() is called (mirrors real behavior).
+    this.state = "inactive";
     if (this.onstop) this.onstop();
   });
 

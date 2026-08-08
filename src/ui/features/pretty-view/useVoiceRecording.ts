@@ -125,8 +125,28 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
         resolve(null);
         return;
       }
+      // Non-recording guard: on iOS Safari, if a prior stopRecording() hung
+      // because the browser's onstop event dropped, subsequent stopRecording()
+      // calls would reassign recorder.onstop and call recorder.stop() again
+      // on an already-inactive recorder — hanging identically. Bail early
+      // when the recorder is not in "recording" state so the caller's null-blob
+      // branch (endAppend/endSend line ~294/335) recovers state to idle. This
+      // is the fix for the cascade-of-hangs case (presses 2+ after first drop).
+      if (recorder.state !== "recording") {
+        console.warn(`[voice-diag] stopRecording: recorder.state=${recorder.state} (not recording), resolving null without touching onstop`);
+        resolve(null);
+        return;
+      }
       console.warn(`[voice-diag] stopRecording: calling recorder.stop() (recorder.state=${recorder.state})`);
+      // Race between onstop firing (happy path) and an 8s watchdog (iOS Safari
+      // dropped-event recovery). Whichever wins flips `resolved`; the loser
+      // must no-op so we never double-cleanup or double-resolve.
+      let resolved = false;
+      let watchdogHandle: ReturnType<typeof setTimeout> | undefined;
       recorder.onstop = () => {
+        if (resolved) return;
+        resolved = true;
+        if (watchdogHandle) clearTimeout(watchdogHandle);
         const type = recorder.mimeType || "audio/webm";
         const blob = new Blob(chunksRef.current, { type });
         console.warn(`[voice-diag] stopRecording: onstop fired, blob size=${blob.size} type=${type}`);
@@ -139,6 +159,18 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
         recorderRef.current = null;
         resolve(blob);
       };
+      watchdogHandle = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        console.warn("[voice-diag] stopRecording: WATCHDOG onstop never fired after 8s — forcing cleanup");
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
+        recorderRef.current = null;
+        chunksRef.current = [];
+        resolve(null);
+      }, 8000);
       recorder.stop();
     });
   }

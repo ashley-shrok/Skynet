@@ -179,11 +179,18 @@ describe("ComposeBox — Phase 24 planPendingActive gating", () => {
       static instances: MockMediaRecorder[] = [];
 
       mimeType = "audio/webm";
+      // Mirrors real MediaRecorder.state — flips to "recording" on start(),
+      // "inactive" on stop(). useVoiceRecording's stopRecording() guard reads
+      // this field (iOS Safari dropped-onstop cascade fix, quick-260808-1pa).
+      state: "inactive" | "recording" | "paused" = "inactive";
       ondataavailable: ((e: { data: Blob }) => void) | null = null;
       onstop: (() => void) | null = null;
 
-      start = vi.fn();
+      start = vi.fn().mockImplementation(() => {
+        this.state = "recording";
+      });
       stop = vi.fn().mockImplementation(() => {
+        this.state = "inactive";
         if (this.onstop) this.onstop();
       });
 
