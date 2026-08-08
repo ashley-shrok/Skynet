@@ -25,6 +25,7 @@ import { PlanPendingBubble } from "./PlanPendingBubble";
 import { AsideBubble } from "./AsideBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
 import { DormancyOverlay } from "./DormancyOverlay";
+import { PrettyViewLoadingOverlay } from "./PrettyViewLoadingOverlay";
 import { IdentityModal } from "./IdentityModal";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
@@ -323,6 +324,20 @@ export function PrettyView({
   const [wakingStartTs, setWakingStartTs] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [wakeError, setWakeError] = useState<string | null>(null);
+  // quick 260808-ho2: full-surface loading overlay for pretty-view.
+  // `isBooting` gates the loading overlay's mount alongside dormant/showOverlay
+  // (via `showLoadingOverlay = isBooting && !dormant && !showOverlay`).
+  // ARMED synchronously inside the fresh-pane paneKey-change reset block
+  // (so a fresh pane always flashes the overlay for the first-frame window).
+  // CLEARED by (a) first user-visible WS frame in the onmessage handler,
+  // (b) dormant/session_holding takeover in their respective case branches,
+  // (c) 10s stuck-state timeout (see useEffect below).
+  const [isBooting, setIsBooting] = useState(false);
+  // quick 260808-ho2: stale-closure protection inside the WS onmessage handler.
+  // The WS onmessage closure captures state at closure-creation time; reading
+  // from a ref gives the current value without re-creating the socket. Pattern
+  // mirrors dormantRef (line ~549) and isVisibleRef (line ~544).
+  const isBootingRef = useRef<boolean>(false);
   // Patch #122: synchronous session-holding trigger fired by the meter
   // well's Reset button BEFORE `/id reset` reaches the WS. Flipping
   // isHolding here starts the SessionHoldingOverlay's 350ms delay-arm
@@ -653,6 +668,12 @@ export function PrettyView({
       setPlanPending(null);
       setIsHolding(false);
       setShowOverlay(false);
+      // quick 260808-ho2: arm the loading overlay on fresh-pane mount only
+      // (paneKey change). Retry re-runs (warm WS reconnect, same paneKey)
+      // skip this whole block, so warm re-focus never arms — matches
+      // decision #6 in the plan. No new sentinel ref needed: the existing
+      // paneKeyRef already carries the cold-vs-warm signal.
+      setIsBooting(true);
       // Phase 14 followup: full aside-surface reset for fresh-pane mount.
       // Clears displayed asideText + pending flag + 60s timer + 8s dismiss
       // cooldown. Backend's connect-time re-attach probe (ASIDE-09) re-emits
@@ -720,6 +741,26 @@ export function PrettyView({
         setElapsedSeconds(0);
         setWakeError(null);
       }
+      // quick 260808-ho2: loading overlay first-live-frame auto-dismiss.
+      // Mirrors the DormancyOverlay dismiss pattern (immediately above)
+      // using the SAME user-visible frame-type set — both overlays consider
+      // the SAME frames "user-visible" so any future addition to the set is
+      // a single grep. Uses isBootingRef (not isBooting state) to avoid
+      // stale-closure inside the WS onmessage handler; pattern mirrors
+      // dormantRef. Do NOT dismiss on `ws.onopen` alone — Ashley's complaint
+      // is specifically about the pre-first-frame window.
+      if (
+        isBootingRef.current &&
+        (parsed.type === "message" ||
+          parsed.type === "image" ||
+          parsed.type === "relay_inbound" ||
+          parsed.type === "relay_outbound" ||
+          parsed.type === "context_pct" ||
+          parsed.type === "harness_tasks" ||
+          parsed.type === "session")
+      ) {
+        setIsBooting(false);
+      }
       switch (parsed.type) {
         case "session": {
           // Session-info frame — flip to streaming; not rendered.
@@ -783,7 +824,17 @@ export function PrettyView({
         // closed so dormant frames are never received.
         case "dormant": {
           setDormant(parsed.dormant);
-          if (!parsed.dormant) {
+          if (parsed.dormant) {
+            // quick 260808-ho2: dormancy trumps loading — cleanup the arm
+            // state if the fresh pane turned out to be dormant. Belt-and-
+            // suspenders on top of the showLoadingOverlay derivation
+            // (which is the sole visibility gate) — this prevents the
+            // loading overlay from re-appearing the moment dormant clears
+            // if no user-visible frame has arrived yet. The 10s timeout
+            // would eventually cover this too, but an explicit clear is
+            // cleaner and does not leave a stale 10s ghost.
+            setIsBooting(false);
+          } else {
             // Natural resume path: supervisor path 1/2 auto-wake, or race
             // with our own wake. Clear all waking state.
             setWaking(false);
@@ -889,6 +940,11 @@ export function PrettyView({
           // WS — the tail restart is server-side and transparent (CONTEXT.md
           // § Frontend event handling).
           setIsHolding(true);
+          // quick 260808-ho2: holding trumps loading — same rationale as
+          // dormancy above. Belt-and-suspenders on top of the mount-gate
+          // exclusion; keeps the arm state clean if a fresh-pane mount
+          // happened to land into a recycling session.
+          setIsBooting(false);
           break;
         }
         case "session_holding_cleared": {
@@ -1106,6 +1162,14 @@ export function PrettyView({
     dormantRef.current = dormant;
   }, [dormant]);
 
+  // quick 260808-ho2: isBootingRef mirror — keeps isBootingRef.current in
+  // sync with `isBooting` state so the WS onmessage first-user-visible-frame
+  // dismiss block can read the current arm state without stale-closure issues.
+  // Pattern mirrors dormantRef mirror above.
+  useEffect(() => {
+    isBootingRef.current = isBooting;
+  }, [isBooting]);
+
   // quick 260808-cd6: elapsed-seconds ticker for the waking overlay.
   // Counts elapsed seconds since Wake was clicked (wakingStartTs).
   // Renders "this can take up to 60s" hint in DormancyOverlay after 15s.
@@ -1274,6 +1338,27 @@ export function PrettyView({
   useEffect(() => {
     if (!isHolding) setHoldingTimeoutError(false);
   }, [isHolding]);
+
+  // quick 260808-ho2: 10s timeout auto-dismiss for the loading overlay.
+  // If no user-visible frame arrives within 10s of arming, the pane is
+  // genuinely stuck — the underlying status="inactive" / "error" state
+  // should show through instead of a false-loading scrim. Silent dismiss,
+  // no error variant (per Ashley's ask — no cancel button, no error card).
+  // console.info for future diagnosis (no console-forwarder import needed;
+  // consistent with other diagnostic logs already in PrettyView). Cleanup
+  // clears the timer on unmount OR when isBooting flips back false via any
+  // path (first-live-frame dismiss, fresh-pane remount, dormancy/holding
+  // takeover — the isBooting deps re-run covers all of them). Contrast
+  // with SessionHoldingOverlay's 300000ms (5 min) watchdog: loading is
+  // expected to be sub-5s, so 10s is the right stuck-state gate here.
+  useEffect(() => {
+    if (!isBooting) return;
+    const t = setTimeout(() => {
+      console.info("[pv-loading-overlay] 10s timeout dismiss (no user-visible frame arrived)");
+      setIsBooting(false);
+    }, 10000);
+    return () => { clearTimeout(t); };
+  }, [isBooting]);
 
   // quick-260730-qbl: publish the delay-armed SessionHoldingOverlay-visible
   // state (patch #74's `showOverlay`) to the session-recycling-store keyed
@@ -1566,6 +1651,16 @@ export function PrettyView({
           error={wakeError}
         />
       )}
+      {/* quick 260808-ho2: full-surface loading overlay for the ~5s window
+          between a fresh pane mount and the first user-visible WS frame.
+          Mutual exclusion: Dormancy > Holding > Loading. Loading only renders
+          when neither of the other two overlays is up AND the arm gate is
+          true. Shares z-[99] with the sibling overlays; mutual exclusion is
+          enforced at the mount gate here, not stacking order. Mount site is
+          adjacent to the sibling overlays inside the chat-region wrapper so
+          ComposeBox (peer sibling below the wrapper) stays typeable — Ashley
+          can pre-draft during the boot window (patch #275 posture). */}
+      {isBooting && !dormant && !showOverlay && <PrettyViewLoadingOverlay />}
       {status === "connecting" && (
         <div className="flex-1 flex items-center justify-center p-4 text-sm text-[var(--color-pv-fg-muted)]">
           Connecting…
