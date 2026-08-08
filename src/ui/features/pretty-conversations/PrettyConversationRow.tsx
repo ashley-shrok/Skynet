@@ -70,7 +70,7 @@ import {
   type MouseEvent,
   type TouchEvent,
 } from "react";
-import { Server } from "lucide-react";
+import { Pin, Server } from "lucide-react";
 
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -499,6 +499,25 @@ export function PrettyConversationRow({
             [data-testid="pin-action"] { opacity: 0 }` rule in
             pretty-conversations.css. Mobile PinAction lives in the swipe
             strip (above); RDP rows skip PinAction entirely. */}
+        {/* Non-interactive pin indicator — absolute-positioned at the row's
+            top-left corner so it reads as a row-level flag rather than
+            competing visually with the bounty count badge in .pv-meta.
+            Fills the gap left by (a) mobile rows never rendering PinAction
+            at all post-quick-260802-pq2 and (b) desktop PinAction being
+            hover-reveal only — both of which meant a pinned row that moved
+            into the active-set section lost its only visible pin cue.
+            Rendered iff `pinned` (defense-in-depth: CSS also display:none-s
+            on :not(.pinned) and .rdp). CSS handles absolute positioning +
+            hue-drop-shadow. */}
+        {pinned && (
+          <span
+            className="pv-pin-indicator"
+            aria-hidden="true"
+            data-testid="pv-pin-indicator"
+          >
+            <Pin />
+          </span>
+        )}
         <div className="pv-meta">
           {/* Phase 26 Plan 03: combined pin·desk bounty count badge. Renders
               INSIDE .pv-meta immediately BEFORE the ready-dot (final left-

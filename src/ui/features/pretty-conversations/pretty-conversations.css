@@ -828,11 +828,47 @@
 /* Hide-until-hover rule. On desktop rows (BOTH pinned and unpinned), the
    pin-action button is hidden entirely unless the row is hovered OR any
    descendant is keyboard-focused (allows pin-via-keyboard-nav). Pinned
-   state is signalled by position (pinned rows sort to the top of the
-   panel), so no persistent pin glyph is needed to convey it. This rule
-   is desktop-only (`.pv-row--desktop`) — mobile rows never render
+   state is signalled by the persistent .pv-pin-indicator (below); this
+   button is the INTERACTIVE affordance and only surfaces on hover. This
+   rule is desktop-only (`.pv-row--desktop`) — mobile rows never render
    PinAction post-quick-260802-pq2 (long-press menu instead). */
 .pv-row.pv-row--desktop:not(:hover):not(:focus-within) .pv-pin-action {
+  display: none;
+}
+
+/* Non-interactive pin indicator — persistent visual cue that a row is
+   pinned. Absolute-positioned at the row's top-left corner so it reads
+   as a row-level flag and doesn't compete with the pinned/needs-desk
+   bounty counters in .pv-meta (Ashley, this quick). Same hue-drop-shadow
+   treatment as .pv-pin-action but muted (0.7 opacity vs 0.95) — quiet
+   glyph, always-on on pinned rows. Defense-in-depth: JS render is gated
+   on `pinned`, CSS mirrors with :not(.pinned) → display: none. RDP rows
+   can't be pinned but declare defensively. Parent .pv-row is already
+   position: relative (see .pv-row rule above). z-index puts it above
+   .pv-avatar so it's visible when it overhangs the avatar disc corner. */
+.pv-pin-indicator {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: hsla(var(--pv-hue, 216), 80%, 70%, 0.7);
+  filter: drop-shadow(0 0 3px hsla(var(--pv-hue, 216), 80%, 60%, 0.4));
+  pointer-events: none;
+}
+
+.pv-pin-indicator svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2;
+}
+
+.pv-row:not(.pinned) .pv-pin-indicator,
+.pv-row.rdp .pv-pin-indicator {
   display: none;
 }
 
