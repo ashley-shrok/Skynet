@@ -1209,7 +1209,7 @@ export function PrettyView({
         paneId: key,
         hostId,
         tmuxSession,
-        isVisible: null,
+        isVisible,
         messageCount: messagesLenRef.current,
         wsFramesSinceLast: framesSinceLast,
         domNodeCount: pvRootRef.current
@@ -1572,7 +1572,7 @@ export function PrettyView({
         </div>
       )}
 
-      {status === "inactive" && (
+      {status === "inactive" && !dormant && (
         <div className="flex-1 flex items-center justify-center p-4 text-sm text-[var(--color-pv-fg-muted)]">
           no active Claude session
         </div>
