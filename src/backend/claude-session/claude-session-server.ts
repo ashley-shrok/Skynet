@@ -86,6 +86,10 @@ import {
  *     { type: "backgrounded_shells", shells }                    // currently-running Bash{run_in_background:true} shells — derived from JSONL tool_use / task-notification correlation (patch #68)
  *     { type: "plan_pending", pending }                          // pending = { planFilePath: string|null, planContent: string|null, contentError: string|null } | null (Phase 24 widened; presence via pane-scrape quick 260802-rps + parent-JSONL fallback patch #63; planContent fetched async via SFTP side-channel Phase 24 Plan 02)
  *     // (client -> server, Phase 24) { type: "raw_keystrokes", bytes: string } — one-shot PTY write via `tmux send-keys -l`, NO split-send. Used by PlanPendingBubble Approve ("1\r") + Feedback ("3<text>\r"). Split-send (patch #44) is NOT recognized by Ink Plan Mode as a keystroke selection.
+ *     // quick 260808-cd6 — dormancy overlay + wake button:
+ *     { type: "dormant", dormant: boolean }                      // server -> client: emit-only-on-change; identity pane's .dormant sentinel state
+ *     // (client -> server, quick 260808-cd6) { type: "wake" } — delete ~/.claude/identities/<name>/.dormant via SSH exec; backend uses connection-scoped currentTmuxSession (T-cd6-01 mitigation)
+ *     { type: "wake_result", ok: boolean, error?: string }       // server -> client: response to { type: "wake" }
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
@@ -898,6 +902,107 @@ export function __applyRepollResultForTests(
   }
 }
 
+// ─── Test seam: dormant poll tick logic (quick 260808-cd6) ───────────────────
+//
+// The dormant stat check lives inside the contextPctTimer IIFE alongside a
+// closure over 4 mutable state variables. Spinning up the full WS server + SSH
+// pair to test it is impractical. Instead we export the core logic as a
+// module-scope function with injectable deps (same pattern as
+// __applyRepollResultForTests above). Tests instantiate a plain state box +
+// mock execCommand + mock ws.send and call __applyDormantPollTickForTests directly.
+
+/** Mutable dormant-state box shared between the per-connection closure and the test seam. */
+export type __DormantStateForTests = {
+  isIdentityShapedCached: boolean | null;
+  identityShapeProbeInFlight: boolean;
+  dormantLastEmitted: boolean | null;
+};
+
+/**
+ * Apply one dormant-poll tick for the given connection state.
+ * Mutates `state` in-place and calls `wsSend` if the dormant state changed.
+ * `execCommand` is injectable so tests can control its output.
+ *
+ * @param deps.connSnapshot  - SSH connection (typed as any in the seam; tests pass a stub)
+ * @param deps.escapedName   - tmux session name (already validated to safe subset)
+ * @param deps.execCommand   - injectable SSH exec helper
+ * @param deps.wsSend        - injectable ws.send stub
+ * @param state              - mutable per-connection dormant state box
+ */
+export async function __applyDormantPollTickForTests(
+  deps: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    connSnapshot: any;
+    escapedName: string;
+    execCommand: (conn: unknown, cmd: string) => Promise<string>;
+    wsSend: (data: string) => void;
+  },
+  state: __DormantStateForTests,
+): Promise<void> {
+  const { connSnapshot, escapedName, execCommand: exec, wsSend } = deps;
+  if (state.isIdentityShapedCached === null && !state.identityShapeProbeInFlight) {
+    state.identityShapeProbeInFlight = true;
+    try {
+      const probeOut = await exec(
+        connSnapshot,
+        `test -d ~/.claude/identities/'${escapedName}' && echo yes || echo no`,
+      );
+      state.isIdentityShapedCached = probeOut.trim() === "yes";
+    } catch {
+      state.isIdentityShapedCached = false;
+    } finally {
+      state.identityShapeProbeInFlight = false;
+    }
+  } else if (state.isIdentityShapedCached === true) {
+    try {
+      const statOut = await exec(
+        connSnapshot,
+        `stat ~/.claude/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+      );
+      const isDormant = statOut.trim() === "yes";
+      if (isDormant !== state.dormantLastEmitted) {
+        state.dormantLastEmitted = isDormant;
+        wsSend(JSON.stringify({ type: "dormant", dormant: isDormant }));
+      }
+    } catch {
+      /* SSH error — skip this tick silently */
+    }
+  }
+  // isIdentityShapedCached === false → skip entirely (never re-probe on this connection)
+}
+
+/**
+ * Apply the wake message handler logic for tests.
+ * Tests D/E/F from dormant-poll.test.ts use this seam.
+ *
+ * @param deps.sshConn              - SSH connection (null if not connected)
+ * @param deps.currentTmuxSession   - current pane tmux session name (null if none)
+ * @param deps.isIdentityShapedCached - identity shape probe cache
+ * @param deps.execCommand          - injectable SSH exec helper
+ * @param deps.wsSend               - injectable ws.send stub
+ */
+export async function __applyWakeMessageForTests(deps: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sshConn: any | null;
+  currentTmuxSession: string | null;
+  isIdentityShapedCached: boolean | null;
+  execCommand: (conn: unknown, cmd: string) => Promise<string>;
+  wsSend: (data: string) => void;
+}): Promise<void> {
+  const { sshConn, currentTmuxSession, isIdentityShapedCached, execCommand: exec, wsSend } = deps;
+  if (!sshConn || currentTmuxSession === null || isIdentityShapedCached !== true) {
+    wsSend(JSON.stringify({ type: "wake_result", ok: false, error: "not connected to an identity pane" }));
+    return;
+  }
+  const wakeEscapedName = currentTmuxSession;
+  try {
+    await exec(sshConn, `rm -f ~/.claude/identities/'${wakeEscapedName}'/.dormant`);
+    wsSend(JSON.stringify({ type: "wake_result", ok: true }));
+  } catch (err) {
+    wsSend(JSON.stringify({ type: "wake_result", ok: false, error: err instanceof Error ? err.message : String(err) }));
+  }
+}
+
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
@@ -980,6 +1085,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let tailHandle: TailHandle | null = null;
   let contextPctTimer: NodeJS.Timeout | null = null;
   let contextPctInFlight = false;
+  // quick 260808-cd6 — dormancy overlay + wake button.
+  // Per-connection (closure-scoped) dormancy guards. Mirror the
+  // contextPctInFlight pattern: only the dormant-state stat check is
+  // guarded; the one-shot identity-shape probe is separately guarded
+  // by identityShapeProbeInFlight. All four reset naturally with the
+  // closure on WS close — no explicit teardown step needed as long as
+  // these bindings live inside the same per-connection closure scope.
+  let dormantInFlight = false;
+  let dormantLastEmitted: boolean | null = null;       // change-only emit guard, mirrors planPendingLastSerialized = "null"
+  let isIdentityShapedCached: boolean | null = null;  // null = not yet probed; true = identity pane; false = skip dormancy forever
+  let identityShapeProbeInFlight = false;
   // Phase 14 Wave 2: per-connection aside extraction bookkeeping. These
   // are per-connection (not cross-tab-shared) so closure-scope is correct.
   // Only `armed`/`displayed` MUST live in module-scope asideState — per
@@ -3263,6 +3379,26 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
+    // quick 260808-cd6 — wake message: client -> server sentinel delete.
+    // Guard: require currentTmuxSession + sshConn + isIdentityShapedCached === true
+    // (T-cd6-01: backend ignores any hostId/tmuxSession in the payload and uses
+    // only connection-scoped currentTmuxSession set at connectToPane discovery).
+    // (T-cd6-02: single-quote wrap on escapedName; already validated to safe subset).
+    // (T-cd6-03: path hard-coded to ~/.claude/identities/<name>/.dormant).
+    // Does NOT try to fast-poke the supervisor; next CHECK_INTERVAL tick picks it up.
+    if (msg.type === "wake") {
+      await __applyWakeMessageForTests({
+        sshConn,
+        currentTmuxSession,
+        isIdentityShapedCached,
+        execCommand,
+        wsSend: (data: string) => {
+          try { ws.send(data); } catch { /* ws may be mid-close */ }
+        },
+      });
+      return;
+    }
+
     if (msg.type !== "connectToPane") {
       ws.send(
         JSON.stringify({
@@ -3651,6 +3787,52 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   error: message,
                 });
               });
+          }
+
+          // quick 260808-cd6 — dormancy stat check (two-tier: identity-shape probe
+          // on first tick, dormant sentinel stat on subsequent ticks).
+          // Runs AFTER the plan_pending block, BEFORE the finally.
+          // Uses the SAME connSnapshot + tmuxSession captured above — zero new SSH
+          // connections, zero new timers. The dormantInFlight guard mirrors
+          // contextPctInFlight to prevent slow-SSH pileups.
+          // Only VISIBLE panes are polled — hidden-pane suppression is inherited
+          // from patch #344's WS-pause on !isVisible (the WS is closed, so poll
+          // never fires). No additional gate needed here.
+          if (!dormantInFlight && currentTmuxSession !== null && !stopped && ws.readyState === WebSocket.OPEN) {
+            // Use the escapedName for single-quote shell wrapping. tmuxSession is
+            // already validated to alphanumeric/dash/underscore by the frontend
+            // (same rule as captureCmd at line ~3441 above). Per T-cd6-02: the
+            // single-quote wrap prevents any $(…) or backtick injection.
+            const escapedName = currentTmuxSession;
+            // Build a per-connection state box pointing at the closure-scoped lets.
+            // __applyDormantPollTickForTests mutates this box; we sync back below.
+            const dormantState: __DormantStateForTests = {
+              isIdentityShapedCached,
+              identityShapeProbeInFlight,
+              dormantLastEmitted,
+            };
+            dormantInFlight = true;
+            (async () => {
+              try {
+                await __applyDormantPollTickForTests(
+                  {
+                    connSnapshot,
+                    escapedName,
+                    execCommand,
+                    wsSend: (data: string) => {
+                      try { ws.send(data); } catch { /* ws may be mid-close */ }
+                    },
+                  },
+                  dormantState,
+                );
+                // Sync mutation back to closure-scoped state.
+                isIdentityShapedCached = dormantState.isIdentityShapedCached;
+                identityShapeProbeInFlight = dormantState.identityShapeProbeInFlight;
+                dormantLastEmitted = dormantState.dormantLastEmitted;
+              } finally {
+                dormantInFlight = false;
+              }
+            })();
           }
         } finally {
           contextPctInFlight = false;
