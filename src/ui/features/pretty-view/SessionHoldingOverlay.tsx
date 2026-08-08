@@ -118,6 +118,19 @@ export function SessionHoldingOverlay({
         "flex items-center justify-center",
         "backdrop-blur-md bg-black/40",
         "[-webkit-backdrop-filter:blur(12px)]",
+        // iOS Safari backdrop-filter compositor-churn hardening. Without
+        // these, opening a MediaStream (mic recording) or a similar
+        // compositor state change silently degrades backdrop-filter
+        // rendering on layers currently painting — the darken layer
+        // (bg-black/40) still works but the blur stops, leaving the
+        // scrim looking like a plain translucent shade with fully
+        // legible content beneath. `isolation: isolate` gives the
+        // scrim its own stacking context; `transform: translateZ(0)`
+        // forces its own GPU compositing layer. Together they pin a
+        // stable reference frame for backdrop-filter that survives
+        // sibling compositor churn. Standard iOS Safari fix for the
+        // class of "backdrop-filter randomly stops rendering" bugs.
+        "isolate [transform:translateZ(0)]",
         "pointer-events-auto",
         "animate-in fade-in duration-150",
       )}
