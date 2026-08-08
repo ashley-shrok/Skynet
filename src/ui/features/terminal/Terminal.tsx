@@ -3046,6 +3046,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             hostId={hostConfig.id}
             tmuxSession={tmuxSessionName}
             className="flex-1 min-h-0"
+            isVisible={isVisible}
             isIdle={isIdle}
             onSend={(text) => {
               // Patch #110: collapse the pretty-view submit into a SINGLE

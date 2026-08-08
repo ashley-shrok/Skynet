@@ -136,6 +136,12 @@ export interface PrettyViewProps {
   // isPrettyMode state (e.g. tests, standalone previews) can omit it — the
   // badge then simply doesn't wire pointer handlers (see IdentityBadge).
   onTogglePrettyMode?: () => void;
+  // Quick 260808-b74 (hidden-pane-cost-mitigation-empirical-rotation, iteration 1):
+  // When false, the Claude-session WS is closed to eliminate the ~10-13
+  // WS frames/30s per hidden pane. When flipped back to true, the existing
+  // patch #148 reconnect scheduler reopens the WS. Terminal.tsx is the sole
+  // caller and always has `isVisible` in scope — required, not optional.
+  isVisible: boolean;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -179,6 +185,7 @@ export function PrettyView({
   terminalWs,
   onInjectedTurnReady,
   onTogglePrettyMode,
+  isVisible,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
@@ -503,6 +510,12 @@ export function PrettyView({
   const paneKeyRef = useRef<string>('');
   const [retryKey, setRetryKey] = useState<number>(0);
   const statusRef = useRef<Status>('connecting');
+  // Quick 260808-b74: isVisibleRef mirrors the `isVisible` prop so the onclose
+  // retry scheduler and visibilitychange handler can read current visibility
+  // without adding isVisible to the main WS-setup effect deps (which would
+  // tear down and rebuild the WS on every visibility flip — we want the dedicated
+  // WS-pause effect to own that cleanly). Pattern mirrors statusRef above.
+  const isVisibleRef = useRef<boolean>(isVisible);
   // Phase 14 Wave 3: previous-value ref for the isIdle-transition
   // arm-emitter useEffect below. Holds the isIdle value from the
   // previous render so we can detect a real false→true transition
@@ -898,8 +911,14 @@ export function PrettyView({
         setErrorMessage((prev) => prev ?? "Connection closed");
         return;
       }
+      // Quick 260808-b74: if pane is hidden, the WS close was deliberate (from the
+      // WS-pause effect below). Do NOT schedule a reconnect — patch #148's retry
+      // loop must not fight the pause. status='error' + errorMessage are set
+      // unconditionally because patch #339's render gates rely on status='error'
+      // to keep bubbles visible during the pause (exact same UX as a real reconnect).
       setStatus("error");
       setErrorMessage((prev) => prev ?? "Connection closed");
+      if (!isVisibleRef.current) return;
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(2000 * (reconnectAttemptsRef.current + 1), 8000);
         reconnectAttemptsRef.current += 1;
@@ -964,6 +983,12 @@ export function PrettyView({
       }
       // Tab visible: reconnect if needed.
       if (statusRef.current === 'inactive') return;
+      // Quick 260808-b74: if the pane itself is hidden (isVisible=false), a PWA
+      // foreground event must NOT reopen the WS behind the WS-pause effect's back.
+      // The WS-pause effect owns the reopen path — it fires when isVisible flips
+      // true. This guard prevents the iOS visibilitychange foreground event from
+      // fighting the pause (single-knob isVisibleRef gate per bounty design).
+      if (!isVisibleRef.current) return;
       if (wsRef.current?.readyState === 1) return; // still OPEN
       // Fresh budget for this foreground event (Ashley iOS PWA fix).
       reconnectAttemptsRef.current = 0;
@@ -981,6 +1006,84 @@ export function PrettyView({
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  // Quick 260808-b74: isVisibleRef mirror — keeps isVisibleRef.current in sync
+  // with the `isVisible` prop so onclose retry scheduler and visibilitychange
+  // handler can read current pane visibility without React closure-capture issues.
+  // Pattern mirrors statusRef mirror above.
+  useEffect(() => {
+    isVisibleRef.current = isVisible;
+  }, [isVisible]);
+
+  // Quick 260808-b74 — WS-pause lifecycle effect (hidden-pane-cost-mitigation-
+  // empirical-rotation, iteration 1).
+  //
+  // PURPOSE: close the Claude-session WS when this pane is hidden (isVisible=false)
+  // and reopen it when the pane becomes visible again (isVisible=false→true).
+  // Baseline: 3 hidden PrettyViews contribute 10+13+10 = 33 Claude WS frames/30s
+  // combined. After this change, hidden panes emit ~0 frames.
+  //
+  // TEMPLATE: patch #339 (commit 50e96d6). The close+reopen UX is identical to
+  // the reconnect fix — status='error' keeps bubbles visible via the existing
+  // scroll-region and ComposeBox mount gates (nothing to duplicate here).
+  //
+  // GUARDS:
+  //   - isVisibleRef gate on onclose retry scheduler: prevents patch #148's
+  //     auto-reconnect loop from immediately reopening the WS behind our back
+  //     while the pane is still hidden (single-knob isVisibleRef per bounty
+  //     design — no pausedByHiddenRef needed).
+  //   - isVisibleRef gate on visibilitychange handler: iOS PWA foreground events
+  //     must not reopen a WS for a currently-hidden pane. The WS-pause effect
+  //     below owns the reopen path exclusively.
+  //
+  // STATE PRESERVATION: messages/contextPct/harnessTasks/backgroundedAgents/
+  // backgroundedShells/planPending/asideText/isHolding are NOT touched — they
+  // survive the close and are immediately visible on re-show. appendDedup
+  // absorbs any tail-replay dupes from the fresh tail on reopen (same as reconnect).
+  //
+  // INITIAL-MOUNT NO-OP: on the first effect run isVisible is already true
+  // (Terminal.tsx only mounts PrettyView inside `isPrettyMode && ...`). The
+  // main WS-setup effect (deps [hostId, tmuxSession, retryKey]) is already
+  // opening the WS on mount — do not double-trigger.
+  useEffect(() => {
+    if (!isVisible) {
+      // Pane became hidden — close the WS if it is open or connecting.
+      const ws = wsRef.current;
+      if (ws !== null && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        // Clear any in-flight reconnect timer first so it doesn't fire while
+        // hidden and immediately reopen (the isVisibleRef guard on onclose's
+        // retry scheduler is the belt; this clearTimeout is the suspenders).
+        if (reconnectTimeoutRef.current !== null) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        ws.close();
+        // onclose fires → setStatus('error') + setErrorMessage('Connection closed')
+        // (unconditional path in onclose) → patch #339 render gates keep bubbles
+        // visible and Send disabled, exactly as during a real reconnect pause.
+        // isVisibleRef.current will be false (mirror effect ran synchronously
+        // before this effect on the same render) → retry scheduler short-circuits.
+      }
+    } else {
+      // Pane became visible — reopen the WS if it is gone or closing.
+      const ws = wsRef.current;
+      if (ws === null || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+        // Fresh budget for this re-show (mirrors visibilitychange handler at ~970).
+        reconnectAttemptsRef.current = 0;
+        setRetryKey((k) => k + 1);
+        // The WS-setup effect (deps [hostId, tmuxSession, retryKey]) fires and
+        // opens a fresh WS via the existing patch #148 reconnect path. No new
+        // connect path invented; same machinery as auto-reconnect.
+      }
+      // If WS is already OPEN or CONNECTING (e.g. initial mount with isVisible=true),
+      // no-op — don't interfere with the WS-setup effect.
+    }
+  }, [isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+  // deps: [isVisible] only. Reads only refs (wsRef, reconnectTimeoutRef,
+  // reconnectAttemptsRef) and calls setRetryKey — all stable across renders.
+  // Adding wsRef/setRetryKey would be superfluous (refs are stable; setRetryKey
+  // is setState-stable). Do NOT add hostId/tmuxSession/retryKey — that would
+  // conflate this effect with the main WS-setup effect.
 
   // Bounty pretty-view-per-pane-cost-diag: mirror messages.length + register
   // with the diag registry so the interval emitter can query this pane's

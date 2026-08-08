@@ -134,7 +134,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
 
   it("Test 1: aside_ready WS frame renders AsideBubble at bottom of message stream", async () => {
     const { container } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
     );
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -159,7 +159,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
 
   it("Test 2: aside_dismissed WS frame clears the AsideBubble", async () => {
     const { container } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
     );
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -194,6 +194,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="s1"
         onSend={() => true}
         isIdle={false}
+        isVisible={true}
       />,
     );
     const ws = getCurrentWs();
@@ -208,6 +209,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="s1"
         onSend={() => true}
         isIdle={true}
+        isVisible={true}
       />,
     );
 
@@ -233,6 +235,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="anon"
         onSend={() => true}
         isIdle={false}
+        isVisible={true}
       />,
     );
     const ws = getCurrentWs();
@@ -245,6 +248,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="anon"
         onSend={() => true}
         isIdle={true}
+        isVisible={true}
       />,
     );
 
@@ -263,7 +267,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
 
   it("Test 5: fresh-pane mount (hostId/tmuxSession change) resets asideText to null", async () => {
     const { container, rerender } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
     );
     const ws1 = getCurrentWs();
     flipToStreaming(ws1);
@@ -274,7 +278,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
     });
 
     // Switch to a fresh pane — the reset block should clear asideText.
-    rerender(<PrettyView hostId={2} tmuxSession="s2" onSend={() => true} />);
+    rerender(<PrettyView hostId={2} tmuxSession="s2" onSend={() => true} isVisible={true} />);
     // A fresh WS stub is created for the new pane by the WS-setup effect.
     // The aside from the prior pane must be cleared even before the new
     // WS emits its first frame.
@@ -289,7 +293,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
     // stale aside UI lingers attached to a fresh session until the next
     // aside_ready arrives (or forever if none does).
     const { container } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
     );
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -322,6 +326,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="s1"
         onSend={() => true}
         isIdle={false}
+        isVisible={true}
       />,
     );
     const ws = getCurrentWs();
@@ -344,6 +349,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="s1"
         onSend={() => true}
         isIdle={true}
+        isVisible={true}
       />,
     );
 
@@ -371,6 +377,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="s1"
         onSend={() => true}
         isIdle={false}
+        isVisible={true}
       />,
     );
     const ws = getCurrentWs();
@@ -405,6 +412,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="s1"
         onSend={() => true}
         isIdle={true}
+        isVisible={true}
       />,
     );
 
@@ -438,6 +446,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="s1"
         onSend={() => true}
         isIdle={false}
+        isVisible={true}
       />,
     );
     const ws = getCurrentWs();
@@ -462,6 +471,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
         tmuxSession="s1"
         onSend={() => true}
         isIdle={true}
+        isVisible={true}
       />,
     );
 

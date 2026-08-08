@@ -174,7 +174,7 @@ function restoreIosPwa(): void {
 function mountPV() {
   const onSend = vi.fn(() => true);
   const utils = render(
-    <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} />,
+    <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
   );
   return { ...utils, onSend };
 }
@@ -598,6 +598,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
         tmuxSession="s1"
         onSend={() => true}
         isIdle={false}
+        isVisible={true}
       />,
     );
     const ws = getCurrentWs();
@@ -606,7 +607,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
 
     // First false→true transition (completed turn #1).
     rerender(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={true} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={true} isVisible={true} />,
     );
     await waitFor(() => {
       expect(findSentFrame(ws, "aside_arm", beforeFirst)).toBeTruthy();
@@ -615,10 +616,10 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
 
     // Reset isIdle to false, then back to true — should fire a SECOND arm.
     rerender(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={false} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={false} isVisible={true} />,
     );
     rerender(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={true} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isIdle={true} isVisible={true} />,
     );
     await waitFor(() => {
       expect(findSentFrame(ws, "aside_arm", beforeSecond)).toBeTruthy();
@@ -639,6 +640,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
         tmuxSession="anon"
         onSend={() => true}
         isIdle={false}
+        isVisible={true}
       />,
     );
     const ws2 = getCurrentWs();
@@ -646,7 +648,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     const beforeAnon = ws2.send.mock.calls.length;
 
     rerender2(
-      <PrettyView hostId={2} tmuxSession="anon" onSend={() => true} isIdle={true} />,
+      <PrettyView hostId={2} tmuxSession="anon" onSend={() => true} isIdle={true} isVisible={true} />,
     );
     // Give the effect a chance to run.
     await new Promise((r) => setTimeout(r, 40));
@@ -661,7 +663,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     } as ReturnType<typeof useSessionIdentity>);
 
     const { container, queryByRole, getByRole } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
     );
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -716,7 +718,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     } as ReturnType<typeof useSessionIdentity>);
 
     const { container, queryByRole, getByRole } = render(
-      <PrettyView hostId={42} tmuxSession="tina@main" onSend={() => true} />,
+      <PrettyView hostId={42} tmuxSession="tina@main" onSend={() => true} isVisible={true} />,
     );
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -763,7 +765,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     } as ReturnType<typeof useSessionIdentity>);
 
     const { container, queryByRole } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
     );
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -813,7 +815,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     } as ReturnType<typeof useSessionIdentity>);
 
     const { container, rerender } = render(
-      <PrettyView hostId={1} tmuxSession="pane-A" onSend={() => true} />,
+      <PrettyView hostId={1} tmuxSession="pane-A" onSend={() => true} isVisible={true} />,
     );
     const wsA = getCurrentWs();
     flipToStreaming(wsA);
@@ -831,7 +833,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
 
     // Switch to a fresh pane.
     rerender(
-      <PrettyView hostId={2} tmuxSession="pane-B" onSend={() => true} />,
+      <PrettyView hostId={2} tmuxSession="pane-B" onSend={() => true} isVisible={true} />,
     );
 
     // Fresh-pane reset should have cleared asideText BEFORE the new pane's WS
@@ -906,7 +908,7 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
 
   it("Test F1: session_holding_cleared while isHolding=true clears the overlay (showOverlay false, role=status absent)", () => {
     const { container } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
     armHolding(ws);
@@ -924,7 +926,7 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
 
   it("Test F2: messages populated BEFORE session_holding_cleared are preserved verbatim after (no heavy-reset)", () => {
     const { container } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
     // Transition to streaming:
@@ -963,7 +965,7 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
 
   it("Test F3: contextPct set BEFORE session_holding_cleared is preserved after (no heavy-reset)", () => {
     const { container } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} />,
+      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
     act(() => {
