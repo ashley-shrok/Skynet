@@ -228,6 +228,29 @@ describe("discoverClaudeSession — PID-file-based lookup", () => {
     });
   });
 
+  // Test 7b: slug escapes `~` in addition to `/` and `.` — Claude Code's own
+  // project-dir naming escapes tilde too, so any cwd containing a tilde
+  // (e.g. a malformed birth cwd like `/home/ubuntu/~home-design`) diverges
+  // if we don't. Regression test for Stacy's 2026-08-08 T800 finding.
+  it("CASE 7b: cwd containing ~ — slug escapes tilde to match Claude Code's project-dir naming", async () => {
+    vi.mocked(queryPanePid).mockResolvedValue(500);
+    const cwd = "/home/ubuntu/~home-design";
+    const home = "/home/ubuntu";
+    const sessionId = "abc-def";
+    // slug: replace every /, ., AND ~ with - → "-home-ubuntu--home-design"
+    const expectedSessionFile = `${home}/.claude/projects/-home-ubuntu--home-design/${sessionId}.jsonl`;
+    const pidFileStr = makePidFileOutput(sessionId, cwd, home);
+    mockExecCommand("500", pidFileStr, expectedSessionFile);
+
+    const result = await discoverClaudeSession(fakeConn, "test-session");
+
+    expect(result).toEqual({
+      status: "active",
+      pid: 500,
+      sessionFile: expectedSessionFile,
+    });
+  });
+
   // Test 8 (Test H): PID-file missing — script exits early, no delimiter in output
   // → no_pid_session_file
   it("CASE 8: PID-file missing (no delimiter in output) — returns inactive/no_pid_session_file", async () => {

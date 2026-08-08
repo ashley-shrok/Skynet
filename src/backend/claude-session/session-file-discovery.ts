@@ -218,8 +218,10 @@ export async function discoverClaudeSession(
     return { status: "inactive", reason: "no_pid_session_file" };
   }
 
-  // Slugify cwd: replace every `/` and `.` with `-` (matches `sed 's|[./]|-|g'`)
-  const slug = cwd.replace(/[./]/g, "-");
+  // Slugify cwd: replace every `/`, `.`, and `~` with `-`.
+  // Matches Claude Code's own project-dir naming — it escapes `~` too, so any
+  // cwd containing a tilde diverges here if we don't (Stacy 2026-08-08 on T800).
+  const slug = cwd.replace(/[./~]/g, "-");
   const constructedPath = `${homePart}/.claude/projects/${slug}/${sessionId}.jsonl`;
 
   // Verify the JSONL file exists on disk (second SSH round trip — test -f)
