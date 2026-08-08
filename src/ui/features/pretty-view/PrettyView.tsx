@@ -1321,7 +1321,7 @@ export function PrettyView({
       )}
 
       {(status === "streaming" ||
-        (status === "connecting" && messages.length > 0)) && (
+        ((status === "connecting" || status === "error") && messages.length > 0)) && (
         <div
           ref={scrollRef}
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-3"
@@ -1474,7 +1474,7 @@ export function PrettyView({
           wrapper (below it in flex-col), so it's outside the IdentityModal's
           coverage area. */}
 
-      {onSend && status === "streaming" && (
+      {onSend && (status === "streaming" || status === "error") && (
         <ComposeBox
           onSend={handleComposeSend}
           onResetClicked={onResetClicked}
@@ -1500,6 +1500,14 @@ export function PrettyView({
           // three disable modes (asideActive morphs; recycle + plan
           // keep Send as Send).
           planPendingActive={planPending !== null}
+          // Pretty-view WS reconnect window (patch #148 auto-retry between
+          // an old socket's onclose and a fresh session frame). During that
+          // ~2s window onSend would no-op silently because ws.readyState
+          // !== 1; disabling Send + reset + ThumbsUp + Recap + Queue makes
+          // the "you can't send right now" state visible instead of a dead
+          // tap. Textarea, mic, attach stay live. Independent from
+          // recycleActive/planPendingActive per the same CONTEXT rule.
+          reconnectingActive={status === "error"}
           contextPct={contextPct}
           isIdle={isIdle}
           hostId={hostId}

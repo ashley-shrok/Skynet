@@ -992,3 +992,71 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
     expect(ctxBar).toBeTruthy();
   });
 });
+
+// ── Reconnect-window preserves bubbles + disables Send/reset ─────────────
+// Bounty pretty-view-reconnect-preserve-bubbles-and-disable-send (2026-08-08).
+// The pretty-view WS retry window used to unmount the scroll region AND
+// the ComposeBox because the status="error" render gates excluded that
+// state. The bubbles Ashley was reading blinked out for ~2s and Send taps
+// went to a torn-down ComposeBox. Fix:
+//   1) Scroll region renders during status="error" when messages.length>0.
+//   2) ComposeBox renders during status="error"; PrettyView wires
+//      reconnectingActive={status==="error"} so Send + aux disable while
+//      textarea/mic/attach stay live for pre-drafting the next message.
+describe("PrettyView — reconnect window preserves bubbles and disables Send", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("bubbles from streaming state remain visible after ws.onclose flips status to error, and Send is disabled", () => {
+    const { container } = mountPV();
+    const ws = getCurrentWs();
+
+    // Streaming state + one user message bubble.
+    flipToStreaming(ws);
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'message',
+            eventId: 'evt-1',
+            role: 'user',
+            content: 'hello from before the reconnect',
+            ts: 1234567890,
+          }),
+        }),
+      );
+    });
+
+    // Bubble present in streaming state.
+    expect(container.textContent).toContain('hello from before the reconnect');
+    // ComposeBox mounted, Send enabled (canSend=true, no reconnectingActive).
+    const sendBefore = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
+    expect(sendBefore).toBeTruthy();
+
+    // Fire close → status flips to "error" and the retry timer schedules.
+    fireClose(ws);
+
+    // Bubble MUST still be in the DOM (this is the render-gate fix — pre-fix
+    // the scroll region would unmount because "error" was excluded).
+    expect(container.textContent).toContain('hello from before the reconnect');
+
+    // ComposeBox still mounted (also part of the render-gate change).
+    const sendAfter = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
+    expect(sendAfter).toBeTruthy();
+    // Send now disabled — reconnectingActive={status==="error"} + canSend=false.
+    expect(sendAfter.disabled).toBe(true);
+  });
+});

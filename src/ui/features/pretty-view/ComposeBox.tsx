@@ -295,6 +295,17 @@ export interface ComposeBoxProps {
   // Value from PrettyView: `planPending !== null` — flipped by the WS
   // `plan_pending` frame handler.
   planPendingActive?: boolean;
+  // Pretty-view WS reconnect window (patch #148 auto-retry between an old
+  // socket's onclose and a fresh session frame). During that ~2s window the
+  // WS is not open so onSend would no-op silently; disable Send + reset +
+  // ThumbsUp + Recap + Queue exactly like recycleActive/planPendingActive.
+  // Textarea, mic, and attach stay usable (mic records locally; attach
+  // stores locally until Send). Independent prop rather than OR'd into
+  // recycleActive so future readers of either prop keep their documented
+  // semantics.
+  //
+  // Value from PrettyView: `status === "error"`.
+  reconnectingActive?: boolean;
   className?: string;
 }
 
@@ -324,6 +335,7 @@ export function ComposeBox({
   onAsideDismiss,
   recycleActive,
   planPendingActive,
+  reconnectingActive,
   className,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
@@ -1185,7 +1197,8 @@ export function ComposeBox({
         scheduleAutosave(result.glued, latestQueueSlotsRef.current);
         // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — Ashley sends manually once the overlay clears.
         // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
-        if (!recycleActive && !planPendingActive) {
+        // Reconnect window: same treatment — text lands, no auto-send while WS is between sockets.
+        if (!recycleActive && !planPendingActive && !reconnectingActive) {
           // D-16-05: route through the SAME handleSend — attachment branching,
           // D-50 newline collapse, COMPOSE-04 hard-lock all still apply.
           handleSend(result.glued);
@@ -1198,7 +1211,8 @@ export function ComposeBox({
         // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle,
         // text lands in slot, no dispatch, slot not removed — Ashley sends manually once overlay clears.
         // Phase 24: same treatment during plan-mode pending — text lands in slot, no dispatch.
-        if (!recycleActive && !planPendingActive) {
+        // Reconnect window: same treatment — text lands in slot, no dispatch while WS is between sockets.
+        if (!recycleActive && !planPendingActive && !reconnectingActive) {
           // handleQueueSlotSend reads from queueSlots state, but due to async
           // batching we pass the glued text directly via onSend to avoid stale reads.
           const payload = collapseNewlinesForSend(result.glued.trim());
@@ -1392,7 +1406,8 @@ export function ComposeBox({
     // path too so a bare Enter can't slip past the disabled button.
     // Phase 24: same treatment during plan-mode pending — textarea stays
     // typeable but Enter-send is swallowed.
-    if (recycleActive || planPendingActive) return;
+    // Reconnect window: same treatment — Enter can't slip past disabled Send.
+    if (recycleActive || planPendingActive || reconnectingActive) return;
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
@@ -1464,7 +1479,8 @@ export function ComposeBox({
     !primaryArmed &&
     text.trim() !== "" &&
     !recycleActive &&
-    !planPendingActive;
+    !planPendingActive &&
+    !reconnectingActive;
   const showRecordingControls = isPrimaryRecording;
   const showTranscribingSend = isPrimaryTranscribing;
   // Quick 260802-uow bounty 3: when 3 buttons render on the primary
@@ -1498,6 +1514,7 @@ export function ComposeBox({
     primaryArmed ||
     recycleActive === true ||
     planPendingActive === true ||
+    reconnectingActive === true ||
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
 
@@ -1634,7 +1651,7 @@ export function ComposeBox({
           <button
             type="button"
             onClick={handleResetClick}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || voice.state === "transcribing"}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || voice.state === "transcribing"}
             aria-label="Reset context window"
             title="Reset context window"
             className={cn(
@@ -1855,7 +1872,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="secondary"
             onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
             aria-label="Send 'let's go'"
             title="Send 'let's go'"
             className={cn(
@@ -1884,7 +1901,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="secondary"
             onClick={() => handleQuickSend("/explain the current situation")}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
             aria-label="Recap the current situation"
             title="Recap"
             className={cn(
@@ -1928,6 +1945,7 @@ export function ComposeBox({
               asideActive={asideActive}
               recycleActive={recycleActive}
               planPendingActive={planPendingActive}
+              reconnectingActive={reconnectingActive}
               canSend={canSend}
               queueSlots={queueSlots}
               onSlotsChange={(next) => {
@@ -2371,6 +2389,9 @@ interface QueuedRowProps {
   // Matches recycleActive verbatim — the queued-row aux buttons that already
   // read `recycleActive === true` also OR-in `planPendingActive === true`.
   planPendingActive?: boolean;
+  // Reconnect window: same OR-in treatment — queued-row Send is disabled
+  // while the pretty-view WS is between sockets.
+  reconnectingActive?: boolean;
   canSend?: boolean;
   queueSlots: Array<{ id: string; text: string }>;
   onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
@@ -2403,6 +2424,7 @@ function QueuedRow(props: QueuedRowProps) {
     asideActive,
     recycleActive,
     planPendingActive,
+    reconnectingActive,
     canSend,
     queueSlots,
     onSlotsChange,
@@ -2467,7 +2489,8 @@ function QueuedRow(props: QueuedRowProps) {
     !asideActive &&
     !slotArmed &&
     slotHasText &&
-    !planPendingActive;
+    !planPendingActive &&
+    !reconnectingActive;
   const showSlotRecording = isSlotRecording;
   const showSlotTranscribingSend = isSlotTranscribing;
   const showSlotSend = !showSlotRecording;
@@ -2660,7 +2683,8 @@ function QueuedRow(props: QueuedRowProps) {
                   slot.text.trim() === "" ||
                   slotArmed ||
                   recycleActive === true ||
-                  planPendingActive === true
+                  planPendingActive === true ||
+                  reconnectingActive === true
                 }
                 aria-label="Send queued message"
                 title="Send queued message"
