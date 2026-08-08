@@ -44,6 +44,29 @@ function userTurnLine(content: string): string {
   });
 }
 
+// Tool-result "user" turn: Claude Code writes tool_result feedback with
+// role:"user" but content as an ARRAY containing tool_result objects.
+// These are agent-side synthetic and MUST NOT count as user typing for
+// Layer 1's supersede logic (bug found 2026-08-08: agent-invoked tools
+// during /id reset processing cleared the overlay ~1s after arm).
+function toolResultUserTurnLine(toolUseId: string, content: string): string {
+  return JSON.stringify({
+    type: "user",
+    uuid: "u-tr-1",
+    timestamp: "2026-08-08T00:00:00.000Z",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: toolUseId,
+          content,
+        },
+      ],
+    },
+  });
+}
+
 function assistantTurnLine(content: string): string {
   return JSON.stringify({
     type: "assistant",
@@ -118,6 +141,28 @@ describe("isUserTurn", () => {
 
   it("returns false for garbage (non-JSON) input", () => {
     expect(isUserTurn("garbage garbage garbage")).toBe(false);
+  });
+
+  it("returns false for a tool_result user turn (agent-side synthetic — must not count as user typing)", () => {
+    // Regression for 2026-08-08 bug: during /id reset processing the agent
+    // invokes save-flow tools, each tool_result appears as a user turn, and
+    // if counted as user typing it prematurely clears the SessionHoldingOverlay.
+    expect(isUserTurn(toolResultUserTurnLine("toolu_abc123", "file contents..."))).toBe(false);
+  });
+
+  it("returns false for a tool_result user turn even when the result payload contains user-typing-like content", () => {
+    // Defensive: a tool_result whose content string happens to look like
+    // a slash-command (e.g. a Read tool result that echoed a JSONL line
+    // from another session) must still NOT count as user typing — the
+    // exclusion is on the OUTER shape, not the payload.
+    expect(
+      isUserTurn(
+        toolResultUserTurnLine(
+          "toolu_xyz",
+          "<command-name>/id</command-name>\n<command-args>reset</command-args>",
+        ),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -261,6 +306,64 @@ describe("applyLineToLayer1State — clear_holding", () => {
       "active",
     );
     expect(action).toBe("none");
+    expect(state.mostRecentUserTurnIsIdReset).toBe(false);
+  });
+});
+
+describe("applyLineToLayer1State — tool_result during holding must not clear (2026-08-08 regression)", () => {
+  it("state {isIdReset:true} + tool_result user turn + holding → none, state unchanged", () => {
+    // The bug: during /id reset processing the agent's save flow invokes
+    // many tools; each tool_result appears as a `type:"user"` turn with
+    // array content. Prior to the isUserTurn fix, this reducer treated
+    // tool_results as user typing and cleared the overlay ~1s after arm.
+    // After the fix, isUserTurn returns false for tool_result user turns
+    // → the reducer treats them as non-user, state stays untouched, and
+    // the overlay remains armed until session_changed (Layer 2) fires.
+    const state: Layer1State = { mostRecentUserTurnIsIdReset: true };
+    const action = applyLineToLayer1State(
+      toolResultUserTurnLine("toolu_savedoc_1", "wrote 42 lines to handoff.md"),
+      state,
+      "holding",
+    );
+    expect(action).toBe("none");
+    expect(state.mostRecentUserTurnIsIdReset).toBe(true);
+  });
+
+  it("state {isIdReset:true} + several tool_results in sequence + holding → none each time, state stays true", () => {
+    // Sequence proxy for a realistic /id reset save flow: Read handoff,
+    // Write handoff, jq bounties, git commit, etc. Every tool_result
+    // must be inert to the reducer.
+    const state: Layer1State = { mostRecentUserTurnIsIdReset: true };
+    for (const toolUseId of ["read_1", "write_1", "bash_1", "bash_2", "edit_1"]) {
+      const action = applyLineToLayer1State(
+        toolResultUserTurnLine(toolUseId, "tool output..."),
+        state,
+        "holding",
+      );
+      expect(action).toBe("none");
+    }
+    expect(state.mostRecentUserTurnIsIdReset).toBe(true);
+  });
+
+  it("state {isIdReset:true} + tool_result + REAL follow-up user typing + holding → clear only on the real typing", () => {
+    // Full-realism: after tool_results, if Ashley DOES type a new
+    // non-reset message (rare during a reset but valid), that real turn
+    // should still supersede correctly.
+    const state: Layer1State = { mostRecentUserTurnIsIdReset: true };
+    expect(
+      applyLineToLayer1State(
+        toolResultUserTurnLine("toolu_1", "output"),
+        state,
+        "holding",
+      ),
+    ).toBe("none");
+    expect(state.mostRecentUserTurnIsIdReset).toBe(true);
+    const clearAction = applyLineToLayer1State(
+      userTurnLine("actually never mind, keep going"),
+      state,
+      "holding",
+    );
+    expect(clearAction).toBe("clear_holding");
     expect(state.mostRecentUserTurnIsIdReset).toBe(false);
   });
 });

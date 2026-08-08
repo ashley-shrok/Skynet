@@ -59,12 +59,31 @@
 // with the same stringify shape.)
 
 /**
- * Cheapest raw-string check that the JSONL line represents a Claude Code
- * user-role turn. Does NOT JSON.parse — the caller may still parse later
- * for other purposes.
+ * Cheapest raw-string check that the JSONL line represents a REAL Claude
+ * Code user-role turn — i.e. something the human actually typed, NOT a
+ * synthetic user turn manufactured by the harness.
+ *
+ * Claude Code stores several categories of turn with `"type":"user"`:
+ *   - Real user messages (what the human typed) — content is a STRING
+ *   - Tool results fed back to the model — content is an ARRAY containing
+ *     `{"type":"tool_result", ...}` objects
+ *
+ * For Layer 1's purpose (detecting when the human types a NEW message
+ * that supersedes an earlier /id reset), only real user messages count.
+ * Tool results are agent-side synthetic and MUST NOT supersede — during
+ * /id reset processing the save flow invokes many tools, and each
+ * tool_result would otherwise clear the overlay ~1s after Ashley typed
+ * /id reset (empirically observed 2026-08-08, follow-up to patch #350).
+ *
+ * Detection: `"tool_result"` never appears in a real user-message content
+ * string (it would have to be typed literally). Exclude any user turn
+ * whose line contains the substring.
  */
 export function isUserTurn(line: string): boolean {
-  return line.includes('"type":"user"');
+  if (!line.includes('"type":"user"')) return false;
+  // Exclude tool_result feedback (agent-side synthetic user turns):
+  if (line.includes('"tool_result"')) return false;
+  return true;
 }
 
 /**

@@ -298,15 +298,18 @@ describe("Layer 1 seam — Case 5: while holding, only USER turns can clear", ()
     expect(state.layer1.mostRecentUserTurnIsIdReset).toBe(true);
   });
 
-  it("tool_result USER turn (type:user with tool_result content) DOES count as a user turn — that is Claude Code's byte-shape", () => {
-    // Byte-shape reality check: tool_result blocks come wrapped in a
-    // "type":"user" turn (Claude Code's convention). Layer 1 treats
-    // ANY "type":"user" line as a user turn. That's correct: a
-    // tool_result IS the model's next input, and if it lands while
-    // holding, the tail-state "most recent user turn is not /id reset"
-    // invariant holds → clear fires. This is desirable behavior
-    // (recovered-session-with-different-cwd delivers a tool_result as
-    // the first turn of the new session).
+  it("tool_result USER turn (type:user with tool_result content) does NOT count as a user turn — it is an agent-side synthetic (2026-08-08 fix)", () => {
+    // Follow-up to the initial /id reset detector ship (patch #350): Ashley
+    // reported that typing /id reset armed the overlay for ~1s then it went
+    // away, even though the recycle was still in progress. Root cause: Claude
+    // Code stores tool_result feedback with `type:"user"` and content as an
+    // ARRAY containing `{"type":"tool_result",...}` objects. During /id reset
+    // processing the save flow invokes many tools; each tool_result appeared
+    // as a "new user turn that isn't /id reset" and the reducer prematurely
+    // supersede-cleared the overlay. Fix: `isUserTurn` now excludes any line
+    // containing `"tool_result"` (only REAL user typing — string content —
+    // counts). Reducer therefore treats tool_result lines like assistant /
+    // tool_use / thinking lines: no state change, no action fires.
     const state = makeState({
       changeoverState: "holding",
       mostRecentUserTurnIsIdReset: true,
@@ -316,9 +319,9 @@ describe("Layer 1 seam — Case 5: while holding, only USER turns can clear", ()
     __applyLayer1LineForTests(toolResultUserLine(), state, stubs);
 
     expect(transitionToHolding).not.toHaveBeenCalled();
-    expect(transitionFromHoldingToActiveSameFile).toHaveBeenCalledOnce();
-    expect(state.changeoverState).toBe("active");
-    expect(state.layer1.mostRecentUserTurnIsIdReset).toBe(false);
+    expect(transitionFromHoldingToActiveSameFile).not.toHaveBeenCalled();
+    expect(state.changeoverState).toBe("holding");
+    expect(state.layer1.mostRecentUserTurnIsIdReset).toBe(true);
   });
 });
 
