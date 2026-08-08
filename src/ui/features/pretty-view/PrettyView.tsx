@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isIosPwa } from "@/lib/is-ios-pwa";
+import { registerPane, type PaneSnapshot } from "@/lib/diag-registry";
 import { Button } from "@/components/button";
 import {
   openClaudeSessionSocket,
@@ -480,6 +481,13 @@ export function PrettyView({
   const isWorking = useSessionIsWorking(sessionWorkingKey);
 
   const wsRef = useRef<WebSocket | null>(null);
+  // Bounty pretty-view-per-pane-cost-diag: rolling counter of WS frames
+  // received since the last diag emit. Snapshot fn reads + resets. Also
+  // a ref-mirror of messages.length so the snapshot doesn't need to
+  // touch React state (which would need a re-render dance to stay fresh).
+  const wsFramesRef = useRef<number>(0);
+  const messagesLenRef = useRef<number>(0);
+  const pvRootRef = useRef<HTMLDivElement | null>(null);
   // Patch #148 reconnect state — mirrors Terminal.tsx's pattern.
   // reconnectAttemptsRef: persists across retryKey re-runs; resets on hostId/tmuxSession change
   //   and on visibilitychange:visible. NOT reset on ws.onopen (defeats the cap on rapid cycles).
@@ -636,6 +644,9 @@ export function PrettyView({
 
     ws.onmessage = (event: MessageEvent<string>) => {
       if (cancelled) return;
+      // Bounty pretty-view-per-pane-cost-diag: count every landed frame
+      // regardless of parse outcome — reflects raw WS message rate.
+      wsFramesRef.current += 1;
       let parsed: ClaudeSessionServerEvent;
       try {
         parsed = JSON.parse(event.data) as ClaudeSessionServerEvent;
@@ -971,6 +982,35 @@ export function PrettyView({
     statusRef.current = status;
   }, [status]);
 
+  // Bounty pretty-view-per-pane-cost-diag: mirror messages.length + register
+  // with the diag registry so the interval emitter can query this pane's
+  // cost snapshot. Registration is keyed on hostId+tmuxSession so the same
+  // pane across re-mounts reuses the slot; unregister runs on unmount /
+  // hostId or tmuxSession change.
+  useEffect(() => {
+    messagesLenRef.current = messages.length;
+  }, [messages]);
+  useEffect(() => {
+    const key = `pretty-view:${hostId}:${tmuxSession ?? ""}`;
+    const snapshotFn = (): PaneSnapshot => {
+      const framesSinceLast = wsFramesRef.current;
+      wsFramesRef.current = 0;
+      return {
+        kind: "pretty-view",
+        paneId: key,
+        hostId,
+        tmuxSession,
+        isVisible: null,
+        messageCount: messagesLenRef.current,
+        wsFramesSinceLast: framesSinceLast,
+        domNodeCount: pvRootRef.current
+          ? pvRootRef.current.querySelectorAll("*").length
+          : 0,
+      };
+    };
+    return registerPane(key, snapshotFn);
+  }, [hostId, tmuxSession]);
+
   // Patch #74: delay-armed gate for the SessionHoldingOverlay. When
   // `isHolding` becomes true, arm a ~350ms timer; only after it fires
   // does `showOverlay` flip true (and the overlay mounts). When
@@ -1144,6 +1184,7 @@ export function PrettyView({
 
   return (
     <div
+      ref={pvRootRef}
       data-pv-root
       onDragEnter={(e) => {
         // Phase 05 (UPLOAD-01): show the drop overlay while any drag

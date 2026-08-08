@@ -16,11 +16,18 @@ import { useServiceWorker } from "@/hooks/use-service-worker";
 import { useTranslation } from "react-i18next";
 import { snapshotPendingTab } from "@/lib/tab-url";
 import { initConsoleForwarder } from "@/lib/console-forwarder";
+import { startDiagEmitter } from "@/lib/diag-emitter";
 
 // Patch #146: install console-forwarder before anything else so all
 // subsequent console.log/warn/error calls are intercepted and batched
 // to /debug/console-log for server-side grep via docker exec.
 initConsoleForwarder();
+
+// Bounty pretty-view-per-pane-cost-diag: kick off the per-pane cost
+// diag emitter. Rides the console-forwarder above — every 30s it walks
+// the diag registry and console.logs one [DIAG-REPORT] envelope.
+// Removable in ~5 min when the mitigation shape is chosen.
+startDiagEmitter();
 
 // Preserve ?tab=<spec> across the auth flow. Auth.tsx / LoginPage.tsx call
 // replaceState in several branches that would otherwise strip the query

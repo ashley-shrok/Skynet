@@ -52,6 +52,7 @@ import { useTheme } from "@/components/theme-provider.tsx";
 import { useCommandTracker } from "@/features/terminal/command-history/useCommandTracker.ts";
 import { highlightTerminalOutput } from "@/lib/terminal-syntax-highlighter.ts";
 import { useCommandHistory } from "@/features/terminal/command-history/CommandHistoryContext.tsx";
+import { registerPane, type PaneSnapshot } from "@/lib/diag-registry";
 import { CommandAutocomplete } from "./command-history/CommandAutocomplete.tsx";
 import { SimpleLoader } from "@/lib/SimpleLoader.tsx";
 import { useConfirmation } from "@/hooks/use-confirmation.ts";
@@ -150,6 +151,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const backgroundColor = themeColors.background;
     const fitAddonRef = useRef<FitAddon | null>(null);
     const webSocketRef = useRef<WebSocket | null>(null);
+    // Bounty pretty-view-per-pane-cost-diag: rolling counter of SSH WS
+    // bytes received since the last diag emit (measured as raw JSON string
+    // length of each event.data, which approximates the payload cost since
+    // most volume is `{type:"data", data:"<tmux output>"}` and JSON overhead
+    // is small relative to a full tmux frame). Snapshot fn reads + resets.
+    const wsBytesRef = useRef<number>(0);
     const resizeTimeout = useRef<NodeJS.Timeout | null>(null);
     const wasDisconnectedBySSH = useRef(false);
     const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -572,6 +579,34 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       isVisibleRef.current = isVisible;
     }, [isVisible]);
+
+    // Bounty pretty-view-per-pane-cost-diag: register with the diag registry
+    // so the interval emitter can query this pane's cost snapshot. Keyed
+    // on hostConfig.id + hostConfig.instanceId (stable across the mount).
+    // Snapshot fn closes over refs to read latest tmuxSessionName +
+    // isVisible + xterm buffer + bytes counter.
+    useEffect(() => {
+      const key = `terminal:${hostConfig.id}:${hostConfig.instanceId ?? ""}`;
+      const snapshotFn = (): PaneSnapshot => {
+        const bytesSinceLast = wsBytesRef.current;
+        wsBytesRef.current = 0;
+        const scrollback = terminal?.buffer?.active?.length ?? 0;
+        const domNodeCount = xtermRef.current
+          ? xtermRef.current.querySelectorAll("*").length
+          : 0;
+        return {
+          kind: "terminal",
+          paneId: key,
+          hostId: hostConfig.id,
+          tmuxSession: tmuxSessionNameRef.current,
+          isVisible: isVisibleRef.current,
+          wsBytesSinceLast: bytesSinceLast,
+          scrollbackLines: scrollback,
+          domNodeCount,
+        };
+      };
+      return registerPane(key, snapshotFn);
+    }, [hostConfig.id, hostConfig.instanceId, terminal]);
 
     useEffect(() => {
       const checkAuth = () => {
@@ -1199,6 +1234,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         // old socket can still fire and would pop the Connection Lost overlay
         // AFTER the new socket has already reconnected and rendered content.
         if (ws !== webSocketRef.current) return;
+        // Bounty pretty-view-per-pane-cost-diag: count bytes for the diag
+        // emit. Raw string length is close enough at 30s cadence.
+        if (typeof event.data === "string") {
+          wsBytesRef.current += event.data.length;
+        }
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "pong") {
