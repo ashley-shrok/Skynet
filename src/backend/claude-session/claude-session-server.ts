@@ -8,6 +8,10 @@ import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession } from "./session-file-discovery.js";
 import { parseSessionLine } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+import {
+  applyLineToLayer1State,
+  type Layer1State,
+} from "./layer1-detect.js";
 import { parseContextPct } from "./context-pct-parser.js";
 import { readContextPctFromJsonl } from "./context-pct-from-jsonl.js";
 import { isPlanPending, parsePlanFilePath } from "./plan-pending-parser.js";
@@ -855,7 +859,12 @@ export type __RepollStateForTests = {
 
 /** Helpers injected into the repoll tick logic. */
 export type __RepollHelpersForTests = {
-  transitionToHolding: (reason: "exit_marker" | "discovery_diff") => void;
+  // quick 260808-ohn: reason union renamed "exit_marker" → "id_reset" to
+  // match the new Layer 1 tail-state detector. Layer 2 (this file) still
+  // passes "discovery_diff"; Layer 1 (onLine, via layer1-detect.ts) now
+  // passes "id_reset". Both reasons flow into the same transitionToHolding
+  // signature — no behavior change from Layer 2's perspective.
+  transitionToHolding: (reason: "id_reset" | "discovery_diff") => void;
   transitionToActiveNew: (newSessionFile: string) => void;
   transitionFromHoldingToActiveSameFile: () => void;
   transitionToDead: (reason: string) => void;
@@ -1358,7 +1367,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let changeoverState: ChangeoverState = "active";
   let currentSessionFile: string | null = null; // set on first discovery success and each session_changed
   let sessionIdFromFile: string | null = null; // UUID basename of currentSessionFile; drives harness-tasks poller cmd (BLOCKER fix)
-  let hasSeenExit = false; // Layer 1 flag; reset on session_changed
+  // Layer 1 tail-state (quick 260808-ohn / bounty
+  // session-holding-layer1-detect-id-reset-not-exit): tracks whether the
+  // most-recent user turn observed on this pane's session file is /id
+  // reset. Reset to {mostRecentUserTurnIsIdReset: null} on teardownPane
+  // and transitionToActiveNew — both are per-connection resets where a
+  // fresh tail is about to start. See layer1-detect.ts for the reducer
+  // + rationale. Replaces the pre-refactor `hasSeenExit` boolean.
+  let layer1: Layer1State = { mostRecentUserTurnIsIdReset: null };
   let holdingTicks = 0; // # of 3s ticks in `holding`; timeout at HOLDING_TIMEOUT_TICKS
   let discoveryRepollInFlight = false; // guard against slow SSH pileups (mirrors contextPctInFlight)
   let discoveryRepollTimer: NodeJS.Timeout | null = null;
@@ -1447,7 +1463,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     changeoverState = "active";
     currentSessionFile = null;
     sessionIdFromFile = null;
-    hasSeenExit = false;
+    layer1 = { mostRecentUserTurnIsIdReset: null };
     holdingTicks = 0;
     discoveryRepollInFlight = false;
     currentHostId = null;
@@ -1494,31 +1510,40 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // Tail's onLine handler — extracted from the pre-Phase-3 inline lambda so
   // `transitionToActiveNew` can restart the tail with the SAME callbacks
   // rather than duplicating them. Body is byte-for-byte preserved from the
-  // pre-refactor code with ONE addition: the Layer 1 raw-line /exit scan
-  // right after the ws-open guard.
+  // pre-refactor code with ONE addition: the Layer 1 tail-state-derived
+  // /id reset detector right after the ws-open guard (quick 260808-ohn).
   const onLine = (line: string) => {
     if (stopped || ws.readyState !== WebSocket.OPEN) return;
 
-    // Phase 3 Layer 1: raw-line /exit marker scan (BEFORE JSON.parse for
-    // cheapness). Empirical (verified 2026-07-18): /exit lands as a
-    // type:"user" turn with content
-    // "<command-name>/exit</command-name>\n            <command-message>exit</command-message>..."
-    // Sub-second edge-triggered detection of graceful recycle. The
-    // discovery repoll in the ticker (Layer 2) catches SIGTERM-fallback
-    // and recover-in-different-cwd. See CONTEXT.md D-30 for two-layer
-    // rationale.
-    if (
-      !hasSeenExit &&
-      changeoverState === "active" &&
-      line.includes('"content":"<command-name>/exit</command-name>')
-    ) {
-      hasSeenExit = true;
-      transitionToHolding("exit_marker");
-      // Fall through — the parser may still emit the /exit turn as a
-      // message (per Ashley's HARD LOCK: slash commands must remain
-      // visible in pretty view). The state transition is orthogonal to
-      // whether the /exit text renders as a chat bubble. DO NOT `return`
-      // here.
+    // Phase 3 Layer 1 (rewired 2026-08-08, quick 260808-ohn / bounty
+    // session-holding-layer1-detect-id-reset-not-exit):
+    //
+    // Feed every raw JSONL line through the tail-state reducer in
+    // layer1-detect.ts. The reducer updates `layer1.mostRecentUserTurnIsIdReset`
+    // iff the line is a user turn, then decides an action based on
+    // the new state + current changeoverState. The SessionHoldingOverlay
+    // is armed IFF the file's most-recent user turn is /id reset —
+    // computed uniformly across `-n +1` replay AND live-append, so
+    // historical /exit or historical /id reset lines from prior
+    // recycles no longer re-flash the overlay on WS reconnect (Ashley
+    // empirically saw 14 arm+clear pairs in ~1h under the pre-refactor
+    // /exit edge-triggered detector). Sub-second detection of the
+    // current session's /id reset is preserved. Layer 2 (discovery
+    // repoll in the ticker) still catches SIGTERM-fallback and
+    // recover-in-different-cwd via sessionFile diff. See
+    // layer1-detect.ts for the reducer's rationale + unit tests, and
+    // CONTEXT.md D-30 for the two-layer architecture.
+    //
+    // Fall through — the parser may still emit the /id reset turn as
+    // a message (per Ashley's HARD LOCK: slash commands must remain
+    // visible in pretty view). The state transition is orthogonal to
+    // whether the /id reset text renders as a chat bubble. DO NOT
+    // `return` here.
+    const layer1Action = applyLineToLayer1State(line, layer1, changeoverState);
+    if (layer1Action === "arm_holding") {
+      transitionToHolding("id_reset");
+    } else if (layer1Action === "clear_holding") {
+      transitionFromHoldingToActiveSameFile();
     }
 
     // Parallel raw-line scan for backgrounded Agent invocations (patch
@@ -2027,19 +2052,19 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // ---------------------------------------------------------------------------
   // Phase 3 state-transition helpers. All three close over the connection-
   // scoped state (changeoverState, currentSessionFile, sessionIdFromFile,
-  // hasSeenExit, holdingTicks, ws, sshConn, etc.) and the connection-scoped
+  // layer1, holdingTicks, ws, sshConn, etc.) and the connection-scoped
   // context (currentHostId, currentTmuxSession — set on connectToPane).
   // ---------------------------------------------------------------------------
 
-  // Called when the tail's onLine sees an `/exit` marker (Layer 1, edge-
-  // triggered, sub-second) OR when the ticker's discovery-repoll notices a
-  // changed sessionFile without a prior /exit having been seen (Layer 2's
+  // Called when the tail's onLine dispatches Layer 1's tail-state-derived
+  // /id reset detector (sub-second, quick 260808-ohn) OR when the ticker's
+  // discovery-repoll notices a changed sessionFile (Layer 2's
   // SIGTERM-fallback path). Idempotent against double-fire — if state is
   // already `holding` or `dead`, this is a no-op. That protects against the
   // race where Layer 1 fires on the tail's onLine milliseconds before the
   // ticker's Layer 2 repoll notices the same recycle.
   const transitionToHolding = (
-    reason: "exit_marker" | "discovery_diff",
+    reason: "id_reset" | "discovery_diff",
   ): void => {
     if (changeoverState !== "active") return;
     changeoverState = "holding";
@@ -2135,7 +2160,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
     planPendingContentByPath.clear();
     planPendingFetchInFlightForPath.clear();
     planPendingWindowToken += 1;
-    hasSeenExit = false;
+    // quick 260808-ohn: reset Layer 1 tail-state on session recycle so the
+    // new tail's -n +1 replay converges on clean bookkeeping.
+    layer1 = { mostRecentUserTurnIsIdReset: null };
     holdingTicks = 0;
 
     // Derive the new UUID basename using the same slug logic the initial-
