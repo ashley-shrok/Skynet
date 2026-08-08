@@ -148,6 +148,7 @@ export function DormancyOverlay({
           <Button
             size="sm"
             variant="secondary"
+            className="cursor-pointer"
             onClick={onWake}
             aria-label="Wake identity"
             // Wake button is always enabled in asleep/error state — Ashley can retry.
