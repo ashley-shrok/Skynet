@@ -56,7 +56,7 @@ body {
    (identity badge + conversation row → context menu) are JS timers on
    touchstart and are unaffected by touch-action. */
 button,
-a[role="button"],
+[role="button"],
 [role="menuitem"],
 [role="tab"],
 [role="option"],
