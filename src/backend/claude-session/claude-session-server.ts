@@ -1003,6 +1003,87 @@ export async function __applyWakeMessageForTests(deps: {
   }
 }
 
+// ─── Test seam: dormant-poll-with-rediscovery logic (quick 260808-dmz) ────────
+//
+// The dormant-poll IIFE in the inactive branch polls the sentinel and, on
+// disappearance, calls discoverClaudeSession + startActiveSessionFlow. Exported
+// as a test seam so tests G-K can exercise sentinel-disappearance + re-discovery
+// without spinning up the full WS server + SSH pair.
+//
+// Uses a two-arg "state accessor" pattern rather than a mutable box because the
+// production code stores dormantLastEmitted in the connection closure (not in a
+// box struct). The accessor pair {dormantLastEmitted, setDormantLastEmitted} lets
+// tests inject a plain variable capture and assert on it.
+
+/** Result type returned by discoverClaudeSession (subset used by the seam). */
+export type __DiscoveryResultForTests =
+  | { status: "active"; pid: number; sessionFile: string }
+  | { status: "inactive"; reason: string };
+
+/**
+ * Apply one dormant-poll tick with sentinel check + optional re-discovery.
+ * Called by the 3s setInterval in the inactive→dormant branch.
+ *
+ * @param deps.connSnapshot        - SSH connection (stub in tests)
+ * @param deps.escapedName         - tmux session name (already validated)
+ * @param deps.execCommand         - injectable SSH exec helper
+ * @param deps.discoverSession     - injectable discoverClaudeSession callback
+ * @param deps.wsSend              - injectable ws.send stub
+ * @param deps.startActiveFlow     - injectable callback to transition to active flow
+ * @param state.dormantLastEmitted - getter for current dormantLastEmitted closure value
+ * @param state.setDormantLastEmitted - setter for dormantLastEmitted
+ */
+export async function __applyDormantPollWithRediscoveryForTests(
+  deps: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    connSnapshot: any;
+    escapedName: string;
+    execCommand: (conn: unknown, cmd: string) => Promise<string>;
+    discoverSession: (conn: unknown, session: string) => Promise<__DiscoveryResultForTests>;
+    wsSend: (data: string) => void;
+    startActiveFlow: (pid: number, sessionFile: string) => void;
+  },
+  state: {
+    dormantLastEmitted: () => boolean | null;
+    setDormantLastEmitted: (v: boolean | null) => void;
+  },
+): Promise<void> {
+  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow } = deps;
+  try {
+    // Poll the .dormant sentinel (reuse exact command from seam line 956-961)
+    const statOut = await exec(
+      connSnapshot,
+      `stat ~/.claude/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+    );
+    const isDormant = statOut.trim() === "yes";
+    if (isDormant) {
+      // Sentinel still present — emit only on change (state-change guard)
+      if (state.dormantLastEmitted() !== true) {
+        state.setDormantLastEmitted(true);
+        wsSend(JSON.stringify({ type: "dormant", dormant: true }));
+      }
+      return; // keep polling
+    }
+    // Sentinel disappeared — emit dormant:false (state-change guard)
+    if (state.dormantLastEmitted() !== false) {
+      state.setDormantLastEmitted(false);
+      wsSend(JSON.stringify({ type: "dormant", dormant: false }));
+    }
+    // Re-run discovery to see if claude has come back
+    const rediscovery = await discoverSession(connSnapshot, escapedName);
+    if (rediscovery.status === "active") {
+      // Transition to normal active session flow
+      startActiveFlow(rediscovery.pid, rediscovery.sessionFile);
+      return;
+    }
+    // Still inactive (supervisor may not have reconciled yet) — keep polling.
+    // dormantLastEmitted stays false so if the sentinel comes back, we re-emit
+    // dormant:true on the next tick. No teardown; no clearing of dormant-poll timer.
+  } catch {
+    // SSH error — skip this tick silently (same posture as __applyDormantPollTickForTests)
+  }
+}
+
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
@@ -1096,6 +1177,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let dormantLastEmitted: boolean | null = null;       // change-only emit guard, mirrors planPendingLastSerialized = "null"
   let isIdentityShapedCached: boolean | null = null;  // null = not yet probed; true = identity pane; false = skip dormancy forever
   let identityShapeProbeInFlight = false;
+  // quick 260808-dmz — dormant-poll loop (inactive-branch fix).
+  // Lightweight 3s poll that replaces the SSH teardown in the inactive branch
+  // when a dormant sentinel is detected. Mirrors contextPctTimer/contextPctInFlight
+  // pattern for lifecycle (cleared in teardownPane, guarded against pileups).
+  let dormantPollTimer: NodeJS.Timeout | null = null;
+  let dormantPollInFlight = false;
   // Phase 14 Wave 2: per-connection aside extraction bookkeeping. These
   // are per-connection (not cross-tab-shared) so closure-scope is correct.
   // Only `armed`/`displayed` MUST live in module-scope asideState — per
@@ -1232,6 +1319,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
       clearInterval(contextPctTimer);
       contextPctTimer = null;
     }
+    // quick 260808-dmz: clear dormant-poll loop on pane teardown.
+    if (dormantPollTimer) {
+      clearInterval(dormantPollTimer);
+      dormantPollTimer = null;
+    }
+    dormantPollInFlight = false;
     if (harnessTasksTimer) {
       clearInterval(harnessTasksTimer);
       harnessTasksTimer = null;
@@ -2129,6 +2222,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
       sessionId,
     });
   });
+
+  // quick 260808-dmz: connection-scoped forward reference for startActiveSessionFlow.
+  // Assigned on the first connectToPane message (before discovery), so it is
+  // in scope when the dormant-poll timer callback fires 3 seconds later even if
+  // the message handler returned early via the inactive→dormant branch.
+  // eslint-disable-next-line prefer-const
+  let startActiveSessionFlow: (params: {
+    pid: number;
+    sessionFile: string;
+    tmuxSession: string;
+    hostId: number;
+  }) => void = () => { /* noop until assigned by connectToPane */ };
 
   ws.on("message", async (raw: RawData) => {
     // Idempotency guard: once stopped, refuse all traffic.
@@ -3471,41 +3576,36 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    const result = await discoverClaudeSession(conn, tmuxSession);
-    sshLogger.info("Claude session discovery result", {
-      operation: "claude_session_discovery",
-      userId,
-      sessionId,
-      hostId,
-      tmuxSession,
-      status: result.status,
-    });
-
-    if (result.status === "inactive") {
-      // FALLBACK-01: emit one inactive frame and STOP. Do not open a tail,
-      // do not fall through to any prior session file. The `never reach
-      // back` rule is enforced structurally — there is no branch below
-      // that could start a tail from an inactive result.
-      ws.send(
-        JSON.stringify({ type: "inactive", reason: result.reason }),
-      );
-      // Keep sshConn open? No — releasing the SSH connection here keeps
-      // idle inactive WSs cheap. A subsequent connectToPane will reopen.
-      try {
-        conn.end();
-      } catch {
-        /* ignore */
-      }
-      sshConn = null;
-      return;
-    }
-
+    // quick 260808-dmz: closure-scoped helper — extracted active-flow start.
+    // Called from (a) the initial active discovery path below, and (b) the
+    // dormant-poll wake path above when sentinel disappears + re-discovery
+    // finds an active session. Extracts SESSION-METADATA-EMIT + TAIL-START +
+    // CONTEXT-PCT-TIMER-START (lines originally ~3503-3841). The aside
+    // subsystem block is NOT extracted — it stays inline in the initial-active
+    // path and is re-invoked separately in the dormant-poll wake path.
+    //
+    // Captures closure state: ws, sshConn, sshLogger, userId, sessionId,
+    // tailHandle, contextPctTimer, contextPctInFlight, dormantInFlight,
+    // dormantLastEmitted, isIdentityShapedCached, identityShapeProbeInFlight,
+    // planPendingContentByPath, pendingPlans, pendingPlansLastSerialized,
+    // planPendingLastSerialized, planPendingWindowToken,
+    // planPendingFetchInFlightForPath, backgroundedAgents,
+    // backgroundedAgentsLastSerialized, backgroundedShells,
+    // backgroundedShellsLastSerialized, changeoverState, currentSessionFile,
+    // sessionIdFromFile, hasSeenExit, holdingTicks, discoveryRepollInFlight,
+    // currentHostId, currentTmuxSession, stopped.
+    startActiveSessionFlow = ({ pid, sessionFile, tmuxSession: activeTmuxSession, hostId: activeHostId }: {
+      pid: number;
+      sessionFile: string;
+      tmuxSession: string;
+      hostId: number;
+    }) => {
     // Active path: metadata frame first, then start the tail.
     ws.send(
       JSON.stringify({
         type: "session",
-        pid: result.pid,
-        sessionFile: result.sessionFile,
+        pid,
+        sessionFile,
       }),
     );
 
@@ -3513,23 +3613,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
       operation: "claude_session_tail_start",
       userId,
       sessionId,
-      hostId,
-      tmuxSession,
-      pid: result.pid,
-      sessionFile: result.sessionFile,
+      hostId: activeHostId,
+      tmuxSession: activeTmuxSession,
+      pid,
+      sessionFile,
     });
 
     // Phase 3: pin the connection-scoped context so the state-transition
     // helpers can log with the right hostId/tmuxSession without needing to
     // re-thread them through every callsite. Also gives the discovery-repoll
-    // ticker its baseline to compare `result.sessionFile` against — without
+    // ticker its baseline to compare `sessionFile` against — without
     // seeding `currentSessionFile` here, the first ticker comparison would
     // treat the current file as "changed" and immediately fire
     // transitionToActiveNew on itself.
-    currentHostId = hostId;
-    currentTmuxSession = tmuxSession;
-    currentSessionFile = result.sessionFile;
-    sessionIdFromFile = result.sessionFile
+    currentHostId = activeHostId;
+    currentTmuxSession = activeTmuxSession;
+    currentSessionFile = sessionFile;
+    sessionIdFromFile = sessionFile
       .replace(/\\/g, "/")
       .split("/")
       .pop()!
@@ -3574,7 +3674,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Single-quote wrap for the session name. Tmux session names are
     // validated by the frontend to a tmux-safe subset (alphanumeric,
     // dash, underscore), so single-quote escape is sufficient.
-    const captureCmd = `tmux capture-pane -p -t '${tmuxSession}'`;
+    const captureCmd = `tmux capture-pane -p -t '${activeTmuxSession}'`;
     contextPctTimer = setInterval(() => {
       if (stopped || ws.readyState !== WebSocket.OPEN) return;
       if (!sshConn) return;
@@ -4124,7 +4224,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (discoveryRepollInFlight) return;
       discoveryRepollInFlight = true;
       const connSnapshot = sshConn;
-      discoverClaudeSession(connSnapshot, tmuxSession)
+      discoverClaudeSession(connSnapshot, activeTmuxSession)
         .then((result) => {
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
           if (changeoverState === "dead") return; // idempotent guard
@@ -4194,7 +4294,143 @@ wss.on("connection", async (ws: WebSocket, req) => {
         });
     }, DISCOVERY_REPOLL_INTERVAL_MS);
 
-    tailHandle = tailSessionFile(conn, result.sessionFile, onLine, onError);
+    tailHandle = tailSessionFile(sshConn!, sessionFile, onLine, onError);
+    }; // end of startActiveSessionFlow
+
+    const result = await discoverClaudeSession(conn, tmuxSession);
+    sshLogger.info("Claude session discovery result", {
+      operation: "claude_session_discovery",
+      userId,
+      sessionId,
+      hostId,
+      tmuxSession,
+      status: result.status,
+    });
+
+    if (result.status === "inactive") {
+      // quick 260808-dmz — dormancy probe BEFORE teardown.
+      // FIX §1-2: if this is an identity-shaped pane AND the .dormant sentinel
+      // exists, enter the dormant state instead of tearing down SSH. The probe is
+      // inline+await so the branch decision (teardown vs. keep-alive) is synchronous.
+      // Fail-safe: any SSH throw here falls through to the normal teardown path
+      // (do not hold an SSH conn open on error).
+      let enteredDormantPoll = false;
+      if (result.reason === "not_claude") {
+        // Only probe for dormancy on not_claude (the signal that no claude process is
+        // running); exec_error / no_tmux_session / no_pid_session_file / etc. are
+        // not dormancy candidates — treat them as plain inactive.
+        try {
+          const escapedName = tmuxSession; // validated to safe subset by frontend
+          // Tier 1: is this an identity-shaped pane? (reuse exact command from seam line 946-950)
+          const identityProbeOut = await execCommand(
+            conn,
+            `test -d ~/.claude/identities/'${escapedName}' && echo yes || echo no`,
+          );
+          const isIdentityShape = identityProbeOut.trim() === "yes";
+          // Cache for the connection lifetime so dormant-poll and wake handler use it.
+          isIdentityShapedCached = isIdentityShape;
+          if (isIdentityShape) {
+            // Tier 2: .dormant sentinel present? (reuse exact command from seam line 956-961)
+            const dormantProbeOut = await execCommand(
+              conn,
+              `stat ~/.claude/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+            );
+            if (dormantProbeOut.trim() === "yes") {
+              // This IS a dormant pane. Seed closure state so wake handler +
+              // dormant-poll can operate, then emit dormant:true and start poll.
+              currentHostId = hostId;
+              currentTmuxSession = tmuxSession;
+              dormantLastEmitted = true;
+              sshLogger.info("Claude session dormant state entered", {
+                operation: "claude_session_dormant_entered",
+                userId,
+                sessionId,
+                hostId,
+                tmuxSession,
+              });
+              try {
+                ws.send(JSON.stringify({ type: "dormant", dormant: true }));
+              } catch { /* ws may be mid-close */ }
+              // FIX §3: Start the lightweight dormant-poll loop (3s cadence).
+              // The loop polls the sentinel; on disappearance re-runs discovery;
+              // on active → transitions to active flow via startActiveSessionFlow.
+              // dormantPollInFlight guards against slow-SSH pileups.
+              dormantPollTimer = setInterval(() => {
+                if (stopped || ws.readyState !== WebSocket.OPEN || !sshConn || dormantPollInFlight) return;
+                dormantPollInFlight = true;
+                (async () => {
+                  try {
+                    await __applyDormantPollWithRediscoveryForTests(
+                      {
+                        connSnapshot: sshConn!,
+                        escapedName: currentTmuxSession!,
+                        execCommand,
+                        discoverSession: (c, s) => discoverClaudeSession(c as import("ssh2").Client, s),
+                        wsSend: (data: string) => {
+                          try { ws.send(data); } catch { /* ws may be mid-close */ }
+                        },
+                        startActiveFlow: (pid, sessionFile) => {
+                          // Transition from dormant-poll to active flow.
+                          // Clear dormant-poll timer — contextPctTimer takes over from here.
+                          if (dormantPollTimer) { clearInterval(dormantPollTimer); dormantPollTimer = null; }
+                          startActiveSessionFlow({ pid, sessionFile, tmuxSession: currentTmuxSession!, hostId: currentHostId! });
+                          // Aside subsystem registration for the wake path.
+                          // Dormant panes had no active aside connection — register now.
+                          if (currentHostId != null && currentTmuxSession != null) {
+                            const wakeAsideKey = sessionKey(currentHostId, currentTmuxSession);
+                            if (!activeViewers.has(wakeAsideKey)) activeViewers.set(wakeAsideKey, new Set());
+                            activeViewers.get(wakeAsideKey)!.add(ws);
+                          }
+                        },
+                      },
+                      {
+                        dormantLastEmitted: () => dormantLastEmitted,
+                        setDormantLastEmitted: (v) => { dormantLastEmitted = v; },
+                      },
+                    );
+                  } finally {
+                    dormantPollInFlight = false;
+                  }
+                })();
+              }, 3000);
+              enteredDormantPoll = true;
+            }
+          }
+        } catch {
+          // SSH throw during probe — fall through to normal teardown (fail-safe).
+          isIdentityShapedCached = false;
+        }
+      }
+      if (enteredDormantPoll) {
+        // SSH stays alive; dormant-poll loop is running. Return WITHOUT teardown.
+        return;
+      }
+      // FALLBACK-01: emit one inactive frame and STOP. Do not open a tail,
+      // do not fall through to any prior session file. The `never reach
+      // back` rule is enforced structurally — there is no branch below
+      // that could start a tail from an inactive result.
+      ws.send(
+        JSON.stringify({ type: "inactive", reason: result.reason }),
+      );
+      // Keep sshConn open? No — releasing the SSH connection here keeps
+      // idle inactive WSs cheap. A subsequent connectToPane will reopen.
+      try {
+        conn.end();
+      } catch {
+        /* ignore */
+      }
+      sshConn = null;
+      return;
+    }
+
+    // Initial active discovery path: call startActiveSessionFlow now.
+    // The aside subsystem (fan-out registration, connect-time probe,
+    // extraction poller, harness-tasks poller, discovery-repoll timer,
+    // tail start) is ALL inside startActiveSessionFlow and runs here.
+    // The dormant-poll wake path calls startActiveSessionFlow() too,
+    // then does a guarded aside fan-out registration (see startActiveFlow
+    // callback in the dormant-poll block above).
+    startActiveSessionFlow({ pid: result.pid, sessionFile: result.sessionFile, tmuxSession, hostId });
   });
 });
 
