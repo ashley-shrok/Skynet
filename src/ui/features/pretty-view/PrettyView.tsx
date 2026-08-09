@@ -1162,6 +1162,30 @@ export function PrettyView({
     dormantRef.current = dormant;
   }, [dormant]);
 
+  // quick 260809-cnx: prevIsVisibleRef edge detector for the waking-reset
+  // useEffect below. Initialized to current isVisible so the initial mount
+  // (prev === isVisible) does NOT fire the reset — only true false→true
+  // transitions (pane returning after being hidden) clear waking state.
+  const prevIsVisibleRef = useRef<boolean>(isVisible);
+
+  // quick 260809-cnx: reset local waking-related state on isVisible false→true.
+  // Patch #344 closes the WS while isVisible=false, so any pre-hidden `waking`
+  // state is unreliable on re-visibility. Clearing it lets the next backend
+  // dormant frame (arrives within one 3s poll cycle) paint the accurate
+  // overlay: "Session is asleep" + working Wake button, instead of a stuck
+  // "Waking up…" indicator. Visibility transition is the truth signal —
+  // do NOT use a time-based threshold (locked context).
+  useEffect(() => {
+    const prev = prevIsVisibleRef.current;
+    prevIsVisibleRef.current = isVisible;
+    if (!prev && isVisible) {
+      setWaking(false);
+      setWakingStartTs(null);
+      setElapsedSeconds(0);
+      setWakeError(null);
+    }
+  }, [isVisible]);
+
   // quick 260808-ho2: isBootingRef mirror — keeps isBootingRef.current in
   // sync with `isBooting` state so the WS onmessage first-user-visible-frame
   // dismiss block can read the current arm state without stale-closure issues.
@@ -1834,7 +1858,7 @@ export function PrettyView({
           wrapper (below it in flex-col), so it's outside the IdentityModal's
           coverage area. */}
 
-      {onSend && (status === "streaming" || status === "error") && (
+      {onSend && (status === "streaming" || status === "error" || dormant) && (
         <ComposeBox
           onSend={handleComposeSend}
           onResetClicked={onResetClicked}
