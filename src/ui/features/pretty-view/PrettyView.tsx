@@ -1882,59 +1882,38 @@ export function PrettyView({
                 </div>
               );
             })}
-            {/* Step A intermediate: accessories stay absolute-positioned
-                inside the sized virtualizer container so the DOM tree shape
-                (aside is still nested under contentRef) remains close to
-                the pre-refactor shape and pre-existing tests stay green.
-                Step B moves them to an in-flow sibling block below this
-                sized container and drops this absolute-positioning. */}
-            {isWorking && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: `${rowVirtualizer.getTotalSize()}px`,
-                  left: 0,
-                  width: "100%",
-                }}
-              >
-                <WipBubble />
-              </div>
-            )}
-            {planPending && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: `${rowVirtualizer.getTotalSize()}px`,
-                  left: 0,
-                  width: "100%",
-                }}
-              >
-                <PlanPendingBubble
-                  planFilePath={planPending.planFilePath}
-                  planContent={planPending.planContent}
-                  contentError={planPending.contentError}
-                  onApprove={handlePlanApprove}
-                  onFeedback={handlePlanFeedback}
-                />
-              </div>
-            )}
-            {/* Phase 14 Wave 3: aside bubble mounts as the last child of
-                the contentRef flex column so useAutoScroll's ResizeObserver
-                pins the viewport to it on mount (in-flow, per ASIDE-05 —
-                NOT an overlay, popup, or fixed-position element). */}
-            {asideText !== null && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: `${rowVirtualizer.getTotalSize()}px`,
-                  left: 0,
-                  width: "100%",
-                }}
-              >
-                <AsideBubble text={asideText} />
-              </div>
-            )}
           </div>
+          {/* Phase 27 Plan 27-02 Step B: below-list accessories moved OUT
+              of the sized virtualizer container into this in-flow sibling
+              block. They remain INSIDE the outer composeScrollRefs-bound
+              scroll container so useAutoScroll's ResizeObserver still sees
+              their contribution to scrollHeight (pin-to-bottom keeps
+              working uniformly across virtualized items + accessories).
+              In-flow (no position: sticky, no position: absolute, no
+              overlay) per ASIDE-05. Since they follow the sized container
+              in normal document flow, they layer naturally below the last
+              virtualized item at the visual bottom of the message column. */}
+          {isWorking && <WipBubble />}
+          {planPending && (
+            <PlanPendingBubble
+              planFilePath={planPending.planFilePath}
+              planContent={planPending.planContent}
+              contentError={planPending.contentError}
+              onApprove={handlePlanApprove}
+              onFeedback={handlePlanFeedback}
+            />
+          )}
+          {/* Phase 27 Plan 27-02 Step B: AsideBubble mounts as an in-flow
+              sibling immediately after the sized virtualizer container
+              inside the scroll container. Post-refactor (Phase 27), it is
+              no longer a child of the flex column that holds the messages
+              — that column became the virtualizer's absolute-positioned
+              sized container. AsideBubble stays visually below the message
+              list and still watched by useAutoScroll's contentRef-side
+              ResizeObserver via the shared scroll container's scrollHeight
+              (in-flow, per ASIDE-05 — NOT an overlay, popup, or
+              fixed-position element). */}
+          {asideText !== null && <AsideBubble text={asideText} />}
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
               to the bottom-right of the visible viewport. Shown only when
