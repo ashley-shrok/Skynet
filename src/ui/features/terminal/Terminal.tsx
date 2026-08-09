@@ -319,6 +319,16 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const tmuxCopyModeHintShownRef = useRef(false);
 
     const isVisibleRef = useRef<boolean>(false);
+    // quick-260809-ih9: prevIsVisibleRef edge detector for the pause effect
+    // below. Initialized to current isVisible so initial mount
+    // (prev === isVisible) does NOT fire the visible branch's reopen. Only
+    // true false→true transitions (pane returning after being hidden)
+    // trigger reopen. Mirrors PrettyView.tsx quick-260809-cnx pattern at
+    // L1181-L1185. The init value MUST stay `isVisible` (the prop), NOT
+    // `false` — initializing to `false` would make initial mount see
+    // !prev && isVisible = true and reproduce the exact bug this patch
+    // fixes (first-session-post-page-load stuck on "Reconnecting…").
+    const prevIsVisibleRef = useRef<boolean>(isVisible);
     const isFittingRef = useRef(false);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const reconnectAttempts = useRef(0);
@@ -622,8 +632,23 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // do not double-trigger. The visible branch below is a no-op when
     // readyState is OPEN or CONNECTING.
     useEffect(() => {
+      // quick-260809-ih9: capture prev isVisible before mutating the ref.
+      // The visible branch below is gated on `!prev && isVisible` so it
+      // ONLY fires on genuine false→true transitions (pane returning after
+      // being hidden), not on initial mount. See the ref declaration above
+      // for the full WHY — TL;DR: firing on initial mount races with the
+      // WS-setup effect at ~L3000 and leaves the first session stuck on
+      // "Reconnecting…" because attemptReconnection's setTimeout captures
+      // a still-null `terminal` closure.
+      const prev = prevIsVisibleRef.current;
+      prevIsVisibleRef.current = isVisible;
       if (!isVisible) {
         // Pane became hidden — close the WS if it is open or connecting.
+        // NOTE: this branch stays always-firing (no edge gate). Its
+        // readyState guard makes it a safe no-op when ws is null (initial
+        // mount case). Keeping it always-firing preserves close-on-hide
+        // for URL-restored offscreen panes that somehow have an active ws
+        // (belt+suspenders).
         const ws = webSocketRef.current;
         if (
           ws !== null &&
@@ -643,8 +668,21 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           // isVisibleRef guard added to attemptReconnection short-circuits
           // any auto-reconnect scheduling while hidden.
         }
-      } else {
-        // Pane became visible — reopen the WS if it is gone or closing.
+      } else if (!prev && isVisible) {
+        // quick-260809-ih9: gate reopen on genuine false→true edge only.
+        // Initial mount (prev === isVisible === true) must NOT fire this
+        // branch — it races with the WS-setup effect at ~L3000, which
+        // would then see isReconnectingRef=true (set by attemptReconnection
+        // below) and return early. attemptReconnection's setTimeout also
+        // captures a null `terminal` closure at initial mount (xterm.js
+        // instance not yet created), so `if (terminal && hostConfig)` at
+        // ~L1105 skips connectToHost and the WS never opens. Result
+        // before this gate: first session post page load stuck on
+        // "Reconnecting…" until user nav-away-then-back. Setup effect owns
+        // initial-mount WS open; pause effect owns transitions.
+        //
+        // Pane became visible after being hidden — reopen the WS if it is
+        // gone or closing.
         const ws = webSocketRef.current;
         if (
           attach &&
@@ -660,8 +698,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           // machinery (isReconnectingRef, backoff, maxReconnectAttempts,
           // etc.) — no new connect path invented.
         }
-        // If WS is already OPEN or CONNECTING (e.g. initial mount with
-        // isVisible=true), no-op — don't interfere with the WS-setup effect.
+        // If WS is already OPEN or CONNECTING (e.g. a stray previously
+        // opened socket), no-op — don't interfere with the WS-setup effect.
       }
     }, [isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
     // deps: [isVisible] only. Reads only refs (webSocketRef,

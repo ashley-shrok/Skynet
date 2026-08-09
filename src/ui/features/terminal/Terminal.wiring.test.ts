@@ -700,3 +700,121 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     expect(afterSnap).not.toMatch(/\[hostId, tmuxSession, isVisible\]/);
   });
 });
+
+/**
+ * quick-260809-ih9 — pause-effect initial-mount race fix
+ * (prevIsVisibleRef edge detector).
+ *
+ * BUG: Terminal.tsx's pause effect at ~L624 (patch #367) fires on mount
+ * with isVisible=true and webSocketRef.current === null, taking the visible
+ * branch and calling attemptReconnection() — which schedules a setTimeout
+ * that captures a still-null `terminal` closure. The setup effect at
+ * ~L3000 (patch #368 body-gate) then sees isReconnectingRef=true and
+ * returns early. Result: first session after page load is stuck on
+ * "Reconnecting..." until user nav-away-then-back forces a genuine
+ * false→true transition with a fresh (non-null-terminal) closure.
+ *
+ * FIX: mirror PrettyView.tsx quick-260809-cnx's `prevIsVisibleRef`
+ * edge-detector pattern at L1181-L1203. Init `prevIsVisibleRef` to
+ * `isVisible` (NOT `false`) so on initial mount `prev === isVisible === true`
+ * and `!prev && isVisible` is false, so the visible branch no-ops on mount.
+ * Only genuine false→true transitions (nav-away-then-back) fire the
+ * reopen. Setup effect owns initial-mount WS open; pause effect owns
+ * transitions. Hidden branch untouched.
+ *
+ * All tests here are static source-string assertions matching the eqk-*
+ * style above (no rendering, no mocks, no timers).
+ */
+describe("quick-260809-ih9 — pause-effect initial-mount race fix (prevIsVisibleRef edge detector)", () => {
+  const src = readFileSync(TERMINAL_TSX, "utf-8");
+
+  it("Test ih9-1: Terminal.tsx declares prevIsVisibleRef = useRef<boolean>(isVisible) with quick-260809-ih9 tag (init to isVisible, NOT false, is load-bearing)", () => {
+    // Declaration must exist AND be initialized to `isVisible` (the prop),
+    // NOT to `false`. If it were initialized to `false`, initial mount
+    // would see prev=false && isVisible=true → !prev && isVisible = TRUE,
+    // and the reopen would still fire on mount — reproducing the exact
+    // race we're fixing.
+    expect(src).toMatch(
+      /const prevIsVisibleRef = useRef<boolean>\(isVisible\);/,
+    );
+    // NEGATIVE assert: no `useRef<boolean>(false)` variant on prevIsVisibleRef.
+    expect(src).not.toMatch(
+      /prevIsVisibleRef = useRef<boolean>\(false\)/,
+    );
+    // The declaration must be tagged with the quick-260809-ih9 comment
+    // anchor so future refactors can locate it.
+    const declIdx = src.indexOf(
+      "const prevIsVisibleRef = useRef<boolean>(isVisible);",
+    );
+    expect(declIdx).toBeGreaterThan(0);
+    // The tag should live within ~800 chars above the declaration
+    // (comment block explaining the pattern).
+    const commentWindow = src.slice(Math.max(0, declIdx - 800), declIdx);
+    expect(commentWindow).toContain("quick-260809-ih9");
+    // Overall the tag must appear at least 2× in the file (declaration
+    // comment + pause-effect comment).
+    const tagMatches = src.match(/quick-260809-ih9/g);
+    expect(tagMatches).not.toBeNull();
+    expect(tagMatches!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("Test ih9-2: pause effect's visible branch is edge-gated on `!prev && isVisible` (initial-mount race regression guard)", () => {
+    // Anchor on the pause effect via the eqk comment tag (same anchor
+    // used in eqk-2).
+    const anchor = "quick-260809-eqk — Terminal-SSH WS-pause lifecycle effect";
+    const anchorIdx = src.indexOf(anchor);
+    expect(anchorIdx).toBeGreaterThan(0);
+    // Effect body + rationale header lives within ~8000 chars of anchor
+    // (same window size as eqk-2).
+    const block = src.slice(anchorIdx, anchorIdx + 8000);
+    // Edge-detector prelude: capture prev + update ref.
+    expect(block).toContain("const prev = prevIsVisibleRef.current;");
+    expect(block).toContain("prevIsVisibleRef.current = isVisible;");
+    // The visible branch must be gated on the false→true edge.
+    expect(block).toMatch(/else if \(!prev && isVisible\)/);
+    // Hidden branch still present (regression guard against someone
+    // "simplifying" it away).
+    expect(block).toMatch(/if \(!isVisible\) \{/);
+    // Deps stay exactly [isVisible] — reading a ref doesn't require deps
+    // and the eslint-disable-line comment stays.
+    expect(block).toMatch(/\}, \[isVisible\]\);/);
+    expect(block).toContain("eslint-disable-line react-hooks/exhaustive-deps");
+    // The gated branch must be tagged with quick-260809-ih9 so future
+    // maintainers understand the WHY.
+    const gateIdx = block.indexOf("!prev && isVisible");
+    expect(gateIdx).toBeGreaterThan(0);
+    // Tag lives within ~1000 chars around the gate (either as a comment
+    // immediately above or an inline comment just after).
+    const gateWindow = block.slice(
+      Math.max(0, gateIdx - 1000),
+      gateIdx + 1000,
+    );
+    expect(gateWindow).toContain("quick-260809-ih9");
+  });
+
+  it("Test ih9-3: attemptReconnection() and WS-setup effect retain their patch #367/#368 isVisibleRef guards (no regression on prior fixes)", () => {
+    // Patch #367 (eqk): attemptReconnection() opens with an
+    // isVisibleRef.current early-return. This ih9 patch must NOT weaken it.
+    const fnIdx = src.indexOf("function attemptReconnection() {");
+    expect(fnIdx).toBeGreaterThan(0);
+    const fnBody = src.slice(fnIdx, fnIdx + 500);
+    expect(fnBody).toContain(
+      "quick-260809-eqk: hidden panes must not fight the WS-pause effect",
+    );
+    expect(fnBody).toMatch(/if \(!isVisibleRef\.current\) return;/);
+    // Patch #368: WS-setup effect at L3000 body-gates on !isVisibleRef.
+    const setupAnchor = "attach gates initial WS lifecycle";
+    const setupIdx = src.indexOf(setupAnchor);
+    expect(setupIdx).toBeGreaterThan(0);
+    const setupWindow = src.slice(setupIdx, setupIdx + 2500);
+    expect(setupWindow).toMatch(
+      /if\s*\(\s*!isVisibleRef\.current\s*\)\s*return\s*;/,
+    );
+    // Setup effect deps unchanged — still exactly the patch #368 shape.
+    const depsMatch = setupWindow.match(/\}, \[([^\]]+)\]\);/);
+    expect(depsMatch).not.toBeNull();
+    const depsList = depsMatch![1];
+    expect(depsList).toContain("attach");
+    expect(depsList).not.toMatch(/\bisVisible\b/);
+  });
+});
