@@ -2998,8 +2998,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     }, [terminal]);
 
     useEffect(() => {
-      // attach (not isVisible) gates WS lifecycle: URL-restored active-set tabs must open their WS even while offscreen. See bounty url-restore-loads-only-selected-session-not-full-active-set.
+      // attach gates initial WS lifecycle (URL-restored active-set tabs open their WS on mount even while offscreen; see bounty url-restore-loads-only-selected-session-not-full-active-set). quick-260809-eqk followup (patch #368, 2026-08-09): also gate on isVisibleRef. Without this, iter 2's pause effect (line ~624) closes the WS on hide → onclose flips isConnected/isConnecting → this setup effect's deps re-fire → it immediately reopens the WS behind the pause's back. Empirically confirmed via diag: hidden terminals were still burning 17-61 KB/30s of SSH bytes post-iter-2 ship. Trade: hidden URL-restored panes no longer pre-warm on mount; they open on first visible-tap instead — same ~2s re-warm cost the pause layer already accepts for visibility flips.
       if (!terminal || !hostConfig || !attach) return;
+      if (!isVisibleRef.current) return;
       if (isConnected || isConnecting) return;
 
       if (isReconnectingRef.current || reconnectTimeoutRef.current !== null) {

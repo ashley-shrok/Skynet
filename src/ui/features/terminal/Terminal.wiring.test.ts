@@ -626,27 +626,35 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     expect(iosGateIdx).toBeGreaterThan(0);
   });
 
-  it("Test eqk-5: main WS-setup effect at line ~2903 stays keyed on `attach`, NOT on `isVisible`", () => {
-    // The bounty explicitly preserves the URL-restore contract: URL-restored
-    // active-set members must open their WS on mount even offscreen. The
-    // pause effect owns the close on isVisible=false — the WS-setup effect
-    // MUST stay attach-keyed to prevent regressions.
+  it("Test eqk-5: main WS-setup effect keeps `attach` in deps, keeps `isVisible` OUT of deps, and gates body on `!isVisibleRef.current` (patch #368 followup)", () => {
+    // Patch #367 shipped the [isVisible] pause effect but the WS-setup effect
+    // (this one) still lacked an isVisibleRef body-gate — so when the pause
+    // closed the WS, onclose flipped isConnected, the setup effect's deps
+    // fired, and it immediately reopened the WS behind the pause's back
+    // (empirically confirmed: hidden terminals were still burning 17-61 KB/30s).
+    // Patch #368 (2026-08-09) adds the body-gate; deps stay the same so a
+    // visibility flip alone does NOT re-fire this effect (pause effect owns
+    // the reopen via attemptReconnection). Trade: hidden URL-restored panes
+    // no longer pre-warm — they open on first visible tap (same ~2s cost the
+    // pause layer already accepts).
     //
-    // Anchor on the pre-existing comment above the effect ("attach (not
-    // isVisible) gates WS lifecycle").
-    const anchor = "attach (not isVisible) gates WS lifecycle";
+    // Anchor on the updated comment above the effect.
+    const anchor = "attach gates initial WS lifecycle";
     const anchorIdx = src.indexOf(anchor);
     expect(anchorIdx).toBeGreaterThan(0);
-    // Read to the effect's closing deps array (within ~2000 chars from the
-    // comment — the effect body is ~30 lines).
-    const window = src.slice(anchorIdx, anchorIdx + 2000);
-    // The deps array MUST include `attach` and MUST NOT include `isVisible`
-    // as a bare identifier. Match the deps closing shape.
+    // Read to the effect's closing deps array (within ~2500 chars from the
+    // comment — the effect body is ~30 lines; the comment itself grew).
+    const window = src.slice(anchorIdx, anchorIdx + 2500);
+    // Body-gate assertion (patch #368): early-return on !isVisibleRef.current.
+    expect(window).toMatch(/if\s*\(\s*!isVisibleRef\.current\s*\)\s*return\s*;/);
+    // Deps array MUST include `attach`. Match the deps closing shape.
     const depsMatch = window.match(/\}, \[([^\]]+)\]\);/);
     expect(depsMatch).not.toBeNull();
     const depsList = depsMatch![1];
     expect(depsList).toContain("attach");
-    // Negative assert: `isVisible` must NOT appear in this deps list.
+    // Negative assert: `isVisible` must NOT appear in this deps list — the
+    // effect must only re-run on the state changes it already tracks; the
+    // pause effect owns visibility-driven reopen via attemptReconnection.
     // Use a word-boundary check because `isVisible` isn't a substring of
     // any current dep name (guards against a future rename collision).
     expect(depsList).not.toMatch(/\bisVisible\b/);
