@@ -65,7 +65,9 @@ Verbatim: *"We don't do streaming tokens."* Our assistant bubbles do NOT grow to
 
 ### Scroll anchor preservation — LOCKED (existing behavior + Ashley 2026-08-09)
 
-Verbatim: *"we already have scroll anchor."* PrettyView already handles the auto-scroll-to-bottom-when-pinned vs. don't-yank-when-scrolled-up pattern (`chatScrollBottomRef`, `chatScrollAtBottomRef`, `pv-scroll-to-bottom-request` custom event, etc). The virtualization refactor MUST preserve this existing anchor logic through the layout change — do NOT invent a new anchor mechanism. If TanStack Virtual's built-in scroll helpers conflict with our existing anchor pattern, prefer to keep OUR pattern and treat the virtualizer as headless-measurement-only.
+Verbatim: *"we already have scroll anchor."* The real API (per pattern-mapper 27-PATTERNS.md) is `useAutoScroll(paneKey) → { scrollRef, contentRef, isPinnedToBottom, forceStickAndJump, scrollToBottomAndFollow }` (see `src/ui/features/pretty-view/hooks/use-auto-scroll.ts`). The virtualization refactor MUST preserve this existing anchor logic — `scrollRef` plugs into the virtualizer's scroll container and `contentRef` becomes the sized-height wrapper. Do NOT invent a new anchor mechanism. If TanStack Virtual's built-in scroll helpers conflict with our existing anchor pattern, prefer to keep OUR pattern and treat the virtualizer as headless-measurement-only.
+
+**⚠️ CONTEXT.md correction: an earlier draft referenced `chatScrollBottomRef` / `chatScrollAtBottomRef` / `pv-scroll-to-bottom-request` custom event — those names do NOT exist in the current code. The `useAutoScroll` hook API above is authoritative.**
 
 ### Initial-slice-from-bottom hydration — LOCKED (existing behavior)
 
@@ -75,9 +77,11 @@ Opening a session paints from the bottom (recent messages first, not the top). T
 
 Image bubbles start at a small placeholder height and grow when the image loads (`onLoad`). The virtualizer's ResizeObserver-based measure hook (`measureElement` in TanStack Virtual) auto-re-measures items when their DOM height changes and re-lays out subsequent items without visible jitter. Plan MUST verify this actually works on a real image-bearing conversation before shipping (image bubble bug case in acceptance criteria).
 
-### Below-list accessories stay unvirtualized — LOCKED
+### Below-list accessories stay unvirtualized — LOCKED (with layout change)
 
-WipBubble, PlanPendingBubble, AsideBubble render in a slot BELOW the message list (they're 1-per-view accessories). Do NOT include them in the virtualized set — they render normally as siblings of the scroller. This is a scope guard, NOT a design decision to revisit.
+WipBubble, PlanPendingBubble, AsideBubble must NOT be part of the virtualized set — they render as siblings of the scroller.
+
+**⚠️ CONTEXT.md correction / pattern-mapper finding (27-PATTERNS.md): today these three accessories are NOT physically below the list — they render as siblings INSIDE the same `contentRef` flex column that holds the mapped messages (PrettyView.tsx:1725-1781, especially AsideBubble at 1776-1779). The refactor MUST physically MOVE them OUT of the sized virtualizer container into a sibling block below it, keeping them in-flow (not sticky/overlay). This is a scope-required layout change, not scope creep.**
 
 ### Rebase risk — LOW
 
@@ -90,9 +94,10 @@ Additive integration on fork-local PrettyView. No upstream Skynet surfaces touch
 **Downstream agents MUST read these before planning or implementing.**
 
 ### PrettyView + message list
-- `src/ui/features/pretty-view/PrettyView.tsx` — the file being refactored (message list section, scroll anchor logic, initial-slice hydration).
+- `src/ui/features/pretty-view/PrettyView.tsx` — the file being refactored (message-mapping block at :1715-1817, scroll-anchor consumer, initial-slice hydration).
 - `src/ui/features/pretty-view/ChatMessage.tsx` — bubble render (opaque child of virtualizer, unchanged).
-- Message-store selectors that feed the list — planner identifies exact paths via pattern-mapper.
+- `src/ui/features/pretty-view/hooks/use-auto-scroll.ts` — the scroll-anchor hook (:97-159) whose `scrollRef` / `contentRef` seams plug into the virtualizer directly. **DO NOT modify this hook** — it's preservable as-is per pattern-mapper.
+- **⚠️ CONTEXT.md correction: `messages` is component-local `useState<StreamEvent[]>` in PrettyView.tsx — NOT a store selector. No selector paths to identify. `eventId` on each StreamEvent is a ready-made virtualizer `getItemKey` (pattern-mapper finding).**
 
 ### Iter 1 + iter 2 shipped work (patterns to respect, NOT to touch)
 - `~/.claude/roles/box-maintainer/bounties/hidden-pane-cost-mitigation-empirical-rotation/bounty.json` — parent rotation record.
