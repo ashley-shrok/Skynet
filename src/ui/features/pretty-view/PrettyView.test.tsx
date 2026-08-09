@@ -1209,6 +1209,90 @@ describe("quick 260808-cd6 dormancy overlay integration", () => {
   });
 });
 
+// ── quick 260809-cnx dormant flow refinements ─────────────────────────────
+
+describe("quick 260809-cnx dormant flow refinements", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function mountDormancyPV() {
+    const resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+    const onSend = vi.fn(() => true);
+    const utils = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    return { ...utils, onSend, ws };
+  }
+
+  function sendDormantFrame(ws: WsStub, dormant: boolean): void {
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'dormant', dormant }),
+        }),
+      );
+    });
+  }
+
+  it("Fix A: dormant frame mounts ComposeBox in reduced state (typeable textarea, disabled Send)", () => {
+    const { container, ws } = mountDormancyPV();
+
+    sendDormantFrame(ws, true);
+
+    // DormancyOverlay is mounted.
+    const overlay = container.querySelector('[role="status"]');
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute('aria-label')).toContain('asleep');
+
+    // ComposeBox is mounted (fix A: mount gate now includes `dormant`).
+    const sendBtn = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
+    expect(sendBtn).toBeTruthy();
+    // Send disabled via dormantActive={dormant||waking} (pre-existing wiring).
+    expect(sendBtn.disabled).toBe(true);
+    // Textarea is present and NOT disabled (dormantActive keeps textarea typeable).
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea).toBeTruthy();
+    expect(textarea.disabled).toBe(false);
+  });
+
+  it("Fix B: visibility false→true transition resets stale waking state", () => {
+    const { container, ws, rerender, onSend } = mountDormancyPV();
+
+    sendDormantFrame(ws, true);
+
+    // Enter waking state via Wake click (mirrors 260808-cd6 Test 3).
+    const wakeBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
+    expect(wakeBtn).toBeTruthy();
+    act(() => { fireEvent.click(wakeBtn); });
+
+    // Confirm we entered waking state.
+    expect(container.textContent).toContain('Waking up…');
+
+    // Hide the pane (simulates Ashley navigating away — patch #344 closes WS).
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={false} />);
+
+    // Return to the pane (visibility false → true transition).
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />);
+
+    // The stale "Waking up…" indicator should be gone (fix B reset).
+    expect(container.textContent).not.toContain('Waking up…');
+  });
+});
+
 // ── quick 260808-ho2 loading overlay integration tests ─────────────────────
 
 describe("quick 260808-ho2 loading overlay integration", () => {
