@@ -912,10 +912,12 @@ Plans:
 
 ### Phase 27: Virtualize PrettyView message list (iter 3 of hidden-pane-cost-mitigation) — render only viewport-visible messages (~5-15 + buffer) via TanStack Virtual so DOM stays constant (~200-300 nodes) regardless of conversation length; today a 200-msg conversation renders ~2,500-3,200 DOM nodes and this scales linearly forever. Scope: src/ui/features/pretty-view/PrettyView.tsx message list only (WipBubble/PlanPendingBubble/AsideBubble in slot below stay unvirtualized). Preserve existing scroll anchor (auto-scroll-to-bottom-when-pinned vs. don't-yank-when-scrolled-up) and initial-slice-from-bottom hydration. Handle image bubble grow via ResizeObserver + re-measure. ⌘F/find-in-page regression on long conversations ACCEPTED (Ashley 2026-08-09: 'I don't really care about losing that functionality'). New dep: TanStack Virtual. Bounty tracker: ~/.claude/roles/box-maintainer/bounties/pretty-view-message-list-virtualization/. Rebase risk LOW — additive integration on fork-local PrettyView; no upstream Skynet surfaces touched.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Replace the raw `messages.map` in PrettyView.tsx with a `@tanstack/react-virtual` virtualized list so DOM node count stays flat (~30 bubble subtrees + accessories) on conversations of any length, while preserving every existing scroll-anchor behavior (auto-scroll-to-bottom-when-pinned, don't-yank-when-scrolled-up, initial-slice-from-bottom hydration) and handling image-bubble grow via TanStack Virtual's ResizeObserver.
+**Requirements**: TBD (follow-up phase to hidden-pane-cost-mitigation empirical rotation; acceptance surface is the 10-item Success criteria block in 27-CONTEXT.md § specifics, not a formal REQ-ID list)
 **Depends on:** Phase 26
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 27 to break down)
+- [ ] 27-01-PLAN.md — Wave 1: add `@tanstack/react-virtual` to package.json dependencies (not devDependencies), run install, verify with `npm ls`
+- [ ] 27-02-PLAN.md — Wave 2: refactor PrettyView.tsx message list to virtualized rendering with composed `scrollRef`+virtualizer ref, `getItemKey`=`eventId`, `data-pv-bubble` marker attribute, and move WipBubble/PlanPendingBubble/AsideBubble OUT of the sized virtualizer container into a sibling in-flow block inside the same scroll container (surprise-#1 layout change from 27-PATTERNS.md); `use-auto-scroll.ts` and diag emitter untouched
+- [ ] 27-03-PLAN.md — Wave 3: update PrettyView.aside.test.tsx for the new sibling-of-scroller layout and add new PrettyView.virtualization.test.tsx covering bounded-DOM (`<= 30` bubble subtrees on 100+ msg fixture), scroll-anchor preservation over virtualized DOM, image-bubble grow re-measure, and accessory-sibling placement invariants; full `npx vitest run` exit 0
