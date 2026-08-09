@@ -111,7 +111,9 @@ describe("Test A: identity-shape probe caches true → stat fires and emits dorm
     expect(statCmd).toContain("stat ~/.claude/identities/'myagent'/.dormant");
     expect(wsSend).toHaveBeenCalledTimes(1);
     const emitted = JSON.parse(wsSend.mock.calls[0][0]);
-    expect(emitted).toEqual({ type: "dormant", dormant: true });
+    // quick 260809-ha3: dormant:true frames now carry wakingSince (null on
+    // natural path — no wakeTriggerTs getter in this state box).
+    expect(emitted).toEqual({ type: "dormant", dormant: true, wakingSince: null });
     expect(state.dormantLastEmitted).toBe(true);
   });
 });
@@ -307,7 +309,9 @@ describe("Test G: inactive-branch dormancy probe — stat=yes → emits dormant:
     // Emitted dormant:true once
     expect(wsSend).toHaveBeenCalledTimes(1);
     const frame = JSON.parse(wsSend.mock.calls[0][0]);
-    expect(frame).toEqual({ type: "dormant", dormant: true });
+    // quick 260809-ha3: dormant:true frames now carry wakingSince (null on
+    // natural-resume path — makeDormantState(null) leaves wakeTriggerTs null).
+    expect(frame).toEqual({ type: "dormant", dormant: true, wakingSince: null });
     expect(state.current).toBe(true);
 
     // discoverSession NOT invoked (sentinel still present)
@@ -646,5 +650,110 @@ describe("Test O: marker absent + within 90s window → keep waiting", () => {
 
     // startActiveFlow NOT called
     expect(startActiveFlow).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Test P: dormant:true frame carries wakingSince field (quick 260809-ha3) ──
+//
+// The dormant:true emit sites carry a `wakingSince: number | null` field so the
+// client's DormancyOverlay wake-progress bar can survive pane hidden->visible
+// transitions (Fix B at PrettyView.tsx:1178-1187 wipes local wakingStartTs on
+// the false->true visibility edge; server-driven wakingSince restores it via
+// the next 3s poll).
+
+describe("Test P (quick 260809-ha3): dormant:true frame carries wakingSince field", () => {
+  it("__applyDormantPollWithRediscoveryForTests: wakingSince populated from wakeTriggerTs when user-initiated wake in flight", async () => {
+    const wakeTs = 1_234_567;
+    const wsSend = vi.fn();
+    const startActiveFlow = vi.fn();
+    const exec = vi.fn().mockResolvedValue("yes\n"); // sentinel still present
+    const discoverSession = vi.fn(); // not invoked while sentinel present
+    // lastEmitted=null so the seam emits (state-change guard fires from null->true).
+    // wakeTriggerTs=1_234_567 means a user-initiated wake is in flight.
+    const state = makeDormantState(null, wakeTs);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession,
+        wsSend,
+        startActiveFlow,
+        markerCommand: vi.fn().mockResolvedValue(null), // unused: sentinel still present
+        now: () => wakeTs + 1_000,                       // unused: sentinel still present
+      },
+      state,
+    );
+
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame).toEqual({ type: "dormant", dormant: true, wakingSince: wakeTs });
+    expect(state.current).toBe(true);
+    // Seam does not touch these when sentinel still present.
+    expect(discoverSession).not.toHaveBeenCalled();
+    expect(startActiveFlow).not.toHaveBeenCalled();
+  });
+
+  it("__applyDormantPollWithRediscoveryForTests: wakingSince null on natural-dormant path (no user-initiated wake)", async () => {
+    const wsSend = vi.fn();
+    const startActiveFlow = vi.fn();
+    const exec = vi.fn().mockResolvedValue("yes\n"); // sentinel still present
+    const discoverSession = vi.fn();
+    // lastEmitted=null, wakeTriggerTs=null → natural-dormant path.
+    const state = makeDormantState(null, null);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession,
+        wsSend,
+        startActiveFlow,
+        markerCommand: vi.fn().mockResolvedValue(null),
+        now: () => 0,
+      },
+      state,
+    );
+
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame).toEqual({ type: "dormant", dormant: true, wakingSince: null });
+  });
+
+  it("__applyDormantPollTickForTests: emits wakingSince from state.wakeTriggerTs getter when plumbed", async () => {
+    // quick 260809-ha3 option (3a): __DormantStateForTests extended with optional
+    // wakeTriggerTs getter. Prod call site passes `wakeTriggerTs: () => wakeTriggerTs`.
+    const wakeTs = 999;
+    const state = makeState({ isIdentityShapedCached: true, wakeTriggerTs: () => wakeTs });
+    const wsSend = vi.fn();
+    const exec = makeExec({ "stat ": "yes\n" });
+
+    await __applyDormantPollTickForTests(
+      { connSnapshot: fakeConn, escapedName: "myagent", execCommand: exec, wsSend },
+      state,
+    );
+
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame).toEqual({ type: "dormant", dormant: true, wakingSince: wakeTs });
+    expect(state.dormantLastEmitted).toBe(true);
+  });
+
+  it("__applyDormantPollTickForTests: emits wakingSince:null when getter absent (natural path)", async () => {
+    // No wakeTriggerTs getter in the state box → seam defaults to null.
+    const state = makeState({ isIdentityShapedCached: true });
+    const wsSend = vi.fn();
+    const exec = makeExec({ "stat ": "yes\n" });
+
+    await __applyDormantPollTickForTests(
+      { connSnapshot: fakeConn, escapedName: "myagent", execCommand: exec, wsSend },
+      state,
+    );
+
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame).toEqual({ type: "dormant", dormant: true, wakingSince: null });
   });
 });

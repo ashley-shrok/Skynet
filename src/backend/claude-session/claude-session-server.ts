@@ -941,6 +941,12 @@ export type __DormantStateForTests = {
   isIdentityShapedCached: boolean | null;
   identityShapeProbeInFlight: boolean;
   dormantLastEmitted: boolean | null;
+  // quick 260809-ha3: optional getter for the wake-trigger timestamp closure.
+  // When present and non-null, the dormant:true emit carries this as
+  // wakingSince so the client can restore the wake-progress bar after Fix B
+  // (visibility false->true) wipes local wakingStartTs. Absent/undefined =>
+  // wakingSince: null (natural-dormant path — no user-initiated wake in flight).
+  wakeTriggerTs?: () => number | null;
 };
 
 /**
@@ -987,7 +993,16 @@ export async function __applyDormantPollTickForTests(
       const isDormant = statOut.trim() === "yes";
       if (isDormant !== state.dormantLastEmitted) {
         state.dormantLastEmitted = isDormant;
-        wsSend(JSON.stringify({ type: "dormant", dormant: isDormant }));
+        // quick 260809-ha3: dormant:true carries wakingSince so client can
+        // restore the wake-progress bar after Fix B (visibility false->true)
+        // wipes local wakingStartTs. dormant:false is unchanged (client
+        // clears waking state on the false-branch already).
+        if (isDormant) {
+          const wakingSince = state.wakeTriggerTs?.() ?? null;
+          wsSend(JSON.stringify({ type: "dormant", dormant: true, wakingSince }));
+        } else {
+          wsSend(JSON.stringify({ type: "dormant", dormant: false }));
+        }
       }
     } catch {
       /* SSH error — skip this tick silently */
@@ -1098,7 +1113,11 @@ export async function __applyDormantPollWithRediscoveryForTests(
       // Sentinel still present — emit only on change (state-change guard)
       if (state.dormantLastEmitted() !== true) {
         state.setDormantLastEmitted(true);
-        wsSend(JSON.stringify({ type: "dormant", dormant: true }));
+        // quick 260809-ha3: dormant:true carries wakingSince (server-authoritative
+        // wake-trigger timestamp) so the client can restore the wake-progress
+        // bar after Fix B (visibility false->true edge) wipes local wakingStartTs.
+        // Natural-resume path (wakeTriggerTs null) sends wakingSince:null.
+        wsSend(JSON.stringify({ type: "dormant", dormant: true, wakingSince: state.wakeTriggerTs() }));
       }
       return; // keep polling
     }
@@ -4056,6 +4075,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
               isIdentityShapedCached,
               identityShapeProbeInFlight,
               dormantLastEmitted,
+              // quick 260809-ha3: pipe closure-scoped wakeTriggerTs through the
+              // state box so the tick seam can emit wakingSince on dormant:true.
+              wakeTriggerTs: () => wakeTriggerTs,
             };
             dormantInFlight = true;
             (async () => {
@@ -4495,7 +4517,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 tmuxSession,
               });
               try {
-                ws.send(JSON.stringify({ type: "dormant", dormant: true }));
+                // quick 260809-ha3: dormant:true carries wakingSince (closure-scoped
+                // wakeTriggerTs at ~L1264) so the client's wake-progress bar survives
+                // Fix B (visibility false->true edge). Natural-dormant path (fresh
+                // WS, no prior wake click) sends wakingSince:null.
+                ws.send(JSON.stringify({ type: "dormant", dormant: true, wakingSince: wakeTriggerTs }));
               } catch { /* ws may be mid-close */ }
               // FIX §3: Start the lightweight dormant-poll loop (3s cadence).
               // The loop polls the sentinel; on disappearance re-runs discovery;
