@@ -2085,3 +2085,107 @@ describe("PrettyConversationRow: mobile swipe-to-act (quick-260808-fkg)", () => 
     expect(onSelect).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S1-S2 — Context-menu SINGLETON (quick-260809-94y)
+// ─────────────────────────────────────────────────────────────────────────────
+// Only one row's context menu can be open at a time across the list. Opening
+// a second row's menu closes the first (module-scoped `currentClose` ref +
+// notifyMenuOpened/notifyMenuClosed helpers in PrettyConversationRow.tsx).
+// Unmount cleanup drains the singleton so a torn-down row's close-fn is not
+// leaked past its lifetime.
+
+describe("PrettyConversationRow: context-menu singleton (quick-260809-94y)", () => {
+  it("S1: opening Row B's context menu closes Row A's context menu (only 1 menu open at a time)", () => {
+    const { container } = render(
+      <>
+        <PrettyConversationRow
+          row={makeRow({ id: "conv-A", label: "alpha" })}
+          selected={false}
+          pinned={false}
+          variant="desktop"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+        />
+        <PrettyConversationRow
+          row={makeRow({ id: "conv-B", label: "bravo" })}
+          selected={false}
+          pinned={true}
+          variant="desktop"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+        />
+      </>,
+    );
+
+    const wrapperA = container.querySelector(
+      '[data-conversation-id="conv-A"]',
+    ) as HTMLElement;
+    const bodyA = wrapperA.querySelector('[role="button"]') as HTMLElement;
+
+    const wrapperB = container.querySelector(
+      '[data-conversation-id="conv-B"]',
+    ) as HTMLElement;
+    const bodyB = wrapperB.querySelector('[role="button"]') as HTMLElement;
+
+    // Open Row A's context menu.
+    fireEvent.contextMenu(bodyA, { clientX: 100, clientY: 100 });
+    expect(screen.getAllByRole("menu")).toHaveLength(1);
+
+    // Open Row B's context menu — Row A's menu must close (singleton).
+    fireEvent.contextMenu(bodyB, { clientX: 200, clientY: 200 });
+    expect(screen.getAllByRole("menu")).toHaveLength(1);
+
+    // Verify the remaining menu is Row B's: Row B is pinned=true so its menu
+    // renders "Unpin" (Row A is pinned=false → "Pin"). If Row A's menu were
+    // still open we'd see "Pin" but NOT "Unpin"; the presence of "Unpin" (and
+    // absence of a standalone "Pin") proves Row B's menu is the visible one.
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /unpin/i })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitem", { name: /^pin$/i })).toBeNull();
+  });
+
+  it("S2: unmounting a row while its menu is open clears the singleton so another row can open normally", () => {
+    // Render Row A alone and open its context menu.
+    const { container, unmount } = render(
+      <PrettyConversationRow
+        row={makeRow({ id: "conv-A" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapperA = container.querySelector(
+      '[data-conversation-id="conv-A"]',
+    ) as HTMLElement;
+    const bodyA = wrapperA.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(bodyA, { clientX: 100, clientY: 100 });
+    expect(screen.getByRole("menu")).toBeTruthy();
+
+    // Unmount Row A — cleanup effect calls notifyMenuClosed(closeSelf),
+    // draining the singleton. The portal is removed by React too.
+    unmount();
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    // Render Row B and open its context menu — must succeed cleanly (no leaked
+    // stale close-fn in the singleton that would fire spuriously).
+    const { container: c2 } = render(
+      <PrettyConversationRow
+        row={makeRow({ id: "conv-B" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapperB = c2.querySelector(
+      '[data-conversation-id="conv-B"]',
+    ) as HTMLElement;
+    const bodyB = wrapperB.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(bodyB, { clientX: 200, clientY: 200 });
+    expect(screen.getByRole("menu")).toBeTruthy();
+  });
+});
