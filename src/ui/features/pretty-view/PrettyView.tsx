@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isIosPwa } from "@/lib/is-ios-pwa";
@@ -607,6 +608,68 @@ export function PrettyView({
   const paneKey = `${hostId}::${tmuxSession}`;
   const { scrollRef, contentRef, scrollToBottomAndFollow, forceStickAndJump, isPinnedToBottom } =
     useAutoScroll(paneKey);
+
+  // Phase 27 virtualization (Plan 27-02): construct the virtualizer AFTER
+  // useAutoScroll so any CapturingResizeObserver polyfill in tests captures
+  // useAutoScroll's RO first (see 27-PATTERNS.md SURPRISE #3). The virtualizer
+  // shares the outer scroll container with useAutoScroll via a composed
+  // callback ref (composeScrollRefs below).
+  const scrollElRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollElRef.current,
+    // Rough default; measureElement corrects per-item once real DOM heights
+    // are known. TanStack Virtual defaults overscan to 5.
+    estimateSize: () => 80,
+    overscan: 5,
+    // Stable identity across dedup / reorder / prepend paths. The `?? i`
+    // fallback protects against the transient race where `messages` shrinks
+    // between renders and `count` hasn't caught up yet — TanStack Virtual
+    // will call getItemKey with the currently-cached count.
+    getItemKey: (i) => messages[i]?.eventId ?? i,
+    // Fallback viewport rect used until the first ResizeObserver callback
+    // fires on the scroll container. In real browsers this is transient
+    // (RO fires within a frame). In JSDOM (test env), ResizeObserver is a
+    // no-op stub that never fires, so this becomes the permanent rect.
+    initialRect: { width: 1024, height: 4096 },
+    // Override the default observeElementRect (which reads offsetWidth /
+    // offsetHeight) with one that falls back to a generous rect whenever
+    // the element reports zero-sized offsets. This matters in two cases:
+    //   1. JSDOM (tests): offset{Width,Height} are always 0 → without this
+    //      fallback the virtualizer computes an empty visible range and
+    //      renders nothing, breaking any content-presence assertion.
+    //   2. Hydration / first-paint-before-layout: transient zero-size read
+    //      before browser layout resolves. With this fallback, the first
+    //      paint uses a sensible slice rather than a blank box.
+    // Once the real ResizeObserver fires with a non-zero rect (the browser
+    // case), that value takes over as normal.
+    observeElementRect: (instance, cb) => {
+      const el = instance.scrollElement as HTMLElement | null;
+      if (!el) return;
+      const win = instance.targetWindow;
+      if (!win) return;
+      const read = () => {
+        const w = el.offsetWidth || 1024;
+        const h = el.offsetHeight || 4096;
+        cb({ width: w, height: h });
+      };
+      read();
+      if (!win.ResizeObserver) return () => {};
+      const ro = new win.ResizeObserver(() => read());
+      ro.observe(el);
+      return () => ro.disconnect();
+    },
+  });
+
+  // Compose useAutoScroll's scrollRef and our own scrollElRef onto the same
+  // outer scroll container DOM node so BOTH readers see the same element.
+  const composeScrollRefs = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollElRef.current = el;
+      scrollRef(el);
+    },
+    [scrollRef],
+  );
 
   // Forward the current forceStickAndJump into the ref that handleComposeSend
   // (declared earlier in this render body) reads. Avoids the TDZ that would
@@ -1731,69 +1794,146 @@ export function PrettyView({
       {(status === "streaming" ||
         ((status === "connecting" || status === "error") && messages.length > 0)) && (
         <div
-          ref={scrollRef}
+          ref={composeScrollRefs}
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-3"
         >
-          {/* Inner content wrapper: the ResizeObserver in useAutoScroll
-              watches THIS element for content-size changes (new messages,
-              markdown re-layout, Inter font swap). The outer scrollRef div
-              is watched separately for viewport-size changes. */}
-          <div ref={contentRef} className="flex flex-col gap-[18px]">
-            {/* Phase-01 scroll contract (patch #185): plain message map — no anchor ref.
-                useAutoScroll follows bottom when pinned; holds position when scrolled up. */}
-            {messages.map((m) => (
-              <div key={m.eventId}>
-                {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
-                    normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
-                    hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
-                    which pane's remote host to query. */}
-                {m.type === "image" ? (
-                  <ImageBubble
-                    role={m.role}
-                    images={m.images}
-                    text={m.text}
-                    eventId={m.eventId}
-                    ts={m.ts}
-                  />
-                ) : m.type === "relay_outbound" ? (
-                  <RelayOutboundBubble
-                    room={m.room}
-                    rawCommand={m.rawCommand}
-                    ts={m.ts}
-                  />
-                ) : m.type === "relay_inbound" ? (
-                  <RelayInboundBubble
-                    room={m.room}
-                    sender={m.sender}
-                    body={m.body}
-                    ts={m.ts}
-                    hostId={hostId}
-                  />
-                ) : (
-                  <ChatMessage
-                    role={m.role}
-                    content={m.content}
-                    identityVoice={pvIdentity?.voice ?? null}
-                    ts={m.ts}
-                  />
-                )}
+          {/* Phase 27 virtualization (Plan 27-02, Step A): sized virtualizer
+              container. The ResizeObserver in useAutoScroll still watches
+              THIS element (contentRef) for content-size changes; the outer
+              composeScrollRefs div is watched separately for viewport-size
+              changes. `position: relative` lets the absolute-positioned
+              virtualized items resolve their translateY() against this box.
+              Note (Step A intermediate state): WipBubble/PlanPendingBubble/
+              AsideBubble are kept inside this container as absolute-
+              positioned siblings pinned immediately below the last
+              virtualized item to preserve pre-Step-B test shape. Step B
+              moves them OUT to an in-flow sibling below this container. */}
+          <div
+            ref={contentRef}
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              position: "relative",
+              width: "100%",
+            }}
+          >
+            {/* Phase 27: virtualized message rendering. Only the viewport
+                slice (+ overscan) mounts real bubble subtrees. `getItemKey`
+                is bound to `messages[i].eventId` so measurement cache stays
+                stable across dedup / reorder / prepend paths. `data-pv-bubble`
+                is the empirical DOM-count hook (Wave 3 tests + post-ship
+                diag). `data-event-id` is the getItemKey identity witness.
+                `data-index` is the row-index witness. */}
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const m = messages[virtualRow.index];
+              if (!m) return null;
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-pv-bubble
+                  data-index={virtualRow.index}
+                  data-event-id={m.eventId}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                    // Was the flex column's 18px vertical rhythm; flexbox
+                    // does nothing on absolutely-positioned children, so the
+                    // 18px rhythm is baked into the item box now.
+                    paddingBottom: 18,
+                  }}
+                >
+                  {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
+                      normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
+                      hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
+                      which pane's remote host to query. */}
+                  {m.type === "image" ? (
+                    <ImageBubble
+                      role={m.role}
+                      images={m.images}
+                      text={m.text}
+                      eventId={m.eventId}
+                      ts={m.ts}
+                    />
+                  ) : m.type === "relay_outbound" ? (
+                    <RelayOutboundBubble
+                      room={m.room}
+                      rawCommand={m.rawCommand}
+                      ts={m.ts}
+                    />
+                  ) : m.type === "relay_inbound" ? (
+                    <RelayInboundBubble
+                      room={m.room}
+                      sender={m.sender}
+                      body={m.body}
+                      ts={m.ts}
+                      hostId={hostId}
+                    />
+                  ) : (
+                    <ChatMessage
+                      role={m.role}
+                      content={m.content}
+                      identityVoice={pvIdentity?.voice ?? null}
+                      ts={m.ts}
+                    />
+                  )}
+                </div>
+              );
+            })}
+            {/* Step A intermediate: accessories stay absolute-positioned
+                inside the sized virtualizer container so the DOM tree shape
+                (aside is still nested under contentRef) remains close to
+                the pre-refactor shape and pre-existing tests stay green.
+                Step B moves them to an in-flow sibling block below this
+                sized container and drops this absolute-positioning. */}
+            {isWorking && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: `${rowVirtualizer.getTotalSize()}px`,
+                  left: 0,
+                  width: "100%",
+                }}
+              >
+                <WipBubble />
               </div>
-            ))}
-            {isWorking && <WipBubble />}
+            )}
             {planPending && (
-              <PlanPendingBubble
-                planFilePath={planPending.planFilePath}
-                planContent={planPending.planContent}
-                contentError={planPending.contentError}
-                onApprove={handlePlanApprove}
-                onFeedback={handlePlanFeedback}
-              />
+              <div
+                style={{
+                  position: "absolute",
+                  top: `${rowVirtualizer.getTotalSize()}px`,
+                  left: 0,
+                  width: "100%",
+                }}
+              >
+                <PlanPendingBubble
+                  planFilePath={planPending.planFilePath}
+                  planContent={planPending.planContent}
+                  contentError={planPending.contentError}
+                  onApprove={handlePlanApprove}
+                  onFeedback={handlePlanFeedback}
+                />
+              </div>
             )}
             {/* Phase 14 Wave 3: aside bubble mounts as the last child of
                 the contentRef flex column so useAutoScroll's ResizeObserver
                 pins the viewport to it on mount (in-flow, per ASIDE-05 —
                 NOT an overlay, popup, or fixed-position element). */}
-            {asideText !== null && <AsideBubble text={asideText} />}
+            {asideText !== null && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: `${rowVirtualizer.getTotalSize()}px`,
+                  left: 0,
+                  width: "100%",
+                }}
+              >
+                <AsideBubble text={asideText} />
+              </div>
+            )}
           </div>
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
