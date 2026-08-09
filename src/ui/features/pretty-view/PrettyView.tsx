@@ -1297,7 +1297,15 @@ export function PrettyView({
         paneId: key,
         hostId,
         tmuxSession,
-        isVisible,
+        // quick-260809-eqk: read isVisibleRef.current so the diag emit reflects
+        // LIVE pane visibility rather than the closured value from first
+        // registration. The mirror useEffect at lines ~1150-1156 (iter 1,
+        // patch #344) keeps isVisibleRef.current fresh on every isVisible flip.
+        // Do NOT add `isVisible` to this effect's deps array — the pane
+        // registration key must stay stable across visibility flips
+        // (registerPane replaces the entry keyed on hostId+tmuxSession;
+        // re-registering on every flip would defeat the stable-slot design).
+        isVisible: isVisibleRef.current,
         messageCount: messagesLenRef.current,
         wsFramesSinceLast: framesSinceLast,
         domNodeCount: pvRootRef.current

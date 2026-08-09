@@ -517,3 +517,178 @@ describe("Terminal.tsx quick 260803-1xw — paste_send_failed WS handler", () =>
     expect(i18nSrc).toMatch(/"pasteSendFailed"/);
   });
 });
+
+/**
+ * quick-260809-eqk — iter 2 of hidden-pane-cost-mitigation-empirical-rotation.
+ *
+ * Structural-grep assertions for:
+ *   (a) new WS-pause useEffect on [isVisible] in Terminal.tsx (mirrors the
+ *       iter-1 shape applied to PrettyView.tsx at commit 4a3c21c);
+ *   (b) isVisibleRef guard at the top of attemptReconnection() so patch #148-
+ *       analog auto-reconnect cannot fight the pause;
+ *   (c) isVisibleRef guard on the visible branch of the iOS PWA
+ *       visibilitychange handler so foreground events cannot reopen a hidden
+ *       pane's WS;
+ *   (d) no duplication of the pre-existing isVisibleRef mirror effect;
+ *   (e) main WS-setup effect at line ~2903 still gates on `attach` and NOT on
+ *       `isVisible` (accepted tradeoff for the URL-restore contract);
+ *   (f) PrettyView.tsx registerPane snapshotFn returns isVisibleRef.current
+ *       (fixes stale-closure bug post-iter-1 so diag emits reflect live
+ *       visibility);
+ *   (g) PrettyView.tsx registerPane useEffect deps stay [hostId, tmuxSession]
+ *       so the pane-registration slot doesn't churn on every visibility flip.
+ *
+ * All Terminal.tsx assertions anchor on the `quick-260809-eqk` comment tags
+ * planted in the source so they survive future reformatting.
+ */
+describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
+  const src = readFileSync(TERMINAL_TSX, "utf-8");
+  const PV_SRC_PATH = join(HERE, "..", "pretty-view", "PrettyView.tsx");
+  const pvSrc = readFileSync(PV_SRC_PATH, "utf-8");
+
+  it("Test eqk-1: Terminal.tsx contains exactly one isVisibleRef.current = isVisible mirror (no duplication)", () => {
+    // The pre-existing mirror lives at line ~580 (present before this
+    // patch). A second mirror would race with the first and defeat the
+    // single-source-of-truth for isVisibleRef.
+    const matches = src.match(/isVisibleRef\.current = isVisible/g);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(1);
+  });
+
+  it("Test eqk-2: Terminal.tsx contains a new [isVisible]-keyed useEffect tagged quick-260809-eqk with close() + attemptReconnection()", () => {
+    // Anchor on the planted comment tag introducing the WS-pause effect.
+    // The body must reference BOTH the close path and the reopen path so
+    // the test guards against a well-meaning refactor that splits them or
+    // removes one branch.
+    const anchor = "quick-260809-eqk — Terminal-SSH WS-pause lifecycle effect";
+    const anchorIdx = src.indexOf(anchor);
+    expect(anchorIdx).toBeGreaterThan(0);
+    // Effect body spans from the tag comment to the next useEffect / other
+    // block. 8000 chars covers the verbose ~40-line rationale header plus
+    // the ~35-line effect body.
+    const block = src.slice(anchorIdx, anchorIdx + 8000);
+    expect(block).toMatch(/useEffect\(\(\) => \{/);
+    expect(block).toContain("webSocketRef.current");
+    expect(block).toContain("ws.close()");
+    expect(block).toContain("attemptReconnection()");
+    // deps must be exactly [isVisible]
+    expect(block).toMatch(/\}, \[isVisible\]\);/);
+    // eslint-disable-next-line for the deps comment (mirrors PV iter-1 shape)
+    expect(block).toContain("eslint-disable-line react-hooks/exhaustive-deps");
+    // Clear the pending reconnect timer belt-and-suspenders
+    expect(block).toContain("clearTimeout(reconnectTimeoutRef");
+    // Fresh reconnect budget on re-show
+    expect(block).toContain("reconnectAttempts.current = 0");
+  });
+
+  it("Test eqk-3: attemptReconnection() opens with isVisibleRef.current early-return", () => {
+    // The guard must be the FIRST statement inside the function body so it
+    // runs before every other early-return check — patch #148 auto-reconnect
+    // cannot fight the pause otherwise.
+    const fnIdx = src.indexOf("function attemptReconnection() {");
+    expect(fnIdx).toBeGreaterThan(0);
+    // Read the first ~400 chars of the function body (enough to cover the
+    // planted comment + guard + the original guard block start).
+    const body = src.slice(fnIdx, fnIdx + 500);
+    // The guard line — anchored on the planted comment tag for deterministic
+    // matching that survives reformatting.
+    expect(body).toContain("quick-260809-eqk: hidden panes must not fight the WS-pause effect");
+    expect(body).toMatch(/if \(!isVisibleRef\.current\) return;/);
+    // Positional check: the isVisibleRef guard appears BEFORE the pre-existing
+    // guard block on isUnmountingRef / shouldNotReconnectRef.
+    const guardIdx = body.indexOf("if (!isVisibleRef.current) return;");
+    const oldGuardIdx = body.indexOf("isUnmountingRef.current ||");
+    expect(guardIdx).toBeGreaterThan(0);
+    expect(oldGuardIdx).toBeGreaterThan(guardIdx);
+  });
+
+  it("Test eqk-4: iOS PWA visibilitychange handler's visible branch early-returns on !isVisibleRef.current", () => {
+    // Anchor on the planted quick-260809-eqk tag on the visible branch.
+    // The pretty-view mirror of this guard lives in PrettyView.tsx around
+    // line ~986 (iter 1).
+    const anchor = "quick-260809-eqk: pane hidden → do not open WS from foreground event";
+    const anchorIdx = src.indexOf(anchor);
+    expect(anchorIdx).toBeGreaterThan(0);
+    // The guard line lives shortly after the anchor comment (the anchor is
+    // a multi-line rationale block; 800 chars covers ~10 comment lines +
+    // the guard line itself).
+    const window = src.slice(anchorIdx, anchorIdx + 800);
+    expect(window).toMatch(/if \(!isVisibleRef\.current\) return;/);
+    // Positional check: the guard must live in the VISIBLE branch (after
+    // `document.hidden` early return, and inside the isIosPwa-gated effect).
+    // Locate `if (document.hidden)` before the anchor and confirm it exists —
+    // this proves we planted in the correct effect.
+    const hiddenBranchIdx = src.lastIndexOf("if (document.hidden)", anchorIdx);
+    expect(hiddenBranchIdx).toBeGreaterThan(0);
+    expect(anchorIdx).toBeGreaterThan(hiddenBranchIdx);
+    // And the isIosPwa gate is above the hidden branch.
+    const iosGateIdx = src.lastIndexOf("if (!isIosPwa()) return;", hiddenBranchIdx);
+    expect(iosGateIdx).toBeGreaterThan(0);
+  });
+
+  it("Test eqk-5: main WS-setup effect at line ~2903 stays keyed on `attach`, NOT on `isVisible`", () => {
+    // The bounty explicitly preserves the URL-restore contract: URL-restored
+    // active-set members must open their WS on mount even offscreen. The
+    // pause effect owns the close on isVisible=false — the WS-setup effect
+    // MUST stay attach-keyed to prevent regressions.
+    //
+    // Anchor on the pre-existing comment above the effect ("attach (not
+    // isVisible) gates WS lifecycle").
+    const anchor = "attach (not isVisible) gates WS lifecycle";
+    const anchorIdx = src.indexOf(anchor);
+    expect(anchorIdx).toBeGreaterThan(0);
+    // Read to the effect's closing deps array (within ~2000 chars from the
+    // comment — the effect body is ~30 lines).
+    const window = src.slice(anchorIdx, anchorIdx + 2000);
+    // The deps array MUST include `attach` and MUST NOT include `isVisible`
+    // as a bare identifier. Match the deps closing shape.
+    const depsMatch = window.match(/\}, \[([^\]]+)\]\);/);
+    expect(depsMatch).not.toBeNull();
+    const depsList = depsMatch![1];
+    expect(depsList).toContain("attach");
+    // Negative assert: `isVisible` must NOT appear in this deps list.
+    // Use a word-boundary check because `isVisible` isn't a substring of
+    // any current dep name (guards against a future rename collision).
+    expect(depsList).not.toMatch(/\bisVisible\b/);
+  });
+
+  it("Test eqk-6: PrettyView.tsx registerPane snapshotFn returns isVisible: isVisibleRef.current", () => {
+    // Fixes the stale-closure bug where the snapshotFn returned `isVisible`
+    // captured from render scope at first registration (deps are
+    // [hostId, tmuxSession], intentionally not [isVisible]). Post-fix the
+    // snapshot reads through the ref which the mirror effect at
+    // lines ~1150-1156 keeps live.
+    expect(pvSrc).toMatch(/isVisible: isVisibleRef\.current,/);
+    // Negative assert: the buggy `isVisible,` (shorthand, closure-captured)
+    // must NOT appear inside the returned object of the snapshotFn.
+    // Locate the snapshot return block and check it doesn't contain the
+    // shorthand form.
+    const snapIdx = pvSrc.indexOf('kind: "pretty-view",');
+    expect(snapIdx).toBeGreaterThan(0);
+    // Snapshot return object plus the inserted rationale comment lives
+    // within ~1500 chars of the `kind:` line.
+    const snapBlock = pvSrc.slice(snapIdx, snapIdx + 1500);
+    // Positive: fresh-read form present
+    expect(snapBlock).toContain("isVisible: isVisibleRef.current");
+    // Negative: bare shorthand `isVisible,` (with no colon before it) absent —
+    // shorthand-property form would be dishonest under the [hostId,
+    // tmuxSession] deps design.
+    expect(snapBlock).not.toMatch(/^\s*isVisible,\s*$/m);
+  });
+
+  it("Test eqk-7: PrettyView.tsx registerPane useEffect deps remain [hostId, tmuxSession] (not extended with isVisible)", () => {
+    // Guards against a well-meaning fix that adds `isVisible` to the deps
+    // array — which would re-register the pane on every visibility flip and
+    // defeat the stable-key design (the diag emitter uses the key as its
+    // slot identifier).
+    const snapIdx = pvSrc.indexOf('kind: "pretty-view",');
+    expect(snapIdx).toBeGreaterThan(0);
+    // Deps live within ~2000 chars after the snapshot-return object opens
+    // (the inserted rationale comment inside the object added ~600 chars).
+    const afterSnap = pvSrc.slice(snapIdx, snapIdx + 2000);
+    // Match the exact deps array shape.
+    expect(afterSnap).toMatch(/\}, \[hostId, tmuxSession\]\);/);
+    // Negative: no [hostId, tmuxSession, isVisible] variant.
+    expect(afterSnap).not.toMatch(/\[hostId, tmuxSession, isVisible\]/);
+  });
+});

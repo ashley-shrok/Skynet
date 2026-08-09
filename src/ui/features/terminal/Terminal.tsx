@@ -386,6 +386,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         }
         // visible branch
         if (isUnmountingRef.current) return;
+        // quick-260809-eqk: pane hidden → do not open WS from foreground event.
+        // The WS-pause effect above owns the reopen path (fires on isVisible→true).
+        // Without this guard, an iOS PWA foreground event on a currently-hidden
+        // pane would reopen its WS behind the pause effect's back — single-knob
+        // isVisibleRef gate per bounty design (mirror of PrettyView.tsx iter-1
+        // guard at ~line 986).
+        if (!isVisibleRef.current) return;
         shouldNotReconnectRef.current = false;
         isReconnectingRef.current = false;
         isConnectingRef.current = false;
@@ -579,6 +586,90 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       isVisibleRef.current = isVisible;
     }, [isVisible]);
+
+    // quick-260809-eqk — Terminal-SSH WS-pause lifecycle effect
+    // (iteration 2 of hidden-pane-cost-mitigation-empirical-rotation).
+    //
+    // PURPOSE: close the Terminal-side SSH WebSocket when this pane is hidden
+    // (isVisible=false) and reopen it when the pane becomes visible again
+    // (isVisible=false→true). Iteration 1 (patch #344, quick-260808-b74, commit
+    // 4a3c21c) applied this same pattern to PrettyView's Claude-session WS and
+    // measured ~10-13 → ~5 WS frames/30s per hidden pane; this iteration
+    // targets the equivalent drop for hidden Terminal panes' SSH WS + xterm
+    // write stream + reconnect chatter.
+    //
+    // TEMPLATE: mirrors PrettyView.tsx iteration-1 shape verbatim so the diff
+    // reads as a copy. Close-when-hidden clears any pending reconnect timer
+    // first (belt: `isVisibleRef.current` guard added to `attemptReconnection`
+    // below is the second layer); reopen-when-visible resets the reconnect
+    // budget and calls `attemptReconnection()` directly — Terminal already
+    // has that dedicated reconnect entrypoint with full guard logic
+    // (isReconnectingRef, isConnectingRef, wasDisconnectedBySSH,
+    // maxReconnectAttempts), so we reuse it rather than inventing a new
+    // connect path or bumping a setRetryKey-style state (which is
+    // PrettyView's shape but not present in Terminal).
+    //
+    // ACCEPTED TRADEOFF: the main WS-setup effect at line ~2903 stays gated on
+    // `attach` (NOT `isVisible`) so URL-restored active-set members open their
+    // WS on mount even offscreen. This pause effect then immediately closes it
+    // — tmux persists across WS disconnects, so no session state is lost.
+    // The brief open→close cycle is the price of preserving the URL-restore
+    // contract (bounty url-restore-loads-only-selected-session-not-full-active-set).
+    //
+    // INITIAL-MOUNT NO-OP: on the first effect run isVisible flips
+    // false→true (isVisibleRef starts false at line 321); the WS-setup effect
+    // at line ~2903 is already opening the WS on mount via connectToHost —
+    // do not double-trigger. The visible branch below is a no-op when
+    // readyState is OPEN or CONNECTING.
+    useEffect(() => {
+      if (!isVisible) {
+        // Pane became hidden — close the WS if it is open or connecting.
+        const ws = webSocketRef.current;
+        if (
+          ws !== null &&
+          (ws.readyState === WebSocket.OPEN ||
+            ws.readyState === WebSocket.CONNECTING)
+        ) {
+          // Clear any in-flight reconnect timer first so it doesn't fire
+          // while hidden and immediately reopen (the isVisibleRef guard on
+          // attemptReconnection is the belt; this clearTimeout is the
+          // suspenders — mirrors PrettyView.tsx:1041-1044).
+          if (reconnectTimeoutRef.current !== null) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+          }
+          ws.close();
+          // onclose fires → the existing close handling path runs. The
+          // isVisibleRef guard added to attemptReconnection short-circuits
+          // any auto-reconnect scheduling while hidden.
+        }
+      } else {
+        // Pane became visible — reopen the WS if it is gone or closing.
+        const ws = webSocketRef.current;
+        if (
+          attach &&
+          (ws === null ||
+            ws.readyState === WebSocket.CLOSING ||
+            ws.readyState === WebSocket.CLOSED)
+        ) {
+          // Fresh budget for this re-show (mirrors the iOS PWA
+          // visibilitychange handler's "Fresh budget" pattern at line 383).
+          reconnectAttempts.current = 0;
+          attemptReconnection();
+          // attemptReconnection() reuses the existing patch #148 reconnect
+          // machinery (isReconnectingRef, backoff, maxReconnectAttempts,
+          // etc.) — no new connect path invented.
+        }
+        // If WS is already OPEN or CONNECTING (e.g. initial mount with
+        // isVisible=true), no-op — don't interfere with the WS-setup effect.
+      }
+    }, [isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+    // deps: [isVisible] only. Reads only refs (webSocketRef,
+    // reconnectTimeoutRef, reconnectAttempts) and calls attemptReconnection
+    // (a stable function reference in this file — declared as `function` at
+    // line ~945, not `useCallback`). Adding `attach` to deps would re-fire
+    // this effect on the attach flip, which is already handled by the main
+    // WS-setup effect at line ~2903 — deliberate separation of concerns.
 
     // Bounty pretty-view-per-pane-cost-diag: register with the diag registry
     // so the interval emitter can query this pane's cost snapshot. Keyed
@@ -943,6 +1034,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     }
 
     function attemptReconnection() {
+      // quick-260809-eqk: hidden panes must not fight the WS-pause effect.
+      // The pause effect above closes the WS on isVisible→false; without
+      // this guard, the onclose handler / patch #148-analog auto-reconnect
+      // logic would re-schedule + re-open behind our back while hidden.
+      // The pause effect owns the reopen path (fires on isVisible→true).
+      if (!isVisibleRef.current) return;
       if (
         isUnmountingRef.current ||
         shouldNotReconnectRef.current ||
