@@ -86,6 +86,34 @@ import {
   type PrettyContextMenuItem,
 } from "./PrettyConversationContextMenu";
 
+// ─── Context-menu singleton (quick-260809-94y) ───────────────────────────────
+// Only one row's context menu may be open at a time across the list. The
+// module-scoped `currentClose` ref tracks the most recently opened row's
+// close-fn. Both open sites (desktop right-click + mobile long-press timer)
+// call `notifyMenuOpened(closeSelf)` BEFORE `setCtxMenu({...})`. The wrapped
+// `onClose` prop on `<PrettyConversationContextMenu>` calls `notifyMenuClosed`
+// so the singleton is cleared when the menu closes normally. Unmount cleanup
+// also calls `notifyMenuClosed` (idempotent — safe if menu is already closed).
+//
+// Re-entry guard: `currentClose` is nulled BEFORE calling `prev()` so that
+// `prev`'s own `onClose` wrapper (which calls `notifyMenuClosed(prev)`) finds
+// `currentClose === null` and no-ops, preventing a clobber of the newly
+// registered `closeFn`.
+let currentClose: (() => void) | null = null;
+
+export function notifyMenuOpened(closeFn: () => void): void {
+  if (currentClose && currentClose !== closeFn) {
+    const prev = currentClose;
+    currentClose = null; // prevent re-entry: prev's onClose should not re-register
+    prev();
+  }
+  currentClose = closeFn;
+}
+
+export function notifyMenuClosed(closeFn: () => void): void {
+  if (currentClose === closeFn) currentClose = null;
+}
+
 // ─── Prop shape ──────────────────────────────────────────────────────────────
 // `variant` drives the density class (`pv-row--mobile` vs `pv-row--desktop`)
 // AND the long-press wiring gate (mobile-only). Desktop rows never arm the
@@ -228,6 +256,7 @@ export function PrettyConversationRow({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
+  const closeSelf = useCallback(() => setCtxMenu(null), []);
   const onRowContextMenu = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
       // quick-260804-uo4: RDP rows now open the context menu — the row-level
@@ -236,9 +265,10 @@ export function PrettyConversationRow({
       // items[] predicate).
       e.preventDefault();
       e.stopPropagation();
+      notifyMenuOpened(closeSelf);
       setCtxMenu({ x: e.clientX, y: e.clientY });
     },
-    [],
+    [closeSelf],
   );
 
   // ─── Mobile long-press → context menu (quick-260802-pq2) ──────────────────
@@ -412,6 +442,7 @@ export function PrettyConversationRow({
       // touchEnd/Cancel; belt-and-suspenders).
       clearLongPressTimer();
       longPressTimerRef.current = window.setTimeout(() => {
+        notifyMenuOpened(closeSelf);
         setCtxMenu({ x, y });
         // Feature-checked haptic — many browsers (esp. iOS Safari) do NOT
         // implement navigator.vibrate. `?.` guards the call.
@@ -432,7 +463,7 @@ export function PrettyConversationRow({
       armedRef.current = false;
       disarmedRef.current = false;
     },
-    [isMobile, isRdp, clearLongPressTimer],
+    [isMobile, isRdp, clearLongPressTimer, closeSelf],
   );
 
   const onTouchMove = useCallback(
@@ -585,7 +616,10 @@ export function PrettyConversationRow({
   // Cleanup on unmount so a pending timer doesn't fire against an unmounted
   // component (setState on unmounted → React warning + potential dangling
   // navigator.vibrate call). quick-260808-fkg extends the cleanup to also
-  // drain the swipe snap-back timer.
+  // drain the swipe snap-back timer. quick-260809-94y extends the cleanup to
+  // also drain the context-menu singleton so a torn-down row's close-fn is
+  // not retained past its lifetime (idempotent — notifyMenuClosed no-ops if
+  // currentClose !== closeSelf, i.e. another row already claimed the slot).
   useEffect(() => {
     return () => {
       if (longPressTimerRef.current !== null) {
@@ -596,8 +630,9 @@ export function PrettyConversationRow({
         window.clearTimeout(snapTimerRef.current);
         snapTimerRef.current = null;
       }
+      notifyMenuClosed(closeSelf);
     };
-  }, []);
+  }, [closeSelf]);
 
   // ─── Row-body click ────────────────────────────────────────────────────────
   // Post-pq2: no swipe close-branch. Mobile short-tap AND desktop click both
@@ -961,7 +996,7 @@ export function PrettyConversationRow({
             }
             return items;
           })()}
-          onClose={() => setCtxMenu(null)}
+          onClose={() => { notifyMenuClosed(closeSelf); closeSelf(); }}
         />
       )}
     </div>
