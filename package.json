@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
+    "@tanstack/react-virtual": "^3.14.9",
     "@tailwindcss/typography": "^0.5.20",
     "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
