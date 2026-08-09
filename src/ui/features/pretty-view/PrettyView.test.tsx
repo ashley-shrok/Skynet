@@ -1293,6 +1293,92 @@ describe("quick 260809-cnx dormant flow refinements", () => {
   });
 });
 
+// ── quick 260809-ha3 wake progress survives visibility roundtrip ──────────
+
+describe("quick 260809-ha3 wake progress survives visibility roundtrip", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function mountDormancyPV() {
+    const resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+    const onSend = vi.fn(() => true);
+    const utils = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    return { ...utils, onSend, ws };
+  }
+
+  function sendDormantFrameWithWakingSince(ws: WsStub, dormant: boolean, wakingSince: number | null): void {
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'dormant', dormant, wakingSince }),
+        }),
+      );
+    });
+  }
+
+  it("wake progress restored after visibility roundtrip via wakingSince frame", () => {
+    const { container, ws, rerender, onSend } = mountDormancyPV();
+
+    // Step 1-2: enter dormant state via natural-dormant frame (wakingSince=null).
+    // Overlay is mounted asleep, no "Waking up…" text yet.
+    sendDormantFrameWithWakingSince(ws, true, null);
+    expect(container.textContent).not.toContain('Waking up…');
+    const wakeBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
+    expect(wakeBtn).toBeTruthy();
+
+    // Step 3: click Wake — local-fallback path sets waking=true + wakingStartTs=Date.now().
+    act(() => { fireEvent.click(wakeBtn); });
+    expect(container.textContent).toContain('Waking up…');
+
+    // Step 4: hide + show — Fix B fires on the false->true edge, wiping local
+    // waking state. Overlay is still mounted (dormant is still true), but the
+    // "Waking up…" indicator is gone.
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={false} />);
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />);
+    expect(container.textContent).not.toContain('Waking up…');
+
+    // Step 5: server's next 3s dormant poll arrives with wakingSince from
+    // wakeTriggerTs — simulate a wake that started 30s ago server-side.
+    const serverWakeTs = Date.now() - 30_000;
+    sendDormantFrameWithWakingSince(ws, true, serverWakeTs);
+
+    // Step 6: waking state restored, "Waking up…" back on screen.
+    expect(container.textContent).toContain('Waking up…');
+
+    // Step 7: advance timers 1s — elapsedSeconds ticker keeps running (derived
+    // from Date.now() - wakingStartTs). "Waking up…" persists across the tick.
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(container.textContent).toContain('Waking up…');
+  });
+
+  it("wakingSince null preserves natural-dormant behavior — does not enter waking state", () => {
+    const { container, ws } = mountDormancyPV();
+
+    // Natural-dormant frame (wakingSince=null) — no user-initiated wake in
+    // flight. Overlay mounts asleep with Wake button; MUST NOT show "Waking up…".
+    sendDormantFrameWithWakingSince(ws, true, null);
+    expect(container.textContent).not.toContain('Waking up…');
+    // Wake button is present (offering the click), not hidden by a waking state.
+    expect(container.querySelector('button[aria-label="Wake identity"]')).toBeTruthy();
+  });
+});
+
 // ── quick 260808-ho2 loading overlay integration tests ─────────────────────
 
 describe("quick 260808-ho2 loading overlay integration", () => {

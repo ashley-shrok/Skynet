@@ -834,6 +834,22 @@ export function PrettyView({
             // would eventually cover this too, but an explicit clear is
             // cleaner and does not leave a stale 10s ghost.
             setIsBooting(false);
+            // quick 260809-ha3: server-driven wakingSince restores wake-progress
+            // bar after Fix B (visibility false->true edge at L1178-1187) wipes
+            // local wakingStartTs. Loose-equality guards both undefined (older
+            // servers pre-260809-ha3) and explicit null (natural-dormant path).
+            // Non-null wakingSince means a user-initiated wake is in flight
+            // server-side — enter waking state with the authoritative timestamp.
+            if (parsed.wakingSince != null) {
+              setWaking(true);
+              setWakingStartTs(parsed.wakingSince);
+              setWakeError(null);
+              // elapsedSeconds ticker (useEffect ~L1201) reacts to wakingStartTs
+              // going from null to a number and picks up the count automatically.
+            }
+            // parsed.wakingSince == null (undefined OR explicit null): natural-
+            // dormant path — leave waking/wakingStartTs untouched. The dormant:
+            // false else-branch below handles clearing when the wake completes.
           } else {
             // Natural resume path: supervisor path 1/2 auto-wake, or race
             // with our own wake. Clear all waking state.
