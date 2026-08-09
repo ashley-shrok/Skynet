@@ -1352,7 +1352,7 @@ export function PrettyView({
   // clears the timer on unmount OR when isBooting flips back false via any
   // path (first-live-frame dismiss, fresh-pane remount, dormancy/holding
   // takeover — the isBooting deps re-run covers all of them). Contrast
-  // with SessionHoldingOverlay's 300000ms (5 min) watchdog: loading is
+  // with SessionHoldingOverlay's 600000ms (10 min) watchdog: loading is
   // expected to be sub-5s, so 10s is the right stuck-state gate here.
   useEffect(() => {
     if (!isBooting) return;
