@@ -1,12 +1,13 @@
 /**
- * quick 260808-cd6 — DormancyOverlay unit tests.
+ * quick 260808-cd6 + 260809 progress-bar refinement — DormancyOverlay unit tests.
  *
  * Seven tests covering:
  *   Test 1: waking=false, error=null → renders "This session is asleep" + Wake button enabled.
  *   Test 2: waking=false → Wake button click invokes onWake prop.
  *   Test 3: waking=true, elapsedSeconds=0 → renders "Waking up…" + NO Wake button.
- *   Test 4: waking=true, elapsedSeconds=14 → does NOT render elapsed-hint.
- *   Test 5: waking=true, elapsedSeconds=15 → DOES render "This can take up to a minute." hint.
+ *   Test 4: waking=true → progressbar rendered; aria-valuenow scales with elapsedSeconds
+ *           and caps at 95 (90s ETA * 0.95 cap).
+ *   Test 5: waking=false OR error set → progressbar NOT rendered.
  *   Test 6: waking=false, error="rm failed" → warm-red error copy + Wake button (retry).
  *   Test 7: Moon glyph is STATIC — rendered SVG does NOT carry `animate-spin`
  *           in any variant (motion-channel guardrail regression guard).
@@ -58,23 +59,46 @@ describe('DormancyOverlay — waking state (waking=true, elapsedSeconds=0)', () 
 
 // ─── Test 4 ───────────────────────────────────────────────────────────────────
 
-describe('DormancyOverlay — waking state at 14s (no elapsed-hint yet)', () => {
-  it('does NOT render the "This can take up to a minute." hint at elapsedSeconds=14', () => {
-    render(
-      <DormancyOverlay waking={true} elapsedSeconds={14} onWake={vi.fn()} />,
+describe('DormancyOverlay — waking-state progress bar', () => {
+  it('renders a progressbar whose aria-valuenow scales with elapsedSeconds and caps at 95', () => {
+    // At elapsedSeconds=0 → 0
+    const { rerender } = render(
+      <DormancyOverlay waking={true} elapsedSeconds={0} onWake={vi.fn()} />,
     );
-    expect(screen.queryByText(/this can take up to a minute/i)).toBeNull();
+    let bar = screen.getByRole('progressbar', { name: /waking progress/i });
+    expect(bar.getAttribute('aria-valuenow')).toBe('0');
+
+    // At elapsedSeconds=45 (half of 90s ETA) → 50
+    rerender(
+      <DormancyOverlay waking={true} elapsedSeconds={45} onWake={vi.fn()} />,
+    );
+    bar = screen.getByRole('progressbar', { name: /waking progress/i });
+    expect(bar.getAttribute('aria-valuenow')).toBe('50');
+
+    // At elapsedSeconds=200 (well past 90s) → capped at 95
+    rerender(
+      <DormancyOverlay waking={true} elapsedSeconds={200} onWake={vi.fn()} />,
+    );
+    bar = screen.getByRole('progressbar', { name: /waking progress/i });
+    expect(bar.getAttribute('aria-valuenow')).toBe('95');
   });
 });
 
 // ─── Test 5 ───────────────────────────────────────────────────────────────────
 
-describe('DormancyOverlay — waking state at 15s (elapsed-hint appears)', () => {
-  it('renders "This can take up to a minute." hint at elapsedSeconds=15', () => {
-    render(
-      <DormancyOverlay waking={true} elapsedSeconds={15} onWake={vi.fn()} />,
+describe('DormancyOverlay — progress bar suppression', () => {
+  it('does NOT render progressbar in asleep state (waking=false, with or without error)', () => {
+    // asleep + no error — no bar
+    const { rerender } = render(
+      <DormancyOverlay waking={false} elapsedSeconds={0} onWake={vi.fn()} />,
     );
-    expect(screen.getByText(/this can take up to a minute/i)).toBeTruthy();
+    expect(screen.queryByRole('progressbar', { name: /waking progress/i })).toBeNull();
+
+    // asleep + error (Wake-failed retry state) — no bar
+    rerender(
+      <DormancyOverlay waking={false} elapsedSeconds={30} onWake={vi.fn()} error="rm failed" />,
+    );
+    expect(screen.queryByRole('progressbar', { name: /waking progress/i })).toBeNull();
   });
 });
 

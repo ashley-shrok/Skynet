@@ -13,9 +13,10 @@
 //     OR "waking…" static-glyph copy (waking state). No spinner — same motion-
 //     channel guardrail as SessionHoldingOverlay (STATIC Moon glyph always;
 //     NO animate-spin).
-//   * Elapsed-seconds hint ("this can take up to 60s") after 15s of waking, so
+//   * Progress bar (waking, non-error): fills to ~95% over WAKE_ETA_SECONDS so
 //     the overlay never looks hung during the supervisor's ≤30s CHECK_INTERVAL +
-//     ~30s claude-launch latency window.
+//     ~30s claude-launch latency window. Expectation-setting only — overlay
+//     dismisses via PrettyView's live-frame auto-dismiss when wake completes.
 //   * Error variant (warm-red card) when wake failed — mirrors the SessionHoldingOverlay
 //     patch #122 error-variant classes verbatim.
 //
@@ -41,11 +42,19 @@ import { Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/button";
 
+// Empirical wake ETA (Ashley timed ~90s end-to-end on T1000, 2026-08-09).
+// Progress bar linearly fills to WAKE_ETA_PROGRESS_CAP over this window; it
+// caps below 100% so a slow wake doesn't LOOK done before the live-frame
+// dismiss actually fires. Overlay dismisses via PrettyView's live-frame
+// auto-dismiss path — this bar is expectation-setting, not truth.
+const WAKE_ETA_SECONDS = 90;
+const WAKE_ETA_PROGRESS_CAP = 0.95;
+
 interface DormancyOverlayProps {
   // false = "session is asleep" + Wake button; true = "waking…" static state
   waking: boolean;
   // 0 until Wake clicked; PrettyView useEffect ticks this while waking=true.
-  // Hint "this can take up to 60s" renders ONLY when waking && elapsedSeconds >= 15.
+  // Feeds the progress-bar width (waking && !showError only).
   elapsedSeconds: number;
   // Wake button click handler. Disabled when waking=true.
   onWake: () => void;
@@ -138,9 +147,29 @@ export function DormancyOverlay({
           </span>
         </div>
 
-        {/* Elapsed-hint: only when waking and >= 15s have elapsed */}
-        {waking && elapsedSeconds >= 15 && (
-          <span className="text-white/50 text-xs">This can take up to a minute.</span>
+        {/* Progress bar (waking, non-error): fills to ~95% over WAKE_ETA_SECONDS.
+            Expectation-setting only — overlay dismisses via PrettyView's
+            live-frame auto-dismiss when the wake actually completes. */}
+        {waking && !showError && (
+          <div
+            className="w-full h-[3px] rounded-full bg-white/10 overflow-hidden"
+            role="progressbar"
+            aria-label="Waking progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(
+              Math.min(elapsedSeconds / WAKE_ETA_SECONDS, WAKE_ETA_PROGRESS_CAP) * 100,
+            )}
+          >
+            <div
+              className="h-full bg-white/60 transition-[width] duration-1000 ease-linear"
+              style={{
+                width: `${
+                  Math.min(elapsedSeconds / WAKE_ETA_SECONDS, WAKE_ETA_PROGRESS_CAP) * 100
+                }%`,
+              }}
+            />
+          </div>
         )}
 
         {/* Wake button: visible only in asleep state (not waking, not waking-error-retry) */}
