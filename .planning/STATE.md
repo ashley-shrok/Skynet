@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 25 — sidebar-role-clustering-group-identities-by-role-within-host
+**Current focus:** Phase 27 — Virtualize PrettyView message list (iter 3 of hidden-pane-cost-mitigation)
 
 ## Current Position
 
-Phase: 25 (sidebar-role-clustering-group-identities-by-role-within-host) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-08-05
+Phase: 27 (virtualize-prettyview-message-list-iter-3-of-hidden-pane-cos) — CODE COMPLETE, awaiting deploy greenlight
+Plan: 3 of 3 (all waves executed clean, full frontend suite green 1692/0 fail)
+Status: Ready for orchestrator deploy motion (docker build + coord-room announce + recreate + HTTPS 200 verify + push + patch entry in skynet-patches.md). Post-deploy: image-bubble grow manual UAT + post-ship diag pull on 200-msg conversation to compare against baseline + parent bounty close + diag-emitter rip-out.
+Last activity: 2026-08-09
 
 _(Phase 20 was Plan 4 of 6 at the top of this session — untouched by this run. Phase 22 pointer is set here because Plan 22-01 just completed; it was the target of this execute-plan invocation.)_
 
