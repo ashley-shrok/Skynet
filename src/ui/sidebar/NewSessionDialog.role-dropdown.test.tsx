@@ -201,10 +201,19 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     await waitFor(() => {
       expect(screen.queryByLabelText(/^role$/i)).toBeTruthy();
     });
-    // Pick a role
+    // Pick a role. The .value assertion is wrapped in waitFor because under
+    // full-suite load React 18 concurrent-mode batching can delay the
+    // controlled-input re-render past the synchronous fireEvent boundary
+    // (flake surfaced during quick 260809-ih9's suite run; observed once,
+    // did not repro in isolation — this hardening is the fix Ashley asked
+    // for post-#370).
     const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
     fireEvent.change(roleSelect, { target: { value: "tina" } });
-    expect(roleSelect.value).toBe("tina");
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText(/^role$/i) as HTMLSelectElement).value,
+      ).toBe("tina");
+    });
 
     // Host B: different roles
     mockListRolesForHost.mockResolvedValueOnce([
