@@ -151,13 +151,17 @@ const userCrypto = UserCrypto.getInstance();
 // Imported above and re-exported so callers outside this module can still use it if needed.
 export { humanizeWakeupSchedule };
 
-// Phase 3 session-changeover tuning constants. Holding timeout: 15 * 3s = 45s.
-// Per D-31 and CONTEXT.md § holding timeout — Nelly's timing note: "new .jsonl
-// appears within ~5s; fully-loaded identity ~30-70s later." 45s catches the
-// "no new file appeared" degenerate case (recycle failed to relaunch anything)
-// while giving normal recycles headroom. If this tunes out on live use, bump
-// it up by editing this constant only — no state machine change required.
-const HOLDING_TIMEOUT_TICKS = 15;
+// Phase 3 session-changeover tuning constants. Holding timeout: 200 * 3s = 600s (10min).
+// Per D-31 and CONTEXT.md § holding timeout — Nelly's original timing note said "new .jsonl
+// appears within ~5s; fully-loaded identity ~30-70s later" but real /id reset flows
+// under load can take multiple minutes (Ashley 2026-08-09: original 45s tripped the
+// "recycle failed — refresh to check" red overlay ~60s into a normal reset that later
+// completed fine; then teardownPane meant even after success nothing cleared the overlay).
+// 10min matches the client-side belt-and-suspenders watchdog at
+// src/ui/features/pretty-view/PrettyView.tsx (was 5min, bumped in the same change) so
+// the two agree; the client watchdog covers the WS-drop case where the backend can't
+// deliver the frame. Keep the two constants in lockstep on any future retune.
+const HOLDING_TIMEOUT_TICKS = 200;
 const DISCOVERY_REPOLL_INTERVAL_MS = 3000;
 // Harness-tasks poller tuning — moved to module scope from the pre-refactor
 // inline block so the setupHarnessTasksPoller helper (per BLOCKER fix from

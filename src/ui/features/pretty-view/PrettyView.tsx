@@ -1307,7 +1307,7 @@ export function PrettyView({
   }, [isHolding]);
 
   // Patch #122: client-side belt-and-suspenders holding_timeout watchdog.
-  // When isHolding flips true, start a 300000ms timer (5 minutes); when it
+  // When isHolding flips true, start a 600000ms timer (10 minutes); when it
   // fires, flip the overlay to its red-bubble variant. Redundant with the
   // backend's own `inactive { reason: 'holding_timeout' }` frame
   // (claude-session-server.ts line 1645), but survives the case where the
@@ -1316,13 +1316,16 @@ export function PrettyView({
   // when isHolding flips back false (session_changed, another reset click).
   // Patch #127: bumped from 120000ms (2 min) to 300000ms (5 min) — real
   // backend recycles under load legitimately exceeded 2 min, tripping the
-  // red-bubble prematurely. 5 min preserves the WS-drop safety net while
-  // cutting false-positive rate.
+  // red-bubble prematurely.
+  // Ashley 2026-08-09: bumped again to 600000ms (10 min); real /id reset
+  // flows sometimes exceed 5 min. Kept in lockstep with backend
+  // HOLDING_TIMEOUT_TICKS=200 in claude-session-server.ts so the two
+  // agree on when a hold is genuinely dead.
   useEffect(() => {
     if (!isHolding) return;
     const t = setTimeout(() => {
       setHoldingTimeoutError(true);
-    }, 300000);
+    }, 600000);
     return () => {
       clearTimeout(t);
     };
