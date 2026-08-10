@@ -381,7 +381,10 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     });
   });
 
-  it("Test 2: auto-scroll-to-bottom-when-pinned — scrollTop jumps to bottom via paneKey rAF-chain over virtualized layout", async () => {
+  // SKIP TEMP 2026-08-10: auto-scroll disabled per bounty
+  // pv-disable-auto-scroll-temp — restore this assertion when
+  // bounty pv-auto-scroll-redesign lands.
+  it.skip("Test 2: auto-scroll-to-bottom-when-pinned — scrollTop jumps to bottom via paneKey rAF-chain over virtualized layout", async () => {
     // CONTEXT.md § Success criteria #4. useAutoScroll's paneKey-change
     // useEffect (use-auto-scroll.ts:108-127) arms a 300ms rAF-chain that
     // writes scrollTop = scrollHeight every frame. That primitive works
