@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket, type RawData } from "ws";
+import { createHash } from "node:crypto";
 import type { Client as SSHClientType } from "ssh2";
 import { AuthManager } from "../utils/auth-manager.js";
 import { UserCrypto } from "../utils/user-crypto.js";
@@ -150,6 +151,21 @@ const userCrypto = UserCrypto.getInstance();
 // circular dependency (reader imports from server → server imports from reader would cycle).
 // Imported above and re-exported so callers outside this module can still use it if needed.
 export { humanizeWakeupSchedule };
+
+// pv-malformed-line-dedup-across-tail-restarts (2026-08-10): stable eventId
+// derived from the raw malformed line so appendDedup can collapse replays.
+// tailSessionFile runs `tail -F -n +1`, which re-reads from line 1 on every
+// (re)start (WS reconnect / session_changed / patch #344 visibility resume);
+// without a content-derived id, each replay of the same malformed line got a
+// fresh random id and stacked as a new bubble. 12 hex chars = 48 bits, ample
+// for line-uniqueness within one session file.
+function malformedEventId(rawLine: string): string {
+  return (
+    "malformed-" +
+    createHash("sha1").update(rawLine).digest("hex").slice(0, 12)
+  );
+}
+export const __malformedEventIdForTests = malformedEventId;
 
 // Phase 3 session-changeover tuning constants. Holding timeout: 200 * 3s = 600s (10min).
 // Per D-31 and CONTEXT.md § holding timeout — Nelly's original timing note said "new .jsonl
@@ -1982,21 +1998,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
         // pv-malformed-jsonl-placeholder-bubble (2026-08-10): emit a
         // placeholder frame so the frontend can render a compact
         // "[malformed JSONL line — N bytes, content lost]" bubble.
-        // Fabricated eventId (no uuid available — the record didn't parse)
-        // and Date.now() ts. Bytes carries the trimmed byte length as
-        // diagnostic. Root cause is a Claude Code writer race and is
-        // reported separately upstream; this placeholder is user-facing
-        // visibility that a turn was silently dropped.
+        // eventId is a content-hash of the raw line (see malformedEventId)
+        // so tail-restart replays dedupe via appendDedup instead of stacking.
+        // Bytes carries the trimmed byte length as diagnostic. Root cause is
+        // a Claude Code writer race reported separately upstream; this
+        // placeholder is user-facing visibility that a turn was dropped.
         try {
           ws.send(
             JSON.stringify({
               type: "malformed_line",
               bytes: parsed.bytes,
-              eventId:
-                "malformed-" +
-                String(Date.now()) +
-                "-" +
-                Math.random().toString(36).slice(2, 8),
+              eventId: malformedEventId(line),
               ts: Date.now(),
             }),
           );
