@@ -2028,7 +2028,11 @@ export function PrettyView({
           // on end-of-scroll. Without it, iOS locks the touch for 10-15s while its
           // arbitrator hunts for a scroll owner (AppShell's outer chain is all
           // overflow-hidden), and the surface becomes unresponsive to swipes.
-          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
+          // quick 260810-ia4 Fix 3: `[overflow-anchor:none]` — browser native
+          // scroll-anchoring competes with TanStack Virtual's re-measure adjustments
+          // for scroll-position authority; the virtualizer should be the sole
+          // authority through measurement changes.
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 [overflow-anchor:none]"
         >
           {/* Phase 27 virtualization (Plan 27-02, Step A): sized virtualizer
               container. The ResizeObserver in useAutoScroll still watches
