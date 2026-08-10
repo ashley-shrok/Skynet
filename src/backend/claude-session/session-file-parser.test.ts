@@ -634,3 +634,114 @@ describe("parseSessionLine — relay detection (Phase 17 / RELAYBUB-01, RELAYBUB
     expect(parsed.eventId).toBe("reg-user-1");
   });
 });
+
+// pv-parser-accept-queued-command-attachment (2026-08-10) — observed in
+// Nelly's session where Ashley typed normally in pretty view and hit enter;
+// the harness wrote it as type:"attachment" with attachment.type:
+// "queued_command" and the message never rendered. Parser must accept this
+// shape as a user turn with attachment.prompt as content.
+describe("parseSessionLine — queued_command attachment (harness quirk)", () => {
+  it("Test A: queued_command attachment renders as user message", () => {
+    const parsed = parseSessionLine(
+      line({
+        parentUuid: "84c75621-4531-4520-ac60-125b26532a56",
+        isSidechain: false,
+        attachment: {
+          type: "queued_command",
+          prompt: "can you give me a tailnet link to download project hail mary movie",
+          commandMode: "prompt",
+        },
+        type: "attachment",
+        uuid: "8d41244c-938c-4542-903d-f61db595317c",
+        timestamp: "2026-08-10T02:16:36.778Z",
+        userType: "external",
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("user");
+    expect(parsed.content).toBe(
+      "can you give me a tailnet link to download project hail mary movie",
+    );
+    expect(parsed.eventId).toBe("8d41244c-938c-4542-903d-f61db595317c");
+    expect(parsed.ts).toBe(Date.parse("2026-08-10T02:16:36.778Z"));
+  });
+
+  it("Test B: attachment with unrelated type still skips (task_reminder)", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "u-att-tr",
+        timestamp: "2026-08-10T02:27:37.865Z",
+        attachment: { type: "task_reminder", content: [], itemCount: 0 },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("attachment");
+  });
+
+  it("Test C: queued_command attachment with empty prompt skips", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "u-att-empty",
+        timestamp: "2026-08-10T02:16:36.778Z",
+        attachment: { type: "queued_command", prompt: "" },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("attachment");
+  });
+
+  it("Test D: queued_command attachment missing prompt skips", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "u-att-nop",
+        timestamp: "2026-08-10T02:16:36.778Z",
+        attachment: { type: "queued_command" },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("attachment");
+  });
+
+  it("Test E: queued_command attachment falls back to messageId then random eventId when uuid missing", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        messageId: "m-att-mid",
+        timestamp: "2026-08-10T02:16:36.778Z",
+        attachment: { type: "queued_command", prompt: "hello" },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.eventId).toBe("m-att-mid");
+  });
+});
+
+// pv-malformed-jsonl-placeholder-bubble (2026-08-10) — Claude Code's JSONL
+// writer occasionally concatenates records on the same line and truncates
+// the first mid-string. Parser must return kind:"malformed" with the raw
+// byte count so the consumer can surface a placeholder bubble.
+describe("parseSessionLine — malformed line diagnostic bytes", () => {
+  it("Test F: unparseable JSON returns kind:malformed with bytes=trimmed length", () => {
+    const raw = '{"parentUuid":"e610c7c4","type":"assistant","content":[{"type":"thinking","signature":"AAA{"type":"file-history-snapshot"}';
+    const parsed = parseSessionLine(raw);
+    expect(parsed.kind).toBe("malformed");
+    if (parsed.kind !== "malformed") throw new Error("unreachable");
+    expect(parsed.bytes).toBe(raw.length);
+  });
+
+  it("Test G: malformed bytes reflects trimmed length (whitespace stripped)", () => {
+    const raw = "   {broken json   ";
+    const parsed = parseSessionLine(raw);
+    expect(parsed.kind).toBe("malformed");
+    if (parsed.kind !== "malformed") throw new Error("unreachable");
+    expect(parsed.bytes).toBe(raw.trim().length);
+  });
+});

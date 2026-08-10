@@ -112,7 +112,13 @@ export type ParsedLine =
   | RelayOutboundMessage
   | RelayInboundMessage
   | { kind: "skip"; why: string }
-  | { kind: "malformed" };
+  // `bytes` carries the trimmed byte length of the unparseable line so the
+  // consumer can surface a placeholder bubble with diagnostic info (see
+  // pv-malformed-jsonl-placeholder-bubble bounty, 2026-08-10: Claude Code's
+  // JSONL writer occasionally concatenates two records on the same line
+  // AND truncates the first mid-string — content is unrecoverable, but a
+  // byte-count placeholder tells Ashley something was lost).
+  | { kind: "malformed"; bytes: number };
 
 type ContentBlock = { type?: string; text?: string; [k: string]: unknown };
 
@@ -372,12 +378,53 @@ export function parseSessionLine(line: string): ParsedLine {
   try {
     obj = JSON.parse(trimmed) as Record<string, unknown>;
   } catch {
-    return { kind: "malformed" };
+    return { kind: "malformed", bytes: trimmed.length };
   }
 
   const type = obj.type;
   const isUser = type === "user";
   const isAssistant = type === "assistant";
+
+  // Harness quirk (pv-parser-accept-queued-command-attachment, 2026-08-10):
+  // Some user prompts land as type:"attachment" with attachment.type:
+  // "queued_command" — Ashley typed normally in pretty view and hit enter,
+  // no queue feature used, but Claude Code wrote it as a queued_command
+  // attachment. Without this branch the message never renders as a bubble
+  // (skipped as why:"attachment"). Treat as a user turn with attachment.prompt
+  // as content. Runs BEFORE the isUser/isAssistant gate.
+  if (type === "attachment") {
+    const att = obj.attachment;
+    if (att !== null && typeof att === "object") {
+      const attObj = att as Record<string, unknown>;
+      if (attObj.type === "queued_command") {
+        const prompt = attObj.prompt;
+        if (typeof prompt === "string" && prompt.length > 0) {
+          const uuid = obj.uuid;
+          const messageId = obj.messageId;
+          const eventId =
+            typeof uuid === "string" && uuid.length > 0
+              ? uuid
+              : typeof messageId === "string" && messageId.length > 0
+                ? messageId
+                : fallbackEventId();
+          const rawTs = obj.timestamp;
+          let ts = Date.now();
+          if (typeof rawTs === "string") {
+            const parsed = Date.parse(rawTs);
+            if (Number.isFinite(parsed)) ts = parsed;
+          }
+          return {
+            kind: "message",
+            role: "user",
+            content: prompt,
+            eventId,
+            ts,
+          };
+        }
+      }
+    }
+  }
+
   if (!isUser && !isAssistant) {
     return { kind: "skip", why: String(type ?? "unknown") };
   }

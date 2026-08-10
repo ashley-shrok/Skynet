@@ -1978,7 +1978,34 @@ wss.on("connection", async (ws: WebSocket, req) => {
           /* ws may be mid-close; drop */
         }
         break;
-      // kind:"skip" and kind:"malformed" — silent drop (RENDER-01 lock)
+      case "malformed":
+        // pv-malformed-jsonl-placeholder-bubble (2026-08-10): emit a
+        // placeholder frame so the frontend can render a compact
+        // "[malformed JSONL line — N bytes, content lost]" bubble.
+        // Fabricated eventId (no uuid available — the record didn't parse)
+        // and Date.now() ts. Bytes carries the trimmed byte length as
+        // diagnostic. Root cause is a Claude Code writer race and is
+        // reported separately upstream; this placeholder is user-facing
+        // visibility that a turn was silently dropped.
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "malformed_line",
+              bytes: parsed.bytes,
+              eventId:
+                "malformed-" +
+                String(Date.now()) +
+                "-" +
+                Math.random().toString(36).slice(2, 8),
+              ts: Date.now(),
+            }),
+          );
+        } catch {
+          /* ws may be mid-close; drop */
+        }
+        break;
+      // kind:"skip" — silent drop (RENDER-01 lock; skip covers meta,
+      // empty_content, harness_wrapper, no_message, unknown-type)
     }
   };
 

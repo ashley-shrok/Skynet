@@ -16,11 +16,13 @@ import {
   type ImageEvent,
   type RelayOutboundEvent,
   type RelayInboundEvent,
+  type MalformedLineEvent,
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
 import { ImageBubble } from "./ImageBubble";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
 import { RelayInboundBubble } from "./RelayInboundBubble";
+import { MalformedBubble } from "./MalformedBubble";
 import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
 import { AsideBubble } from "./AsideBubble";
@@ -161,7 +163,12 @@ type Status = "connecting" | "streaming" | "inactive" | "error";
 // Ashley sees "the agent read this image" at the correct chronological
 // position). Both event shapes share `eventId` + `ts`, so appendDedup's
 // dedup logic remains a one-line hash check.
-type StreamEvent = ChatMessageEvent | ImageEvent | RelayOutboundEvent | RelayInboundEvent;
+type StreamEvent =
+  | ChatMessageEvent
+  | ImageEvent
+  | RelayOutboundEvent
+  | RelayInboundEvent
+  | MalformedLineEvent;
 
 function appendDedup(
   prev: StreamEvent[],
@@ -902,6 +909,7 @@ export function PrettyView({
           parsed.type === "image" ||
           parsed.type === "relay_inbound" ||
           parsed.type === "relay_outbound" ||
+          parsed.type === "malformed_line" ||
           parsed.type === "context_pct" ||
           parsed.type === "harness_tasks" ||
           parsed.type === "session")
@@ -926,6 +934,7 @@ export function PrettyView({
           parsed.type === "image" ||
           parsed.type === "relay_inbound" ||
           parsed.type === "relay_outbound" ||
+          parsed.type === "malformed_line" ||
           parsed.type === "context_pct" ||
           parsed.type === "harness_tasks" ||
           parsed.type === "session")
@@ -956,6 +965,12 @@ export function PrettyView({
         }
         case "relay_inbound": {
           // RELAYBUB-02: inbound relay frame → RelayInboundBubble (blue-gray, right-aligned per patch #200).
+          setMessages((prev) => appendDedup(prev, parsed));
+          break;
+        }
+        case "malformed_line": {
+          // pv-malformed-jsonl-placeholder-bubble (2026-08-10): interleave a
+          // compact placeholder so a dropped turn is visible instead of silent.
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
@@ -1979,6 +1994,8 @@ export function PrettyView({
                       ts={m.ts}
                       hostId={hostId}
                     />
+                  ) : m.type === "malformed_line" ? (
+                    <MalformedBubble bytes={m.bytes} ts={m.ts} />
                   ) : (
                     <ChatMessage
                       role={m.role}

@@ -216,6 +216,24 @@ export type DormantEvent = { type: "dormant"; dormant: boolean };
 /** quick 260808-cd6 — dormancy overlay + wake button */
 export type WakeResultEvent = { type: "wake_result"; ok: boolean; error?: string };
 
+/**
+ * pv-malformed-jsonl-placeholder-bubble (2026-08-10) — surfaced when
+ * parseSessionLine returns kind:"malformed" (JSON.parse threw on the raw
+ * line). The truncated turn's content is unrecoverable (Claude Code's
+ * JSONL writer occasionally races an assistant record and a
+ * file-history-snapshot onto the same line and cuts the first mid-string).
+ * `bytes` carries the trimmed byte length of the unparseable line for
+ * diagnostic display; `eventId` is fabricated backend-side (no uuid was
+ * parseable). Rendered as a compact placeholder bubble so Ashley sees
+ * that something was dropped instead of silently losing the turn.
+ */
+export type MalformedLineEvent = {
+  type: "malformed_line";
+  bytes: number;
+  eventId: string;
+  ts: number;
+};
+
 export type ClaudeSessionServerEvent =
   | SessionMetaEvent
   | MessageEvent
@@ -254,7 +272,9 @@ export type ClaudeSessionServerEvent =
   // Phase 17 relay events — handlers added in plan 17-03; PrettyView's
   // non-exhaustive switch silently ignores these until then.
   | RelayOutboundEvent
-  | RelayInboundEvent;
+  | RelayInboundEvent
+  // pv-malformed-jsonl-placeholder-bubble (2026-08-10)
+  | MalformedLineEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
