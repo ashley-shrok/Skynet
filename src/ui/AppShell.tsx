@@ -54,6 +54,7 @@ import {
   updateHostTree,
   updateOpenTabs,
   updateFleetSessions,
+  removeFleetSession,
   updateHostsFlat,
   updateIdentitiesByKey,
   useSelectedConversationId,
@@ -1524,6 +1525,7 @@ export function AppShell({
                 row.targetTmuxSession,
               );
               closeTab(row.id);
+              removeFleetSession(parseInt(row.host.id, 10), row.targetTmuxSession);
             } catch (err) {
               window.alert(
                 err instanceof Error ? err.message : "Failed to kill session",
