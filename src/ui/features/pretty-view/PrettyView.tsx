@@ -181,6 +181,42 @@ function appendDedup(
   return [...prev, next];
 }
 
+// quick 260810-ia4 Fix 1: type-aware initial height estimate for the
+// TanStack Virtual estimateSize callback. Returns a value that is ~90%
+// correct instead of the prior constant 80, shrinking the re-measure
+// correction deltas that displaced visible content under Ashley's scroll
+// gesture. measureElement still corrects per-item once real DOM heights
+// are known — this only reduces the first-estimate error.
+//
+// Rules:
+//   image            → 400  (tall by default; overshooting is fine — corrects downward)
+//   code-block text  → Math.max(120, lineCount * 22 + 40)
+//   plain text       → Math.max(80, Math.min(400, textLength * 0.4))
+//   no-text fallback → 80   (MalformedLineEvent + other non-text events)
+//
+// Module-local helper getMessageText is deliberately unexported — the
+// test constructs StreamEvent literals and calls estimatePvBubbleSize
+// directly; no need to expose the inner helper.
+function getMessageText(m: StreamEvent): string {
+  if (m.type === "image") return "";
+  if (m.type === "message") return m.content;
+  if (m.type === "relay_outbound") return m.rawCommand;
+  if (m.type === "relay_inbound") return m.body;
+  // malformed_line has no usable text field
+  return "";
+}
+
+export function estimatePvBubbleSize(m: StreamEvent): number {
+  if (m.type === "image") return 400;
+  const text = getMessageText(m);
+  if (/```/.test(text)) {
+    const lineCount = (text.match(/\n/g)?.length ?? 0) + 1;
+    return Math.max(120, lineCount * 22 + 40);
+  }
+  const textLength = text.length;
+  return Math.max(80, Math.min(400, textLength * 0.4));
+}
+
 // Phase 14 followup + UAT amendment E41 (Ashley 2026-07-27): recognize both
 // invocation forms of the /id command. (a) SSH-typed raw form: literal
 // "/id " prefix (trailing space excludes /identity / /idle / bare /id).
@@ -717,9 +753,12 @@ export function PrettyView({
   const rowVirtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollElRef.current,
-    // Rough default; measureElement corrects per-item once real DOM heights
-    // are known. TanStack Virtual defaults overscan to 5.
-    estimateSize: () => 80,
+    // quick 260810-ia4 Fix 1: type-aware estimate (image / code-block /
+    // plain-text) via estimatePvBubbleSize — was a constant 80. measureElement
+    // still corrects per-item once real DOM heights are known; this helper
+    // reduces the first-estimate error so re-measure correction deltas are
+    // smaller and displace visible content less under Ashley's scroll gesture.
+    estimateSize: (i) => estimatePvBubbleSize(messages[i]),
     overscan: 5,
     // Phase 28 (M1): matches the outer scroll container's py-3 (= 12px)
     // top padding — the sized virtualizer container starts at scrollTop
