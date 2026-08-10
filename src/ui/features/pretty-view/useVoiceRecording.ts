@@ -296,8 +296,12 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
       console.warn(`[voice-diag] cancel: gate rejected (state !== recording), returning`);
       return;
     }
-    playSound(cancelAudioRef.current);
+    // AudioSession-safety: play cancel.mp3 AFTER recorder teardown, not before.
+    // iOS Safari shares one AudioSession between MediaRecorder and Audio playback;
+    // starting playback while recording is active can drop MediaRecorder.onstop and
+    // orphan the buffered audio (bounty voice-recording-audio-feedback-ordering-onstop-drop).
     await stopRecording();
+    playSound(cancelAudioRef.current);
     console.warn(`[voice-diag] cancel: stopRecording resolved, setting state=idle`);
     // Blob is discarded — no fetch.
     setState("idle");
@@ -318,8 +322,9 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
       return null;
     }
 
-    playSound(stopAudioRef.current);
+    // AudioSession-safety: play stop.mp3 AFTER recorder teardown — see cancel() above.
     const blob = await stopRecording();
+    playSound(stopAudioRef.current);
     console.warn(`[voice-diag] endAppend: stopRecording resolved, blob=${blob ? `size=${blob.size}` : "null"}, setting state=transcribing`);
     setState("transcribing");
 
@@ -359,8 +364,9 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
       return null;
     }
 
-    playSound(stopAudioRef.current);
+    // AudioSession-safety: play stop.mp3 AFTER recorder teardown — see cancel() above.
     const blob = await stopRecording();
+    playSound(stopAudioRef.current);
     console.warn(`[voice-diag] endSend: stopRecording resolved, blob=${blob ? `size=${blob.size}` : "null"}, setting state=transcribing`);
     setState("transcribing");
 

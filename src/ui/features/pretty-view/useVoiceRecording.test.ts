@@ -358,12 +358,20 @@ describe("useVoiceRecording", () => {
     }
   });
 
-  it("Test C: stop.mp3 plays before STT fetch in endAppend and endSend", async () => {
+  it("Test C: stop.mp3 plays AFTER recorder.stop() and BEFORE STT fetch in endAppend and endSend", async () => {
+    // AudioSession-safety anti-regression: stop.mp3 must play AFTER recorder.stop()
+    // to keep iOS Safari's AudioSession in record mode through the recorder teardown +
+    // onstop dispatch. Playing before recorder.stop() (the original order) causes
+    // AudioSession to switch playback mid-recording and can drop onstop, orphaning
+    // the audio blob. See bounty voice-recording-audio-feedback-ordering-onstop-drop.
+
     // --- endAppend variant ---
     const { result } = renderHook(() => useVoiceRecording());
 
     act(() => { result.current.start(); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
+
+    const recorder = MockMediaRecorder.instances[0];
 
     await act(async () => {
       await result.current.endAppend("text");
@@ -376,6 +384,8 @@ describe("useVoiceRecording", () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     const stopPlayOrder = stopAudio!.play.mock.invocationCallOrder[0];
     const fetchCallOrder = fetchMock.mock.invocationCallOrder[0];
+    const recorderStopOrder = recorder.stop.mock.invocationCallOrder[0];
+    expect(recorderStopOrder).toBeLessThan(stopPlayOrder);
     expect(stopPlayOrder).toBeLessThan(fetchCallOrder);
 
     // --- endSend variant (fresh hook) ---
@@ -387,6 +397,8 @@ describe("useVoiceRecording", () => {
 
     act(() => { result2.current.start(); });
     await waitFor(() => expect(result2.current.state).toBe("recording"));
+
+    const recorder2 = MockMediaRecorder.instances[0];
 
     // Reset fetch mock invocation tracking
     fetchMock.mockClear();
@@ -401,10 +413,13 @@ describe("useVoiceRecording", () => {
 
     const stopPlayOrder2 = stopAudio2!.play.mock.invocationCallOrder[0];
     const fetchCallOrder2 = fetchMock.mock.invocationCallOrder[0];
+    const recorderStopOrder2 = recorder2.stop.mock.invocationCallOrder[0];
+    expect(recorderStopOrder2).toBeLessThan(stopPlayOrder2);
     expect(stopPlayOrder2).toBeLessThan(fetchCallOrder2);
   });
 
-  it("Test D: cancel.mp3 plays before recorder teardown in cancel()", async () => {
+  it("Test D: cancel.mp3 plays AFTER recorder teardown in cancel()", async () => {
+    // AudioSession-safety anti-regression — see Test C.
     const { result } = renderHook(() => useVoiceRecording());
 
     act(() => { result.current.start(); });
@@ -420,10 +435,11 @@ describe("useVoiceRecording", () => {
     expect(cancelAudio).not.toBeNull();
     expect(cancelAudio!.play).toHaveBeenCalledTimes(1);
 
-    // cancelAudio.play() must have been called BEFORE recorder.stop()
+    // cancelAudio.play() must have been called AFTER recorder.stop() to keep
+    // iOS Safari's AudioSession in record mode through recorder teardown.
     const cancelPlayOrder = cancelAudio!.play.mock.invocationCallOrder[0];
     const recorderStopOrder = recorder.stop.mock.invocationCallOrder[0];
-    expect(cancelPlayOrder).toBeLessThan(recorderStopOrder);
+    expect(recorderStopOrder).toBeLessThan(cancelPlayOrder);
   });
 
   it("Test E: error.mp3 plays on STT HTTP 500, and on fetch network error", async () => {
