@@ -1,3 +1,9 @@
+// phase-29: contract preserved — see the appended describe block at the
+// bottom of the file for the new phase-source-of-truth transition tests
+// (SPEC req 7 — resolving → holding → active dot-suppression semantics).
+// The original 5 tests below are UNTOUCHED per SPEC req 7 explicit
+// "existing tests continue to pass unchanged".
+//
 // ─── session-recycling-store — Vitest coverage (quick-260730-qbl) ────────────
 // 5 tests covering the in-memory per-(host, tmuxSession) recycling-state
 // store — mirrors session-working-store.test.ts's 4-test shape verbatim and
@@ -27,6 +33,7 @@ import { useRef } from "react";
 import {
   publishSessionRecycling,
   useSessionRecycling,
+  getSessionRecyclingSnapshot,
   __resetForTest,
 } from "./session-recycling-store.js";
 
@@ -169,5 +176,115 @@ describe("session-recycling-store: no-op notify guard on duplicate publish", () 
     });
     expect(result.current.value).toBe(true);
     expect(result.current.count).toBe(afterFirstPublish);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// phase-29: SPEC req 7 — publish contract preserved with new source-of-truth
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Phase 29 replaces PrettyView.tsx's retired `showOverlay` delay-armed boolean
+// with a phase-derived call: the publisher now fires
+// `publishSessionRecycling(key, phase === "holding")` on every phase change.
+// The SEMANTIC (dot suppressed exactly when the holding overlay is visible)
+// is preserved; the SOURCE OF TRUTH flipped from a race-prone local delay-arm
+// to the deterministic unified pane-entry state machine.
+//
+// This describe block exercises the store's public surface directly — it
+// mirrors the exact sequence of publishSessionRecycling(...) calls that
+// PrettyView.tsx makes as the state machine walks phase transitions. It does
+// NOT mount PrettyView (the integration side of the SPEC req 7 contract is
+// covered by the structural-grep gate in PrettyView.phase29.test.tsx that
+// asserts `publishSessionRecycling(...,phase === "holding")` with deps
+// `[phase, hostId, tmuxSession]`).
+//
+// Four tests:
+//   1. During resolving: publish(false) — dot NOT suppressed. This is the
+//      key phase-29 invariant Ashley called out — the resolving spinner is
+//      not the holding overlay, so the row's ready-dot must remain visible.
+//   2. Transition into holding: publish(true) — dot suppressed.
+//   3. Transition out of holding: publish(false) — dot un-suppressed.
+//   4. Full sequence resolving → active → holding → active — snapshot values
+//      track exactly [false, false, true, false].
+
+describe("session-recycling-store — phase 29 resolving→holding transition (SPEC req 7)", () => {
+  it("publish(key, false) during resolving → snapshot returns false (dot NOT suppressed during resolving)", () => {
+    // The state machine's resolving phase drives `phase === "holding"` to
+    // false, so PrettyView.tsx publishes false during the entire resolving
+    // window. The store must reflect that faithfully — a `null` (never
+    // published) return would be equally correct for the dot-suppression
+    // check but for phase-29 the publisher fires on the first phase change
+    // after mount, so a value is written promptly.
+    publishSessionRecycling("h1:s1", false);
+    const snap = getSessionRecyclingSnapshot();
+    expect(snap.get("h1:s1")).toBe(false);
+  });
+
+  it("publish(key, true) on transition into holding → snapshot returns true (dot suppressed)", () => {
+    // Simulate the state machine walking through the initial resolving
+    // phase then transitioning into holding.
+    publishSessionRecycling("h1:s1", false);
+    publishSessionRecycling("h1:s1", true);
+    const snap = getSessionRecyclingSnapshot();
+    expect(snap.get("h1:s1")).toBe(true);
+  });
+
+  it("publish(key, false) on transition out of holding → snapshot returns false (dot un-suppressed)", () => {
+    // Simulate holding → session_holding_cleared (or session_changed) where
+    // the state machine's D-11 clean-swap flips phase back to active.
+    publishSessionRecycling("h1:s1", true);
+    publishSessionRecycling("h1:s1", false);
+    const snap = getSessionRecyclingSnapshot();
+    expect(snap.get("h1:s1")).toBe(false);
+  });
+
+  it("resolving → active → holding → active sequence: snapshot values track exactly {false, false, true, false} (per-transition observations via a subscribing hook)", () => {
+    // Mirrors the store's use inside PrettyView.tsx: the useEffect subscribes
+    // to `phase` via the deps array, so every phase transition publishes the
+    // new (phase === "holding") boolean. Assert each step of the sequence
+    // via a subscribing hook that captures the observed value at each render.
+    const observed: (boolean | null)[] = [];
+    const { rerender } = renderHook(() => {
+      const v = useSessionRecycling("h1:s1");
+      observed.push(v);
+      return v;
+    });
+    // Initial render: never published → null.
+    expect(observed[observed.length - 1]).toBeNull();
+
+    // resolving → publisher fires false (dot NOT suppressed during resolving).
+    act(() => {
+      publishSessionRecycling("h1:s1", false);
+    });
+    rerender();
+    expect(observed[observed.length - 1]).toBe(false);
+
+    // active → publisher fires false again (phase !== "holding"). The store's
+    // no-op notify guard means the subscriber does not re-render, but the
+    // snapshot value stays correct — assert via a direct snapshot read as
+    // well as the observed sequence.
+    act(() => {
+      publishSessionRecycling("h1:s1", false);
+    });
+    rerender();
+    expect(observed[observed.length - 1]).toBe(false);
+    expect(getSessionRecyclingSnapshot().get("h1:s1")).toBe(false);
+
+    // holding → publisher fires true (dot suppressed).
+    act(() => {
+      publishSessionRecycling("h1:s1", true);
+    });
+    rerender();
+    expect(observed[observed.length - 1]).toBe(true);
+    expect(getSessionRecyclingSnapshot().get("h1:s1")).toBe(true);
+
+    // active (D-11 clean-swap: holding → active without going through
+    // resolving) → publisher fires false again (dot un-suppressed).
+    act(() => {
+      publishSessionRecycling("h1:s1", false);
+    });
+    rerender();
+    expect(observed[observed.length - 1]).toBe(false);
+    expect(getSessionRecyclingSnapshot().get("h1:s1")).toBe(false);
   });
 });
