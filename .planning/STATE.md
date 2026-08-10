@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-10T07:16:15.804Z"
+last_updated: "2026-08-10T11:23:03.984Z"
 last_activity: 2026-08-10
 progress:
-  total_phases: 29
+  total_phases: 30
   completed_phases: 23
-  total_plans: 118
-  completed_plans: 114
-  percent: 79
+  total_plans: 121
+  completed_plans: 116
+  percent: 77
 ---
 
 # Project State
@@ -133,7 +133,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -201,6 +201,7 @@ Progress: [██████████] 99%
 | Phase 29 P03 | 12min | 2 tasks | 2 files |
 | Phase 29 P04 | 35min | 1 tasks | 1 files |
 | Phase 29 P05 | 40 minutes | 4 tasks | 3 files |
+| Phase 30 P02 | 15m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -291,6 +292,9 @@ Recent decisions affecting current work:
 - [Phase ?]: PrettyViewErrorOverlay uses role='alert' (not status) to distinguish terminal urgent failure from in-progress overlays
 - [Phase ?]: Motion-channel guardrail comment paraphrased to satisfy zero-animate-spin grep gate while preserving human-readable rationale
 - [Phase ?]: PrettyViewErrorOverlay uses flex-col container (mirroring DormancyOverlay) not single-row flex (SessionHoldingOverlay) because card has two children
+- [Phase ?]: Parser observation channel placed BEFORE Layer 1 dispatch in onLine — resolves plan-text ambiguity in favor of F2 'above' wording + PS30-02 earliest-real-signal goal
+- [Phase ?]: Layer 1 arm_holding branch INTACT (F2 acknowledgment) — defense-in-depth + preserves clear_holding + holdingReason==id_reset guard coupling
+- [Phase ?]: detectIdReset excludes array-shaped user content at object level (mirrors layer1-detect.ts:85 tool_result exclusion)
 
 ### Pending Todos
 
@@ -302,6 +306,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 
 ### Roadmap Evolution
 
+- 2026-08-10: Phase 30 added — pane-state-backend-authoritative-no-client-inference. Phase 29 consolidated ~5 racing client-side overlay states into one machine with a truth table — real architectural improvement. But the machine's INPUTS are still mostly client-observed (isVisible-edge triggers, PWA-foreground handler forcing resolving, backendFirstFrame written by ~10 different frame types including the D-11 "any live message = active" swap, my patch #381 client-hint hack). Ashley 2026-08-10 verbatim after tina's #381 shipped and produced overlay-flash: *"Whether or not the session is recycling should be based on '/id reset' being found in the session file. That was supposed to be the whole point of the phase that redid the logic that decides which overlays show and stuff. Everything is supposed to be based on real things, not client state."* Direction: reduce state-machine inputs to exactly TWO — (1) `pane_state` frame (authoritative phase verdict emitted by backend from real observations: session-file parser sees `/id reset` → holding, /exit scan + PID death → holding fallback, new session file inode → active, agent-supervisor dormancy → dormant, backend classification → inactive) emitted on WS attach + every state change; (2) `ws_transport_state` (unavoidably client-observed since only the browser knows its own socket state) — gates "can we trust the last pane_state" vs "show reconnecting." Deletes from frontend: three entry-trigger effects in usePaneResolvingMachine, rearmSnapshotRef machinery, D-11 message→active swap, all ~10 captureFirstFrame call sites including patch #381 (which becomes redundant), backendFirstFrame concept entirely, local isHolding/dormant/waking/holdingTimeoutError state slots. Adds to backend: new pane_state emitter, session-file-parser /id reset detection (suppress user-turn AND emit holding). Tests: parser test for /id reset skip+emit, pane_state emission tests, PrettyView state-machine simplified. Phase-29 test suite (usePaneResolvingMachine entry-trigger tests, resolve-phase truth table) rewrites or deletes as trigger machinery goes away. Bounty tracker: `~/.claude/roles/box-maintainer/bounties/reset-button-holding-overlay-regression-phase-29/` (broadening scope to this full-fix — patch #381 is the interim hack this phase deletes).
 - 2026-08-10: Phase 29 added — Unified session-entry state machine — single 'resolving' spinner fronts every overlay until deterministic verdict. Ashley 2026-08-10 (verbatim): entering a session from the conversation list produces multiple racing overlays (screen flickers black with "Connecting…", "Connection lost" box covers half-screen, "Waking up" shows even though session was awake) — "no unified piece of logic governing … what state it's actually in so i know what to display and instead there's just a patchwork of bullshit fighting for what should be displayed." Also verbatim on determinism: "I really don't think we want a deadline here … if we're doing this right, then we should be able to go look at all the factors that matter and decide what to display … it's not like anything in here is stochastic … there's no reason for this not to be deterministic." Direction (tiffany diagnosis Ashley bought): unified pane-entry state machine with explicit `resolving` phase — on any transition into a pane (activeSet mount, tab-select, PWA foreground), enter `resolving`; single spinner is the ONLY thing shown; each substate input reports its deterministic verdict (WS open/error, backend first frame — active/inactive/session_holding/dormant); when ALL inputs have reported, transition to exactly one of {active, dormant, holding, error, inactive} and reveal corresponding UI. NO deadline/timeout — inputs have deterministic resolve signals; if something is slow the spinner stays up honestly. Testable end-to-end: for any (inputs) → exactly one displayed state. **Phase-number note:** originally added as Phase 28 in an earlier session, but Tina in parallel claimed Phase 28 for PrettyView virtualization correctness cluster and shipped it as patch #374; mine renumbered to 29 on 2026-08-10 rebase. Root cause is gsd-sdk `phase.add` with no cross-tree lock; Tina filing a bounty on that. Bounty tracker: `~/.claude/roles/box-maintainer/bounties/unified-session-entry-state-machine/`.
 - 2026-08-09: Phase 27 added — Virtualize PrettyView message list (iter 3 of hidden-pane-cost-mitigation). Renders only viewport-visible messages (~5-15 + buffer) via TanStack Virtual so DOM stays constant (~200-300 nodes) regardless of conversation length; today a 200-msg conversation renders ~2,500-3,200 DOM nodes and scales linearly forever. Scope: src/ui/features/pretty-view/PrettyView.tsx message list only (WipBubble/PlanPendingBubble/AsideBubble in slot below stay unvirtualized). Preserve existing scroll anchor (auto-scroll-to-bottom-when-pinned vs. don't-yank-when-scrolled-up) and initial-slice-from-bottom hydration. Image bubble grow handled via ResizeObserver + re-measure. ⌘F/find-in-page regression on long conversations ACCEPTED (Ashley 2026-08-09 verbatim: "I don't really care about losing that functionality"). New dep: TanStack Virtual. Rebase risk LOW — additive integration on fork-local PrettyView; no upstream Skynet surfaces touched. Bounty tracker: `~/.claude/roles/box-maintainer/bounties/pretty-view-message-list-virtualization/`.
 - 2026-08-06: Phase 26 added — Conversation-list needs-desk count + filter menu. Add per-row needs-desk bounty count (schema field added 2026-08-06) alongside existing pinned count as a combined `pin·desk` pill. Filter icon becomes a Radix popover with two toggles (pinned-only / needs-desk-only, AND intersection). Filter icon gets a small dot when any toggle is on. Needs-desk filter exempts active-set symmetric with pinned. Design locked with Ashley 2026-08-06 (see ROADMAP entry for full lock). Mechanism: widen `readIdentityPinnedBountyCount` to return `{pinnedCount, needsDeskCount}` on same fs walk; WS `identity:bounty-counts` carries both; bounty-counts-store keys a pair per identity. `PrettyBountyCountBadge` renders the combined pill; `PrettyConversationsPanel` filter button gets popover. Bounty pointer: `conversation-list-needs-desk-count-and-filter-menu`.
@@ -469,6 +474,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-10T07:15:48.716Z
+Last session: 2026-08-10T11:22:33.209Z
 Stopped at: Completed 29-04-PLAN.md — PrettyView.tsx rewired to consume usePaneResolvingMachine; 5 useEffects deleted (600000ms watchdog + 10s auto-dismiss + patch #74 delay-arm + reset + isBootingRef mirror); 3 useState hooks retired (showOverlay/holdingTimeoutError/isBooting); mount gates flipped to phase === "..."; PrettyViewErrorOverlay mounted at phase === "error"; session-recycling-store publisher rewired to phase === "holding"; ComposeBox props derived from phase. TypeScript clean; 19 PrettyView.test.tsx tests broken by mount-gate rewire (expected — 29-05 owns the test audit; failing tests enumerated in 29-04-SUMMARY.md). Awaiting 29-05 to close out phase.
 Resume file: None
