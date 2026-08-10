@@ -365,11 +365,21 @@ export function PrettyView({
   // red-bubble failure), the error state is intentionally reset to give
   // the fresh attempt a clean 120s window.
   // phase-29: onResetClicked no longer clears the warm-red timeout-error flag
-  // (retired per SPEC req 5). Setting isHolding=true still triggers the state
-  // machine's session-holding phase via the WS handler's captureFirstFrame
-  // path.
+  // (retired per SPEC req 5). Setting isHolding=true still gates the
+  // ComposeBox `isHolding` prop; the phase-29 fix below also flips
+  // backendFirstFrame → "session_holding" synchronously so the unified state
+  // machine transitions phase="holding" without waiting for the backend WS
+  // frame — restores patch #122's synchronous overlay UX under the phase 29
+  // architecture (which decoupled SessionHoldingOverlay from local isHolding).
+  // Idempotent: captureFirstFrame dedupes on identical writes, so the
+  // backend's own session_holding frame arriving later is a safe no-op.
+  // eslint-disable ok — captureFirstFrame declared later in render body (L624);
+  // adding to deps would trip TDZ at render. Its identity is stable (useCallback
+  // with [] deps), so omitting from deps is functionally safe.
   const onResetClicked = useCallback(() => {
     setIsHolding(true);
+    captureFirstFrame("session_holding");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Phase 14 quick-task 260726-vbd: single clear-primitive for asidePending.
   // Clears both the boolean flag and the 60s safety timer. Used by:
