@@ -392,6 +392,13 @@ export function parseSessionLine(line: string): ParsedLine {
   // attachment. Without this branch the message never renders as a bubble
   // (skipped as why:"attachment"). Treat as a user turn with attachment.prompt
   // as content. Runs BEFORE the isUser/isAssistant gate.
+  //
+  // Followup (same day, 2026-08-10): Claude Code also queues task-notifications
+  // and other harness-injected turns the same way when they arrive mid-turn.
+  // A queued_command whose prompt is ONLY <task-notification>/<system-reminder>
+  // wrappers must NOT render as a user bubble — it should silently drop, same
+  // as the isUser wrapper-strip path below. Apply the identical strip before
+  // deciding to emit.
   if (type === "attachment") {
     const att = obj.attachment;
     if (att !== null && typeof att === "object") {
@@ -399,27 +406,33 @@ export function parseSessionLine(line: string): ParsedLine {
       if (attObj.type === "queued_command") {
         const prompt = attObj.prompt;
         if (typeof prompt === "string" && prompt.length > 0) {
-          const uuid = obj.uuid;
-          const messageId = obj.messageId;
-          const eventId =
-            typeof uuid === "string" && uuid.length > 0
-              ? uuid
-              : typeof messageId === "string" && messageId.length > 0
-                ? messageId
-                : fallbackEventId();
-          const rawTs = obj.timestamp;
-          let ts = Date.now();
-          if (typeof rawTs === "string") {
-            const parsed = Date.parse(rawTs);
-            if (Number.isFinite(parsed)) ts = parsed;
+          const stripped = prompt
+            .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, "")
+            .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
+            .trim();
+          if (stripped.length > 0) {
+            const uuid = obj.uuid;
+            const messageId = obj.messageId;
+            const eventId =
+              typeof uuid === "string" && uuid.length > 0
+                ? uuid
+                : typeof messageId === "string" && messageId.length > 0
+                  ? messageId
+                  : fallbackEventId();
+            const rawTs = obj.timestamp;
+            let ts = Date.now();
+            if (typeof rawTs === "string") {
+              const parsed = Date.parse(rawTs);
+              if (Number.isFinite(parsed)) ts = parsed;
+            }
+            return {
+              kind: "message",
+              role: "user",
+              content: prompt,
+              eventId,
+              ts,
+            };
           }
-          return {
-            kind: "message",
-            role: "user",
-            content: prompt,
-            eventId,
-            ts,
-          };
         }
       }
     }

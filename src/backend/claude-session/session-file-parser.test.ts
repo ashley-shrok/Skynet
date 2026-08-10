@@ -709,7 +709,72 @@ describe("parseSessionLine — queued_command attachment (harness quirk)", () =>
     expect(parsed.why).toBe("attachment");
   });
 
-  it("Test E: queued_command attachment falls back to messageId then random eventId when uuid missing", () => {
+  it("Test E1: queued_command whose prompt is a task-notification wrapper skips (attachment)", () => {
+    // Observed 2026-08-10 in Tanya's session file: task-notifications that
+    // arrive during a busy assistant turn get queued as queued_command
+    // attachments carrying the raw <task-notification>...</task-notification>
+    // wrapper text as the prompt. Without wrapper-strip they'd render as
+    // user bubbles containing raw wrapper text — exactly the bug Ashley hit
+    // right after patch #376 shipped.
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "u-att-wrapper-tn",
+        timestamp: "2026-08-10T02:16:36.778Z",
+        attachment: {
+          type: "queued_command",
+          prompt:
+            '<task-notification>\n<task-id>blyc1z61t</task-id>\n<summary>Monitor event: "tanya relay receiver"</summary>\n<event>[room !X:server] [@tina:server] (event $abc): shipped patch #999 — clear.</event>\n</task-notification>',
+          commandMode: "prompt",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("attachment");
+  });
+
+  it("Test E2: queued_command whose prompt is a system-reminder wrapper skips", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "u-att-wrapper-sr",
+        timestamp: "2026-08-10T02:16:36.778Z",
+        attachment: {
+          type: "queued_command",
+          prompt:
+            "<system-reminder>\ntask reminder body here\n</system-reminder>",
+          commandMode: "prompt",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("Test E3: queued_command whose prompt mixes real speech + a pasted wrapper still renders (non-empty after strip)", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "u-att-mixed",
+        timestamp: "2026-08-10T02:16:36.778Z",
+        attachment: {
+          type: "queued_command",
+          prompt:
+            'why is this rendering? example: <task-notification>foo</task-notification>',
+          commandMode: "prompt",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    // Content preserves the FULL original prompt (wrapper kept for context —
+    // matches isUser wrapper-strip which only gates on stripped emptiness,
+    // does not rewrite content).
+    expect(parsed.content).toContain("why is this rendering?");
+    expect(parsed.content).toContain("<task-notification>");
+  });
+
+  it("Test F1: queued_command attachment falls back to messageId then random eventId when uuid missing", () => {
     const parsed = parseSessionLine(
       line({
         type: "attachment",
