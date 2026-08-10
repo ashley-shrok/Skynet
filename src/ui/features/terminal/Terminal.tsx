@@ -3332,8 +3332,18 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           />
         )}
 
+        {/* terminal-connecting-loader-shows-in-pretty-mode (2026-08-10):
+            `!isPrettyMode` gate added. In pretty mode, the connection-status
+            surface belongs to PrettyView (its own loading/resolving overlays),
+            not to this terminal-branded black-bg "Connecting..." loader.
+            Every other UI element in this file already checks !isPrettyMode
+            (9 grep hits); this SimpleLoader was overlooked. Ashley UAT: a
+            black-bg full-screen "Connecting..." flashed once or twice on
+            entering an already-active session — this loader mounting on top
+            of pretty-view during the SSH WS handshake (~300-500ms). In raw
+            terminal mode the loader still works as before. */}
         <SimpleLoader
-          visible={isConnecting && !isConnectionLogExpanded}
+          visible={isConnecting && !isConnectionLogExpanded && !isPrettyMode}
           message={t("terminal.connecting")}
           backgroundColor={backgroundColor}
         />

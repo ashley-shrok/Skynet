@@ -818,3 +818,23 @@ describe("quick-260809-ih9 — pause-effect initial-mount race fix (prevIsVisibl
     expect(depsList).not.toMatch(/\bisVisible\b/);
   });
 });
+
+describe("Terminal.tsx terminal-connecting-loader-shows-in-pretty-mode wiring — structural", () => {
+  const src = readFileSync(TERMINAL_TSX, "utf-8");
+
+  // terminal-connecting-loader-shows-in-pretty-mode (2026-08-10): the
+  // SimpleLoader that renders the black-bg "Connecting..." overlay for
+  // terminal SSH handshakes must NOT mount in pretty mode — its
+  // connection-status semantics belong to PrettyView's own overlays there.
+  // The `visible` prop wires isConnecting + !isConnectionLogExpanded +
+  // !isPrettyMode; regression-guard on the third gate specifically.
+  it("SimpleLoader (terminal.connecting) visible prop includes !isPrettyMode gate", () => {
+    const anchor = 'message={t("terminal.connecting")}';
+    const anchorIdx = src.indexOf(anchor);
+    expect(anchorIdx).toBeGreaterThan(0);
+    // Look at the ~200 chars preceding the anchor for the `visible` prop
+    // line — its gate must include !isPrettyMode.
+    const window = src.slice(Math.max(0, anchorIdx - 300), anchorIdx);
+    expect(window).toMatch(/visible=\{[^}]*!isPrettyMode[^}]*\}/);
+  });
+});
