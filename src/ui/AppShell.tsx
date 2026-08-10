@@ -64,7 +64,7 @@ import {
   readFleetSessionsCache,
   writeFleetSessionsCache,
 } from "@/state/conversation-store";
-import { getSessionList } from "@/api/sessions-api";
+import { getSessionList, killTmuxSession } from "@/api/sessions-api";
 import {
   consumePendingWorkspace,
   specForTab,
@@ -1504,6 +1504,31 @@ export function AppShell({
             // level activeSet removal is composed by the panel's
             // handleRowDeactivate before this callback fires).
             closeTab(row.id);
+          }}
+          onKillRow={async (row) => {
+            // quick-260810-n3a: Kill the underlying tmux session on the host,
+            // then close the tab. The panel's handleRowKill already ran
+            // window.confirm — this callback fires only on confirm=true.
+            // Defense-in-depth guard: row-side gate already prevents rows
+            // without host or targetTmuxSession from surfacing Kill.
+            if (!row.host || !row.targetTmuxSession) {
+              console.warn(
+                "onKillRow: missing host or targetTmuxSession — no-op",
+                row.id,
+              );
+              return;
+            }
+            try {
+              await killTmuxSession(
+                parseInt(row.host.id, 10),
+                row.targetTmuxSession,
+              );
+              closeTab(row.id);
+            } catch (err) {
+              window.alert(
+                err instanceof Error ? err.message : "Failed to kill session",
+              );
+            }
           }}
         />
       </div>
