@@ -829,6 +829,42 @@ export function updateFleetSessions(sessions: FleetSession[]): void {
   notify();
 }
 
+/**
+ * Surgically remove one FleetSession from state (by hostId + sessionName)
+ * AND trim it out of the localStorage cache so a page reload does not briefly
+ * re-show the row from stale cache before the next getSessionList() resolves.
+ *
+ * Idempotent no-op when the (hostId, sessionName) tuple is not present in
+ * state.fleetSessions — same shape as updateFleetSessions' same-content
+ * short-circuit (skip notify(), skip cache write).
+ *
+ * Used by AppShell.onKillRow (quick-260810-oig) after a successful tmux
+ * kill-session so the fleet-synthetic row disappears immediately without
+ * waiting for a page reload. Companion to closeTab, which only removes
+ * openTabs-derived rows; non-identity throwaway rows are fleet-synthetic and
+ * closeTab is a no-op for them.
+ */
+export function removeFleetSession(hostId: number, sessionName: string): void {
+  const nextFleetSessions = state.fleetSessions.filter(
+    (s) => !(s.hostId === hostId && s.sessionName === sessionName),
+  );
+  // No-op path: tuple was not present — no state mutation, no cache write, no notify.
+  if (nextFleetSessions.length === state.fleetSessions.length) return;
+
+  state = { ...state, fleetSessions: nextFleetSessions };
+  notify();
+
+  // Cache trim. Silent on write failure — mirrors writeFleetSessionsCache's
+  // own failure policy. Do NOT block or unwind the in-memory update if the
+  // cache write throws (localStorage quota, disabled storage, private mode).
+  try {
+    writeFleetSessionsCache(nextFleetSessions);
+  } catch {
+    // Silent — cache-write failure is non-fatal; next getSessionList() fetch
+    // on the next page load will re-persist the fresh (post-kill) snapshot.
+  }
+}
+
 // ─── FleetSession localStorage cache (quick-260805-tub) ──────────────────────
 // Persist the fleet snapshot across page refreshes so the first paint after a
 // reload shows the last-known conversation-list row set instead of an empty

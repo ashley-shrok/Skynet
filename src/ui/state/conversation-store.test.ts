@@ -14,6 +14,7 @@ import {
   updateHostTree,
   updateOpenTabs,
   updateFleetSessions,
+  removeFleetSession,
   updateHostsFlat,
   updateIdentitiesByKey,
   selectConversation,
@@ -920,6 +921,120 @@ describe("conversation-store (Plan 07-01): updateFleetSessions no-op guards", ()
     expect(cb).toHaveBeenCalledTimes(1);
 
     unsub();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260810-oig: removeFleetSession R1-R4
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store (quick-260810-oig): removeFleetSession", () => {
+  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v1";
+
+  it("R1: removes present (hostId, sessionName) tuple, fires notify, trims cache", () => {
+    const sessions: FleetSession[] = [
+      { hostId: 1, hostName: "hostA", sessionName: "work", created: 100, role: null },
+      { hostId: 2, hostName: "hostB", sessionName: "idle", created: 200, role: null },
+    ];
+    act(() => updateFleetSessions(sessions));
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    const spy = vi.spyOn(Storage.prototype, "setItem");
+
+    act(() => removeFleetSession(1, "work"));
+
+    // State: (1,"work") gone; (2,"idle") remains
+    const fleetRows = __getFleetOnlyRowsForTest();
+    expect(fleetRows.some((r) => r.id === "fleet::1::work")).toBe(false);
+    expect(fleetRows.some((r) => r.id === "fleet::2::idle")).toBe(true);
+
+    // notify() fired once
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    // Cache written with surviving session only
+    const cacheWrites = spy.mock.calls.filter(([k]) => k === FLEET_CACHE_KEY);
+    expect(cacheWrites.length).toBeGreaterThanOrEqual(1);
+    const lastWrite = cacheWrites[cacheWrites.length - 1];
+    const parsed = JSON.parse(lastWrite[1] as string) as unknown[];
+    expect(parsed.length).toBe(1);
+    expect((parsed[0] as { sessionName: string }).sessionName).toBe("idle");
+
+    spy.mockRestore();
+    unsub();
+  });
+
+  it("R2: idempotent no-op for absent (hostId, sessionName) — no notify, no cache write", () => {
+    const sessions: FleetSession[] = [
+      { hostId: 1, hostName: "hostA", sessionName: "work", created: 100, role: null },
+    ];
+    act(() => updateFleetSessions(sessions));
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    const spy = vi.spyOn(Storage.prototype, "setItem");
+
+    act(() => removeFleetSession(99, "nonexistent"));
+
+    // State unchanged: original session still present
+    const fleetRows = __getFleetOnlyRowsForTest();
+    expect(fleetRows.some((r) => r.id === "fleet::1::work")).toBe(true);
+
+    // notify() NOT fired
+    expect(cb).toHaveBeenCalledTimes(0);
+
+    // No cache write for FLEET_CACHE_KEY
+    const cacheWrites = spy.mock.calls.filter(([k]) => k === FLEET_CACHE_KEY);
+    expect(cacheWrites.length).toBe(0);
+
+    spy.mockRestore();
+    unsub();
+  });
+
+  it("R3: selective — only exact (hostId, sessionName) tuple removed; siblings remain", () => {
+    const sessions: FleetSession[] = [
+      { hostId: 1, hostName: "hostA", sessionName: "work", created: 100, role: null },
+      { hostId: 1, hostName: "hostA", sessionName: "idle", created: 200, role: null },
+      { hostId: 2, hostName: "hostB", sessionName: "work", created: 300, role: null },
+    ];
+    act(() => updateFleetSessions(sessions));
+
+    act(() => removeFleetSession(1, "work"));
+
+    const fleetRows = __getFleetOnlyRowsForTest();
+    expect(fleetRows.some((r) => r.id === "fleet::1::work")).toBe(false);
+    expect(fleetRows.some((r) => r.id === "fleet::1::idle")).toBe(true);
+    expect(fleetRows.some((r) => r.id === "fleet::2::work")).toBe(true);
+  });
+
+  it("R4: cache-write failure does not block in-memory state update or notify()", () => {
+    const sessions: FleetSession[] = [
+      { hostId: 1, hostName: "hostA", sessionName: "work", created: 100, role: null },
+    ];
+    act(() => updateFleetSessions(sessions));
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+
+    try {
+      // Must not propagate any error
+      expect(() => { act(() => removeFleetSession(1, "work")); }).not.toThrow();
+
+      // In-memory state IS trimmed despite cache failure
+      const fleetRows = __getFleetOnlyRowsForTest();
+      expect(fleetRows.some((r) => r.id === "fleet::1::work")).toBe(false);
+
+      // notify() fired exactly once
+      expect(cb).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+      unsub();
+    }
   });
 });
 
