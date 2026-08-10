@@ -13,6 +13,10 @@ import {
   applyLineToLayer1State,
   type Layer1State,
 } from "./layer1-detect.js";
+import {
+  createPaneStateEmitter,
+  type PaneStateEmitter,
+} from "./pane-state-emitter.js";
 import { parseContextPct } from "./context-pct-parser.js";
 import { readContextPctFromJsonl } from "./context-pct-from-jsonl.js";
 import { isPlanPending, parsePlanFilePath } from "./plan-pending-parser.js";
@@ -93,6 +97,7 @@ import {
  *     // (client -> server, Phase 24) { type: "raw_keystrokes", bytes: string } — one-shot PTY write via `tmux send-keys -l`, NO split-send. Used by PlanPendingBubble Approve ("1\r") + Feedback ("3<text>\r"). Split-send (patch #44) is NOT recognized by Ink Plan Mode as a keystroke selection.
  *     // quick 260808-cd6 — dormancy overlay + wake button:
  *     { type: "dormant", dormant: boolean }                      // server -> client: emit-only-on-change; identity pane's .dormant sentinel state
+ *     { type: "pane_state", state: "active"|"holding"|"dormant"|"inactive"|"error", reason?: string } // Phase 30 PS30-01: authoritative pane-entry state verdict; emitted alongside every existing dormant/session_holding/session_holding_cleared/session_changed/inactive transition + on connectToPane attach. Legacy frames remain on the wire this phase for backward compat (deprecation deferred per 30-CONTEXT.md § Deferred).
  *     // (client -> server, quick 260808-cd6) { type: "wake" } — delete ~/.claude/identities/<name>/.dormant via SSH exec; backend uses connection-scoped currentTmuxSession (T-cd6-01 mitigation)
  *     { type: "wake_result", ok: boolean, error?: string }       // server -> client: response to { type: "wake" }
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
@@ -1422,6 +1427,27 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // fresh tail is about to start. See layer1-detect.ts for the reducer
   // + rationale. Replaces the pre-refactor `hasSeenExit` boolean.
   let layer1: Layer1State = { mostRecentUserTurnIsIdReset: null };
+  // Phase 30 Plan 30-01 (PS30-01): per-connection authoritative pane_state
+  // emitter. Consolidates today's five racing wire frames (dormant /
+  // session_holding / session_holding_cleared / session_changed / inactive)
+  // into ONE authoritative { type: "pane_state", state, reason? } frame.
+  // Legacy frames stay on the wire alongside (backward-compat this phase);
+  // the emitter is ADDITIVE — every existing ws.send at the transition sites
+  // below gets a matching paneStateEmitter.emit(...) call. Deduped on strict
+  // (state, reason) equality against the last emit (mirrors dormantLastEmitted
+  // at lines 1010-1022). See pane-state-emitter.ts for the pure module +
+  // 30-CONTEXT.md § Signal set for the LOCKED wire contract.
+  const paneStateEmitter: PaneStateEmitter = createPaneStateEmitter({
+    wsSend: (data: string) => {
+      if (!stopped && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(data);
+        } catch {
+          /* ws may be mid-close */
+        }
+      }
+    },
+  });
   // Follow-up to patch #356 (2026-08-08): the reason we entered holding.
   // Layer 2's transitionFromHoldingToActiveSameFile helper reads this to
   // decide whether a "same-file active" repoll tick should self-clear the
@@ -2156,6 +2182,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
         /* ws may be mid-close */
       }
     }
+    // Phase 30 Plan 30-01 (PS30-01): authoritative pane_state alongside the
+    // legacy session_holding frame. `reason` forwards through — Layer 1
+    // dispatches "id_reset"; Layer 2 discovery-repoll dispatches
+    // "discovery_diff". The emitter's own guard + dedupe make this safe
+    // even under the pre-existing idempotent-double-fire race between L1
+    // and L2 (both funnel here with the same reason on rare co-fires).
+    paneStateEmitter.emit("holding", reason);
     sshLogger.info("Claude session entering holding state", {
       operation: "claude_session_holding",
       reason,
@@ -2220,6 +2253,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
         /* ws may be mid-close */
       }
     }
+    // Phase 30 Plan 30-01: false-alarm-recovery case. Surface the recovery
+    // reason so the frontend + logs can distinguish this "we armed holding
+    // then discovery repoll proved it was a false alarm" path from the
+    // real-recycle transitionToActiveNew ("session_changed") path.
+    paneStateEmitter.emit("active", "same_file_recovery");
     sshLogger.info("Claude session self-cleared from holding on same-file recovery", {
       operation: "claude_session_holding_cleared",
       userId,
@@ -2299,6 +2337,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
         /* ws may be mid-close */
       }
     }
+    // Phase 30 Plan 30-01: real-recycle path. The new session file's UUID
+    // stays on the legacy session_changed frame only — pane_state's
+    // reason field is enum-shaped (no filesystem paths per T-30-01
+    // mitigation). "session_changed" as reason keeps parity with the
+    // legacy frame's meaning.
+    paneStateEmitter.emit("active", "session_changed");
     sshLogger.info("Claude session changed", {
       operation: "claude_session_changed",
       userId,
@@ -2342,6 +2386,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
         /* ws may be mid-close */
       }
     }
+    // Phase 30 Plan 30-01: terminal inactive from holding-timeout. Reason
+    // forwards through as "holding_timeout" (the only current caller).
+    paneStateEmitter.emit("inactive", reason);
     sshLogger.info("Claude session dead", {
       operation: "claude_session_dead",
       reason,
@@ -3812,6 +3859,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
         sessionFile,
       }),
     );
+    // Phase 30 Plan 30-01 (PS30-07): attach-time pane_state establishment.
+    // Fires right after the session metadata so a fresh client that has
+    // never received a pane_state before immediately learns "this pane is
+    // active" — no wait for the first transition tick. Same call site is
+    // reused by the dormant-poll → wake path (startActiveFlow callback)
+    // which routes through startActiveSessionFlow, so both attach flows
+    // (fresh connectToPane AND wake-from-dormant) establish pane_state
+    // uniformly through this one line. No reason (bare "active") — reasons
+    // decorate transitions, not the initial establishment.
+    paneStateEmitter.emit("active");
 
     sshLogger.info("Starting Claude session tail", {
       operation: "claude_session_tail_start",
@@ -4119,6 +4176,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
               wakeTriggerTs: () => wakeTriggerTs,
             };
             dormantInFlight = true;
+            // Phase 30 Plan 30-01: capture dormantLastEmitted BEFORE the seam
+            // runs so we can detect a change post-return and funnel it through
+            // paneStateEmitter WITHOUT adding paneStateEmitter as an injected
+            // dep on the pure __applyDormantPollTickForTests seam (that would
+            // break the test-seam contract — every existing test constructs
+            // deps by name).
+            const dormantEmittedBefore = dormantLastEmitted;
             (async () => {
               try {
                 await __applyDormantPollTickForTests(
@@ -4136,6 +4200,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 isIdentityShapedCached = dormantState.isIdentityShapedCached;
                 identityShapeProbeInFlight = dormantState.identityShapeProbeInFlight;
                 dormantLastEmitted = dormantState.dormantLastEmitted;
+                // Phase 30 Plan 30-01: if the tick's dormancy state changed,
+                // funnel the equivalent pane_state alongside the legacy
+                // {type:"dormant",...} frame the seam already emitted. Compare
+                // captured-before value to the post-sync value; on transition
+                // to true → emit("dormant"), on transition to false →
+                // emit("active", "dormancy_cleared").
+                if (
+                  dormantLastEmitted !== dormantEmittedBefore &&
+                  dormantLastEmitted !== null
+                ) {
+                  if (dormantLastEmitted === true) {
+                    paneStateEmitter.emit("dormant");
+                  } else {
+                    paneStateEmitter.emit("active", "dormancy_cleared");
+                  }
+                }
               } finally {
                 dormantInFlight = false;
               }
@@ -4562,6 +4642,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 // WS, no prior wake click) sends wakingSince:null.
                 ws.send(JSON.stringify({ type: "dormant", dormant: true, wakingSince: wakeTriggerTs }));
               } catch { /* ws may be mid-close */ }
+              // Phase 30 Plan 30-01 (PS30-07): initial-discovery-dormant path
+              // establishes attach-time pane_state alongside the legacy dormant
+              // frame. wakingSince stays on the legacy frame only — pane_state's
+              // reason enum is qualitative, not timestamp-carrying (T-30-01).
+              paneStateEmitter.emit("dormant");
               // FIX §3: Start the lightweight dormant-poll loop (3s cadence).
               // The loop polls the sentinel; on disappearance re-runs discovery;
               // on active → transitions to active flow via startActiveSessionFlow.
@@ -4569,6 +4654,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
               dormantPollTimer = setInterval(() => {
                 if (stopped || ws.readyState !== WebSocket.OPEN || !sshConn || dormantPollInFlight) return;
                 dormantPollInFlight = true;
+                // Phase 30 Plan 30-01: capture dormantLastEmitted BEFORE the
+                // seam runs so we can detect a change post-return and funnel
+                // it through paneStateEmitter WITHOUT injecting the emitter
+                // into the pure __applyDormantPollWithRediscoveryForTests
+                // seam (that would break the test-seam contract). The
+                // startActiveFlow callback below routes through
+                // startActiveSessionFlow which fires paneStateEmitter.emit
+                // ("active") on its own; here we cover the dormant:true and
+                // dormant:false wire emits the seam does directly.
+                const dormantEmittedBefore = dormantLastEmitted;
                 (async () => {
                   try {
                     await __applyDormantPollWithRediscoveryForTests(
@@ -4618,6 +4713,33 @@ wss.on("connection", async (ws: WebSocket, req) => {
                         wakeTriggerTs: () => wakeTriggerTs,
                       },
                     );
+                    // Phase 30 Plan 30-01: if the seam flipped
+                    // dormantLastEmitted, mirror the change onto pane_state.
+                    // - false→true (sentinel re-appeared during poll):
+                    //     emit("dormant")
+                    // - true→false (sentinel disappeared; freshness check
+                    //   passed; re-discovery about to run):
+                    //     emit("active", "dormancy_cleared")
+                    // The startActiveFlow callback above ALSO fires
+                    // paneStateEmitter.emit("active") through
+                    // startActiveSessionFlow if re-discovery reports active.
+                    // The emitter's dedupe on identical (state, reason)
+                    // safely collapses the resulting back-to-back
+                    // ("active","dormancy_cleared") → ("active") pair to two
+                    // distinct wire frames (different reason), which is the
+                    // correct behavior — the first tells the client "we've
+                    // exited dormancy" and the second establishes the fresh
+                    // active session's attach-time pane_state.
+                    if (
+                      dormantLastEmitted !== dormantEmittedBefore &&
+                      dormantLastEmitted !== null
+                    ) {
+                      if (dormantLastEmitted === true) {
+                        paneStateEmitter.emit("dormant");
+                      } else {
+                        paneStateEmitter.emit("active", "dormancy_cleared");
+                      }
+                    }
                   } finally {
                     dormantPollInFlight = false;
                   }
@@ -4642,6 +4764,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
       ws.send(
         JSON.stringify({ type: "inactive", reason: result.reason }),
       );
+      // Phase 30 Plan 30-01 (PS30-07): initial-discovery-inactive path
+      // establishes attach-time pane_state before the WS drops back to
+      // "waiting for the next connectToPane". Reason forwards the
+      // discovery result verbatim — same string set that already reached
+      // the wire via the legacy inactive frame pre-Phase-30 (not_claude,
+      // no_pid_session_file, no_open_session_file, no_tmux_session,
+      // exec_error), so no new information disclosure surface per T-30-01.
+      paneStateEmitter.emit("inactive", result.reason);
       // Keep sshConn open? No — releasing the SSH connection here keeps
       // idle inactive WSs cheap. A subsequent connectToPane will reopen.
       try {
