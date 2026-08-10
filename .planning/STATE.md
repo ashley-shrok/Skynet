@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-08T00:55:00.000Z"
-last_activity: 2026-08-08
+last_updated: "2026-08-10T03:37:57.814Z"
+last_activity: 2026-08-10
 progress:
-  total_phases: 26
-  completed_phases: 18
-  total_plans: 105
-  completed_plans: 100
-  percent: 69
+  total_phases: 29
+  completed_phases: 22
+  total_plans: 118
+  completed_plans: 110
+  percent: 76
 ---
 
 # Project State
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 27 (virtualize-prettyview-message-list-iter-3-of-hidden-pane-cos) — CODE COMPLETE, awaiting deploy greenlight
 Plan: 3 of 3 (all waves executed clean, full frontend suite green 1692/0 fail)
-Status: Ready for orchestrator deploy motion (docker build + coord-room announce + recreate + HTTPS 200 verify + push + patch entry in skynet-patches.md). Post-deploy: image-bubble grow manual UAT + post-ship diag pull on 200-msg conversation to compare against baseline + parent bounty close + diag-emitter rip-out.
-Last activity: 2026-08-10 - Completed Phase 28 code + tests: PrettyView virtualization correctness cluster (H3 observeElementRect returns () => {} on null branches; H4 read() re-derives instance.scrollElement; M1 scrollMargin=12; M2 initialRect.height 4096→600 + aligned offsetHeight fallback; M4 non-colliding getItemKey fallback with diagnostic warn). Two atomic commits 28f4c69 + 4269c8f on feat/tab-title-from-tmux, full frontend suite 1695 passed / 7 skipped / 0 failed. Deploy pending. (Also same-day: quick 260810-299 pv-disable-auto-scroll-temp shipped as patch #373 — auto-scroll TEMP-disabled per Ashley; H1/H2/M5/M7 review findings moot until pv-auto-scroll-redesign bounty picks up auto-scroll.)
+Status: Phase complete — ready for verification
+Last activity: 2026-08-10
 
 _(Phase 20 was Plan 4 of 6 at the top of this session — untouched by this run. Phase 22 pointer is set here because Plan 22-01 just completed; it was the target of this execute-plan invocation.)_
 
@@ -133,7 +133,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -196,6 +196,7 @@ Progress: [██████████] 98%
 | Phase 23 P02 | 20 minutes | 2 tasks | 2 files |
 | Phase 23 P03 | 20m | 3 tasks | 3 files |
 | Phase 23 P04 | 30 | 1 tasks | 5 files |
+| Phase 29 P01 | 10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -282,6 +283,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 24-03: extended plan_pending WS frame to {planFilePath, planContent, contentError} with presence-emit-then-async-SFTP-refetch flow; new raw_keystrokes WS handler uses tmux send-keys -l (one shot, no split) and connection-captured currentTmuxSession (T-14-02-01 trust boundary); frontend PlanPendingEvent widened + new RawKeystrokesPayload; per-window content cache with fail-closed stale-fetch guard
 - [Phase ?]: 25-02: compareByHostRoleLabel replaces compareByLabel at all 5 sort sites; identitiesByKey mirrors hostsFlat
 - [Phase ?]: Phase 25 sort regression tests: 7 new it-cases lock (host,role,label) tuple; quick-260730-wfy repaired
+- [Phase ?]: Phase 29 Plan 01: pure resolvePhase reducer + 20-assertion truth-table tests
 
 ### Pending Todos
 
@@ -460,6 +462,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-05T04:16:17.754Z
-Stopped at: Completed 24-03-PLAN.md
+Last session: 2026-08-10T03:37:57.743Z
+Stopped at: Completed 29-01-PLAN.md (pure resolvePhase reducer + 20 truth-table tests, 1725/0 fail)
 Resume file: None
