@@ -2189,3 +2189,185 @@ describe("PrettyConversationRow: context-menu singleton (quick-260809-94y)", () 
     expect(screen.getByRole("menu")).toBeTruthy();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kill menu item (quick-260810-n3a) — K1-K7
+// ─────────────────────────────────────────────────────────────────────────────
+// Mirrors the Test 18d/18e pattern. The Kill item appears in the context menu
+// ONLY when: onKill provided AND !isRdp AND !identity AND row.targetTmuxSession
+// is non-null. The item carries `danger: true` (red color via inline style).
+
+describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
+  // K1: non-RDP, no identity, has targetTmuxSession, onKill provided → Kill in menu
+  it("K1: desktop non-RDP row, no identity, targetTmuxSession set, onKill provided → context menu contains Kill", () => {
+    currentIdentity = null; // no identity resolves
+    const onKill = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onKill={onKill}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /kill/i })).toBeTruthy();
+  });
+
+  // K2: identity resolves → Kill NOT in menu (identity gate)
+  it("K2: identity resolves → Kill NOT in menu (identity gate)", () => {
+    currentIdentity = makeIdentity(210, "nelly"); // identity resolves
+    const onKill = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "nelly" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onKill={onKill}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: /kill/i })).toBeNull();
+  });
+
+  // K3: RDP row → Kill NOT in menu (isRdp gate)
+  it("K3: RDP row → Kill NOT in menu (isRdp gate)", () => {
+    currentIdentity = null;
+    const onKill = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onKill={onKill}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: /kill/i })).toBeNull();
+  });
+
+  // K4: targetTmuxSession is null → Kill NOT in menu
+  it("K4: targetTmuxSession = null → Kill NOT in menu", () => {
+    currentIdentity = null;
+    const onKill = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onKill={onKill}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: /kill/i })).toBeNull();
+  });
+
+  // K5: onKill NOT provided → Kill NOT in menu
+  it("K5: onKill NOT provided → Kill NOT in menu", () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        // onKill intentionally omitted
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: /kill/i })).toBeNull();
+  });
+
+  // K6: all gates satisfied → click Kill → onKill called exactly once
+  it("K6: all gates satisfied → click Kill menuitem → onKill called exactly once", async () => {
+    currentIdentity = null;
+    const onKill = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onKill={onKill}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
+    fireEvent.click(killItem);
+    expect(onKill).toHaveBeenCalledTimes(1);
+  });
+
+  // K7: Kill menu item carries danger styling (red color via inline style)
+  it("K7: Kill menuitem has danger styling (color: #ff9a8a from PrettyConversationContextMenu danger branch)", () => {
+    currentIdentity = null;
+    const onKill = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onKill={onKill}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const killItem = within(menu).getByRole("menuitem", { name: /kill/i }) as HTMLElement;
+    // PrettyConversationContextMenu renders danger items with color: "#ff9a8a"
+    // (see PrettyConversationContextMenu.tsx line 212: `color: item.danger ? "#ff9a8a" : "#e8e4d8"`)
+    // jsdom normalizes hex → rgb(...) in computed style; match either form.
+    expect(killItem.style.color).toMatch(/rgb\(255,\s*154,\s*138\)|#ff9a8a/i);
+  });
+});

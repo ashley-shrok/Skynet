@@ -146,6 +146,10 @@ function PrettyConversationRowLive(props: {
   // context-menu item. Only wired at non-RDP render sites where the row has
   // an identity + host. RDP + no-identity rows omit the prop.
   onClone?: () => void;
+  // quick-260810-n3a: forwarded to PrettyConversationRow for the Kill
+  // context-menu item. The row's items[] builder gates on !isRdp && !identity
+  // && row.targetTmuxSession so the item only appears for valid targets.
+  onKill?: () => void;
   // quick-260802-pq2: onSwipeOpenChange / forceClosed removed — the row's
   // swipe machinery was retired; mobile now uses long-press → context menu.
   inActiveSet: boolean;
@@ -190,6 +194,7 @@ export function PrettyConversationsPanel({
   onDetachedRowClick,
   onRdpRowClick,
   onDeactivateRow,
+  onKillRow,
   sidebarToggleOverlaps = false,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
@@ -228,6 +233,12 @@ export function PrettyConversationsPanel({
   // caller (production AppShell + tests) to explicitly wire the tab-close
   // side. Test files that don't care pass `onDeactivateRow={() => {}}`.
   onDeactivateRow: (row: ConversationRowShape) => void;
+  /**
+   * quick-260810-n3a: Fired when Ashley confirms the Kill dialog.
+   * AppShell wires this to POST /host/:hostId/session/kill + closeTab(row.id).
+   * Optional so tests can render the panel without wiring it.
+   */
+  onKillRow?: (row: ConversationRowShape) => void | Promise<void>;
   // Patch #142 (Fix 5): when the desktop sidebar is open, the fixed
   // top-left chevron overlaps the "Conversations" title. This prop adds
   // padding-left clearance via data-sidebar-toggle-overlaps attribute +
@@ -669,6 +680,21 @@ export function PrettyConversationsPanel({
     onDeactivateRow(row);
   };
 
+  // quick-260810-n3a: panel-level Kill handler. Shows a native confirm dialog
+  // naming the tmux session + host before forwarding to onKillRow. The dialog
+  // is the user-facing mitigation (T-n3a-06) — user reads session name + host
+  // before clicking OK. Only fires onKillRow when confirm=true.
+  const handleRowKill = (row: ConversationRowShape) => {
+    const tmuxSession = row.targetTmuxSession;
+    const hostName = row.host?.name ?? row.host?.ip ?? "the host";
+    if (!tmuxSession) return; // defense-in-depth; row-side gate should have prevented
+    const ok = window.confirm(
+      `Kill tmux session "${tmuxSession}" on ${hostName}? This cannot be undone.`,
+    );
+    if (!ok) return;
+    onKillRow?.(row);
+  };
+
   // quick-260731-tgg: panel-level togglePin with mutual exclusion — unhide before pin.
   // quick-260807 followup to e4s: takes the whole row and handles BOTH pin
   // id shapes symmetrically (openTab id + fleet-synthetic shadow id). e4s
@@ -943,6 +969,7 @@ export function PrettyConversationsPanel({
                     onDeactivate={() => handleRowDeactivate(row)}
                     onToggleHide={() => handleToggleHide(row)}
                     onClone={() => handleRowClone(row)}
+                    onKill={() => handleRowKill(row)}
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
                     subtitleMode="identityTitle"
@@ -998,6 +1025,7 @@ export function PrettyConversationsPanel({
                   onDeactivate={() => handleRowDeactivate(row)}
                   onToggleHide={() => handleToggleHide(row)}
                   onClone={() => handleRowClone(row)}
+                  onKill={() => handleRowKill(row)}
                   inActiveSet={activeSet.has(row.id)}
                   sessionKey={sessionWorkingKey(row)}
                   subtitleMode="identityTitle"
@@ -1049,6 +1077,7 @@ export function PrettyConversationsPanel({
                         onSelect={() => handleRowSelect(row)}
                         onTogglePin={rdpNoopTogglePin}
                         onDeactivate={() => handleRowDeactivate(row)}
+                        onKill={() => handleRowKill(row)}
                         inActiveSet={activeSet.has(row.id)}
                         sessionKey={sessionWorkingKey(row)}
                       />
@@ -1099,6 +1128,7 @@ export function PrettyConversationsPanel({
                       onDeactivate={() => handleRowDeactivate(row)}
                       onToggleHide={() => handleToggleHide(row)}
                       onClone={() => handleRowClone(row)}
+                      onKill={() => handleRowKill(row)}
                       inActiveSet={activeSet.has(row.id)}
                       sessionKey={sessionWorkingKey(row)}
                       subtitleMode="identityTitle"
@@ -1157,6 +1187,7 @@ export function PrettyConversationsPanel({
                       onTogglePin={() => handleTogglePin(row)}
                       onToggleHide={() => handleToggleHide(row)}
                       onClone={() => handleRowClone(row)}
+                      onKill={() => handleRowKill(row)}
                       inActiveSet={activeSet.has(row.id)}
                       sessionKey={sessionWorkingKey(row)}
                       subtitleMode="identityTitle"

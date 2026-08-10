@@ -134,6 +134,7 @@ export function PrettyConversationRow({
   onDeactivate,
   onToggleHide,
   onClone,
+  onKill,
   isWorking = null,
   isRecycling = false,
   hasQueuePending = false,
@@ -169,6 +170,13 @@ export function PrettyConversationRow({
   // PrettyConversationsPanel.handleRowClone for the source-identity + hostId
   // capture that opens CloneAgentDialog.
   onClone?: () => void;
+  /**
+   * quick-260810-n3a: Fired when Ashley clicks the red Kill menu item.
+   * Provided by the panel only when !isRdp && !identity && row.targetTmuxSession.
+   * The panel wraps the actual kill in a window.confirm — this callback fires
+   * ONLY on confirm=true. See PrettyConversationsPanel.handleRowKill.
+   */
+  onKill?: () => void;
   // Patch #137: WS-published working state for the row's (host, tmux)
   // pair. `true` = agent busy, `false` = idle, `null` = unknown
   // (backend hasn't published yet). Only `false` allows the ready-dot
@@ -991,6 +999,26 @@ export function PrettyConversationRow({
               items.push({
                 label: "Deactivate",
                 onClick: onDeactivate,
+                danger: true,
+              });
+            }
+            // quick-260810-n3a: Kill — hard-terminates the underlying tmux
+            // session on the host via POST /host/:hostId/session/kill.
+            // Gated: onKill provided AND !isRdp AND no identity resolved
+            // AND row.targetTmuxSession is non-null. Identity rows have
+            // real /id save state and must not be nuked from a context
+            // menu (intentional scope fence). Render AFTER Deactivate —
+            // destructive-most at the bottom per bounty spec.
+            if (
+              onKill &&
+              !isRdp &&
+              !identity &&
+              row.targetTmuxSession !== null &&
+              row.targetTmuxSession !== undefined
+            ) {
+              items.push({
+                label: "Kill",
+                onClick: onKill,
                 danger: true,
               });
             }

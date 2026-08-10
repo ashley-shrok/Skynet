@@ -2677,3 +2677,163 @@ describe("PrettyConversationsPanel: mobile row-swipe composite wiring (quick-260
     expect(selectConversationSpy).toHaveBeenCalledWith("swipe-row-1");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// handleRowKill (quick-260810-n3a) — K8-K10
+// ─────────────────────────────────────────────────────────────────────────────
+// Panel-level confirm-dialog and onKillRow prop threading tests.
+// Uses the same pattern as Test 20E (deactivate via context menu) to open the
+// Kill item and assert the confirm/onKillRow flow.
+
+describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
+  // K8: handleRowKill invokes window.confirm with a message naming the tmux
+  //     session AND the host name
+  it("K8: clicking Kill opens window.confirm with session name + host name in message", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({
+              id: "kill-row-1",
+              label: "claude-abc",
+              host: hostA,
+              targetTmuxSession: "claude-abc",
+            }),
+          ],
+        },
+      ],
+    });
+
+    const onKillRow = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onKillRow={onKillRow}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="kill-row-1"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
+    fireEvent.click(killItem);
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    const confirmMsg: string = (confirmSpy.mock.calls[0] as [string])[0];
+    expect(confirmMsg).toContain("claude-abc");
+    expect(confirmMsg).toContain("hostA");
+
+    confirmSpy.mockRestore();
+  });
+
+  // K9: when window.confirm returns false → onKillRow NOT called
+  it("K9: window.confirm returns false → onKillRow NOT called", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({
+              id: "kill-row-2",
+              label: "claude-abc",
+              host: hostA,
+              targetTmuxSession: "claude-abc",
+            }),
+          ],
+        },
+      ],
+    });
+
+    const onKillRow = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onKillRow={onKillRow}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="kill-row-2"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
+    fireEvent.click(killItem);
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(onKillRow).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+
+  // K10: when window.confirm returns true → onKillRow called exactly once with the row
+  it("K10: window.confirm returns true → onKillRow called exactly once with the correct row", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({
+              id: "kill-row-3",
+              label: "claude-abc",
+              host: hostA,
+              targetTmuxSession: "claude-abc",
+            }),
+          ],
+        },
+      ],
+    });
+
+    const onKillRow = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onKillRow={onKillRow}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="kill-row-3"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const killItem = within(menu).getByRole("menuitem", { name: /kill/i });
+    fireEvent.click(killItem);
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(onKillRow).toHaveBeenCalledTimes(1);
+    expect((onKillRow.mock.calls[0] as [{ id: string }])[0].id).toBe("kill-row-3");
+
+    confirmSpy.mockRestore();
+  });
+});
