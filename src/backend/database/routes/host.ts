@@ -1,5 +1,8 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
+import { resolveHostById } from "../../ssh/host-resolver.js";
+import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { execCommand } from "../../ssh/tmux-helper.js";
 import { db } from "../db/index.js";
 import {
   hosts,
@@ -2346,5 +2349,125 @@ registerHostNetworkRoutes(router, {
   authenticateJWT,
   requireDataAccess,
 });
+
+// ---------------------------------------------------------------------------
+// quick-260810-n3a: POST /:hostId/session/kill
+// Full path: POST /host/:hostId/session/kill (hostRoutes is mounted at
+// app.use("/host", hostRoutes) in database.ts:1794).
+//
+// Runs `tmux kill-session -t <session>` on the remote host via SSH.
+// Treats "session not found" / "can't find session" as idempotent success.
+// Sanitizes tmuxSession against /^[A-Za-z0-9._-]+$/ BEFORE any interpolation.
+// ---------------------------------------------------------------------------
+
+const PER_HOST_KILL_TIMEOUT_MS = 3000;
+
+/**
+ * Tmux session allowlist — enforced BEFORE any shell interpolation.
+ * Only alphanumeric characters plus `.`, `_`, and `-` are permitted.
+ * Any other character (whitespace, semicolons, pipes, dollar signs, etc.)
+ * is rejected with 400 and zero SSH connections attempted.
+ */
+const TMUX_SESSION_ALLOWLIST = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * Patterns that indicate the tmux session is already gone (idempotent kill).
+ * Tmux versions vary in their exact wording; match all known variants
+ * case-insensitively.
+ */
+const TMUX_SESSION_NOT_FOUND_RE = /session not found|can't find session|no such session/i;
+
+router.post(
+  "/:hostId/session/kill",
+  authenticateJWT,
+  requireDataAccess,
+  async (req: Request, res: Response) => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    // 1. Parse and validate hostId
+    const hostId = Number(req.params.hostId);
+    if (!Number.isFinite(hostId) || hostId <= 0 || !Number.isInteger(hostId)) {
+      return res.status(400).json({ error: "Invalid hostId" });
+    }
+
+    // 2. Extract and type-check tmuxSession
+    const { tmuxSession } = req.body as Record<string, unknown>;
+    if (typeof tmuxSession !== "string" || tmuxSession.length === 0) {
+      return res.status(400).json({ error: "Missing tmuxSession" });
+    }
+
+    // 3. Security gate — validate against allowlist BEFORE any interpolation
+    if (!TMUX_SESSION_ALLOWLIST.test(tmuxSession)) {
+      sshLogger.warn("session_kill: rejected invalid session name (allowlist)", {
+        operation: "session_kill_reject",
+        hostId,
+        reason: "invalid_session_name",
+      });
+      return res.status(400).json({ error: "Invalid tmux session name" });
+    }
+
+    // 4. Resolve host
+    const resolved = await resolveHostById(hostId, userId);
+    if (!resolved) {
+      return res.status(404).json({ error: "Host not found" });
+    }
+
+    // 5. Open SSH connection — surface errors as 500 (do NOT swallow)
+    let conn: Awaited<ReturnType<typeof connectOneShot>>;
+    try {
+      conn = await connectOneShot(
+        resolved as unknown as Parameters<typeof connectOneShot>[0],
+        PER_HOST_KILL_TIMEOUT_MS,
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "SSH connection failed";
+      sshLogger.error("session_kill: SSH connect failure", e, {
+        operation: "session_kill_ssh_fail",
+        hostId,
+        userId,
+      });
+      return res.status(500).json({ error: message });
+    }
+
+    // 6. Run tmux kill-session in try/finally so conn.end() always fires
+    try {
+      // tmuxSession has already passed the allowlist — safe to interpolate here
+      await execCommand(conn, `tmux kill-session -t ${tmuxSession}`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "";
+      if (TMUX_SESSION_NOT_FOUND_RE.test(message)) {
+        // Session already gone — treat as idempotent success
+        sshLogger.info("session_kill: session already gone (idempotent)", {
+          operation: "session_kill",
+          hostId,
+          tmuxSession,
+          userId,
+        });
+      } else {
+        // Any other execCommand failure is a real error — surface as 500
+        sshLogger.error("session_kill: execCommand failure", e, {
+          operation: "session_kill_exec_fail",
+          hostId,
+          tmuxSession,
+          userId,
+        });
+        return res.status(500).json({ error: message || "Failed to kill session" });
+      }
+    } finally {
+      try { conn.end(); } catch { /* ignore */ }
+    }
+
+    // 7. Log successful kill
+    sshLogger.info("session_kill: success", {
+      operation: "session_kill",
+      hostId,
+      tmuxSession,
+      userId,
+    });
+
+    // 8. Return 204 No Content
+    return res.status(204).end();
+  },
+);
 
 export default router;
