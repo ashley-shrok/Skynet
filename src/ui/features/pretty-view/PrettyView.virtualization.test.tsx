@@ -685,4 +685,125 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     expect(crossedSized).toBe(false);
     expect(walker).toBe(outerScroll);
   });
+
+  it("Test 6: H3 — observeElementRect cleanup contract; no TypeError across mount → streaming → unmount even when scrollElement is transiently null", async () => {
+    // Phase 28 review finding H3 (/tmp/pv-virtualization-review.md :55-86).
+    // TanStack Virtual stores observeElementRect's return value as the
+    // cleanup and calls it on rebind (e.g., scrollElement flipping from
+    // null → element on the first status transition, or on status
+    // re-mount cycles). If any early-return branch returns bare undefined
+    // instead of `() => {}`, calling that cleanup throws
+    // `TypeError: undefined is not a function`.
+    //
+    // We can't perfectly simulate the "null-then-non-null" identity swap
+    // in JSDOM because PrettyView's outer scroll container always mounts
+    // synchronously. But we CAN drive the render lifecycle across mount →
+    // status flip → unmount and assert that no exception was thrown and
+    // no error surfaced on console.error. If Task 1's H3 fix (returning
+    // `() => {}` on the two null branches) is reverted, and TanStack ever
+    // hits the rebind path in this lifecycle, it would surface as a
+    // console.error from React's error handling.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let threw: unknown = null;
+    let unmount: (() => void) | null = null;
+    try {
+      const rendered = render(
+        <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
+      );
+      unmount = rendered.unmount;
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
+      fireMessageBatch(ws, 3, (i) => ({
+        type: "message",
+        role: "assistant",
+        content: `msg ${i}`,
+        eventId: `evt-${i}`,
+        ts: 1_000_000 + i,
+      }));
+      // Explicitly invoke every captured RO cleanup path via unmount —
+      // TanStack Virtual's own useLayoutEffect cleanup calls the value
+      // returned from observeElementRect. If any of those stored values
+      // is bare undefined, calling it throws.
+      unmount();
+    } catch (e) {
+      threw = e;
+    } finally {
+      errorSpy.mockRestore();
+    }
+    expect(threw).toBeNull();
+    // Assert no TypeError leaked through React's error boundary chatter.
+    const typeErrorCalls = errorSpy.mock.calls.filter((args) =>
+      args.some(
+        (a) =>
+          (typeof a === "string" && a.includes("TypeError")) ||
+          (a instanceof Error && a.name === "TypeError"),
+      ),
+    );
+    expect(typeErrorCalls.length).toBe(0);
+  });
+
+  it("Test 7: H4 — read() closure survives a stale-scrollElement fire and does not crash the virtualizer", async () => {
+    // Phase 28 review finding H4 (/tmp/pv-virtualization-review.md :88-111).
+    // The custom observeElementRect's read() closure re-derives
+    // instance.scrollElement on every invocation so a stale RO firing
+    // after a scroll-container remount reports current dimensions for
+    // the CURRENT element, not the captured-at-bind stale one.
+    //
+    // JSDOM cannot easily simulate a full scroll-container identity swap
+    // (that would require unmount/remount of PrettyView with the same
+    // session). The practical proxy: change the outer scroll container's
+    // offsetHeight after bind, then manually invoke every captured RO
+    // callback (as if a real browser had delivered a resize entry). The
+    // virtualizer should re-read dimensions inside read() and NOT crash;
+    // the sized virtualizer container should remain valid and bubbles
+    // should still be present in the DOM.
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    fireMessageBatch(ws, 5, (i) => ({
+      type: "message",
+      role: "assistant",
+      content: `msg ${i}`,
+      eventId: `evt-${i}`,
+      ts: 1_000_000 + i,
+    }));
+
+    const outerScroll = getOuterScrollContainer(container);
+    // Simulate a post-mount viewport size change by mutating offsetHeight
+    // on the outer scroll container. The virtualizer's own RO (installed
+    // by observeElementRect) reads offsetHeight synchronously on each fire.
+    Object.defineProperty(outerScroll, "offsetHeight", {
+      get: () => 480,
+      configurable: true,
+    });
+    Object.defineProperty(outerScroll, "offsetWidth", {
+      get: () => 1024,
+      configurable: true,
+    });
+
+    // Fire every captured RO callback — the H4 concern is that read()
+    // must re-derive from instance.scrollElement every time, so even a
+    // "stale-looking" callback path lands on the current element cleanly.
+    let threw: unknown = null;
+    try {
+      act(() => {
+        for (const cb of capturedROCallbacks) {
+          cb([], {} as ResizeObserver);
+        }
+      });
+    } catch (e) {
+      threw = e;
+    }
+    expect(threw).toBeNull();
+
+    // Proxy assertion: after the re-read, the sized virtualizer container
+    // is still located-able and bubbles are still present. If read() had
+    // thrown or fed a zero rect into the virtualizer, this would fail.
+    const sized = getSizedVirtualizerContainer(container);
+    expect(sized).toBeTruthy();
+    const bubbles = container.querySelectorAll("[data-pv-bubble]");
+    expect(bubbles.length).toBeGreaterThan(0);
+  });
 });

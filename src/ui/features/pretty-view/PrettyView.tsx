@@ -662,19 +662,37 @@ export function PrettyView({
     // Once the real ResizeObserver fires with a non-zero rect (the browser
     // case), that value takes over as normal.
     observeElementRect: (instance, cb) => {
-      const el = instance.scrollElement as HTMLElement | null;
-      if (!el) return;
+      // H3 fix: every early-return branch MUST return a () => void cleanup
+      // (not bare undefined). TanStack Virtual stores the return value as
+      // the cleanup and calls it on rebind (e.g., scrollElement flips from
+      // null → element on first mount, or on status re-mount cycles). A
+      // bare `return;` stored undefined would throw
+      // `TypeError: undefined is not a function` when TanStack later
+      // invokes cleanup — currently only masked by a defensive typeof
+      // guard in the library. Do not rely on that.
+      const bindEl = instance.scrollElement as HTMLElement | null;
+      if (!bindEl) return () => {};
       const win = instance.targetWindow;
-      if (!win) return;
+      if (!win) return () => {};
+      // H4 fix: re-derive from instance.scrollElement on every fire so a
+      // stale RO on the old scroll container reports current dimensions
+      // (not the captured-at-bind stale one). If instance.scrollElement
+      // is transiently null when the callback fires (mid-remount), bail
+      // WITHOUT calling cb(...) so a spurious zero rect doesn't propagate.
       const read = () => {
-        const w = el.offsetWidth || 1024;
-        const h = el.offsetHeight || 4096;
+        const cur = instance.scrollElement as HTMLElement | null;
+        if (!cur) return;
+        const w = cur.offsetWidth || 1024;
+        const h = cur.offsetHeight || 4096;
         cb({ width: w, height: h });
       };
       read();
       if (!win.ResizeObserver) return () => {};
       const ro = new win.ResizeObserver(() => read());
-      ro.observe(el);
+      // Observe the element captured at bind-time so the OLD element
+      // continues to be watched for its own resizes; the CALLBACK still
+      // reports whichever element is current at fire-time (via read()).
+      ro.observe(bindEl);
       return () => ro.disconnect();
     },
   });
