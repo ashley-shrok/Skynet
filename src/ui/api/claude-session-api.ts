@@ -217,6 +217,34 @@ export type DormantEvent = { type: "dormant"; dormant: boolean };
 export type WakeResultEvent = { type: "wake_result"; ok: boolean; error?: string };
 
 /**
+ * Phase 30 (PS30-01 + PS30-04): backend-authoritative pane-entry verdict.
+ *
+ * Emitted by the backend on every WS attach (fresh clients get current
+ * truth) and on every state change. Consolidates the five legacy racing
+ * frame types (session_holding / session_holding_cleared / session_changed
+ * / dormant / inactive) into a single authoritative wire surface — see
+ * src/backend/claude-session/pane-state-emitter.ts for the emitter.
+ *
+ * `state` values match the backend emitter's PaneState union exactly:
+ * active | holding | dormant | inactive | error. `reason` is optional
+ * free-form diagnostic text (string | undefined) — the frontend treats
+ * it as opaque and currently does not surface it in the UI (T-30-03-03
+ * information-disclosure mitigation per Plan 30-03 threat model).
+ *
+ * The frontend consumer stores parsed.state into a paneState React state
+ * slot; the trivial usePaneResolvingMachine hook + pure resolveRenderedState
+ * reducer derive the rendered overlay from (wsTransportState, paneState).
+ * Legacy frame types stay on the wire for backward compat (D-migration in
+ * 30-CONTEXT.md); their captureFirstFrame client-inference calls are all
+ * DELETED per Plan 30-03 Task 3.
+ */
+export type PaneStateEvent = {
+  type: "pane_state";
+  state: "active" | "holding" | "dormant" | "inactive" | "error";
+  reason?: string;
+};
+
+/**
  * pv-malformed-jsonl-placeholder-bubble (2026-08-10) — surfaced when
  * parseSessionLine returns kind:"malformed" (JSON.parse threw on the raw
  * line). The truncated turn's content is unrecoverable (Claude Code's
@@ -254,6 +282,8 @@ export type ClaudeSessionServerEvent =
   // quick 260808-cd6 — dormancy overlay + wake button
   | DormantEvent
   | WakeResultEvent
+  // Phase 30 (PS30-01 + PS30-04) — backend-authoritative pane-entry verdict
+  | PaneStateEvent
   | IdentityBountiesEvent
   | IdentityIdentityFileEvent
   // Phase 22 SRIC-06 / Plan 22-06: role-file read + update events (mirror

@@ -194,13 +194,14 @@ describe("usePaneResolvingMachine — Phase 30 trivial derivation", () => {
     );
     const keys = Object.keys(result.current).sort();
     expect(keys).toEqual(["paneState", "renderedState"]);
-    // Explicit no-legacy assertions.
-    expect((result.current as Record<string, unknown>).requestRetry).toBeUndefined();
-    expect((result.current as Record<string, unknown>).showSpinner).toBeUndefined();
-    expect((result.current as Record<string, unknown>).wsState).toBeUndefined();
-    expect(
-      (result.current as Record<string, unknown>).backendFirstFrame,
-    ).toBeUndefined();
-    expect((result.current as Record<string, unknown>).phase).toBeUndefined();
+    // Explicit no-legacy assertions. Cast via `unknown` first because the
+    // static type of result.current does not sufficiently overlap with
+    // Record<string, unknown> for a direct cast (TS2352).
+    const asRecord = result.current as unknown as Record<string, unknown>;
+    expect(asRecord.requestRetry).toBeUndefined();
+    expect(asRecord.showSpinner).toBeUndefined();
+    expect(asRecord.wsState).toBeUndefined();
+    expect(asRecord.backendFirstFrame).toBeUndefined();
+    expect(asRecord.phase).toBeUndefined();
   });
 });

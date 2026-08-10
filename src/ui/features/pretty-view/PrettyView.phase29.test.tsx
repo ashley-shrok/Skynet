@@ -1,32 +1,39 @@
-// phase-29: integration + structural-grep + flicker-regression test suite (SPEC acceptance criteria)
-/**
- * Phase 29 integration test file — locks the SPEC acceptance-criteria list at
- * the compiled-code AND rendered-DOM levels.
- *
- * Five describe blocks:
- *
- *   1. Structural-grep gates (SPEC req 2, 5, 6, boundary) — anchor-based
- *      source-file reads on PrettyView.tsx / usePaneResolvingMachine.ts /
- *      resolve-phase.ts prove that overlay mount gates are wired to the
- *      phase-derived state machine, exactly one setTimeout lives in the
- *      hook file (the 150ms delay-arm), and no retired text nodes remain
- *      in production JSX.
- *   2. Entry-edge triggers (SPEC req 1) — the three trigger edges (cold
- *      mount, warm hidden→visible re-focus, PWA document.visibilitychange
- *      to visible) all enter phase="resolving" via the same shared code
- *      path in usePaneResolvingMachine.
- *   3-5. Flicker regressions (a/b/c from SPEC background) — each of
- *      Ashley's three named flicker cases has a dedicated describe block
- *      that drives the historical bad input sequence and asserts the
- *      resolving spinner is the only overlay throughout the window.
- *
- * This file is INTEGRATION-level only — it exercises PrettyView with
- * mocked WS to prove the pieces compose correctly. It does NOT duplicate
- * resolve-phase.test.ts (pure truth table) or usePaneResolvingMachine.test.tsx
- * (hook behavior). See those sibling files for those layers.
- *
- * See plan 29-05 SUMMARY.md for the test count delta + inventory.
- */
+// Phase 30 (PS30-07): integration tests for the backend-authoritative
+// pane_state architecture. Replaces the Phase-29 integration suite that
+// exercised entry-triggers / snapshot rearm / client-inference — every
+// mechanism from that suite is DELETED in Phase 30, so its tests DELETE
+// too. The Phase-30 architecture is TRIVIALLY testable by comparison:
+// mount PrettyView with mocked WS, dispatch pane_state frames, assert
+// the correct overlay mounts. No delay-arm timers to coordinate, no
+// snapshot rearm to reason about, no entry-trigger edges to simulate.
+//
+// Structure:
+//   GROUP 1 — structural-grep gates (Task 3 acceptance criteria) locked
+//     as vitest tests so regressions pin exact file+identifier
+//   GROUP 2-7 — six mount-behavior tests (A-F):
+//     A — pane_state:active → no overlay (message view)
+//     B — pane_state:holding → SessionHoldingOverlay
+//     C — pane_state:holding then pane_state:active → SessionHoldingOverlay
+//         unmounts, message view visible
+//     D — no pane_state received → PrettyViewLoadingOverlay (resolving)
+//     E — WS ladder terminally exhausted → PrettyViewErrorOverlay
+//     F — pane_state:holding then transient WS drop → overlay does NOT
+//         flip to resolving (D-11 don't-flicker)
+//   Test G — reset button click assertion (patch #381 anti-pattern
+//     DELETED) — lives inside GROUP 1's grep gates rather than as a
+//     runtime test, because the assertion is a source-code invariant
+//     (onResetClicked's body contains no client-side pane-state
+//     mutation) not a rendered-DOM invariant.
+//
+// Sub-step I / Test H — backend-side round-trip latency approximation
+// (F4 acknowledgment on record) — NOT included at the integration level
+// here because it exercises the backend detectIdReset + pane-state-
+// emitter path, which lives under src/backend/claude-session/. Plan
+// 30-01's pane-state-emitter.test.ts already covers the synchronous
+// emit contract; adding a duplicated frontend-integration variant here
+// would test the same synchronous-emit invariant twice without new
+// coverage. This file covers the FRONTEND-side receive-to-render window
+// per Tests A-F.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, act } from "@testing-library/react";
@@ -95,7 +102,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 import { PrettyView } from "./PrettyView";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Source-path anchors for structural-grep gates (Test group 1).
+// Source-path anchors for grep-level tests (GROUP 1 below).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -104,46 +111,26 @@ const HOOK_SRC_PATH = join(HERE, "usePaneResolvingMachine.ts");
 const RESOLVE_SRC_PATH = join(HERE, "resolve-phase.ts");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Fake-timers + jsdom-hardening harness (mirrors PrettyView.test.tsx §313-337).
-// The visibilitychange handler in PrettyView.tsx is gated on isIosPwa(), so the
-// integration tests below need the environment to look like iOS PWA — otherwise
-// document.visibilitychange fires but PrettyView's handler is not attached.
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const IPHONE_UA_FOR_TESTS =
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
-let __originalUa: string | null = null;
-function enableIosPwa(): void {
-  __originalUa = navigator.userAgent;
-  Object.defineProperty(navigator, "userAgent", {
-    value: IPHONE_UA_FOR_TESTS,
-    configurable: true,
+function sendFrame(ws: WsStub, frame: Record<string, unknown>): void {
+  act(() => {
+    ws.onmessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify(frame),
+      }),
+    );
   });
-  Object.defineProperty(navigator, "standalone", {
-    value: true,
-    configurable: true,
-    writable: true,
-  });
-}
-function restoreIosPwa(): void {
-  if (__originalUa !== null) {
-    Object.defineProperty(navigator, "userAgent", {
-      value: __originalUa,
-      configurable: true,
-    });
-    __originalUa = null;
-  }
-  delete (navigator as { standalone?: boolean }).standalone;
 }
 
-// Fire ws.onclose() inside act(). Also sets readyState to 3 (CLOSED) so the
-// visibilitychange handler's readyState !== 1 guard doesn't short-circuit.
 function fireClose(ws: WsStub): void {
   act(() => {
     ws.readyState = 3;
     ws.onclose?.();
   });
 }
+
 function advance(ms: number): void {
   act(() => {
     vi.advanceTimersByTime(ms);
@@ -151,151 +138,109 @@ function advance(ms: number): void {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GROUP 1 — Structural-grep gates (SPEC req 2, 5, 6, boundary)
+// GROUP 1 — Structural-grep gates (Task 3 acceptance criteria)
+//
+// These gates prove the Phase-30 rewrite deleted every trace of the Phase-29
+// client-inference machinery (code AND comments) — they run cheaply as
+// vitest tests so a regression pins the exact file+identifier.
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe("phase 29 — structural-grep gates (SPEC req 2, 5, 6, boundary)", () => {
+describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () => {
   const pvSrc = readFileSync(PV_SRC_PATH, "utf-8");
   const hookSrc = readFileSync(HOOK_SRC_PATH, "utf-8");
   const resolveSrc = readFileSync(RESOLVE_SRC_PATH, "utf-8");
 
-  // Strip single-line JS/TS comment lines before grepping for retired
-  // markers — PrettyView.tsx keeps rationale comments referencing the
-  // deleted watchdog/text nodes but the tokens must NOT appear in live
-  // JSX. Only leading `//` lines are stripped; `/* ... */` block comments
-  // pass through (rare in PrettyView.tsx and don't contain the tokens).
-  const pvNonCommentSrc = pvSrc
-    .split("\n")
-    .filter((l) => !l.trim().startsWith("//"))
-    .join("\n");
-
-  it("SPEC req 2: only PrettyViewLoadingOverlay mounts under phase === 'resolving' (no other overlay in the same JSX block)", () => {
-    const anchorIdx = pvSrc.indexOf(
-      "phase-29: PrettyViewLoadingOverlay is the resolving-phase spinner",
-    );
-    expect(anchorIdx).toBeGreaterThan(0);
-    // 500 chars covers the rationale comment block + the JSX mount line.
-    const block = pvSrc.slice(anchorIdx, anchorIdx + 500);
-    expect(block).toContain('phase === "resolving"');
-    expect(block).toContain("PrettyViewLoadingOverlay");
-    // Mutual exclusion — none of the terminal-state overlays render inside
-    // this same JSX block.
-    expect(block).not.toContain("SessionHoldingOverlay");
-    expect(block).not.toContain("DormancyOverlay");
-    expect(block).not.toContain("PrettyViewErrorOverlay");
+  it("PrettyView.tsx: zero captureFirstFrame references (code AND comments)", () => {
+    expect(pvSrc).not.toMatch(/captureFirstFrame/);
   });
 
-  it("SPEC req 6: SessionHoldingOverlay gated on phase === 'holding'", () => {
-    const anchorIdx = pvSrc.indexOf(
-      "phase-29: SessionHoldingOverlay gated on `phase === \"holding\"`",
-    );
-    expect(anchorIdx).toBeGreaterThan(0);
-    const block = pvSrc.slice(anchorIdx, anchorIdx + 500);
-    expect(block).toContain('phase === "holding"');
-    expect(block).toMatch(/<SessionHoldingOverlay\b/);
+  it("PrettyView.tsx: zero backendFirstFrame references (code AND comments)", () => {
+    expect(pvSrc).not.toMatch(/backendFirstFrame|BackendFirstFrame/);
   });
 
-  it("SPEC req 6: DormancyOverlay gated on phase === 'dormant'", () => {
-    const anchorIdx = pvSrc.indexOf(
-      "phase-29: DormancyOverlay gated on `phase === \"dormant\"`",
-    );
-    expect(anchorIdx).toBeGreaterThan(0);
-    const block = pvSrc.slice(anchorIdx, anchorIdx + 500);
-    expect(block).toContain('phase === "dormant"');
-    expect(block).toMatch(/<DormancyOverlay\b/);
-  });
-
-  it("SPEC req 6: inactive fallback gated on phase === 'inactive'", () => {
-    const anchorIdx = pvSrc.indexOf(
-      "phase-29: inactive fallback gated on `phase === \"inactive\"`",
-    );
-    expect(anchorIdx).toBeGreaterThan(0);
-    const block = pvSrc.slice(anchorIdx, anchorIdx + 500);
-    expect(block).toContain('phase === "inactive"');
-    expect(block).toContain("no active Claude session");
-  });
-
-  it("SPEC req 6: PrettyViewErrorOverlay gated on phase === 'error'", () => {
-    const anchorIdx = pvSrc.indexOf(
-      "phase-29: PrettyViewErrorOverlay gated on `phase === \"error\"`",
-    );
-    expect(anchorIdx).toBeGreaterThan(0);
-    const block = pvSrc.slice(anchorIdx, anchorIdx + 500);
-    expect(block).toContain('phase === "error"');
-    expect(block).toMatch(/<PrettyViewErrorOverlay\b/);
-  });
-
-  it("SPEC req 5: usePaneResolvingMachine.ts contains exactly one setTimeout (the 150ms delay-arm)", () => {
-    const matches = hookSrc.match(/setTimeout\(/g) ?? [];
+  it("PrettyView.tsx: exactly one `case \"pane_state\"` handler in the WS switch", () => {
+    // Match the handler CASE (with the opening brace) — the two comment
+    // references to `case "pane_state"` in JSDoc don't have the brace.
+    const matches = pvSrc.match(/case "pane_state": \{/g) ?? [];
     expect(matches.length).toBe(1);
-    // No sneaky sibling timer primitives.
-    expect(hookSrc).not.toMatch(/setInterval\(/);
-    expect(hookSrc).not.toMatch(/requestIdleCallback\(/);
   });
 
-  it("SPEC req 5: PrettyView.tsx contains zero references to the retired watchdog windows (600000ms + 10000ms) in non-comment source", () => {
-    expect(pvNonCommentSrc).not.toContain("600000");
-    // 10s auto-dismiss for the loading overlay used to live inside a
-    // setTimeout(..., 10000) call. Grep on the exact call shape so an
-    // ambient 10000 literal used for something benign (e.g. a chunk-size
-    // constant) doesn't false-positive.
-    expect(pvNonCommentSrc).not.toMatch(/setTimeout\([^)]+,\s*10000\s*\)/);
+  it("PrettyView.tsx: zero Phase-29 zombie comment blocks (F3 gate)", () => {
+    expect(pvSrc).not.toMatch(/phase-29 \(plan 29-05 test-audit fix\)/);
+    expect(pvSrc).not.toMatch(/usePaneResolvingMachine: captureFirstFrame/);
   });
 
-  it("SPEC boundary: PrettyView.tsx does NOT render 'Connecting…' or 'Connection lost' text in non-comment source", () => {
-    expect(pvNonCommentSrc).not.toContain("Connecting…");
-    expect(pvNonCommentSrc).not.toContain("Connection lost");
+  it("PrettyView.tsx: zero rearm-snapshot / has-resolved-this-pane sentinel refs", () => {
+    expect(pvSrc).not.toMatch(/rearmSnapshotRef|hasResolvedThisPaneRef/);
   });
 
-  it("SPEC req 3: usePaneResolvingMachine.ts carries the resolution-inputs anchor comment (wsState + backendFirstFrame ONLY)", () => {
-    expect(
-      hookSrc.indexOf(
-        "phase-29: resolution inputs — wsState + backendFirstFrame ONLY",
-      ),
-    ).toBeGreaterThan(0);
+  it("PrettyView.tsx: zero showResolvingSpinner / requestRetry / handleRetry references (Phase-29 hook surface gone)", () => {
+    expect(pvSrc).not.toMatch(/showResolvingSpinner|requestRetry|handleRetry/);
+    // showSpinner alone is also gone (was a Phase-29 hook return prop).
+    expect(pvSrc).not.toMatch(/\bshowSpinner\b/);
   });
 
-  it("SPEC req 4: resolve-phase.ts is import-free (pure reducer)", () => {
+  it("PrettyView.tsx: overlay mount gates use renderedState === '...' (backend-authoritative)", () => {
+    expect(pvSrc).toMatch(/renderedState === "holding"/);
+    expect(pvSrc).toMatch(/renderedState === "dormant"/);
+    expect(pvSrc).toMatch(/renderedState === "error"/);
+    expect(pvSrc).toMatch(/renderedState === "resolving"/);
+    expect(pvSrc).toMatch(/renderedState === "inactive"/);
+  });
+
+  it("Test G: onResetClicked no longer contains any client-side pane-state mutation (patch #381 anti-pattern DELETED)", () => {
+    // Find the onResetClicked useCallback body and assert it contains no
+    // setIsHolding, no captureFirstFrame, no setPaneState.
+    const anchorIdx = pvSrc.indexOf("const onResetClicked = useCallback");
+    expect(anchorIdx).toBeGreaterThan(0);
+    // Body extends until the closing `}, [])` (mount-once useCallback).
+    const bodyEnd = pvSrc.indexOf("}, [])", anchorIdx);
+    expect(bodyEnd).toBeGreaterThan(anchorIdx);
+    const body = pvSrc.slice(anchorIdx, bodyEnd);
+    expect(body).not.toMatch(/setIsHolding\(/);
+    expect(body).not.toMatch(/captureFirstFrame\(/);
+    expect(body).not.toMatch(/setPaneState\(/);
+  });
+
+  it("PrettyView.tsx: publishes session-recycling on `renderedState === \"holding\"` (not Phase-29 `phase === \"holding\"`)", () => {
+    expect(pvSrc).toMatch(
+      /publishSessionRecycling\([^)]*key[^)]*,\s*renderedState\s*===\s*"holding"\s*\)/,
+    );
+  });
+
+  it("usePaneResolvingMachine.ts: reduced to trivial derivation (<60 LOC, zero React state/effect machinery)", () => {
+    const loc = hookSrc.split("\n").length;
+    expect(loc).toBeLessThan(60);
+    expect(hookSrc).not.toMatch(/useState|useEffect|useRef|useCallback/);
+    expect(hookSrc).not.toMatch(/setTimeout|setInterval|requestIdleCallback/);
+  });
+
+  it("resolve-phase.ts: pure reducer (zero imports)", () => {
     const importLines = resolveSrc.split("\n").filter((l) => /^import /.test(l));
     expect(importLines.length).toBe(0);
   });
 
-  it("SPEC req 7: PrettyView.tsx publishes session-recycling on `phase === \"holding\"` (not the retired showOverlay boolean)", () => {
-    // Structural gate — plan 29-05 Task 3 owns the store-side transition
-    // test; here we lock the caller-side derivation to `phase === "holding"`.
-    expect(pvSrc).toMatch(
-      /publishSessionRecycling\([^)]*key[^)]*,\s*phase\s*===\s*"holding"\s*\)/,
-    );
-    // Effect deps: [phase, hostId, tmuxSession] — retired showOverlay dep
-    // must not linger.
-    expect(pvSrc).toContain('[phase, hostId, tmuxSession]');
+  it("resolve-phase.ts: exports the new Phase-30 type surface (WsTransportState, PaneState, RenderedState)", () => {
+    expect(resolveSrc).toMatch(/^export type WsTransportState/m);
+    expect(resolveSrc).toMatch(/^export type PaneState/m);
+    expect(resolveSrc).toMatch(/^export type RenderedState/m);
+    expect(resolveSrc).toMatch(/^export function resolveRenderedState/m);
   });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GROUP 2 — SPEC req 1: entry-edge triggers enter resolving via one shared path
+// GROUP 2 — Test A: pane_state:active → no overlay (message view baseline)
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe("phase 29 — SPEC req 1: entry-edge triggers enter resolving via one shared code path", () => {
+describe("Phase 30 integration — Test A: pane_state:active → no overlay mounts", () => {
   let resizeObserverStub: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     wsStubs.length = 0;
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      value: false,
-    });
-    // Force document.visibilityState to "visible" so the PWA foreground
-    // trigger can observe a true visible edge — jsdom defaults to
-    // "prerender" or leaves it as "visible" depending on version; be
-    // explicit. phase-29 test-only: mirrors quick-260808-cd6 pattern.
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      value: "visible",
-    });
-    enableIosPwa();
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     resizeObserverStub = vi.fn(function () {
       return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
     });
@@ -303,202 +248,42 @@ describe("phase 29 — SPEC req 1: entry-edge triggers enter resolving via one s
   });
 
   afterEach(() => {
-    restoreIosPwa();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it("cold mount: fresh pane render enters phase='resolving' and delay-arms the spinner at 150ms; instant sub-150ms resolutions never mount the spinner", () => {
-    render(
-      <PrettyView hostId={1} tmuxSession="s1" isVisible={true} />,
-    );
-    // Immediately: no spinner yet (still inside the 150ms delay-arm).
-    expect(
-      screen.queryByRole("status", { name: /Loading conversation/i }),
-    ).toBeNull();
-
-    // Advance 150ms — spinner mounts.
-    advance(150);
-    const spinner = screen.getByRole("status", {
-      name: /Loading conversation/i,
-    });
-    expect(spinner).toBeTruthy();
-
-    // Mutual exclusion — only the resolving spinner is present. No error
-    // overlay, no dormancy, no holding, no inactive fallback.
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByText(/Session is asleep/i)).toBeNull();
-    expect(screen.queryByText(/Session recycling/i)).toBeNull();
-    expect(screen.queryByText(/no active Claude session/i)).toBeNull();
-  });
-
-  it("warm re-focus: hidden→visible flip on an already-mounted PrettyView re-arms resolving via the isVisible edge trigger", () => {
-    const { rerender } = render(
-      <PrettyView hostId={1} tmuxSession="s1" isVisible={false} />,
-    );
-    // Initial mount is in resolving; delay-arm fires but pane is hidden
-    // (WS-pause effect kicks in). Advance past the delay-arm to expose
-    // the initial-resolving spinner attempt.
-    advance(150);
-    // We are in the initial mount resolving window (no re-focus edge yet).
-    // Fire the warm re-focus edge — isVisible false→true.
-    rerender(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
-    // On the re-focus edge the state machine re-arms resolving.
-    // (An already-resolved pane would flip isResolving back to true; an
-    // initial-mount pane stays in resolving. Either way the invariant is
-    // "resolving is the only phase during the window".)
-    advance(150);
-    expect(
-      screen.getByRole("status", { name: /Loading conversation/i }),
-    ).toBeTruthy();
-    // No terminal-state overlay yet — WS mock hasn't produced a first-frame
-    // verdict.
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByText(/Session is asleep/i)).toBeNull();
-    expect(screen.queryByText(/Session recycling/i)).toBeNull();
-  });
-
-  it("PWA foreground: document.visibilitychange to visible on a visible pane re-arms resolving via the shared code path", () => {
-    render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
-    advance(150);
-    // Initial spinner mount confirmed.
-    expect(
-      screen.getByRole("status", { name: /Loading conversation/i }),
-    ).toBeTruthy();
-
-    // Drive to a settled active state via a `session` frame so the
-    // machine leaves resolving.
-    act(() => {
-      getCurrentWs().onopen?.();
-      getCurrentWs().onmessage?.(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "session", sessionFile: "/tmp/x.jsonl" }),
-        }),
-      );
-    });
-    // Post-resolve: spinner has been unmounted (phase left resolving).
-    expect(
-      screen.queryByRole("status", { name: /Loading conversation/i }),
-    ).toBeNull();
-
-    // Fire the PWA foreground edge — document.visibilitychange with
-    // visibilityState=visible.
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      value: "visible",
-    });
-    act(() => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    // The hook's rearm-snapshot semantic keeps the machine in resolving
-    // until inputs diverge from the pre-refocus snapshot. We just need
-    // to observe that the phase can transition to resolving. Give the
-    // delay-arm 150ms to mount the spinner if the state flipped.
-    advance(150);
-    // Either the spinner has re-armed (pre-settled inputs held the
-    // snapshot) OR the machine settled instantly because inputs already
-    // diverged in the interim (both are SPEC-compliant). Assert the
-    // primary invariant — no forbidden overlay has appeared during the
-    // window.
-    expect(screen.queryByText(/Connecting…/i)).toBeNull();
-    expect(screen.queryByText(/Connection lost/i)).toBeNull();
-  });
-});
-
-// ═════════════════════════════════════════════════════════════════════════════
-// GROUP 3 — Flicker regression 1: black-screen "Connecting…" on entry
-// ═════════════════════════════════════════════════════════════════════════════
-
-describe("phase 29 — flicker regression 1: black-screen 'Connecting…' on entry to an already-active pane", () => {
-  let resizeObserverStub: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useFakeTimers();
-    wsStubs.length = 0;
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      value: false,
-    });
-    enableIosPwa();
-    resizeObserverStub = vi.fn(function () {
-      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
-    });
-    vi.stubGlobal("ResizeObserver", resizeObserverStub);
-  });
-
-  afterEach(() => {
-    restoreIosPwa();
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-  });
-
-  it("historical bad path (Ashley 2026-08-10 case a): fresh mount + ws.onopen + streaming frame — no 'Connecting…' text is EVER visible; resolving spinner covers the pre-first-frame window", () => {
+  it("session + pane_state:active → no overlay, message view baseline", () => {
     render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
     const ws = getCurrentWs();
-
-    // t=0 — pre-delay-arm window. No spinner, no forbidden text.
-    expect(screen.queryByText(/Connecting…/i)).toBeNull();
-    expect(screen.queryByText(/Connection lost/i)).toBeNull();
-
-    // t=150ms — spinner delay-arm fires. Only overlay: the resolving
-    // spinner. NO "Connecting…" text (that node was retired).
-    advance(150);
-    expect(
-      screen.getByRole("status", { name: /Loading conversation/i }),
-    ).toBeTruthy();
-    expect(screen.queryByText(/Connecting…/i)).toBeNull();
-    expect(screen.queryByText(/Connection lost/i)).toBeNull();
-
-    // t=~200ms — WS opens, ~ε later streaming frame arrives. This is the
-    // historical bad path where the "Connecting…" text would flash briefly.
-    // Under phase 29 the resolving spinner stays up until the state
-    // machine's captureFirstFrame("active") flips phase to "active".
-    act(() => {
-      ws.onopen?.();
-    });
-    // Still resolving — backend first frame hasn't arrived yet.
-    expect(
-      screen.getByRole("status", { name: /Loading conversation/i }),
-    ).toBeTruthy();
-    expect(screen.queryByText(/Connecting…/i)).toBeNull();
-
-    // The `session` frame captures backendFirstFrame="active", which
-    // combined with wsState="open" resolves phase to "active".
-    act(() => {
-      ws.onmessage?.(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "session", sessionFile: "/tmp/x.jsonl" }),
-        }),
-      );
-    });
-    // Phase active: spinner gone, no forbidden text.
-    expect(
-      screen.queryByRole("status", { name: /Loading conversation/i }),
-    ).toBeNull();
-    expect(screen.queryByText(/Connecting…/i)).toBeNull();
-    expect(screen.queryByText(/Connection lost/i)).toBeNull();
+    act(() => { ws.onopen?.(); });
+    // Session frame flips status to streaming; pane_state:active flips
+    // renderedState off "resolving" into "active" (which mounts no
+    // overlay).
+    sendFrame(ws, { type: "session", sessionFile: "/tmp/x.jsonl" });
+    sendFrame(ws, { type: "pane_state", state: "active" });
+    // No overlay of any kind.
+    expect(screen.queryByRole("status", { name: /Loading conversation/i })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+    expect(screen.queryByText(/Session is asleep/i)).toBeNull();
+    expect(screen.queryByText(/no active Claude session/i)).toBeNull();
   });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GROUP 4 — Flicker regression 2: 'Connection lost' half-screen box
+// GROUP 3 — Test B: pane_state:holding → SessionHoldingOverlay
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe("phase 29 — flicker regression 2: 'Connection lost' half-screen box briefly appears", () => {
+describe("Phase 30 integration — Test B: pane_state:holding → SessionHoldingOverlay mounts", () => {
   let resizeObserverStub: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     wsStubs.length = 0;
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      value: false,
-    });
-    enableIosPwa();
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     resizeObserverStub = vi.fn(function () {
       return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
     });
@@ -506,74 +291,165 @@ describe("phase 29 — flicker regression 2: 'Connection lost' half-screen box b
   });
 
   afterEach(() => {
-    restoreIosPwa();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it("historical bad path (Ashley 2026-08-10 case b): WS onclose during initial resolve — 'Connection lost' text NEVER appears; PrettyViewErrorOverlay only mounts after ladder terminally exhausts", () => {
+  it("session then pane_state:holding → SessionHoldingOverlay mounted", () => {
     render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
-    // Advance past the initial delay-arm so the spinner is up.
-    advance(150);
+    const ws = getCurrentWs();
+    act(() => { ws.onopen?.(); });
+    sendFrame(ws, { type: "session", sessionFile: "/tmp/x.jsonl" });
+    sendFrame(ws, { type: "pane_state", state: "holding", reason: "id_reset" });
+    // SessionHoldingOverlay carries the "Session recycling" copy per
+    // patch #74's centered card. Look for the recycling status text.
+    expect(screen.getByText(/Session recycling/i)).toBeTruthy();
+    // No other terminal overlay simultaneously.
+    expect(screen.queryByText(/Session is asleep/i)).toBeNull();
+    expect(screen.queryByText(/no active Claude session/i)).toBeNull();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GROUP 4 — Test C: holding → active swap unmounts SessionHoldingOverlay
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe("Phase 30 integration — Test C: holding → active swap unmounts the overlay", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    wsStubs.length = 0;
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal("ResizeObserver", resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("pane_state:holding then pane_state:active → SessionHoldingOverlay unmounts", () => {
+    render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
+    const ws = getCurrentWs();
+    act(() => { ws.onopen?.(); });
+    sendFrame(ws, { type: "session", sessionFile: "/tmp/x.jsonl" });
+    sendFrame(ws, { type: "pane_state", state: "holding", reason: "id_reset" });
+    expect(screen.getByText(/Session recycling/i)).toBeTruthy();
+
+    // Backend emits pane_state:active (recycle completed OR
+    // dormancy_cleared OR same_file_recovery — reason omitted for
+    // simplicity, any active is a "swap back to normal" signal).
+    sendFrame(ws, { type: "pane_state", state: "active" });
+    // SessionHoldingOverlay unmounts.
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GROUP 5 — Test D: no pane_state → PrettyViewLoadingOverlay
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe("Phase 30 integration — Test D: no pane_state received → resolving spinner", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    wsStubs.length = 0;
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal("ResizeObserver", resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("fresh mount, no pane_state received → PrettyViewLoadingOverlay mounted (renderedState === 'resolving')", () => {
+    render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
+    // Phase 30: no delay-arm; spinner mounts synchronously on the
+    // resolving state.
     expect(
       screen.getByRole("status", { name: /Loading conversation/i }),
     ).toBeTruthy();
+  });
+});
 
-    // Simulate WS onclose repeatedly to exhaust the retry ladder
-    // (MAX_RECONNECT_ATTEMPTS=5). Each close schedules a fresh WS after
-    // the linear-with-cap backoff (2s, 4s, 6s, 8s, 8s). The retry-in-
-    // flight window is what historically produced the "Connection lost"
-    // half-screen text flash.
+// ═════════════════════════════════════════════════════════════════════════════
+// GROUP 6 — Test E: WS ladder exhausted → PrettyViewErrorOverlay
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe("Phase 30 integration — Test E: WS ladder exhausted → PrettyViewErrorOverlay", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    wsStubs.length = 0;
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal("ResizeObserver", resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("WS retry ladder terminally exhausts (MAX_RECONNECT_ATTEMPTS=5) → PrettyViewErrorOverlay mounts", () => {
+    render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
+    // Exhaust the retry ladder: 5 closes with backoff windows (2/4/6/8/8s).
     const backoffs = [2000, 4000, 6000, 8000, 8000];
     for (const delay of backoffs) {
       const ws = getCurrentWs();
       fireClose(ws);
-      // Mid-retry window: no "Connection lost" text, no error overlay yet.
-      // The spinner should stay up because phase is still "resolving"
-      // (wsState transitions between "opening" / "not-connected") — but
-      // the observable invariant we lock is the ABSENCE of the retired
-      // text nodes.
-      expect(screen.queryByText(/Connection lost/i)).toBeNull();
-      expect(screen.queryByText(/Connecting…/i)).toBeNull();
       advance(delay);
     }
-    // At this point we have 6 stubs total (initial + 5 retries). The 6th
-    // stub carries reconnectAttempts=5 — one more close hits the cap.
+    // 6th close hits the cap → wsTransportState = "failed-permanently".
     fireClose(getCurrentWs());
-    // wsState now transitions to "failed-permanently" → resolvePhase()
-    // returns "error" → PrettyViewErrorOverlay mounts.
-    advance(150); // any residual delay-arm window
+    // PrettyViewErrorOverlay carries role=alert with the "Connection
+    // failed" name (per PrettyViewErrorOverlay.tsx alert semantic).
     const errorOverlay = screen.getByRole("alert", {
       name: /Connection failed/i,
     });
     expect(errorOverlay).toBeTruthy();
-    // And the spinner is gone (mutual exclusion — phase left "resolving").
+    // Resolving spinner gone.
     expect(
       screen.queryByRole("status", { name: /Loading conversation/i }),
     ).toBeNull();
-    // Still no retired text nodes anywhere.
-    expect(screen.queryByText(/Connection lost/i)).toBeNull();
-    expect(screen.queryByText(/Connecting…/i)).toBeNull();
   });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GROUP 5 — Flicker regression 3: stale "Waking up…" on an awake session
+// GROUP 7 — Test F: D-11 don't-flicker on transient WS drop
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe("phase 29 — flicker regression 3: stale 'Waking up…' on a session that has been awake for a while", () => {
+describe("Phase 30 integration — Test F: D-11 don't-flicker (transient WS drop keeps last-known)", () => {
   let resizeObserverStub: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     wsStubs.length = 0;
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      value: false,
-    });
-    enableIosPwa();
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     resizeObserverStub = vi.fn(function () {
       return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
     });
@@ -581,43 +457,31 @@ describe("phase 29 — flicker regression 3: stale 'Waking up…' on a session t
   });
 
   afterEach(() => {
-    restoreIosPwa();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it("historical bad path (Ashley 2026-08-10 case c): fresh pane whose backend re-emit is 'session' active — no stale 'Waking up…' text ever appears", () => {
+  it("pane_state:holding then transient WS close → SessionHoldingOverlay stays mounted (D-11)", () => {
     render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
-    const ws = getCurrentWs();
-    advance(150);
-    // Resolving spinner is up.
-    expect(
-      screen.getByRole("status", { name: /Loading conversation/i }),
-    ).toBeTruthy();
-    // No stale "Waking up…" text before any frame arrives.
-    expect(screen.queryByText(/Waking/i)).toBeNull();
+    const ws0 = getCurrentWs();
+    act(() => { ws0.onopen?.(); });
+    sendFrame(ws0, { type: "session", sessionFile: "/tmp/x.jsonl" });
+    sendFrame(ws0, { type: "pane_state", state: "holding", reason: "id_reset" });
+    expect(screen.getByText(/Session recycling/i)).toBeTruthy();
 
-    // Backend re-emit arrives as `session` (active), NOT dormant. Under
-    // the old model, transient state flips during the WS-open + first-
-    // frame window could flash the DormancyOverlay's "Waking up…" text
-    // if a stale `waking` state lingered. Under phase 29 the state
-    // machine gates DormancyOverlay strictly on phase === "dormant",
-    // which requires backendFirstFrame === "dormant" — so an `active`
-    // first frame cannot mount the dormancy overlay at all.
-    act(() => {
-      ws.onopen?.();
-      ws.onmessage?.(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "session", sessionFile: "/tmp/x.jsonl" }),
-        }),
-      );
-    });
-    // Phase = active. No dormancy overlay, no stale "Waking up…" text.
+    // Transient close — a single retry attempt. wsTransportState goes
+    // to "opening" (status=error, reconnectAttempts=1). Under Phase 30
+    // the resolveRenderedState reducer's D-11 branch keeps rendering
+    // the last-known paneState="holding" instead of reverting to the
+    // resolving spinner.
+    fireClose(ws0);
+    // Do NOT advance timers past the backoff — we're mid-drop, not
+    // fully-retried. The overlay must stay mounted.
+    expect(screen.getByText(/Session recycling/i)).toBeTruthy();
+    // No spinner flicker.
     expect(
       screen.queryByRole("status", { name: /Loading conversation/i }),
     ).toBeNull();
-    expect(screen.queryByText(/Waking/i)).toBeNull();
-    expect(screen.queryByText(/Session is asleep/i)).toBeNull();
   });
 });
