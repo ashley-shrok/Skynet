@@ -79,12 +79,23 @@ export function ImageBubble({
           <div className="text-sm break-words whitespace-pre-wrap">{text}</div>
         )}
         {images.map((img, i) => (
-          <img
+          // quick 260810-ia4 Fix 2: reserve layout before decode; kills the
+          // 0->N height pop that fires TanStack measureElement mid-scroll and
+          // displaces visible content under Ashley's scroll gesture.
+          // ImageBlock carries only { data, mediaType, toolUseId? } — no
+          // natural-dimension metadata — so the 4/3 default-aspect-ratio
+          // fallback is the only path.
+          <div
             key={i}
-            src={`data:${img.mediaType};base64,${img.data}`}
-            alt={`image ${i + 1}`}
-            className="max-w-full max-h-[480px] object-contain rounded"
-          />
+            style={{ aspectRatio: "4 / 3" }}
+            className="max-w-full max-h-[480px]"
+          >
+            <img
+              src={`data:${img.mediaType};base64,${img.data}`}
+              alt={`image ${i + 1}`}
+              className="w-full h-full object-contain rounded"
+            />
+          </div>
         ))}
         <div className="text-xs font-mono opacity-70">
           {shortEventId} · {timeLabel}
