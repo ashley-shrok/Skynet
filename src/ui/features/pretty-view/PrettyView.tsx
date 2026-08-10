@@ -29,6 +29,9 @@ import { AsideBubble } from "./AsideBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
 import { DormancyOverlay } from "./DormancyOverlay";
 import { PrettyViewLoadingOverlay } from "./PrettyViewLoadingOverlay";
+import { PrettyViewErrorOverlay } from "./PrettyViewErrorOverlay";
+import { usePaneResolvingMachine } from "./usePaneResolvingMachine";
+import type { WsState, BackendFirstFrame } from "./resolve-phase";
 import { IdentityModal } from "./IdentityModal";
 // TEMP 2026-08-10 (bounty pv-disable-auto-scroll-temp): useAutoScroll import
 // removed; the hook call at ~line 608 is stubbed inline. use-auto-scroll.ts
@@ -311,48 +314,47 @@ export function PrettyView({
   // completed) or `inactive` with reason "holding_timeout" (recycle failed).
   // WebSocket is NOT closed during holding — the tail restart is server-side
   // and transparent to this client (see CONTEXT.md § Frontend event handling).
+  //
+  // phase-29: isHolding retained as an internal recycle-detection flag; its
+  // overlay-visibility role is retired (`phase === "holding"` now owns that,
+  // derived by usePaneResolvingMachine from captureFirstFrame("session_holding")).
+  // The setIsHolding sites remain because they still gate the ComposeBox
+  // `isHolding` prop and are the trigger source for backendFirstFrame's
+  // session_holding capture.
   const [isHolding, setIsHolding] = useState(false);
   // Patch #87: identity modal open state. Clicking the lg IdentityBadge sets
   // this to true; the IdentityModal handles close via onOpenChange (Esc,
   // backdrop, X button all route through shadcn Dialog's onOpenChange).
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
-  // Patch #74: `showOverlay` gates the full-surface SessionHoldingOverlay
-  // mount. It is delay-armed (~350ms) after `isHolding` flips true — see
-  // the useEffect below. Held separately from `isHolding` because
-  // genuinely-instant resets (tiny JSONL rewrites, sub-second recycles)
-  // should NEVER flash the overlay. If `isHolding` flips false before
-  // the 350ms timer fires, `showOverlay` stays false and no overlay ever
-  // renders.
-  const [showOverlay, setShowOverlay] = useState(false);
-  // Patch #122: when true, `SessionHoldingOverlay` renders in its warm-red
-  // 'recycle failed — refresh to check' variant. Set by either the client-
-  // side 120s watchdog (see effect below) OR by the backend
-  // `inactive { reason: 'holding_timeout' }` WS frame (see `case 'inactive'`
-  // handler). Persists until `isHolding` flips back to false (via
-  // `session_changed`, another reset click, or user-initiated refresh).
-  const [holdingTimeoutError, setHoldingTimeoutError] = useState(false);
-  // quick 260808-cd6 — dormancy overlay + wake button.
-  // Per-pane dormant state. Set by the WS {type:"dormant"} frame handler;
-  // auto-dismissed when live JSONL frames resume (supervisor recover path).
+  // phase-29: DELETED — patch #74 delay-armed holding-overlay visibility state.
+  // SessionHoldingOverlay now mounts directly on `phase === "holding"`; the
+  // 150ms delay-arm semantic moved into usePaneResolvingMachine's showSpinner
+  // for the resolving-phase spinner (D-04). Since post-resolve steady state
+  // means holding phase enters cleanly without spinner flash (D-11), a
+  // separate holding delay-arm is no longer needed.
+  // phase-29: DELETED — patch #122 warm-red recycle-failed variant flag
+  // (formerly the wall-clock-driven timeout-error boolean). Retired with the
+  // 10-minute client watchdog per SPEC req 5 (no-timeout-heuristics). Backend
+  // HOLDING_TIMEOUT_TICKS=200 (10min) remains the authoritative give-up
+  // signal; when it fires, backend emits an `inactive` frame which the state
+  // machine reads via backendFirstFrame.
+  // dormant/waking/etc. remain LOCAL because DormancyOverlay reads them as
+  // props (waking, elapsedSeconds, onWake, error). The mount gate flips
+  // from `dormant` to `phase === "dormant"`; the state machine reads
+  // captureFirstFrame("dormant") on the dormant=true frame path — that is
+  // how the phase transition is armed. Internal props stay local.
   const [dormant, setDormant] = useState(false);
   const [waking, setWaking] = useState(false);
   const [wakingStartTs, setWakingStartTs] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [wakeError, setWakeError] = useState<string | null>(null);
-  // quick 260808-ho2: full-surface loading overlay for pretty-view.
-  // `isBooting` gates the loading overlay's mount alongside dormant/showOverlay
-  // (via `showLoadingOverlay = isBooting && !dormant && !showOverlay`).
-  // ARMED synchronously inside the fresh-pane paneKey-change reset block
-  // (so a fresh pane always flashes the overlay for the first-frame window).
-  // CLEARED by (a) first user-visible WS frame in the onmessage handler,
-  // (b) dormant/session_holding takeover in their respective case branches,
-  // (c) 10s stuck-state timeout (see useEffect below).
-  const [isBooting, setIsBooting] = useState(false);
-  // quick 260808-ho2: stale-closure protection inside the WS onmessage handler.
-  // The WS onmessage closure captures state at closure-creation time; reading
-  // from a ref gives the current value without re-creating the socket. Pattern
-  // mirrors dormantRef (line ~549) and isVisibleRef (line ~544).
-  const isBootingRef = useRef<boolean>(false);
+  // phase-29: DELETED — quick 260808-ho2 loading-arm boolean state + its ref
+  // mirror. Loading-overlay mount now derives from `phase === "resolving"`
+  // (with showResolvingSpinner's 150ms delay-arm handled by
+  // usePaneResolvingMachine). The first-user-visible-frame auto-dismiss path
+  // is subsumed by the state machine's captureFirstFrame(...) which flips
+  // backendFirstFrame off "not-yet" and drives phase transitions
+  // deterministically. See resolve-phase.ts.
   // Patch #122: synchronous session-holding trigger fired by the meter
   // well's Reset button BEFORE `/id reset` reaches the WS. Flipping
   // isHolding here starts the SessionHoldingOverlay's 350ms delay-arm
@@ -362,9 +364,12 @@ export function PrettyView({
   // clicks reset a second time while the overlay is up (e.g. after a
   // red-bubble failure), the error state is intentionally reset to give
   // the fresh attempt a clean 120s window.
+  // phase-29: onResetClicked no longer clears the warm-red timeout-error flag
+  // (retired per SPEC req 5). Setting isHolding=true still triggers the state
+  // machine's session-holding phase via the WS handler's captureFirstFrame
+  // path.
   const onResetClicked = useCallback(() => {
     setIsHolding(true);
-    setHoldingTimeoutError(false);
   }, []);
   // Phase 14 quick-task 260726-vbd: single clear-primitive for asidePending.
   // Clears both the boolean flag and the 60s safety timer. Used by:
@@ -586,6 +591,27 @@ export function PrettyView({
   // CONTEXT.md § Trigger — only real transitions arm, not the initial
   // steady-state observation).
   const prevIsIdleRef = useRef<boolean | null | undefined>(isIdle);
+
+  // phase-29: mirror reconnectAttemptsRef into state so the wsState derivation
+  // below re-runs whenever the retry counter changes. reconnectAttemptsRef is
+  // a ref (mutations do NOT trigger re-render); this state slot is the
+  // observable projection consumed by the state machine's wsState input.
+  const [reconnectAttempts, setReconnectAttempts] = useState<number>(0);
+
+  // phase-29: backendFirstFrame — capture the first backend verdict per pane.
+  // Reset on paneKey change inside the fresh-pane cold-mount reset block below.
+  // Uses a ref-mirror for stale-closure protection (captureFirstFrame runs
+  // inside the WS onmessage handler which captures state at closure-creation
+  // time; the ref lets the closure short-circuit on subsequent frames without
+  // reading stale state).
+  const backendFirstFrameRef = useRef<BackendFirstFrame>("not-yet");
+  const [backendFirstFrame, setBackendFirstFrame] =
+    useState<BackendFirstFrame>("not-yet");
+  const captureFirstFrame = useCallback((v: BackendFirstFrame) => {
+    if (backendFirstFrameRef.current !== "not-yet") return;
+    backendFirstFrameRef.current = v;
+    setBackendFirstFrame(v);
+  }, []);
 
   // Phase 05: touch-device gate for the mobile paperclip (UPLOAD-03).
   // The paperclip appears on touch devices only — desktop NEVER sees it
@@ -819,6 +845,54 @@ export function PrettyView({
   const pvIdentityKey = sessionMatchKey(tmuxSession);
   const pvHue = pvIdentityHue ?? 35;
 
+  // phase-29: derive wsState for the state machine from existing PrettyView
+  // state (D-13 — WS ladder unchanged, observed only). The pretty-view WS
+  // layer's retry ladder (patch #148) is untouched; this derivation reads its
+  // observable state signals:
+  //   - status === "streaming" OR "inactive"                          → "open"
+  //   - status === "error" AND reconnectAttempts >= MAX_RECONNECT_ATTEMPTS
+  //     → "failed-permanently" (retry ladder terminally exhausted)
+  //   - status === "error" AND reconnectAttempts <  MAX_RECONNECT_ATTEMPTS
+  //     → "opening" (retry pending; a fresh WS is scheduled)
+  //   - status === "connecting" AND reconnectAttempts === 0            → "not-connected"
+  //   - status === "connecting" AND reconnectAttempts > 0             → "opening"
+  const wsState: WsState =
+    status === "streaming" || status === "inactive"
+      ? "open"
+      : status === "error" && reconnectAttempts >= MAX_RECONNECT_ATTEMPTS
+        ? "failed-permanently"
+        : status === "connecting" && reconnectAttempts === 0
+          ? "not-connected"
+          : "opening";
+
+  // phase-29: single authoritative pane-entry state machine (SPEC req 1, 3).
+  // Consumes exactly two resolution inputs (wsState + backendFirstFrame)
+  // derived above; returns the unified `phase` that drives every overlay
+  // mount gate below, the delay-armed spinner flag, and the retry callback
+  // for PrettyViewErrorOverlay.
+  const { phase, showSpinner: showResolvingSpinner, requestRetry } =
+    usePaneResolvingMachine({
+      hostId,
+      tmuxSession,
+      isVisible,
+      wsState,
+      backendFirstFrame,
+    });
+
+  // phase-29: retry handler for PrettyViewErrorOverlay (D-09). Fresh WS
+  // reconnect via a synthetic entry-trigger edge — reset the attempt counter
+  // + status back to "connecting" so the derivation flips wsState to
+  // "not-connected", then bump retryKey to re-run the WS-setup useEffect,
+  // then requestRetry() re-arms the state machine's resolving phase (same
+  // shared code path as the three natural entry triggers).
+  const handleRetry = useCallback(() => {
+    reconnectAttemptsRef.current = 0;
+    setReconnectAttempts(0);
+    setStatus("connecting");
+    requestRetry();
+    setRetryKey((k) => k + 1);
+  }, [requestRetry]);
+
   useEffect(() => {
     // Patch #148: distinguish a fresh pane mount from a retryKey-triggered re-run.
     // On a fresh pane (hostId/tmuxSession changed), reset ALL state and the attempt
@@ -845,19 +919,25 @@ export function PrettyView({
       }
       setPlanPending(null);
       setIsHolding(false);
-      setShowOverlay(false);
-      // quick 260808-ho2: arm the loading overlay on fresh-pane mount only
-      // (paneKey change). Retry re-runs (warm WS reconnect, same paneKey)
-      // skip this whole block, so warm re-focus never arms — matches
-      // decision #6 in the plan. No new sentinel ref needed: the existing
-      // paneKeyRef already carries the cold-vs-warm signal.
-      setIsBooting(true);
+      // phase-29: DELETED — the retired delay-arm boolean's setter call, and
+      // DELETED — the retired loading-arm boolean's setter call. The state
+      // machine's own paneKey sentinel + captureFirstFrame reset below
+      // govern resolving-phase entry now.
+      // phase-29: reset first-frame verdict on cold mount (new pane needs to
+      // re-resolve). Reset both the ref and the state slot so the state
+      // machine's backendFirstFrame input flips back to "not-yet" and phase
+      // re-enters "resolving" on the fresh pane.
+      backendFirstFrameRef.current = "not-yet";
+      setBackendFirstFrame("not-yet");
       // Phase 14 followup: full aside-surface reset for fresh-pane mount.
       // Clears displayed asideText + pending flag + 60s timer + 8s dismiss
       // cooldown. Backend's connect-time re-attach probe (ASIDE-09) re-emits
       // aside_ready if the NEW pane's tmux still has an open BTW overlay.
       clearAsideState();
       reconnectAttemptsRef.current = 0;
+      // phase-29: mirror into state so wsState derivation re-runs on cold-mount
+      // reconnect-counter reset.
+      setReconnectAttempts(0);
       paneKeyRef.current = paneKey;
     }
     // retryKey-triggered re-runs skip the reset above — preserving messages/status
@@ -920,30 +1000,18 @@ export function PrettyView({
         setElapsedSeconds(0);
         setWakeError(null);
       }
-      // quick 260808-ho2: loading overlay first-live-frame auto-dismiss.
-      // Mirrors the DormancyOverlay dismiss pattern (immediately above)
-      // using the SAME user-visible frame-type set — both overlays consider
-      // the SAME frames "user-visible" so any future addition to the set is
-      // a single grep. Uses isBootingRef (not isBooting state) to avoid
-      // stale-closure inside the WS onmessage handler; pattern mirrors
-      // dormantRef. Do NOT dismiss on `ws.onopen` alone — Ashley's complaint
-      // is specifically about the pre-first-frame window.
-      if (
-        isBootingRef.current &&
-        (parsed.type === "message" ||
-          parsed.type === "image" ||
-          parsed.type === "relay_inbound" ||
-          parsed.type === "relay_outbound" ||
-          parsed.type === "malformed_line" ||
-          parsed.type === "context_pct" ||
-          parsed.type === "harness_tasks" ||
-          parsed.type === "session")
-      ) {
-        setIsBooting(false);
-      }
+      // phase-29: DELETED — quick 260808-ho2 loading-overlay first-live-frame
+      // auto-dismiss (the retired ref-gated boolean check). Subsumed by
+      // usePaneResolvingMachine: captureFirstFrame(...) calls at the per-case
+      // handlers below flip backendFirstFrame off "not-yet", which drives
+      // phase off "resolving" deterministically via resolvePhase(). No
+      // per-frame boolean gate.
       switch (parsed.type) {
         case "session": {
           // Session-info frame — flip to streaming; not rendered.
+          // phase-29: first-frame verdict — "active" (a live session frame
+          // arrived). Idempotent via backendFirstFrameRef "not-yet" guard.
+          captureFirstFrame("active");
           setStatus("streaming");
           break;
         }
@@ -991,10 +1059,20 @@ export function PrettyView({
           // to inactive would unmount the compose box and the overlay's
           // parent surface flex layout.
           if (parsed.reason === "holding_timeout") {
-            setHoldingTimeoutError(true);
+            // phase-29: the warm-red timeout-error boolean is retired
+            // (SPEC req 5). The backend `inactive { reason: 'holding_timeout' }`
+            // frame is now surfaced via captureFirstFrame("inactive") — the
+            // state machine transitions phase to "inactive" and the fallback
+            // ("no active Claude session") renders. If Ashley subsequently
+            // wants a distinct warm-red UI for a holding_timeout inactive,
+            // add a new backendFirstFrame variant + resolvePhase branch in
+            // a follow-up.
+            captureFirstFrame("inactive");
             setInactiveReason(parsed.reason);
             break;
           }
+          // phase-29: first-frame verdict — "inactive".
+          captureFirstFrame("inactive");
           setStatus("inactive");
           setInactiveReason(parsed.reason);
           setIsHolding(false);
@@ -1011,15 +1089,15 @@ export function PrettyView({
         case "dormant": {
           setDormant(parsed.dormant);
           if (parsed.dormant) {
-            // quick 260808-ho2: dormancy trumps loading — cleanup the arm
-            // state if the fresh pane turned out to be dormant. Belt-and-
-            // suspenders on top of the showLoadingOverlay derivation
-            // (which is the sole visibility gate) — this prevents the
-            // loading overlay from re-appearing the moment dormant clears
-            // if no user-visible frame has arrived yet. The 10s timeout
-            // would eventually cover this too, but an explicit clear is
-            // cleaner and does not leave a stale 10s ghost.
-            setIsBooting(false);
+            // phase-29: first-frame verdict — "dormant" (only true dormant
+            // counts as a first-frame verdict; `dormant === false` frames
+            // are clearing a previously-set dormant state and do not
+            // participate in the initial resolve). The state machine
+            // transitions phase to "dormant" and DormancyOverlay mounts.
+            captureFirstFrame("dormant");
+            // phase-29: DELETED — the retired loading-arm boolean's setter
+            // call. The resolving-phase spinner is now driven purely by
+            // showResolvingSpinner from usePaneResolvingMachine.
             // quick 260809-ha3: server-driven wakingSince restores wake-progress
             // bar after Fix B (visibility false->true edge at L1178-1187) wipes
             // local wakingStartTs. Loose-equality guards both undefined (older
@@ -1141,25 +1219,29 @@ export function PrettyView({
           // the old conversation while the new one starts). Do NOT close the
           // WS — the tail restart is server-side and transparent (CONTEXT.md
           // § Frontend event handling).
+          // phase-29: first-frame verdict — "session_holding". Idempotent
+          // via backendFirstFrameRef "not-yet" guard, so a session_holding
+          // observed after the pane has already resolved to some other
+          // phase does NOT retroactively re-arm resolving; only cold-mount
+          // resets clear the ref back to "not-yet".
+          captureFirstFrame("session_holding");
           setIsHolding(true);
-          // quick 260808-ho2: holding trumps loading — same rationale as
-          // dormancy above. Belt-and-suspenders on top of the mount-gate
-          // exclusion; keeps the arm state clean if a fresh-pane mount
-          // happened to land into a recycling session.
-          setIsBooting(false);
+          // phase-29: DELETED — the retired loading-arm boolean's setter
+          // call.
           break;
         }
         case "session_holding_cleared": {
           // Fix B (2026-07-30): backend self-cleared holding because the same
           // sessionFile came back active on the next repoll tick (not a real
           // recycle — a false-alarm arm from a prior transient). Surgically
-          // clear the two holding flags only. Do NOT touch messages /
+          // clear the holding flag only. Do NOT touch messages /
           // contextPct / harnessTasks / backgroundedAgents / plan_pending /
           // asideText — this contrasts with case "session_changed" which
           // heavy-resets for a real recycle. Do NOT setStatus — status was
           // already "streaming" (holding only fires from active/streaming).
+          // phase-29: the warm-red timeout-error boolean setter is removed
+          // (state retired).
           setIsHolding(false);
-          setHoldingTimeoutError(false);
           break;
         }
         case "session_changed": {
@@ -1197,9 +1279,8 @@ export function PrettyView({
           }
           setPlanPending(null);
           setIsHolding(false);
-          // Patch #122: safe reset — if user clicks reset again after
-          // this success, error state must not persist.
-          setHoldingTimeoutError(false);
+          // phase-29: the warm-red timeout-error boolean setter is removed
+          // (state retired).
           setStatus("streaming");
           // Phase 14 followup: full aside-surface reset — a recycled
           // session can't carry a live BTW overlay from the OLD session,
@@ -1264,6 +1345,10 @@ export function PrettyView({
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(2000 * (reconnectAttemptsRef.current + 1), 8000);
         reconnectAttemptsRef.current += 1;
+        // phase-29: mirror into state so wsState derivation re-runs on
+        // retry-attempt changes (transitions "not-connected" → "opening" and
+        // may hit "failed-permanently" at the cap).
+        setReconnectAttempts(reconnectAttemptsRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectTimeoutRef.current = null;
           if (cancelled) return;
@@ -1334,6 +1419,9 @@ export function PrettyView({
       if (wsRef.current?.readyState === 1) return; // still OPEN
       // Fresh budget for this foreground event (Ashley iOS PWA fix).
       reconnectAttemptsRef.current = 0;
+      // phase-29: mirror into state so wsState derivation re-runs on
+      // retry-attempt reset.
+      setReconnectAttempts(0);
       setRetryKey((k) => k + 1);
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1388,13 +1476,10 @@ export function PrettyView({
     }
   }, [isVisible]);
 
-  // quick 260808-ho2: isBootingRef mirror — keeps isBootingRef.current in
-  // sync with `isBooting` state so the WS onmessage first-user-visible-frame
-  // dismiss block can read the current arm state without stale-closure issues.
-  // Pattern mirrors dormantRef mirror above.
-  useEffect(() => {
-    isBootingRef.current = isBooting;
-  }, [isBooting]);
+  // phase-29: DELETED — quick 260808-ho2 loading-arm ref-mirror useEffect.
+  // Its backing state slot + ref were retired (see the state-declaration
+  // block above); the loading-overlay dismiss is now driven by
+  // backendFirstFrame + wsState via usePaneResolvingMachine.
 
   // quick 260808-cd6: elapsed-seconds ticker for the waking overlay.
   // Counts elapsed seconds since Wake was clicked (wakingStartTs).
@@ -1466,6 +1551,9 @@ export function PrettyView({
       if (ws === null || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
         // Fresh budget for this re-show (mirrors visibilitychange handler at ~970).
         reconnectAttemptsRef.current = 0;
+        // phase-29: mirror into state so wsState derivation re-runs on
+        // retry-attempt reset.
+        setReconnectAttempts(0);
         setRetryKey((k) => k + 1);
         // The WS-setup effect (deps [hostId, tmuxSession, retryKey]) fires and
         // opens a fresh WS via the existing patch #148 reconnect path. No new
@@ -1518,108 +1606,40 @@ export function PrettyView({
     return registerPane(key, snapshotFn);
   }, [hostId, tmuxSession]);
 
-  // Patch #74: delay-armed gate for the SessionHoldingOverlay. When
-  // `isHolding` becomes true, arm a ~350ms timer; only after it fires
-  // does `showOverlay` flip true (and the overlay mounts). When
-  // `isHolding` becomes false, clear the pending timer AND drop
-  // `showOverlay` immediately — so genuinely-instant resets (tiny
-  // JSONL rewrites, sub-second recycles) NEVER flash the overlay. If
-  // `isHolding` clears before 350ms elapses, `showOverlay` stays false
-  // and no overlay ever renders. Effect cleanup also clears the timer,
-  // so an unmount mid-hold never leaves an orphaned setState.
-  useEffect(() => {
-    if (!isHolding) {
-      setShowOverlay(false);
-      return;
-    }
-    const t = setTimeout(() => {
-      setShowOverlay(true);
-    }, 350);
-    return () => {
-      clearTimeout(t);
-    };
-  }, [isHolding]);
+  // phase-29: DELETED — patch #74 delay-arm useEffect (formerly ~350ms
+  // holding-overlay visibility). Delay-arm semantics moved into
+  // usePaneResolvingMachine's showSpinner (D-04 — 150ms for the resolving
+  // spinner). SessionHoldingOverlay now mounts directly on
+  // `phase === "holding"` without a separate delay-arm state (post-resolve
+  // steady state means holding phase enters cleanly without spinner flash —
+  // see D-11).
 
-  // Patch #122: client-side belt-and-suspenders holding_timeout watchdog.
-  // When isHolding flips true, start a 600000ms timer (10 minutes); when it
-  // fires, flip the overlay to its red-bubble variant. Redundant with the
-  // backend's own `inactive { reason: 'holding_timeout' }` frame
-  // (claude-session-server.ts line 1645), but survives the case where the
-  // WS connection drops during the hold — the backend can't deliver the
-  // frame if the socket is gone. Cleanup clears the timer on unmount OR
-  // when isHolding flips back false (session_changed, another reset click).
-  // Patch #127: bumped from 120000ms (2 min) to 300000ms (5 min) — real
-  // backend recycles under load legitimately exceeded 2 min, tripping the
-  // red-bubble prematurely.
-  // Ashley 2026-08-09: bumped again to 600000ms (10 min); real /id reset
-  // flows sometimes exceed 5 min. Kept in lockstep with backend
-  // HOLDING_TIMEOUT_TICKS=200 in claude-session-server.ts so the two
-  // agree on when a hold is genuinely dead.
-  useEffect(() => {
-    if (!isHolding) return;
-    const t = setTimeout(() => {
-      setHoldingTimeoutError(true);
-    }, 600000);
-    return () => {
-      clearTimeout(t);
-    };
-  }, [isHolding]);
+  // phase-29: DELETED — 10-minute warm-red-flip watchdog useEffect (SPEC req 5
+  // no-timeout-heuristics). Backend HOLDING_TIMEOUT_TICKS=200 (10min) remains
+  // the authoritative "give up" signal; when it fires, backend emits an
+  // `inactive` frame which the state machine reads via backendFirstFrame —
+  // no client-side wall-clock deadline needed.
 
-  // Patch #122: reset error state when isHolding clears via any path
-  // (session_changed, `inactive` non-holding_timeout reason, component
-  // unmount). Kept as a dedicated effect rather than inlined into each
-  // clear-site so future code that flips isHolding false can't forget the
-  // paired cleanup. Guard on !isHolding so this NEVER runs while
-  // isHolding is still true — the entire window in which the error can
-  // be displayed is exactly the isHolding=true window.
-  useEffect(() => {
-    if (!isHolding) setHoldingTimeoutError(false);
-  }, [isHolding]);
+  // phase-29: DELETED — warm-red-flip reset useEffect (retired with the
+  // watchdog above).
 
-  // quick 260808-ho2: 10s timeout auto-dismiss for the loading overlay.
-  // If no user-visible frame arrives within 10s of arming, the pane is
-  // genuinely stuck — the underlying status="inactive" / "error" state
-  // should show through instead of a false-loading scrim. Silent dismiss,
-  // no error variant (per Ashley's ask — no cancel button, no error card).
-  // console.info for future diagnosis (no console-forwarder import needed;
-  // consistent with other diagnostic logs already in PrettyView). Cleanup
-  // clears the timer on unmount OR when isBooting flips back false via any
-  // path (first-live-frame dismiss, fresh-pane remount, dormancy/holding
-  // takeover — the isBooting deps re-run covers all of them). Contrast
-  // with SessionHoldingOverlay's 600000ms (10 min) watchdog: loading is
-  // expected to be sub-5s, so 10s is the right stuck-state gate here.
-  useEffect(() => {
-    if (!isBooting) return;
-    const t = setTimeout(() => {
-      console.info("[pv-loading-overlay] 10s timeout dismiss (no user-visible frame arrived)");
-      setIsBooting(false);
-    }, 10000);
-    return () => { clearTimeout(t); };
-  }, [isBooting]);
+  // phase-29: DELETED — 10-second PrettyViewLoadingOverlay auto-dismiss (SPEC
+  // req 5 no-timeout-heuristics). Resolving spinner now stays up until
+  // wsState transitions off "opening"/"not-connected" AND backendFirstFrame
+  // transitions off "not-yet", OR wsState hits "failed-permanently". No
+  // wall-clock dismissal.
 
-  // quick-260730-qbl: publish the delay-armed SessionHoldingOverlay-visible
-  // state (patch #74's `showOverlay`) to the session-recycling-store keyed
-  // on `${hostId}:${tmuxSession ?? ""}`. Consumed by
-  // PrettyConversationsPanel's PrettyConversationRowLive to suppress the
-  // patch #137 ready-for-attention dot on this row whenever the overlay is
-  // up — a row whose pretty-view surface is currently recycling is NOT
-  // ready for Ashley's next instruction.
-  //
-  // Publish `showOverlay` VERBATIM — NOT `isHolding` and NOT
-  // `holdingTimeoutError`. Rationale: `showOverlay` is the single
-  // authoritative visibility flag (see the SessionHoldingOverlay mount at
-  // `{showOverlay && <SessionHoldingOverlay ... />}`); `isHolding` can be
-  // true for <350ms without ever surfacing an overlay (patch #74 delay-arm);
-  // `holdingTimeoutError` only switches the overlay's inner copy variant.
-  //
+  // phase-29: publish session-recycling state to store keyed on
+  // `phase === "holding"` (SPEC req 7). Semantic preserved (dot suppressed
+  // exactly when the holding overlay is visible), source of truth changed
+  // from the retired delay-arm boolean to `phase === "holding"` (deterministic).
   // Deliberately NO cleanup — mirrors Terminal.tsx's patch #137 publish
-  // effect (Terminal.tsx:253): preserve last-known state across route
-  // changes so a remount doesn't stall on null waiting for the next
-  // state flip.
+  // effect: preserve last-known state across route changes so a remount
+  // doesn't stall on null waiting for the next state flip.
   useEffect(() => {
     const key = `${hostId}:${tmuxSession ?? ""}`;
-    publishSessionRecycling(key, showOverlay);
-  }, [showOverlay, hostId, tmuxSession]);
+    publishSessionRecycling(key, phase === "holding");
+  }, [phase, hostId, tmuxSession]);
 
   // Phase 14 (plain-language-translation-asides) Wave 3 — isIdle-transition
   // arm emitter. This is THE SOLE trigger source for the aside subsystem
@@ -1865,8 +1885,8 @@ export function PrettyView({
           textarea stays typeable while every WS-side-effecting
           control (Send, reset cell, paperclip, ThumbsUp, Lightbulb,
           Queue, Mic) is disabled via ComposeBox's `recycleActive`
-          prop wired below. Mount gate is `showOverlay` (the delay-
-          armed derived value from patch #74's ~350ms gate) so
+          prop wired below. Mount gate is `phase === "holding"` (phase-29
+          rewire — was previously the retired delay-arm boolean) so
           genuinely-instant resets never flash the overlay. Sits
           BELOW IdentityBadge (z-[99] < z-[101]) so the badge stays
           visible and clickable during a recycle (Ashley wants the
@@ -1875,12 +1895,16 @@ export function PrettyView({
           component-local, not an app-modal event.
           Replaces the previous sticky top-of-scroll banner (retired
           in patch #74) per Ashley's live 2026-07-19 design read. */}
-      {showOverlay && <SessionHoldingOverlay error={holdingTimeoutError} />}
-      {/* quick 260808-cd6: DormancyOverlay mirrors SessionHoldingOverlay geometry;
-          independent mount gate; the two overlays cannot both be true at once by
-          supervisor invariant (dormant-only-when-alive), but the mounts are
-          independent for wire simplicity. */}
-      {dormant && (
+      {/* phase-29: SessionHoldingOverlay gated on `phase === "holding"` (SPEC
+          req 6). `error` prop dropped — the warm-red-flip flag is retired
+          (SPEC req 5). SessionHoldingOverlay's default `error=false` covers
+          the base case. If Ashley subsequently wants a distinct visual for
+          a long-held session, that is a separate follow-up. */}
+      {phase === "holding" && <SessionHoldingOverlay />}
+      {/* phase-29: DormancyOverlay gated on `phase === "dormant"` (SPEC req 6).
+          Internal props (waking / elapsedSeconds / wakeError) stay local
+          because DormancyOverlay reads them directly. */}
+      {phase === "dormant" && (
         <DormancyOverlay
           waking={waking}
           elapsedSeconds={elapsedSeconds}
@@ -1888,31 +1912,29 @@ export function PrettyView({
           error={wakeError}
         />
       )}
-      {/* quick 260808-ho2: full-surface loading overlay for the ~5s window
-          between a fresh pane mount and the first user-visible WS frame.
-          Mutual exclusion: Dormancy > Holding > Loading. Loading only renders
-          when neither of the other two overlays is up AND the arm gate is
-          true. Shares z-[99] with the sibling overlays; mutual exclusion is
-          enforced at the mount gate here, not stacking order. Mount site is
-          adjacent to the sibling overlays inside the chat-region wrapper so
-          ComposeBox (peer sibling below the wrapper) stays typeable — Ashley
-          can pre-draft during the boot window (patch #275 posture). */}
-      {isBooting && !dormant && !showOverlay && <PrettyViewLoadingOverlay />}
-      {status === "connecting" && (
-        <div className="flex-1 flex items-center justify-center p-4 text-sm text-[var(--color-pv-fg-muted)]">
-          Connecting…
-        </div>
-      )}
+      {/* phase-29: PrettyViewLoadingOverlay is the resolving-phase spinner
+          (D-01). Mount gate flips from the previous three-boolean
+          mutual-exclusion (loading-arm + delay-arm + dormant) to phase-derived
+          + delay-armed showResolvingSpinner (D-04 — 150ms delay-arm; instant
+          resolutions never flash). */}
+      {phase === "resolving" && showResolvingSpinner && <PrettyViewLoadingOverlay />}
+      {/* phase-29: DELETED — the transient in-flight connect-status text node
+          (SPEC boundary + acceptance grep). Resolving spinner covers this
+          window now. */}
 
-      {status === "inactive" && !dormant && (
+      {/* phase-29: inactive fallback gated on `phase === "inactive"`
+          (SPEC req 6). */}
+      {phase === "inactive" && (
         <div className="flex-1 flex items-center justify-center p-4 text-sm text-[var(--color-pv-fg-muted)]">
           no active Claude session
         </div>
       )}
 
-      {status === "error" && errorMessage && (
-        <div className="flex-1 flex items-center justify-center p-4 text-sm text-[color:var(--color-pv-code-fg)]">{errorMessage}</div>
-      )}
+      {/* phase-29: PrettyViewErrorOverlay gated on `phase === "error"` —
+          replaces the retired transient error-status text node (SPEC
+          boundary + req 6). Retry button wires to handleRetry (D-09) which
+          fires a synthetic entry-trigger edge + fresh WS reconnect attempt. */}
+      {phase === "error" && <PrettyViewErrorOverlay onRetry={handleRetry} />}
 
       {(status === "streaming" ||
         ((status === "connecting" || status === "error") && messages.length > 0)) && (
@@ -2130,20 +2152,21 @@ export function PrettyView({
           wrapper (below it in flex-col), so it's outside the IdentityModal's
           coverage area. */}
 
-      {onSend && (status === "streaming" || status === "error" || dormant) && (
+      {/* phase-29: ComposeBox mount gate updated — streaming (post-resolve
+          active), phase === "error" (was status === "error"), phase ===
+          "dormant" (was `dormant`). Preserves the outer OR-chain structure;
+          only flips the two phase-derived clauses. `status === "streaming"`
+          is unchanged (status is untouched by this phase). */}
+      {onSend && (status === "streaming" || phase === "error" || phase === "dormant") && (
         <ComposeBox
           onSend={handleComposeSend}
           onResetClicked={onResetClicked}
           canSend={status === "streaming"}
           isHolding={isHolding}
-          // Quick 260729-j8l: `showOverlay` (delay-armed by ~350ms
-          // per patch #74) gates every WS-side-effecting compose
-          // control off during recycle. Sharing the overlay's own
-          // delay-arm gate means the controls disable at the same
-          // moment the scrim appears, so instant recycles don't
-          // flash a disabled state that the user never sees the
-          // reason for.
-          recycleActive={showOverlay}
+          // phase-29: recycleActive derives from `phase === "holding"` (was
+          // the retired delay-arm boolean). Semantic preserved (WS-side-
+          // effecting controls disabled while the holding overlay is up).
+          recycleActive={phase === "holding"}
           // Phase 24: same disable treatment as recycleActive but for
           // the plan-mode approval-prompt window. When the WS
           // plan_pending state is non-null (the [Approve]/[Feedback]
@@ -2156,18 +2179,17 @@ export function PrettyView({
           // three disable modes (asideActive morphs; recycle + plan
           // keep Send as Send).
           planPendingActive={planPending !== null}
-          // Pretty-view WS reconnect window (patch #148 auto-retry between
-          // an old socket's onclose and a fresh session frame). During that
-          // ~2s window onSend would no-op silently because ws.readyState
-          // !== 1; disabling Send + reset + ThumbsUp + Recap + Queue makes
-          // the "you can't send right now" state visible instead of a dead
-          // tap. Textarea, mic, attach stay live. Independent from
-          // recycleActive/planPendingActive per the same CONTEXT rule.
-          reconnectingActive={status === "error"}
-          // quick 260808-cd6: disable ComposeBox WS-side-effecting controls during
-          // dormant/waking window. Both dormant (asleep) and waking (wake in flight)
-          // states disable Send; only live-frame auto-dismiss re-enables it.
-          dormantActive={dormant || waking}
+          // phase-29: reconnectingActive derives from `phase === "error"`
+          // (was `status === "error"`). Same UX contract (disable Send +
+          // reset + ThumbsUp + Recap + Queue during the WS reconnect
+          // window); source of truth is now the state machine's phase.
+          reconnectingActive={phase === "error"}
+          // phase-29: dormantActive derives from `phase === "dormant" || waking`
+          // (was `dormant || waking`). `waking` stays as internal in-flight-wake
+          // signal even during a transient phase transition (the DormancyOverlay
+          // reads it as a prop; keeping it in the OR ensures the compose
+          // disable stays active while the wake round-trip is in flight).
+          dormantActive={phase === "dormant" || waking}
           contextPct={contextPct}
           isIdle={isIdle}
           hostId={hostId}
