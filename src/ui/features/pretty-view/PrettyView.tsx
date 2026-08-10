@@ -598,17 +598,31 @@ export function PrettyView({
   // observable projection consumed by the state machine's wsState input.
   const [reconnectAttempts, setReconnectAttempts] = useState<number>(0);
 
-  // phase-29: backendFirstFrame — capture the first backend verdict per pane.
-  // Reset on paneKey change inside the fresh-pane cold-mount reset block below.
-  // Uses a ref-mirror for stale-closure protection (captureFirstFrame runs
-  // inside the WS onmessage handler which captures state at closure-creation
-  // time; the ref lets the closure short-circuit on subsequent frames without
-  // reading stale state).
+  // phase-29: backendFirstFrame — the state machine's terminal-input axis.
+  // Named "firstFrame" for historical reasons (the resolving-phase spinner
+  // waits for the FIRST frame verdict), but post-resolve this ref/state
+  // also tracks subsequent frame verdicts to implement D-11 clean-swap
+  // semantics (e.g. active → dormant transition without going through
+  // "resolving"). Reset on paneKey change inside the fresh-pane cold-mount
+  // reset block below. Uses a ref-mirror for stale-closure protection
+  // (captureFirstFrame runs inside the WS onmessage handler which captures
+  // state at closure-creation time; the ref lets the closure short-circuit
+  // no-op writes without triggering an unnecessary state update).
+  //
+  // phase-29 test-audit fix (plan 29-05): the previous "idempotent after
+  // first non-'not-yet' write" guard blocked D-11's clean-swap semantic —
+  // a session that arrived active then went dormant would have phase stuck
+  // at "active" because backendFirstFrame stayed frozen. Guard now only
+  // deduplicates identical values (avoids a redundant setState when the
+  // same verdict is re-emitted). Each frame handler that carries a
+  // terminal-state verdict (session/active, inactive, dormant true/false,
+  // session_holding, session_holding_cleared, session_changed, live
+  // message-shape frames) calls captureFirstFrame with the mapped value.
   const backendFirstFrameRef = useRef<BackendFirstFrame>("not-yet");
   const [backendFirstFrame, setBackendFirstFrame] =
     useState<BackendFirstFrame>("not-yet");
   const captureFirstFrame = useCallback((v: BackendFirstFrame) => {
-    if (backendFirstFrameRef.current !== "not-yet") return;
+    if (backendFirstFrameRef.current === v) return; // dedupe identical writes
     backendFirstFrameRef.current = v;
     setBackendFirstFrame(v);
   }, []);
@@ -850,17 +864,30 @@ export function PrettyView({
   // layer's retry ladder (patch #148) is untouched; this derivation reads its
   // observable state signals:
   //   - status === "streaming" OR "inactive"                          → "open"
+  //   - backendFirstFrame !== "not-yet" (WS is proven open because a
+  //     backend frame arrived — covers dormant/inactive/session_holding
+  //     frames that reach the client without status flipping to streaming)
+  //     → "open"
   //   - status === "error" AND reconnectAttempts >= MAX_RECONNECT_ATTEMPTS
   //     → "failed-permanently" (retry ladder terminally exhausted)
   //   - status === "error" AND reconnectAttempts <  MAX_RECONNECT_ATTEMPTS
   //     → "opening" (retry pending; a fresh WS is scheduled)
   //   - status === "connecting" AND reconnectAttempts === 0            → "not-connected"
   //   - status === "connecting" AND reconnectAttempts > 0             → "opening"
+  //
+  // phase-29 (plan 29-05 test-audit fix): the previous derivation gated
+  // "open" strictly on status="streaming"|"inactive". A cold mount that
+  // received a dormant/holding frame WITHOUT a preceding session frame
+  // left status="connecting" → wsState="not-connected" → phase stuck at
+  // "resolving" even though backend proof-of-life (the dormant/holding
+  // frame itself) arrived. The `backendFirstFrame !== "not-yet"` shortcut
+  // recognizes those verdicts as WS-open evidence, so phase can transition
+  // to the terminal state indicated by the backend frame.
   const wsState: WsState =
-    status === "streaming" || status === "inactive"
-      ? "open"
-      : status === "error" && reconnectAttempts >= MAX_RECONNECT_ATTEMPTS
-        ? "failed-permanently"
+    status === "error" && reconnectAttempts >= MAX_RECONNECT_ATTEMPTS
+      ? "failed-permanently"
+      : status === "streaming" || status === "inactive" || backendFirstFrame !== "not-yet"
+        ? "open"
         : status === "connecting" && reconnectAttempts === 0
           ? "not-connected"
           : "opening";
@@ -999,6 +1026,13 @@ export function PrettyView({
         setWakingStartTs(null);
         setElapsedSeconds(0);
         setWakeError(null);
+        // phase-29 (plan 29-05 test-audit fix): swap phase back to "active"
+        // per D-11 clean-swap when the supervisor recover path emits a
+        // live-shape frame while dormant is up. Without this the state
+        // machine would stay pinned at backendFirstFrame="dormant" and
+        // the DormancyOverlay would remain mounted despite the live
+        // conversation resuming.
+        captureFirstFrame("active");
       }
       // phase-29: DELETED — quick 260808-ho2 loading-overlay first-live-frame
       // auto-dismiss (the retired ref-gated boolean check). Subsumed by
@@ -1016,6 +1050,13 @@ export function PrettyView({
           break;
         }
         case "message": {
+          // phase-29 (plan 29-05 test-audit fix): a live message-shape
+          // frame is a "we're active" signal — captureFirstFrame("active")
+          // so a fresh pane that receives message frames without an
+          // explicit `session` verdict still resolves off "resolving".
+          // Post-resolve this also implements the D-11 clean-swap back
+          // to active from any prior terminal phase.
+          captureFirstFrame("active");
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
@@ -1023,22 +1064,36 @@ export function PrettyView({
           // Patch #86: image bubbles interleave with text messages in strict
           // wire order — same state channel, same dedup on eventId. The
           // render branch below discriminates on `m.type`.
+          // phase-29 (plan 29-05 test-audit fix): same "we're active"
+          // semantics as case "message" — see comment there.
+          captureFirstFrame("active");
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
         case "relay_outbound": {
           // RELAYBUB-01: outbound relay frame → RelayOutboundBubble (identity-hue, left-aligned per patch #200).
+          // phase-29 (plan 29-05 test-audit fix): same "we're active"
+          // semantics as case "message".
+          captureFirstFrame("active");
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
         case "relay_inbound": {
           // RELAYBUB-02: inbound relay frame → RelayInboundBubble (blue-gray, right-aligned per patch #200).
+          // phase-29 (plan 29-05 test-audit fix): same "we're active"
+          // semantics as case "message".
+          captureFirstFrame("active");
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
         case "malformed_line": {
           // pv-malformed-jsonl-placeholder-bubble (2026-08-10): interleave a
           // compact placeholder so a dropped turn is visible instead of silent.
+          // phase-29 (plan 29-05 test-audit fix): same "we're active"
+          // semantics as case "message" — even a malformed line proves
+          // the tail is emitting, so we're not in a resolving/dormant/holding
+          // state.
+          captureFirstFrame("active");
           setMessages((prev) => appendDedup(prev, parsed));
           break;
         }
@@ -1121,6 +1176,10 @@ export function PrettyView({
             setWakingStartTs(null);
             setElapsedSeconds(0);
             setWakeError(null);
+            // phase-29 (plan 29-05 test-audit fix): dormant=false is a
+            // "we're back active" signal — swap backendFirstFrame off
+            // "dormant" so the DormancyOverlay unmounts (D-11 clean-swap).
+            captureFirstFrame("active");
           }
           break;
         }
@@ -1241,6 +1300,11 @@ export function PrettyView({
           // already "streaming" (holding only fires from active/streaming).
           // phase-29: the warm-red timeout-error boolean setter is removed
           // (state retired).
+          // phase-29 (plan 29-05 test-audit fix): session_holding_cleared
+          // is a "we're back active" signal — swap backendFirstFrame off
+          // "session_holding" so the SessionHoldingOverlay unmounts
+          // (D-11 clean-swap).
+          captureFirstFrame("active");
           setIsHolding(false);
           break;
         }
@@ -1281,6 +1345,11 @@ export function PrettyView({
           setIsHolding(false);
           // phase-29: the warm-red timeout-error boolean setter is removed
           // (state retired).
+          // phase-29 (plan 29-05 test-audit fix): recycle completed —
+          // swap backendFirstFrame to "active" so the state machine
+          // transitions off "holding" cleanly into "active" without a
+          // spinner flash (D-11 clean-swap).
+          captureFirstFrame("active");
           setStatus("streaming");
           // Phase 14 followup: full aside-surface reset — a recycled
           // session can't carry a live BTW overlay from the OLD session,
@@ -1554,6 +1623,19 @@ export function PrettyView({
         // phase-29: mirror into state so wsState derivation re-runs on
         // retry-attempt reset.
         setReconnectAttempts(0);
+        // phase-29 (plan 29-05 test-audit fix): reset backendFirstFrame on
+        // WS-pause reopen so the state machine can freshly capture the
+        // backend's re-emit on the new WS. Without this reset the rearm-
+        // snapshot guard in usePaneResolvingMachine keeps phase stuck at
+        // "resolving" indefinitely when the reopened WS re-emits the same
+        // backend state (dormant→dormant, active→active, etc.), because
+        // the snapshot captured at re-focus time equals the "current"
+        // inputs post-reopen. Resetting backendFirstFrame to "not-yet"
+        // ensures the next captureFirstFrame call is an observable input
+        // change from the snapshot, letting resolving settle back to the
+        // correct terminal phase.
+        backendFirstFrameRef.current = "not-yet";
+        setBackendFirstFrame("not-yet");
         setRetryKey((k) => k + 1);
         // The WS-setup effect (deps [hostId, tmuxSession, retryKey]) fires and
         // opens a fresh WS via the existing patch #148 reconnect path. No new
@@ -2152,12 +2234,20 @@ export function PrettyView({
           wrapper (below it in flex-col), so it's outside the IdentityModal's
           coverage area. */}
 
-      {/* phase-29: ComposeBox mount gate updated — streaming (post-resolve
-          active), phase === "error" (was status === "error"), phase ===
-          "dormant" (was `dormant`). Preserves the outer OR-chain structure;
-          only flips the two phase-derived clauses. `status === "streaming"`
-          is unchanged (status is untouched by this phase). */}
-      {onSend && (status === "streaming" || phase === "error" || phase === "dormant") && (
+      {/* phase-29: ComposeBox mount gate updated. `status === "streaming"`
+          preserved (post-resolve active). `status === "error"` retained
+          in the OR-chain so ComposeBox stays mounted during the transient
+          WS reconnect window (bubbles preserved, Send disabled per
+          patch #339 / bounty pretty-view-reconnect-preserve-bubbles) —
+          status="error" maps to phase="resolving" post-resolve (wsState
+          regression), NOT phase="error", so gating solely on phase would
+          unmount the compose during ordinary reconnects. `phase === "error"`
+          covers the terminal-ladder-exhausted case (PrettyViewErrorOverlay
+          up). `phase === "dormant"` mounts the reduced-state ComposeBox
+          during the sleep window. Preserving both status="error" AND
+          phase="error" is not redundant: the two coexist only briefly at
+          the transition into the failed-permanently terminal state. */}
+      {onSend && (status === "streaming" || status === "error" || phase === "error" || phase === "dormant") && (
         <ComposeBox
           onSend={handleComposeSend}
           onResetClicked={onResetClicked}
@@ -2179,11 +2269,16 @@ export function PrettyView({
           // three disable modes (asideActive morphs; recycle + plan
           // keep Send as Send).
           planPendingActive={planPending !== null}
-          // phase-29: reconnectingActive derives from `phase === "error"`
-          // (was `status === "error"`). Same UX contract (disable Send +
-          // reset + ThumbsUp + Recap + Queue during the WS reconnect
-          // window); source of truth is now the state machine's phase.
-          reconnectingActive={phase === "error"}
+          // phase-29: reconnectingActive derives from `status === "error"
+          // || phase === "error"`. status="error" covers the transient
+          // reconnect window (WS onclose fired, retry ladder in-flight);
+          // phase="error" covers the terminal ladder-exhausted state.
+          // The pre-refactor behavior gated on status="error" alone —
+          // preserve that so Send/reset/Queue disable correctly during
+          // ordinary reconnects (which don't reach phase="error"). Both
+          // clauses coexist only briefly at the transition into the
+          // failed-permanently terminal state.
+          reconnectingActive={status === "error" || phase === "error"}
           // phase-29: dormantActive derives from `phase === "dormant" || waking`
           // (was `dormant || waking`). `waking` stays as internal in-flight-wake
           // signal even during a transient phase transition (the DormancyOverlay

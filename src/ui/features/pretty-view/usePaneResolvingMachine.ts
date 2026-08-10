@@ -297,24 +297,38 @@ export function usePaneResolvingMachine(
   //     settled pane observably enter "resolving" until the next input
   //     change (matches real-world WS close+reopen cycle).
   //
+  // phase-29 plan 29-05 test-audit fix: the snapshot is CLEARED as
+  // soon as inputs differ from it once — even before derivedTerminalPhase
+  // settles off "resolving". Otherwise the sequence
+  //   dormant (snapshot=dormant) → not-yet (backend re-attach reset) → dormant (fresh backend re-emit)
+  // would keep phase stuck at "resolving" forever because the final
+  // dormant matches the snapshot again. Clearing the snapshot on the
+  // FIRST observed input divergence lets the state machine proceed on
+  // the next divergent-then-settled cycle without a wall-clock timeout.
+  //
   // On successful resolution, the snapshot is cleared so subsequent
   // input flips in post-resolve steady state don't re-trigger.
   useEffect(() => {
     if (!isResolving) return;
-    if (derivedTerminalPhase === "resolving") return;
     const snapshot = rearmSnapshotRef.current;
+    // Clear the snapshot on the FIRST observed input divergence (phase-29
+    // 29-05 fix — see comment block above).
     if (
       snapshot !== null &&
-      snapshot.wsState === wsState &&
-      snapshot.backendFirstFrame === backendFirstFrame
+      (snapshot.wsState !== wsState ||
+        snapshot.backendFirstFrame !== backendFirstFrame)
     ) {
-      // Inputs are still identical to the snapshot captured at re-arm
-      // — the caller has not yet advanced the WS lifecycle. Wait.
+      rearmSnapshotRef.current = null;
+    }
+    if (derivedTerminalPhase === "resolving") return;
+    // Post-snapshot-clear (or snapshot-was-never-set): resolve.
+    if (rearmSnapshotRef.current === null) {
+      hasResolvedThisPaneRef.current = true;
+      setIsResolving(false);
       return;
     }
-    rearmSnapshotRef.current = null;
-    hasResolvedThisPaneRef.current = true;
-    setIsResolving(false);
+    // Snapshot still matches (no divergence yet) — wait for the caller
+    // to advance the WS lifecycle.
   }, [isResolving, derivedTerminalPhase, wsState, backendFirstFrame]);
 
   // ── Spinner delay-arm (D-04 — the ONLY setTimeout in this file).

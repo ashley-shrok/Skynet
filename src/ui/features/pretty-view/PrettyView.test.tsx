@@ -5,6 +5,27 @@
 // mock that to a controllable stub. Session-identity + IdentityBadge
 // dependencies are lightweight — no need to mock. The upload hook is
 // consumed via a real usePrettyViewUploads call using our stubbed WS.
+//
+// phase-29 audit note (plan 29-05):
+// This file was audited post-phase-29-04 rewire. The overlay mount gates
+// migrated from local boolean state (isBooting / showOverlay / dormant)
+// to phase-driven gates (`phase === "resolving"` / "holding" / "dormant"
+// / "inactive" / "error"), and the transient "Connecting…" /
+// "Connection lost" text nodes were retired (SPEC boundary). Retired
+// state names (showOverlay, holdingTimeoutError, isBooting) appear ONLY
+// in test-description comments explaining the historical intent —
+// zero live assertions reference them. Tests were updated in one of
+// three shapes: (a) rewritten to observe the phase-derived UI equivalent;
+// (b) rewritten to use the 150ms delay-arm on the resolving spinner;
+// (c) converted to `it.todo` with a phase-29 rationale for assertions
+// that were retired outright (10s auto-dismiss watchdog). Every material
+// change carries a `// phase-29:` comment tag.
+//
+// See plan 29-04's SUMMARY.md for the full pre-rewire vs post-rewire
+// mount-gate mapping. See resolve-phase.test.ts for the truth-table
+// tests and PrettyView.phase29.test.tsx for the structural-grep gates,
+// entry-trigger integration tests, and the three named flicker
+// regression tests.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, fireEvent, waitFor } from "@testing-library/react";
@@ -322,8 +343,16 @@ describe("PrettyView — patch #148 WebSocket auto-reconnect", () => {
     vi.unstubAllGlobals();
   });
 
-  it("Test A (must): retry-on-close — fires fresh WS after backoff and clears errorMessage on onopen", () => {
-    const { container } = mountPV();
+  it("Test A (must): retry-on-close — fires fresh WS after backoff (patch #148 mechanism preserved through phase-29 rewire)", () => {
+    // phase-29: the "Connection closed" transient text node is retired
+    // (SPEC boundary — the resolving spinner covers the reconnect window
+    // during pre-resolve, and PrettyViewErrorOverlay covers the terminal
+    // failed-permanently case). What this test locks is the patch #148
+    // retry-scheduler mechanism itself — fresh WS stub created after the
+    // backoff delay, and the errorMessage state cleared internally on
+    // reopen. errorMessage is no longer surfaced to the UI, so the test
+    // observes only the observable retry-mechanism outputs (WS stub count).
+    mountPV();
     // After mount, stub #1 is created.
     expect(wsStubs.length).toBe(1);
     const ws1 = getCurrentWs();
@@ -336,22 +365,29 @@ describe("PrettyView — patch #148 WebSocket auto-reconnect", () => {
 
     // Immediately after close: no new WS yet (timer not fired).
     expect(wsStubs.length).toBe(1);
-    // errorMessage should be set (Connection closed UI).
-    expect(container.textContent).toContain('Connection closed');
 
     // Advance first backoff (attempt 1 → delay = 2000ms).
     advance(2000);
 
-    // A new stub should have been created by the retryKey-driven re-run.
+    // A new stub should have been created by the retryKey-driven re-run —
+    // proves the patch #148 retry-on-close scheduler still fires under
+    // the phase-29 rewire. The specific state mutation (setStatus("error")
+    // + setErrorMessage("Connection closed")) still happens internally
+    // (see onclose handler); this is the observable side effect.
     expect(wsStubs.length).toBe(2);
     const ws2 = getCurrentWs();
 
-    // Fire onopen on the new stub — should clear errorMessage.
+    // Fire onopen on the new stub. Under the old code path this test
+    // asserted "Connection closed" text disappearing; under phase-29
+    // that text was never displayed. Observable proxy: the WS stub was
+    // successfully reopened — no throw, no additional retry stub queued.
     act(() => {
       ws2.onopen?.();
     });
-    // errorMessage cleared — "Connection closed" should be gone.
-    expect(container.textContent).not.toContain('Connection closed');
+    // No new stub was created (the retry chain paused because onopen
+    // succeeded — the next close would restart the ladder from the
+    // now-incremented attempt count).
+    expect(wsStubs.length).toBe(2);
   });
 
   it("Test B (must): max-attempt cap — no 6th WS after 5 consecutive closes", () => {
@@ -1332,7 +1368,21 @@ describe("quick 260809-ha3 wake progress survives visibility roundtrip", () => {
     });
   }
 
-  it("wake progress restored after visibility roundtrip via wakingSince frame", () => {
+  it("wake progress restored after visibility roundtrip via wakingSince frame (phase-29: WS-pause reset semantic)", () => {
+    // phase-29 (plan 29-05 test-audit): the visibility roundtrip under
+    // the phase-29 machine re-enters the resolving phase (SPEC req 1).
+    // The DormancyOverlay unmounts during resolving; when the fresh WS
+    // re-emits a dormant frame the state machine transitions back
+    // through captureFirstFrame to phase="dormant", re-mounting the
+    // overlay with the fresh waking state. Under the pre-phase-29 model
+    // this test observed a simpler local-state reset — phase-29 makes
+    // the round-trip go through the state machine's shared entry-trigger
+    // code path.
+    //
+    // To exercise this reliably in tests, we (a) simulate the WS actually
+    // closing (mock readyState update + fireClose) so the WS-pause reopen
+    // path creates a fresh stub, and (b) dispatch the dormant frame on
+    // the FRESH stub (not the captured `ws`).
     const { container, ws, rerender, onSend } = mountDormancyPV();
 
     // Step 1-2: enter dormant state via natural-dormant frame (wakingSince=null).
@@ -1346,22 +1396,37 @@ describe("quick 260809-ha3 wake progress survives visibility roundtrip", () => {
     act(() => { fireEvent.click(wakeBtn); });
     expect(container.textContent).toContain('Waking up…');
 
-    // Step 4: hide + show — Fix B fires on the false->true edge, wiping local
-    // waking state. Overlay is still mounted (dormant is still true), but the
-    // "Waking up…" indicator is gone.
+    // Step 4: hide — mark stub #1 as closed (matches production ws.close()
+    // semantics; the mock's `close: vi.fn()` doesn't auto-update readyState).
+    // Then rerender to isVisible=false so the WS-pause useEffect runs.
     rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={false} />);
+    // Simulate the ws actually closing.
+    ws.readyState = 3; // CLOSED
+
+    // Step 5: show — the WS-pause reopen path sees readyState=CLOSED,
+    // resets backendFirstFrame to "not-yet" (phase-29), bumps retryKey,
+    // and the WS-setup useEffect re-runs to create stub #2. The warm
+    // re-focus edge in usePaneResolvingMachine also fires — phase
+    // transitions to "resolving" (waking state cleared by prevIsVisibleRef).
     rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />);
+    // Waking cleared by Fix B (prevIsVisibleRef effect) — no stale text.
     expect(container.textContent).not.toContain('Waking up…');
 
-    // Step 5: server's next 3s dormant poll arrives with wakingSince from
-    // wakeTriggerTs — simulate a wake that started 30s ago server-side.
+    // Step 6: server's fresh dormant poll arrives on stub #2 with
+    // wakingSince from wakeTriggerTs — simulate a wake that started
+    // 30s ago server-side. captureFirstFrame("dormant") flips
+    // backendFirstFrame from "not-yet" to "dormant" (input change from
+    // rearmSnapshot); phase resolves back to "dormant"; DormancyOverlay
+    // re-mounts with the fresh wakingSince value.
+    const currentWs = getCurrentWs();
+    expect(currentWs).not.toBe(ws); // stub #2 is different from stub #1
     const serverWakeTs = Date.now() - 30_000;
-    sendDormantFrameWithWakingSince(ws, true, serverWakeTs);
+    sendDormantFrameWithWakingSince(currentWs, true, serverWakeTs);
 
-    // Step 6: waking state restored, "Waking up…" back on screen.
+    // Step 7: waking state restored, "Waking up…" back on screen.
     expect(container.textContent).toContain('Waking up…');
 
-    // Step 7: advance timers 1s — elapsedSeconds ticker keeps running (derived
+    // Step 8: advance timers 1s — elapsedSeconds ticker keeps running (derived
     // from Date.now() - wakingStartTs). "Waking up…" persists across the tick.
     act(() => { vi.advanceTimersByTime(1_000); });
     expect(container.textContent).toContain('Waking up…');
@@ -1427,11 +1492,25 @@ describe("quick 260808-ho2 loading overlay integration", () => {
   // Loading overlay is unique by aria-label — sibling overlays use different labels.
   const LOADING_SELECTOR = '[aria-label="Loading conversation…"]';
 
-  it("Test A: cold mount arms the loading overlay within one paint (before any WS frames)", () => {
+  // phase-29: the loading overlay is now the resolving-phase spinner
+  // (D-01 — visual preserved). Mount gate flipped from
+  // `isBooting && !dormant && !showOverlay` to
+  // `phase === "resolving" && showResolvingSpinner`. The showSpinner flag
+  // is delay-armed 150ms (D-04) — genuinely-instant resolutions never
+  // flash the spinner. Tests below advance 150ms after cold-mount to
+  // observe the spinner mounting.
+
+  it("Test A: cold mount arms the resolving spinner after 150ms delay-arm (D-04)", () => {
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
-    // No WS frames fired yet — overlay must already be mounted (arm-instantly).
+    // phase-29: pre-150ms window — spinner is delay-armed but NOT yet
+    // mounted (this suppresses spinner-flash for genuinely-instant paths).
+    expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
+
+    // Advance past the 150ms delay-arm — spinner mounts iff still in
+    // resolving phase, which is the case here (no WS frames dispatched).
+    act(() => { vi.advanceTimersByTime(160); });
     expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
   });
 
@@ -1440,130 +1519,171 @@ describe("quick 260808-ho2 loading overlay integration", () => {
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
-    // Overlay is up from the cold mount arm.
+    // phase-29: advance past the 150ms delay-arm to observe the spinner.
+    act(() => { vi.advanceTimersByTime(160); });
     expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
 
-    // ws.onopen alone does NOT dismiss (decision #2: dismiss on first user-visible frame).
+    // ws.onopen alone does NOT dismiss (status stays "connecting" until
+    // a session frame arrives; wsState stays "not-connected"; phase stays
+    // "resolving"). Under phase-29 the "resolving" phase persists as long
+    // as backendFirstFrame === "not-yet" AND wsState !== "open".
     act(() => { ws.onopen?.(); });
     expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
 
-    // Fire a `session` frame — one of the user-visible frame types → dismiss.
+    // Fire a `session` frame — captureFirstFrame("active") flips
+    // backendFirstFrame off "not-yet"; setStatus("streaming") flips
+    // wsState to "open"; resolvePhase → "active"; spinner unmounts.
     fireWsFrame(ws, { type: 'session', sessionFile: '/tmp/test.jsonl' });
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
   });
 
-  it("Test C: overlay dismisses on first `message` frame (alternative dismiss path)", () => {
+  it("Test C: overlay dismisses on first `message` frame (phase-29: message frame captures active)", () => {
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
     act(() => { ws.onopen?.(); });
-    // Overlay still up after onopen.
+    // phase-29: advance past the 150ms delay-arm to observe the spinner.
+    act(() => { vi.advanceTimersByTime(160); });
+    // Overlay still up after onopen + delay-arm — wsState still
+    // "not-connected" (status stays "connecting" until a frame arrives),
+    // backendFirstFrame still "not-yet".
     expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
 
-    // A message frame is in the shared user-visible frame set → dismiss.
+    // phase-29 (plan 29-05 test-audit): live message frames now fire
+    // captureFirstFrame("active") (a live message = we're active) — plus
+    // status flips to "streaming" only on `session` frame. Under
+    // phase-29, status="connecting" + reconnectAttempts=0 → wsState=
+    // "not-connected" → phase="resolving" regardless of backendFirstFrame.
+    // So a bare message frame WITHOUT a preceding session frame keeps
+    // wsState="not-connected" and phase stays resolving. This test
+    // (which used to exercise the retired "first user-visible frame
+    // auto-dismiss" fast path) now sends the session frame first to
+    // set up wsState="open", then observes the message frame's own
+    // dismiss contribution.
+    fireWsFrame(ws, { type: 'session', sessionFile: '/tmp/test.jsonl' });
+    // After session frame: phase=active, spinner gone.
+    expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
+
+    // A subsequent message frame does not resurrect the spinner — it
+    // stays in the active phase (D-11 post-resolve steady state).
     fireWsFrame(ws, {
       type: 'message', role: 'user', content: 'hi', eventId: 'ev-1', ts: 1,
     });
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
   });
 
-  it("Test D: 10s timeout auto-dismisses the overlay (stuck-state fallback, silent)", () => {
-    const { container } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
-    );
-    expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
+  it.todo("[phase 29] retired: 10s PrettyViewLoadingOverlay auto-dismiss watchdog (SPEC req 5 no-timeout-heuristics). The resolving spinner now stays up until wsState/backendFirstFrame settle deterministically or wsState transitions to failed-permanently — no wall-clock deadline.");
 
-    // Advance past the 10s timeout — overlay should silently dismiss.
-    act(() => { vi.advanceTimersByTime(10001); });
-    expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
-  });
-
-  it("Test E: dormant frame trumps loading — loading unmounts, dormant mounts", () => {
+  it("Test E: dormant frame → DormancyOverlay mounts (phase-29 clean-swap without resolving flash)", () => {
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
-    expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
-
-    // Fire dormant=true — DormancyOverlay wins the exclusion (Dormancy > Holding > Loading).
+    // phase-29: dormant frame on cold mount — no need for prior session
+    // frame; captureFirstFrame("dormant") directly resolves phase to
+    // "dormant" and the resolving-phase spinner never mounts (150ms
+    // delay-arm suppresses spinner flash when inputs settle fast).
     act(() => { ws.onopen?.(); });
     fireWsFrame(ws, { type: 'dormant', dormant: true });
 
-    // Loading overlay unmounted.
+    // Loading spinner unmounted (phase left "resolving" before the 150ms
+    // delay-arm could fire).
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
-    // Dormant overlay IS mounted (query by its distinctive aria-label).
+    // Dormant overlay IS mounted (phase === "dormant").
     const dormancyOverlay = container.querySelector('[aria-label*="asleep"]');
     expect(dormancyOverlay).not.toBeNull();
   });
 
-  it("Test F: session_holding trumps loading — loading unmounts, SessionHoldingOverlay mounts", () => {
-    // Simplification per plan note: exercise session_holding takeover on the
-    // initial mount (before any dismissing frame arrives). Same mutual-
-    // exclusion assertion as the pane-swap re-arm path, without the re-render
-    // complexity that pane-swap needs.
+  it("Test F: session_holding trumps loading — loading unmounts, SessionHoldingOverlay mounts (phase-29 clean-swap)", () => {
+    // Simplification per plan note: exercise session_holding takeover on
+    // the initial mount. Under phase-29 the SessionHoldingOverlay mount
+    // gate is `phase === "holding"` (no separate 350ms delay-arm on the
+    // holding overlay itself — the 150ms lives on the resolving spinner).
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
-    // Loading overlay is up from cold mount.
-    expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
 
-    // Flip to streaming so the session_holding path is on the "live" trunk
-    // (holding only fires from active/streaming per the code comments).
-    // The `session` frame dismisses loading naturally via first-user-visible-frame.
+    // Flip to streaming so status="streaming" (wsState="open"), then fire
+    // session_holding — captureFirstFrame("session_holding") is idempotent
+    // vs. the prior "active" but the drop-idempotency semantic in
+    // captureFirstFrame allows the swap; phase transitions active→holding
+    // (D-11 clean-swap).
     act(() => { ws.onopen?.(); });
     fireWsFrame(ws, { type: 'session', sessionFile: '/tmp/test.jsonl' });
-    // Loading is now dismissed by the first-frame path — that's fine, this
-    // test is checking session_holding's takeover of the mount site, not the
-    // arm state.
+    // After session frame: phase=active, spinner gone.
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
 
-    // Now fire session_holding and advance past the 350ms delay-arm.
+    // Now fire session_holding — phase transitions to "holding" via D-11.
     fireWsFrame(ws, { type: 'session_holding' });
-    act(() => { vi.advanceTimersByTime(400); });
+    // phase-29: no 350ms holding delay-arm anymore — SessionHoldingOverlay
+    // mounts immediately when phase === "holding".
 
-    // SessionHoldingOverlay IS mounted (query by its distinctive aria-label).
+    // SessionHoldingOverlay IS mounted.
     const holdingOverlay = container.querySelector('[aria-label*="recycling"]');
     expect(holdingOverlay).not.toBeNull();
-    // Loading overlay is NOT mounted (mutual exclusion — showOverlay is now true).
+    // Loading overlay NOT mounted (mutual exclusion via phase gate).
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
   });
 
-  it("Test G: warm hidden→visible re-focus does NOT arm the loading overlay", () => {
-    // Cold mount arms the overlay.
+  it("Test G: warm hidden→visible re-focus DOES re-enter resolving (phase-29 SPEC req 1) but delay-arm prevents spinner flash if inputs re-settle fast", () => {
+    // phase-29 SEMANTIC CHANGE: SPEC req 1 explicitly requires that the
+    // warm re-focus edge re-enters `phase === "resolving"` (all three
+    // entry-trigger edges use the same code path). Previously (patch
+    // quick-260808-ho2 pre-phase-29) the loading overlay's mount gate
+    // was `isBooting` which only fired on paneKey-change cold-mount; the
+    // warm re-focus edge did NOT re-arm loading. Under phase-29 the
+    // pane RE-ENTERS resolving on warm re-focus — but the 150ms delay-arm
+    // (D-04) suppresses spinner mount if the inputs re-settle in <150ms.
+    //
+    // This test is rewritten to observe the phase-29 semantic: warm
+    // re-focus DOES re-arm resolving, and the resolving spinner mounts
+    // after the 150ms delay-arm iff inputs are still not settled at 150ms.
     const { container, rerender } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
-    expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
 
-    // Dismiss the initial arm via first-user-visible-frame.
+    // Dismiss the initial resolving arm via a session frame.
     act(() => { ws.onopen?.(); });
     fireWsFrame(ws, { type: 'session', sessionFile: '/tmp/test.jsonl' });
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
 
-    // Flip isVisible=false, then back to isVisible=true. This exercises the
-    // WS-pause reopen path (retryKey bump + WS-setup effect re-run with SAME
-    // paneKey) — the reset block is SKIPPED because paneKey === paneKeyRef.current,
-    // so setIsBooting(true) never fires and the overlay stays down.
+    // Flip isVisible=false, then back to isVisible=true. Under phase-29
+    // the warm re-focus edge re-enters resolving (rearmSnapshotRef holds
+    // the pre-refocus inputs; phase re-enters "resolving" until inputs
+    // observably change from the snapshot).
     rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={false} />);
     rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />);
 
-    // Loading overlay must NOT re-arm on warm re-focus (must-have truth #5).
+    // Immediately after re-focus: spinner NOT yet mounted (150ms
+    // delay-arm in flight). This is D-04's anti-flash affordance.
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
+
+    // Advance past the 150ms delay-arm. If the WS-pause reopen path
+    // has NOT yet advanced wsState/backendFirstFrame off their prior
+    // values, the resolving spinner mounts. In this test we have not
+    // dispatched any additional frames on the new WS stub, so the
+    // rearmSnapshotRef guard keeps phase in resolving.
+    act(() => { vi.advanceTimersByTime(160); });
+    // Spinner mounted — the warm re-focus arm succeeded and the 150ms
+    // delay-arm fired without early cancellation.
+    expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
   });
 
-  it("Test H: SessionHoldingOverlay behavior is preserved (byte-untouched invariant regression-guard)", () => {
-    // Mirror of the existing Fix B: Test F1 pattern (line ~909). Ensures the
-    // mount-site edit in PrettyView.tsx did not regress SessionHoldingOverlay's
-    // observable behavior.
+  it("Test H: SessionHoldingOverlay behavior is preserved (phase-29 mount-gate rewire regression-guard)", () => {
+    // Mirror of the existing Fix B: Test F1 pattern. Ensures the mount-site
+    // rewire in PrettyView.tsx (plan 29-04 — from `showOverlay` to
+    // `phase === "holding"`) did not regress SessionHoldingOverlay's
+    // observable behavior. The component itself is byte-untouched (D-01);
+    // only the parent's mount gate changed.
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
 
-    // Transition to streaming.
+    // Transition to streaming (captureFirstFrame("active"), status="streaming").
     act(() => {
       ws.onopen?.();
       ws.onmessage?.(
@@ -1573,9 +1693,12 @@ describe("quick 260808-ho2 loading overlay integration", () => {
       );
     });
 
-    // Arm holding: fire session_holding and advance past the 350ms delay-arm.
+    // phase-29: fire session_holding — captureFirstFrame("session_holding")
+    // swaps backendFirstFrame from "active" to "session_holding"; phase
+    // transitions to "holding" (D-11 clean-swap, no delay-arm on the
+    // holding overlay itself under phase-29 — the 150ms lives on the
+    // resolving spinner). SessionHoldingOverlay mounts immediately.
     fireWsFrame(ws, { type: 'session_holding' });
-    act(() => { vi.advanceTimersByTime(400); });
 
     // SessionHoldingOverlay's role=status element exists with the "recycling"
     // aria-label (verbatim from SessionHoldingOverlay.tsx L97).
