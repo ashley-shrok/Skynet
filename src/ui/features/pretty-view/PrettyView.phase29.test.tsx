@@ -174,18 +174,32 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     expect(pvSrc).not.toMatch(/rearmSnapshotRef|hasResolvedThisPaneRef/);
   });
 
-  it("PrettyView.tsx: zero showResolvingSpinner / requestRetry / handleRetry references (Phase-29 hook surface gone)", () => {
-    expect(pvSrc).not.toMatch(/showResolvingSpinner|requestRetry|handleRetry/);
-    // showSpinner alone is also gone (was a Phase-29 hook return prop).
+  it("PrettyView.tsx: zero requestRetry / handleRetry / bare-showSpinner references (Phase-29 hook surface gone)", () => {
+    // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): the
+    // `showResolvingSpinner` local was legitimately reintroduced AT THE
+    // CALLER SITE as PS30-06's comment authorized after Ashley UAT surfaced
+    // the flash Phase 30's delay-arm deletion left exposed. It is NOT a
+    // resurrection of the Phase-29 hook surface — the hook stays trivial
+    // (see usePaneResolvingMachine.ts) — so the grep guard drops it and
+    // only continues to fence the truly-retired hook-return prop names.
+    expect(pvSrc).not.toMatch(/\brequestRetry\b|\bhandleRetry\b/);
+    // showSpinner alone is also gone (was a Phase-29 hook return prop;
+    // distinct from the caller-site `showResolvingSpinner`).
     expect(pvSrc).not.toMatch(/\bshowSpinner\b/);
   });
 
-  it("PrettyView.tsx: overlay mount gates use renderedState === '...' (backend-authoritative)", () => {
+  it("PrettyView.tsx: overlay mount gates use renderedState === '...' (backend-authoritative) — except resolving, gated on showResolvingSpinner delay-arm", () => {
     expect(pvSrc).toMatch(/renderedState === "holding"/);
     expect(pvSrc).toMatch(/renderedState === "dormant"/);
     expect(pvSrc).toMatch(/renderedState === "error"/);
-    expect(pvSrc).toMatch(/renderedState === "resolving"/);
     expect(pvSrc).toMatch(/renderedState === "inactive"/);
+    // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): the
+    // resolving-state mount is gated on `showResolvingSpinner`, a boolean
+    // flipped by a 400ms paint-delay useEffect observing renderedState.
+    // Direct `renderedState === "resolving"` gating is retired — that was
+    // the pattern that produced Ashley's UAT flash. See PrettyView.tsx
+    // for the delay-arm effect + mount gate.
+    expect(pvSrc).toMatch(/showResolvingSpinner &&/);
   });
 
   it("Test G: onResetClicked no longer contains any client-side pane-state mutation (patch #381 anti-pattern DELETED)", () => {
@@ -378,10 +392,15 @@ describe("Phase 30 integration — Test D: no pane_state received → resolving 
     vi.unstubAllGlobals();
   });
 
-  it("fresh mount, no pane_state received → PrettyViewLoadingOverlay mounted (renderedState === 'resolving')", () => {
+  it("fresh mount, no pane_state received → PrettyViewLoadingOverlay mounted after 400ms paint-delay (renderedState === 'resolving')", () => {
     render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
-    // Phase 30: no delay-arm; spinner mounts synchronously on the
-    // resolving state.
+    // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): the
+    // spinner now sits behind a 400ms delay-arm useEffect at the caller
+    // site. Sub-400ms resolves (typical warm re-entry) never mount the
+    // overlay. Genuinely-slow resolves (this test's scenario — no
+    // pane_state ever received) mount after the delay-arm fires.
+    expect(screen.queryByRole("status", { name: /Loading conversation/i })).toBeNull();
+    advance(400);
     expect(
       screen.getByRole("status", { name: /Loading conversation/i }),
     ).toBeTruthy();

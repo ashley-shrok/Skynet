@@ -348,11 +348,16 @@ export function PrettyView({
   const [wakingStartTs, setWakingStartTs] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [wakeError, setWakeError] = useState<string | null>(null);
-  // Phase 30: loading-arm boolean + first-user-visible-frame auto-dismiss
-  // are DELETED. PrettyViewLoadingOverlay mounts on
-  // `renderedState === "resolving"` directly (no delay-arm — D-04 anti-
-  // flash deferred per 30-CONTEXT.md; backend emits pane_state fast enough
-  // that the flash risk is gone).
+  // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): D-04 anti-flash
+  // RESTORED at THIS site (not the hook) per PS30-06's own guidance below.
+  // Ashley UAT surfaced the flash the Phase 30 deletion left exposed — cold
+  // paneKey entry to an already-active session momentarily shows
+  // renderedState==="resolving" while the WS reopens and the backend's
+  // pane_state emit lands (~200-400ms on iPhone PWA). 400ms delay-arm here
+  // absorbs that window; genuinely-slow resolves still get the spinner just
+  // after the paint-delay expires. Hook stays trivial (Phase 30 SPEC — the
+  // hook has zero setTimeouts). Companion state slot below.
+  const [showResolvingSpinner, setShowResolvingSpinner] = useState(false);
   // Phase 30 (PS30-05): patch #381's client-hint anti-pattern is DELETED.
   //
   // Pre-Phase-30 this callback synchronously flipped local isHolding=true
@@ -900,6 +905,27 @@ export function PrettyView({
     wsTransportState,
     paneState,
   });
+
+  // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): 400ms paint-
+  // delay for the resolving-state spinner. Only mounts PrettyViewLoadingOverlay
+  // if renderedState stays "resolving" for >400ms. Cold-mount cases where the
+  // WS reopens + backend pane_state emit lands in <400ms — the typical warm
+  // re-entry to an already-active session — never flash the overlay. Genuinely
+  // slow resolves still see the spinner, just after the paint-delay expires.
+  // Cleanup fires immediately when renderedState leaves "resolving", so the
+  // spinner unmounts instantly on the settle event.
+  useEffect(() => {
+    if (renderedState !== "resolving") {
+      setShowResolvingSpinner(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      setShowResolvingSpinner(true);
+    }, 400);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [renderedState]);
 
   useEffect(() => {
     // Patch #148: distinguish a fresh pane mount from a retryKey-triggered re-run.
@@ -1916,14 +1942,17 @@ export function PrettyView({
           error={wakeError}
         />
       )}
-      {/* Phase 30 (PS30-06): PrettyViewLoadingOverlay is the resolving-
-          state spinner. Mount gate is `renderedState === "resolving"`
-          directly — the Phase-29 150ms delay-arm is DELETED (Task 2 in
-          Plan 30-03 removed it from the hook). Backend emits pane_state
-          fast enough that the flash risk the delay-arm defended against
-          is gone; if UAT surfaces a regression, D-04 anti-flash can be
-          restored at THIS site (not in the hook) as a paint-delay. */}
-      {renderedState === "resolving" && <PrettyViewLoadingOverlay />}
+      {/* Phase 30 (PS30-06) + phase-30-restore-resolving-overlay-paint-delay
+          (2026-08-10): PrettyViewLoadingOverlay is the resolving-state
+          spinner. Mount gate is `showResolvingSpinner` — a boolean flipped
+          true by a 400ms delay-arm useEffect above (search for the state
+          slot) that observes renderedState. Cold-mount / warm-re-entry
+          cases where WS-reopen + backend pane_state emit land in <400ms
+          never flash the overlay; genuinely-slow resolves still see the
+          spinner after the paint-delay expires. Delay-arm lives at THIS
+          site (not the hook) exactly as PS30-06's own comment authorized
+          if UAT surfaced the flash — which Ashley's report did. */}
+      {showResolvingSpinner && <PrettyViewLoadingOverlay />}
 
       {/* Phase 30 (PS30-06): inactive fallback gated on
           `renderedState === "inactive"`. */}

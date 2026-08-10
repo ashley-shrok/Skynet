@@ -1584,16 +1584,25 @@ describe("quick 260808-ho2 loading overlay integration", () => {
   // Phase 30: the loading overlay is the resolving-state spinner
   // (D-01 visual preserved from Phase 29). Mount gate flipped from
   // Phase-29's `phase === "resolving" && showResolvingSpinner` (with
-  // 150ms delay-arm) to `renderedState === "resolving"` directly — the
-  // delay-arm is DELETED per Plan 30-03 Task 2. The spinner mounts
-  // synchronously when renderedState is "resolving"; the backend's
-  // pane_state emit is what transitions it out.
+  // 150ms hook-level delay-arm) to a caller-site delay-arm at 400ms
+  // per phase-30-restore-resolving-overlay-paint-delay (2026-08-10) —
+  // Ashley UAT surfaced the flash Phase 30's delay-arm deletion left
+  // exposed and PS30-06's own code comment explicitly authorized
+  // restoring the paint-delay at THIS site (not the hook). The tests
+  // below therefore assert MOUNTED-AFTER-400ms rather than mounted-
+  // synchronously; the backend's pane_state emit is what transitions
+  // the render off "resolving".
 
-  it("Test A: cold mount mounts the resolving spinner synchronously (Phase 30 — no delay-arm)", () => {
+  it("Test A: cold mount mounts the resolving spinner after 400ms paint-delay", () => {
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
-    // Phase 30: no delay-arm; spinner mounts synchronously.
+    // Before the delay-arm fires: overlay NOT mounted — sub-400ms cold
+    // resolves (the typical warm-re-entry case) never flash.
+    expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
+    advance(400);
+    // After the delay-arm fires: overlay mounted — genuinely-slow resolves
+    // (test scenario — no pane_state received) see the spinner.
     expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
   });
 
@@ -1602,7 +1611,9 @@ describe("quick 260808-ho2 loading overlay integration", () => {
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
-    // Phase 30: spinner mounts synchronously.
+    // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): trip
+    // the 400ms paint-delay before asserting mount.
+    advance(400);
     expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
 
     // ws.onopen alone does NOT dismiss (status stays "connecting" until
@@ -1629,7 +1640,9 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     );
     const ws = getCurrentWs();
     act(() => { ws.onopen?.(); });
-    // Phase 30: spinner mounts synchronously on cold mount.
+    // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): trip
+    // the 400ms paint-delay before asserting mount on cold entry.
+    advance(400);
     expect(container.querySelector(LOADING_SELECTOR)).not.toBeNull();
 
     // Phase 30: bare message frames no longer participate in overlay
