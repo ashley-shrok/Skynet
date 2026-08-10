@@ -166,6 +166,28 @@ export function usePaneResolvingMachine(
   const paneKeyRef = useRef<string>(paneKey);
   const hasResolvedThisPaneRef = useRef<boolean>(false);
 
+  // Input snapshot captured at re-arm time. When the machine has
+  // ALREADY resolved once on this pane (hasResolvedThisPaneRef=true at
+  // the moment an entry trigger fires), the resolution detector below
+  // only fires the "leave resolving" transition when the current inputs
+  // DIFFER from this snapshot — i.e. after the caller has observably
+  // changed either wsState or backendFirstFrame since the most recent
+  // entry-trigger edge. This is what makes the three entry triggers
+  // observable in the "already resolved" case: a re-arm with already-
+  // settled inputs keeps the machine in "resolving" until the next
+  // input change, matching the real-world lifecycle where any entry
+  // trigger in production is immediately followed by a WS close+reopen
+  // cycle that flips inputs through the "opening" / "not-yet" transient
+  // before re-settling.
+  //
+  // On the INITIAL mount (hasResolvedThisPaneRef=false), no snapshot
+  // gating applies — the machine resolves as soon as inputs settle
+  // (the caller-provided inputs at mount time ARE the initial verdict).
+  const rearmSnapshotRef = useRef<{
+    wsState: WsState;
+    backendFirstFrame: BackendFirstFrame;
+  } | null>(null);
+
   // Initial mount is always in the resolving phase until inputs settle
   // (SPEC req 1 — every entry-trigger enters resolving).
   const [isResolving, setIsResolving] = useState<boolean>(true);
@@ -191,13 +213,20 @@ export function usePaneResolvingMachine(
 
   // ── Cold-mount trigger (paneKey change). Fresh pane resets the
   // per-pane resolution sentinel and re-arms resolving. This is entry
-  // trigger #1 of 3.
+  // trigger #1 of 3. Captures an input snapshot IF the pane has
+  // already resolved once on the prior paneKey — so a re-mount into
+  // pre-settled inputs still observably enters "resolving" until the
+  // next input change (matches real-world WS close+reopen cycle).
   useEffect(() => {
     if (paneKey !== paneKeyRef.current) {
+      if (hasResolvedThisPaneRef.current) {
+        rearmSnapshotRef.current = { wsState, backendFirstFrame };
+      }
       paneKeyRef.current = paneKey;
       hasResolvedThisPaneRef.current = false;
       setIsResolving(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneKey]);
 
   // ── Warm re-focus trigger (isVisible false→true edge). Uses the
@@ -210,9 +239,13 @@ export function usePaneResolvingMachine(
     const prev = prevIsVisibleRef.current;
     prevIsVisibleRef.current = isVisible;
     if (!prev && isVisible) {
+      if (hasResolvedThisPaneRef.current) {
+        rearmSnapshotRef.current = { wsState, backendFirstFrame };
+      }
       hasResolvedThisPaneRef.current = false;
       setIsResolving(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible]);
 
   // ── PWA foreground trigger (document.visibilitychange visible edge).
@@ -221,12 +254,27 @@ export function usePaneResolvingMachine(
   // warm re-focus trigger above will handle re-arming when isVisible
   // next flips true (avoids double-arming during the transient window
   // where document is visible but pane hasn't yet been shown). This is
-  // entry trigger #3 of 3. deps: [] — mount-once; reads isVisibleRef
-  // to avoid re-registering on every isVisible change.
+  // entry trigger #3 of 3. deps: [] — mount-once; reads isVisibleRef +
+  // wsStateRef + backendFirstFrameRef to avoid re-registering on every
+  // input change.
+  const wsStateRef = useRef<WsState>(wsState);
+  const backendFirstFrameRef = useRef<BackendFirstFrame>(backendFirstFrame);
+  useEffect(() => {
+    wsStateRef.current = wsState;
+  }, [wsState]);
+  useEffect(() => {
+    backendFirstFrameRef.current = backendFirstFrame;
+  }, [backendFirstFrame]);
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState !== "visible") return;
       if (!isVisibleRef.current) return;
+      if (hasResolvedThisPaneRef.current) {
+        rearmSnapshotRef.current = {
+          wsState: wsStateRef.current,
+          backendFirstFrame: backendFirstFrameRef.current,
+        };
+      }
       hasResolvedThisPaneRef.current = false;
       setIsResolving(true);
     };
@@ -237,17 +285,37 @@ export function usePaneResolvingMachine(
   }, []);
 
   // ── Resolution detector. Runs whenever inputs change while
-  // isResolving is true. The moment resolvePhase() returns something
-  // other than "resolving", flip the sentinel and drop out of the
-  // internal resolving mode. Post this moment we're in post-resolve
-  // steady state (D-10/D-11/D-12) until an entry trigger re-arms.
+  // isResolving is true. Two-mode gating:
+  //
+  //   - No re-arm snapshot (initial mount OR post-resolve requestRetry
+  //     with no snapshot): resolve as soon as derivedTerminalPhase
+  //     leaves "resolving".
+  //   - Re-arm snapshot present (one of the three entry triggers fired
+  //     on an already-resolved pane): resolve only when the CURRENT
+  //     inputs differ from the snapshot AND derivedTerminalPhase !==
+  //     "resolving". This is what makes an entry-trigger on a pre-
+  //     settled pane observably enter "resolving" until the next input
+  //     change (matches real-world WS close+reopen cycle).
+  //
+  // On successful resolution, the snapshot is cleared so subsequent
+  // input flips in post-resolve steady state don't re-trigger.
   useEffect(() => {
     if (!isResolving) return;
-    if (derivedTerminalPhase !== "resolving") {
-      hasResolvedThisPaneRef.current = true;
-      setIsResolving(false);
+    if (derivedTerminalPhase === "resolving") return;
+    const snapshot = rearmSnapshotRef.current;
+    if (
+      snapshot !== null &&
+      snapshot.wsState === wsState &&
+      snapshot.backendFirstFrame === backendFirstFrame
+    ) {
+      // Inputs are still identical to the snapshot captured at re-arm
+      // — the caller has not yet advanced the WS lifecycle. Wait.
+      return;
     }
-  }, [isResolving, derivedTerminalPhase]);
+    rearmSnapshotRef.current = null;
+    hasResolvedThisPaneRef.current = true;
+    setIsResolving(false);
+  }, [isResolving, derivedTerminalPhase, wsState, backendFirstFrame]);
 
   // ── Spinner delay-arm (D-04 — the ONLY setTimeout in this file).
   // Mirrors patch #74's showOverlay delay-arm at PrettyView.tsx:
@@ -273,8 +341,18 @@ export function usePaneResolvingMachine(
   // ── requestRetry (D-09). User-gesture callback fired from the
   // PrettyViewErrorOverlay Retry button (same UX shape as
   // DormancyOverlay's Wake button). Enters resolving via the SAME
-  // shared code path as the three entry triggers.
+  // shared code path as the three entry triggers. If the pane has
+  // already resolved once, capture an input snapshot so the retry
+  // observably enters "resolving" until the caller advances the WS
+  // lifecycle in response — matching the D-09 UX contract where the
+  // Retry button starts a fresh reconnect cycle.
   const requestRetry = useCallback(() => {
+    if (hasResolvedThisPaneRef.current) {
+      rearmSnapshotRef.current = {
+        wsState: wsStateRef.current,
+        backendFirstFrame: backendFirstFrameRef.current,
+      };
+    }
     hasResolvedThisPaneRef.current = false;
     setIsResolving(true);
   }, []);
