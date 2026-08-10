@@ -943,7 +943,10 @@ Plans:
   6. Full frontend test suite (`npx vitest run`) passes with 0 failures. `npx tsc --noEmit` passes. No regressions in the pretty-view tests already passing under patch #373.
   7. Fixes ship as one atomic patch on `feat/tab-title-from-tmux`; skynet-patches.md entry names all five fixes; container healthy + HTTPS 200 after deploy.
 
-**Plans**: TBD (to be created by `/gsd:plan-phase`)
+**Plans**: 1 plan
+
+Plans:
+- [ ] 28-01-PLAN.md — Wave 1: Fix H3 (observeElementRect cleanup contract) + H4 (stale scrollElement closure) + M1 (scrollMargin=12) + M2 (initialRect.height 4096→600) + M4 (non-colliding getItemKey fallback with diagnostic warn) in PrettyView.tsx; extend PrettyView.virtualization.test.tsx with Tests 6/7/8/9; verify full frontend suite green + tsc clean + use-auto-scroll.ts byte-untouched
 
 **Notes**:
 - Scope containment: `src/ui/features/pretty-view/PrettyView.tsx` + `src/ui/features/pretty-view/PrettyView.virtualization.test.tsx` ONLY. Do NOT touch use-auto-scroll.ts (byte-preserve invariant), other pretty-view files, other subsystems, backend, or docker/nginx.

@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 27 (virtualize-prettyview-message-list-iter-3-of-hidden-pane-cos) — CODE COMPLETE, awaiting deploy greenlight
 Plan: 3 of 3 (all waves executed clean, full frontend suite green 1692/0 fail)
 Status: Ready for orchestrator deploy motion (docker build + coord-room announce + recreate + HTTPS 200 verify + push + patch entry in skynet-patches.md). Post-deploy: image-bubble grow manual UAT + post-ship diag pull on 200-msg conversation to compare against baseline + parent bounty close + diag-emitter rip-out.
-Last activity: 2026-08-10 - Completed quick task 260810-299: temporarily disabled PrettyView snap-to-bottom auto-scroll (pv-disable-auto-scroll-temp)
+Last activity: 2026-08-10 - Completed Phase 28 code + tests: PrettyView virtualization correctness cluster (H3 observeElementRect returns () => {} on null branches; H4 read() re-derives instance.scrollElement; M1 scrollMargin=12; M2 initialRect.height 4096→600 + aligned offsetHeight fallback; M4 non-colliding getItemKey fallback with diagnostic warn). Two atomic commits 28f4c69 + 4269c8f on feat/tab-title-from-tmux, full frontend suite 1695 passed / 7 skipped / 0 failed. Deploy pending. (Also same-day: quick 260810-299 pv-disable-auto-scroll-temp shipped as patch #373 — auto-scroll TEMP-disabled per Ashley; H1/H2/M5/M7 review findings moot until pv-auto-scroll-redesign bounty picks up auto-scroll.)
 
 _(Phase 20 was Plan 4 of 6 at the top of this session — untouched by this run. Phase 22 pointer is set here because Plan 22-01 just completed; it was the target of this execute-plan invocation.)_
 
