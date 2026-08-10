@@ -262,6 +262,63 @@ export function detectRelayInbound(
 }
 
 /**
+ * Detect whether a parsed JSONL turn is a real `/id reset` user turn — the
+ * earliest real "recycling starts now" signal per Phase 30 Plan 30-02
+ * (PS30-02). This is a PURE OBSERVATION PREDICATE.
+ *
+ * Returns true iff ALL FOUR conditions hold:
+ *   1. obj.type === "user"                       (mirrors layer1-detect.ts:83 isUserTurn gate)
+ *   2. obj.isMeta !== true                       (harness-injected turns are never real user speech; matches parseSessionLine's L449 gate)
+ *   3. message.content is a STRING               (tool_result feedback for user turns lives in ARRAY-shaped content per Anthropic content-block shape; this mirrors layer1-detect.ts:85 `"tool_result"` exclusion but implemented at the object level — array-shaped user content is where tool_results live)
+ *   4. the content string contains BOTH `<command-name>/id</command-name>`
+ *      AND `<command-args>reset` (PREFIX match so freeform explanations
+ *      like `<command-args>reset because I want to change roles</command-args>`
+ *      still fire — mirrors layer1-detect.ts:104 exactly)
+ *
+ * INVARIANT (Test 12 in session-file-parser.id-reset.test.ts): for any raw
+ * JSONL line, `detectIdReset(JSON.parse(line))` and
+ * `isIdResetUserTurn(line)` (from `./layer1-detect`) MUST agree on truth.
+ * The two disjoint code paths (object-based here, raw-string in
+ * layer1-detect) exist as defense-in-depth — one catches regressions in the
+ * other — and the emitter's dedupe (Plan 30-01) safely collapses any
+ * double-fire to ONE wire frame only IF the two detectors agree. If this
+ * invariant is ever violated, the emitter dedupe is unsafe.
+ *
+ * OBSERVATION-CHANNEL SEMANTICS (per revised 30-CONTEXT.md § domain +
+ * § decisions "Migration strategy" + § test-strategy — B1 revision
+ * 2026-08-10): this predicate does NOT modify parseSessionLine's
+ * message-emission path. Callers that want to react to /id reset call
+ * this predicate directly on the raw JSON object; the /id reset text
+ * STILL renders as a normal user message bubble in pretty view per
+ * Ashley's pre-existing HARD LOCK on slash-command visibility (see
+ * `claude-session-server.ts:1592-1597` for the doctrine). The state
+ * transition is orthogonal to whether the /id reset text renders as a
+ * chat bubble.
+ *
+ * ORTHOGONALITY PROOF (Test 13 in session-file-parser.id-reset.test.ts):
+ * for a real /id reset line, BOTH `detectIdReset(JSON.parse(line)) === true`
+ * AND `parseSessionLine(line).kind === "message"`. The detection channel
+ * and the message-emission channel are orthogonal — one line produces
+ * both signals independently. This is the load-bearing invariant the
+ * B1-revised design depends on.
+ */
+export function detectIdReset(obj: Record<string, unknown>): boolean {
+  if (obj.type !== "user") return false;
+  if (obj.isMeta === true) return false;
+  const msg = obj.message;
+  if (!msg || typeof msg !== "object") return false;
+  const content = (msg as Record<string, unknown>).content;
+  // Array-shaped user content is where tool_result feedback lives (agent-
+  // side synthetic user turns). Exclude at the object level — mirrors
+  // layer1-detect.ts:85 `line.includes('"tool_result"')` exclusion.
+  if (Array.isArray(content)) return false;
+  if (typeof content !== "string") return false;
+  if (!content.includes("<command-name>/id</command-name>")) return false;
+  if (!content.includes("<command-args>reset")) return false;
+  return true;
+}
+
+/**
  * Scan a parsed JSONL turn for inline base64 image references.
  *
  * Returns an array of ImageBlock descriptors (empty if none). Two canonical
