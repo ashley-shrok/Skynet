@@ -7,7 +7,7 @@ import { sshLogger } from "../utils/logger.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession } from "./session-file-discovery.js";
-import { parseSessionLine } from "./session-file-parser.js";
+import { parseSessionLine, detectIdReset } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 import {
   applyLineToLayer1State,
@@ -1596,6 +1596,49 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // /id reset detector right after the ws-open guard (quick 260808-ohn).
   const onLine = (line: string) => {
     if (stopped || ws.readyState !== WebSocket.OPEN) return;
+
+    // Phase 30 Plan 30-02 (PS30-02): parser observation channel for
+    // /id reset. Runs BEFORE Layer 1 dispatch so the earliest real
+    // "recycling starts now" signal fires first — /id reset lands in
+    // the JSONL BEFORE Claude Code terminates, so this beats the
+    // PID-death /exit-scan heuristic that Layer 1's tail-state reducer
+    // + Layer 2's discovery-repoll fall back to. Detection is
+    // ORTHOGONAL to the parseSessionLine message-emission path below:
+    // the /id reset user turn STILL renders as a normal chat bubble
+    // in pretty view (Ashley's HARD LOCK on slash-command visibility —
+    // see the doctrine comment above the Layer 1 dispatch block below).
+    // The observation channel just fires an ADDITIONAL
+    // pane_state:holding emission on the same line. On real /id reset
+    // the emitter's dedupe (Plan 30-01 pane-state-emitter.ts) collapses
+    // this + the Layer 1 tail-state reducer's own transitionToHolding
+    // ("id_reset") below into ONE wire frame.
+    //
+    // Fresh JSON.parse here mirrors the backgrounded-agents parallel
+    // scan pattern at ~L1665 below — cheap at these volumes and keeps
+    // the observation channel decoupled from parseSessionLine's
+    // internal implementation (parseSessionLine JSON.parses again
+    // internally; the two parses are independent and the aggregate
+    // cost is still negligible on live tail volumes).
+    try {
+      const obj = JSON.parse(line) as Record<string, unknown>;
+      if (detectIdReset(obj)) {
+        paneStateEmitter.emit("holding", "id_reset");
+      }
+    } catch {
+      /* malformed line — parseSessionLine below will surface as kind:"malformed" */
+    }
+
+    // Phase 30 F2 acknowledgment: after the parser observation channel
+    // above fires paneStateEmitter.emit("holding", "id_reset") on real
+    // /id reset lines, this Layer 1 arm_holding path is functionally
+    // redundant for wire emission (emitter dedupe collapses both to
+    // one frame). The branch stays intact as defense-in-depth against
+    // future parser regressions (raw-string detection in layer1-detect.ts
+    // is a disjoint code path from object-based detection in
+    // session-file-parser.ts:detectIdReset), and because Layer 1 ALSO
+    // owns the clear_holding transition + the holdingReason === "id_reset"
+    // guard at L2232 in transitionFromHoldingToActiveSameFile that this
+    // arm path is the sole producer of. Do NOT delete this branch.
 
     // Phase 3 Layer 1 (rewired 2026-08-08, quick 260808-ohn / bounty
     // session-holding-layer1-detect-id-reset-not-exit):
