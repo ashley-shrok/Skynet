@@ -199,6 +199,7 @@ Progress: [██████████] 97%
 | Phase 29 P01 | 10min | 2 tasks | 2 files |
 | Phase 29 P02 | 12 min | 2 tasks | 2 files |
 | Phase 29 P03 | 12min | 2 tasks | 2 files |
+| Phase 29 P04 | 35min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -467,6 +468,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-10T04:09:57.489Z
-Stopped at: Completed 29-02-PLAN.md — PrettyViewErrorOverlay component + tests shipped; awaiting Plan 29-04 rewire to consume
+Last session: 2026-08-10T04:25:00.000Z
+Stopped at: Completed 29-04-PLAN.md — PrettyView.tsx rewired to consume usePaneResolvingMachine; 5 useEffects deleted (600000ms watchdog + 10s auto-dismiss + patch #74 delay-arm + reset + isBootingRef mirror); 3 useState hooks retired (showOverlay/holdingTimeoutError/isBooting); mount gates flipped to phase === "..."; PrettyViewErrorOverlay mounted at phase === "error"; session-recycling-store publisher rewired to phase === "holding"; ComposeBox props derived from phase. TypeScript clean; 19 PrettyView.test.tsx tests broken by mount-gate rewire (expected — 29-05 owns the test audit; failing tests enumerated in 29-04-SUMMARY.md). Awaiting 29-05 to close out phase.
 Resume file: None
