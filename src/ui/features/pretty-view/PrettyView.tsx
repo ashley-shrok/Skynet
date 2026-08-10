@@ -618,14 +618,43 @@ export function PrettyView({
   // after Phase 27 virtualization made snap-to-bottom unusable. use-auto-scroll.ts
   // is kept in-tree as reference for the eventual redesign (bounty
   // pv-auto-scroll-redesign — do not re-enable this stub without that redesign).
+  //
+  // EXCEPTION 2026-08-10 (Ashley): the jump-to-bottom pill is restored as a pure
+  // MANUAL affordance — click scrolls the container to the bottom (imperative,
+  // no pin/follow, no scroll-position ownership). `isPinnedToBottom` state is
+  // tracked JUST for pill visibility (hide when at bottom, show when scrolled
+  // up); it does NOT drive any auto-scroll behavior. `forceStickAndJump` stays
+  // no-op (used by ComposeBox on send; that's still auto-scroll-adjacent).
   const stubScrollElRef = useRef<HTMLElement | null>(null);
+  const [stubScrollNode, setStubScrollNode] = useState<HTMLElement | null>(null);
   const scrollRef = useCallback((el: HTMLElement | null) => {
     stubScrollElRef.current = el;
+    setStubScrollNode(el);
   }, []);
   const contentRef = useRef<HTMLDivElement>(null);
-  const scrollToBottomAndFollow = useCallback(() => {}, []);
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState<boolean>(true);
+  useEffect(() => {
+    const el = stubScrollNode;
+    if (!el) return;
+    // 24px slack absorbs sub-pixel rounding + line-break growth without the
+    // pill flickering visible at the true bottom.
+    const AT_BOTTOM_THRESHOLD_PX = 24;
+    const recompute = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setIsPinnedToBottom(distanceFromBottom <= AT_BOTTOM_THRESHOLD_PX);
+    };
+    recompute();
+    el.addEventListener("scroll", recompute, { passive: true });
+    return () => el.removeEventListener("scroll", recompute);
+    // messages.length in deps re-runs recompute when new content arrives so
+    // the pill appears if the bottom moved further away while the user was
+    // stationary.
+  }, [stubScrollNode, messages.length]);
+  const scrollToBottomAndFollow = useCallback(() => {
+    const el = stubScrollElRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
   const forceStickAndJump = useCallback(() => {}, []);
-  const isPinnedToBottom = true;
 
   // Phase 27 virtualization (Plan 27-02): construct the virtualizer AFTER
   // useAutoScroll so any CapturingResizeObserver polyfill in tests captures
@@ -1996,12 +2025,13 @@ export function PrettyView({
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
               to the bottom-right of the visible viewport. Shown only when
-              the user has scrolled up. `scrollToBottomAndFollow` sets
-              followBottomRef=true and scrolls to scrollHeight (Phase-01
-              contract, patch #185).
-              TEMP 2026-08-10 (bounty pv-disable-auto-scroll-temp): stubbed
-              to no-op; pill is currently hidden because isPinnedToBottom is
-              forced true. */}
+              the user has scrolled up.
+              RESTORED 2026-08-10 (Ashley): under the TEMP auto-scroll
+              disable, `scrollToBottomAndFollow` no longer follows — it is
+              a pure imperative jump (sets scrollTop = scrollHeight, no
+              pin, no follow-up on subsequent messages). `isPinnedToBottom`
+              is tracked via a scroll listener in the stub above JUST for
+              pill visibility. */}
           {!isPinnedToBottom && messages.length > 0 && (
             <div className="sticky bottom-2 pointer-events-none flex justify-end">
               <Button
