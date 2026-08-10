@@ -1564,6 +1564,14 @@ export function ComposeBox({
   //   Quick 260802-uow bounty 1: voice.state is INTENTIONALLY not gated
   //   here — send-when-idle while recording on another textarea is a
   //   valid workflow (Ashley).
+  //   Ashley 2026-08-10: dormantActive is INTENTIONALLY not gated here —
+  //   arm-idle is pure client-state (armSourceForIdle just upserts the
+  //   queue array; no WS touching) and the watchdog is already isIdle-gated
+  //   so the message naturally sits until the woken pane's Claude reports
+  //   idle, then fires. Sibling recycleActive/planPendingActive/
+  //   reconnectingActive gates deliberately kept — Ashley scoped this ask
+  //   to the waking case only (see bounty queue-send-when-idle-available-
+  //   during-waking; the parallel recycle-case bounty stays open).
   //
   // showRecordingControls: while recording, the three-button controls own the slot.
   //   MicButton and send button are both hidden. Gated on isPrimaryRecording
@@ -1591,8 +1599,7 @@ export function ComposeBox({
     text.trim() !== "" &&
     !recycleActive &&
     !planPendingActive &&
-    !reconnectingActive &&
-    !dormantActive;
+    !reconnectingActive;
   const showRecordingControls = isPrimaryRecording;
   const showTranscribingSend = isPrimaryTranscribing;
   // Quick 260802-uow bounty 3: when 3 buttons render on the primary
@@ -2602,13 +2609,17 @@ function QueuedRow(props: QueuedRowProps) {
     !isSlotActiveMic &&
     !asideActive &&
     !slotArmed;
+  // Ashley 2026-08-10: dormantActive gate removed here — parallel treatment
+  // to showPrimaryArmButton (see comment there). Arm is pure client state;
+  // dispatch is isIdle-gated so the armed slot naturally sits until the woken
+  // pane's Claude reports idle, then fires. Sibling recycle/plan/reconnect
+  // gates deliberately preserved (scoped ask).
   const showSlotArmButton =
     !asideActive &&
     !slotArmed &&
     slotHasText &&
     !planPendingActive &&
-    !reconnectingActive &&
-    !dormantActive;
+    !reconnectingActive;
   const showSlotRecording = isSlotRecording;
   const showSlotTranscribingSend = isSlotTranscribing;
   const showSlotSend = !showSlotRecording;
