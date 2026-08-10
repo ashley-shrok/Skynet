@@ -953,3 +953,13 @@ Plans:
 - H1, H2, M5, M7 findings from the review are explicitly OUT of scope for this phase (all touch auto-scroll behavior, which is TEMP-disabled per patch #373). They come back into scope only when bounty `pv-auto-scroll-redesign` picks up auto-scroll.
 - L1, L2, L3-L10 findings from the review are follow-up nits, not scope for this phase. L1 and L2 (stale/factually-wrong comments about auto-scroll) already partially addressed by patch #373's comment rewrites; the remaining lying comments at PrettyView.tsx:1801 and 1888-1891 are captured in bounty `pv-auto-scroll-redesign` for cleanup alongside the redesign.
 - Deploy is orchestrator-only (tina, not the executor) per fleet rule — plans MUST NOT include a "ship" task at executor scope.
+
+### Phase 29: Unified session-entry state machine — single resolving spinner fronts every overlay until deterministic verdict
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 28
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 29 to break down)
