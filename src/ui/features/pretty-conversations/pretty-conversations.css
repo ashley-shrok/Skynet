@@ -328,6 +328,12 @@
 .pv-panel-scroll {
   flex: 1;
   overflow-y: auto;
+  /* mobile-scroll-freeze-overscroll-behavior (2026-08-10): pin rubber-band
+   * momentum inside this scroller. Without it, iOS Safari routes end-of-scroll
+   * gestures to an ancestor and locks the touch arbitrator for 10-15s while
+   * hunting for a scroll owner (AppShell's outer chain is all overflow-hidden),
+   * making the conversation list unresponsive to swipes. */
+  overscroll-behavior: contain;
   padding: 14px 12px 18px;
   display: flex;
   flex-direction: column;

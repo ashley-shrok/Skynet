@@ -2032,7 +2032,12 @@ export function PrettyView({
         ((status === "connecting" || status === "error") && messages.length > 0)) && (
         <div
           ref={composeScrollRefs}
-          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-3"
+          // mobile-scroll-freeze-overscroll-behavior (2026-08-10): `overscroll-contain`
+          // stops iOS Safari from routing rubber-band momentum to an ancestor scroller
+          // on end-of-scroll. Without it, iOS locks the touch for 10-15s while its
+          // arbitrator hunts for a scroll owner (AppShell's outer chain is all
+          // overflow-hidden), and the surface becomes unresponsive to swipes.
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
         >
           {/* Phase 27 virtualization (Plan 27-02, Step A): sized virtualizer
               container. The ResizeObserver in useAutoScroll still watches
