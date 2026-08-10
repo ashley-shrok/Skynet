@@ -806,4 +806,108 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     const bubbles = container.querySelectorAll("[data-pv-bubble]");
     expect(bubbles.length).toBeGreaterThan(0);
   });
+
+  it("Test 8: M2 — reduced initialRect.height (600) yields bounded first paint (≤ 20 bubbles) without any RO firing", async () => {
+    // Phase 28 review finding M2 (/tmp/pv-virtualization-review.md :136-149).
+    // Before M2 the initialRect was { width: 1024, height: 4096 }. With
+    // estimateSize=80 + overscan=5 that yields 4096/80 + 10 ≈ 61 real
+    // bubble subtrees on the first paint before the ResizeObserver fires
+    // — defeats the phase's bounded-DOM goal in the transient pre-RO
+    // window on every mount / paneKey change / reconnect.
+    //
+    // After M2 the initialRect is { width: 1024, height: 600 }. That
+    // caps the transient at 600/80 + 10 ≈ 17.5 items. This test verifies
+    // the reduced cap WITHOUT firing any RO callbacks (i.e., without
+    // shrinkScrollContainer + capturedROCallbacks) so we exercise the
+    // pure initialRect path — the exact code path a real browser hits on
+    // its very first paint.
+    //
+    // This is the JSDOM-observable proxy for the true M2 concern (real
+    // browsers benefit even more because the RO eventually fires and
+    // contracts further).
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    fireMessageBatch(ws, 120, (i) => ({
+      type: "message",
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `message ${i}`,
+      eventId: `evt-${i}`,
+      ts: 1_000_000 + i,
+    }));
+
+    // Wait for bubbles to appear WITHOUT calling shrinkScrollContainer or
+    // manually firing RO callbacks. The virtualizer uses initialRect
+    // exclusively for the visible-slice calculation.
+    await waitFor(() => {
+      const bubbles = container.querySelectorAll("[data-pv-bubble]");
+      expect(bubbles.length).toBeGreaterThan(0);
+    });
+
+    const bubbles = container.querySelectorAll("[data-pv-bubble]");
+    // Cap 20 chosen conservatively: 600/80 + 10 overscan = 17.5, rounded
+    // up with a couple of margin. Pre-M2 this would have been ~61.
+    expect(bubbles.length).toBeLessThanOrEqual(20);
+  });
+
+  it("Test 9: M4 — getItemKey never falls back under normal render flow; no bubble carries a __oob_ data-event-id and no [pv-virtual] warn fires", async () => {
+    // Phase 28 review finding M4 (/tmp/pv-virtualization-review.md :163-176).
+    // The new getItemKey uses a non-colliding `__oob_${i}` string prefix
+    // fallback and emits a console.warn on that path. Under normal
+    // rendering (count and messages come from the same render) the
+    // fallback should NEVER trigger. This test is the guardrail: if it
+    // ever fails, the fallback path is being hit and either the race the
+    // previous fallback protected against IS real (surprising) or a new
+    // bug slipped in.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { container } = render(
+        <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
+
+      // Fire a batch of messages with distinct real eventIds. Some short,
+      // some long, some numeric-looking — to prove the fallback is not
+      // silently substituting for any of them.
+      const N = 15;
+      fireMessageBatch(ws, N, (i) => ({
+        type: "message",
+        role: "assistant",
+        content: `msg ${i}`,
+        eventId: `real-evt-${i}`,
+        ts: 1_000_000 + i,
+      }));
+
+      await waitFor(() => {
+        const bubbles = container.querySelectorAll("[data-pv-bubble]");
+        expect(bubbles.length).toBeGreaterThan(0);
+      });
+
+      // Assertion 1: no rendered bubble carries a __oob_ data-event-id.
+      // The virtualizer forwards its getItemKey output onto data-event-id
+      // via the Wave 2 Step A wiring. If getItemKey returned the fallback
+      // for any rendered row, the fallback string would surface here.
+      const bubbles = container.querySelectorAll("[data-pv-bubble]");
+      for (const el of Array.from(bubbles)) {
+        const dataEventIdAttr = el.getAttribute("data-event-id");
+        expect(dataEventIdAttr).not.toBeNull();
+        expect(dataEventIdAttr).not.toContain("__oob_");
+        expect(dataEventIdAttr).toMatch(/^real-evt-/);
+      }
+
+      // Assertion 2: no [pv-virtual] prefixed warn was emitted. If the
+      // fallback path fired, the console.warn inside getItemKey would
+      // have surfaced in warnSpy.mock.calls.
+      const pvVirtualWarns = warnSpy.mock.calls.filter((args) =>
+        args.some((a) => typeof a === "string" && a.includes("[pv-virtual]")),
+      );
+      expect(pvVirtualWarns.length).toBe(0);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });

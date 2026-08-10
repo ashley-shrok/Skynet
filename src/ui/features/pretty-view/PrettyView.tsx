@@ -640,18 +640,48 @@ export function PrettyView({
     // are known. TanStack Virtual defaults overscan to 5.
     estimateSize: () => 80,
     overscan: 5,
-    // Stable identity across dedup / reorder / prepend paths. The `?? i`
-    // fallback protects against the transient race where `messages` shrinks
-    // between renders and `count` hasn't caught up yet — TanStack Virtual
-    // will call getItemKey with the currently-cached count.
-    getItemKey: (i) => messages[i]?.eventId ?? i,
+    // Phase 28 (M1): matches the outer scroll container's py-3 (= 12px)
+    // top padding — the sized virtualizer container starts at scrollTop
+    // offset 12, not 0. TanStack Virtual computes the visible slice via
+    // `scrollTop - scrollMargin`, so without this the slice is off-by-12
+    // (absorbed by overscan today, but scrollToIndex would land 12px too
+    // high). Source-of-truth for the 12: the "px-4 py-3" className on the
+    // composeScrollRefs div at PrettyView.tsx :1816 — UPDATE both if the
+    // padding class changes.
+    scrollMargin: 12,
+    // Phase 28 (M4): diagnostic fallback. The review's M4 finding argued
+    // the "race" the previous `?? i` fallback protected against is not
+    // real (count and messages come from the same render). If TanStack
+    // Virtual ever calls getItemKey with i >= messages.length, that
+    // indicates a genuine bug — surface it via console.warn AND avoid the
+    // eventId-collision hazard of returning `i` directly (a real integer
+    // eventId "5" would collide with fallback 5, invalidating the
+    // measurement cache). The __oob_${i} string prefix is loud enough to
+    // spot in DOM inspection AND safe from collision. If the warn never
+    // fires in ~1 week of production traffic, convert to a bare throw or
+    // drop the fallback per the review's Option (a).
+    getItemKey: (i) => {
+      const evt = messages[i]?.eventId;
+      if (evt !== undefined) return evt;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[pv-virtual] getItemKey out-of-range i=${i} messages.length=${messages.length}`,
+      );
+      return `__oob_${i}`;
+    },
     // Fallback viewport rect used until the first ResizeObserver callback
     // fires on the scroll container. In real browsers this is transient
     // (RO fires within a frame). In JSDOM (test env), ResizeObserver is a
     // no-op stub that never fires, so this becomes the permanent rect.
-    initialRect: { width: 1024, height: 4096 },
+    // Phase 28 (M2): height reduced 4096→600 so the first paint mounts
+    // ~5-10 real bubble subtrees (600/80 + 10 overscan ≈ 17) instead of
+    // ~60 (4096/80 + 10 ≈ 61) — preserving the phase's bounded-DOM goal
+    // through the transient pre-RO window on every mount / paneKey change /
+    // reconnect. Width stays 1024 (only height affects virtualization
+    // slicing per review L5).
+    initialRect: { width: 1024, height: 600 },
     // Override the default observeElementRect (which reads offsetWidth /
-    // offsetHeight) with one that falls back to a generous rect whenever
+    // offsetHeight) with one that falls back to a sensible rect whenever
     // the element reports zero-sized offsets. This matters in two cases:
     //   1. JSDOM (tests): offset{Width,Height} are always 0 → without this
     //      fallback the virtualizer computes an empty visible range and
@@ -660,7 +690,10 @@ export function PrettyView({
     //      before browser layout resolves. With this fallback, the first
     //      paint uses a sensible slice rather than a blank box.
     // Once the real ResizeObserver fires with a non-zero rect (the browser
-    // case), that value takes over as normal.
+    // case), that value takes over as normal. Phase 28 (M2): the fallback
+    // matches initialRect (see below) so the synchronous install-time
+    // read() call does not silently balloon the visible slice past the
+    // initialRect budget.
     observeElementRect: (instance, cb) => {
       // H3 fix: every early-return branch MUST return a () => void cleanup
       // (not bare undefined). TanStack Virtual stores the return value as
@@ -679,11 +712,21 @@ export function PrettyView({
       // (not the captured-at-bind stale one). If instance.scrollElement
       // is transiently null when the callback fires (mid-remount), bail
       // WITHOUT calling cb(...) so a spurious zero rect doesn't propagate.
+      //
+      // Phase 28 (M2 alignment): the offsetHeight fallback is 600 —
+      // matching initialRect.height (see M2 comment below). Both fallbacks
+      // MUST agree: the JSDOM/first-paint zero-offset path here must not
+      // exceed the initialRect budget, or observeElementRect's synchronous
+      // install-time read() would override initialRect with 4096, defeating
+      // M2's bounded-DOM goal in the JSDOM test window. If you change
+      // initialRect.height, update this literal too — they are the same
+      // physical concept (transient viewport size before a real layout
+      // measurement is available).
       const read = () => {
         const cur = instance.scrollElement as HTMLElement | null;
         if (!cur) return;
         const w = cur.offsetWidth || 1024;
-        const h = cur.offsetHeight || 4096;
+        const h = cur.offsetHeight || 600;
         cb({ width: w, height: h });
       };
       read();
