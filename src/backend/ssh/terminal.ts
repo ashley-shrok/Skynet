@@ -200,6 +200,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
   }
   const userWs = userConnections.get(userId)!;
   userWs.add(ws);
+
+  // [race-fix] Register a message-buffering listener IMMEDIATELY on WS accept,
+  // BEFORE any sshLogger call that could yield the event loop. Node's ws
+  // library drops 'message' events that arrive before ANY listener is attached
+  // (EventEmitter behavior). Phase 31 wired every Logger call through
+  // console-forward-transport (buffer.push + setTimeout scheduling), adding
+  // enough synchronous overhead between accept and the real handler
+  // registration at ~L1350 that Ashley's client's connectToHost — sent in
+  // client's onopen handler and arriving ~1ms after the 101 upgrade — was
+  // being LOST. Symptom: WS accepted, zero SSH progress logs, wasConnected
+  // stays false for ~12+s, user gives up. This early listener guarantees a
+  // handler exists throughout the sync setup path below; the real handler
+  // (registered further down) drains the buffer once ready.
+  const earlyMsgBuffer: RawData[] = [];
+  const earlyMsgHandler = (msg: RawData): void => {
+    earlyMsgBuffer.push(msg);
+  };
+  ws.on("message", earlyMsgHandler);
+
   sshLogger.info("Terminal WebSocket connection established", {
     operation: "terminal_ws_connect",
     sessionId,
@@ -312,7 +331,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
     warpgateAuthPromptSent = false;
   }
 
-  ws.on("message", async (msg: RawData) => {
+  // [race-fix] Real message handler. Extracted as a named async function so
+  // we can invoke it directly for buffered messages captured by earlyMsgHandler
+  // above (which we now detach — the real handler owns 'message' from here on).
+  const realMessageHandler = async (msg: RawData): Promise<void> => {
     const currentDataKey = userCrypto.getUserDataKey(userId);
     if (!currentDataKey) {
       ws.send(
@@ -1337,7 +1359,36 @@ wss.on("connection", async (ws: WebSocket, req) => {
           messageType: type,
         });
     }
-  });
+  };
+
+  // [race-fix] Real handler is defined; detach the early buffer handler and
+  // register the real one. Then drain any messages that arrived during the
+  // sync setup window above (the whole POINT of this dance — Phase 31's
+  // logger side-effects widened that window enough for connectToHost to
+  // land in it and be lost without the buffer).
+  ws.off("message", earlyMsgHandler);
+  ws.on("message", realMessageHandler);
+  if (earlyMsgBuffer.length > 0) {
+    sshLogger.info("Draining early WS messages captured before real handler", {
+      operation: "terminal_early_msg_drain",
+      userId,
+      sessionId,
+      count: earlyMsgBuffer.length,
+    });
+    for (const bufferedMsg of earlyMsgBuffer) {
+      // Fire-and-forget — realMessageHandler is async but we don't need to
+      // await; messages are independent and any that arrived first should be
+      // processed first (order preserved by the buffer's push order).
+      realMessageHandler(bufferedMsg).catch((err) => {
+        sshLogger.error(
+          "Error draining early WS message",
+          err,
+          { operation: "terminal_early_msg_drain_error", userId, sessionId },
+        );
+      });
+    }
+    earlyMsgBuffer.length = 0;
+  }
 
   async function handleConnectToHost(data: ConnectToHostData) {
     const {
