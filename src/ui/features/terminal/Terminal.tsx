@@ -73,6 +73,16 @@ import {
   type ModifierState,
 } from "@/features/keyboard/inputAdapter.ts";
 import { useIsMobile } from "@/hooks/use-mobile.ts";
+import { createLogDedup } from "@/lib/log-dedup";
+
+// Phase 31 Plan 02: dedup instances for hot-path ref transitions.
+// visibilityDedup — isVisibleRef flap is the confirmed hot path (D-17 opt-in).
+// wsMsgDedup     — per-frame [ws-msg] dispatch; collapses hot types (e.g. "data").
+// Both are module-scoped so they survive component remounts (each component
+// instance gets its own closure over these shared instances — identical
+// lifecycle to a module-level const, appropriate for a single-tab app).
+const visibilityDedup = createLogDedup({ N: 3, W: 5000 });
+const wsMsgDedup = createLogDedup({ N: 3, W: 5000 });
 
 type HostKeyVerificationData = Omit<
   React.ComponentProps<typeof HostKeyVerificationDialog>,
@@ -342,11 +352,15 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     useEffect(() => {
       isUnmountingRef.current = false;
+      if (shouldNotReconnectRef.current !== false) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→false trigger=setup-effect-mount hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
       shouldNotReconnectRef.current = false;
       isReconnectingRef.current = false;
+      if (isConnectingRef.current !== false) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→false trigger=setup-effect-mount hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
       isConnectingRef.current = false;
       reconnectAttempts.current = 0;
+      if (wasConnectedRef.current !== false) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→false trigger=setup-effect-mount hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
       wasConnectedRef.current = false;
+      if (isAttachingSessionRef.current !== false) { console.info(`[ws] isAttachingSessionRef-transition edge=${isAttachingSessionRef.current}→false trigger=setup-effect-mount hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
       isAttachingSessionRef.current = false;
 
       return () => {};
@@ -402,16 +416,23 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         // pane would reopen its WS behind the pause effect's back — single-knob
         // isVisibleRef gate per bounty design (mirror of PrettyView.tsx iter-1
         // guard at ~line 986).
-        if (!isVisibleRef.current) return;
+        if (!isVisibleRef.current) {
+          console.warn(`[pause-gate] blocked-visibilitychange-ios-pwa hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} reason=hidden`);
+          return;
+        }
+        if (shouldNotReconnectRef.current !== false) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→false trigger=visibilitychange-visible hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         shouldNotReconnectRef.current = false;
         isReconnectingRef.current = false;
+        if (isConnectingRef.current !== false) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→false trigger=visibilitychange-visible hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         isConnectingRef.current = false;
         reconnectAttempts.current = 0;
+        if (wasConnectedRef.current !== false) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→false trigger=visibilitychange-visible hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         wasConnectedRef.current = false;
         wasDisconnectedBySSH.current = false;
         updateConnectionError(null);
         setShowDisconnectedOverlay(false);
         if (terminal) {
+          console.info(`[reopen] fired hostId=${hostConfig.id} path=direct-caller callSite="visibilitychange-ios-pwa"`);
           connectToHost(terminal.cols, terminal.rows);
         }
       };
@@ -517,7 +538,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             setCommandHistoryContextRef.current(history);
           })
           .catch((error) => {
-            console.error("Failed to load command history:", error);
+            console.error(`[ws] load-history-failed hostId=${hostConfig.id} err="${error instanceof Error ? error.message : String(error)}"`);
             setCommandHistory([]);
             setCommandHistoryContextRef.current([]);
           })
@@ -538,7 +559,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             autocompleteHistory.current = history;
           })
           .catch((error) => {
-            console.error("Failed to load autocomplete history:", error);
+            console.error(`[ws] load-autocomplete-failed hostId=${hostConfig.id} err="${error instanceof Error ? error.message : String(error)}"`);
             autocompleteHistory.current = [];
           });
       } else {
@@ -586,7 +607,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           hostConfig.name || `${hostConfig.username}@${hostConfig.ip}`;
         await logActivity("terminal", hostConfig.id, hostName);
       } catch (err) {
-        console.warn("Failed to log terminal activity:", err);
+        console.warn(`[ws] log-activity-failed hostId=${hostConfig.id} err="${err instanceof Error ? err.message : String(err)}"`);
         activityLoggedRef.current = false;
       } finally {
         activityLoggingRef.current = false;
@@ -594,6 +615,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     };
 
     useEffect(() => {
+      const _isVisRefOld = isVisibleRef.current;
+      const _isVisRefNext = isVisible;
+      if (_isVisRefOld !== _isVisRefNext) {
+        const _isVisMsg = `[ws] isVisibleRef-transition edge=${_isVisRefOld}→${_isVisRefNext} trigger=isVisible-prop hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`;
+        if (visibilityDedup.shouldEmit(`ws-isVisibleRef-${_isVisRefNext}`, () => _isVisMsg).emit) console.info(_isVisMsg);
+      }
       isVisibleRef.current = isVisible;
     }, [isVisible]);
 
@@ -693,6 +720,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           // Fresh budget for this re-show (mirrors the iOS PWA
           // visibilitychange handler's "Fresh budget" pattern at line 383).
           reconnectAttempts.current = 0;
+          console.info(`[reopen] fired hostId=${hostConfig.id} path=visibilitychange`);
           attemptReconnection();
           // attemptReconnection() reuses the existing patch #148 reconnect
           // machinery (isReconnectingRef, backoff, maxReconnectAttempts,
@@ -767,7 +795,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           ).refresh(0, terminal.rows - 1);
         }
       } catch (error) {
-        console.error("Terminal operation failed:", error);
+        console.error(`[ws] op-failed hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} err="${error instanceof Error ? error.message : String(error)}"`);
       }
     }
 
@@ -951,6 +979,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       () => ({
         disconnect: () => {
           isUnmountingRef.current = true;
+          if (shouldNotReconnectRef.current !== true) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→true trigger=unmount-cleanup hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           shouldNotReconnectRef.current = true;
           isReconnectingRef.current = false;
           if (pingIntervalRef.current) {
@@ -987,11 +1016,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         },
         reconnect: () => {
           isUnmountingRef.current = false;
+          if (shouldNotReconnectRef.current !== false) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→false trigger=manual-reconnect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           shouldNotReconnectRef.current = false;
           isReconnectingRef.current = false;
+          if (isConnectingRef.current !== false) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→false trigger=manual-reconnect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           isConnectingRef.current = false;
           reconnectAttempts.current = 0;
           wasDisconnectedBySSH.current = false;
+          if (wasConnectedRef.current !== false) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→false trigger=manual-reconnect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           wasConnectedRef.current = false;
           updateConnectionError(null);
           setShowDisconnectedOverlay(false);
@@ -999,6 +1031,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             terminal.clear();
             const cols = terminal.cols;
             const rows = terminal.rows;
+            console.info(`[reopen] fired hostId=${hostConfig.id} path=direct-caller callSite="handleReconnectClick"`);
             connectToHost(cols, rows);
           }
         },
@@ -1052,7 +1085,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               hardRefresh();
             }
           } catch (error) {
-            console.error("Terminal operation failed:", error);
+            console.error(`[ws] op-failed hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} err="${error instanceof Error ? error.message : String(error)}"`);
           }
         },
         refresh: () => hardRefresh(),
@@ -1077,7 +1110,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       // this guard, the onclose handler / patch #148-analog auto-reconnect
       // logic would re-schedule + re-open behind our back while hidden.
       // The pause effect owns the reopen path (fires on isVisible→true).
-      if (!isVisibleRef.current) return;
+      if (!isVisibleRef.current) {
+        console.warn(`[pause-gate] blocked-reconnect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} reason=hidden`);
+        return;
+      }
       if (
         isUnmountingRef.current ||
         shouldNotReconnectRef.current ||
@@ -1091,6 +1127,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       if (reconnectAttempts.current >= maxReconnectAttempts) {
         setIsConnecting(false);
+        if (shouldNotReconnectRef.current !== true) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→true trigger=max-reconnect-attempts hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         shouldNotReconnectRef.current = true;
         setShowDisconnectedOverlay(true);
         addLog({
@@ -1158,12 +1195,15 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         return;
       }
 
+      if (isConnectingRef.current !== true) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→true trigger=connectToHost-entry hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
       isConnectingRef.current = true;
       connectionAttemptIdRef.current++;
+      if (wasConnectedRef.current !== false) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→false trigger=connectToHost-entry hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
       wasConnectedRef.current = false;
 
       if (!isReconnectingRef.current) {
         reconnectAttempts.current = 0;
+        if (shouldNotReconnectRef.current !== false) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→false trigger=connectToHost-entry hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         shouldNotReconnectRef.current = false;
       }
 
@@ -1262,6 +1302,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       rows: number,
     ) {
       ws.addEventListener("open", () => {
+        console.info(`[ws] open hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} wsUrl=${baseWsUrl} readyState=${ws.readyState}`);
         connectionTimeoutRef.current = setTimeout(() => {
           if (
             !isConnected &&
@@ -1286,6 +1327,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               attemptReconnection();
             } else {
               setIsConnecting(false);
+              if (shouldNotReconnectRef.current !== true) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→true trigger=connection-timeout hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
               shouldNotReconnectRef.current = true;
             }
           }
@@ -1300,6 +1342,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
         if (restoredSessionId) {
           sessionIdRef.current = restoredSessionId;
+          if (isAttachingSessionRef.current !== true) { console.info(`[ws] isAttachingSessionRef-transition edge=${isAttachingSessionRef.current}→true trigger=ws-open-attach hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           isAttachingSessionRef.current = true;
 
           ws.send(
@@ -1314,6 +1357,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }),
           );
         } else {
+          if (isAttachingSessionRef.current !== false) { console.info(`[ws] isAttachingSessionRef-transition edge=${isAttachingSessionRef.current}→false trigger=ws-open-connect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           isAttachingSessionRef.current = false;
           ws.send(
             JSON.stringify({
@@ -1350,9 +1394,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         pingIntervalRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             if (!pongReceivedRef.current) {
-              console.warn(
-                "[WebSocket] Pong timeout - connection appears dead, closing",
-              );
+              console.warn(`[ws] pong-timeout hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} readyState=${ws.readyState}`);
               ws.close();
               return;
             }
@@ -1376,6 +1418,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         }
         try {
           const msg = JSON.parse(event.data);
+          // [ws-msg] dispatch — one line per frame, dedup-collapsed for hot types (D-13/D-17)
+          const wsMsgKey = `[ws-msg] received type=${msg.type}`;
+          const wsMsgLine = `[ws-msg] received type=${msg.type} hostId=${hostConfig.id ?? 'null'} sessionId=${tmuxSessionNameRef.current ?? 'null'} readyState=${ws.readyState}`;
+          if (wsMsgDedup.shouldEmit(wsMsgKey, () => wsMsgLine).emit) console.info(wsMsgLine);
           if (msg.type === "pong") {
             pongReceivedRef.current = true;
             return;
@@ -1511,9 +1557,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             setIsConnecting(false);
           } else if (msg.type === "connected") {
             opksshFailedRef.current = false;
+            if (wasConnectedRef.current !== true) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→true trigger=ws-open hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
             wasConnectedRef.current = true;
             setIsConnected(true);
             setIsConnecting(false);
+            if (isConnectingRef.current !== false) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→false trigger=ws-connected hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
             isConnectingRef.current = false;
             updateConnectionError(null);
             if (connectionTimeoutRef.current) {
@@ -1576,7 +1624,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
                     );
                   }
                 } catch (err) {
-                  console.warn("Failed to execute startup snippet:", err);
+                  console.warn(`[ws] snippet-failed hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} err="${err instanceof Error ? err.message : String(err)}"`);
                 }
               }
 
@@ -1599,13 +1647,16 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }
           } else if (msg.type === "disconnected") {
             wasDisconnectedBySSH.current = true;
+            if (shouldNotReconnectRef.current !== true) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→true trigger=ws-disconnected hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
             shouldNotReconnectRef.current = true;
             setIsConnected(false);
             setIsConnecting(false);
             if (msg.graceful) {
+              if (wasConnectedRef.current !== false) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→false trigger=ws-disconnected-graceful hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
               wasConnectedRef.current = false;
               if (onClose) onClose();
             } else if (wasConnectedRef.current) {
+              if (wasConnectedRef.current !== false) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→false trigger=ws-disconnected-nongraceful hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
               wasConnectedRef.current = false;
               // On iOS PWA, a non-graceful `disconnected` is almost always
               // the WS-idle teardown triggered by a mobile-tab suspend, not
@@ -1617,9 +1668,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               // the fresh WS will fail and the connection-error banner will
               // surface it.
               if (isIosPwa()) {
+                if (shouldNotReconnectRef.current !== false) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→false trigger=ios-pwa-disconnected-recovery hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
                 shouldNotReconnectRef.current = false;
                 wasDisconnectedBySSH.current = false;
                 if (!document.hidden && terminal) {
+                  console.info(`[reopen] fired hostId=${hostConfig.id} path=direct-caller callSite="ios-pwa-disconnected"`);
                   connectToHost(terminal.cols, terminal.rows);
                 }
               } else {
@@ -1856,12 +1909,16 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               });
             }
           } else if (msg.type === "sessionAttached") {
+            if (isAttachingSessionRef.current !== false) { console.info(`[ws] isAttachingSessionRef-transition edge=${isAttachingSessionRef.current}→false trigger=sessionAttached hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
             isAttachingSessionRef.current = false;
             opksshFailedRef.current = false;
+            if (wasConnectedRef.current !== true) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→true trigger=ws-open hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
             wasConnectedRef.current = true;
             setIsConnected(true);
             setIsConnecting(false);
+            if (isConnectingRef.current !== false) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→false trigger=sessionAttached hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
             isConnectingRef.current = false;
+            if (shouldNotReconnectRef.current !== false) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→false trigger=sessionAttached hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
             shouldNotReconnectRef.current = false;
             updateConnectionError(null);
             if (connectionTimeoutRef.current) {
@@ -1883,6 +1940,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               message: t("terminal.reconnected"),
             });
           } else if (msg.type === "sessionExpired") {
+            if (isAttachingSessionRef.current !== false) { console.info(`[ws] isAttachingSessionRef-transition edge=${isAttachingSessionRef.current}→false trigger=sessionExpired hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
             isAttachingSessionRef.current = false;
             sessionIdRef.current = null;
             wasSessionExpiredRef.current = true;
@@ -1913,6 +1971,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
             const cols = terminal?.cols || 80;
             const rows = terminal?.rows || 24;
+            console.info(`[reopen] fired hostId=${hostConfig.id} path=direct-caller callSite="sessionTakenOver"`);
             connectToHost(cols, rows);
           } else if (msg.type === "tmux_sessions_available") {
             setTmuxSessionPicker({
@@ -2005,7 +2064,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }
           }
         } catch (error) {
-          console.error("WebSocket message handler error:", error);
+          // Distinguish JSON parse errors (malformed frame) from handler errors
+          if (error instanceof SyntaxError) {
+            console.warn(`[ws-msg] parse-error hostId=${hostConfig.id ?? 'null'} sessionId=${tmuxSessionNameRef.current ?? 'null'} dataPrefix="${typeof event.data === 'string' ? event.data.slice(0, 80) : '<non-string>'}" err="${error instanceof Error ? error.message : String(error)}"`);
+          } else {
+            console.error(`[ws] msg-handler-error hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} err="${error instanceof Error ? error.message : String(error)}"`);
+          }
         }
       });
 
@@ -2016,7 +2080,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           return;
         }
 
+        // [ws] close — structured line BEFORE branch dispatch (D-05: explicit field extraction per CloseEvent)
+        console.info(`[ws] close hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} code=${event.code} reason="${event.reason}" wasClean=${event.wasClean} isVisible=${isVisibleRef.current} wasConnected=${wasConnectedRef.current}`);
+
         setIsConnected(false);
+        if (isConnectingRef.current !== false) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→false trigger=ws-close hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         isConnectingRef.current = false;
 
         if (pingIntervalRef.current) {
@@ -2038,14 +2106,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           wasSessionExpiredRef.current = false;
           const cols = terminal?.cols || 80;
           const rows = terminal?.rows || 24;
+          console.info(`[reopen] fired hostId=${hostConfig.id} path=onclose-retry code=${event.code} wasClean=${event.wasClean}`);
           connectToHost(cols, rows);
           return;
         }
 
         if (event.code === 1006) {
-          console.warn(
-            "[WebSocket] Abnormal closure detected - attempting reconnection",
-          );
+          console.warn(`[ws] abnormal-close hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} code=${event.code} reason="${event.reason}" wasClean=${event.wasClean} wasConnected=${wasConnectedRef.current}`);
           addLog({
             type: "warning",
             stage: "connection",
@@ -2053,6 +2120,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           });
 
           if (wasConnectedRef.current) {
+            console.info(`[reopen] fired hostId=${hostConfig.id} path=onclose-retry code=${event.code} wasClean=${event.wasClean}`);
             attemptReconnection();
           } else {
             updateConnectionError(t("terminal.websocketAbnormalClose"));
@@ -2062,7 +2130,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         }
 
         if (event.code === 1008) {
-          console.error("WebSocket authentication failed:", event.reason);
+          console.error(`[ws] auth-failed hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} code=${event.code} reason="${event.reason}"`);
           addLog({
             type: "error",
             stage: "auth",
@@ -2081,7 +2149,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           event.wasClean &&
           (event.code === 1005 || event.code === 1000)
         ) {
-          console.error("[WebSocket] Connection rejected by server");
+          console.error(`[ws] connection-rejected hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} code=${event.code} reason="${event.reason}" wasClean=${event.wasClean}`);
           addLog({
             type: "error",
             stage: "connection",
@@ -2101,6 +2169,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
         if (shouldAttemptReconnection) {
           wasDisconnectedBySSH.current = false;
+          console.info(`[reopen] fired hostId=${hostConfig.id} path=onclose-retry code=${event.code} wasClean=${event.wasClean}`);
           attemptReconnection();
         } else {
           setIsConnecting(false);
@@ -2112,9 +2181,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           return;
         }
 
-        console.error("[WebSocket] Error:", event);
+        console.error(`[ws] error hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} type=${event.type} isTrusted=${event.isTrusted} readyState=${ws.readyState}`);
 
         setIsConnected(false);
+        if (isConnectingRef.current !== false) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→false trigger=ws-error hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         isConnectingRef.current = false;
         updateConnectionError(t("terminal.websocketError"));
         if (terminal) {
@@ -2245,7 +2315,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             (cmd) => cmd !== command,
           );
         } catch (error) {
-          console.error("Failed to delete command from history:", error);
+          console.error(`[ws] delete-history-failed hostId=${hostConfig.id} err="${error instanceof Error ? error.message : String(error)}"`);
         }
       },
       [hostConfig.id],
@@ -3038,7 +3108,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       // attach gates initial WS lifecycle (URL-restored active-set tabs open their WS on mount even while offscreen; see bounty url-restore-loads-only-selected-session-not-full-active-set). quick-260809-eqk followup (patch #368, 2026-08-09): also gate on isVisibleRef. Without this, iter 2's pause effect (line ~624) closes the WS on hide → onclose flips isConnected/isConnecting → this setup effect's deps re-fire → it immediately reopens the WS behind the pause's back. Empirically confirmed via diag: hidden terminals were still burning 17-61 KB/30s of SSH bytes post-iter-2 ship. Trade: hidden URL-restored panes no longer pre-warm on mount; they open on first visible-tap instead — same ~2s re-warm cost the pause layer already accepts for visibility flips.
       if (!terminal || !hostConfig || !attach) return;
-      if (!isVisibleRef.current) return;
+      if (!isVisibleRef.current) {
+        console.warn(`[pause-gate] blocked-setup-effect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} reason=hidden`);
+        return;
+      }
       if (isConnected || isConnecting) return;
 
       if (isReconnectingRef.current || reconnectTimeoutRef.current !== null) {
@@ -3064,6 +3137,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           fitAddonRef.current?.fit();
           if (terminal.cols > 0 && terminal.rows > 0) {
             scheduleNotify(terminal.cols, terminal.rows);
+            console.info(`[reopen] fired hostId=${hostConfig.id} path=setup-effect wsUrl=${hostConfig.id ? `/ssh/websocket/?hostId=${hostConfig.id}` : 'unknown'}`);
             connectToHost(terminal.cols, terminal.rows);
           }
         });

@@ -210,17 +210,20 @@ export class Logger {
 
   info(message: string, context?: LogContext): void {
     if (!this.shouldLog("info", message)) return;
-    console.log(this.formatMessage("info", message, context));
+    const formatted = this.formatMessage("info", message, context);
+    console.log(formatted);
   }
 
   warn(message: string, context?: LogContext): void {
     if (!this.shouldLog("warn", message)) return;
-    console.warn(this.formatMessage("warn", message, context));
+    const formatted = this.formatMessage("warn", message, context);
+    console.warn(formatted);
   }
 
   error(message: string, error?: unknown, context?: LogContext): void {
     if (!this.shouldLog("error", message)) return;
-    console.error(this.formatMessage("error", message, context));
+    const formatted = this.formatMessage("error", message, context);
+    console.error(formatted);
     if (error) {
       console.error(error);
     }
@@ -228,7 +231,8 @@ export class Logger {
 
   success(message: string, context?: LogContext): void {
     if (!this.shouldLog("success", message)) return;
-    console.log(this.formatMessage("success", message, context));
+    const formatted = this.formatMessage("success", message, context);
+    console.log(formatted);
   }
 
   auth(message: string, context?: LogContext): void {
