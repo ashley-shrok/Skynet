@@ -195,8 +195,22 @@ export function ChatMessage({
       void player.play(response).then(() => {
         console.info(`[tts] play-attempt owner=${owner.toString()} result=success`);
       }).catch((err: unknown) => {
-        const errName = err instanceof Error ? err.name : "unknown";
-        const errMessage = err instanceof Error ? err.message : String(err);
+        // Extract name/message from both Error and non-Error throwables.
+        // DOMException does not extend Error in all environments (JSDOM, older
+        // Safari) — check for a .name property on any object before falling
+        // back to "unknown". This ensures NotAllowedError detection is robust.
+        const errName =
+          err instanceof Error
+            ? err.name
+            : (err != null && typeof (err as Record<string, unknown>).name === "string"
+                ? (err as { name: string }).name
+                : "unknown");
+        const errMessage =
+          err instanceof Error
+            ? err.message
+            : (err != null && typeof (err as Record<string, unknown>).message === "string"
+                ? (err as { message: string }).message
+                : String(err));
         if (errName === "NotAllowedError") {
           console.warn(`[tts] play-attempt owner=${owner.toString()} result=blocked errName="NotAllowedError" errMessage="${errMessage}"`);
         } else {
