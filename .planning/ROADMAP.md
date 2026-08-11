@@ -985,7 +985,7 @@ Plans:
 **Goal:** Instrument the whole Skynet app so remote maintainers can diagnose bugs from `/opt/skynet/console-forward-logs/console-forward.log` alone. Wide-net instrumentation across every subsystem where a bug could conceivably need diagnosis: WS lifecycle + pause-gate + reopen ladder + load-bearing ref transitions in Terminal.tsx; full TTS/speak pipeline in ChatMessage.tsx; voice recording golden-copy retrofit; PWA + compose + tap + render lifecycle; backend logs unified into the same console-forward.log via a new console-forward-transport module; backend surfaces (WS server, pane-state emitter, session-file parser, tmux-helper, host CRUD, voice server) all normalized to the D-13 canonical prefix taxonomy. Instrumentation-only phase per D-22 — the two deferred symptom bounties (`ws-pause-gate-stuck-connect-cycling`, `speak-button-broken-on-cellular`) do NOT get diagnosed or fixed here, only made diagnosable.
 **Requirements**: Decisions D-01..D-22 in `.planning/phases/31-whole-app-structured-logging-backfill/31-CONTEXT.md` (this phase's requirements are captured as D-nnn decisions rather than REQ-nnn IDs — every D-nnn is reflected in at least one plan's tasks; see per-plan `requirements` frontmatter for the D-nnn coverage map)
 **Depends on:** Phase 30
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 
 **Wave 1** — Foundation (no deps)
 
@@ -1006,5 +1006,5 @@ Plans:
 
 **Wave 4** *(blocked on all — final coverage sweep)*
 
-- [ ] 31-09-PLAN.md — Grep pass: no JSON.stringify(event), all old prefixes 0 in src/, all D-02+D-03 subsystems COVERED per the crosswalk; frontend + backend builds clean; full vitest suite green; write 31-COVERAGE-REPORT.md + 31-MANUAL-VERIFICATION.md runbook for Ashley's post-ship WS-cycle reproduction; human-verify checkpoint (D-20, D-21, D-22)
+- [x] 31-09-PLAN.md — Grep pass: no JSON.stringify(event), all old prefixes 0 in src/, all D-02+D-03 subsystems COVERED per the crosswalk; frontend + backend builds clean; full vitest suite green; write 31-COVERAGE-REPORT.md + 31-MANUAL-VERIFICATION.md runbook for Ashley's post-ship WS-cycle reproduction; human-verify checkpoint (D-20, D-21, D-22)
 

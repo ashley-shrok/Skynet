@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-08-11T12:36:52.613Z"
+status: verifying
+last_updated: "2026-08-11T12:52:14.506Z"
 last_activity: 2026-08-11
 progress:
   total_phases: 31
-  completed_phases: 24
+  completed_phases: 25
   total_plans: 130
-  completed_plans: 125
-  percent: 77
+  completed_plans: 126
+  percent: 81
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 31 (whole-app-structured-logging-backfill) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-11
 
 Last activity: 2026-08-10 — Completed quick task 260810-n3a (convo-list-kill-non-identity-sessions). Adds a **`Kill`** context-menu item to the pretty-conversations right-click / long-press menu that HARD-TERMINATES the underlying tmux session on the host via a new SSH-backed backend route. Scoped narrower than the existing `Deactivate` (which only removes the row from Ashley's active-set — the agent keeps running under the hood per Ashley's 2026-07-27 rule at `conversation-store.ts:1034`): Kill is only surfaced for rows where `!isRdp && !identity && row.targetTmuxSession != null && onKill` — i.e. NON-identity tmux sessions (throwaway agents where no `.md` identity file resolves for the row's targetTmuxSession) that aren't RDP. Identity rows are intentionally NOT killable from the context menu (they have real `/id save` state that shouldn't be nuked via a menu shortcut); RDP rows aren't tmux-backed. New endpoint `POST /host/:hostId/session/kill` (JSON body `{ tmuxSession }`) mounted in `src/backend/database/routes/host.ts` with `authenticateJWT + requireDataAccess` — NO `upload.single`/multipart middleware (identities-PUT silent-drop trap explicitly avoided; grep-verified). Handler flow mirrors `src/backend/database/routes/sessions.ts` verbatim for SSH plumbing: `connectOneShot(host, PER_HOST_KILL_TIMEOUT_MS=3000)` → try/finally `conn.end()` → `execCommand(conn, `tmux kill-session -t ${tmuxSession}`)`. **Security-critical gate:** `const TMUX_SESSION_ALLOWLIST = /^[A-Za-z0-9._-]+$/` validated BEFORE any shell interpolation — rejects whitespace, quotes, `;`, `&`, `|`, `$`, backticks, path separators (test 3 explicitly asserts `foo; rm -rf /` payload → 400 with `connectOneShot` call count = 0). Missing-session on remote (matches /can't find session|session not found|no such session/i) treated as idempotent 204 (already-gone is the intended state). Errors NOT silently swallowed — every catch returns specific status + `{ error: <message> }` and logs at `sshLogger.error` with structured operation tag. `res.status(204).end()` on success; success also logs `sshLogger.info({ operation: "session_kill", hostId, tmuxSession, userId })`. Frontend: new `killTmuxSession(hostId, tmuxSession): Promise<void>` in `src/ui/api/sessions-api.ts` throws on non-2xx with `err.response?.data?.error` message. `AppShell.tsx:1508` new `onKillRow={async (row) => {...}}` closure — guards row.host + row.targetTmuxSession (defense-in-depth; row-side gate should prevent), `await killTmuxSession(parseInt(row.host.id,10), row.targetTmuxSession)` → `closeTab(row.id)` on success, `window.alert(err.message)` on failure (grep found no existing toast utility). `PrettyConversationsPanel.tsx` — new optional `onKillRow?: (row) => void|Promise<void>` prop (optional so tests can render panel without wiring) + `handleRowKill(row)` handler at ~L687 that calls `window.confirm(\`Kill tmux session "\${tmuxSession}" on \${hostName}? This cannot be undone.\`)` first, only fires `onKillRow?.(row)` on confirm=true; threaded `onKill={() => handleRowKill(row)}` to ALL 5 `<PrettyConversationRow />` render sites (active-set, pinned, RDP, grouped, hidden — RDP receives it and row's `!isRdp` gate filters, matching the unconditional-thread pattern from quick-260804-uo4). `PrettyConversationRow.tsx` — new optional `onKill?: () => void` prop; Kill entry inserted in items[] builder AFTER Deactivate (destructive-most at bottom of menu) gated on `onKill && !isRdp && !identity && row.targetTmuxSession !== null && row.targetTmuxSession !== undefined` with `label: "Kill"`, `danger: true`. Tests: 10 new (K1-K10 across Row + Panel + backend). K1-K7 in `PrettyConversationRow.test.tsx` cover all four positive/negative gate combinations (identity present blocks; isRdp blocks; null targetTmuxSession blocks; onKill undefined blocks; all-satisfied shows; click fires onKill exactly once; K7 asserts danger styling via the `rgb(255, 154, 138)` computed-style signal that `PrettyConversationContextMenu.tsx`'s `danger:true` branch produces — jsdom normalizes the hex color). K8-K10 in `PrettyConversationsPanel.test.tsx` cover handleRowKill's confirm-dialog flow (dialog message contains session name AND host name; confirm=false → onKillRow NOT called; confirm=true → onKillRow called exactly once with the correct row) via `vi.spyOn(window, "confirm")`. Backend `host.session-kill.test.ts` (10 tests, mirrors `sessions.test.ts` vi.mock pattern for `ssh-one-shot.js` + `tmux-helper.js` + `host-resolver.js`) covers: successful kill → 204 + verified `execCommand` receives `tmux kill-session -t <session>`; missing-session idempotent → 204; injection payload rejected → 400 + `connectOneShot` NOT called; empty tmuxSession → 400; missing tmuxSession → 400; non-numeric hostId → 400; resolveHostById returns null → 404; SSH connection failure → 500 with error body (not silently swallowed); auth middleware exercised (401 path). Verification: `npx vitest run` = **144 test files pass, 1843 tests pass / 7 skip / 1 todo / 0 fail** (baseline 1822 from #385 + 21 new: 10 backend + 7 Row K1-K7 + 3 Panel K8-K10 + 1 additional). `npm run build:backend` EXIT 0; `npm run build` EXIT 0. Fleet rule "never leave tests failing" honored. NO worktrees (project config `workflow.use_worktrees=false` honored, matches Ashley fleet rule). Three atomic commits on `feat/tab-title-from-tmux`: `b5db760` (Task 1: backend route + tests + imports) + `bfc8778` (Task 2: killTmuxSession frontend caller + AppShell onKillRow wiring) + `04cfc8b` (Task 3: Row onKill + Panel handleRowKill + K1-K10 tests). **NOT pushed / NOT image-built / NOT deployed** per code-work-doesn't-authorize-ship rule (Ashley 2026-07-27) — awaiting Ashley greenlight; on greenlight orchestrator (tanya) picks up deploy motion (coord-room BEFORE announce + `git pull --rebase origin feat/tab-title-from-tmux` + `docker build` with deadman-log capture + deadman-guarded `docker compose up --force-recreate skynet` + HTTPS 200 verify + coord-room AFTER + `git push` + `skynet-patches.md` new entry + bounty archive). Bounty: `convo-list-kill-non-identity-sessions`.
@@ -137,7 +137,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -497,6 +497,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-11T12:36:52.545Z
+Last session: 2026-08-11T12:52:14.453Z
 Stopped at: Completed 31-03-PLAN.md
 Resume file: None
