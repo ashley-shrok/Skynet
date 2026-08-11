@@ -130,7 +130,20 @@ const wss = new WebSocketServer({
   port: 30002,
 });
 
+// [bisect] #406 — sync-setup-path bisect logs via process.stdout.write (bypasses
+// Logger stack entirely so a wedged logger cannot hide arrivals). Grep pattern:
+// `\[bisect\]` in the docker json-log or console-forward.log (backend source).
+// The LAST checkpoint to fire pins the hang location. Delete after RCA lands.
+const bisectLog = (label: string, ctx: { userId?: string; sessionId?: string }): void => {
+  try {
+    process.stdout.write(`[bisect] ${label} userId=${ctx.userId ?? "null"} sessionId=${ctx.sessionId ?? "null"} t=${Date.now()}\n`);
+  } catch {
+    /* never crash the handler */
+  }
+};
+
 wss.on("connection", async (ws: WebSocket, req) => {
+  bisectLog("CP01-connection-handler-entry", {});
   let userId: string | undefined;
   let sessionId: string | undefined;
 
@@ -161,7 +174,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
+    bisectLog("CP02-pre-jwt-verify", {});
     const payload = await authManager.verifyJWTToken(token);
+    bisectLog("CP03-post-jwt-verify", { userId: payload?.userId, sessionId: payload?.sessionId });
     if (!payload?.userId || payload.pendingTOTP) {
       ws.close(1008, "Authentication required");
       return;
@@ -200,11 +215,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
   }
   const userWs = userConnections.get(userId)!;
   userWs.add(ws);
+  bisectLog("CP04-post-userWs-add", { userId, sessionId });
   sshLogger.info("Terminal WebSocket connection established", {
     operation: "terminal_ws_connect",
     sessionId,
     userId,
   });
+  bisectLog("CP05-post-terminal-ws-connected-log", { userId, sessionId });
 
   let currentSessionId: string | null = null;
   let sshConn: SSHClientType | null = null;
@@ -246,9 +263,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   let wsAlive = true;
 
+  bisectLog("CP06-pre-pong-handler", { userId, sessionId });
   ws.on("pong", () => {
     wsAlive = true;
   });
+  bisectLog("CP07-post-pong-handler", { userId, sessionId });
 
   const wsPingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -268,6 +287,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       ws.ping();
     }
   }, 30000);
+  bisectLog("CP08-post-ping-interval", { userId, sessionId });
 
   ws.on("close", () => {
     clearInterval(wsPingInterval);
@@ -301,6 +321,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       ownedUploadBatches.clear();
     }
   });
+  bisectLog("CP09-post-close-handler", { userId, sessionId });
 
   function resetConnectionState() {
     isConnecting = false;
@@ -312,7 +333,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
     warpgateAuthPromptSent = false;
   }
 
+  bisectLog("CP10-pre-message-handler-register", { userId, sessionId });
   ws.on("message", async (msg: RawData) => {
+    // [msgdiag] #406 — log every message received AT THE TOP, before any
+    // handler logic, via process.stdout.write (bypasses Logger).
+    try {
+      const rawStr = msg.toString();
+      const rawPreview = rawStr.slice(0, 120).replace(/\n/g, "\\n");
+      process.stdout.write(`[msgdiag] recv userId=${userId} sessionId=${sessionId} bytes=${rawStr.length} preview="${rawPreview}"\n`);
+    } catch { /* never crash */ }
     const currentDataKey = userCrypto.getUserDataKey(userId);
     if (!currentDataKey) {
       ws.send(
@@ -1338,8 +1367,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
         });
     }
   });
+  bisectLog("CP11-post-message-handler-register", { userId, sessionId });
 
   async function handleConnectToHost(data: ConnectToHostData) {
+    // [msgdiag] #406 — log entry BEFORE any destructuring so we pin whether
+    // handleConnectToHost is even entered for a failing session. Uses
+    // process.stdout.write to bypass Logger.
+    try {
+      const hostIdPreview = (data as { hostConfig?: { id?: unknown; ip?: unknown } })?.hostConfig?.id;
+      const ipPreview = (data as { hostConfig?: { id?: unknown; ip?: unknown } })?.hostConfig?.ip;
+      process.stdout.write(`[msgdiag] handleConnectToHost-entry userId=${userId} sessionId=${sessionId} hostId=${String(hostIdPreview)} ip=${String(ipPreview)}\n`);
+    } catch { /* never crash */ }
     const {
       hostConfig,
       initialPath,
