@@ -1,14 +1,6 @@
 import chalk from "chalk";
 import type { ChalkInstance } from "chalk";
-// [wsdiag] #401 hypothesis test — transport wiring disabled to see if the
-// sync fs.appendFileSync in console-forward-transport.ts is what stalls the
-// event loop under fleet-load during handleConnectToHost. Keep console.log
-// so raw output still flows to docker json-log. Revert this + restore the
-// import above once test result lands.
-// import { enqueueBackendLog } from "./console-forward-transport.js";
-const enqueueBackendLog = (_e: { level: string; msg: string }): void => {
-  /* disabled for #401 hypothesis test */
-};
+import { enqueueBackendLog } from "./console-forward-transport.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "success";
 
