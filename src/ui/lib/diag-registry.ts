@@ -5,7 +5,7 @@
  * each call registerPane on mount and return-cleanup unregister on unmount.
  * The diag emitter walks the registry every 30s and console.logs one
  * envelope; the console-forwarder ships it to the backend log where tina
- * greps for [render] tick (Phase 31 D-13 canonical prefix; was [DIAG-REPORT]).
+ * greps for [DIAG-REPORT].
  *
  * Removable in one commit once mitigation shape is chosen — delete this
  * file, delete diag-emitter.ts, unwire the two registerPane effects.
@@ -51,11 +51,9 @@ const registry = new Map<string, SnapshotFn>();
  * new fn before the previous mount's cleanup runs.
  */
 export function registerPane(key: string, fn: SnapshotFn): () => void {
-  console.info(`[render] pane-register paneId=${key}`);
   registry.set(key, fn);
   return () => {
     if (registry.get(key) === fn) {
-      console.info(`[render] pane-unregister paneId=${key}`);
       registry.delete(key);
     }
   };
