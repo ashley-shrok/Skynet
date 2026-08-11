@@ -85,6 +85,8 @@ export function ChatMessage({
   useEffect(() => {
     return () => {
       if (currentOwner === bubbleIdRef.current) {
+        const owner = bubbleIdRef.current;
+        console.info(`[tts] stop-current owner=${owner.toString()} trigger=unmount`);
         currentPlayer?.stop();
         currentPlayer = null;
         currentOwner = null;
@@ -101,10 +103,12 @@ export function ChatMessage({
   //   - onSpeakClick (fresh-play branch)
   //   - long-press handler (single-gesture-single-action)
   //   - autoplay effect (newly-arrived assistant message while armed)
-  async function startSpeak() {
+  async function startSpeak(trigger: "user-click" | "autoplay" | "long-press" = "user-click") {
     // If another bubble is playing (or loading, or paused), stop it first
     // (cross-bubble preempt). This is also the only cancel-from-paused path.
     if (currentPlayer) {
+      const prevOwner = currentOwner;
+      console.info(`[tts] stop-current owner=${prevOwner?.toString() ?? "null"} trigger=new-bubble`);
       currentPlayer.stop();
       currentPlayer = null;
       currentOwner = null;
@@ -113,6 +117,10 @@ export function ChatMessage({
     setSpeakState("loading");
     const owner = bubbleIdRef.current;
 
+    // Speak-start — entry log for every TTS invocation.
+    const text = containerRef.current?.innerText ?? content;
+    console.info(`[tts] speak-start owner=${owner.toString()} textLen=${text.length} voice="${identityVoice ?? "default"}" trigger=${trigger}`);
+
     const player = createWebAudioStreamPlayer({
       onEnded: () => {
         // Only clear if this bubble still owns the singleton — guard against
@@ -120,6 +128,7 @@ export function ChatMessage({
         // (setSpeakState on the OLD bubble would flash "idle" briefly and
         // race the new bubble's "loading" render).
         if (currentOwner === owner) {
+          console.info(`[tts] media-ended owner=${owner.toString()}`);
           currentPlayer = null;
           currentOwner = null;
           setSpeakState("idle");
@@ -129,12 +138,30 @@ export function ChatMessage({
         // Patch #237: accepted tradeoff per 19-CONTEXT.md § Error handling —
         // no auto-toast on streaming errors. Log for observability; UI
         // recovers by returning to idle so the user can retry.
-        console.error("[postSpeakStream] player error:", err);
+        // D-05: extract err fields explicitly — never JSON.stringify(event).
+        const errName = err instanceof Error ? err.name : "unknown";
+        const errMessage = err instanceof Error ? err.message : String(err);
+        console.error(`[tts] player-error owner=${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
         if (currentOwner === owner) {
           currentPlayer = null;
           currentOwner = null;
           setSpeakState("idle");
         }
+      },
+      onPlaying: () => {
+        console.info(`[tts] media-playing owner=${owner.toString()}`);
+      },
+      onCanPlay: () => {
+        console.info(`[tts] media-canplay owner=${owner.toString()}`);
+      },
+      onPause: () => {
+        console.info(`[tts] media-pause owner=${owner.toString()}`);
+      },
+      onStalled: () => {
+        console.warn(`[tts] media-stalled owner=${owner.toString()}`);
+      },
+      onSuspend: () => {
+        console.warn(`[tts] media-suspend owner=${owner.toString()}`);
       },
     });
 
@@ -144,17 +171,42 @@ export function ChatMessage({
     currentOwner = owner;
 
     try {
-      const text = containerRef.current?.innerText ?? content;
+      // Fetch stage — D-02 instrumentation.
+      console.info(`[tts] fetch-start owner=${owner.toString()} url=/voice/speak-stream textLen=${text.length}`);
       const response = await postSpeakStream(text, identityVoice ?? undefined);
       // Race check: if another bubble preempted us during the fetch,
       // currentOwner has changed. Bail out before scheduling any audio.
-      if (currentOwner !== owner) return;
-      if (!response.ok) throw new Error(`postSpeakStream returned ${response.status}`);
+      if (currentOwner !== owner) {
+        console.warn(`[tts] preempt-during-fetch owner=${owner.toString()} newOwner=${currentOwner?.toString() ?? "null"}`);
+        return;
+      }
+      console.info(`[tts] fetch-resolved status=${response.status} ok=${response.ok} owner=${owner.toString()}`);
+      if (!response.ok) {
+        console.error(`[tts] fetch-error owner=${owner.toString()} status=${response.status} statusText="${response.statusText}"`);
+        throw new Error(`postSpeakStream returned ${response.status}`);
+      }
       setSpeakState("playing");
+      // Decode/audio-context init — the WebAudioStreamPlayer creates an AudioContext
+      // internally on play(). Log the play-attempt before delegating.
+      console.info(`[tts] decode-init owner=${owner.toString()} contextState=n/a`);
+      // play-attempt: fire before delegating to player.play() which drives the read loop.
+      console.info(`[tts] play-attempt owner=${owner.toString()} src=stream`);
       // Fire-and-forget: play() drives its own read loop; we hear back via callbacks.
-      void player.play(response);
+      void player.play(response).then(() => {
+        console.info(`[tts] play-attempt owner=${owner.toString()} result=success`);
+      }).catch((err: unknown) => {
+        const errName = err instanceof Error ? err.name : "unknown";
+        const errMessage = err instanceof Error ? err.message : String(err);
+        if (errName === "NotAllowedError") {
+          console.warn(`[tts] play-attempt owner=${owner.toString()} result=blocked errName="NotAllowedError" errMessage="${errMessage}"`);
+        } else {
+          console.error(`[tts] play-attempt owner=${owner.toString()} result=error errName="${errName}" errMessage="${errMessage}"`);
+        }
+      });
     } catch (err) {
-      console.error("[postSpeakStream] fetch error:", err);
+      const errName = err instanceof Error ? err.name : "unknown";
+      const errMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[tts] fetch-error owner=${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
       if (currentOwner === owner) {
         currentPlayer = null;
         currentOwner = null;
@@ -185,7 +237,7 @@ export function ChatMessage({
     }
 
     // Fresh-play path — delegated to startSpeak().
-    void startSpeak();
+    void startSpeak("user-click");
   }
 
   // Autoplay effect: fires startSpeak() when a new target arrives that matches
@@ -200,7 +252,8 @@ export function ChatMessage({
       autoplayLastFiredRef.current !== eventId
     ) {
       autoplayLastFiredRef.current = eventId;
-      void startSpeak();
+      console.info(`[tts] autoplay-fired eventId=${eventId} armed=${autoplayTargetEventId != null}`);
+      void startSpeak("autoplay");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoplayTargetEventId, eventId, isUser]);
@@ -362,7 +415,7 @@ export function ChatMessage({
                 longPressFiredRef.current = true;
                 longPressTimerRef.current = null;
                 if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
-                void startSpeak();
+                void startSpeak("long-press");
               }, 500);
             }}
             onPointerMove={(e) => {
