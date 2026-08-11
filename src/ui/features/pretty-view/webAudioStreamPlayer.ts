@@ -25,6 +25,13 @@ import { parseRiffHeader, decodePcmChunk, type RiffHeader } from "./riffPcmDecod
 export interface WebAudioStreamPlayerOptions {
   onEnded?: () => void;
   onError?: (err: Error) => void;
+  // Phase 31 instrumentation hooks — fired at observable Web Audio lifecycle
+  // transitions (analogous to HTMLAudioElement media events per D-02).
+  onCanPlay?: () => void;   // first audio chunk decoded and scheduled
+  onPlaying?: () => void;  // AudioContext resumed from suspended (resume path)
+  onPause?: () => void;    // AudioContext suspended (pause path)
+  onStalled?: () => void;  // reader stall detected (done=false, value=undefined)
+  onSuspend?: () => void;  // AudioContext moved to suspended state unexpectedly
 }
 
 export interface WebAudioStreamPlayer {
@@ -198,6 +205,7 @@ export function createWebAudioStreamPlayer(
     // 20ms epsilon — small enough to be imperceptible, large enough to prevent
     // underrun on the very first scheduled source.
     const nextStartTimeRef = { value: audioContext.currentTime + 0.02 };
+    let firstChunkScheduled = false;
 
     try {
       while (true) {
@@ -209,7 +217,12 @@ export function createWebAudioStreamPlayer(
           maybeFireEnded();
           return;
         }
-        if (!value) continue;
+        // value=undefined mid-stream → stall condition (reader returned without
+        // data and without signalling done).
+        if (!value) {
+          opts.onStalled?.();
+          continue;
+        }
 
         // Accumulate bytes until we have the full 44-byte RIFF header.
         let pcmChunk: Uint8Array;
@@ -240,6 +253,12 @@ export function createWebAudioStreamPlayer(
 
         if (pcmChunk.byteLength === 0) continue;
         scheduleChunk(pcmChunk, header, audioContext, nextStartTimeRef);
+        // Fire onCanPlay on the first successfully scheduled chunk — analogous
+        // to HTMLAudioElement's canplay event (enough data to start playback).
+        if (!firstChunkScheduled) {
+          firstChunkScheduled = true;
+          opts.onCanPlay?.();
+        }
       }
     } catch (err) {
       if (!stopped && !onErrorFired) {
@@ -264,9 +283,14 @@ export function createWebAudioStreamPlayer(
     if (audioContext.state !== "running") return;
     try {
       await audioContext.suspend();
+      // Fire onPause after successful suspend — analogous to HTMLAudioElement
+      // pause event (audio stream paused at user/system request).
+      opts.onPause?.();
     } catch {
       // Rare — browser may reject if the context was killed under us.
       // Treat as a no-op; the next resume attempt will surface it via onError.
+      // Fire onSuspend to signal unexpected context state change.
+      opts.onSuspend?.();
     }
   }
 
@@ -287,6 +311,9 @@ export function createWebAudioStreamPlayer(
     }
     try {
       await audioContext.resume();
+      // Fire onPlaying after successful resume — analogous to HTMLAudioElement
+      // playing event (playback restarted after being paused/suspended).
+      opts.onPlaying?.();
     } catch (err) {
       if (!onErrorFired) {
         onErrorFired = true;
