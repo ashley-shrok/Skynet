@@ -61,38 +61,52 @@ function flush(): void {
   }
 
   const entries = buffer.splice(0);
+  const logPath = getLogPath();
+  const payload = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
 
-  try {
-    const logPath = getLogPath();
+  // Async fire-and-forget. Sync fs.appendFileSync in #392 stalled the Node
+  // event loop under high log volume (fleet-scale tmux-helper.exec log rate
+  // ~47/sec at peak) and broke WS handshake service timing on this same
+  // process — see bounty phase-31-ws-regression-rca. Async appendFile runs
+  // on the libuv thread pool and does NOT block the event loop.
+  fs.stat(logPath, (statErr, stats) => {
+    // File-may-not-exist ENOENT is fine — treat as size 0 and skip rotation.
+    const currentSize = statErr ? 0 : stats.size;
+    const doRotate = currentSize > MAX_FILE_BYTES;
 
-    // Mirror debug.ts rotation logic
-    let currentSize = 0;
-    try {
-      currentSize = fs.statSync(logPath).size;
-    } catch {
-      // File does not exist yet — treat as size 0
-      currentSize = 0;
-    }
+    const writeAppend = (): void => {
+      fs.appendFile(logPath, payload, (err) => {
+        if (err) {
+          process.stderr.write(
+            "[console-forward-transport] appendFile failed (best-effort): " +
+              String(err instanceof Error ? err.message : err) +
+              "\n",
+          );
+          // swallow — never propagate (D-19)
+        }
+      });
+    };
 
-    if (currentSize > MAX_FILE_BYTES) {
-      fs.writeFileSync(
+    if (doRotate) {
+      fs.writeFile(
         logPath,
         "[LOG_ROTATED at " + new Date().toISOString() + "]\n",
+        (rotErr) => {
+          if (rotErr) {
+            process.stderr.write(
+              "[console-forward-transport] rotate writeFile failed (best-effort): " +
+                String(rotErr instanceof Error ? rotErr.message : rotErr) +
+                "\n",
+            );
+          }
+          // Continue to append the payload after rotation regardless.
+          writeAppend();
+        },
       );
+    } else {
+      writeAppend();
     }
-
-    fs.appendFileSync(
-      logPath,
-      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
-    );
-  } catch (err) {
-    process.stderr.write(
-      "[console-forward-transport] flush failed (best-effort): " +
-        String(err instanceof Error ? err.message : err) +
-        "\n",
-    );
-    // swallow — never propagate (D-19)
-  }
+  });
 }
 
 // --- public API ---

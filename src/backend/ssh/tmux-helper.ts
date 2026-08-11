@@ -1,6 +1,26 @@
 import type { Client, ClientChannel } from "ssh2";
 import { sshLogger } from "../utils/logger.js";
 
+// Per-command dedup for the [tmux-helper] exec info log.
+// Rationale: execCommand is called at fleet scale (~40 identities × poll
+// cycles) which produced ~90-267 log lines/min in #392 and — combined with
+// the sync fs.appendFileSync flush path — stalled the Node event loop
+// enough to break WS handshake service timing. Cap to at most one info line
+// per unique command-shape per DEDUP_WINDOW_MS window. exec-failed /
+// exec-nonzero (the actually diagnostic paths) are NOT deduped.
+// See bounty phase-31-ws-regression-rca.
+const _execLogLastEmit = new Map<string, number>();
+const _EXEC_LOG_DEDUP_WINDOW_MS = 5000;
+
+function _shouldEmitExecLog(command: string): boolean {
+  const key = command.slice(0, 80);
+  const now = Date.now();
+  const last = _execLogLastEmit.get(key) ?? 0;
+  if (now - last < _EXEC_LOG_DEDUP_WINDOW_MS) return false;
+  _execLogLastEmit.set(key, now);
+  return true;
+}
+
 export interface TmuxSessionInfo {
   name: string;
   created: number;
@@ -19,7 +39,9 @@ export interface TmuxDetectionResult {
  * Returns stdout as a string. Does not pollute the interactive shell.
  */
 export function execCommand(conn: Client, command: string): Promise<string> {
-  sshLogger.info(`[tmux-helper] exec command="${command.slice(0, 80)}"`, { operation: "tmux_exec" });
+  if (_shouldEmitExecLog(command)) {
+    sshLogger.info(`[tmux-helper] exec command="${command.slice(0, 80)}"`, { operation: "tmux_exec" });
+  }
   return new Promise((resolve, reject) => {
     conn.exec(command, (err, stream) => {
       if (err) {
