@@ -979,3 +979,13 @@ Plans:
 - [x] 30-01-PLAN.md — Backend pane_state emitter (wire frame type + per-connection factory + dedupe + emitCurrent) + funnel every existing dormant/session_holding/session_holding_cleared/session_changed/inactive emit site through the emitter (legacy frames preserved on wire for backward compat) + emit pane_state at attach-time via natural transition sites (PS30-01, PS30-03, PS30-07)
 - [x] 30-02-PLAN.md — Backend session-file parser /id reset detection (detectIdReset predicate mirroring layer1-detect.ts:isIdResetUserTurn truth) + parseSessionLine returns skip(id_reset) to suppress the user turn from the message stream + onLine consumer calls paneStateEmitter.emit('holding', 'id_reset') alongside the existing Layer 1 transitionToHolding (emitter dedupe collapses to one wire frame) (PS30-02, PS30-07)
 - [x] 30-03-PLAN.md — Frontend rewire: resolve-phase.ts rewritten to LOCKED Phase-30 truth table with (wsTransportState, paneState) → RenderedState + usePaneResolvingMachine reduced from ~380 to <60 LOC (zero React state/effect machinery, no entry-triggers, no snapshot rearm, no delay-arm) + PrettyView.tsx new pane_state WS handler case + ALL ~10 captureFirstFrame call sites DELETED + patch #381 onResetClicked cleanup + overlay mount gates flipped to renderedState === '...' + PrettyView.phase29.test.tsx rewritten as Phase-30 integration tests (PS30-04, PS30-05, PS30-06, PS30-07, PS30-08)
+
+### Phase 31: Whole-app structured-logging backfill
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 30
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 31 to break down)
