@@ -33,7 +33,7 @@ decisions:
 metrics:
   duration: "15 minutes"
   completed: "2026-08-11T12:50:00Z"
-  tasks_completed: 3
+  tasks_completed: 4
   tasks_total: 4
   files_created: 2
   files_modified: 0
@@ -50,7 +50,7 @@ metrics:
 | 1 | Write 31-COVERAGE-REPORT.md (grep sweep + build gates + test suite + D-04 section) | 11ba0b8 | 31-COVERAGE-REPORT.md (new, 219 lines) |
 | 2 | Write 31-MANUAL-VERIFICATION.md (Reproduction A + B runbook) | 498ec67 | 31-MANUAL-VERIFICATION.md (new, 169 lines) |
 | 3 | D-04 directive verification (read-only grep, result recorded in section 8 of report) | 11ba0b8 | (section appended in Task 1 commit) |
-| 4 | Human checkpoint — PAUSED (awaiting Ashley review) | — | — |
+| 4 | Human checkpoint — APPROVED (Ashley: "I'm not going to verify anything, because these are just logs that we will start using to debug, so let's move on to what's next.") | — | — |
 
 ## Final Grep Counts for Every D-13 Prefix
 
@@ -98,11 +98,11 @@ Phase acceptance is NOT blocked by this dimension.
 
 ## Human Reviewer Signal
 
-Task 4 is a `checkpoint:human-verify` gate. Awaiting Ashley review of:
-- `.planning/phases/31-whole-app-structured-logging-backfill/31-COVERAGE-REPORT.md`
-- `.planning/phases/31-whole-app-structured-logging-backfill/31-MANUAL-VERIFICATION.md`
+Task 4 checkpoint: **APPROVED**
 
-Resume signal: "approved" to close Phase 31, or revision request (which plan to revise + what change).
+Ashley's verbatim response: "I'm not going to verify anything, because these are just logs that we will start using to debug, so let's move on to what's next."
+
+Phase 31 is closed as complete and ready to ship. The deferred bounties (ws-pause-gate-stuck-connect-cycling, speak-button-broken-on-cellular) are unblocked pending cellular reproduction and log-trail confirmation per the 31-MANUAL-VERIFICATION.md runbook.
 
 ## Candidate Follow-Up Bounties (from D-22 aggregation)
 
