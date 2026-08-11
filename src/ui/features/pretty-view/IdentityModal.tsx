@@ -15,6 +15,7 @@ import {
 } from "@/components/accordion";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
+import { Switch } from "@/components/switch";
 // Quick 260727-tb1: piggyback path — when Ashley reprioritizes a bounty via
 // the modal, invalidate the panel's cached pinned count for this identity
 // so the .pv-bounty-badge refreshes immediately instead of waiting for the
@@ -28,8 +29,9 @@ import { invalidateIdentity as invalidateBountyCount } from "@/state/bounty-coun
 // broadcasts the fresh identity to all useIdentities() consumers so live
 // IdentityBadge / SessionRow / PrettyConversationRow / RelayInboundBubble
 // re-render without a manual refresh.
-import { updateIdentity } from "@/api/identities-api";
+import { updateIdentity, getIdentityNoDormancy, setIdentityNoDormancy } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
+import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
 import { ColorPicker } from "./pickers/ColorPicker";
 import {
@@ -202,6 +204,9 @@ export function IdentityModal({
   // Patch #279: colorHue picker state — fall back to prop hue when identity.colorHue is null
   const [hueDraft, setHueDraft] = useState<number>(identity.colorHue ?? hue);
   const [committedHue, setCommittedHue] = useState<number>(identity.colorHue ?? hue);
+  // Quick 260811-ax1: "Stays awake" switch — null = loading, boolean = loaded.
+  const [staysAwake, setStaysAwake] = useState<boolean | null>(null);
+  const [staysAwakeSaving, setStaysAwakeSaving] = useState<boolean>(false);
 
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
   // Replaces the previous shadcn TabsList strip, which (a) aesthetically didn't
@@ -440,6 +445,24 @@ export function IdentityModal({
     };
   }, []);
 
+  // Quick 260811-ax1: load the stays-awake sentinel state on modal open or identity/host change.
+  useEffect(() => {
+    if (!open || !identity.identityKey) return;
+    setStaysAwake(null);
+    setStaysAwakeSaving(false);
+    let cancelled = false;
+    getIdentityNoDormancy(identity.identityKey, hostId).then(
+      (present) => { if (!cancelled) setStaysAwake(present); },
+      () => {
+        if (!cancelled) {
+          setStaysAwake(null);
+          toast.error("Failed to read stays-awake state");
+        }
+      },
+    );
+    return () => { cancelled = true; };
+  }, [open, identity.identityKey, hostId]);
+
   // Patch #172: pinned-first partition. `pinned` is now an independent
   // boolean field (fleet migration #168), so ANY bounty with pinned===true
   // wins the top group regardless of its `status` value. Below the pinned
@@ -615,6 +638,23 @@ export function IdentityModal({
     );
     if (res.error) throw new Error(res.error);
     setHandoffState({ status: "ready", data: res.markdown });
+  }
+
+  // Quick 260811-ax1: toggle handler for the "Stays awake" switch.
+  // Optimistic update: flip state immediately, revert on error + toast.
+  async function onStaysAwakeToggle(next: boolean): Promise<void> {
+    const prev = staysAwake;
+    setStaysAwake(next);
+    setStaysAwakeSaving(true);
+    try {
+      const confirmed = await setIdentityNoDormancy(identity.identityKey, hostId, next);
+      setStaysAwake(confirmed);
+    } catch {
+      setStaysAwake(prev);
+      toast.error("Failed to update stays-awake");
+    } finally {
+      setStaysAwakeSaving(false);
+    }
   }
 
   async function updateBountyPriority(
@@ -983,6 +1023,21 @@ export function IdentityModal({
               </span>
             )}
           </div>
+          {/* Quick 260811-ax1: "Stays awake" sentinel toggle. Switch checked =
+              .no-dormancy sentinel present on the identity's host. Disabled
+              while loading (null) or saving. */}
+          <label
+            className="shrink-0 flex flex-row items-center gap-2 cursor-pointer select-none"
+            title="Toggle stays-awake sentinel for this identity"
+          >
+            <Switch
+              checked={staysAwake === true}
+              onCheckedChange={onStaysAwakeToggle}
+              disabled={staysAwake === null || staysAwakeSaving}
+              aria-label={`Toggle stays-awake for ${identity.displayName}`}
+            />
+            <span className="text-xs text-[#a89a80]">Stays awake</span>
+          </label>
           {/* Patch #277: pencil toggle button — reveals/hides the edit block.
               Matches close-button glass affordance (same size, border, glow
               recipe) but NOT wrapped in DialogClose — does not close the dialog. */}
