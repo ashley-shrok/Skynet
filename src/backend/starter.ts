@@ -12,7 +12,6 @@ import {
   versionLogger,
   setGlobalLogLevel,
 } from "./utils/logger.js";
-import { flushBackendLogs } from "./utils/console-forward-transport.js";
 
 (async () => {
   const initStartTime = Date.now();
@@ -201,8 +200,6 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
       systemLogger.info(`Received ${signal}, initiating graceful shutdown...`, {
         operation: "shutdown",
       });
-      // Phase 31 D-03: flush any pending backend log lines before exit
-      flushBackendLogs();
       try {
         const { saveMemoryDatabaseToFile } =
           await import("./database/db/index.js");

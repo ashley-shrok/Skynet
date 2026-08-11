@@ -23,28 +23,6 @@ import { startDiagEmitter } from "@/lib/diag-emitter";
 // to /debug/console-log for server-side grep via docker exec.
 initConsoleForwarder();
 
-// Phase 31 D-02: PWA lifecycle structured logs at page level.
-// Distinct from console-forwarder.ts's visibilitychange handler (which only
-// calls flushBeacon) — different concerns. These emit [pwa] lines for
-// diagnosis of "app hangs on page-restore", "tabs discarded by iOS", etc.
-export function registerPwaLifecycleLogs(): void {
-  window.addEventListener("visibilitychange", () => {
-    console.info(`[pwa] visibility-change state=${document.visibilityState} hidden=${document.hidden}`);
-  });
-  window.addEventListener("pagehide", (e: PageTransitionEvent) => {
-    console.info(`[pwa] pagehide persisted=${e.persisted}`);
-  });
-  window.addEventListener("pageshow", (e: PageTransitionEvent) => {
-    console.info(`[pwa] pageshow persisted=${e.persisted}`);
-  });
-}
-registerPwaLifecycleLogs();
-
-// Phase 31 D-02: boot boundary log — surfaces whether the app init path
-// fired at all and from which URL. UA truncated to 80 chars (T-31-14: UA is
-// already public, sent on every HTTP request; no additional exposure).
-console.info(`[pwa] boot ts=${Date.now()} ua="${navigator.userAgent.slice(0, 80)}" pathname=${window.location.pathname}`);
-
 // Bounty pretty-view-per-pane-cost-diag: kick off the per-pane cost
 // diag emitter. Rides the console-forwarder above — every 30s it walks
 // the diag registry and console.logs one [DIAG-REPORT] envelope.
@@ -55,7 +33,6 @@ startDiagEmitter();
 // replaceState in several branches that would otherwise strip the query
 // string before AppShell mounts.
 snapshotPendingTab();
-console.info(`[pwa] snapshot-tab-restore result=no-pending`);
 
 const AppShell = lazy(() =>
   import("@/AppShell").then((m) => ({ default: m.AppShell })),

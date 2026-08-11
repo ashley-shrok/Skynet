@@ -35,8 +35,6 @@ export type LogEntry = {
   hostId?: number;
   sessionKey?: string;
   msg: string;
-  /** Phase 31 D-03: optional origin marker. Absent = frontend (backward compat). */
-  source?: "frontend" | "backend";
 };
 
 // --- runtime validator ---
@@ -50,7 +48,6 @@ export function isValidEntry(x: unknown): x is LogEntry {
   if (typeof e.msg !== "string") return false;
   if ("hostId" in e && typeof e.hostId !== "number") return false;
   if ("sessionKey" in e && typeof e.sessionKey !== "string") return false;
-  if ("source" in e && e.source !== "frontend" && e.source !== "backend") return false;
   return true;
 }
 
