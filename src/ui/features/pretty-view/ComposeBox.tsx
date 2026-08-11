@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createLogDedup } from "@/lib/log-dedup";
 import { CircleHelp, ListPlus, Loader2, Paperclip, RefreshCw, RotateCcw, RotateCwFadingClock, Square, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
@@ -70,6 +71,12 @@ import { RecordingControls } from "./RecordingControls";
 //    recovery mechanism.
 
 const DEBOUNCE_MS = 400;
+
+// Phase 31 D-17: module-scoped dedup for [tap] events — tap events fire
+// frequently on scroll/pointer flicker so we suppress repeats within 3s
+// windows (N=5, W=3000ms — slightly higher N than default because tap volume
+// is chatter, shorter W because taps cluster in bursts).
+const tapDedup = createLogDedup({ N: 5, W: 3000 });
 
 // Patch #119 — draft-loss belt-and-suspenders: localStorage mirror for the
 // compose draft body. Single-user-per-browser tool, so no userId in the key.
@@ -624,13 +631,7 @@ export function ComposeBox({
     // Patch #119 — draft-loss belt-and-suspenders diagnostic. One
     // console.warn per attempted server save so the next post-restart
     // repro reveals whether the server-side save fired at all.
-    console.warn(
-      "[compose-draft] save hostId=%s tmuxSession=%s bodyLen=%d slotsLen=%d",
-      hostId,
-      tmuxSessionKey ?? "(null)",
-      body.length,
-      slots.length,
-    );
+    console.warn(`[compose] draft-save hostId=${hostId} tmuxSession=${tmuxSessionKey ?? "null"} bodyLen=${body.length} slotsLen=${slots.length}`);
     try {
       await putComposeDraft(hostId, tmuxSessionKey, body, slots);
       // Patch #119 — mirror the confirmed-saved body+queueSlots to localStorage
@@ -763,15 +764,7 @@ export function ComposeBox({
           } catch {}
         }
 
-        console.warn(
-          "[compose-draft] load hostId=%s tmuxSession=%s serverBodyLen=%d serverSlotsLen=%d lsBodyLen=%d lsSlotsLen=%d",
-          hostId,
-          tmuxSessionKey ?? "(null)",
-          seed.length,
-          seedSlots.length,
-          lsBody.length,
-          lsSlots.length,
-        );
+        console.warn(`[compose] draft-load hostId=${hostId} tmuxSession=${tmuxSessionKey ?? "null"} serverBodyLen=${seed.length} serverSlotsLen=${seedSlots.length} lsBodyLen=${lsBody.length} lsSlotsLen=${lsSlots.length}`);
 
         setText(hydratedBody);
         setQueueSlots(hydratedSlots);
@@ -858,6 +851,18 @@ export function ComposeBox({
     textareaRef.current?.focus();
   }, []);
 
+  // Phase 31 D-02: log aside-morph transitions (false→true and true→false).
+  // asideActive is a prop, so we use useEffect + ref to detect edges.
+  const prevAsideActiveRef = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevAsideActiveRef.current;
+    const next = asideActive ?? false;
+    if (prev !== undefined && prev !== next) {
+      console.info(`[compose] aside-morph edge=${prev}→${next} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+    }
+    prevAsideActiveRef.current = next;
+  }, [asideActive, hostId, tmuxSession]);
+
   // PATCH #338 DIAG (TEMPORARY): textarea-tap-coordinate-mismatch-ios-diag.
   // Ashley reports 3 correlated iOS PWA symptoms: (a) bottom 2 of 5 lines
   // dismiss the keyboard on tap-to-reposition, (b) cursor lands INSIDE a
@@ -894,35 +899,54 @@ export function ComposeBox({
     };
     const onPointerDown = (e: PointerEvent) => {
       const targetTag = (e.target as Element | null)?.tagName ?? "?";
+      const s = snap();
+      // Phase 31 D-13: tap-diag prefix renamed to [tap], flattened key=value shape per D-11.
+      // D-17: dedup opt-in — tap events fire frequently on scroll/pointer flicker.
+      const pdKey = `tap:pointerdown:${e.pointerType}:${targetTag}`;
       // eslint-disable-next-line no-console
-      console.log("[tap-diag] pointerdown", {
-        client: { x: Math.round(e.clientX), y: Math.round(e.clientY) },
-        pointerType: e.pointerType,
-        target: targetTag,
-        selfTarget: e.target === el,
-        ...snap(),
-      });
+      if (tapDedup.shouldEmit(pdKey, () => `[tap] pointerdown x=${Math.round(e.clientX)} y=${Math.round(e.clientY)} pointerType=${e.pointerType} targetTag=${targetTag} selfTarget=${e.target === el} rectT=${s.rect.t} rectL=${s.rect.l} rectW=${s.rect.w} rectH=${s.rect.h} textLen=${s.textLen} scrollY=${s.scrollY}`).emit) {
+        console.log(`[tap] pointerdown x=${Math.round(e.clientX)} y=${Math.round(e.clientY)} pointerType=${e.pointerType} targetTag=${targetTag} selfTarget=${e.target === el} rectT=${s.rect.t} rectL=${s.rect.l} rectW=${s.rect.w} rectH=${s.rect.h} textLen=${s.textLen} scrollY=${s.scrollY}`);
+      }
       setTimeout(() => {
+        const s30 = snap();
+        const p30Key = `tap:post-30ms:${e.pointerType}`;
         // eslint-disable-next-line no-console
-        console.log("[tap-diag] post-30ms", snap());
+        if (tapDedup.shouldEmit(p30Key, () => `[tap] post-30ms pointerType=${e.pointerType} rectT=${s30.rect.t} rectH=${s30.rect.h} scrollH=${s30.scrollH} sel=${s30.sel[0]},${s30.sel[1]} docFocus=${s30.docFocus}`).emit) {
+          console.log(`[tap] post-30ms pointerType=${e.pointerType} rectT=${s30.rect.t} rectH=${s30.rect.h} scrollH=${s30.scrollH} sel=${s30.sel[0]},${s30.sel[1]} docFocus=${s30.docFocus}`);
+        }
       }, 30);
       setTimeout(() => {
+        const s300 = snap();
+        const p300Key = `tap:post-300ms:${e.pointerType}`;
         // eslint-disable-next-line no-console
-        console.log("[tap-diag] post-300ms", snap());
+        if (tapDedup.shouldEmit(p300Key, () => `[tap] post-300ms pointerType=${e.pointerType} rectT=${s300.rect.t} rectH=${s300.rect.h} scrollH=${s300.scrollH} sel=${s300.sel[0]},${s300.sel[1]} docFocus=${s300.docFocus}`).emit) {
+          console.log(`[tap] post-300ms pointerType=${e.pointerType} rectT=${s300.rect.t} rectH=${s300.rect.h} scrollH=${s300.scrollH} sel=${s300.sel[0]},${s300.sel[1]} docFocus=${s300.docFocus}`);
+        }
       }, 300);
     };
     const onFocus = () => {
+      const s = snap();
+      const focusKey = "tap:focus";
       // eslint-disable-next-line no-console
-      console.log("[tap-diag] focus", snap());
+      if (tapDedup.shouldEmit(focusKey, () => `[tap] focus rectT=${s.rect.t} rectH=${s.rect.h} textLen=${s.textLen} sel=${s.sel[0]},${s.sel[1]}`).emit) {
+        console.log(`[tap] focus rectT=${s.rect.t} rectH=${s.rect.h} textLen=${s.textLen} sel=${s.sel[0]},${s.sel[1]}`);
+      }
     };
     const onBlur = () => {
+      const s = snap();
+      const blurKey = "tap:blur";
       // eslint-disable-next-line no-console
-      console.log("[tap-diag] blur", snap());
+      if (tapDedup.shouldEmit(blurKey, () => `[tap] blur rectT=${s.rect.t} rectH=${s.rect.h} textLen=${s.textLen} sel=${s.sel[0]},${s.sel[1]}`).emit) {
+        console.log(`[tap] blur rectT=${s.rect.t} rectH=${s.rect.h} textLen=${s.textLen} sel=${s.sel[0]},${s.sel[1]}`);
+      }
     };
     const onSelChange = () => {
       if (document.activeElement !== el) return;
+      const selKey = `tap:selchange:${el.selectionStart},${el.selectionEnd}`;
       // eslint-disable-next-line no-console
-      console.log("[tap-diag] selchange", { sel: [el.selectionStart, el.selectionEnd] });
+      if (tapDedup.shouldEmit(selKey, () => `[tap] selchange sel=${el.selectionStart},${el.selectionEnd}`).emit) {
+        console.log(`[tap] selchange sel=${el.selectionStart},${el.selectionEnd}`);
+      }
     };
     el.addEventListener("pointerdown", onPointerDown);
     el.addEventListener("focus", onFocus);
@@ -1207,7 +1231,7 @@ export function ComposeBox({
   // React's async setState batching on text. When present it is used in place
   // of the current `text` state. All other handleSend logic (attachment
   // branching, D-50 newline collapse, COMPOSE-04 hard-lock) still applies.
-  function handleSend(overridePayload?: string) {
+  function handleSend(overridePayload?: string, trigger: "enter-key" | "send-button" | "queue-item" | "unknown" = "unknown") {
     // Vehicle C v2: source-scoped cancel — send on primary dequeues
     // primary only; other armed sources persist through the cadence.
     if (isSourceArmed("primary")) {
@@ -1230,7 +1254,10 @@ export function ComposeBox({
     if (hasAttachments && onSendWithAttachments) {
       setErrorMessage(null);
       const captionPayload = collapseNewlinesForSend(trimmed);
+      // Phase 31 D-02: compose submit instrumentation — attachment path.
+      console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} attachmentCount=${stagedAttachments?.length ?? 0} trigger=${trigger}`);
       onSendWithAttachments(captionPayload);
+      console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length}`);
       setText("");
       clearAfterSend();
       return;
@@ -1243,14 +1270,18 @@ export function ComposeBox({
     // D-50 policy: collapse newlines to spaces on send. Ink safety.
     const payload = collapseNewlinesForSend(trimmed);
 
+    // Phase 31 D-02: compose submit instrumentation — normal send path.
+    console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} attachmentCount=0 trigger=${trigger}`);
     const dispatched = onSend(payload);
     if (dispatched) {
+      console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length}`);
       setText(""); // clear compose textarea on success
       clearAfterSend();
       // COMPOSE-04 HARD LOCK: do NOT emit any local optimistic bubble.
       // The message will render in the conversation when the
       // session-file tail confirms it (Phase 1 WS bridge).
     } else {
+      console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} err="not-connected"`);
       setErrorMessage("Not connected — try again in a moment");
       // COMPOSE-04 + D-56: do NOT clear text; user may want to retry.
       // Do NOT clear the persisted draft either — failed send should
@@ -1312,7 +1343,7 @@ export function ComposeBox({
         if (!recycleActive && !planPendingActive && !reconnectingActive && !dormantActive) {
           // D-16-05: route through the SAME handleSend — attachment branching,
           // D-50 newline collapse, COMPOSE-04 hard-lock all still apply.
-          handleSend(result.glued);
+          handleSend(result.glued, "queue-item");
         }
       } else {
         // For a queue slot: update slot text then send it.
@@ -1523,7 +1554,7 @@ export function ComposeBox({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
-      handleSend();
+      handleSend(undefined, "enter-key");
     }
     // Shift-Enter: do NOT preventDefault. Browser default inserts a newline,
     // which is exactly the COMPOSE-02 behavior.
@@ -2382,7 +2413,7 @@ export function ComposeBox({
               type="button"
               onClick={() => {
                 if (asideActive) { onAsideDismiss?.(); return; }
-                if (!sendDisabled) handleSend();
+                if (!sendDisabled) handleSend(undefined, "send-button");
               }}
               disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
               aria-label={asideActive ? "Resume" : "Send"}
