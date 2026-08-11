@@ -81,20 +81,9 @@ function flush(): void {
       );
     }
 
-    // [wsdiag] #403: swap sync fs.appendFileSync → async fs.appendFile
-    // (with swallow-error callback) so the flush does NOT block the Node
-    // event loop under fleet-load. Session-16 attempt at this fix (#394)
-    // was reverted before it could be validated; #401 disable-test confirmed
-    // transport wiring contributes to the initial-connect stall, so this
-    // is now a targeted fix riding alongside [wsdiag] to capture whatever
-    // OTHER mechanism causes the ~13s silent active-WS drop. Rotation write
-    // stays sync — it fires only on 5MB+ rotate, rare enough to not matter.
-    fs.appendFile(
+    fs.appendFileSync(
       logPath,
       entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
-      () => {
-        /* swallow — best-effort (D-19) */
-      },
     );
   } catch (err) {
     process.stderr.write(
