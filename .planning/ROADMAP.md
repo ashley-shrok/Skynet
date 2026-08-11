@@ -982,10 +982,29 @@ Plans:
 
 ### Phase 31: Whole-app structured-logging backfill
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Instrument the whole Skynet app so remote maintainers can diagnose bugs from `/opt/skynet/console-forward-logs/console-forward.log` alone. Wide-net instrumentation across every subsystem where a bug could conceivably need diagnosis: WS lifecycle + pause-gate + reopen ladder + load-bearing ref transitions in Terminal.tsx; full TTS/speak pipeline in ChatMessage.tsx; voice recording golden-copy retrofit; PWA + compose + tap + render lifecycle; backend logs unified into the same console-forward.log via a new console-forward-transport module; backend surfaces (WS server, pane-state emitter, session-file parser, tmux-helper, host CRUD, voice server) all normalized to the D-13 canonical prefix taxonomy. Instrumentation-only phase per D-22 — the two deferred symptom bounties (`ws-pause-gate-stuck-connect-cycling`, `speak-button-broken-on-cellular`) do NOT get diagnosed or fixed here, only made diagnosable.
+**Requirements**: Decisions D-01..D-22 in `.planning/phases/31-whole-app-structured-logging-backfill/31-CONTEXT.md` (this phase's requirements are captured as D-nnn decisions rather than REQ-nnn IDs — every D-nnn is reflected in at least one plan's tasks; see per-plan `requirements` frontmatter for the D-nnn coverage map)
 **Depends on:** Phase 30
-**Plans:** 0 plans
+**Plans:** 9 plans
 
-Plans:
-- [ ] TBD (run /gsd-plan-phase 31 to break down)
+**Wave 1** — Foundation (no deps)
+
+- [ ] 31-01-PLAN.md — Convention foundation: NEW src/ui/lib/log-dedup.ts (D-17 syslog "×N in Xs" rate-limiter) + extend console-forwarder.ts LogEntry envelope with hostId/sessionKey + setLogContext hook + rename [DIAG-REPORT]→[render] + rename [SW]→[pwa] + add SW lifecycle logs (D-11, D-13, D-17, D-19, D-20)
+
+**Wave 2** *(blocked on 31-01 — all parallel, no file overlap)*
+
+- [ ] 31-02-PLAN.md — Terminal.tsx WS lifecycle + pause-gate + 5 load-bearing refs + 4-path reopen ladder + eliminate JSON.stringify(event) anti-pattern + smoke test for [ws] close line shape (D-05, D-06, D-11..D-15, D-17, D-20 — enables ws-pause-gate-stuck-connect-cycling diagnosis)
+- [ ] 31-03-PLAN.md — ChatMessage.tsx TTS pipeline: fetch/decode/audio.play() promise/media events + patch #389 autoplay effect + MediaError explicit extraction + smoke test for [tts] play-attempt result (D-05, D-11..D-14, D-20 — enables speak-button-broken-on-cellular diagnosis)
+- [ ] 31-04-PLAN.md — useVoiceRecording.ts golden-copy retrofit: rename [voice-diag]→[voice], normalize levels (info/warn/error), explicit MediaRecorder error extraction, patch #382 feedback-playback boundary logs, optional logContext prop (D-05, D-07, D-11..D-14 — the file becomes the canonical golden-copy that D-04 future patches follow)
+- [ ] 31-05-PLAN.md — ComposeBox.tsx [compose-draft]→[compose] + [tap-diag]→[tap] rename + shape normalization + submit path instrumentation + aside-morph transitions + main.tsx PWA visibility/pagehide/pageshow/boot lifecycle + session-open trigger boundary (D-11..D-14)
+- [ ] 31-06-PLAN.md — diag-registry pane register/unregister + PrettyView pane-mount/pane-unmount lifecycle events complementing the DIAG-REPORT periodic tick (D-11, D-13, D-14, D-17)
+- [ ] 31-07-PLAN.md — NEW src/backend/utils/console-forward-transport.ts (batches backend logs to the SAME console-forward.log with source=backend marker) + wire logger.ts info/warn/error/success into it + extend debug.ts LogEntry with source field + flush-on-shutdown in starter.ts + smoke test (D-03, D-11, D-13, D-16, D-17, D-20)
+
+**Wave 3** *(blocked on 31-07 — backend surface instrumentation depends on the transport landing)*
+
+- [ ] 31-08-PLAN.md — claude-session-server.ts WS lifecycle + eliminate 20+ silent try{ws.send}catch{ignore} sites + pane-state-emitter emit() correlation + session-file-parser classify decisions + tmux-helper SSH exec boundaries + host.ts + voice.ts existing calls normalized to [host-db] + [voice-server] prefixes (D-01, D-03, D-05, D-11..D-14, D-16)
+
+**Wave 4** *(blocked on all — final coverage sweep)*
+
+- [ ] 31-09-PLAN.md — Grep pass: no JSON.stringify(event), all old prefixes 0 in src/, all D-02+D-03 subsystems COVERED per the crosswalk; frontend + backend builds clean; full vitest suite green; write 31-COVERAGE-REPORT.md + 31-MANUAL-VERIFICATION.md runbook for Ashley's post-ship WS-cycle reproduction; human-verify checkpoint (D-20, D-21, D-22)
+
