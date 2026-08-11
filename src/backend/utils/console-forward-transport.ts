@@ -12,12 +12,14 @@
  *   then append. Simultaneous rotation with frontend handler is safe on Linux
  *   (both use synchronous fs.writeFileSync/appendFileSync; T-31-17).
  * - File writes are best-effort: errors are swallowed after a stderr note (D-19).
- * - getLogPath() is imported lazily at flush time so tests can override
- *   SKYNET_CONSOLE_FORWARD_LOG_PATH per-test without module-reset gymnastics.
+ * - Uses the same SKYNET_CONSOLE_FORWARD_LOG_PATH env var as debug.ts (same file).
+ *   Path is resolved at flush time (not module load) so tests can override per-test
+ *   without module-reset gymnastics. We intentionally do NOT import debug.ts here
+ *   to avoid pulling in its Express router + AuthManager.getInstance() at module-load
+ *   time (which breaks test environments that don't boot the full server stack).
  */
 
 import fs from "fs";
-import { getLogPath } from "../database/routes/debug.js";
 
 // --- types ---
 
@@ -34,6 +36,15 @@ const buffer: BackendLogEntry[] = [];
 const MAX_BATCH = 20;
 const FLUSH_INTERVAL_MS = 500;
 let flushTimer: NodeJS.Timeout | null = null;
+
+// --- internal path helper (mirrors debug.ts's getLogPath, avoids importing debug.ts) ---
+
+const DEFAULT_LOG_PATH =
+  "/var/log/skynet/console-forward/console-forward.log";
+
+function getLogPath(): string {
+  return process.env.SKYNET_CONSOLE_FORWARD_LOG_PATH ?? DEFAULT_LOG_PATH;
+}
 
 // --- internal flush ---
 
