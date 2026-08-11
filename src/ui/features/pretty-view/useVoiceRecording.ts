@@ -1,14 +1,6 @@
 /**
  * useVoiceRecording — state machine hook for voice recording + STT transcription.
  *
- * Canonical golden-copy for the [subsystem] event key=value log-line shape used
- * across the app (D-11). All structured logs in this hook use the `[voice]` prefix
- * (per D-13 taxonomy), template-literal-composed `msg` strings, explicit field
- * extraction from DOM events (D-05), and level semantics per D-14: `info` for
- * expected transitions, `warn` for unexpected-but-not-fatal paths, `error` for
- * real failures. Future patches MUST follow this file's shape (D-04 going-forward
- * rule — see box-maintainer.md § Standing directives).
- *
  * Owns:
  *   - State machine: idle → recording → transcribing → idle
  *   - MediaRecorder lifecycle (getUserMedia, start, stop, cleanup)
@@ -70,12 +62,6 @@ export interface VoiceRecordingResult {
   glued: string;
 }
 
-/** Optional context passed by the caller so log lines carry hostId/sessionId per D-12. */
-export interface VoiceLogContext {
-  hostId?: number;
-  sessionId?: string;
-}
-
 export interface UseVoiceRecordingReturn {
   state: VoiceRecordingState;
   errorMessage: string | null;
@@ -89,9 +75,7 @@ export interface UseVoiceRecordingReturn {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useVoiceRecording(
-  logContext?: VoiceLogContext,
-): UseVoiceRecordingReturn {
+export function useVoiceRecording(): UseVoiceRecordingReturn {
   const [state, setState] = useState<VoiceRecordingState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -111,9 +95,6 @@ export function useVoiceRecording(
   if (!stopAudioRef.current) stopAudioRef.current = new Audio(stopUrl);
   if (!cancelAudioRef.current) cancelAudioRef.current = new Audio(cancelUrl);
   if (!errorAudioRef.current) errorAudioRef.current = new Audio(errorUrl);
-
-  // Convenience: log-line suffix carrying D-12 standard fields (best-effort).
-  const ctxSuffix = `hostId=${logContext?.hostId ?? "n/a"} sessionId=${logContext?.sessionId ?? "n/a"}`;
 
   // ---------------------------------------------------------------------------
   // Internal: playSound — resets currentTime and plays; swallows any rejection.
@@ -140,7 +121,7 @@ export function useVoiceRecording(
     return new Promise((resolve) => {
       const recorder = recorderRef.current;
       if (!recorder) {
-        console.warn(`[voice] stop-recording recorder-null resolving=null ${ctxSuffix}`);
+        console.warn("[voice-diag] stopRecording: recorderRef null, resolving null");
         resolve(null);
         return;
       }
@@ -152,30 +133,23 @@ export function useVoiceRecording(
       // branch (endAppend/endSend line ~294/335) recovers state to idle. This
       // is the fix for the cascade-of-hangs case (presses 2+ after first drop).
       if (recorder.state !== "recording") {
-        console.warn(`[voice] stop-recording recorder-state-not-recording state=${recorder.state} resolving=null ${ctxSuffix}`);
+        console.warn(`[voice-diag] stopRecording: recorder.state=${recorder.state} (not recording), resolving null without touching onstop`);
         resolve(null);
         return;
       }
-      console.info(`[voice] stop-recording calling-stop recorderState=${recorder.state} ${ctxSuffix}`);
+      console.warn(`[voice-diag] stopRecording: calling recorder.stop() (recorder.state=${recorder.state})`);
       // Race between onstop firing (happy path) and an 8s watchdog (iOS Safari
       // dropped-event recovery). Whichever wins flips `resolved`; the loser
       // must no-op so we never double-cleanup or double-resolve.
       let resolved = false;
       let watchdogHandle: ReturnType<typeof setTimeout> | undefined;
-
-      // D-05: explicitly extract fields from MediaRecorder events.
-      recorder.onerror = (event: MediaRecorderErrorEvent) => {
-        const err = event.error;
-        console.error(`[voice] recorder-error errName="${err?.name ?? "unknown"}" errMessage="${err?.message ?? "no message"}" recorderState=${recorder.state} ${ctxSuffix}`);
-      };
-
       recorder.onstop = () => {
         if (resolved) return;
         resolved = true;
         if (watchdogHandle) clearTimeout(watchdogHandle);
         const type = recorder.mimeType || "audio/webm";
         const blob = new Blob(chunksRef.current, { type });
-        console.info(`[voice] stop-recording onstop-fired blobSize=${blob.size} blobType=${type} ${ctxSuffix}`);
+        console.warn(`[voice-diag] stopRecording: onstop fired, blob size=${blob.size} type=${type}`);
         chunksRef.current = [];
         // Stop all stream tracks and clear refs.
         if (streamRef.current) {
@@ -188,7 +162,7 @@ export function useVoiceRecording(
       watchdogHandle = setTimeout(() => {
         if (resolved) return;
         resolved = true;
-        console.warn(`[voice] stop-recording watchdog-fired onstopNeverFiredAfter=8s forcing-cleanup ${ctxSuffix}`);
+        console.warn("[voice-diag] stopRecording: WATCHDOG onstop never fired after 8s — forcing cleanup");
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((t) => t.stop());
           streamRef.current = null;
@@ -219,24 +193,23 @@ export function useVoiceRecording(
     const fd = new FormData();
     fd.append("file", blob, `clip.${ext}`);
 
-    console.info(`[voice] transcribe-post url=${TRANSCRIBE_URL} blobSize=${blob.size} ext=${ext} ${ctxSuffix}`);
+    console.warn(`[voice-diag] transcribeBlob: POST ${TRANSCRIBE_URL} blobSize=${blob.size} ext=${ext}`);
 
     let res: Response;
     try {
       res = await fetch(TRANSCRIBE_URL, { method: "POST", body: fd });
     } catch (err) {
-      const errName = err instanceof Error ? err.name : "unknown";
-      const errMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[voice] transcribe-fetch-threw errName="${errName}" errMessage="${errMessage}" ${ctxSuffix}`);
+      const msg =
+        err instanceof Error ? err.message : "fetch error";
+      console.warn(`[voice-diag] transcribeBlob: fetch threw: ${msg}`);
       playSound(errorAudioRef.current);
-      setErrorMessage(`STT error: ${errMessage}`);
+      setErrorMessage(`STT error: ${msg}`);
       return null;
     }
 
-    if (res.ok) {
-      console.info(`[voice] transcribe-fetch-resolved status=${res.status} ok=${res.ok} ${ctxSuffix}`);
-    } else {
-      console.warn(`[voice] transcribe-fetch-not-ok status=${res.status} ok=${res.ok} ${ctxSuffix}`);
+    console.warn(`[voice-diag] transcribeBlob: fetch resolved status=${res.status} ok=${res.ok}`);
+
+    if (!res.ok) {
       playSound(errorAudioRef.current);
       setErrorMessage(`STT error: ${res.status}`);
       return null;
@@ -244,12 +217,11 @@ export function useVoiceRecording(
 
     try {
       const json = (await res.json()) as { text?: string };
-      console.info(`[voice] transcribe-json-parsed textLen=${(json.text ?? "").length} ${ctxSuffix}`);
+      console.warn(`[voice-diag] transcribeBlob: parsed json textLen=${(json.text ?? "").length}`);
       return json.text ?? "";
     } catch (err) {
-      const errName = err instanceof Error ? err.name : "unknown";
-      const errMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[voice] transcribe-json-parse-threw errName="${errName}" errMessage="${errMessage}" ${ctxSuffix}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[voice-diag] transcribeBlob: json parse threw: ${msg}`);
       playSound(errorAudioRef.current);
       setErrorMessage("STT error: invalid response");
       return null;
@@ -296,20 +268,11 @@ export function useVoiceRecording(
         const recorder = new MediaRecorder(stream);
         recorderRef.current = recorder;
 
-        // D-05: explicitly extract data from MediaRecorder events.
-        recorder.onstart = () => {
-          console.info(`[voice] recorder-start mimeType=${recorder.mimeType} state=${recorder.state} ${ctxSuffix}`);
-        };
-
         recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            chunksRef.current.push(e.data);
-            console.info(`[voice] recorder-data-available size=${e.data.size} type=${e.data.type} ${ctxSuffix}`);
-          }
+          if (e.data.size > 0) chunksRef.current.push(e.data);
         };
 
         recorder.start();
-        console.info(`[voice] recording-started state=recording ${ctxSuffix}`);
         setState("recording");
         playSound(startAudioRef.current);
         setErrorMessage(null);
@@ -318,9 +281,6 @@ export function useVoiceRecording(
         // Surface mic-denied state — matches prototype's error string.
         // Do NOT play error.mp3 here — permission-denied may happen before any
         // user gesture on Safari, and the errorMessage signal alone is sufficient.
-        const errName = err instanceof Error ? err.name : "unknown";
-        const errMessage = err instanceof Error ? err.message : String(err);
-        console.error(`[voice] mic-denied errName="${errName}" errMessage="${errMessage}" ${ctxSuffix}`);
         setErrorMessage(`mic denied: ${err.name || "error"}`);
         // State stays "idle".
       });
@@ -331,32 +291,18 @@ export function useVoiceRecording(
    * No-op if state !== "recording".
    */
   async function cancel(): Promise<void> {
-    console.info(`[voice] cancel-entry state=${state} ${ctxSuffix}`);
+    console.warn(`[voice-diag] cancel: entry state=${state}`);
     if (state !== "recording") {
-      console.warn(`[voice] cancel-gate-rejected state=${state} expected=recording ${ctxSuffix}`);
+      console.warn(`[voice-diag] cancel: gate rejected (state !== recording), returning`);
       return;
     }
     // AudioSession-safety: play cancel.mp3 AFTER recorder teardown, not before.
     // iOS Safari shares one AudioSession between MediaRecorder and Audio playback;
     // starting playback while recording is active can drop MediaRecorder.onstop and
     // orphan the buffered audio (bounty voice-recording-audio-feedback-ordering-onstop-drop).
-    //
-    // D-07 boundary logs: if AudioSession bug re-appears (onstop stops firing after
-    // audio.play), the phase progression in logs reveals whether feedback fired
-    // BEFORE or AFTER teardown — immediately narrowing the diagnosis.
-    console.info(`[voice] feedback-playback-order phase=before-teardown ${ctxSuffix}`);
     await stopRecording();
-    console.info(`[voice] feedback-playback-order phase=after-teardown-before-feedback ${ctxSuffix}`);
-    const cancelAudio = cancelAudioRef.current;
-    if (cancelAudio) {
-      cancelAudio.currentTime = 0;
-      Promise.resolve(cancelAudio.play()).then(() => {
-        console.info(`[voice] feedback-playback-order phase=feedback-play-resolved sound=cancel ${ctxSuffix}`);
-      }).catch((err: unknown) => {
-        console.warn(`[voice] feedback-playback-order phase=feedback-play-rejected sound=cancel errName="${err instanceof Error ? err.name : "unknown"}" errMessage="${err instanceof Error ? err.message : String(err)}" ${ctxSuffix}`);
-      });
-    }
-    console.info(`[voice] cancel-exit stopRecording-resolved setting-state=idle ${ctxSuffix}`);
+    playSound(cancelAudioRef.current);
+    console.warn(`[voice-diag] cancel: stopRecording resolved, setting state=idle`);
     // Blob is discarded — no fetch.
     setState("idle");
   }
@@ -370,37 +316,26 @@ export function useVoiceRecording(
   async function endAppend(
     currentText: string,
   ): Promise<VoiceRecordingResult | null> {
-    console.info(`[voice] end-append-entry state=${state} currentTextLen=${currentText.length} ${ctxSuffix}`);
+    console.warn(`[voice-diag] endAppend: entry state=${state} currentTextLen=${currentText.length}`);
     if (state !== "recording") {
-      console.warn(`[voice] end-append-gate-rejected state=${state} expected=recording ${ctxSuffix}`);
+      console.warn(`[voice-diag] endAppend: gate rejected (state !== recording), returning null`);
       return null;
     }
 
     // AudioSession-safety: play stop.mp3 AFTER recorder teardown — see cancel() above.
-    // D-07 boundary logs for feedback-playback ordering (patch #382 regression guard).
-    console.info(`[voice] feedback-playback-order phase=before-teardown ${ctxSuffix}`);
     const blob = await stopRecording();
-    console.info(`[voice] feedback-playback-order phase=after-teardown-before-feedback ${ctxSuffix}`);
-    const stopAudio = stopAudioRef.current;
-    if (stopAudio) {
-      stopAudio.currentTime = 0;
-      Promise.resolve(stopAudio.play()).then(() => {
-        console.info(`[voice] feedback-playback-order phase=feedback-play-resolved sound=stop ${ctxSuffix}`);
-      }).catch((err: unknown) => {
-        console.warn(`[voice] feedback-playback-order phase=feedback-play-rejected sound=stop errName="${err instanceof Error ? err.name : "unknown"}" errMessage="${err instanceof Error ? err.message : String(err)}" ${ctxSuffix}`);
-      });
-    }
-    console.info(`[voice] end-append-stop-resolved blob=${blob ? `size=${blob.size}` : "null"} setting-state=transcribing ${ctxSuffix}`);
+    playSound(stopAudioRef.current);
+    console.warn(`[voice-diag] endAppend: stopRecording resolved, blob=${blob ? `size=${blob.size}` : "null"}, setting state=transcribing`);
     setState("transcribing");
 
     if (!blob) {
-      console.warn(`[voice] end-append-blob-null setting-state=idle returning=null ${ctxSuffix}`);
+      console.warn(`[voice-diag] endAppend: blob null, setting state=idle, returning null`);
       setState("idle");
       return null;
     }
 
     const transcript = await transcribeBlob(blob);
-    console.info(`[voice] end-append-transcribe-resolved transcript=${transcript === null ? "null" : `len=${transcript.length}`} setting-state=idle ${ctxSuffix}`);
+    console.warn(`[voice-diag] endAppend: transcribeBlob resolved, transcript=${transcript === null ? "null" : `"${transcript.slice(0, 40)}..."(${transcript.length}ch)`}, setting state=idle`);
     setState("idle");
 
     if (transcript === null) return null;
@@ -423,37 +358,26 @@ export function useVoiceRecording(
   async function endSend(
     currentText: string,
   ): Promise<VoiceRecordingResult | null> {
-    console.info(`[voice] end-send-entry state=${state} currentTextLen=${currentText.length} ${ctxSuffix}`);
+    console.warn(`[voice-diag] endSend: entry state=${state} currentTextLen=${currentText.length}`);
     if (state !== "recording") {
-      console.warn(`[voice] end-send-gate-rejected state=${state} expected=recording ${ctxSuffix}`);
+      console.warn(`[voice-diag] endSend: gate rejected (state !== recording), returning null`);
       return null;
     }
 
     // AudioSession-safety: play stop.mp3 AFTER recorder teardown — see cancel() above.
-    // D-07 boundary logs for feedback-playback ordering (patch #382 regression guard).
-    console.info(`[voice] feedback-playback-order phase=before-teardown ${ctxSuffix}`);
     const blob = await stopRecording();
-    console.info(`[voice] feedback-playback-order phase=after-teardown-before-feedback ${ctxSuffix}`);
-    const stopAudio2 = stopAudioRef.current;
-    if (stopAudio2) {
-      stopAudio2.currentTime = 0;
-      Promise.resolve(stopAudio2.play()).then(() => {
-        console.info(`[voice] feedback-playback-order phase=feedback-play-resolved sound=stop ${ctxSuffix}`);
-      }).catch((err: unknown) => {
-        console.warn(`[voice] feedback-playback-order phase=feedback-play-rejected sound=stop errName="${err instanceof Error ? err.name : "unknown"}" errMessage="${err instanceof Error ? err.message : String(err)}" ${ctxSuffix}`);
-      });
-    }
-    console.info(`[voice] end-send-stop-resolved blob=${blob ? `size=${blob.size}` : "null"} setting-state=transcribing ${ctxSuffix}`);
+    playSound(stopAudioRef.current);
+    console.warn(`[voice-diag] endSend: stopRecording resolved, blob=${blob ? `size=${blob.size}` : "null"}, setting state=transcribing`);
     setState("transcribing");
 
     if (!blob) {
-      console.warn(`[voice] end-send-blob-null setting-state=idle returning=null ${ctxSuffix}`);
+      console.warn(`[voice-diag] endSend: blob null, setting state=idle, returning null`);
       setState("idle");
       return null;
     }
 
     const transcript = await transcribeBlob(blob);
-    console.info(`[voice] end-send-transcribe-resolved transcript=${transcript === null ? "null" : `len=${transcript.length}`} setting-state=idle ${ctxSuffix}`);
+    console.warn(`[voice-diag] endSend: transcribeBlob resolved, transcript=${transcript === null ? "null" : `"${transcript.slice(0, 40)}..."(${transcript.length}ch)`}, setting state=idle`);
     setState("idle");
 
     if (transcript === null) return null;
