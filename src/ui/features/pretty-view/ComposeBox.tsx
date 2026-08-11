@@ -403,7 +403,8 @@ export function ComposeBox({
 
   // Phase 16 — voice recording state machine. Owns MediaRecorder lifecycle,
   // fetch to /voice/transcribe, and transcript-to-text glue rule.
-  const voice = useVoiceRecording();
+  // Pass logContext so voice log lines carry hostId/sessionId per D-12.
+  const voice = useVoiceRecording({ hostId: hostId ?? undefined, sessionId: tmuxSession ?? undefined });
 
   // Phase 05 — derived state for the Send-routing decision + Retry button.
   const hasAttachments = (stagedAttachments?.length ?? 0) > 0;
