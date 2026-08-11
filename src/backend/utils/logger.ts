@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import type { ChalkInstance } from "chalk";
+import { enqueueBackendLog } from "./console-forward-transport.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "success";
 
@@ -212,18 +213,21 @@ export class Logger {
     if (!this.shouldLog("info", message)) return;
     const formatted = this.formatMessage("info", message, context);
     console.log(formatted);
+    enqueueBackendLog({ level: "info", msg: formatted });
   }
 
   warn(message: string, context?: LogContext): void {
     if (!this.shouldLog("warn", message)) return;
     const formatted = this.formatMessage("warn", message, context);
     console.warn(formatted);
+    enqueueBackendLog({ level: "warn", msg: formatted });
   }
 
   error(message: string, error?: unknown, context?: LogContext): void {
     if (!this.shouldLog("error", message)) return;
     const formatted = this.formatMessage("error", message, context);
     console.error(formatted);
+    enqueueBackendLog({ level: "error", msg: formatted });
     if (error) {
       console.error(error);
     }
@@ -233,6 +237,7 @@ export class Logger {
     if (!this.shouldLog("success", message)) return;
     const formatted = this.formatMessage("success", message, context);
     console.log(formatted);
+    enqueueBackendLog({ level: "info", msg: formatted });
   }
 
   auth(message: string, context?: LogContext): void {

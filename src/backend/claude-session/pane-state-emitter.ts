@@ -55,8 +55,6 @@
  * 30-CONTEXT.md). The frontend treats `reason` as free-form diagnostic text.
  */
 
-import { databaseLogger } from "../utils/logger.js";
-
 // ── Type surface ────────────────────────────────────────────────────────────
 
 /**
@@ -182,11 +180,9 @@ export function createPaneStateEmitter(
       current.state === state &&
       current.reason === reason
     ) {
-      databaseLogger.info(`[pane-state-emitter] emit-suppressed-dedupe state=${state} reason="${reason ?? ''}" prevState=${current.state} prevReason="${current.reason ?? ''}"`, { operation: "pane_state_emit_dedupe" });
       return;
     }
 
-    databaseLogger.info(`[pane-state-emitter] emit state=${state} reason="${reason ?? ''}" prevState=${current?.state ?? 'null'} prevReason="${current?.reason ?? ''}"`, { operation: "pane_state_emit" });
     current = { state, reason };
     wsSend(JSON.stringify(buildFrame(state, reason)));
   };
