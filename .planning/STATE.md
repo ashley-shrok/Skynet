@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-10T11:45:14.805Z"
-last_activity: 2026-08-10
+last_updated: "2026-08-11T09:22:23.571Z"
+last_activity: "2026-08-11 — Completed quick task 260811-8we (prettyview-auto-play-new-assistant-messages-longpress-arm) — code + tests green, awaiting Ashley's ship word. Extended per-bubble TTS (patches #223+#240) with long-press-to-arm autoplay: ~500ms hold on any assistant bubble's speak button arms per-pane autoplay + starts speaking that bubble; new assistant `message` frames while armed+visible auto-fire the same speak path via `autoplayTargetEventId` dispatch. Relay bubbles excluded by construction (separate components). 23 new tests (LP/AP/TINT/REG/D matrix), 1870 total pass EXIT 0."
 progress:
-  total_phases: 30
+  total_phases: 31
   completed_phases: 24
   total_plans: 121
   completed_plans: 117
-  percent: 80
+  percent: 77
 ---
 
 # Project State
@@ -484,6 +484,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-10T11:44:59.393Z
-Stopped at: Completed 29-04-PLAN.md — PrettyView.tsx rewired to consume usePaneResolvingMachine; 5 useEffects deleted (600000ms watchdog + 10s auto-dismiss + patch #74 delay-arm + reset + isBootingRef mirror); 3 useState hooks retired (showOverlay/holdingTimeoutError/isBooting); mount gates flipped to phase === "..."; PrettyViewErrorOverlay mounted at phase === "error"; session-recycling-store publisher rewired to phase === "holding"; ComposeBox props derived from phase. TypeScript clean; 19 PrettyView.test.tsx tests broken by mount-gate rewire (expected — 29-05 owns the test audit; failing tests enumerated in 29-04-SUMMARY.md). Awaiting 29-05 to close out phase.
-Resume file: None
+Last session: 2026-08-11T09:22:23.511Z
+Stopped at: Phase 31 context gathered
+Resume file: .planning/phases/31-whole-app-structured-logging-backfill/31-CONTEXT.md
