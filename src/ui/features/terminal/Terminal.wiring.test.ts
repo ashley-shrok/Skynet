@@ -587,16 +587,19 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     // cannot fight the pause otherwise.
     const fnIdx = src.indexOf("function attemptReconnection() {");
     expect(fnIdx).toBeGreaterThan(0);
-    // Read the first ~400 chars of the function body (enough to cover the
-    // planted comment + guard + the original guard block start).
-    const body = src.slice(fnIdx, fnIdx + 500);
+    // Read the first ~800 chars of the function body (enough to cover the
+    // planted comment + guard + the original guard block start; block form
+    // with pause-gate log from 31-02 instrumentation is longer than original).
+    const body = src.slice(fnIdx, fnIdx + 800);
     // The guard line — anchored on the planted comment tag for deterministic
     // matching that survives reformatting.
     expect(body).toContain("quick-260809-eqk: hidden panes must not fight the WS-pause effect");
-    expect(body).toMatch(/if \(!isVisibleRef\.current\) return;/);
+    // Guard may be single-line return or block form with pause-gate log (31-02 instrumentation)
+    expect(body).toMatch(/if \(!isVisibleRef\.current\)/);
     // Positional check: the isVisibleRef guard appears BEFORE the pre-existing
     // guard block on isUnmountingRef / shouldNotReconnectRef.
-    const guardIdx = body.indexOf("if (!isVisibleRef.current) return;");
+    // Guard may be block form with pause-gate log (31-02 instrumentation).
+    const guardIdx = body.indexOf("if (!isVisibleRef.current)");
     const oldGuardIdx = body.indexOf("isUnmountingRef.current ||");
     expect(guardIdx).toBeGreaterThan(0);
     expect(oldGuardIdx).toBeGreaterThan(guardIdx);
@@ -613,7 +616,8 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     // a multi-line rationale block; 800 chars covers ~10 comment lines +
     // the guard line itself).
     const window = src.slice(anchorIdx, anchorIdx + 800);
-    expect(window).toMatch(/if \(!isVisibleRef\.current\) return;/);
+    // Guard may be single-line return or block form with pause-gate log (31-02 instrumentation)
+    expect(window).toMatch(/if \(!isVisibleRef\.current\)/);
     // Positional check: the guard must live in the VISIBLE branch (after
     // `document.hidden` early return, and inside the isIosPwa-gated effect).
     // Locate `if (document.hidden)` before the anchor and confirm it exists —
@@ -646,7 +650,8 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     // comment — the effect body is ~30 lines; the comment itself grew).
     const window = src.slice(anchorIdx, anchorIdx + 2500);
     // Body-gate assertion (patch #368): early-return on !isVisibleRef.current.
-    expect(window).toMatch(/if\s*\(\s*!isVisibleRef\.current\s*\)\s*return\s*;/);
+    // Guard may be single-line or block form with pause-gate log (31-02 instrumentation)
+    expect(window).toMatch(/if\s*\(\s*!isVisibleRef\.current\s*\)/);
     // Deps array MUST include `attach`. Match the deps closing shape.
     const depsMatch = window.match(/\}, \[([^\]]+)\]\);/);
     expect(depsMatch).not.toBeNull();
@@ -801,14 +806,16 @@ describe("quick-260809-ih9 — pause-effect initial-mount race fix (prevIsVisibl
     expect(fnBody).toContain(
       "quick-260809-eqk: hidden panes must not fight the WS-pause effect",
     );
-    expect(fnBody).toMatch(/if \(!isVisibleRef\.current\) return;/);
+    // Guard may be single-line return or block form with pause-gate log (31-02 instrumentation)
+    expect(fnBody).toMatch(/if \(!isVisibleRef\.current\)/);
     // Patch #368: WS-setup effect at L3000 body-gates on !isVisibleRef.
     const setupAnchor = "attach gates initial WS lifecycle";
     const setupIdx = src.indexOf(setupAnchor);
     expect(setupIdx).toBeGreaterThan(0);
     const setupWindow = src.slice(setupIdx, setupIdx + 2500);
+    // Guard may be single-line or block form with pause-gate log (31-02 instrumentation)
     expect(setupWindow).toMatch(
-      /if\s*\(\s*!isVisibleRef\.current\s*\)\s*return\s*;/,
+      /if\s*\(\s*!isVisibleRef\.current\s*\)/,
     );
     // Setup effect deps unchanged — still exactly the patch #368 shape.
     const depsMatch = setupWindow.match(/\}, \[([^\]]+)\]\);/);
