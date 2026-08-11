@@ -3387,12 +3387,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           </div>
         )}
 
-        <ConnectionLog
-          isConnecting={isConnecting}
-          isConnected={isConnected}
-          hasConnectionError={hasConnectionError && !showDisconnectedOverlay}
-          position={hasConnectionError ? "top" : "bottom"}
-        />
+        {!isPrettyMode && (
+          <ConnectionLog
+            isConnecting={isConnecting}
+            isConnected={isConnected}
+            hasConnectionError={hasConnectionError && !showDisconnectedOverlay}
+            position={hasConnectionError ? "top" : "bottom"}
+          />
+        )}
 
         <TOTPDialog
           isOpen={totpRequired}
