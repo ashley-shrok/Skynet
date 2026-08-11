@@ -65,7 +65,6 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
 
   const file = req.file;
   const ext = extFromMimetype(file.mimetype);
-  databaseLogger.info(`[voice-server] transcribe-req byteSize=${file.size} mimetype=${file.mimetype}`, { operation: "voice_transcribe" });
 
   // (b) Build a fresh FormData for the STT request
   // multer parsed the incoming multipart into file.buffer; we re-construct
@@ -106,8 +105,6 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
 
     // (g) 2xx: forward STT JSON verbatim
     const sttJson = await response.json() as unknown;
-    const textLen = (sttJson as { text?: string } | null)?.text?.length ?? 0;
-    databaseLogger.info(`[voice-server] transcribe-ok status=${response.status} textLen=${textLen}`, { operation: "voice_transcribe" });
     return res.status(200).json(sttJson);
   } catch (err: unknown) {
     clearTimeout(timeoutId);
@@ -116,14 +113,14 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     if (
       err instanceof DOMException && err.name === "AbortError"
     ) {
-      databaseLogger.error(`[voice-server] transcribe-timeout`, err, {
+      databaseLogger.error("Voice STT request timed out", err, {
         operation: "voice_transcribe_timeout",
       });
       return res.status(504).json({ error: "STT timeout", status: 504 });
     }
 
     // Anything else → 502 proxy error
-    databaseLogger.error(`[voice-server] transcribe-proxy-error`, err, {
+    databaseLogger.error("Voice STT proxy error", err, {
       operation: "voice_transcribe_proxy",
     });
     return res.status(502).json({ error: "STT proxy error", status: 502 });
@@ -146,8 +143,6 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
       return res.status(400).json({ error: "body.voice must match [A-Z][A-Za-z]+\\.wav" });
     }
   }
-
-  databaseLogger.info(`[voice-server] speak-req textLen=${(req.body.text as string).length} voice="${req.body.voice ?? DEFAULT_VOICE}"`, { operation: "voice_speak" });
 
   // (c) AbortController: 300-second (5 min) TTS timeout — 10x handleTranscribe's 30s cap.
   // TTS synthesis time scales with input length, and SPEAK_TEXT_MAX = 25000 chars can
@@ -184,7 +179,6 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
 
     // (g) 2xx: pipe wav bytes back
     const buf = Buffer.from(await response.arrayBuffer());
-    databaseLogger.info(`[voice-server] speak-ok status=${response.status} byteSize=${buf.length}`, { operation: "voice_speak" });
     res.status(200).set("Content-Type", "audio/wav");
     res.end(buf);
     return res;
@@ -193,13 +187,13 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
 
     // (h) AbortError → 504 timeout
     if (err instanceof DOMException && err.name === "AbortError") {
-      databaseLogger.error(`[voice-server] speak-timeout`, err, {
+      databaseLogger.error("Voice TTS speak request timed out", err, {
         operation: "voice_speak_timeout",
       });
       return res.status(504).json({ error: "TTS timeout", status: 504 });
     }
 
-    databaseLogger.error(`[voice-server] speak-proxy-error`, err, {
+    databaseLogger.error("Voice TTS speak proxy error", err, {
       operation: "voice_speak_proxy",
     });
     return res.status(502).json({ error: "TTS proxy error", status: 502 });
@@ -234,8 +228,6 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       return;
     }
   }
-
-  databaseLogger.info(`[voice-server] speak-stream-req textLen=${(req.body.text as string).length} voice="${req.body.voice ?? DEFAULT_VOICE}"`, { operation: "voice_speak_stream" });
 
   // (c) AbortController: 300-second (5 min) TTS timeout — same cap as handleSpeak (patch #232 lesson).
   const controller = new AbortController();
@@ -280,8 +272,6 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     res.setHeader("Content-Type", "audio/wav");
     res.setHeader("X-Accel-Buffering", "no");
 
-    databaseLogger.info(`[voice-server] speak-stream-ok status=${response.status}`, { operation: "voice_speak_stream" });
-
     // Bridge WHATWG ReadableStream → Node.js Writable and pipe to res.
     // DO NOT await response.arrayBuffer()/.text()/.blob() — pipe-through only.
     const { Readable } = await import("node:stream");
@@ -294,7 +284,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
 
     // (h) AbortError → 504 timeout
     if (err instanceof DOMException && err.name === "AbortError") {
-      databaseLogger.error(`[voice-server] speak-stream-timeout`, err, {
+      databaseLogger.error("Voice TTS speak-stream request timed out", err, {
         operation: "voice_speak_stream_timeout",
       });
       res.status(504).json({ error: "TTS stream timeout", status: 504 });
@@ -302,7 +292,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     }
 
     // Anything else → 502 proxy error
-    databaseLogger.error(`[voice-server] speak-stream-proxy-error`, err, {
+    databaseLogger.error("Voice TTS speak-stream proxy error", err, {
       operation: "voice_speak_stream_proxy",
     });
     res.status(502).json({ error: "TTS stream proxy error", status: 502 });
@@ -337,13 +327,13 @@ export async function handleListVoices(req: Request, res: Response): Promise<Res
     clearTimeout(timeoutId);
 
     if (err instanceof DOMException && err.name === "AbortError") {
-      databaseLogger.error(`[voice-server] list-voices-timeout`, err, {
+      databaseLogger.error("Voice list voices request timed out", err, {
         operation: "voice_list_voices_timeout",
       });
       return res.status(504).json({ error: "voices timeout", status: 504 });
     }
 
-    databaseLogger.error(`[voice-server] list-voices-proxy-error`, err, {
+    databaseLogger.error("Voice list voices proxy error", err, {
       operation: "voice_list_voices_proxy",
     });
     return res.status(502).json({ error: "voices proxy error", status: 502 });

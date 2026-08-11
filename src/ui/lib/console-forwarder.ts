@@ -9,12 +9,6 @@
  * On iOS PWA tab-close (visibilitychange/pagehide), issues a final flush
  * via navigator.sendBeacon so in-flight logs are delivered.
  *
- * Phase 31 Plan 01 extension: the LogEntry envelope now carries optional
- * hostId/sessionKey fields (already accepted server-side by debug.ts).
- * Call setLogContext({ hostId, sessionKey }) once hostId is known (e.g.
- * from AppShell's active tab). Fields are OMITTED from the JSON when not
- * set, preserving wire-format compat with debug.ts's `"hostId" in e` guard.
- *
  * This module is intentionally side-effect-free until initConsoleForwarder()
  * is called. Call it once at the top of main.tsx, before snapshotPendingTab().
  */
@@ -27,15 +21,7 @@ type LogEntry = {
   ts: string;
   level: LogLevel;
   tabId: string;
-  hostId?: number;
-  sessionKey?: string;
   msg: string;
-};
-
-/** Context fields threaded into every LogEntry when set via setLogContext(). */
-export type LogContext = {
-  hostId?: number;
-  sessionKey?: string;
 };
 
 // --- module-scoped state ---
@@ -45,20 +31,6 @@ const MAX_BATCH = 20;
 const FLUSH_INTERVAL_MS = 500;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let initialized = false;
-let currentContext: LogContext = {};
-
-// --- log context API ---
-
-/**
- * Sets the per-tab log context fields threaded into every subsequent LogEntry.
- * Pass an empty object `{}` to clear (no hostId/sessionKey in future entries).
- *
- * Caller MUST pass numeric hostId and opaque sessionKey only.
- * Sensitive fields (SSH keys, passwords, JWT bodies) MUST NEVER be logged.
- */
-export function setLogContext(ctx: LogContext): void {
-  currentContext = { ...ctx };
-}
 
 // --- helpers ---
 
@@ -128,12 +100,6 @@ function enqueue(level: LogLevel, args: unknown[]): void {
     ts: new Date().toISOString(),
     level,
     tabId: getTabId(),
-    ...(currentContext.hostId !== undefined
-      ? { hostId: currentContext.hostId }
-      : {}),
-    ...(currentContext.sessionKey !== undefined
-      ? { sessionKey: currentContext.sessionKey }
-      : {}),
     msg: args.map(serializeArg).join(" "),
   });
 
@@ -172,12 +138,6 @@ export function initConsoleForwarder(
       ts: new Date().toISOString(),
       level,
       tabId: getTabId(),
-      ...(currentContext.hostId !== undefined
-        ? { hostId: currentContext.hostId }
-        : {}),
-      ...(currentContext.sessionKey !== undefined
-        ? { sessionKey: currentContext.sessionKey }
-        : {}),
       msg: args.map(serializeArg).join(" "),
     };
     buffer.push(entry);
@@ -218,11 +178,6 @@ export function __test_getBuffer(): LogEntry[] {
   return [...buffer];
 }
 
-/** @internal test-only — returns the current log context */
-export function __test_getContext(): LogContext {
-  return { ...currentContext };
-}
-
 /** @internal test-only — resets module state between tests */
 export function __test_reset(): void {
   buffer.splice(0);
@@ -231,5 +186,4 @@ export function __test_reset(): void {
     flushTimer = null;
   }
   initialized = false;
-  currentContext = {};
 }

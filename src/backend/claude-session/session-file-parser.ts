@@ -28,8 +28,6 @@
  * scope is narrower than what the library does.
  */
 
-import { databaseLogger as sessionParserLogger } from "../utils/logger.js";
-
 // ---------------------------------------------------------------------------
 // Phase 17 relay detection regexes — ported byte-for-byte from
 // prototype.html § detectOutbound (2026-07-28 6/6 acceptance) — do not loosen
@@ -437,7 +435,6 @@ export function parseSessionLine(line: string): ParsedLine {
   try {
     obj = JSON.parse(trimmed) as Record<string, unknown>;
   } catch {
-    sessionParserLogger.info(`[session-parser] classify result=malformed bytesRead=${trimmed.length}`, { operation: "session_classify" });
     return { kind: "malformed", bytes: trimmed.length };
   }
 
@@ -533,7 +530,6 @@ export function parseSessionLine(line: string): ParsedLine {
         const parsedR = Date.parse(rawTsR);
         if (Number.isFinite(parsedR)) tsR = parsedR;
       }
-      sessionParserLogger.info(`[session-parser] classify result=relay_inbound room="${inbound.room}" eventId=${eventIdR}`, { operation: "session_classify" });
       return {
         kind: "relay_inbound",
         room: inbound.room,
@@ -573,7 +569,6 @@ export function parseSessionLine(line: string): ParsedLine {
         const parsedO = Date.parse(rawTsO);
         if (Number.isFinite(parsedO)) tsO = parsedO;
       }
-      sessionParserLogger.info(`[session-parser] classify result=relay_outbound room="${outbound.room}" eventId=${eventIdO}`, { operation: "session_classify" });
       return {
         kind: "relay_outbound",
         room: outbound.room,
@@ -659,7 +654,6 @@ export function parseSessionLine(line: string): ParsedLine {
       obj.toolUseResult !== undefined && obj.toolUseResult !== null;
     const imageRole: "user" | "assistant" | "tool_result" =
       anyToolUseId || cameFromToolUseResult ? "tool_result" : role;
-    sessionParserLogger.info(`[session-parser] classify result=image role=${imageRole} imageCount=${imageRefs.length} eventId=${eventId}`, { operation: "session_classify" });
     return {
       kind: "image",
       role: imageRole,
@@ -670,7 +664,6 @@ export function parseSessionLine(line: string): ParsedLine {
     };
   }
 
-  sessionParserLogger.info(`[session-parser] classify result=message role=${role} contentLen=${content.length} eventId=${eventId}`, { operation: "session_classify" });
   return {
     kind: "message",
     role,
