@@ -985,7 +985,7 @@ Plans:
 **Goal:** Instrument the whole Skynet app so remote maintainers can diagnose bugs from `/opt/skynet/console-forward-logs/console-forward.log` alone. Wide-net instrumentation across every subsystem where a bug could conceivably need diagnosis: WS lifecycle + pause-gate + reopen ladder + load-bearing ref transitions in Terminal.tsx; full TTS/speak pipeline in ChatMessage.tsx; voice recording golden-copy retrofit; PWA + compose + tap + render lifecycle; backend logs unified into the same console-forward.log via a new console-forward-transport module; backend surfaces (WS server, pane-state emitter, session-file parser, tmux-helper, host CRUD, voice server) all normalized to the D-13 canonical prefix taxonomy. Instrumentation-only phase per D-22 — the two deferred symptom bounties (`ws-pause-gate-stuck-connect-cycling`, `speak-button-broken-on-cellular`) do NOT get diagnosed or fixed here, only made diagnosable.
 **Requirements**: Decisions D-01..D-22 in `.planning/phases/31-whole-app-structured-logging-backfill/31-CONTEXT.md` (this phase's requirements are captured as D-nnn decisions rather than REQ-nnn IDs — every D-nnn is reflected in at least one plan's tasks; see per-plan `requirements` frontmatter for the D-nnn coverage map)
 **Depends on:** Phase 30
-**Plans:** 7/9 plans executed
+**Plans:** 8/9 plans executed
 
 **Wave 1** — Foundation (no deps)
 
@@ -1002,7 +1002,7 @@ Plans:
 
 **Wave 3** *(blocked on 31-07 — backend surface instrumentation depends on the transport landing)*
 
-- [ ] 31-08-PLAN.md — claude-session-server.ts WS lifecycle + eliminate 20+ silent try{ws.send}catch{ignore} sites + pane-state-emitter emit() correlation + session-file-parser classify decisions + tmux-helper SSH exec boundaries + host.ts + voice.ts existing calls normalized to [host-db] + [voice-server] prefixes (D-01, D-03, D-05, D-11..D-14, D-16)
+- [x] 31-08-PLAN.md — claude-session-server.ts WS lifecycle + eliminate 20+ silent try{ws.send}catch{ignore} sites + pane-state-emitter emit() correlation + session-file-parser classify decisions + tmux-helper SSH exec boundaries + host.ts + voice.ts existing calls normalized to [host-db] + [voice-server] prefixes (D-01, D-03, D-05, D-11..D-14, D-16)
 
 **Wave 4** *(blocked on all — final coverage sweep)*
 
