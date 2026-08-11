@@ -696,10 +696,16 @@ export function PrettyView({
   //
   // The paneState value drives every overlay mount gate below via the
   // trivial usePaneResolvingMachine hook + pure resolveRenderedState
-  // reducer. No ref-mirror needed — the derivation is pure and reads
+  // reducer. paneStateRef mirrors paneState for stale-closure-safe reads
+  // inside the WS onmessage handler (D-18 transition guard needs from=).
+  // Pattern mirrors dormantRef / isVisibleRef / autoplayArmedRef above.
   // React state directly. No client-inference indirection — every
   // ~10 legacy client-hint call sites DELETED per PS30-04 + PS30-05.
   const [paneState, setPaneState] = useState<PaneState | null>(null);
+  // Phase 31 (plan 31-06): ref mirror for stale-closure-safe from= read in
+  // the [pane-state] state-transition log inside the WS onmessage handler.
+  // Mirror effect is below with other ref-mirror effects.
+  const paneStateRef = useRef<PaneState | null>(null);
 
   // Phase 05: touch-device gate for the mobile paperclip (UPLOAD-03).
   // The paperclip appears on touch devices only — desktop NEVER sees it
@@ -1133,6 +1139,16 @@ export function PrettyView({
           // the UI (T-30-03-03 information-disclosure mitigation — future UI
           // enhancements that surface reason must go through a fresh threat
           // review).
+          // Phase 31 (plan 31-06 / D-16): receive-side log. Pairs with
+          // backend [pane-state-emitter] from plan 31-08 for D-16 cross-side
+          // correlation — match on sessionId= field in both logs.
+          console.info(`[pane-state] received phase=${parsed.state} reason="${parsed.reason ?? ''}" sessionId=${tmuxSession ?? 'null'} hostId=${hostId}`);
+          // D-18 discipline: only log a transition when the value actually changes.
+          // paneStateRef.current holds the stale-closure-safe previous value
+          // (mirrors paneState via the mirror useEffect below).
+          if (paneStateRef.current !== parsed.state) {
+            console.info(`[pane-state] state-transition from=${paneStateRef.current ?? 'null'} to=${parsed.state} trigger=pane-state-frame sessionId=${tmuxSession ?? 'null'} hostId=${hostId}`);
+          }
           setPaneState(parsed.state);
           break;
         }
@@ -1586,6 +1602,14 @@ export function PrettyView({
     dormantRef.current = dormant;
   }, [dormant]);
 
+  // Phase 31 (plan 31-06): paneStateRef mirror — keeps paneStateRef.current
+  // in sync with `paneState` so the WS onmessage handler's [pane-state]
+  // state-transition log can read the from= value without stale-closure risk.
+  // Pattern mirrors dormantRef / isVisibleRef / autoplayArmedRef above.
+  useEffect(() => {
+    paneStateRef.current = paneState;
+  }, [paneState]);
+
   // quick 260809-cnx: prevIsVisibleRef edge detector for the waking-reset
   // useEffect below. Initialized to current isVisible so the initial mount
   // (prev === isVisible) does NOT fire the reset — only true false→true
@@ -1725,6 +1749,7 @@ export function PrettyView({
   }, [messages]);
   useEffect(() => {
     const key = `pretty-view:${hostId}:${tmuxSession ?? ""}`;
+    console.info(`[render] pane-mount paneId=${key} paneType=pretty-view hostId=${hostId} sessionKey=${tmuxSession ?? 'null'}`);
     const snapshotFn = (): PaneSnapshot => {
       const framesSinceLast = wsFramesRef.current;
       wsFramesRef.current = 0;
@@ -1749,7 +1774,11 @@ export function PrettyView({
           : 0,
       };
     };
-    return registerPane(key, snapshotFn);
+    const unregister = registerPane(key, snapshotFn);
+    return () => {
+      console.info(`[render] pane-unmount paneId=${key} paneType=pretty-view hostId=${hostId} sessionKey=${tmuxSession ?? 'null'}`);
+      unregister();
+    };
   }, [hostId, tmuxSession]);
 
   // Phase 30 note: several Phase-29 useEffects that lived here are DELETED
