@@ -335,6 +335,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // we can invoke it directly for buffered messages captured by earlyMsgHandler
   // above (which we now detach — the real handler owns 'message' from here on).
   const realMessageHandler = async (msg: RawData): Promise<void> => {
+    // [msgdiag] #405 — log every message received AT THE TOP (before any
+    // handler branching) so we can confirm whether the client's
+    // connectToHost for hostId=6 actually reaches the backend. Uses
+    // process.stdout.write directly (bypasses Logger/enqueueBackendLog
+    // path entirely) so a wedged logger cannot hide the arrival.
+    try {
+      const rawStr = msg.toString();
+      const rawPreview = rawStr.slice(0, 120).replace(/\n/g, "\\n");
+      process.stdout.write(`[msgdiag] recv userId=${userId} sessionId=${sessionId} bytes=${rawStr.length} preview="${rawPreview}"\n`);
+    } catch {
+      /* never let diag crash the handler */
+    }
     const currentDataKey = userCrypto.getUserDataKey(userId);
     if (!currentDataKey) {
       ws.send(
@@ -1391,6 +1403,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
   }
 
   async function handleConnectToHost(data: ConnectToHostData) {
+    // [msgdiag] #405 — log entry BEFORE any destructuring or logger call so we
+    // pin whether handleConnectToHost is even entered for the failing hostId=6
+    // case. Uses process.stdout.write directly to bypass Logger/enqueueBackendLog
+    // in case the wedge is inside the logger stack.
+    try {
+      const hostIdPreview = (data as { hostConfig?: { id?: unknown; ip?: unknown } })?.hostConfig?.id;
+      const ipPreview = (data as { hostConfig?: { id?: unknown; ip?: unknown } })?.hostConfig?.ip;
+      process.stdout.write(`[msgdiag] handleConnectToHost-entry userId=${userId} sessionId=${sessionId} hostId=${String(hostIdPreview)} ip=${String(ipPreview)}\n`);
+    } catch {
+      /* never let diag crash the handler */
+    }
     const {
       hostConfig,
       initialPath,

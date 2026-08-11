@@ -1368,6 +1368,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           if (isAttachingSessionRef.current !== true) { console.info(`[ws] isAttachingSessionRef-transition edge=${isAttachingSessionRef.current}→true trigger=ws-open-attach hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           isAttachingSessionRef.current = true;
 
+          // [wsdiag] #405 log the attempt BEFORE ws.send so we can pin whether
+          // send() itself threw synchronously (would leave the log without a
+          // subsequent send-ok) vs the message never arriving backend-side.
+          try {
+            console.log(`[wsdiag] send-attempt wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} type=attachSession readyState=${ws.readyState} t=${Date.now()}`);
+          } catch { /* ignore */ }
           ws.send(
             JSON.stringify({
               type: "attachSession",
@@ -1379,9 +1385,21 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               },
             }),
           );
+          try {
+            console.log(`[wsdiag] send-ok wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} type=attachSession t=${Date.now()}`);
+          } catch { /* ignore */ }
         } else {
           if (isAttachingSessionRef.current !== false) { console.info(`[ws] isAttachingSessionRef-transition edge=${isAttachingSessionRef.current}→false trigger=ws-open-connect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           isAttachingSessionRef.current = false;
+          // [wsdiag] #405 log attempt + ok around connectToHost send. If we see
+          // send-attempt but no send-ok on client, ws.send threw. If we see
+          // both on client but no [msgdiag] recv on backend, message was lost
+          // in transit (network / nginx / docker). If backend recv fires but
+          // no [msgdiag] handleConnectToHost-entry, the switch/JSON.parse path
+          // is blocked. Triangulates the failure point precisely.
+          try {
+            console.log(`[wsdiag] send-attempt wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} type=connectToHost hostId=${hostConfig.id} ip=${hostConfig.ip} readyState=${ws.readyState} t=${Date.now()}`);
+          } catch { /* ignore */ }
           ws.send(
             JSON.stringify({
               type: "connectToHost",
@@ -1396,6 +1414,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               },
             }),
           );
+          try {
+            console.log(`[wsdiag] send-ok wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} type=connectToHost hostId=${hostConfig.id} ip=${hostConfig.ip} t=${Date.now()}`);
+          } catch { /* ignore */ }
         }
         terminal.onData((data) => {
           trackInput(data);
