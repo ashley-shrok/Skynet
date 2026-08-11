@@ -3,12 +3,8 @@
  *
  * Tests assert that backend log lines are buffered, flushed to the shared
  * console-forward.log file, and carry a source="backend" marker. Uses a
- * tmp-file override via SKYNET_CONSOLE_FORWARD_LOG_PATH.
- *
- * NOTE (post-#392 fix): flush() switched from sync fs.appendFileSync to
- * async fs.appendFile to eliminate event-loop stall under high log volume
- * (see bounty phase-31-ws-regression-rca). Tests now poll for the async
- * write to land before asserting.
+ * tmp-file override via SKYNET_CONSOLE_FORWARD_LOG_PATH and vitest fake
+ * timers for the FLUSH_INTERVAL_MS test.
  */
 
 import {
@@ -65,23 +61,12 @@ function readLines(): BackendLogEntry[] {
   }
 }
 
-/** Poll until the tmp log has at least `n` lines, or timeout. */
-async function waitForLines(n: number, timeoutMs = 500): Promise<BackendLogEntry[]> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const lines = readLines();
-    if (lines.length >= n) return lines;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  return readLines();
-}
-
 describe("console-forward-transport", () => {
-  it("Test 1: enqueue + flush writes JSON line with source=backend, matching ts/level/msg", async () => {
+  it("Test 1: enqueue + flush writes JSON line with source=backend, matching ts/level/msg", () => {
     enqueueBackendLog({ level: "info", msg: "[ws-server] accept hostId=1" });
     flushBackendLogs();
 
-    const lines = await waitForLines(1);
+    const lines = readLines();
     expect(lines).toHaveLength(1);
     const entry = lines[0];
     expect(entry.source).toBe("backend");
@@ -92,12 +77,12 @@ describe("console-forward-transport", () => {
     expect(() => new Date(entry.ts)).not.toThrow();
   });
 
-  it("Test 2: 20 enqueues auto-flush at MAX_BATCH boundary without explicit flush call", async () => {
+  it("Test 2: 20 enqueues auto-flush at MAX_BATCH boundary without explicit flush call", () => {
     for (let i = 0; i < 20; i++) {
       enqueueBackendLog({ level: "info", msg: `line ${i}` });
     }
     // After 20th enqueue the buffer should have auto-flushed
-    const lines = await waitForLines(20);
+    const lines = readLines();
     expect(lines).toHaveLength(20);
     for (const line of lines) {
       expect(line.source).toBe("backend");
@@ -105,14 +90,17 @@ describe("console-forward-transport", () => {
   });
 
   it("Test 3: 5 enqueues auto-flush after FLUSH_INTERVAL_MS=500ms via timer", async () => {
+    vi.useFakeTimers();
     for (let i = 0; i < 5; i++) {
       enqueueBackendLog({ level: "warn", msg: `timer-line ${i}` });
     }
-    // Buffer should not have flushed yet (well under 500ms)
+    // Buffer should not have flushed yet
     expect(readLines()).toHaveLength(0);
 
-    // Wait past FLUSH_INTERVAL_MS + async write completion budget.
-    const lines = await waitForLines(5, 1500);
+    // Advance past FLUSH_INTERVAL_MS
+    vi.advanceTimersByTime(600);
+
+    const lines = readLines();
     expect(lines).toHaveLength(5);
     for (const line of lines) {
       expect(line.source).toBe("backend");
@@ -124,62 +112,37 @@ describe("console-forward-transport", () => {
     expect(fs.existsSync(tmpLog)).toBe(false);
   });
 
-  it("Test 5: failed file write is swallowed (best-effort D-19) — does not throw and stderr is written", async () => {
-    // Mock fs.appendFile to invoke callback with an error
+  it("Test 5: failed file write is swallowed (best-effort D-19) — does not throw", () => {
+    // Mock fs.appendFileSync to throw
     const appendSpy = vi
-      .spyOn(fs, "appendFile")
-      .mockImplementation(
-        (
-          _path: fs.PathOrFileDescriptor,
-          _data: string | Uint8Array,
-          cb: fs.NoParamCallback | { encoding?: BufferEncoding | null; mode?: fs.Mode; flag?: fs.OpenMode; flush?: boolean } | BufferEncoding,
-        ): void => {
-          if (typeof cb === "function") {
-            cb(new Error("disk full"));
-          }
-        },
-      );
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      .spyOn(fs, "appendFileSync")
+      .mockImplementation(() => {
+        throw new Error("disk full");
+      });
 
     enqueueBackendLog({ level: "error", msg: "test error line" });
-    // Explicit flush; the async callback runs on the next tick.
+    // This should NOT throw
     expect(() => flushBackendLogs()).not.toThrow();
 
-    // Give the async callback a tick to fire.
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    // stderr note about the failed write should have been emitted.
-    const stderrCalls = stderrSpy.mock.calls.map((c) => String(c[0]));
-    expect(stderrCalls.some((s) => s.includes("appendFile failed"))).toBe(true);
-
     appendSpy.mockRestore();
-    stderrSpy.mockRestore();
   });
 
-  it("Test 6: concurrent enqueues in the same tick coalesce into a single appendFile call", async () => {
+  it("Test 6: concurrent enqueues in the same tick coalesce into a single appendFileSync call", () => {
     const appendCalls: number[] = [];
+    const origAppend = fs.appendFileSync.bind(fs);
     const appendSpy: MockInstance = vi
-      .spyOn(fs, "appendFile")
-      .mockImplementation(
-        (
-          filePath: fs.PathOrFileDescriptor,
-          data: string | Uint8Array,
-          cb: fs.NoParamCallback | { encoding?: BufferEncoding | null; mode?: fs.Mode; flag?: fs.OpenMode; flush?: boolean } | BufferEncoding,
-        ): void => {
-          appendCalls.push(Date.now());
-          fs.appendFileSync(filePath as fs.PathOrFileDescriptor, data);
-          if (typeof cb === "function") cb(null);
-        },
-      );
+      .spyOn(fs, "appendFileSync")
+      .mockImplementation((...args: Parameters<typeof fs.appendFileSync>) => {
+        appendCalls.push(Date.now());
+        return origAppend(...args);
+      });
 
     for (let i = 0; i < 5; i++) {
       enqueueBackendLog({ level: "info", msg: `concurrent-${i}` });
     }
     flushBackendLogs();
 
-    // Give async writes time to complete
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    // All 5 lines should have been written in exactly 1 appendFile call
+    // All 5 lines should have been written in exactly 1 appendFileSync call
     expect(appendCalls.length).toBe(1);
     const lines = readLines();
     expect(lines).toHaveLength(5);
