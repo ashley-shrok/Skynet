@@ -138,6 +138,44 @@ export async function getIdentityExistsOnHost(
   }
 }
 
+// ─── Quick 260811-ax1: per-identity .no-dormancy sentinel toggle ─────────────
+// Backing routes: src/backend/database/routes/identity-no-dormancy.ts
+// GET /identities/:key/no-dormancy?hostId=<n> → { present: boolean }
+// PUT /identities/:key/no-dormancy body { present: boolean } + query hostId=<n> → { present: boolean }
+// Consumed by IdentityModal DialogHeader "Stays awake" switch.
+
+export async function getIdentityNoDormancy(
+  identityKey: string,
+  hostId: number,
+): Promise<boolean> {
+  try {
+    const response = await authApi.get(
+      `/identities/${encodeURIComponent(identityKey)}/no-dormancy`,
+      { params: { hostId } },
+    );
+    return (response.data as { present: boolean }).present;
+  } catch (error) {
+    handleApiError(error, "read stays-awake sentinel");
+  }
+}
+
+export async function setIdentityNoDormancy(
+  identityKey: string,
+  hostId: number,
+  present: boolean,
+): Promise<boolean> {
+  try {
+    const response = await authApi.put(
+      `/identities/${encodeURIComponent(identityKey)}/no-dormancy`,
+      { present },
+      { params: { hostId } },
+    );
+    return (response.data as { present: boolean }).present;
+  } catch (error) {
+    handleApiError(error, "update stays-awake sentinel");
+  }
+}
+
 // ─── Phase 22 (SRIC-02): roles list per host ─────────────────────────────────
 // Backing route: src/backend/database/routes/roles-list-for-host.ts
 // GET /roles?hostId=<n> → [{name, description}]

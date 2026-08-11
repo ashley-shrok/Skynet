@@ -17,6 +17,7 @@ import openTabsRoutes from "./routes/open-tabs.js";
 import identitiesRoutes from "./routes/identities.js";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
+import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
 // Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
 // with the same match-precedence discipline (specific paths BEFORE /identities).
@@ -1816,6 +1817,10 @@ app.use("/identities/clone", identityCloneRoutes);
 // Phase 20 (IDUI-05): target-host-side identity name collision probe — mount
 // BEFORE /identities so /identities/exists-on-host resolves here first.
 app.use("/identities", identityExistsOnHostRoutes);
+// Quick 260811-ax1: per-identity .no-dormancy sentinel toggle — mount BEFORE
+// the generic /identities router so /:key/no-dormancy resolves here and does
+// not fall through to identitiesRoutes's /:id routes.
+app.use("/identities", identityNoDormancyRoutes);
 // Phase 22 (SRIC-02): /roles?hostId=<n> — target-host-side role directory
 // enumeration. Standalone mount; kept ABOVE /identities to preserve match
 // precedence should a future /roles subpath ever collide.
