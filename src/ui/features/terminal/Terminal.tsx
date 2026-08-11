@@ -406,7 +406,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       if (!isIosPwa()) return;
       const handleVisibilityChange = () => {
-        console.info(`[wsdiag] visibilitychange hidden=${document.hidden} isVisibleRef=${isVisibleRef.current} hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? "null"} wsReadyState=${webSocketRef.current?.readyState ?? "null"} wsId=${(webSocketRef.current as unknown as { __wsdiagId?: number } | null)?.__wsdiagId ?? "null"} t=${Date.now()}`);
+        console.log(`[wsdiag] visibilitychange hidden=${document.hidden} isVisibleRef=${isVisibleRef.current} hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? "null"} wsReadyState=${webSocketRef.current?.readyState ?? "null"} wsId=${(webSocketRef.current as unknown as { __wsdiagId?: number } | null)?.__wsdiagId ?? "null"} t=${Date.now()}`);
         if (document.hidden) {
           if (reconnectTimeoutRef.current !== null) {
             clearTimeout(reconnectTimeoutRef.current);
@@ -1302,10 +1302,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       const __wsdiagOrigClose = ws.close.bind(ws);
       (ws as unknown as { close: (code?: number, reason?: string) => void }).close = (code?: number, reason?: string) => {
         const stack = (new Error().stack ?? "").split("\n").slice(1, 5).join(" | ").replace(/\s+/g, " ").slice(0, 300);
-        console.info(`[wsdiag] client-close wsId=${__wsdiagId} hostId=${hostConfig.id} readyState=${ws.readyState} isVisibleRef=${isVisibleRef.current} isHidden=${typeof document !== "undefined" && document.hidden} code=${code ?? "none"} reason="${reason ?? ""}" stack="${stack}" t=${Date.now()}`);
+        console.log(`[wsdiag] client-close wsId=${__wsdiagId} hostId=${hostConfig.id} readyState=${ws.readyState} isVisibleRef=${isVisibleRef.current} isHidden=${typeof document !== "undefined" && document.hidden} code=${code ?? "none"} reason="${reason ?? ""}" stack="${stack}" t=${Date.now()}`);
         __wsdiagOrigClose(code, reason);
       };
-      console.info(`[wsdiag] create wsId=${__wsdiagId} hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? "null"} isVisibleRef=${isVisibleRef.current} isHidden=${typeof document !== "undefined" && document.hidden} wsUrl=${baseWsUrl.replace(/\?token=[^&]+/, "?token=REDACTED")} t=${Date.now()}`);
+      console.log(`[wsdiag] create wsId=${__wsdiagId} hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? "null"} isVisibleRef=${isVisibleRef.current} isHidden=${typeof document !== "undefined" && document.hidden} wsUrl=${baseWsUrl.replace(/\?token=[^&]+/, "?token=REDACTED")} t=${Date.now()}`);
       webSocketRef.current = ws;
       wasDisconnectedBySSH.current = false;
       updateConnectionError(null);
@@ -1322,7 +1322,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       rows: number,
     ) {
       ws.addEventListener("open", () => {
-        console.info(`[wsdiag] onopen wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} hostId=${hostConfig.id} readyState=${ws.readyState} isVisibleRef=${isVisibleRef.current} isHidden=${typeof document !== "undefined" && document.hidden} t=${Date.now()}`);
+        console.log(`[wsdiag] onopen wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} hostId=${hostConfig.id} readyState=${ws.readyState} isVisibleRef=${isVisibleRef.current} isHidden=${typeof document !== "undefined" && document.hidden} t=${Date.now()}`);
         console.info(`[ws] open hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} wsUrl=${baseWsUrl} readyState=${ws.readyState}`);
         connectionTimeoutRef.current = setTimeout(() => {
           if (
@@ -2099,7 +2099,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       ws.addEventListener("close", (event) => {
         // [wsdiag] onclose — FIRST line, BEFORE the currentAttemptId guard,
         // so a fire even against a stale attempt is captured for RCA.
-        console.info(`[wsdiag] onclose wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? "null"} code=${event.code} reason="${event.reason}" wasClean=${event.wasClean} wasConnected=${wasConnectedRef.current} isAttaching=${isAttachingSessionRef.current} isVisibleRef=${isVisibleRef.current} isHidden=${typeof document !== "undefined" && document.hidden} readyState=${ws.readyState} attemptIdMatch=${currentAttemptId === connectionAttemptIdRef.current} t=${Date.now()}`);
+        console.log(`[wsdiag] onclose wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? "null"} code=${event.code} reason="${event.reason}" wasClean=${event.wasClean} wasConnected=${wasConnectedRef.current} isAttaching=${isAttachingSessionRef.current} isVisibleRef=${isVisibleRef.current} isHidden=${typeof document !== "undefined" && document.hidden} readyState=${ws.readyState} attemptIdMatch=${currentAttemptId === connectionAttemptIdRef.current} t=${Date.now()}`);
         if (currentAttemptId !== connectionAttemptIdRef.current) {
           return;
         }
@@ -2201,7 +2201,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       });
 
       ws.addEventListener("error", (event) => {
-        console.info(`[wsdiag] onerror wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} hostId=${hostConfig.id} type=${event.type} isTrusted=${event.isTrusted} readyState=${ws.readyState} attemptIdMatch=${currentAttemptId === connectionAttemptIdRef.current} t=${Date.now()}`);
+        console.log(`[wsdiag] onerror wsId=${(ws as unknown as { __wsdiagId?: number }).__wsdiagId ?? "null"} hostId=${hostConfig.id} type=${event.type} isTrusted=${event.isTrusted} readyState=${ws.readyState} attemptIdMatch=${currentAttemptId === connectionAttemptIdRef.current} t=${Date.now()}`);
         if (currentAttemptId !== connectionAttemptIdRef.current) {
           return;
         }
