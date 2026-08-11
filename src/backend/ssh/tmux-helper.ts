@@ -19,16 +19,7 @@ export interface TmuxDetectionResult {
  * Returns stdout as a string. Does not pollute the interactive shell.
  */
 export function execCommand(conn: Client, command: string): Promise<string> {
-  // [#407 fix] REMOVED per-exec sshLogger.info. Was firing ~30-100/sec on
-  // baseline fleet-load (identity polls + tmux list-sessions). Every Phase 31
-  // Logger.info call goes through console.log + enqueueBackendLog. Under load,
-  // Node's stdout pipe to Docker's json-log driver saturated, console.log
-  // blocked synchronously, event loop stalled ~2s. wss.on("connection") and
-  // ws.on("message") handlers queued too late — client's connectToHost sent
-  // in onopen was dropped before any listener existed. Confirmed by #406
-  // bisect logs (CP01 fired ~2s after client onopen; msgdiag only saw a
-  // later resize message, never connectToHost). Three same-day prod outages
-  // (#392, #394, #396). exec-failed + exec-nonzero kept (fire rarely).
+  sshLogger.info(`[tmux-helper] exec command="${command.slice(0, 80)}"`, { operation: "tmux_exec" });
   return new Promise((resolve, reject) => {
     conn.exec(command, (err, stream) => {
       if (err) {
