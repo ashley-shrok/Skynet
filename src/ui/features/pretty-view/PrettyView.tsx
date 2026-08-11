@@ -394,6 +394,18 @@ export function PrettyView({
   // after the paint-delay expires. Hook stays trivial (Phase 30 SPEC — the
   // hook has zero setTimeouts). Companion state slot below.
   const [showResolvingSpinner, setShowResolvingSpinner] = useState(false);
+  // Quick 260811-8we: pane-scoped autoplay armed state.
+  // autoplayArmed: true when the user has long-pressed an assistant speak
+  //   button; future incoming assistant messages auto-fire speak while armed.
+  // autoplayTargetEventId: the eventId of the most-recent assistant message
+  //   that should be auto-played; ChatMessage watches this via useEffect.
+  // autoplayArmedRef: stale-closure-safe mirror of autoplayArmed, so the WS
+  //   onmessage dispatch (captured once per WS-setup effect run) can read the
+  //   current armed state without React closure-capture issues.
+  //   Pattern mirrors isVisibleRef / dormantRef / statusRef above.
+  const [autoplayArmed, setAutoplayArmed] = useState<boolean>(false);
+  const [autoplayTargetEventId, setAutoplayTargetEventId] = useState<string | null>(null);
+  const autoplayArmedRef = useRef<boolean>(false);
   // Phase 30 (PS30-05): patch #381's client-hint anti-pattern is DELETED.
   //
   // Pre-Phase-30 this callback synchronously flipped local isHolding=true
@@ -426,6 +438,27 @@ export function PrettyView({
   // callback is a no-op placeholder for the ComposeBox prop contract.
   const onResetClicked = useCallback(() => {
     // No-op — see comment above.
+  }, []);
+
+  // Quick 260811-8we: long-press speak callback for the pane-scoped autoplay
+  // toggle. Toggles armed state: arm on first press (sets target to the pressed
+  // bubble's eventId so it starts speaking immediately), disarm on second press.
+  // Stable ref via useCallback([]) — dependencies handled via functional-update
+  // form of setAutoplayArmed.
+  const handleLongPressSpeak = useCallback((longPressedEventId: string) => {
+    setAutoplayArmed((currentlyArmed) => {
+      if (currentlyArmed) {
+        // Disarm: clear target. The long-press itself already started playback
+        // on the newly-pressed bubble (single-gesture-single-action). Future
+        // arrivals will NOT autoplay. Adopt option (c) from task brief: the
+        // pressed bubble speaks; armed is now false.
+        setAutoplayTargetEventId(null);
+        return false;
+      }
+      // Arm: set target to the just-long-pressed bubble so it starts immediately.
+      setAutoplayTargetEventId(longPressedEventId);
+      return true;
+    });
   }, []);
   // Phase 14 quick-task 260726-vbd: single clear-primitive for asidePending.
   // Clears both the boolean flag and the 60s safety timer. Used by:
@@ -1001,6 +1034,14 @@ export function PrettyView({
       // cooldown. Backend's connect-time re-attach probe (ASIDE-09) re-emits
       // aside_ready if the NEW pane's tmux still has an open BTW overlay.
       clearAsideState();
+      // Quick 260811-8we: autoplay is per-pane and ephemeral. Clear on fresh-
+      // pane mount (paneKey change) so the new pane starts disarmed. Also sync
+      // the ref directly — the useEffect mirror runs asynchronously after
+      // render; the WS-setup effect re-run may open a new onmessage handler
+      // before the mirror effect fires, so setting the ref here is defensive.
+      setAutoplayArmed(false);
+      setAutoplayTargetEventId(null);
+      autoplayArmedRef.current = false;
       reconnectAttemptsRef.current = 0;
       // phase-29: mirror into state so wsState derivation re-runs on cold-mount
       // reconnect-counter reset.
@@ -1102,6 +1143,18 @@ export function PrettyView({
         }
         case "message": {
           setMessages((prev) => appendDedup(prev, parsed));
+          // Quick 260811-8we: autoplay dispatch. Fire only when:
+          //   (a) autoplay is armed (ref is stale-closure-safe — mirrors state)
+          //   (b) the pane is currently visible (ref matches established pattern)
+          //   (c) the frame is an assistant message (role gate — prevents
+          //       user-echo self-fire and image/relay frame contamination)
+          if (
+            autoplayArmedRef.current &&
+            isVisibleRef.current &&
+            parsed.role === "assistant"
+          ) {
+            setAutoplayTargetEventId(parsed.eventId);
+          }
           break;
         }
         case "image": {
@@ -1517,6 +1570,14 @@ export function PrettyView({
   useEffect(() => {
     isVisibleRef.current = isVisible;
   }, [isVisible]);
+
+  // Quick 260811-8we: autoplayArmedRef mirror — keeps autoplayArmedRef.current
+  // in sync with the `autoplayArmed` state so the WS onmessage dispatch handler
+  // can read current armed state without stale-closure issues.
+  // Pattern mirrors isVisibleRef mirror above.
+  useEffect(() => {
+    autoplayArmedRef.current = autoplayArmed;
+  }, [autoplayArmed]);
 
   // quick 260808-cd6: dormantRef mirror — keeps dormantRef.current in sync
   // with the `dormant` state so the WS onmessage auto-dismiss hook can read
@@ -2116,6 +2177,10 @@ export function PrettyView({
                       content={m.content}
                       identityVoice={pvIdentity?.voice ?? null}
                       ts={m.ts}
+                      eventId={m.eventId}
+                      autoplayArmed={autoplayArmed}
+                      autoplayTargetEventId={autoplayTargetEventId}
+                      onLongPressSpeak={handleLongPressSpeak}
                     />
                   )}
                 </div>
