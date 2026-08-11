@@ -52,18 +52,36 @@ export function ChatMessage({
   content,
   identityVoice = null,
   ts,
+  eventId,
+  autoplayArmed = false,
+  autoplayTargetEventId = null,
+  onLongPressSpeak,
 }: {
   role: "user" | "assistant";
   content: string;
   identityVoice?: string | null;
   ts?: number;
+  eventId?: string;
+  autoplayArmed?: boolean;
+  autoplayTargetEventId?: string | null;
+  onLongPressSpeak?: (eventId: string) => void;
 }) {
   const isUser = role === "user";
   const bubbleIdRef = useRef(Symbol("speak-bubble"));
   const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Cleanup: stop player on unmount if this bubble owns it
+  // Long-press detection refs
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressFiredRef = useRef<boolean>(false);
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Autoplay dedup ref — stores the last eventId we already fired autoplay for,
+  // preventing double-fire if React re-renders while the effect is settling.
+  const autoplayLastFiredRef = useRef<string | null>(null);
+
+  // Cleanup: stop player on unmount if this bubble owns it; also clear any
+  // pending long-press timer.
   useEffect(() => {
     return () => {
       if (currentOwner === bubbleIdRef.current) {
@@ -71,30 +89,19 @@ export function ChatMessage({
         currentPlayer = null;
         currentOwner = null;
       }
+      if (longPressTimerRef.current != null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
     };
   }, []);
 
-  async function onSpeakClick(e: React.MouseEvent) {
-    e.stopPropagation();
-
-    // Same-bubble click while playing: pause. AudioContext.suspend() freezes
-    // the context clock — already-scheduled sources and any that arrive from
-    // the read loop during the pause naturally queue up until resume.
-    if (speakState === "playing" && currentOwner === bubbleIdRef.current) {
-      void currentPlayer?.pause();
-      setSpeakState("paused");
-      return;
-    }
-
-    // Same-bubble click while paused: resume. If the browser killed the
-    // AudioContext under us (long background suspension), the player fires
-    // onError → the handler below flips speakState back to idle.
-    if (speakState === "paused" && currentOwner === bubbleIdRef.current) {
-      void currentPlayer?.resume();
-      setSpeakState("playing");
-      return;
-    }
-
+  // startSpeak: extracted fresh-play path (cross-bubble preempt + loading +
+  // fetch + play). Called by:
+  //   - onSpeakClick (fresh-play branch)
+  //   - long-press handler (single-gesture-single-action)
+  //   - autoplay effect (newly-arrived assistant message while armed)
+  async function startSpeak() {
     // If another bubble is playing (or loading, or paused), stop it first
     // (cross-bubble preempt). This is also the only cancel-from-paused path.
     if (currentPlayer) {
@@ -155,6 +162,49 @@ export function ChatMessage({
       }
     }
   }
+
+  async function onSpeakClick(e: React.MouseEvent) {
+    e.stopPropagation();
+
+    // Same-bubble click while playing: pause. AudioContext.suspend() freezes
+    // the context clock — already-scheduled sources and any that arrive from
+    // the read loop during the pause naturally queue up until resume.
+    if (speakState === "playing" && currentOwner === bubbleIdRef.current) {
+      void currentPlayer?.pause();
+      setSpeakState("paused");
+      return;
+    }
+
+    // Same-bubble click while paused: resume. If the browser killed the
+    // AudioContext under us (long background suspension), the player fires
+    // onError → the handler below flips speakState back to idle.
+    if (speakState === "paused" && currentOwner === bubbleIdRef.current) {
+      void currentPlayer?.resume();
+      setSpeakState("playing");
+      return;
+    }
+
+    // Fresh-play path — delegated to startSpeak().
+    void startSpeak();
+  }
+
+  // Autoplay effect: fires startSpeak() when a new target arrives that matches
+  // this bubble's eventId. Uses autoplayLastFiredRef to prevent double-fire on
+  // re-renders while the effect is settling.
+  useEffect(() => {
+    if (
+      !isUser &&
+      autoplayTargetEventId != null &&
+      eventId != null &&
+      autoplayTargetEventId === eventId &&
+      autoplayLastFiredRef.current !== eventId
+    ) {
+      autoplayLastFiredRef.current = eventId;
+      void startSpeak();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoplayTargetEventId, eventId, isUser]);
+
   // Phase 05 Plan 03: sender-side chip render for injected user turns.
   // When a user-role message's content matches the exact format produced
   // by formatInjectedUserTurn (caption + \n\n + INJECTED_DELIMITER + \n +
@@ -302,7 +352,53 @@ export function ChatMessage({
         {!isUser && (
           <button
             type="button"
-            onClick={(e) => { void onSpeakClick(e); }}
+            onPointerDown={(e) => {
+              longPressFiredRef.current = false;
+              pointerStartRef.current = { x: e.clientX, y: e.clientY };
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+              }
+              longPressTimerRef.current = window.setTimeout(() => {
+                longPressFiredRef.current = true;
+                longPressTimerRef.current = null;
+                if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
+                void startSpeak();
+              }, 500);
+            }}
+            onPointerMove={(e) => {
+              const start = pointerStartRef.current;
+              if (!start || longPressTimerRef.current == null) return;
+              const dx = e.clientX - start.x;
+              const dy = e.clientY - start.y;
+              if (Math.hypot(dx, dy) > 10) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onPointerCancel={() => {
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onPointerUp={() => {
+              // Clear the pending timer if it hasn't fired yet — this is a tap.
+              // Do NOT clear longPressFiredRef here — the subsequent onClick
+              // needs to read it.
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onClick={(e) => {
+              // Suppress the tap-driven click if a long-press already fired.
+              if (longPressFiredRef.current) {
+                longPressFiredRef.current = false;
+                e.stopPropagation();
+                return;
+              }
+              void onSpeakClick(e);
+            }}
             aria-label={
               speakState === "playing"
                 ? "Pause speaking"
@@ -317,8 +413,14 @@ export function ChatMessage({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: "rgba(0,0,0,0.28)",
-              border: "1px solid rgba(255,255,255,0.10)",
+              background: autoplayArmed
+                ? "hsla(var(--pv-id-hue),60%,70%,0.28)"
+                : "rgba(0,0,0,0.28)",
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: autoplayArmed
+                ? "hsla(var(--pv-id-hue),70%,70%,0.35)"
+                : "rgba(255,255,255,0.10)",
               color: "rgba(255,220,170,0.72)",
               opacity: 0.62,
               cursor: "pointer",
