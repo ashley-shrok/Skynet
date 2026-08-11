@@ -1,22 +1,35 @@
 /**
- * Patch #146: frontend console-forwarder.
+ * Frontend console-forwarder.
  *
- * Intercepts console.log/warn/error calls after main.tsx boot, preserving
- * the original method behavior (DevTools console still fires) while also
- * batching entries to POST /debug/console-log every 500ms or when 20
- * entries accumulate.
+ * Intercepts console.log/warn/error after main.tsx boot, preserves DevTools
+ * console behavior, and forwards entries to POST /debug/console-log on a
+ * fixed 500ms interval — steady cadence, no per-burst immediate-flush trigger
+ * (the immediate-flush-at-N pattern was the root cause of the Phase 31 WS
+ * regression: a per-tick burst of forwarded logs from Terminal.tsx tripped
+ * the threshold, single POST hit auth middleware alongside the WS handshake
+ * request, backend stalled).
+ *
+ * Cadence + caps:
+ *   - Interval: FLUSH_INTERVAL_MS (500ms), started once in initConsoleForwarder.
+ *     Empty-buffer ticks are cheap no-ops.
+ *   - Per-flush cap: MAX_ENTRIES_PER_FLUSH (100). Excess stays in buffer,
+ *     drains on the next tick.
+ *   - Buffer ceiling: MAX_BUFFER_SIZE (500). Overflow entries are DROPPED
+ *     (a counter is maintained and reported).
+ *   - Truncation indicator: any flush that hits the cap or that had dropped
+ *     entries since the last flush appends a synthetic warn-level entry
+ *     naming both counts, so the sink can see it.
  *
  * On iOS PWA tab-close (visibilitychange/pagehide), issues a final flush
- * via navigator.sendBeacon so in-flight logs are delivered.
+ * via navigator.sendBeacon so in-flight logs are delivered. Beacon flush
+ * uses the same per-flush cap + truncation indicator.
  *
- * Phase 31 Plan 01 extension: the LogEntry envelope now carries optional
- * hostId/sessionKey fields (already accepted server-side by debug.ts).
- * Call setLogContext({ hostId, sessionKey }) once hostId is known (e.g.
- * from AppShell's active tab). Fields are OMITTED from the JSON when not
- * set, preserving wire-format compat with debug.ts's `"hostId" in e` guard.
+ * The LogEntry envelope carries optional hostId/sessionKey. Call
+ * setLogContext({ hostId, sessionKey }) once hostId is known. Fields are
+ * OMITTED from JSON when not set (preserves debug.ts's `"hostId" in e` guard).
  *
- * This module is intentionally side-effect-free until initConsoleForwarder()
- * is called. Call it once at the top of main.tsx, before snapshotPendingTab().
+ * Side-effect-free until initConsoleForwarder() is called. Call once at the
+ * top of main.tsx before snapshotPendingTab().
  */
 
 // --- types ---
@@ -41,9 +54,11 @@ export type LogContext = {
 // --- module-scoped state ---
 
 const buffer: LogEntry[] = [];
-const MAX_BATCH = 20;
 const FLUSH_INTERVAL_MS = 500;
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_ENTRIES_PER_FLUSH = 100;
+const MAX_BUFFER_SIZE = 500;
+let intervalTimer: ReturnType<typeof setInterval> | null = null;
+let droppedSinceLastFlush = 0;
 let initialized = false;
 let currentContext: LogContext = {};
 
@@ -84,14 +99,37 @@ function serializeArg(a: unknown): string {
 
 // --- flush paths ---
 
-function flushFetch(): void {
-  if (flushTimer !== null) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
+/**
+ * Take up to MAX_ENTRIES_PER_FLUSH entries from the front of the buffer.
+ * If the buffer had more, or if entries were dropped since the last flush,
+ * append a synthetic warn-level indicator so the sink learns about it.
+ * Returns the entries to send (may be empty).
+ */
+function takeFlushSlice(): LogEntry[] {
+  const deferred = Math.max(0, buffer.length - MAX_ENTRIES_PER_FLUSH);
+  const entries = buffer.splice(0, MAX_ENTRIES_PER_FLUSH);
+  if (deferred > 0 || droppedSinceLastFlush > 0) {
+    entries.push({
+      ts: new Date().toISOString(),
+      level: "warn",
+      tabId: getTabId(),
+      ...(currentContext.hostId !== undefined
+        ? { hostId: currentContext.hostId }
+        : {}),
+      ...(currentContext.sessionKey !== undefined
+        ? { sessionKey: currentContext.sessionKey }
+        : {}),
+      msg: `[console-forwarder] flush truncated: sent=${entries.length} deferred=${deferred} dropped=${droppedSinceLastFlush} (reduce log volume)`,
+    });
+    droppedSinceLastFlush = 0;
   }
-  if (buffer.length === 0) return;
+  return entries;
+}
 
-  const entries = buffer.splice(0);
+function flushFetch(): void {
+  if (buffer.length === 0 && droppedSinceLastFlush === 0) return;
+
+  const entries = takeFlushSlice();
   fetch("/debug/console-log", {
     method: "POST",
     credentials: "include",
@@ -104,13 +142,9 @@ function flushFetch(): void {
 }
 
 function flushBeacon(): void {
-  if (flushTimer !== null) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  if (buffer.length === 0) return;
+  if (buffer.length === 0 && droppedSinceLastFlush === 0) return;
 
-  const entries = buffer.splice(0);
+  const entries = takeFlushSlice();
   const blob = new Blob([JSON.stringify({ entries })], {
     type: "application/json",
   });
@@ -118,29 +152,6 @@ function flushBeacon(): void {
   const ok = navigator.sendBeacon?.("/debug/console-log", blob) ?? false;
   if (!ok) {
     // entries are already lost to the tab close per the constraint
-  }
-}
-
-// --- enqueue ---
-
-function enqueue(level: LogLevel, args: unknown[]): void {
-  buffer.push({
-    ts: new Date().toISOString(),
-    level,
-    tabId: getTabId(),
-    ...(currentContext.hostId !== undefined
-      ? { hostId: currentContext.hostId }
-      : {}),
-    ...(currentContext.sessionKey !== undefined
-      ? { sessionKey: currentContext.sessionKey }
-      : {}),
-    msg: args.map(serializeArg).join(" "),
-  });
-
-  if (buffer.length >= MAX_BATCH) {
-    flushFetch();
-  } else if (flushTimer === null) {
-    flushTimer = setTimeout(flushFetch, FLUSH_INTERVAL_MS);
   }
 }
 
@@ -168,6 +179,10 @@ export function initConsoleForwarder(
   const { onEnqueue } = options;
 
   function enqueueWithCallback(level: LogLevel, args: unknown[]): void {
+    if (buffer.length >= MAX_BUFFER_SIZE) {
+      droppedSinceLastFlush++;
+      return;
+    }
     const entry: LogEntry = {
       ts: new Date().toISOString(),
       level,
@@ -182,12 +197,6 @@ export function initConsoleForwarder(
     };
     buffer.push(entry);
     onEnqueue?.(entry);
-
-    if (buffer.length >= MAX_BATCH) {
-      flushFetch();
-    } else if (flushTimer === null) {
-      flushTimer = setTimeout(flushFetch, FLUSH_INTERVAL_MS);
-    }
   }
 
   console.log = (...args: unknown[]) => {
@@ -211,6 +220,8 @@ export function initConsoleForwarder(
     }
   });
   window.addEventListener("pagehide", flushBeacon);
+
+  intervalTimer = setInterval(flushFetch, FLUSH_INTERVAL_MS);
 }
 
 /** @internal test-only — returns a shallow copy of the current buffer */
@@ -226,10 +237,11 @@ export function __test_getContext(): LogContext {
 /** @internal test-only — resets module state between tests */
 export function __test_reset(): void {
   buffer.splice(0);
-  if (flushTimer !== null) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
+  if (intervalTimer !== null) {
+    clearInterval(intervalTimer);
+    intervalTimer = null;
   }
+  droppedSinceLastFlush = 0;
   initialized = false;
   currentContext = {};
 }
