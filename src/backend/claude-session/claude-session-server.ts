@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { Client as SSHClientType } from "ssh2";
 import { AuthManager } from "../utils/auth-manager.js";
 import { UserCrypto } from "../utils/user-crypto.js";
-import { sshLogger } from "../utils/logger.js";
+import { sshLogger, databaseLogger } from "../utils/logger.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession } from "./session-file-discovery.js";
@@ -572,8 +572,8 @@ export async function handleIdentityCountBounties(
   if (targets.length === 0) {
     try {
       ws.send(JSON.stringify({ type: "identity:bounty-counts", counts: [] }));
-    } catch {
-      /* ignore */
+    } catch (err) {
+      databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-counts err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" });
     }
     return;
   }
@@ -676,8 +676,8 @@ export async function handleIdentityCountBounties(
             if (conn) {
               try {
                 conn.end();
-              } catch {
-                /* ignore */
+              } catch (err) {
+                databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" });
               }
             }
           }
@@ -730,7 +730,7 @@ export async function handleIdentityGetRoleFile(
   if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
     try {
       ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: "invalid identityKey" }));
-    } catch { /* ignore */ }
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
     return;
   }
   const identityKey = rawKey;
@@ -752,7 +752,7 @@ export async function handleIdentityGetRoleFile(
     } else {
       const resolved = await resolveHostById(hostIdNum!, userId!);
       if (!resolved) {
-        try { ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -763,10 +763,10 @@ export async function handleIdentityGetRoleFile(
           userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
         });
       } finally {
-        try { conn.end(); } catch { /* ignore */ }
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
       }
     }
-    try { ws.send(JSON.stringify({ type: "identity:role-file", markdown })); } catch { /* ignore */ }
+    try { ws.send(JSON.stringify({ type: "identity:role-file", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   } catch (err: unknown) {
     sshLogger.error(
       "identity:get-role-file error",
@@ -775,7 +775,7 @@ export async function handleIdentityGetRoleFile(
     );
     try {
       ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: err instanceof Error ? err.message : String(err) }));
-    } catch { /* ignore */ }
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   }
 }
 
@@ -796,11 +796,11 @@ export async function handleIdentityUpdateRoleFile(
   const rawKey = m.identityKey;
   const rawContents = m.contents;
   if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "invalid identityKey" })); } catch { /* ignore */ }
+    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
     return;
   }
   if (typeof rawContents !== "string") {
-    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "contents must be a string" })); } catch { /* ignore */ }
+    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "contents must be a string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
     return;
   }
   const identityKey = rawKey;
@@ -824,7 +824,7 @@ export async function handleIdentityUpdateRoleFile(
     } else {
       const resolved = await resolveHostById(hostIdNum!, userId!);
       if (!resolved) {
-        try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -837,10 +837,10 @@ export async function handleIdentityUpdateRoleFile(
           bytes: Buffer.byteLength(contents, "utf-8"),
         });
       } finally {
-        try { conn.end(); } catch { /* ignore */ }
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
       }
     }
-    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown })); } catch { /* ignore */ }
+    try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   } catch (err) {
     sshLogger.error(
       "identity:update-role-file unexpected error",
@@ -849,7 +849,7 @@ export async function handleIdentityUpdateRoleFile(
     );
     try {
       ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
-    } catch { /* ignore */ }
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   }
 }
 
@@ -1263,6 +1263,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     return;
   }
 
+  databaseLogger.info(`[ws-server] accept userId=${userId ?? 'null'} wsUrl=${req.url ?? ''}`, { operation: "ws_accept" });
   sshLogger.info("Claude session WebSocket connection established", {
     operation: "claude_session_ws_connect",
     userId,
@@ -1470,6 +1471,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let currentTmuxSession: string | null = null;
 
   const teardownPane = () => {
+    if (currentHostId !== null || currentTmuxSession !== null) {
+      databaseLogger.info(`[session-server] detach hostId=${currentHostId ?? 'null'} tmuxSession=${currentTmuxSession ?? 'null'} userId=${userId ?? 'null'}`, { operation: "session_detach" });
+    }
     if (contextPctTimer) {
       clearInterval(contextPctTimer);
       contextPctTimer = null;
@@ -1553,16 +1557,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
     if (tailHandle) {
       try {
         tailHandle.stop();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        databaseLogger.warn(`[ws-server] tail-stop-failed hostId=${currentHostId ?? 'null'} err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_tail_stop_failed" });
       }
       tailHandle = null;
     }
     if (sshConn) {
       try {
         sshConn.end();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        databaseLogger.warn(`[ws-server] conn-end-failed hostId=${currentHostId ?? 'null'} err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" });
       }
       sshConn = null;
     }
@@ -2111,8 +2115,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
           message: err.message,
         }),
       );
-    } catch {
-      /* ignore */
+    } catch (sendErr) {
+      databaseLogger.warn(`[ws-server] send-failed msgType=tail_error err="${sendErr instanceof Error ? sendErr.message : String(sendErr)}"`, { operation: "ws_send_failed" });
     }
   };
 
@@ -2324,8 +2328,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
     if (tailHandle) {
       try {
         tailHandle.stop();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        databaseLogger.warn(`[ws-server] tail-stop-failed hostId=${currentHostId ?? 'null'} err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_tail_stop_failed" });
       }
       tailHandle = null;
     }
@@ -2473,7 +2477,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
   }, 30000);
 
-  ws.on("close", () => {
+  ws.on("close", (code: number, reason: Buffer) => {
+    databaseLogger.info(`[ws-server] close userId=${userId ?? 'null'} hostId=${currentHostId ?? 'null'} tmuxSession=${currentTmuxSession ?? 'null'} code=${code} reason="${reason?.toString() ?? ''}"`, { operation: "ws_close" });
     clearInterval(wsPingInterval);
     stopped = true;
     teardownPane();
@@ -2496,6 +2501,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   });
 
   ws.on("error", (err: Error) => {
+    databaseLogger.error(`[ws-server] error userId=${userId ?? 'null'} hostId=${currentHostId ?? 'null'} tmuxSession=${currentTmuxSession ?? 'null'}`, err, { operation: "ws_error" });
     sshLogger.error("Claude session WS error", err, {
       operation: "claude_session_ws_error",
       userId,
@@ -2525,8 +2531,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
             message: "Connection closing",
           }),
         );
-      } catch {
-        /* ignore */
+      } catch (err) {
+        databaseLogger.warn(`[ws-server] send-failed msgType=error err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" });
       }
       return;
     }
@@ -2556,7 +2562,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               error: "invalid identityKey",
             }),
           );
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounties err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -2589,7 +2595,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           if (!resolved) {
             try {
               ws.send(JSON.stringify({ type: "identity:bounties", bounties: [], archivedBounties: [], error: "host not found" }));
-            } catch { /* ignore */ }
+            } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounties err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -2605,13 +2611,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
               archivedCount: archivedBounties.length,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
 
         try {
           ws.send(JSON.stringify({ type: "identity:bounties", bounties, archivedBounties }));
-        } catch { /* ws may be mid-close */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounties err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:list-bounties unexpected error",
@@ -2627,7 +2633,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               error: err instanceof Error ? err.message : String(err),
             }),
           );
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounties err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -2661,7 +2667,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: "invalid identityKey" }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -2683,7 +2689,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -2694,10 +2700,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err: unknown) {
         sshLogger.error(
           "identity:get-identity-file error",
@@ -2706,7 +2712,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -2727,7 +2733,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(JSON.stringify({ type: "identity:history", entries: [], error: "invalid identityKey" }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -2750,7 +2756,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:history", entries: [], markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:history", entries: [], markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -2761,12 +2767,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: entries.length,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
         // Phase 18 / IDMEDIT-02: emit markdown alongside entries so HistoryTab
         // can populate its textarea editor without a separate raw-file fetch.
-        try { ws.send(JSON.stringify({ type: "identity:history", entries, markdown })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:history", entries, markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err: unknown) {
         sshLogger.error(
           "identity:get-history error",
@@ -2775,7 +2781,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:history", entries: [], markdown: "", error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -2787,7 +2793,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: "invalid identityKey" }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -2809,7 +2815,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -2820,10 +2826,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: wakeups.length,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:list-wakeups unexpected error",
@@ -2832,7 +2838,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -2852,15 +2858,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawSlug = raw.wakeupSlug;
       const rawUpdates = raw.updates;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "invalid wakeup slug" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "invalid wakeup slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawUpdates !== "object" || rawUpdates === null) {
-        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "invalid updates" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "invalid updates" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -2869,7 +2875,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const filtered: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string } = {};
       if (updates.enabled !== undefined) {
         if (typeof updates.enabled !== "boolean") {
-          try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "enabled must be boolean" })); } catch { /* ignore */ }
+          try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "enabled must be boolean" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
           return;
         }
         filtered.enabled = updates.enabled;
@@ -2879,20 +2885,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
       if (updates.name !== undefined) {
         if (typeof updates.name !== "string" || updates.name.length === 0) {
-          try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "name must be a non-empty string" })); } catch { /* ignore */ }
+          try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "name must be a non-empty string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
           return;
         }
         filtered.name = updates.name;
       }
       if (updates.instruction !== undefined) {
         if (typeof updates.instruction !== "string") {
-          try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "instruction must be a string" })); } catch { /* ignore */ }
+          try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "instruction must be a string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
           return;
         }
         filtered.instruction = updates.instruction;
       }
       if (filtered.enabled === undefined && filtered.schedule === undefined && filtered.name === undefined && filtered.instruction === undefined) {
-        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "no updates" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "no updates" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const rawHostId = raw.hostId;
@@ -2914,7 +2920,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -2927,10 +2933,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               fields: Object.keys(filtered).join(","),
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:update-wakeup unexpected error",
@@ -2939,7 +2945,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -2953,11 +2959,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawKey = raw.identityKey;
       const rawContents = raw.contents;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawContents !== "string") {
-        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "contents must be a string" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "contents must be a string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -2981,7 +2987,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -2994,10 +3000,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               bytes: Buffer.byteLength(contents, "utf-8"),
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:update-identity-file unexpected error",
@@ -3006,7 +3012,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3028,11 +3034,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawKey = raw.identityKey;
       const rawContents = raw.contents;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawContents !== "string") {
-        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "contents must be a string" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], error: "contents must be a string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -3057,7 +3063,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3070,12 +3076,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
               bytes: Buffer.byteLength(contents, "utf-8"),
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
         // Phase 18 / IDMEDIT-02: echo both entries and markdown so HistoryTab
         // rehydrates the textarea from server truth after Save.
-        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries, markdown })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:history-updated", entries, markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:update-history unexpected error",
@@ -3084,7 +3090,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:history-updated", entries: [], markdown: "", error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:history-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3097,11 +3103,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawKey = raw.identityKey;
       const rawContents = raw.contents;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawContents !== "string") {
-        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "contents must be a string" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "contents must be a string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -3125,7 +3131,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3138,10 +3144,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               bytes: Buffer.byteLength(contents, "utf-8"),
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:update-handoff unexpected error",
@@ -3150,7 +3156,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3169,11 +3175,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawKey = raw.identityKey;
       const rawSlug = raw.bountySlug;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -3197,7 +3203,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3209,10 +3215,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties, archivedBounties })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:archive-bounty unexpected error",
@@ -3221,7 +3227,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3239,11 +3245,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawKey = raw.identityKey;
       const rawSlug = raw.bountySlug;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -3267,7 +3273,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3279,10 +3285,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties, archivedBounties })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:delete-bounty unexpected error",
@@ -3291,7 +3297,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3309,15 +3315,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawSlug = raw.bountySlug;
       const rawStatus = raw.status;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawStatus !== "string" || !(BOUNTY_STATUS_VALUES as readonly string[]).includes(rawStatus)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid status" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid status" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -3342,7 +3348,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3354,10 +3360,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, bountySlug, status, hostId: hostIdNum, useLocal: false,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties, archivedBounties })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:update-bounty-status unexpected error",
@@ -3366,7 +3372,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3385,15 +3391,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawSlug = raw.bountySlug;
       const rawPinned = raw.pinned;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawPinned !== "boolean") {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid pinned" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid pinned" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -3418,7 +3424,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3430,10 +3436,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, bountySlug, pinned, hostId: hostIdNum, useLocal: false,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties, archivedBounties })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:update-bounty-pinned unexpected error",
@@ -3442,7 +3448,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3459,15 +3465,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawSlug = raw.bountySlug;
       const rawPatch = raw.patch;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawPatch !== "object" || rawPatch === null) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid patch" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid patch" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       // Per-field type validation (title length, todos shape, etc.) runs inside
@@ -3495,7 +3501,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3508,10 +3514,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               fields: Object.keys(patch).join(","),
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties, archivedBounties })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:update-bounty-fields unexpected error",
@@ -3520,7 +3526,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3534,15 +3540,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawSlug = raw.bountySlug;
       const rawPriority = raw.priority;
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       if (typeof rawPriority !== "string" || !(BOUNTY_PRIORITY_VALUES as readonly string[]).includes(rawPriority)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid priority" })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid priority" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -3567,7 +3573,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3579,10 +3585,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, bountySlug, priority, hostId: hostIdNum, useLocal: false,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties, archivedBounties })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
         sshLogger.error(
           "identity:update-bounty-priority unexpected error",
@@ -3591,7 +3597,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3603,7 +3609,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
         try {
           ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: "invalid identityKey" }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
       const identityKey = rawKey;
@@ -3625,7 +3631,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } else {
           const resolved = await resolveHostById(hostIdNum!, userId!);
           if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: "host not found" })); } catch { /* ignore */ }
+            try { ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
@@ -3636,10 +3642,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
               userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
             });
           } finally {
-            try { conn.end(); } catch { /* ignore */ }
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
           }
         }
-        try { ws.send(JSON.stringify({ type: "identity:handoff", markdown })); } catch { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: "identity:handoff", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err: unknown) {
         sshLogger.error(
           "identity:get-handoff error",
@@ -3648,7 +3654,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         );
         try {
           ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: err instanceof Error ? err.message : String(err) }));
-        } catch { /* ignore */ }
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -3789,7 +3795,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               lastWakeOk = true;
             }
           } catch { /* ignore parse failures — still forward the frame */ }
-          try { ws.send(data); } catch { /* ws may be mid-close */ }
+          try { ws.send(data); } catch (err) { databaseLogger.warn(`[ws-server] send-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         },
       });
       if (lastWakeOk) {
@@ -3826,6 +3832,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
+    databaseLogger.info(`[session-server] attach hostId=${hostId} tmuxSession=${tmuxSession} userId=${userId ?? 'null'}`, { operation: "session_attach" });
     // Enforce one active pane per WS: any prior tail/conn is torn down first.
     if (sshConn || tailHandle) {
       sshLogger.info("Claude session pane switch", {
@@ -4234,7 +4241,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                     escapedName,
                     execCommand,
                     wsSend: (data: string) => {
-                      try { ws.send(data); } catch { /* ws may be mid-close */ }
+                      try { ws.send(data); } catch (err) { databaseLogger.warn(`[ws-server] send-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
                     },
                   },
                   dormantState,
@@ -4684,7 +4691,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 // Fix B (visibility false->true edge). Natural-dormant path (fresh
                 // WS, no prior wake click) sends wakingSince:null.
                 ws.send(JSON.stringify({ type: "dormant", dormant: true, wakingSince: wakeTriggerTs }));
-              } catch { /* ws may be mid-close */ }
+              } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=dormant err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
               // Phase 30 Plan 30-01 (PS30-07): initial-discovery-dormant path
               // establishes attach-time pane_state alongside the legacy dormant
               // frame. wakingSince stays on the legacy frame only — pane_state's
@@ -4716,7 +4723,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                         execCommand,
                         discoverSession: (c, s) => discoverClaudeSession(c as import("ssh2").Client, s),
                         wsSend: (data: string) => {
-                          try { ws.send(data); } catch { /* ws may be mid-close */ }
+                          try { ws.send(data); } catch (err) { databaseLogger.warn(`[ws-server] send-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
                         },
                         startActiveFlow: (pid, sessionFile) => {
                           // Transition from dormant-poll to active flow.
@@ -4819,8 +4826,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // idle inactive WSs cheap. A subsequent connectToPane will reopen.
       try {
         conn.end();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        databaseLogger.warn(`[ws-server] conn-end-failed hostId=${currentHostId ?? 'null'} err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" });
       }
       sshConn = null;
       return;
