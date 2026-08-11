@@ -1,6 +1,9 @@
 /**
  * Bounty pretty-view-per-pane-cost-diag (2026-08-08).
  * Unit tests for the interval diag emitter.
+ *
+ * Phase 31 Plan 01 extension:
+ *  - Test 4: emitOnce emits a line starting with `[render] tick` (not `[DIAG-REPORT]`).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -15,9 +18,9 @@ import {
   __test_clear as __clearRegistry,
 } from "./diag-registry";
 
-function parseEmittedEnvelope(logCall: unknown[]): DiagEnvelope {
-  // console.log is called as: console.log("[DIAG-REPORT]", "<json>")
-  expect(logCall[0]).toBe("[DIAG-REPORT]");
+function parseEmittedEnvelopeNew(logCall: unknown[]): DiagEnvelope {
+  // console.log is called as: console.log("[render] tick", "<json>")
+  expect(logCall[0]).toBe("[render] tick");
   return JSON.parse(logCall[1] as string) as DiagEnvelope;
 }
 
@@ -35,10 +38,10 @@ describe("diag-emitter", () => {
     vi.useRealTimers();
   });
 
-  it("emitOnce writes a [DIAG-REPORT] JSON envelope to console.log", () => {
+  it("emitOnce writes a [render] tick JSON envelope to console.log (D-13 canonical prefix)", () => {
     emitOnce();
     expect(logSpy).toHaveBeenCalledTimes(1);
-    const env = parseEmittedEnvelope(logSpy.mock.calls[0]);
+    const env = parseEmittedEnvelopeNew(logSpy.mock.calls[0]);
     expect(typeof env.ts).toBe("string");
     expect(env.panes).toEqual([]);
     expect(env.mountedPaneCount).toBe(0);
@@ -67,7 +70,7 @@ describe("diag-emitter", () => {
       domNodeCount: 42,
     }));
     emitOnce();
-    const env = parseEmittedEnvelope(logSpy.mock.calls[0]);
+    const env = parseEmittedEnvelopeNew(logSpy.mock.calls[0]);
     expect(env.mountedPaneCount).toBe(2);
     expect(env.panes).toHaveLength(2);
     const pv = env.panes.find((p) => p.kind === "pretty-view")!;
@@ -114,7 +117,7 @@ describe("diag-emitter", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (performance as any).memory;
     emitOnce();
-    const env = parseEmittedEnvelope(logSpy.mock.calls[0]);
+    const env = parseEmittedEnvelopeNew(logSpy.mock.calls[0]);
     expect(env.heap).toBeNull();
   });
 
@@ -127,7 +130,7 @@ describe("diag-emitter", () => {
     };
     try {
       emitOnce();
-      const env = parseEmittedEnvelope(logSpy.mock.calls[0]);
+      const env = parseEmittedEnvelopeNew(logSpy.mock.calls[0]);
       expect(env.heap).toEqual({
         used: 100_000_000,
         total: 200_000_000,
@@ -137,5 +140,13 @@ describe("diag-emitter", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (performance as any).memory;
     }
+  });
+
+  it("Test 4 (Phase 31 D-13): emitOnce does NOT emit [DIAG-REPORT] prefix — old prefix eliminated", () => {
+    emitOnce();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    // The first arg must be the canonical D-13 prefix, not the old one
+    expect(logSpy.mock.calls[0][0]).toBe("[render] tick");
+    expect(logSpy.mock.calls[0][0]).not.toBe("[DIAG-REPORT]");
   });
 });
