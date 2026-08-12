@@ -1198,6 +1198,146 @@ export async function __applyDormantPollWithRediscoveryForTests(
   }
 }
 
+// ─── Test seam: dormant-branch tail-open (Phase 32 Wave 2 / 32-02) ────────────
+//
+// Phase 32 wires the Wave 1 `discoverIdentitySessionFile` helper into the
+// dormant branch of the message handler so the wake-bubble message list is
+// backed by the identity's most-recently active JSONL, streamed through the
+// SAME onLine/onError closures the active flow uses (D-08 latency parity).
+// That branch lives INSIDE a deeply-nested closure chain (`ws.on
+// ("connection")` → per-conn state setup → message handler → `if (result
+// .status === "inactive")` → dormancy probe) with every state variable it
+// touches being closure-scoped — so it is NOT reachable via any pre-existing
+// test seam.
+//
+// This seam encapsulates the helper-call + tail-open + structured-log logic
+// as a pure, dependency-injected function so CASE-DT1..DT3 + DT6 are
+// directly assertable without a live WebSocketServer or SSH conn. It is the
+// SINGLE production implementation entry point — the dormant branch calls
+// this seam and does no discovery work itself (matches D-09's "one call
+// site" invariant for `discoverIdentitySessionFile`).
+//
+// Follows the same injectable-helpers shape as __applyDormantPollTickForTests
+// (L984-1033) and __applyDormantPollWithRediscoveryForTests (L1106-1198):
+// `deps` object holds all module-side collaborators + fixed inputs; `state`
+// object holds mutable outputs (here just `setTailHandle`).
+
+/** Dependencies for the dormant-branch tail-open seam. */
+export type __DormantBranchTailOpenDepsForTests = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  conn: any; // SSH conn used by discoverIdentitySessionFile
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sshConn: any; // SSH conn used by tailSessionFile
+  tmuxSession: string;
+  discoverIdentitySessionFile: (
+    conn: unknown,
+    identityName: string,
+  ) => Promise<string | null>;
+  tailSessionFile: (
+    conn: unknown,
+    file: string,
+    onLine: (line: string) => void,
+    onError: (err: Error) => void,
+  ) => { stop: () => void };
+  onLine: (line: string) => void;
+  onError: (err: Error) => void;
+  wsSend: (data: string) => void; // parity with other seams — may be unused
+  logger: {
+    info: (msg: string, meta: Record<string, unknown>) => void;
+  }; // sshLogger stub
+};
+
+/** Mutable state for the dormant-branch tail-open seam. */
+export type __DormantBranchTailOpenStateForTests = {
+  setTailHandle: (h: { stop: () => void } | null) => void;
+};
+
+/**
+ * Apply the dormant-branch tail-open sequence for tests (and, in
+ * production, called by the dormant branch itself — the seam IS the
+ * production implementation, not test-only scaffolding).
+ *
+ * Called ONCE per dormant-branch entry, immediately after the dormant
+ * frame + dormantPollTimer start, before `enteredDormantPoll = true`.
+ *
+ * Behavior:
+ *   - Calls `deps.discoverIdentitySessionFile(deps.conn, deps.tmuxSession)`.
+ *   - On non-null return: emits `deps.logger.info("Dormant tail
+ *     discovered", ...)` with `discoveredFileBasename:
+ *     path.basename(discoveredFile)` (T-32-05 mitigation — the JSONL's
+ *     session UUID is already discoverable via existing session-scoped
+ *     logs; the encoded project-dir path segment is dropped from log
+ *     output). Then calls `deps.tailSessionFile(deps.sshConn,
+ *     discoveredFile, deps.onLine, deps.onError)` and passes the handle
+ *     to `state.setTailHandle`.
+ *   - On null return: emits `deps.logger.info("Dormant tail not
+ *     discovered — no matching identity session file", ...)` with
+ *     `operation: "claude_session_dormant_tail_no_match"`. Does NOT call
+ *     `setTailHandle`. No path payload — nothing to disclose (T-32-02).
+ *   - On `discoverIdentitySessionFile` (or `tailSessionFile`) throw:
+ *     emits the same no-match log shape (fail-safe fallback, mirrors
+ *     the Wave 1 caller contract). Does NOT call `setTailHandle`; does
+ *     NOT re-throw.
+ *
+ * D-05: null / throw path is byte-identical to today's dormant behavior
+ *   (dormant frame sent, no tail opened, no messages).
+ * D-08: `onLine` and `onError` are passed through UNWRAPPED — the seam
+ *   does not create a new lambda. The dormant tail's line-emission path
+ *   IS the active-flow line-emission path (same `appendDedup` + `eventId`
+ *   pipeline).
+ * D-09: helper is called from EXACTLY ONE production site (the dormant
+ *   branch's call to this seam). Active-flow discovery at L~4634
+ *   stays on `discoverClaudeSession`.
+ */
+export async function __applyDormantBranchTailOpenForTests(
+  deps: __DormantBranchTailOpenDepsForTests,
+  state: __DormantBranchTailOpenStateForTests,
+): Promise<void> {
+  const {
+    conn,
+    sshConn,
+    tmuxSession,
+    discoverIdentitySessionFile: discover,
+    tailSessionFile: tail,
+    onLine,
+    onError,
+    logger,
+  } = deps;
+  try {
+    const discoveredFile = await discover(conn, tmuxSession);
+    if (discoveredFile !== null) {
+      logger.info("Dormant tail discovered", {
+        operation: "claude_session_dormant_tail_discovered",
+        discoveredFileBasename: basename(discoveredFile),
+      });
+      // SAME onLine/onError refs — no wrapping (D-08).
+      const handle = tail(sshConn, discoveredFile, onLine, onError);
+      state.setTailHandle(handle);
+    } else {
+      logger.info(
+        "Dormant tail not discovered — no matching identity session file",
+        {
+          operation: "claude_session_dormant_tail_no_match",
+        },
+      );
+    }
+  } catch (err) {
+    // Defense-in-depth: the Wave 1 helper contract is no-throw (SSH
+    // errors return null); tailSessionFile funnels errors through
+    // onError. If anything here does throw, degrade gracefully to
+    // today's dormant behavior (no tail opened) and log via the
+    // no-match op code so post-deploy dashboards see it as fallback
+    // traffic. NEVER rethrow.
+    logger.info(
+      "Dormant tail not discovered — no matching identity session file",
+      {
+        operation: "claude_session_dormant_tail_no_match",
+        err: err instanceof Error ? err.message : String(err),
+      },
+    );
+  }
+}
+
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
@@ -4747,6 +4887,47 @@ wss.on("connection", async (ws: WebSocket, req) => {
                           // Transition from dormant-poll to active flow.
                           // Clear dormant-poll timer — contextPctTimer takes over from here.
                           if (dormantPollTimer) { clearInterval(dormantPollTimer); dormantPollTimer = null; }
+                          // Phase 32 Wave 2 (T-32-04, D-08): SAFE-CLOSE ORDERING.
+                          //
+                          // If a dormant tail was opened by the dormant-branch
+                          // wire-in above (Task 1 / __applyDormantBranchTailOpen
+                          // ForTests), stop + null it BEFORE
+                          // startActiveSessionFlow reassigns tailHandle via
+                          // `tailHandle = tailSessionFile(sshConn!, sessionFile,
+                          // onLine, onError)` at L~4634. Otherwise two tails on
+                          // different files briefly overlap: the dormant file's
+                          // tail's `s.on("data")` callback continues to fire
+                          // lines from the PRIOR file into the SAME `onLine`
+                          // closure, interleaving with the NEW active-file
+                          // tail's replay lines — producing either duplicate
+                          // eventId emissions (distinct eventIds for the same
+                          // logical position across two files) or out-of-order
+                          // emissions (dormant-file buffered lines arriving
+                          // AFTER the active file's initial replay begins).
+                          //
+                          // session-file-tail.ts:54-78's synchronous `stopped`
+                          // closure flag makes the stop() call itself immediate
+                          // — any subsequent s.on("data") callback early-
+                          // returns and never invokes onLine — so this
+                          // ordering is safe even if the underlying SSH
+                          // channel close is async (channel teardown is idem
+                          // potent-with-stopped-flag). See CASE-DT4 + DT5 in
+                          // claude-session-server.dormant-tail.test.ts.
+                          if (tailHandle) {
+                            tailHandle.stop();
+                            tailHandle = null;
+                            sshLogger.info(
+                              "Dormant tail stopped for wake handoff",
+                              {
+                                operation:
+                                  "claude_session_dormant_tail_stopped_for_wake",
+                                userId,
+                                sessionId,
+                                hostId: currentHostId,
+                                tmuxSession: currentTmuxSession,
+                              },
+                            );
+                          }
                           // Belt-and-suspenders: clear wakeTriggerTs so a subsequent
                           // dormancy+wake cycle on this same WS doesn't see a stale ts.
                           wakeTriggerTs = null;
@@ -4846,64 +5027,51 @@ wss.on("connection", async (ws: WebSocket, req) => {
               // leak the encoded project-dir path segment). The
               // no-match log carries no path payload at all.
               //
-              // Wrapping this in its own try/catch (rather than widening
-              // the enclosing L4659 try) avoids poisoning
-              // `isIdentityShapedCached` on any throw here: Wave 1's
-              // helper contract guarantees no-throw (SSH errors return
-              // null), and `tailSessionFile` funnels errors through the
-              // `onError` closure — but the try is defense-in-depth for
-              // future evolution.
-              try {
-                const discoveredFile = await discoverIdentitySessionFile(
+              // Delegate to __applyDormantBranchTailOpenForTests — the
+              // seam is the SINGLE production implementation entry point
+              // for the discovery + tail-open + logging sequence (matches
+              // D-09's "one call site" invariant). The seam handles the
+              // null-return fallback + helper-throw fallback internally;
+              // see its docblock (~L1200) for the full contract. Log
+              // context (userId, sessionId, hostId, tmuxSession) is
+              // enriched here at the production boundary so the seam
+              // itself stays free of connection-scoped state.
+              await __applyDormantBranchTailOpenForTests(
+                {
                   conn,
+                  sshConn: sshConn!,
                   tmuxSession,
-                );
-                if (discoveredFile !== null) {
-                  sshLogger.info("Dormant tail discovered", {
-                    operation: "claude_session_dormant_tail_discovered",
-                    userId,
-                    sessionId,
-                    hostId,
-                    tmuxSession,
-                    discoveredFileBasename: basename(discoveredFile),
-                  });
-                  tailHandle = tailSessionFile(
-                    sshConn!,
-                    discoveredFile,
-                    onLine,
-                    onError,
-                  );
-                } else {
-                  sshLogger.info(
-                    "Dormant tail not discovered — no matching identity session file",
-                    {
-                      operation: "claude_session_dormant_tail_no_match",
-                      userId,
-                      sessionId,
-                      hostId,
-                      tmuxSession,
-                    },
-                  );
-                }
-              } catch (err) {
-                // Defense-in-depth: helper contract is no-throw; tail
-                // errors funnel through onError. If anything here does
-                // throw, degrade gracefully to today's dormant behavior
-                // (no tail opened) and log via the no-match op code so
-                // post-deploy dashboards see it as fallback traffic. No
-                // rethrow — do not poison isIdentityShapedCached.
-                sshLogger.info(
-                  "Dormant tail not discovered — no matching identity session file",
-                  {
-                    operation: "claude_session_dormant_tail_no_match",
-                    userId,
-                    sessionId,
-                    hostId,
-                    tmuxSession,
-                    err: err instanceof Error ? err.message : String(err),
+                  discoverIdentitySessionFile,
+                  tailSessionFile,
+                  onLine,
+                  onError,
+                  wsSend: (data) => {
+                    try {
+                      ws.send(data);
+                    } catch (err) {
+                      databaseLogger.warn(
+                        `[ws-server] send-failed err="${err instanceof Error ? err.message : String(err)}"`,
+                        { operation: "ws_send_failed" },
+                      );
+                    }
                   },
-                );
-              }
+                  logger: {
+                    info: (msg, meta) =>
+                      sshLogger.info(msg, {
+                        userId,
+                        sessionId,
+                        hostId,
+                        tmuxSession,
+                        ...meta,
+                      }),
+                  },
+                },
+                {
+                  setTailHandle: (h) => {
+                    tailHandle = h;
+                  },
+                },
+              );
               enteredDormantPoll = true;
             }
           }
