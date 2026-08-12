@@ -113,13 +113,26 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     };
   }, [scrollEl, paneKey, jumpToBottom]);
 
-  // Case 2 — ResizeObserver on the OUTER scroll container.
-  // Post-Phase-27, accessories (WipBubble/PlanPendingBubble/AsideBubble) are
-  // in-flow siblings of the sized virtualizer container inside the outer
-  // scroll container — observing outer catches those mounts too. The `shrunk`
-  // guard preserves the old hook's WipBubble-unmount behavior (browser auto-
-  // clamps on shrink; extra jump would drag a near-bottom viewport further
-  // than the user intended).
+  // Case 2 — observe content growth inside the outer scroll container.
+  //
+  // Observing scrollEl itself catches viewport resize but NOT scrollHeight
+  // growth, because scrollEl's own box is fixed by the parent flex layout —
+  // messages arriving grow scrollHeight, not scrollEl's boundingRect. So we
+  // also observe every direct child (whose box DOES grow with content: the
+  // sized virtualizer container's inline height reflects
+  // rowVirtualizer.getTotalSize(); accessory siblings each have their own
+  // size), and wire a MutationObserver to observe newly-mounted children too
+  // (accessories mount/unmount post-Phase-27 — WipBubble/PlanPendingBubble/
+  // AsideBubble). This composite catches every scrollHeight change without
+  // reintroducing a contentRef API.
+  //
+  // The `shrunk` guard preserves the old hook's WipBubble-unmount behavior
+  // (browser auto-clamps on shrink; extra jump would drag a near-bottom
+  // viewport further than the user intended).
+  //
+  // Fix for shipped #426 UAT failure (Ashley 2026-08-12: session first load
+  // didn't land at bottom, follow-on-new-when-at-bottom didn't follow —
+  // both fail if RO doesn't fire on scrollHeight growth).
   useEffect(() => {
     if (!scrollEl) return;
     prevScrollHeightRef.current = scrollEl.scrollHeight;
@@ -130,13 +143,26 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
       if (stickyRef.current) {
         if (!shrunk) jumpToBottom(scrollEl);
       } else {
-        // Not sticky — user is reading history; only refresh pill visibility.
         const dist = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
         setIsPinnedToBottom(dist <= BOTTOM_THRESHOLD);
       }
     });
-    ro.observe(scrollEl); // outer only — no inner contentEl
-    return () => ro.disconnect();
+    ro.observe(scrollEl);
+    for (const child of Array.from(scrollEl.children)) {
+      ro.observe(child);
+    }
+    const mo = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of Array.from(m.addedNodes)) {
+          if (node instanceof Element) ro.observe(node);
+        }
+      }
+    });
+    mo.observe(scrollEl, { childList: true });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
   }, [scrollEl, jumpToBottom]);
 
   // Single scroll listener. Every input source (mouse wheel, keyboard
