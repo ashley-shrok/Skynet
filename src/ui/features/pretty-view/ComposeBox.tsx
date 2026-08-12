@@ -2052,7 +2052,11 @@ export function ComposeBox({
           <Button
             size="icon-sm"
             variant="secondary"
-            onClick={() => handleQuickSend("/explain the current situation")}
+            // Phase 32: /explain is a send path — fire onGoodToGo?.() (parent-bound to
+            // scrollToBottomAndFollow) alongside handleQuickSend, matching the 'let's go'
+            // quick-button above. Per 32-CONTEXT.md § Wire into PrettyView "ALL send paths"
+            // rule + 32-PATTERNS.md § 2d Send-path callsite swaps table.
+            onClick={() => { onGoodToGo?.(); handleQuickSend("/explain the current situation"); }}
             disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || dormantActive === true}
             aria-label="Recap the current situation"
             title="Recap"
