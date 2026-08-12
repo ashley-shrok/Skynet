@@ -16,12 +16,15 @@
  * in claude-session-server.layer1.test.ts.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   isUserTurn,
   isIdResetUserTurn,
   applyLineToLayer1State,
+  __applyLayer1LineForTests,
   type Layer1State,
+  type __Layer1StateForTests,
+  type __Layer1HelpersForTests,
 } from "./layer1-detect.js";
 
 // ── Fixture builders ────────────────────────────────────────────────────────
@@ -61,6 +64,99 @@ function toolResultUserTurnLine(toolUseId: string, content: string): string {
           type: "tool_result",
           tool_use_id: toolUseId,
           content,
+        },
+      ],
+    },
+  });
+}
+
+// ── Harness-synthetic fixture builders (2026-08-12 widening) ────────────────
+//
+// Root-cause traceback (2026-08-12): three additional "type":"user" shapes
+// are synthesized by the Claude Code harness and were falsely passing
+// isUserTurn, causing clear_holding to fire right after /id reset armed the
+// SessionHoldingOverlay. Empirical byte-shape evidence:
+//   /home/ubuntu/.claude/projects/-home-ubuntu-skynet-tiffany/
+//   889ccee9-4ae8-4f2e-b255-f1e1b9663df6.jsonl
+//     line 524 = real /id reset turn (STRING content)
+//     line 525 = skill-body injection (ARRAY content with text block)
+//     line 549 = <local-command-caveat> wrapper (string content)
+//     line 551 = <local-command-stdout> wrapper (string content)
+//
+// These builders produce realistic JSONL lines via JSON.stringify on the
+// exact empirical object shapes so the byte-level line.includes predicates
+// are exercised faithfully.
+
+// Skill-body injection: After a slash-command turn, the Claude Code harness
+// emits a "type":"user" line to inject SKILL.md body into model context.
+// Content is an ARRAY containing a text-block object — this is the key
+// distinguishing feature rejected by `"content":[`.
+function skillBodyUserTurnLine(skillName: string, bodyText: string): string {
+  return JSON.stringify({
+    type: "user",
+    uuid: "u-skill-1",
+    timestamp: "2026-08-12T00:00:00.000Z",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Base directory for this skill: /home/ubuntu/.claude/skills/${skillName}\n\n${bodyText}`,
+        },
+      ],
+    },
+  });
+}
+
+// <local-command-caveat>: synthesized by the Claude Code harness when the
+// user runs a !bash command in the CLI. Content is a STRING wrapped in the
+// <local-command-caveat> tag — rejected by the new substring check.
+function localCommandCaveatUserTurnLine(caveatText: string): string {
+  return JSON.stringify({
+    type: "user",
+    uuid: "u-caveat-1",
+    timestamp: "2026-08-12T00:00:00.000Z",
+    message: {
+      role: "user",
+      content: `<local-command-caveat>${caveatText}</local-command-caveat>`,
+    },
+  });
+}
+
+// <local-command-stdout>: same harness shape as caveat, feeds !bash output
+// back into the model context. Rejected by the new <local-command-stdout>
+// substring check.
+function localCommandStdoutUserTurnLine(stdoutText: string): string {
+  return JSON.stringify({
+    type: "user",
+    uuid: "u-stdout-1",
+    timestamp: "2026-08-12T00:00:00.000Z",
+    message: {
+      role: "user",
+      content: `<local-command-stdout>${stdoutText}</local-command-stdout>`,
+    },
+  });
+}
+
+// Image attachment: defensive coverage for a future array-content shape per
+// the Anthropic API image-block spec. Not empirically observed in the JSONL
+// evidence, but plausible — and rejected by the same `"content":[` check
+// that covers skill-body injections.
+function imagePartUserTurnLine(): string {
+  return JSON.stringify({
+    type: "user",
+    uuid: "u-img-1",
+    timestamp: "2026-08-12T00:00:00.000Z",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "iVBORw0KGgoAAAANSUhEUg==",
+          },
         },
       ],
     },
@@ -163,6 +259,48 @@ describe("isUserTurn", () => {
         ),
       ),
     ).toBe(false);
+  });
+
+  // ── 2026-08-12 widening: harness-synthetic rejection tests ─────────────────
+
+  it("Test A — returns false for a skill-body injection (array content, harness synthesized after slash-command)", () => {
+    // Skill-body shape: content is an array containing a text block injecting
+    // SKILL.md. Rejected by the new `"content":[` substring check.
+    // Root-cause: right after /id reset arms the overlay, the harness emits
+    // this turn which was falsely clearing it (JSONL line 525, 2026-08-12).
+    expect(isUserTurn(skillBodyUserTurnLine("id", "# Identity Skill\n..."))).toBe(false);
+  });
+
+  it("Test B — returns false for a <local-command-caveat> wrapper (harness synthesized for !bash commands)", () => {
+    // <local-command-caveat> shape: string content wrapped in the caveat tag.
+    // Rejected by the new `<local-command-caveat>` substring check.
+    // Root-cause: JSONL line 549 — harness caveat wrapper after !bash cleared the overlay.
+    expect(isUserTurn(localCommandCaveatUserTurnLine("some caveat text"))).toBe(false);
+  });
+
+  it("Test C — returns false for a <local-command-stdout> wrapper (harness synthesized for !bash output)", () => {
+    // <local-command-stdout> shape: string content wrapped in the stdout tag.
+    // Rejected by the new `<local-command-stdout>` substring check.
+    // Root-cause: JSONL line 551 — harness stdout wrapper after !bash cleared the overlay.
+    expect(isUserTurn(localCommandStdoutUserTurnLine("$ ls\nfile.txt"))).toBe(false);
+  });
+
+  it("Test D — returns false for a defensive image-attachment array turn (future Anthropic API image-block shape)", () => {
+    // Image-block shape: content is an array containing an image object.
+    // Not empirically observed but covered defensively by the same
+    // `"content":[` rejection that catches skill-body injections.
+    expect(isUserTurn(imagePartUserTurnLine())).toBe(false);
+  });
+
+  it("Test E — returns true for real freeform user typing (positive path preserved)", () => {
+    // Real human typing always has STRING content — not rejected by any check.
+    expect(isUserTurn(userTurnLine("hey what's up"))).toBe(true);
+  });
+
+  it("Test F — returns true for a real /id reset envelope (STRING content with <command-name> tag; positive path preserved)", () => {
+    // Real /id reset has STRING content — not rejected by "content":[ check.
+    // The round-trip invariant detectIdReset ⇔ isIdResetUserTurn depends on this.
+    expect(isUserTurn(userTurnLine(ID_RESET_CONTENT))).toBe(true);
   });
 });
 
@@ -511,5 +649,94 @@ describe("applyLineToLayer1State — Ashley-bug regression guard (historical /id
     expect(armCount).toBe(0);
     expect(changeoverState).toBe("active");
     expect(state.mostRecentUserTurnIsIdReset).toBe(false);
+  });
+});
+
+// ── applyLineToLayer1State — harness synthetics do not supersede /id reset ──
+//
+// 2026-08-12 regression guard: verifies via __applyLayer1LineForTests that
+// the harness-synthesized "type":"user" shapes (skill-body, local-command
+// wrappers) do NOT fire clear_holding after /id reset arms the overlay.
+// Uses the same makeStubs pattern as claude-session-server.layer1.test.ts:67-85
+// so the production dispatch and this test's dispatch use identical seam wiring.
+
+describe("applyLineToLayer1State — harness synthetics do not supersede /id reset (2026-08-12 regression)", () => {
+  /** Stub helpers that mutate state.changeoverState, mirroring production side effects. */
+  function makeStubs(state: __Layer1StateForTests): {
+    stubs: __Layer1HelpersForTests;
+    transitionToHolding: ReturnType<typeof vi.fn>;
+    transitionFromHoldingToActiveSameFile: ReturnType<typeof vi.fn>;
+  } {
+    const transitionToHolding = vi.fn(
+      (_reason: "id_reset" | "discovery_diff") => {
+        state.changeoverState = "holding";
+      },
+    );
+    const transitionFromHoldingToActiveSameFile = vi.fn(() => {
+      state.changeoverState = "active";
+    });
+    return {
+      stubs: { transitionToHolding, transitionFromHoldingToActiveSameFile },
+      transitionToHolding,
+      transitionFromHoldingToActiveSameFile,
+    };
+  }
+
+  it("Test H — production bug: [/id reset → skill-body → <local-command-caveat>] fires arm exactly once and ZERO clears (overlay stays armed through harness noise)", () => {
+    // This is the exact production bug fixed by the 2026-08-12 widening:
+    // after /id reset arms the overlay, the harness immediately emits a
+    // skill-body injection (line 525) and a <local-command-caveat> wrapper
+    // (line 549). Both were falsely passing isUserTurn and returning
+    // clear_holding, causing transitionFromHoldingToActiveSameFile to fire
+    // and dismiss the overlay before the actual recycle completed.
+    // After the fix: both are rejected by isUserTurn → reducer returns "none"
+    // for both → transitionFromHoldingToActiveSameFile is never called.
+    const state: __Layer1StateForTests = {
+      changeoverState: "active",
+      layer1: { mostRecentUserTurnIsIdReset: null },
+    };
+    const { stubs, transitionToHolding, transitionFromHoldingToActiveSameFile } = makeStubs(state);
+
+    const lines = [
+      userTurnLine(ID_RESET_CONTENT),
+      skillBodyUserTurnLine("id", "# Identity Skill\nsome content here"),
+      localCommandCaveatUserTurnLine("Local commands are not available in this environment"),
+    ];
+
+    for (const line of lines) {
+      __applyLayer1LineForTests(line, state, stubs);
+    }
+
+    expect(transitionToHolding).toHaveBeenCalledTimes(1);
+    expect(transitionToHolding).toHaveBeenCalledWith("id_reset");
+    expect(transitionFromHoldingToActiveSameFile).toHaveBeenCalledTimes(0);
+    expect(state.changeoverState).toBe("holding");
+    expect(state.layer1.mostRecentUserTurnIsIdReset).toBe(true);
+  });
+
+  it("Test I — real user typing after /id reset STILL supersedes: [/id reset → real freeform typing] fires arm + clear (Ashley cancels reset by typing)", () => {
+    // Preserves the "supersede" semantics: Ashley explicitly cancels the
+    // /id reset by typing a new message. The widening is surgical — it only
+    // blocks harness synthetics, not genuine human input.
+    const state: __Layer1StateForTests = {
+      changeoverState: "active",
+      layer1: { mostRecentUserTurnIsIdReset: null },
+    };
+    const { stubs, transitionToHolding, transitionFromHoldingToActiveSameFile } = makeStubs(state);
+
+    const lines = [
+      userTurnLine(ID_RESET_CONTENT),
+      userTurnLine("let's stop, I changed my mind"),
+    ];
+
+    for (const line of lines) {
+      __applyLayer1LineForTests(line, state, stubs);
+    }
+
+    expect(transitionToHolding).toHaveBeenCalledTimes(1);
+    expect(transitionToHolding).toHaveBeenCalledWith("id_reset");
+    expect(transitionFromHoldingToActiveSameFile).toHaveBeenCalledTimes(1);
+    expect(state.changeoverState).toBe("active");
+    expect(state.layer1.mostRecentUserTurnIsIdReset).toBe(false);
   });
 });

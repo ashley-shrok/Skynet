@@ -63,26 +63,69 @@
  * Code user-role turn — i.e. something the human actually typed, NOT a
  * synthetic user turn manufactured by the harness.
  *
- * Claude Code stores several categories of turn with `"type":"user"`:
- *   - Real user messages (what the human typed) — content is a STRING
- *   - Tool results fed back to the model — content is an ARRAY containing
- *     `{"type":"tool_result", ...}` objects
+ * WHY THIS MATTERS — root causes (chronological):
  *
- * For Layer 1's purpose (detecting when the human types a NEW message
- * that supersedes an earlier /id reset), only real user messages count.
- * Tool results are agent-side synthetic and MUST NOT supersede — during
- * /id reset processing the save flow invokes many tools, and each
- * tool_result would otherwise clear the overlay ~1s after Ashley typed
- * /id reset (empirically observed 2026-08-08, follow-up to patch #350).
+ * 2026-08-08: During /id reset processing the agent's save flow invokes many
+ * tools. Each tool_result appears as a `"type":"user"` JSONL line with ARRAY
+ * content containing `{"type":"tool_result", ...}`. If counted as real user
+ * typing, each tool_result would clear the SessionHoldingOverlay ~1s after
+ * arm. Fixed by rejecting the `"tool_result"` substring.
  *
- * Detection: `"tool_result"` never appears in a real user-message content
- * string (it would have to be typed literally). Exclude any user turn
- * whose line contains the substring.
+ * 2026-08-12: Three additional harness-synthesized `"type":"user"` shapes
+ * were passing the predicate and falsely clearing the overlay right after
+ * /id reset. Empirical evidence from:
+ *   /home/ubuntu/.claude/projects/-home-ubuntu-skynet-tiffany/
+ *   889ccee9-4ae8-4f2e-b255-f1e1b9663df6.jsonl
+ *
+ *   (1) Skill-body injection (line 525): after a slash-command turn, the
+ *       harness emits a user turn to inject SKILL.md into model context:
+ *       `{"type":"user","message":{"role":"user","content":[{"type":"text",
+ *       "text":"Base directory for this skill: /home/ubuntu/.claude/skills/id
+ *       \n\n# Identity Skill\n..."}]}}`
+ *       Key: content is an ARRAY, not a string. Real user typing is ALWAYS
+ *       `"content":"<string>"`. Rejected by new `"content":[` check.
+ *
+ *   (2) <local-command-caveat> (line 549): synthesized when the user runs a
+ *       !bash command in the CLI. String content wrapped in a tag:
+ *       `{"type":"user","message":{"role":"user","content":
+ *       "<local-command-caveat>...</local-command-caveat>"}}`
+ *       Rejected by new `<local-command-caveat>` substring check.
+ *
+ *   (3) <local-command-stdout> (line 551): same harness shape, feeds !bash
+ *       output back into model context:
+ *       `{"type":"user","message":{"role":"user","content":
+ *       "<local-command-stdout>...</local-command-stdout>"}}`
+ *       Rejected by new `<local-command-stdout>` substring check.
+ *
+ * The `"content":[` check (array-content rejection) is deliberately broad:
+ * it covers ALL array-content synthetic shapes — skill-body text blocks,
+ * tool_result arrays (redundant with the tool_result check above but
+ * harmless), and any future array-shaped harness synthetics such as image
+ * attachments. Real user typing in Claude Code is NEVER array content.
+ *
+ * Invariant (matches module-header contract at layer1-detect.ts:44-48):
+ * this predicate is PURE — no JSON.parse, no I/O imports, only
+ * line.includes byte-checks. `isIdResetUserTurn` gates on this function
+ * (line 102); real `/id reset` turns have STRING content so the new
+ * array-content rejection cannot touch them (round-trip invariant at
+ * session-file-parser.id-reset.test.ts:249 stays green).
+ *
+ * Bounty: layer1-isuserturn-skill-body-clears-holding, 2026-08-12.
  */
 export function isUserTurn(line: string): boolean {
   if (!line.includes('"type":"user"')) return false;
-  // Exclude tool_result feedback (agent-side synthetic user turns):
+  // Reject agent-side tool_result feedback (2026-08-08 fix — preserved):
   if (line.includes('"tool_result"')) return false;
+  // Reject ALL array-content synthetic user turns (2026-08-12 widening):
+  // Real human typing is ALWAYS `"content":"<string>"` in Claude Code's
+  // JSONL. Array content only appears in harness-synthesized shapes:
+  // skill-body text-block injections after slash commands, tool_result
+  // blocks (also caught above), image attachments, etc. Reject all of
+  // them from the "supersede /id reset" decision.
+  if (line.includes('"content":[')) return false;
+  // Reject `!bash` local-command harness wrappers (2026-08-12 widening):
+  if (line.includes("<local-command-caveat>")) return false;
+  if (line.includes("<local-command-stdout>")) return false;
   return true;
 }
 
