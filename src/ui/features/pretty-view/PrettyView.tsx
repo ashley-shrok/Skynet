@@ -2052,25 +2052,20 @@ export function PrettyView({
           #111 rationale), still below app-modal dialogs (z-[500]) —
           component-local, not an app-modal event.
           Replaces the previous sticky top-of-scroll banner (retired
-          in patch #74) per Ashley's live 2026-07-19 design read. */}
+          in patch #74) per Ashley's live 2026-07-19 design read.
+
+          quick 260812-ma8: this wrapper now hosts SessionHoldingOverlay
+          ONLY. The DormancyOverlay mount moved OUT of this wrapper into
+          the scroll container as a sibling of PlanPendingBubble — see
+          the new mount site below (search for `renderedState === "dormant"`)
+          and DormancyOverlay.tsx's updated file-header docblock for the
+          bubble-in-flow rationale. */}
       {/* Phase 30 (PS30-06): SessionHoldingOverlay gated on
           `renderedState === "holding"` (backend-authoritative via the
           paneState React state slot fed by the `case "pane_state"` WS
           handler). `error` prop dropped — the warm-red-flip flag was
           retired in Phase 29. */}
       {renderedState === "holding" && <SessionHoldingOverlay />}
-      {/* Phase 30 (PS30-06): DormancyOverlay gated on
-          `renderedState === "dormant"`. Internal props (waking /
-          elapsedSeconds / wakeError) stay local because DormancyOverlay
-          reads them directly. */}
-      {renderedState === "dormant" && (
-        <DormancyOverlay
-          waking={waking}
-          elapsedSeconds={elapsedSeconds}
-          onWake={handleWake}
-          error={wakeError}
-        />
-      )}
       {/* Phase 30 (PS30-06) + phase-30-restore-resolving-overlay-paint-delay
           (2026-08-10): PrettyViewLoadingOverlay is the resolving-state
           spinner. Mount gate is `showResolvingSpinner` — a boolean flipped
@@ -2109,8 +2104,19 @@ export function PrettyView({
         />
       )}
 
+      {/* quick 260812-ma8: `renderedState === "dormant"` added to the outer
+          scroll-container gate so DormancyOverlay (now mounted INSIDE this
+          container as a sibling of PlanPendingBubble) can appear in the
+          zero-messages / non-streaming dormancy case (e.g. cold pane
+          discovered dormant before any session frame lands). Without this OR
+          the container would not render and DormancyOverlay would be
+          unreachable — PrettyView.test.tsx "Test E: pane_state:dormant →
+          DormancyOverlay mounts" exercises exactly this path (renderedState
+          flips to "dormant" while status is still "connecting" and
+          messages.length === 0). */}
       {(status === "streaming" ||
-        ((status === "connecting" || status === "error") && messages.length > 0)) && (
+        ((status === "connecting" || status === "error") && messages.length > 0) ||
+        renderedState === "dormant") && (
         <div
           ref={composeScrollRefs}
           // mobile-scroll-freeze-overscroll-behavior (2026-08-10): `overscroll-contain`
@@ -2234,6 +2240,35 @@ export function PrettyView({
               contentError={planPending.contentError}
               onApprove={handlePlanApprove}
               onFeedback={handlePlanFeedback}
+            />
+          )}
+          {/* quick 260812-ma8: DormancyOverlay mount moved from the
+              chat-region wrapper (sibling of SessionHoldingOverlay,
+              full-surface scrim) INTO the scroll container here, as a
+              sibling of PlanPendingBubble. The bubble now scrolls in
+              the message-list flow instead of covering the chat region
+              with a scrim, so Ashley can read the tail of the
+              conversation to decide whether to wake the dormant
+              session. Gate unchanged (`renderedState === "dormant"` —
+              backend-authoritative via paneState). Style now mirrors
+              PlanPendingBubble ("identity is waiting on you") since
+              dormancy has the same semantic ("session asleep, waiting
+              on you to wake").
+
+              Cross-reference: DormancyOverlay.tsx file-header docblock
+              (updated in the same quick task) covers the bubble shape
+              + motion-channel guardrail (STATIC Moon glyph, no
+              animate-spin).
+
+              ComposeBox reduction still fires via the sibling gate
+              `dormantActive={renderedState === "dormant" || waking}`
+              on the ComposeBox mount below — unchanged. */}
+          {renderedState === "dormant" && (
+            <DormancyOverlay
+              waking={waking}
+              elapsedSeconds={elapsedSeconds}
+              onWake={handleWake}
+              error={wakeError}
             />
           )}
           {/* Phase 27 Plan 27-02 Step B: AsideBubble mounts as an in-flow
