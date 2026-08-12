@@ -19,9 +19,11 @@ export interface TmuxDetectionResult {
  * Returns stdout as a string. Does not pollute the interactive shell.
  */
 export function execCommand(conn: Client, command: string): Promise<string> {
+  sshLogger.info(`[tmux-helper] exec command="${command.slice(0, 80)}"`, { operation: "tmux_exec" });
   return new Promise((resolve, reject) => {
     conn.exec(command, (err, stream) => {
       if (err) {
+        sshLogger.error(`[tmux-helper] exec-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_failed" });
         reject(err);
         return;
       }
@@ -34,10 +36,12 @@ export function execCommand(conn: Client, command: string): Promise<string> {
         stderr += data.toString("utf-8");
       });
       stream.on("error", (err: Error) => {
+        sshLogger.error(`[tmux-helper] exec-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_failed" });
         reject(err);
       });
       stream.on("close", (code: number) => {
         if (code !== 0 && stdout === "") {
+          sshLogger.warn(`[tmux-helper] exec-nonzero command="${command.slice(0, 80)}" code=${code} stderrLen=${stderr.length}`, { operation: "tmux_exec_nonzero" });
           reject(
             new Error(stderr.trim() || `Command exited with code ${code}`),
           );
