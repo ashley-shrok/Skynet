@@ -1008,3 +1008,43 @@ Plans:
 
 - [x] 31-09-PLAN.md — Grep pass: no JSON.stringify(event), all old prefixes 0 in src/, all D-02+D-03 subsystems COVERED per the crosswalk; frontend + backend builds clean; full vitest suite green; write 31-COVERAGE-REPORT.md + 31-MANUAL-VERIFICATION.md runbook for Ashley's post-ship WS-cycle reproduction; human-verify checkpoint (D-20, D-21, D-22)
 
+### Phase 32: Identity-first-turn session discovery + wake-bubble message history
+
+**Goal:** Add a process-independent, disk-based helper for finding the current JSONL of a given identity, and wire it into the dormant branch so the wake bubble (shipped 2026-08-12 as quick 260812-ma8) surfaces the tail of the conversation Ashley is deciding whether to wake — instead of an empty message list. Today the backend chains tmux-pane → PID → cwd → mtime-newest JSONL to find the current session (pane-based discovery). That chain requires a live claude process, so the dormant branch at `src/backend/claude-session/claude-session-server.ts:4675-4700` gets no session file and never opens a tail — the browser's `messages` array stays empty for dormant panes, which the pre-260812-ma8 scrim hid from Ashley and the new in-flow bubble reveals.
+
+**What ships this phase:**
+
+1. NEW `src/backend/claude-session/discover-identity-session-file.ts` — a pure `discoverIdentitySessionFile(sshConn, identityName): Promise<string | null>` helper that (a) lists all `.jsonl` files under `~/.claude/projects/*/` via the pane's SSH connection, (b) for each file reads until the first line where `"role":"user"` is present and pattern-matches BOTH `<command-name>/id</command-name>` AND `<command-args><identityName>` (space / `\r` / `<` as terminator; verbatim byte pattern from the Layer 1 detector at `claude-session-server.ts:1232` — same production-proven `line.includes` approach, no JSON parsing), (c) returns the mtime-latest matching absolute path, or `null` if no match. Fully-covered unit tests: happy path (single match), multi-match with mtime tiebreak, no-match returns null, non-user first turn skipped, mention-later-in-file NOT matched, empty project dir tolerated, byte-pattern refuses partial identity-name matches (`<command-args>tiff` must NOT match `tiffany`).
+
+2. Wire the helper into the dormant branch at `claude-session-server.ts:4675-4700`. After the `.dormant` sentinel probe succeeds and the `{type:"dormant",dormant:true,wakingSince}` frame is sent, ALSO call `discoverIdentitySessionFile(conn, tmuxSession)` and, if it returns non-null, open a `tailSessionFile(sshConn!, discoveredFile, onLine, onError)` (same signature the active flow uses at L4634). Because `tailSessionFile` runs `tail -F -n +1` (per L162 comment), Ashley's browser gets the full historical message stream through the existing `appendDedup` + `eventId` pipeline — same code path as the live case, just no new writes coming because the pane is asleep.
+
+3. Handle the wake→active handoff safely. When `__applyDormantPollWithRediscoveryForTests` detects the sentinel disappearing and rediscovery hits `active`, the `startActiveSessionFlow` callback opens a fresh `tailSessionFile()` on the newly-woken session's JSONL. The pre-existing dormant tail (if any) MUST be closed cleanly BEFORE the active tail opens — otherwise two tails briefly overlap on different files and produce duplicate/out-of-order message emissions. The existing closure-scoped `tailHandle` variable is already reachable from the transition point; add an explicit `tailHandle?.stop()` (or equivalent — inspect the TailHandle interface) + `tailHandle = null` immediately before `startActiveSessionFlow` runs the active-flow `tailHandle = tailSessionFile(...)` assignment.
+
+4. Fallback: if `discoverIdentitySessionFile` returns null (brand-new identity that's never had a claude session, or a fresh box), the dormant branch degrades gracefully to today's behavior — dormant frame sent, no tail opened, no messages. No worse than status quo; UI bubble still renders correctly with the empty list.
+
+5. Backend integration test: dormant branch opens a tail on the discovered file + replays historical messages via the existing `appendDedup` path (assert message frames land on the WS test double); wake transition closes the dormant tail before the active tail opens (assert no double-emit of any eventId across the handoff window).
+
+6. Regression: existing `DormancyOverlay.test.tsx` + `PrettyView.test.tsx` dormancy paths still pass. This is a pure backend addition — UI byte-untouched.
+
+7. Deploy loop hardening (small, bundled): update `~/.claude/roles/box-maintainer/box-map.md` to reflect that the served static tree is `/app/html/`, not `/app/dist/`, AND add a served-bundle-hash-match check to the standard deploy runbook (compare `curl -sS https://term.gigaashley.click/ | grep -oE 'assets/index-[^"]+\.js'` against `grep -oE 'assets/index-[^"]+\.js' dist/index.html`; MUST match before declaring deploy verified). This is directly the miss I ate on the quick 260812-ma8 first ship attempt — `docker cp` to the wrong path silently no-op'd and my HTTPS smoke test still returned 200 because it was serving Tina's old (correct-path) build.
+
+**Deliberate design choices — locked from design conversation with Ashley 2026-08-12 (LOCKED — do NOT re-litigate):**
+
+- **Byte-pattern match, not JSON parse.** Same shape as the Layer 1 detector — production-proven, cheap, tolerant to minor JSONL shape drift. `line.includes` only.
+- **First user-role line only.** `/id <name>` is always the first user turn of an identity session by convention (id-skill invocation is how identities bootstrap). Later mentions of `/id <name>` in transcript body don't match.
+- **Mtime-latest tiebreak when multiple JSONLs match.** New `/id reset` recycles create fresh JSONLs with the same first-turn signature; latest = current.
+- **Throwaway/non-identity panes naturally excluded.** Their first user turn isn't `/id <name>`, so they never match — the helper is identity-only by construction.
+- **Cold-start works.** No prior visit / no cache / no bootstrap needed. Every session that's ever been started for an identity is discoverable from disk alone.
+- **Stronger identity attribution than pane-based mechanism.** If two identities share a repo cwd (both cd into e.g. `/home/ubuntu/skynet-plain`), pane-based mtime-newest can't disambiguate which identity wrote which JSONL. First-turn signature makes each identity's JSONL unmistakable. Nice-to-have here; would be load-bearing if this mechanism ever expands to the live path.
+- **Cost negligible at current scale.** ~4 project dirs × dozens of JSONLs × `grep -m 1 '"role":"user"'` (early-bails) = well under 100ms per lookup. Mtime pre-filter is a trivial future optimization if the JSONL count ever grows past thousands.
+- **Recycle-boundary latency parity with pane-based.** As soon as the newly-recycled session writes its first user turn, mtime-latest-matching correctly points at the new file — same window as pane-based waiting for the new PID's first JSONL write.
+- **OUT OF SCOPE for Phase 32:** migrating the LIVE-path discovery to this helper. Additive only — the helper is wired into the dormant branch and no other site. Live path stays on pane-based (which is proven and works for throwaways). A future phase can consider a broader migration; explicitly deferred here to keep blast radius minimal.
+
+**Consumer sequencing:** wake bubble message history (from the just-shipped `dormancy-bubble-in-flow` quick task) is the first and currently only consumer. Ashley 2026-08-12: *"the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up."*
+
+**Requirements:** captured as D-nnn decisions in `.planning/phases/32-identity-first-turn-session-discovery/32-CONTEXT.md` (created at plan time). Every D-nnn reflected in at least one plan's tasks; see per-plan `requirements` frontmatter for the D-nnn coverage map.
+
+**Depends on:** Phase 31 (structured logging — the dormant-branch tail-open path will emit `[ws]` / `[session]` boundary logs consistent with the Phase 31 taxonomy)
+
+**Rebase risk:** LOW — additive: new helper file + wire into an existing branch that emits only a single dormant frame today + explicit tail-close ordering at the wake transition + fallback preserves existing behavior. No upstream Skynet surfaces touched.
+
