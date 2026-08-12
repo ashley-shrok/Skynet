@@ -212,7 +212,7 @@ export interface ComposeBoxProps {
   // Quick 260803-05i: per-slot read of staged attachments. Task 2 uses this to
   // render the overlay chip strip inside each queued textarea's wrapper.
   getStagedAttachmentsForTarget?: (target: string) => StagedAttachmentLike[];
-  // Quick 260803-05i: per-slot clear. QueuedRow's top-right delete × calls
+  // Quick 260803-05i: per-slot clear. QueuedRow's top-left delete × calls
   // this when a slot is removed so its staged attachments don't linger in
   // the hook.
   clearStagedForTarget?: (target: string) => void;
@@ -2526,7 +2526,7 @@ export function ComposeBox({
 // to each row instance (no Map-of-refs plumbing in the parent). Keeps
 // existing per-slot behavior byte-for-byte; adds an inner `.relative.flex-1
 // .self-stretch` wrapper hosting the overlaid chip strip (mirrors Quick A's
-// primary composebox pattern at ~L2127 of the parent). The top-right delete
+// primary composebox pattern at ~L2127 of the parent). The top-left delete
 // × corner tab from Task 1 stays a SIBLING of the inner wrapper so it still
 // protrudes OUTSIDE the textarea border.
 // ============================================================================
@@ -2661,10 +2661,11 @@ function QueuedRow(props: QueuedRowProps) {
 
   return (
     <div className="relative flex-1" data-slot-id={slot.id}>
-      {/* Quick 260803-05i: Delete × top-right corner tab. SIBLING of the
+      {/* Quick 260803-05i: Delete × top-left corner tab. SIBLING of the
           inner content wrapper below so it protrudes OUTSIDE the textarea
-          border (via -top-2 -right-2). Task 1 introduced this; Task 2's
-          extraction preserves the sibling-of-inner-wrapper invariant. */}
+          border (via -top-2 -left-2). Task 1 introduced this at top-right;
+          Ashley moved it to top-left 2026-08-12. Task 2's extraction
+          preserves the sibling-of-inner-wrapper invariant. */}
       <button
         type="button"
         onClick={() => {
@@ -2675,7 +2676,7 @@ function QueuedRow(props: QueuedRowProps) {
         aria-label="Delete queued message"
         title="Delete queued message"
         className={cn(
-          "absolute -top-2 -right-2 z-20",
+          "absolute -top-2 -left-2 z-20",
           "p-1 rounded-full",
           "bg-[rgba(10,12,20,0.85)] border border-[rgba(220,225,245,0.12)]",
           "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",

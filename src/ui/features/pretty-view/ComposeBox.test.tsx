@@ -749,13 +749,13 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
 });
 
 // ============================================================
-// Quick 260803-05i: queued-row per-slot paperclip, top-right delete corner
+// Quick 260803-05i: queued-row per-slot paperclip, top-left delete corner
 // tab, padding parity, per-slot chip overlay (Task 2), one-line armed
 // header (Task 3). This describe block accumulates across all three tasks
 // so the mount/setup boilerplate is defined once.
 // ============================================================
 
-describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-right delete tab + padding parity + overlay chip + one-line armed header", () => {
+describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delete tab + padding parity + overlay chip + one-line armed header", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -773,7 +773,7 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-right dele
     });
   }
 
-  // ── Task 1: paperclip + top-right delete tab + padding parity ────────────
+  // ── Task 1: paperclip + top-left delete tab + padding parity ────────────
 
   it("QB-1: queued row renders a paperclip attach button at absolute left-1 bottom-0.5 with 30% opacity default", async () => {
     render(<ComposeBox {...baseProps()} />);
@@ -827,7 +827,7 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-right dele
     expect(files).toEqual([f]);
   });
 
-  it("QB-3: queued row renders a delete × in the top-right corner OUTSIDE the textarea wrapper (tab protrudes via -top-* + -right-*)", async () => {
+  it("QB-3: queued row renders a delete × in the top-left corner OUTSIDE the textarea wrapper (tab protrudes via -top-* + -left-*)", async () => {
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
     await act(async () => {
@@ -836,10 +836,10 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-right dele
     const deleteBtn = screen.getByRole("button", {
       name: /delete queued message/i,
     });
-    // Corner-tab positioning: -top-* + -right-* protrudes OUTSIDE the
-    // textarea's border (Task 1 uses -top-2 -right-2).
+    // Corner-tab positioning: -top-* + -left-* protrudes OUTSIDE the
+    // textarea's border (Ashley moved from -right-2 to -left-2 on 2026-08-12).
     expect(deleteBtn.className).toMatch(/-top-/);
-    expect(deleteBtn.className).toMatch(/-right-/);
+    expect(deleteBtn.className).toMatch(/-left-/);
     // Delete tab must be a descendant of the slot outer container.
     const outer = deleteBtn.closest("[data-slot-id]");
     expect(outer).not.toBeNull();
@@ -877,7 +877,7 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-right dele
     expect(slotTextarea.className).toMatch(/\bpl-11\b/);
   });
 
-  it("QB-6: the old left-1 bottom-0.5 delete × is GONE — the delete button now lives at the top-right corner (className MUST NOT contain 'left-1')", async () => {
+  it("QB-6: the old left-1 bottom-0.5 delete × is GONE — the delete button now lives at the top-left corner (className MUST NOT contain 'left-1'; `-left-2` is fine, that's the corner-tab protrusion, distinct from the `left-1 bottom-0.5` bottom-left in-textarea position)", async () => {
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
     await act(async () => {
