@@ -65,6 +65,10 @@ function firstUserTurnLine(
       "<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>" +
       identity;
   } else if (delimiter === "\r") {
+    // NOTE: JSON.stringify would escape a raw CR to `\\r`; callers that need
+    // a RAW CR byte in the line must construct the line by hand (see the
+    // `\r` delimiter test case below). This branch is provided for symmetry
+    // but is not consumed by the current test suite.
     content =
       "<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>" +
       identity +
@@ -200,8 +204,18 @@ describe("__matchesIdentityFirstTurnForTests — CASE-P3 delimiter set", () => {
     expect(__matchesIdentityFirstTurnForTests(line, "tanya")).toBe(true);
   });
 
-  it("accepts `\\r` immediately after identity (Windows-line-ending edge)", () => {
-    const line = firstUserTurnLine("tanya", { delimiter: "\r" });
+  it("accepts `\\r` (raw CR byte) immediately after identity (Windows-line-ending edge)", () => {
+    // The `\r` delimiter case is a RAW carriage-return byte in the JSONL line
+    // — NOT a JSON `\r` escape (which is two literal bytes `\`, `r`). This
+    // shape is unusual in practice (JSON.stringify never emits raw CR inside
+    // content), but the D-01 spec lists `\r` as an allowed delimiter for
+    // defensive completeness (line-ending edge cases where the raw line
+    // buffer includes CR before LF). Construct the line by hand so the byte
+    // immediately after `tanya` is a raw 0x0D.
+    const line =
+      '{"type":"user","message":{"role":"user","content":"<command-name>/id</command-name>\\n<command-args>tanya' +
+      "\r" +
+      '"}}';
     expect(__matchesIdentityFirstTurnForTests(line, "tanya")).toBe(true);
   });
 
