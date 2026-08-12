@@ -1,42 +1,57 @@
 // quick 260808-cd6 — dormancy overlay + wake button.
-// Sibling to SessionHoldingOverlay pattern; motion-channel guardrail
-// inherited verbatim from that component.
+// quick 260812-ma8 — bubble-in-flow refactor from the original scrim.
+// Sibling to PlanPendingBubble now (was sibling to SessionHoldingOverlay);
+// motion-channel guardrail preserved verbatim from the original.
 //
-// Replaces the unusable pretty-view surface when an identity pane's
-// tmux session has gone dormant (supervisor sentinel at
-// ~/.claude/identities/<name>/.dormant). Shape:
-//   * Full-surface scrim (`absolute inset-0`) with backdrop-blur-md + bg-black/40,
-//     same geometry as SessionHoldingOverlay — covers the chat region while
-//     leaving the ComposeBox (sibling, below the wrapper) intentionally uncovered
-//     so Ashley can pre-draft.
-//   * Centered glass card: "session is asleep" copy + Wake button (asleep state)
-//     OR "waking…" static-glyph copy (waking state). No spinner — same motion-
-//     channel guardrail as SessionHoldingOverlay (STATIC Moon glyph always;
-//     NO animate-spin).
+// Rendered when an identity pane's tmux session has gone dormant
+// (supervisor sentinel at ~/.claude/identities/<name>/.dormant, surfaced to
+// the frontend via `renderedState === "dormant"`).
+//
+// Shape (quick 260812-ma8):
+//   * IN-FLOW assistant-aligned bubble at the bottom of the message list —
+//     mirrors `PlanPendingBubble`'s Phase 4 Glass treatment (identity-hue
+//     gradient, warm-cream text, `flex justify-start` outer, capped-width
+//     card, `backdrop-blur-xl` on the CARD only, no outer scrim). The old
+//     shape was a full-surface scrim (`absolute inset-0` + `backdrop-blur-md
+//     bg-black/40`) that blurred and blocked the whole chat region — Ashley
+//     could not read the tail of the conversation while a session was asleep,
+//     which is exactly the context she needs to decide whether to wake it.
+//     The new bubble scrolls with the message list and leaves prior messages
+//     readable above.
+//   * Three states preserved verbatim (only the outer container geometry +
+//     treatment changed):
+//       (a) asleep (waking=false, no error) — "This session is asleep" + Wake button.
+//       (b) waking (waking=true) — "Waking up…" + progress bar linearly
+//           filling to WAKE_ETA_PROGRESS_CAP (0.95) over WAKE_ETA_SECONDS (90).
+//           No Wake button. No spinner (motion-channel guardrail — see below).
+//       (c) error (showError = !waking && error != null) — warm-red Moon +
+//           `Couldn't wake — {error}` + Wake button (retry). Warm-red treatment
+//           (patch #122 / SessionHoldingOverlay-style gradient/text/shadow)
+//           mapped onto the NEW bubble geometry.
 //   * Progress bar (waking, non-error): fills to ~95% over WAKE_ETA_SECONDS so
-//     the overlay never looks hung during the supervisor's ≤30s CHECK_INTERVAL +
-//     ~30s claude-launch latency window. Expectation-setting only — overlay
-//     dismisses via PrettyView's live-frame auto-dismiss when wake completes.
-//   * Error variant (warm-red card) when wake failed — mirrors the SessionHoldingOverlay
-//     patch #122 error-variant classes verbatim.
+//     the bubble never looks hung during the supervisor's ≤30s CHECK_INTERVAL +
+//     ~30s claude-launch latency window. Expectation-setting only — the bubble
+//     unmounts via PrettyView's `renderedState` flip when the pane goes live.
 //
 // GUARDRAIL — motion channel:
 //   The glyph is a STATIC `Moon`. Do NOT add `animate-spin` here.
-//   See SessionHoldingOverlay file header for the full rationale: the motion
-//   channel across pretty view is owned by `WipBubble` — a spinner here would
-//   steal focus from real work-in-progress indicators. Static glyph = STATE,
-//   not WORK. The patch #72 rule applies to all per-pane overlay components.
+//   Motion channel across pretty view is owned by `WipBubble` — a spinner
+//   here would steal focus from real work-in-progress indicators. Static
+//   glyph = STATE, not WORK. PlanPendingBubble applies the same rule for
+//   its ClipboardList glyph ("waiting on you", not "working").
+//   The patch #72 rule applies to all per-pane state indicators.
 //
 // GATING:
-//   PrettyView.tsx mounts this component when `dormant === true` (set by the
-//   WS `{type:"dormant", dormant:true}` frame handler). This component has no
-//   visibility props — the parent gate is the sole mount decider.
+//   PrettyView.tsx mounts this component when `renderedState === "dormant"`
+//   (Phase 30 backend-authoritative gate via `paneState`). Quick 260812-ma8
+//   moved the mount site from the chat-region wrapper (sibling of
+//   `SessionHoldingOverlay`) INTO the scroll container (sibling of
+//   `PlanPendingBubble`) so the bubble scrolls in the message-list flow.
+//   The gate itself is unchanged — only the mount site moved.
 //
-//   Co-exists with SessionHoldingOverlay: the two overlays cannot both be true
-//   at once by supervisor invariant (dormant-only-when-alive — the supervisor
-//   only sets the sentinel when Claude is alive in the pane; a session recycle
-//   would clear the dormant state first). But the mounts are independent so
-//   no explicit gate needed here.
+//   ComposeBox still reduces to its dormant treatment via the sibling gate
+//   `dormantActive={renderedState === "dormant" || waking}` on the compose
+//   mount — unchanged by this refactor.
 
 import { Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -74,60 +89,49 @@ export function DormancyOverlay({
   const showError = !waking && error != null;
 
   return (
-    <div
-      role="status"
-      aria-label={
-        showError
-          ? `Wake failed — ${error}`
-          : waking
-            ? "Waking identity session…"
-            : "Session is asleep — tap Wake to restart"
-      }
-      className={cn(
-        // Scrim: absolute inset-0 inherits the chat-region wrapper box, same
-        // as SessionHoldingOverlay (quick 260729-j8l mount-point geometry).
-        // z-[99] sits BELOW IdentityBadge (z-[101]) — badge stays visible and
-        // clickable while the overlay is up. Below app-modal dialogs (z-[500]).
-        // pointer-events-auto: blocks clicks/typing on everything the scrim covers.
-        "absolute inset-0 z-[99]",
-        "flex items-center justify-center",
-        "backdrop-blur-md bg-black/40",
-        "[-webkit-backdrop-filter:blur(12px)]",
-        // iOS Safari backdrop-filter compositor-churn hardening. Without these,
-        // opening a MediaStream (mic recording) or similar compositor state change
-        // silently degrades backdrop-filter rendering. `isolation: isolate` gives
-        // the scrim its own stacking context; `transform: translateZ(0)` forces
-        // its own GPU compositing layer. Standard iOS Safari fix. Verbatim from
-        // SessionHoldingOverlay.
-        "isolate [transform:translateZ(0)]",
-        "pointer-events-auto",
-        "animate-in fade-in duration-150",
-      )}
-    >
+    // quick 260812-ma8: outer wrapper mirrors PlanPendingBubble line 144
+    // (`flex justify-start`) — assistant-aligned in-flow bubble. Wrapper carries
+    // no role/aria — those live on the inner card (the visible bubble),
+    // exactly like PlanPendingBubble.
+    <div className={cn("flex", "justify-start", "animate-in fade-in duration-150")}>
       <div
+        role="status"
+        aria-label={
+          showError
+            ? `Wake failed — ${error}`
+            : waking
+              ? "Waking identity session…"
+              : "Session is asleep — tap Wake to restart"
+        }
         className={cn(
-          // Centered glass card — mirrors SessionHoldingOverlay verbatim:
-          // px-4 py-3 gap-3 for slightly more presence than PlanPendingBubble.
-          "rounded-[var(--radius-pv-bubble)] px-4 py-3",
+          // Structural classes — shared across non-error and error branches.
+          // Copied verbatim from PlanPendingBubble.tsx lines 164-172 (Phase 4
+          // Glass bubble shell). `max-w-[min(720px,80vw)]` caps width so a
+          // long error string doesn't push the bubble past the pretty-view
+          // content column.
+          "leading-relaxed",
+          "rounded-[var(--radius-pv-bubble)] px-3 py-2",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // Error variant: warm-red-tinted gradient + text (patch #127 / #122 style).
-          // Warm-red stops match ComposeBox.tsx line ~981 hsla(0,72%,55%,1) — one
-          // warm-red across the app. Verbatim from SessionHoldingOverlay.
-          // Non-error: neutral navy card (same as SessionHoldingOverlay default).
+          "flex flex-col gap-2 text-sm max-w-[min(720px,80vw)]",
+          // Variant-specific treatment: background, text color, border, shadow.
+          // Non-error (asleep + waking) = PlanPendingBubble identity-hue treatment
+          // ("identity is waiting on you"). Error = warm-red treatment (patch #122
+          // / SessionHoldingOverlay style), preserved verbatim from the old scrim.
           showError
             ? "bg-[linear-gradient(160deg,rgba(85,30,35,0.55),rgba(55,20,25,0.6))]"
-            : "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
-          showError ? "text-[#f5d0d4]" : "text-[#dfe3ee]",
-          "border border-white/[0.08]",
-          // Error variant: warm-red inset glow (patch #122 style). Non-error: standard shadow.
+            : "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
+          showError ? "text-[#f5d0d4]" : "text-[#fbf5e8]",
+          showError
+            ? "border border-white/[0.08]"
+            : "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
           showError
             ? "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,200,200,0.14)_inset,_0_0_18px_hsla(0,72%,55%,0.18)]"
-            : "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
-          "flex flex-col items-center gap-3 text-sm",
+            : "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
         )}
       >
-        {/* Glyph row: Moon icon + main copy on one line */}
+        {/* Glyph row: Moon icon + main copy on one line. `gap-3` preserved
+            from the pre-refactor spacing for glyph-to-copy comfort. */}
         <div className="flex items-center gap-3">
           <Moon
             className={cn(
@@ -172,18 +176,21 @@ export function DormancyOverlay({
           </div>
         )}
 
-        {/* Wake button: visible only in asleep state (not waking, not waking-error-retry) */}
+        {/* Wake button: visible only in asleep state (not waking, not waking-error-retry).
+            `pt-1` matches PlanPendingBubble's footer-row spacing (line 201). */}
         {!waking && (
-          <Button
-            size="sm"
-            variant="secondary"
-            className="cursor-pointer"
-            onClick={onWake}
-            aria-label="Wake identity"
-            // Wake button is always enabled in asleep/error state — Ashley can retry.
-          >
-            Wake
-          </Button>
+          <div className="pt-1">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="cursor-pointer"
+              onClick={onWake}
+              aria-label="Wake identity"
+              // Wake button is always enabled in asleep/error state — Ashley can retry.
+            >
+              Wake
+            </Button>
+          </div>
         )}
       </div>
     </div>
