@@ -33,10 +33,7 @@ import { PrettyViewErrorOverlay } from "./PrettyViewErrorOverlay";
 import { usePaneResolvingMachine } from "./usePaneResolvingMachine";
 import type { WsTransportState, PaneState } from "./resolve-phase";
 import { IdentityModal } from "./IdentityModal";
-// TEMP 2026-08-10 (bounty pv-disable-auto-scroll-temp): useAutoScroll import
-// removed; the hook call at ~line 608 is stubbed inline. use-auto-scroll.ts
-// stays in-tree UNTOUCHED as reference for the eventual redesign (bounty
-// pv-auto-scroll-redesign).
+import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { DropOverlay } from "./DropOverlay";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
@@ -91,15 +88,12 @@ const AUTO_ASIDE_ARM_ENABLED = false;
 //      is "message" becomes a bubble; the parser (Plan 01-01) and the
 //      WS server (Plan 01-02) already drop non-text blocks upstream.
 //
-//   2. RENDER-03 auto-scroll: TEMP-DISABLED 2026-08-10 per bounty
-//      pv-disable-auto-scroll-temp. Historically handled by
-//      `useAutoScroll` via a ResizeObserver on the inner content
-//      wrapper (`contentRef`) — any resize re-pinned to the bottom
-//      iff the user was pinned. Phase 27 virtualization made
-//      snap-to-bottom unusable; the hook call is stubbed inline
-//      (see line ~608 area) and use-auto-scroll.ts is kept in-tree
-//      as reference for the eventual redesign (bounty
-//      pv-auto-scroll-redesign).
+//   2. RENDER-03 auto-scroll: Phase 32 three-case sticky-bottom model
+//      via `useAutoScroll(paneKey)`. ResizeObserver on the OUTER scroll
+//      container catches virtualized-item growth AND accessory (WipBubble
+//      / PlanPendingBubble / AsideBubble) mounts. Send-path callers +
+//      the jump-to-bottom pill share the single `scrollToBottomAndFollow`
+//      action. See 32-CONTEXT.md for the LOCKED design.
 //
 //   3. FALLBACK-01 clean inactive render: on `type:"inactive"` we
 //      render exactly one literal string (see the JSX below) inside a
@@ -602,11 +596,16 @@ export function PrettyView({
   //
   // Always delegates to onSend(text) and returns its boolean result unchanged —
   // the send itself still needs to fire (that IS what triggers the aside).
-  // handleComposeSend needs to trigger forceStickAndJump on send, but
-  // useAutoScroll is called later in this render body. Route through a ref
-  // that we assign post-useAutoScroll-call to avoid a TDZ on the const
-  // closure capture (handleComposeSend is declared here, above the hook call).
-  const forceStickAndJumpRef = useRef<() => void>(() => {});
+  //
+  // Phase 32 (see .planning/phases/32-.../32-CONTEXT.md): paneKey moved upstream from its
+  // original L743 site so the useAutoScroll hook call below is upstream of handleComposeSend,
+  // letting handleComposeSend close over scrollToBottomAndFollow directly at declaration time
+  // (no TDZ, no ref-mirror indirection). paneKey's WS-effect consumers at ~L1015/L1055 still
+  // resolve to this moved declaration.
+  const paneKey = `${hostId}::${tmuxSession}`;
+  // Phase 32: three-case sticky-bottom auto-scroll (session load / follow-when-at-bottom /
+  // force-on-send). See 32-CONTEXT.md § Decisions LOCKED.
+  const { scrollRef, scrollToBottomAndFollow, isPinnedToBottom } = useAutoScroll(paneKey);
 
   const handleComposeSend = useCallback((text: string): boolean => {
     const trimmed = text.trim();
@@ -624,9 +623,9 @@ export function PrettyView({
     }
     // A send is the strongest possible "I want to see the reply" signal —
     // force stick + jump regardless of prior scroll position.
-    forceStickAndJumpRef.current();
+    scrollToBottomAndFollow();
     return onSend ? onSend(text) : false;
-  }, [onSend]);
+  }, [onSend, scrollToBottomAndFollow]);
 
   // WIP indicator: composite isWorking from session-working-store.
   // Patch #260806-ixl: both the PTY-side ttyBusy signal (Terminal.tsx) and
@@ -736,52 +735,9 @@ export function PrettyView({
     getBufferedAmount: () => terminalWs?.bufferedAmount ?? 0,
   });
 
-  // paneKey is retained because it is consumed by the WS effect's paneKeyRef
-  // comparison (see ~L714/L746) to distinguish a fresh-pane mount from a
-  // retryKey-triggered WS re-run. It is NO LONGER used for auto-scroll
-  // reset — auto-scroll is TEMP-disabled (see stub block below).
-  const paneKey = `${hostId}::${tmuxSession}`;
-  // TEMP 2026-08-10: auto-scroll disabled per bounty pv-disable-auto-scroll-temp
-  // after Phase 27 virtualization made snap-to-bottom unusable. use-auto-scroll.ts
-  // is kept in-tree as reference for the eventual redesign (bounty
-  // pv-auto-scroll-redesign — do not re-enable this stub without that redesign).
-  //
-  // EXCEPTION 2026-08-10 (Ashley): the jump-to-bottom pill is restored as a pure
-  // MANUAL affordance — click scrolls the container to the bottom (imperative,
-  // no pin/follow, no scroll-position ownership). `isPinnedToBottom` state is
-  // tracked JUST for pill visibility (hide when at bottom, show when scrolled
-  // up); it does NOT drive any auto-scroll behavior. `forceStickAndJump` stays
-  // no-op (used by ComposeBox on send; that's still auto-scroll-adjacent).
-  const stubScrollElRef = useRef<HTMLElement | null>(null);
-  const [stubScrollNode, setStubScrollNode] = useState<HTMLElement | null>(null);
-  const scrollRef = useCallback((el: HTMLElement | null) => {
-    stubScrollElRef.current = el;
-    setStubScrollNode(el);
-  }, []);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [isPinnedToBottom, setIsPinnedToBottom] = useState<boolean>(true);
-  useEffect(() => {
-    const el = stubScrollNode;
-    if (!el) return;
-    // 24px slack absorbs sub-pixel rounding + line-break growth without the
-    // pill flickering visible at the true bottom.
-    const AT_BOTTOM_THRESHOLD_PX = 24;
-    const recompute = () => {
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      setIsPinnedToBottom(distanceFromBottom <= AT_BOTTOM_THRESHOLD_PX);
-    };
-    recompute();
-    el.addEventListener("scroll", recompute, { passive: true });
-    return () => el.removeEventListener("scroll", recompute);
-    // messages.length in deps re-runs recompute when new content arrives so
-    // the pill appears if the bottom moved further away while the user was
-    // stationary.
-  }, [stubScrollNode, messages.length]);
-  const scrollToBottomAndFollow = useCallback(() => {
-    const el = stubScrollElRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, []);
-  const forceStickAndJump = useCallback(() => {}, []);
+  // Phase 32: paneKey moved upstream — see Change 5 site above handleComposeSend.
+  // The former stub block (TEMP-disabled auto-scroll from bounty pv-disable-auto-scroll-temp)
+  // was deleted here — the phase 32 hook above is now the sole reader.
 
   // Phase 27 virtualization (Plan 27-02): construct the virtualizer AFTER
   // useAutoScroll so any CapturingResizeObserver polyfill in tests captures
@@ -908,11 +864,6 @@ export function PrettyView({
     },
     [scrollRef],
   );
-
-  // Forward the current forceStickAndJump into the ref that handleComposeSend
-  // (declared earlier in this render body) reads. Avoids the TDZ that would
-  // hit if handleComposeSend captured the const directly.
-  forceStickAndJumpRef.current = forceStickAndJump;
 
   // Patch #108: IdentityModal anchors its Radix Portal to this DOM element
   // (the chat-region wrapper below). Callback ref → state so the Portal
@@ -2131,18 +2082,15 @@ export function PrettyView({
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 [overflow-anchor:none]"
         >
           {/* Phase 27 virtualization (Plan 27-02, Step A): sized virtualizer
-              container. The ResizeObserver in useAutoScroll still watches
-              THIS element (contentRef) for content-size changes; the outer
-              composeScrollRefs div is watched separately for viewport-size
-              changes. `position: relative` lets the absolute-positioned
-              virtualized items resolve their translateY() against this box.
-              Note (Step A intermediate state): WipBubble/PlanPendingBubble/
-              AsideBubble are kept inside this container as absolute-
-              positioned siblings pinned immediately below the last
-              virtualized item to preserve pre-Step-B test shape. Step B
-              moves them OUT to an in-flow sibling below this container. */}
+              container. Phase 32: useAutoScroll's ResizeObserver now watches
+              the OUTER composeScrollRefs scroll container ONLY — see
+              32-CONTEXT.md § ResizeObserver LOCK. Accessories (WipBubble /
+              PlanPendingBubble / AsideBubble) are in-flow siblings of this
+              sized container inside the outer scroll container, so growth
+              from those mounts is caught by the outer RO too. `position:
+              relative` lets the absolute-positioned virtualized items
+              resolve their translateY() against this box. */}
           <div
-            ref={contentRef}
             style={{
               height: `${rowVirtualizer.getTotalSize()}px`,
               position: "relative",
@@ -2277,21 +2225,21 @@ export function PrettyView({
               a child of the flex column that holds the messages — that column
               became the virtualizer's absolute-positioned sized container.
               AsideBubble stays visually below the message list.
-              TEMP 2026-08-10 (bounty pv-disable-auto-scroll-temp): auto-scroll
-              is disabled; NO observer currently watches accessories for
-              scrollHeight-driven pin-to-bottom. In-flow, per ASIDE-05 — NOT
-              an overlay, popup, or fixed-position element. */}
+              Phase 32: useAutoScroll's ResizeObserver on the outer scroll
+              container catches this accessory's mount too (scrollHeight-
+              driven pin-to-bottom works uniformly across virtualized items
+              + accessories). In-flow per ASIDE-05 — NOT an overlay, popup,
+              or fixed-position element. */}
           {asideText !== null && <AsideBubble text={asideText} />}
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
               to the bottom-right of the visible viewport. Shown only when
               the user has scrolled up.
-              RESTORED 2026-08-10 (Ashley): under the TEMP auto-scroll
-              disable, `scrollToBottomAndFollow` no longer follows — it is
-              a pure imperative jump (sets scrollTop = scrollHeight, no
-              pin, no follow-up on subsequent messages). `isPinnedToBottom`
-              is tracked via a scroll listener in the stub above JUST for
-              pill visibility. */}
+              Phase 32 (three-case sticky-bottom auto-scroll, see 32-CONTEXT.md):
+              `scrollToBottomAndFollow` enters sticky + jumps + re-arms for
+              STICK_ARM_MS (150ms) so async content settle (image decode,
+              batched WS backfill) lands at the bottom. `isPinnedToBottom` is
+              hook-derived from the single scroll listener. */}
           {!isPinnedToBottom && messages.length > 0 && (
             <div className="sticky bottom-2 pointer-events-none flex justify-end">
               <Button
