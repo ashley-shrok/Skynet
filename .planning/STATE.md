@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-11T13:43:13.153Z"
-last_activity: 2026-08-11
+last_updated: "2026-08-12T21:48:10.524Z"
+last_activity: 2026-08-12
 progress:
-  total_phases: 31
+  total_phases: 32
   completed_phases: 25
-  total_plans: 130
-  completed_plans: 126
-  percent: 81
+  total_plans: 134
+  completed_plans: 129
+  percent: 78
 ---
 
 # Project State
@@ -139,7 +139,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -215,6 +215,7 @@ Progress: [██████████] 99%
 | Phase 31 P05 | 25m | 2 tasks | 2 files |
 | Phase 31-whole-app-structured-logging-backfill P07 | 8 minutes | 2 tasks | 5 files |
 | Phase 31-whole-app-structured-logging-backfill P09 | 5 minutes | 4 tasks | 2 files |
+| Phase 32 P04 | 553 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -316,6 +317,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Pause-gate guards converted to block form for structured log line — 4 wiring tests updated to widened regex
 - [Phase ?]: Web Audio API path confirmed in ChatMessage.tsx (not HTMLAudioElement); media event hooks added to WebAudioStreamPlayerOptions
 - [Phase ?]: Phase 31 checkpoint approved — Ashley accepted coverage without review; logging phase complete; deferred bounties unblocked
+- [Phase ?]: Phase 32-04 Test 2d integration path: Option A (drive real ComposeBox UI via fireEvent.change + getByRole('button', {name: 'Send'})) — verifies handleComposeSend to scrollToBottomAndFollow wire-through end-to-end
+- [Phase ?]: Phase 32-04 two-step scroll dispatch pattern for Tests 3 and 2d: sync scroll-listener's lastScrollTop closure baseline first, then dispatch at lower position to flip stickyRef (Rule 1 fix — compensates for programmaticRef gating out rAF chain writes from the closure)
+- [Phase ?]: Phase 32-04 vi.stubGlobal(requestAnimationFrame, setTimeout+16ms) shim required in all rAF-dependent tests under vi.useFakeTimers — vitest fake-timers do not polyfill rAF
 
 ### Pending Todos
 
@@ -327,6 +331,7 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 
 ### Roadmap Evolution
 
+- 2026-08-12: Phase 32 added — Redesign pretty-view auto-scroll (three-case sticky-bottom hook: session-first-load / follow-on-new-when-at-bottom / user-send-forces-bottom). Rip-and-replace the disabled `use-auto-scroll.ts` (225 lines, TEMP-disabled 2026-08-10 by quick 260810-299) with a fresh ~80-line hook. Design settled with Ashley 2026-08-12 (verbatim: "keep it simple, the old auto-scroll got complicated because I asked for a bunch of different cases; if you have to rip out the old stuff and start fresh that's fine — done right is priority"). Shape: one `stickyRef` + one `programmaticRef` + one exported `scrollToBottomAndFollow` used by pill AND all send paths (Enter/click/queued-fire/voice/aside-resume). ResizeObserver on OUTER scroll container closes H1 accessory-mount blind spot (WipBubble/PlanPendingBubble/AsideBubble live as in-flow siblings post-Phase-27 Step-B). Single scroll listener replaces old wheel+keydown+touchmove trifecta — `programmaticRef` distinguishes our writes from user. No load-lock-that-blocks-gestures (halt-on-un-stick via `if (!stickyRef.current) return` in the rAF chain). Inverse Ashley confirmed: new messages while user is scrolled up do NOT yank down (pill stays manual affordance). Verify at implementation: whether TanStack Virtual writes scrollTop directly on re-measure (mitigation if yes: flag around known measurement events). Supersedes bounty `pv-disable-auto-scroll-temp`. Full detail in bounty `pv-auto-scroll-redesign` timeline entry 2026-08-12T18:05:00Z.
 - 2026-08-11: Phase 31 added — Whole-app structured-logging backfill. Two symptoms hit Ashley on cellular today that surfaced BOTH as new failure modes AND as under-instrumented: (a) `Waiting for connection logs...` — new-session-open hangs indefinitely after 2-3 opens within one PWA lifecycle, force-quit+reopen fixes; Ashley verbatim: "I've seen that connection log hundreds of times overusing the app and it's never failed to load in the first place like that"; (b) `Connection rejected by server` full-screen fatal-looking overlay on tabs left ~3 min idle then reconnected, auth actually succeeded and something's flipping wasConnectedRef back to false before a wasClean close hits the guard; (c) speak button on message bubbles produces no audio — press button, pause button appears (frontend thinks playback started), silent. Console-forward log 08:03-08:07 UTC on 2026-08-11 shows 116 WS error events in a 5-min window (iPhone Safari 26.6) — WS establishes then closes ~3-10s later in perpetual cycles, `Reconnecting... (1/8)` counter resetting each cycle, but the log lines are USELESS: `[WebSocket] Error: {"isTrusted":true}` is JSON.stringify on a DOM Event (strips everything), Abnormal-closure log carries no code/reason/wasClean/hostId/sessionId, no logs at the pause-gate boundary, no logs at wasConnectedRef transitions. Direction — this phase is FOUNDATIONAL for diagnosing the two symptom bounties (`ws-pause-gate-stuck-connect-cycling`, `speak-button-broken-on-cellular`) which are DEFERRED behind it. Do a pass across the whole app instrumenting interaction/lifecycle/effect boundaries: WS lifecycle (open/close/error with `event.code`/`reason`/`wasClean` explicitly extracted, hostId, sessionId, wasConnectedRef transitions), pause-gate boundary (patches #367-#369), all 4 reopen paths (setup-effect deps / onclose retry scheduler / visibilitychange handler / direct connectToHost callers) with which-path-fired attribution, session-open flow, TTS/speak pipeline (fetch, blob decode, `audio.play()` promise resolve/reject with error, media events canplay/playing/error/stalled/suspend/ended), voice-recording lifecycle. Rule for future patches: proactively instrument at decision points and edge transitions with enough context to be actionable in isolation. Ashley greenlit the "logging is cheap and we already batch-post" philosophy 2026-08-11; banked as § Standing directives in `~/.claude/roles/box-maintainer/box-maintainer.md`. Bounty trackers: `ws-pause-gate-stuck-connect-cycling` and `speak-button-broken-on-cellular` (both in_progress, both parked pending Phase 31 data).
 - 2026-08-10: Phase 30 added — pane-state-backend-authoritative-no-client-inference. Phase 29 consolidated ~5 racing client-side overlay states into one machine with a truth table — real architectural improvement. But the machine's INPUTS are still mostly client-observed (isVisible-edge triggers, PWA-foreground handler forcing resolving, backendFirstFrame written by ~10 different frame types including the D-11 "any live message = active" swap, my patch #381 client-hint hack). Ashley 2026-08-10 verbatim after tina's #381 shipped and produced overlay-flash: *"Whether or not the session is recycling should be based on '/id reset' being found in the session file. That was supposed to be the whole point of the phase that redid the logic that decides which overlays show and stuff. Everything is supposed to be based on real things, not client state."* Direction: reduce state-machine inputs to exactly TWO — (1) `pane_state` frame (authoritative phase verdict emitted by backend from real observations: session-file parser sees `/id reset` → holding, /exit scan + PID death → holding fallback, new session file inode → active, agent-supervisor dormancy → dormant, backend classification → inactive) emitted on WS attach + every state change; (2) `ws_transport_state` (unavoidably client-observed since only the browser knows its own socket state) — gates "can we trust the last pane_state" vs "show reconnecting." Deletes from frontend: three entry-trigger effects in usePaneResolvingMachine, rearmSnapshotRef machinery, D-11 message→active swap, all ~10 captureFirstFrame call sites including patch #381 (which becomes redundant), backendFirstFrame concept entirely, local isHolding/dormant/waking/holdingTimeoutError state slots. Adds to backend: new pane_state emitter, session-file-parser /id reset detection (suppress user-turn AND emit holding). Tests: parser test for /id reset skip+emit, pane_state emission tests, PrettyView state-machine simplified. Phase-29 test suite (usePaneResolvingMachine entry-trigger tests, resolve-phase truth table) rewrites or deletes as trigger machinery goes away. Bounty tracker: `~/.claude/roles/box-maintainer/bounties/reset-button-holding-overlay-regression-phase-29/` (broadening scope to this full-fix — patch #381 is the interim hack this phase deletes).
 - 2026-08-10: Phase 29 added — Unified session-entry state machine — single 'resolving' spinner fronts every overlay until deterministic verdict. Ashley 2026-08-10 (verbatim): entering a session from the conversation list produces multiple racing overlays (screen flickers black with "Connecting…", "Connection lost" box covers half-screen, "Waking up" shows even though session was awake) — "no unified piece of logic governing … what state it's actually in so i know what to display and instead there's just a patchwork of bullshit fighting for what should be displayed." Also verbatim on determinism: "I really don't think we want a deadline here … if we're doing this right, then we should be able to go look at all the factors that matter and decide what to display … it's not like anything in here is stochastic … there's no reason for this not to be deterministic." Direction (tiffany diagnosis Ashley bought): unified pane-entry state machine with explicit `resolving` phase — on any transition into a pane (activeSet mount, tab-select, PWA foreground), enter `resolving`; single spinner is the ONLY thing shown; each substate input reports its deterministic verdict (WS open/error, backend first frame — active/inactive/session_holding/dormant); when ALL inputs have reported, transition to exactly one of {active, dormant, holding, error, inactive} and reveal corresponding UI. NO deadline/timeout — inputs have deterministic resolve signals; if something is slow the spinner stays up honestly. Testable end-to-end: for any (inputs) → exactly one displayed state. **Phase-number note:** originally added as Phase 28 in an earlier session, but Tina in parallel claimed Phase 28 for PrettyView virtualization correctness cluster and shipped it as patch #374; mine renumbered to 29 on 2026-08-10 rebase. Root cause is gsd-sdk `phase.add` with no cross-tree lock; Tina filing a bounty on that. Bounty tracker: `~/.claude/roles/box-maintainer/bounties/unified-session-entry-state-machine/`.
@@ -502,6 +507,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-11T13:43:06.421Z
-Stopped at: Completed 31-03-PLAN.md
+Last session: 2026-08-12T21:48:10.408Z
+Stopped at: Completed 32-04-PLAN.md — Phase 32 FINAL wave complete; ready for verification
 Resume file: None

@@ -1008,6 +1008,7 @@ Plans:
 
 - [x] 31-09-PLAN.md — Grep pass: no JSON.stringify(event), all old prefixes 0 in src/, all D-02+D-03 subsystems COVERED per the crosswalk; frontend + backend builds clean; full vitest suite green; write 31-COVERAGE-REPORT.md + 31-MANUAL-VERIFICATION.md runbook for Ashley's post-ship WS-cycle reproduction; human-verify checkpoint (D-20, D-21, D-22)
 
+<<<<<<< HEAD
 ### Phase 32: Identity-first-turn session discovery + wake-bubble message history
 
 **Goal:** Add a process-independent, disk-based helper for finding the current JSONL of a given identity, and wire it into the dormant branch so the wake bubble (shipped 2026-08-12 as quick 260812-ma8) surfaces the tail of the conversation Ashley is deciding whether to wake — instead of an empty message list. Today the backend chains tmux-pane → PID → cwd → mtime-newest JSONL to find the current session (pane-based discovery). That chain requires a live claude process, so the dormant branch at `src/backend/claude-session/claude-session-server.ts:4675-4700` gets no session file and never opens a tail — the browser's `messages` array stays empty for dormant panes, which the pre-260812-ma8 scrim hid from Ashley and the new in-flow bubble reveals.
@@ -1048,3 +1049,16 @@ Plans:
 
 **Rebase risk:** LOW — additive: new helper file + wire into an existing branch that emits only a single dormant frame today + explicit tail-close ordering at the wake transition + fallback preserves existing behavior. No upstream Skynet surfaces touched.
 
+
+### Phase 33: Redesign pretty-view auto-scroll — three-case sticky-bottom hook (session load / follow-on-new-when-at-bottom / send-forces-bottom) replacing the temp-disabled 225-line use-auto-scroll.ts. Design settled with Ashley 2026-08-12: keep-it-simple ~80-line hook, one stickyRef + one programmaticRef, one exported scrollToBottomAndFollow used by pill AND all send paths (Enter/click/queued-fire/voice/aside-resume), ResizeObserver on OUTER scroll container (closes H1 accessory-mount blind spot from WipBubble/PlanPendingBubble/AsideBubble living as in-flow siblings post-Phase-27 Step-B), single scroll listener replaces old wheel+keydown+touchmove trifecta (programmaticRef distinguishes our writes from user), no load-lock-that-blocks-gestures. Implicit inverse Ashley confirmed: new messages while scrolled up do NOT yank down (pill stays manual affordance). Verify at implementation: whether TanStack Virtual writes scrollTop directly on re-measure (mitigation if yes: flag around known measurement events). Ships with tests for the four scenarios + Ashley UAT. Full design detail in bounty pv-auto-scroll-redesign timeline entry 2026-08-12T18:05:00Z. Supersedes bounty pv-disable-auto-scroll-temp. Rebase risk LOW — fork-local pretty-view; no upstream surfaces touched.
+
+**Goal:** Replace the temp-disabled 225-line `use-auto-scroll.ts` with a fresh ~80-line hook that lands PrettyView at the bottom on session first load, follows new messages while at bottom, forces bottom on every user send path (Enter/click/queued-fire/voice/quick-buttons), and does NOT yank the user down when they are scrolled up reading history
+**Requirements**: none (no REQUIREMENTS.md entry — this phase supersedes bounties `pv-auto-scroll-redesign` + `pv-disable-auto-scroll-temp`; requirements are captured in 32-CONTEXT.md as LOCKED decisions)
+**Depends on:** Phase 31
+**Plans:** 3/4 plans executed
+
+Plans:
+- [ ] 32-01-PLAN.md — TanStack Virtual scrollTop-write verification (grep node_modules/@tanstack/virtual-core; produce 32-01-VERIFICATION-REPORT.md with verdict + Plan 02 recommendation)
+- [x] 32-02-PLAN.md — Rewrite src/ui/features/pretty-view/use-auto-scroll.ts to the CONTEXT.md-locked design (one stickyRef + one programmaticRef + one scrollToBottomAndFollow + single scroll listener + RO on OUTER container + self-halting rAF chain + no load-lock)
+- [x] 32-03-PLAN.md — Wire the new hook into PrettyView.tsx (delete L744-784+L912-915 stub + forceStickAndJumpRef scaffolding + local contentRef; insert useAutoScroll(paneKey); swap handleComposeSend :627 forceStickAndJumpRef.current() → scrollToBottomAndFollow(); wire ComposeBox.tsx L2055 /explain quick-button through onGoodToGo?.())
+- [x] 32-04-PLAN.md — Extend PrettyView.virtualization.test.tsx with the four CONTEXT.md § Test coverage scenarios (un-skip Test 2 session-first-load; add Test 2b incoming-at-bottom; adapt Test 3 wheel→scroll for the new listener; add Test 2d user-send-forces-bottom via integration path)
