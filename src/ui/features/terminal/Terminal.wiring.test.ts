@@ -593,7 +593,7 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     // The guard line — anchored on the planted comment tag for deterministic
     // matching that survives reformatting.
     expect(body).toContain("quick-260809-eqk: hidden panes must not fight the WS-pause effect");
-    // Guard may be single-line `return;` or multi-line `{ ...; return; }` after 31-02's warn-log conversion.
+    // Guard may be single-line `return;` or multi-line `{ ...; return; }`.
     expect(body).toMatch(/if \(!isVisibleRef\.current\)\s*(?:return;|\{[\s\S]*?return;\s*\})/);
     // Positional check: the isVisibleRef guard appears BEFORE the pre-existing
     // guard block on isUnmountingRef / shouldNotReconnectRef.
