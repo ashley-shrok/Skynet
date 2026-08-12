@@ -1016,11 +1016,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         },
         reconnect: () => {
           isUnmountingRef.current = false;
+          if (shouldNotReconnectRef.current !== false) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→false trigger=manual-reconnect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           shouldNotReconnectRef.current = false;
           isReconnectingRef.current = false;
+          if (isConnectingRef.current !== false) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→false trigger=manual-reconnect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           isConnectingRef.current = false;
           reconnectAttempts.current = 0;
           wasDisconnectedBySSH.current = false;
+          if (wasConnectedRef.current !== false) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→false trigger=manual-reconnect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
           wasConnectedRef.current = false;
           updateConnectionError(null);
           setShowDisconnectedOverlay(false);
@@ -1028,6 +1031,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             terminal.clear();
             const cols = terminal.cols;
             const rows = terminal.rows;
+            console.info(`[reopen] fired hostId=${hostConfig.id} path=direct-caller callSite="handleReconnectClick"`);
             connectToHost(cols, rows);
           }
         },
@@ -1081,7 +1085,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               hardRefresh();
             }
           } catch (error) {
-            console.error("Terminal operation failed:", error);
+            console.error(`[ws] op-failed hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} err="${error instanceof Error ? error.message : String(error)}"`);
           }
         },
         refresh: () => hardRefresh(),
@@ -1106,7 +1110,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       // this guard, the onclose handler / patch #148-analog auto-reconnect
       // logic would re-schedule + re-open behind our back while hidden.
       // The pause effect owns the reopen path (fires on isVisible→true).
-      if (!isVisibleRef.current) return;
+      if (!isVisibleRef.current) {
+        console.warn(`[pause-gate] blocked-reconnect hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} reason=hidden`);
+        return;
+      }
       if (
         isUnmountingRef.current ||
         shouldNotReconnectRef.current ||
@@ -1120,6 +1127,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       if (reconnectAttempts.current >= maxReconnectAttempts) {
         setIsConnecting(false);
+        if (shouldNotReconnectRef.current !== true) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→true trigger=max-reconnect-attempts hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         shouldNotReconnectRef.current = true;
         setShowDisconnectedOverlay(true);
         addLog({
