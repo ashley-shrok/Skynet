@@ -589,15 +589,14 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     expect(fnIdx).toBeGreaterThan(0);
     // Read the first ~400 chars of the function body (enough to cover the
     // planted comment + guard + the original guard block start).
-    const body = src.slice(fnIdx, fnIdx + 900);
+    const body = src.slice(fnIdx, fnIdx + 500);
     // The guard line — anchored on the planted comment tag for deterministic
     // matching that survives reformatting.
     expect(body).toContain("quick-260809-eqk: hidden panes must not fight the WS-pause effect");
-    // Guard may be single-line `return;` or multi-line `{ ...; return; }` after 31-02's warn-log conversion.
-    expect(body).toMatch(/if \(!isVisibleRef\.current\)\s*(?:return;|\{[\s\S]*?return;\s*\})/);
+    expect(body).toMatch(/if \(!isVisibleRef\.current\) return;/);
     // Positional check: the isVisibleRef guard appears BEFORE the pre-existing
     // guard block on isUnmountingRef / shouldNotReconnectRef.
-    const guardIdx = body.indexOf("if (!isVisibleRef.current)");
+    const guardIdx = body.indexOf("if (!isVisibleRef.current) return;");
     const oldGuardIdx = body.indexOf("isUnmountingRef.current ||");
     expect(guardIdx).toBeGreaterThan(0);
     expect(oldGuardIdx).toBeGreaterThan(guardIdx);
@@ -614,8 +613,7 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     // a multi-line rationale block; 800 chars covers ~10 comment lines +
     // the guard line itself).
     const window = src.slice(anchorIdx, anchorIdx + 800);
-    // Guard may be single-line `return;` or multi-line `{ ...; return; }`.
-    expect(window).toMatch(/if \(!isVisibleRef\.current\)\s*(?:return;|\{[\s\S]*?return;\s*\})/);
+    expect(window).toMatch(/if \(!isVisibleRef\.current\) return;/);
     // Positional check: the guard must live in the VISIBLE branch (after
     // `document.hidden` early return, and inside the isIosPwa-gated effect).
     // Locate `if (document.hidden)` before the anchor and confirm it exists —
@@ -799,12 +797,11 @@ describe("quick-260809-ih9 — pause-effect initial-mount race fix (prevIsVisibl
     // isVisibleRef.current early-return. This ih9 patch must NOT weaken it.
     const fnIdx = src.indexOf("function attemptReconnection() {");
     expect(fnIdx).toBeGreaterThan(0);
-    const fnBody = src.slice(fnIdx, fnIdx + 900);
+    const fnBody = src.slice(fnIdx, fnIdx + 500);
     expect(fnBody).toContain(
       "quick-260809-eqk: hidden panes must not fight the WS-pause effect",
     );
-    // Guard may be single-line `return;` or multi-line `{ ...; return; }`.
-    expect(fnBody).toMatch(/if \(!isVisibleRef\.current\)\s*(?:return;|\{[\s\S]*?return;\s*\})/);
+    expect(fnBody).toMatch(/if \(!isVisibleRef\.current\) return;/);
     // Patch #368: WS-setup effect at L3000 body-gates on !isVisibleRef.
     const setupAnchor = "attach gates initial WS lifecycle";
     const setupIdx = src.indexOf(setupAnchor);

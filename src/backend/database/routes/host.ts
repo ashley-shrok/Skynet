@@ -67,7 +67,7 @@ function notifyStatsHostUpdated(
       },
     )
     .catch((err) => {
-      sshLogger.warn("[host-db] notify-stats-update-failed", {
+      sshLogger.warn("Failed to notify stats server of host update", {
         operation,
         hostId,
         error: err instanceof Error ? err.message : String(err),
@@ -112,7 +112,7 @@ router.post(
         try {
           hostData = JSON.parse(req.body.data);
         } catch (err) {
-          sshLogger.warn("[host-db] invalid-multipart-json", {
+          sshLogger.warn("Invalid JSON data in multipart request", {
             operation: "host_create",
             userId,
             error: err,
@@ -120,7 +120,7 @@ router.post(
           return res.status(400).json({ error: "Invalid JSON data" });
         }
       } else {
-        sshLogger.warn("[host-db] missing-data-field", {
+        sshLogger.warn("Missing data field in multipart request", {
           operation: "host_create",
           userId,
         });
@@ -200,7 +200,7 @@ router.post(
       telnetUser,
       telnetPassword,
     } = hostData;
-    databaseLogger.info("[host-db] create-host-start", {
+    databaseLogger.info("Creating SSH host", {
       operation: "host_create",
       userId,
       name,
@@ -212,7 +212,7 @@ router.post(
       !isNonEmptyString(ip) ||
       !isValidPort(port)
     ) {
-      sshLogger.warn("[host-db] create-host-validation-failed", {
+      sshLogger.warn("Invalid SSH data input validation failed", {
         operation: "host_create",
         userId,
         hasIp: !!ip,
@@ -325,7 +325,7 @@ router.post(
     } else if (effectiveAuthType === "key") {
       if (key && typeof key === "string") {
         if (!key.includes("-----BEGIN") || !key.includes("-----END")) {
-          sshLogger.warn("[host-db] invalid-ssh-key-format", {
+          sshLogger.warn("Invalid SSH key format provided", {
             operation: "host_create",
             userId,
             name,
@@ -342,7 +342,7 @@ router.post(
           typeof keyPassword === "string" ? keyPassword : undefined,
         );
         if (!keyValidation.success) {
-          sshLogger.warn("[host-db] ssh-key-validation-failed", {
+          sshLogger.warn("SSH key validation failed", {
             operation: "host_create",
             userId,
             name,
@@ -380,7 +380,7 @@ router.post(
       );
 
       if (!result) {
-        sshLogger.warn("[host-db] create-host-no-result", {
+        sshLogger.warn("No host returned after creation", {
           operation: "host_create",
           userId,
           name,
@@ -395,7 +395,7 @@ router.post(
 
       const resolvedHost =
         (await resolveHostCredentials(baseHost, userId)) || baseHost;
-      databaseLogger.success("[host-db] create-host-ok", {
+      databaseLogger.success("SSH host created", {
         operation: "host_create_success",
         userId,
         hostId: createdHost.id as number,
@@ -409,7 +409,7 @@ router.post(
         "host_create",
       );
     } catch (err) {
-      sshLogger.error("[host-db] create-host-failed", err, {
+      sshLogger.error("Failed to save SSH host to database", err, {
         operation: "host_create",
         userId,
         name,
@@ -591,7 +591,7 @@ router.post(
 
       return res.status(200).json(tempHost);
     } catch (error) {
-      sshLogger.error("[host-db] quick-connect-failed", error, {
+      sshLogger.error("Quick connect failed", error, {
         operation: "quick_connect",
         userId,
         ip,
@@ -648,7 +648,7 @@ router.put(
         try {
           hostData = JSON.parse(req.body.data);
         } catch (err) {
-          sshLogger.warn("[host-db] invalid-multipart-json", {
+          sshLogger.warn("Invalid JSON data in multipart request", {
             operation: "host_update",
             hostId: parseInt(hostId),
             userId,
@@ -657,7 +657,7 @@ router.put(
           return res.status(400).json({ error: "Invalid JSON data" });
         }
       } else {
-        sshLogger.warn("[host-db] missing-data-field", {
+        sshLogger.warn("Missing data field in multipart request", {
           operation: "host_update",
           hostId: parseInt(hostId),
           userId,
@@ -738,7 +738,7 @@ router.put(
       telnetUser,
       telnetPassword,
     } = hostData;
-    databaseLogger.info("[host-db] update-host-start", {
+    databaseLogger.info("Updating SSH host", {
       operation: "host_update",
       userId,
       hostId: parseInt(hostId),
@@ -751,7 +751,7 @@ router.put(
       !isValidPort(port) ||
       !hostId
     ) {
-      sshLogger.warn("[host-db] update-host-validation-failed", {
+      sshLogger.warn("Invalid SSH data input validation failed for update", {
         operation: "host_update",
         hostId: parseInt(hostId),
         userId,
@@ -864,7 +864,7 @@ router.put(
     } else if (effectiveAuthType === "key") {
       if (key && typeof key === "string") {
         if (!key.includes("-----BEGIN") || !key.includes("-----END")) {
-          sshLogger.warn("[host-db] invalid-ssh-key-format", {
+          sshLogger.warn("Invalid SSH key format provided", {
             operation: "host_update",
             hostId: parseInt(hostId),
             userId,
@@ -882,7 +882,7 @@ router.put(
           typeof keyPassword === "string" ? keyPassword : undefined,
         );
         if (!keyValidation.success) {
-          sshLogger.warn("[host-db] ssh-key-validation-failed", {
+          sshLogger.warn("SSH key validation failed", {
             operation: "host_update",
             hostId: parseInt(hostId),
             userId,
@@ -925,7 +925,7 @@ router.put(
       );
 
       if (!accessInfo.hasAccess) {
-        sshLogger.warn("[host-db] update-host-unauthorized", {
+        sshLogger.warn("User does not have permission to update host", {
           operation: "host_update",
           hostId: parseInt(hostId),
           userId,
@@ -934,7 +934,7 @@ router.put(
       }
 
       if (!accessInfo.isOwner) {
-        sshLogger.warn("[host-db] update-host-view-only-rejected", {
+        sshLogger.warn("Shared user attempted to update host (view-only)", {
           operation: "host_update",
           hostId: parseInt(hostId),
           userId,
@@ -955,7 +955,7 @@ router.put(
         .limit(1);
 
       if (hostRecord.length === 0) {
-        sshLogger.warn("[host-db] update-host-not-found", {
+        sshLogger.warn("Host not found for update", {
           operation: "host_update",
           hostId: parseInt(hostId),
           userId,
@@ -1014,7 +1014,7 @@ router.put(
       );
 
       if (updatedHosts.length === 0) {
-        sshLogger.warn("[host-db] update-host-no-result", {
+        sshLogger.warn("Updated host not found after update", {
           operation: "host_update",
           hostId: parseInt(hostId),
           userId,
@@ -1027,7 +1027,7 @@ router.put(
 
       const resolvedHost =
         (await resolveHostCredentials(baseHost, userId)) || baseHost;
-      databaseLogger.success("[host-db] update-host-ok", {
+      databaseLogger.success("SSH host updated", {
         operation: "host_update_success",
         userId,
         hostId: parseInt(hostId),
@@ -1036,7 +1036,7 @@ router.put(
       res.json(resolvedHost);
       notifyStatsHostUpdated(parseInt(hostId), req.headers, "host_update");
     } catch (err) {
-      sshLogger.error("[host-db] update-host-failed", err, {
+      sshLogger.error("Failed to update SSH host in database", err, {
         operation: "host_update",
         hostId: parseInt(hostId),
         userId,
@@ -1073,7 +1073,7 @@ router.get(
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
     if (!isNonEmptyString(userId)) {
-      sshLogger.warn("[host-db] fetch-hosts-invalid-user", {
+      sshLogger.warn("Invalid userId for SSH data fetch", {
         operation: "host_fetch",
         userId,
       });
@@ -1211,7 +1211,7 @@ router.get(
               DataCrypto.decryptRecord("ssh_data", host, userId, userDataKey),
             );
           } catch (decryptError) {
-            sshLogger.warn("[host-db] fetch-host-invalid-encrypted-fields", {
+            sshLogger.warn("Skipping host with invalid encrypted fields", {
               operation: "host_fetch_own_decrypt_failed",
               userId,
               hostId: host.id,
@@ -1246,7 +1246,7 @@ router.get(
       const sanitized = result.map((host) => stripSensitiveFields(host));
       res.json(sanitized);
     } catch (err) {
-      sshLogger.error("[host-db] fetch-hosts-failed", err, {
+      sshLogger.error("Failed to fetch SSH hosts from database", err, {
         operation: "host_fetch",
         userId,
       });
@@ -1290,7 +1290,7 @@ router.get(
     const userId = (req as AuthenticatedRequest).userId;
 
     if (!isNonEmptyString(userId) || !hostId) {
-      sshLogger.warn("[host-db] fetch-host-by-id-invalid-params", {
+      sshLogger.warn("Invalid userId or hostId for SSH host fetch by ID", {
         operation: "host_fetch_by_id",
         hostId: parseInt(hostId),
         userId,
@@ -1308,12 +1308,12 @@ router.get(
       );
 
       if (data.length === 0) {
-        sshLogger.warn("[host-db] fetch-host-not-found", {
+        sshLogger.warn("SSH host not found", {
           operation: "host_fetch_by_id",
           hostId: parseInt(hostId),
           userId,
         });
-        return res.status(404).json({ error: "Host not found" });
+        return res.status(404).json({ error: "SSH host not found" });
       }
 
       const host = data[0];
@@ -1322,7 +1322,7 @@ router.get(
 
       res.json(stripSensitiveFields(resolved));
     } catch (err) {
-      sshLogger.error("[host-db] fetch-host-by-id-failed", err, {
+      sshLogger.error("Failed to fetch SSH host by ID from database", err, {
         operation: "host_fetch_by_id",
         hostId: parseInt(hostId),
         userId,
@@ -1391,7 +1391,7 @@ router.get(
 
       res.json({ value });
     } catch (err) {
-      sshLogger.error("[host-db] fetch-host-password-failed", err, {
+      sshLogger.error("Failed to fetch host password", err, {
         operation: "host_password_fetch",
         hostId,
         userId,
@@ -1423,7 +1423,7 @@ router.get(
  *       404:
  *         description: SSH host not found.
  *       500:
- *         description: Export failed.
+ *         description: Failed to export SSH host.
  */
 router.get(
   "/db/host/:id/export",
@@ -1450,7 +1450,7 @@ router.get(
       );
 
       if (hostResults.length === 0) {
-        return res.status(404).json({ error: "Host not found" });
+        return res.status(404).json({ error: "SSH host not found" });
       }
 
       const host = hostResults[0];
@@ -1554,7 +1554,7 @@ router.get(
               : null,
           };
 
-      sshLogger.success("[host-db] export-host-ok", {
+      sshLogger.success("Host exported with decrypted credentials", {
         operation: "host_export",
         hostId: parseInt(hostId),
         userId,
@@ -1562,12 +1562,12 @@ router.get(
 
       res.json(exportData);
     } catch (err) {
-      sshLogger.error("[host-db] export-host-failed", err, {
+      sshLogger.error("Failed to export SSH host", err, {
         operation: "host_export",
         hostId: parseInt(hostId),
         userId,
       });
-      res.status(500).json({ error: "Failed to export host" });
+      res.status(500).json({ error: "Failed to export SSH host" });
     }
   },
 );
@@ -1586,7 +1586,7 @@ router.get(
  *       400:
  *         description: Invalid userId.
  *       500:
- *         description: Export failed.
+ *         description: Failed to export SSH hosts.
  */
 router.get(
   "/db/hosts/export",
@@ -1697,7 +1697,7 @@ router.get(
         exportedHosts.push(exportData);
       }
 
-      sshLogger.success("[host-db] export-all-hosts-ok", {
+      sshLogger.success("All hosts exported with decrypted credentials", {
         operation: "hosts_export_all",
         count: exportedHosts.length,
         userId,
@@ -1705,11 +1705,11 @@ router.get(
 
       res.json({ hosts: exportedHosts });
     } catch (err) {
-      sshLogger.error("[host-db] export-all-hosts-failed", err, {
+      sshLogger.error("Failed to export all SSH hosts", err, {
         operation: "hosts_export_all",
         userId,
       });
-      res.status(500).json({ error: "Failed to export hosts" });
+      res.status(500).json({ error: "Failed to export SSH hosts" });
     }
   },
 );
@@ -1749,14 +1749,14 @@ router.delete(
       : req.params.id;
 
     if (!isNonEmptyString(userId) || !hostId) {
-      sshLogger.warn("[host-db] delete-host-invalid-params", {
+      sshLogger.warn("Invalid userId or hostId for SSH host delete", {
         operation: "host_delete",
         hostId: parseInt(hostId),
         userId,
       });
       return res.status(400).json({ error: "Invalid userId or id" });
     }
-    databaseLogger.info("[host-db] delete-host-start", {
+    databaseLogger.info("Deleting SSH host", {
       operation: "host_delete",
       userId,
       hostId: parseInt(hostId),
@@ -1768,12 +1768,12 @@ router.delete(
         .where(and(eq(hosts.id, Number(hostId)), eq(hosts.userId, userId)));
 
       if (hostToDelete.length === 0) {
-        sshLogger.warn("[host-db] delete-host-not-found", {
+        sshLogger.warn("SSH host not found for deletion", {
           operation: "host_delete",
           hostId: parseInt(hostId),
           userId,
         });
-        return res.status(404).json({ error: "Host not found" });
+        return res.status(404).json({ error: "SSH host not found" });
       }
 
       const numericHostId = Number(hostId);
@@ -1821,7 +1821,7 @@ router.delete(
         .delete(hosts)
         .where(and(eq(hosts.id, numericHostId), eq(hosts.userId, userId)));
 
-      databaseLogger.success("[host-db] delete-host-ok", {
+      databaseLogger.success("SSH host deleted", {
         operation: "host_delete_success",
         userId,
         hostId: parseInt(hostId),
@@ -1841,16 +1841,16 @@ router.delete(
           },
         );
       } catch (err) {
-        sshLogger.warn("[host-db] notify-stats-delete-failed", {
+        sshLogger.warn("Failed to notify stats server of host deletion", {
           operation: "host_delete",
           hostId: numericHostId,
           error: err instanceof Error ? err.message : String(err),
         });
       }
 
-      res.json({ message: "Host deleted" });
+      res.json({ message: "SSH host deleted" });
     } catch (err) {
-      sshLogger.error("[host-db] delete-host-failed", err, {
+      sshLogger.error("Failed to delete SSH host from database", err, {
         operation: "host_delete",
         hostId: parseInt(hostId),
         userId,
@@ -1897,7 +1897,7 @@ router.get(
 
       res.json(recent);
     } catch (err) {
-      sshLogger.error("[host-db] fetch-transfer-destinations-failed", err);
+      sshLogger.error("Failed to fetch transfer recent destinations", err);
       res.status(500).json({ error: "Failed to fetch recent destinations" });
     }
   },
@@ -1970,7 +1970,7 @@ router.post(
 
       res.json({ message: "Recent destination saved" });
     } catch (err) {
-      sshLogger.error("[host-db] save-transfer-destination-failed", err);
+      sshLogger.error("Failed to save transfer recent destination", err);
       res.status(500).json({ error: "Failed to save recent destination" });
     }
   },
@@ -2016,7 +2016,7 @@ async function resolveHostCredentials(
           }
         } catch (sharedCredError) {
           sshLogger.warn(
-            "[host-db] resolve-shared-cred-fallback",
+            "Failed to get shared credential, falling back to owner credential",
             {
               operation: "resolve_shared_credential_fallback",
               hostId: host.id as number,
@@ -2068,7 +2068,7 @@ async function resolveHostCredentials(
     return { ...host };
   } catch (error) {
     sshLogger.warn(
-      `[host-db] resolve-creds-failed hostId=${host.id} err="${error instanceof Error ? error.message : "Unknown error"}"`,
+      `Failed to resolve credentials for host ${host.id}: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
     return host;
   }
@@ -2168,7 +2168,7 @@ router.delete(
         .delete(hosts)
         .where(and(eq(hosts.userId, userId), eq(hosts.folder, folderName)));
 
-      databaseLogger.success("[host-db] delete-folder-hosts-ok", {
+      databaseLogger.success("All hosts in folder deleted", {
         operation: "delete_folder_hosts",
         userId,
         folderName,
@@ -2177,7 +2177,7 @@ router.delete(
 
       res.json({ deletedCount: hostsToDelete.length });
     } catch (error) {
-      sshLogger.error("[host-db] delete-folder-hosts-failed", error, {
+      sshLogger.error("Failed to delete hosts in folder", error, {
         operation: "delete_folder_hosts",
         userId,
         folderName,
@@ -2281,7 +2281,7 @@ router.get(
         email: tokenData.email,
       });
     } catch (error) {
-      sshLogger.error("[host-db] opkssh-token-status-error", error, {
+      sshLogger.error("Error retrieving OPKSSH token status", error, {
         operation: "opkssh_token_status_error",
         userId,
         hostId,
@@ -2333,7 +2333,7 @@ router.delete(
       await deleteOPKSSHToken(userId, hostId);
       res.json({ success: true });
     } catch (error) {
-      sshLogger.error("[host-db] opkssh-token-delete-error", error, {
+      sshLogger.error("Error deleting OPKSSH token", error, {
         operation: "opkssh_token_delete_error",
         userId,
         hostId,
@@ -2398,7 +2398,7 @@ router.post(
 
     // 3. Security gate — validate against allowlist BEFORE any interpolation
     if (!TMUX_SESSION_ALLOWLIST.test(tmuxSession)) {
-      sshLogger.warn("[host-db] session-kill-invalid-name", {
+      sshLogger.warn("session_kill: rejected invalid session name (allowlist)", {
         operation: "session_kill_reject",
         hostId,
         reason: "invalid_session_name",
@@ -2421,7 +2421,7 @@ router.post(
       );
     } catch (e) {
       const message = e instanceof Error ? e.message : "SSH connection failed";
-      sshLogger.error("[host-db] session-kill-ssh-failed", e, {
+      sshLogger.error("session_kill: SSH connect failure", e, {
         operation: "session_kill_ssh_fail",
         hostId,
         userId,
@@ -2437,7 +2437,7 @@ router.post(
       const message = e instanceof Error ? e.message : "";
       if (TMUX_SESSION_NOT_FOUND_RE.test(message)) {
         // Session already gone — treat as idempotent success
-        sshLogger.info("[host-db] session-kill-already-gone", {
+        sshLogger.info("session_kill: session already gone (idempotent)", {
           operation: "session_kill",
           hostId,
           tmuxSession,
@@ -2445,7 +2445,7 @@ router.post(
         });
       } else {
         // Any other execCommand failure is a real error — surface as 500
-        sshLogger.error("[host-db] session-kill-exec-failed", e, {
+        sshLogger.error("session_kill: execCommand failure", e, {
           operation: "session_kill_exec_fail",
           hostId,
           tmuxSession,
@@ -2458,7 +2458,7 @@ router.post(
     }
 
     // 7. Log successful kill
-    sshLogger.info("[host-db] session-kill-ok", {
+    sshLogger.info("session_kill: success", {
       operation: "session_kill",
       hostId,
       tmuxSession,

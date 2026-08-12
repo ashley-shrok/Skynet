@@ -20,14 +20,7 @@ export function useServiceWorker(): ServiceWorkerState {
       const newWorker = registration.installing;
       if (!newWorker) return;
 
-      // Track previous state for structured statechange logging (D-06/D-15)
-      let prevState: string | null = newWorker.state ?? null;
-
       newWorker.addEventListener("statechange", () => {
-        console.info(
-          `[pwa] sw-statechange oldState=${prevState ?? "null"} newState=${newWorker.state}`,
-        );
-        prevState = newWorker.state;
         if (
           newWorker.state === "installed" &&
           navigator.serviceWorker.controller
@@ -52,9 +45,6 @@ export function useServiceWorker(): ServiceWorkerState {
     );
     let hasReloadedForUpdate = false;
     const handleControllerChange = () => {
-      console.info(
-        `[pwa] sw-controller-change shouldReload=${shouldReloadOnControllerChange}`,
-      );
       if (!shouldReloadOnControllerChange || hasReloadedForUpdate) {
         return;
       }
@@ -71,15 +61,12 @@ export function useServiceWorker(): ServiceWorkerState {
         );
         setState((prev) => ({ ...prev, isRegistered: true }));
 
-        registration.addEventListener("updatefound", () => {
-          console.info(`[pwa] sw-update-found`);
-          handleUpdateFound(registration);
-        });
+        registration.addEventListener("updatefound", () =>
+          handleUpdateFound(registration),
+        );
         await registration.update();
       } catch (error) {
-        console.error(
-          `[pwa] sw-register-failed err="${error instanceof Error ? error.message : String(error)}"`,
-        );
+        console.error("[SW] Registration failed:", error);
       }
     };
 

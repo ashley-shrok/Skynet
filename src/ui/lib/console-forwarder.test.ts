@@ -7,11 +7,6 @@
  *  2. Enqueue: calls to log/warn/error produce envelopes with matching
  *     level/msg in the internal buffer.
  *
- * Phase 31 Plan 01 extensions:
- *  3. setLogContext threads hostId/sessionKey into enqueued entries.
- *  4. Log calls before setLogContext produce entries without hostId/sessionKey.
- *  5. setLogContext({}) clears the context (no fields in subsequent entries).
- *
  * Fake timers are used in all tests to prevent the 500ms batch flush
  * from firing a real fetch call during test execution.
  */
@@ -89,58 +84,5 @@ describe("console-forwarder", () => {
     expect(errorEntry).toBeDefined();
     expect(errorEntry?.msg).toBe("three");
     expect(errorEntry?.ts).toBeTruthy();
-  });
-
-  it("Test 3: setLogContext threads hostId and sessionKey into enqueued entries", async () => {
-    vi.resetModules();
-    const { initConsoleForwarder, setLogContext, __test_getBuffer } =
-      await import("./console-forwarder.js");
-
-    initConsoleForwarder();
-    setLogContext({ hostId: 42, sessionKey: "s-abc" });
-
-    console.log("context-test");
-
-    const buf = __test_getBuffer();
-    expect(buf).toHaveLength(1);
-    const entry = buf[0];
-    expect(entry.hostId).toBe(42);
-    expect(entry.sessionKey).toBe("s-abc");
-  });
-
-  it("Test 4: log call BEFORE setLogContext produces entry without hostId/sessionKey (not undefined-set — omitted keys)", async () => {
-    vi.resetModules();
-    const { initConsoleForwarder, __test_getBuffer } = await import(
-      "./console-forwarder.js"
-    );
-
-    initConsoleForwarder();
-    // No setLogContext call — context is empty by default
-    console.log("no-context");
-
-    const buf = __test_getBuffer();
-    expect(buf).toHaveLength(1);
-    const entry = buf[0];
-    expect("hostId" in entry).toBe(false);
-    expect("sessionKey" in entry).toBe(false);
-  });
-
-  it("Test 5: setLogContext({}) clears the context — subsequent entries have no hostId/sessionKey", async () => {
-    vi.resetModules();
-    const { initConsoleForwarder, setLogContext, __test_getBuffer } =
-      await import("./console-forwarder.js");
-
-    initConsoleForwarder();
-    setLogContext({ hostId: 99, sessionKey: "s-xyz" });
-    // Now clear
-    setLogContext({});
-
-    console.log("cleared");
-
-    const buf = __test_getBuffer();
-    expect(buf).toHaveLength(1);
-    const entry = buf[0];
-    expect("hostId" in entry).toBe(false);
-    expect("sessionKey" in entry).toBe(false);
   });
 });
