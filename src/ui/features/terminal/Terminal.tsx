@@ -1195,12 +1195,15 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         return;
       }
 
+      if (isConnectingRef.current !== true) { console.info(`[ws] isConnectingRef-transition edge=${isConnectingRef.current}→true trigger=connectToHost-entry hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
       isConnectingRef.current = true;
       connectionAttemptIdRef.current++;
+      if (wasConnectedRef.current !== false) { console.info(`[ws] wasConnectedRef-transition edge=${wasConnectedRef.current}→false trigger=connectToHost-entry hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
       wasConnectedRef.current = false;
 
       if (!isReconnectingRef.current) {
         reconnectAttempts.current = 0;
+        if (shouldNotReconnectRef.current !== false) { console.info(`[ws] shouldNotReconnectRef-transition edge=${shouldNotReconnectRef.current}→false trigger=connectToHost-entry hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`); }
         shouldNotReconnectRef.current = false;
       }
 
@@ -1299,6 +1302,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       rows: number,
     ) {
       ws.addEventListener("open", () => {
+        console.info(`[ws] open hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} wsUrl=${baseWsUrl} readyState=${ws.readyState}`);
         connectionTimeoutRef.current = setTimeout(() => {
           if (
             !isConnected &&
