@@ -2087,6 +2087,336 @@ describe("PrettyConversationRow: mobile swipe-to-act (quick-260808-fkg)", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TSD1-TSD8 — Desktop mouse-drag swipe-to-act (quick-260812-uxk)
+// ─────────────────────────────────────────────────────────────────────────────
+// Desktop-native equivalent of the mobile touch swipe machine (TS1-TS7
+// above). Parallel onMouseDown/onMouseMove/onMouseUp/onMouseLeave
+// handlers on the row body share the SAME internal refs the touch
+// handlers use. Wiring is gated on `variant === "desktop" && !isRdp`;
+// mobile keeps touch-only, desktop-RDP keeps right-click-only. All six
+// locked design decisions from the touch machine header comment block
+// apply verbatim (threshold, 8px floor, 0.6 rubber-band, 200ms snap-
+// back, past-threshold glow class, idempotency). onMouseLeave mid-drag
+// is the mouse-only cancel path (touchcancel-equivalent), covered by
+// TSD8. Coverage:
+//   TSD1 — swipe-right past threshold on unpinned+inActive=false fires
+//          composite (onTogglePin + onSelect); trailing click
+//          suppressed via suppressNextClickRef.
+//   TSD2 — swipe-right past threshold on pinned+inActive silent no-op.
+//   TSD3 — swipe-left past threshold on pinned+inActive fires composite
+//          (onTogglePin + onDeactivate); trailing click suppressed.
+//   TSD4 — swipe-left past threshold on unpinned+inActive=false silent
+//          no-op.
+//   TSD5 — release below threshold: no composite, snap back, trailing
+//          click DOES fire onSelect (tap path intact).
+//   TSD6 — vertical drag beyond tap floor never arms; no composite.
+//   TSD7 — RDP row: mouse handlers unbound (variant+isRdp gate); no
+//          composite regardless of dx.
+//   TSD8 — onMouseLeave mid-drag: snap back WITHOUT firing composite.
+//
+// Fixture note: rowWidth is 0 in jsdom → threshold collapses to 90.
+// vi.useFakeTimers() required for the 200ms snap-back drain. Same
+// fixture shape as the TS1-TS7 mobile block above.
+
+describe("PrettyConversationRow: desktop mouse-drag swipe (quick-260812-uxk)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("TSD1: swipe-right past threshold on unpinned+inActiveSet=false fires composite; trailing click suppressed", () => {
+    currentIdentity = makeIdentity(200, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.mouseDown(body, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(body, { clientX: 150, clientY: 102 }); // dx=50, dy=2 → arms
+    fireEvent.mouseMove(body, { clientX: 210, clientY: 105 }); // dx=110 > 90 threshold
+    fireEvent.mouseUp(body, { clientX: 210, clientY: 105 });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onDeactivate).not.toHaveBeenCalled();
+
+    // Verify trailing-click suppression: a follow-up click MUST NOT
+    // increment onSelect beyond 1 (suppressNextClickRef engaged).
+    fireEvent.click(body);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("TSD2: swipe-right past threshold on pinned+inActiveSet=true is a silent no-op", () => {
+    currentIdentity = makeIdentity(45, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={true}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.mouseDown(body, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(body, { clientX: 150, clientY: 102 });
+    fireEvent.mouseMove(body, { clientX: 210, clientY: 105 });
+    fireEvent.mouseUp(body, { clientX: 210, clientY: 105 });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("TSD3: swipe-left past threshold on pinned+inActiveSet=true fires composite; trailing click suppressed", () => {
+    currentIdentity = makeIdentity(120, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={true}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.mouseDown(body, { clientX: 200, clientY: 100 });
+    fireEvent.mouseMove(body, { clientX: 150, clientY: 102 }); // dx=-50, dy=2 → arms
+    fireEvent.mouseMove(body, { clientX: 90, clientY: 105 });  // dx=-110, past-left threshold
+    fireEvent.mouseUp(body, { clientX: 90, clientY: 105 });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
+    expect(onDeactivate).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // Verify trailing-click suppression.
+    fireEvent.click(body);
+    expect(onSelect).toHaveBeenCalledTimes(0);
+  });
+
+  it("TSD4: swipe-left past threshold on unpinned+inActiveSet=false is a silent no-op", () => {
+    currentIdentity = makeIdentity(60, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.mouseDown(body, { clientX: 200, clientY: 100 });
+    fireEvent.mouseMove(body, { clientX: 150, clientY: 102 });
+    fireEvent.mouseMove(body, { clientX: 90, clientY: 105 });
+    fireEvent.mouseUp(body, { clientX: 90, clientY: 105 });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("TSD5: release BELOW threshold: no composite, snap back, trailing click DOES fire onSelect (tap path intact)", () => {
+    currentIdentity = makeIdentity(60, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.mouseDown(body, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(body, { clientX: 135, clientY: 102 }); // dx=35, arms but < 90 threshold
+    fireEvent.mouseUp(body, { clientX: 135, clientY: 102 });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+
+    // Below-threshold release: suppressNextClickRef NOT set → tap path intact.
+    fireEvent.click(body);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("TSD6: vertical mouse-move beyond tap floor without horizontal does NOT arm swipe; no composite fires", () => {
+    currentIdentity = makeIdentity(60, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.mouseDown(body, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(body, { clientX: 105, clientY: 150 }); // dx=5, dy=50 → vertical wins, disarmed
+    fireEvent.mouseMove(body, { clientX: 200, clientY: 150 }); // dx=100 but disarmed sticks
+    fireEvent.mouseUp(body, { clientX: 200, clientY: 150 });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+
+  it("TSD7: RDP row — mouse handlers unbound (variant+isRdp gate); no composite fires", () => {
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    // Same past-threshold sequence as TSD1, but on an RDP row.
+    // Handlers are unbound at the DOM level so no state ever changes.
+    fireEvent.mouseDown(body, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(body, { clientX: 150, clientY: 102 });
+    fireEvent.mouseMove(body, { clientX: 210, clientY: 105 });
+    fireEvent.mouseUp(body, { clientX: 210, clientY: 105 });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("TSD8: onMouseLeave mid-drag snaps back WITHOUT firing composite (touchcancel-equivalent)", () => {
+    currentIdentity = makeIdentity(200, "nelly");
+    const onSelect = vi.fn();
+    const onTogglePin = vi.fn();
+    const onDeactivate = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={onTogglePin}
+        onDeactivate={onDeactivate}
+        inActiveSet={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.mouseDown(body, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(body, { clientX: 150, clientY: 102 }); // arms
+    fireEvent.mouseMove(body, { clientX: 210, clientY: 105 }); // past threshold, armed
+    fireEvent.mouseLeave(body, { clientX: 300, clientY: 105 }); // cancel — snap back, no fire
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(onTogglePin).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onDeactivate).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // S1-S2 — Context-menu SINGLETON (quick-260809-94y)
 // ─────────────────────────────────────────────────────────────────────────────
 // Only one row's context menu can be open at a time across the list. Opening

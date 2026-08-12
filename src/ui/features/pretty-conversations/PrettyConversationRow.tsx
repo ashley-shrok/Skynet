@@ -621,6 +621,174 @@ export function PrettyConversationRow({
     onDeactivate,
   ]);
 
+  // ─── Desktop mouse-drag swipe (quick-260812-uxk) ─────────────────────────
+  // Desktop-native equivalent of the mobile touch swipe machine above. Adds
+  // parallel onMouseDown / onMouseMove / onMouseUp / onMouseLeave handlers on
+  // the row body that share the SAME internal refs the touch handlers use:
+  //   swipeStartRef, armedRef, disarmedRef, isSnappingRef, snapTimerRef,
+  //   dxLive, resetSwipeGesture, beginSnapBack, clearSnapTimer,
+  //   suppressNextClickRef.
+  // NO new refs are introduced.
+  //
+  // Desktop-only + !isRdp gate: wiring is gated on `variant === "desktop" &&
+  // !isRdp` at the JSX level (four props are `undefined` for mobile rows and
+  // desktop-RDP rows). Defense-in-depth: each handler also early-returns if
+  // `variant !== "desktop"` or `isRdp`.
+  //
+  // NO long-press-on-mouse path: desktop right-click already opens the context
+  // menu via the existing `onContextMenu` → `onRowContextMenu` handler. Mouse
+  // drag swipe is the single new desktop gesture.
+  //
+  // Text-selection suppression is CSS-side via `user-select: none` on
+  // `.pv-row--desktop` in pretty-conversations.css — cleaner than calling
+  // preventDefault on every mousedown (which would suppress right-click
+  // context menus and other legitimate browser behaviors).
+  //
+  // onMouseLeave mid-drag = touchcancel-equivalent: snap back WITHOUT firing
+  // the composite (leaving the row while dragging is an explicit cancel
+  // signal). suppressNextClickRef is NOT set on leave — the cursor has left
+  // the row so no trailing click naturally follows.
+  //
+  // The mouse handlers do NOT call preventDefault() — text-selection
+  // suppression is CSS-side (see above), and preventing default on mousedown
+  // would break focus, right-click, and other legitimate browser behaviors.
+  const onMouseDown = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      if (variant !== "desktop") return;
+      if (isRdp) return;
+      if (isSnappingRef.current) return;
+      const rowWidth = (e.currentTarget as HTMLDivElement)
+        .getBoundingClientRect()
+        .width;
+      swipeStartRef.current = { x: e.clientX, y: e.clientY, rowWidth };
+      armedRef.current = false;
+      disarmedRef.current = false;
+    },
+    [variant, isRdp],
+  );
+
+  const onMouseMove = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      if (variant !== "desktop") return;
+      if (isRdp) return;
+      if (swipeStartRef.current === null) return;
+
+      const dx = e.clientX - swipeStartRef.current.x;
+      const dy = e.clientY - swipeStartRef.current.y;
+
+      // Disarmed for this gesture sequence → return (vertical won).
+      if (disarmedRef.current) return;
+
+      if (!armedRef.current) {
+        // Vertical-vs-horizontal disambiguation: wait for at least 8px.
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dx) >= 8 && Math.abs(dx) > Math.abs(dy)) {
+          armedRef.current = true;
+        } else {
+          disarmedRef.current = true;
+          return;
+        }
+      }
+
+      // Armed → translate the row (viscous 0.6 factor, capped at ±rowWidth).
+      const rowWidth = swipeStartRef.current.rowWidth;
+      const cap = rowWidth > 0 ? rowWidth : Number.POSITIVE_INFINITY;
+      const dragged = Math.max(-cap, Math.min(cap, dx * 0.6));
+      setDxLive(dragged);
+    },
+    [variant, isRdp],
+  );
+
+  const onMouseUp = useCallback(() => {
+    if (variant !== "desktop") return;
+    if (isRdp) {
+      resetSwipeGesture();
+      return;
+    }
+    const start = swipeStartRef.current;
+    if (start === null) {
+      resetSwipeGesture();
+      return;
+    }
+    if (!armedRef.current) {
+      // Never armed → tap path intact (click fires normally via onBodyClick).
+      resetSwipeGesture();
+      return;
+    }
+
+    const rowWidth = start.rowWidth;
+    const threshold = Math.max(90, rowWidth * 0.35);
+    const scaled = dxLive ?? 0;
+    const rawDx = scaled / 0.6;
+
+    if (Math.abs(rawDx) < threshold) {
+      // Below threshold → snap back only.
+      swipeStartRef.current = null;
+      armedRef.current = false;
+      disarmedRef.current = false;
+      beginSnapBack();
+      return;
+    }
+
+    // Past threshold → evaluate wouldChangeState per direction.
+    const isRight = rawDx > 0;
+    const wouldChange = isRight ? !pinned || !inActiveSet : pinned || inActiveSet;
+
+    swipeStartRef.current = null;
+    armedRef.current = false;
+    disarmedRef.current = false;
+
+    if (!wouldChange) {
+      // Silent no-op — snap back with no callbacks + no vibrate.
+      beginSnapBack();
+      return;
+    }
+
+    // Fire the composite. Order: onTogglePin FIRST (same order as touch path).
+    if (isRight) {
+      if (!pinned) onTogglePin();
+      if (!inActiveSet) onSelect();
+    } else {
+      if (pinned) onTogglePin();
+      if (inActiveSet) onDeactivate?.();
+    }
+    // Feature-checked haptic (same pattern as touch path — no-op on desktop
+    // without haptics and in jsdom).
+    navigator.vibrate?.(10);
+    // Suppress the trailing browser click so the composite doesn't also fire
+    // onSelect via the tap path.
+    suppressNextClickRef.current = true;
+    beginSnapBack();
+  }, [
+    variant,
+    isRdp,
+    resetSwipeGesture,
+    beginSnapBack,
+    dxLive,
+    pinned,
+    inActiveSet,
+    onTogglePin,
+    onSelect,
+    onDeactivate,
+  ]);
+
+  const onMouseLeave = useCallback(() => {
+    if (variant !== "desktop") return;
+    if (isRdp) return;
+    if (swipeStartRef.current === null) return;
+    // onMouseLeave mid-drag = touchcancel-equivalent: cancel the gesture
+    // without firing the composite. suppressNextClickRef is NOT set here —
+    // leaving the row means no trailing click naturally follows.
+    if (armedRef.current) {
+      beginSnapBack();
+    } else {
+      resetSwipeGesture();
+    }
+    swipeStartRef.current = null;
+    armedRef.current = false;
+    disarmedRef.current = false;
+  }, [variant, isRdp, beginSnapBack, resetSwipeGesture]);
+
   // Cleanup on unmount so a pending timer doesn't fire against an unmounted
   // component (setState on unmounted → React warning + potential dangling
   // navigator.vibrate call). quick-260808-fkg extends the cleanup to also
@@ -762,6 +930,10 @@ export function PrettyConversationRow({
         onTouchMove={isMobile ? onTouchMove : undefined}
         onTouchEnd={isMobile ? onTouchEnd : undefined}
         onTouchCancel={isMobile ? onTouchEnd : undefined}
+        onMouseDown={variant === "desktop" && !isRdp ? onMouseDown : undefined}
+        onMouseMove={variant === "desktop" && !isRdp ? onMouseMove : undefined}
+        onMouseUp={variant === "desktop" && !isRdp ? onMouseUp : undefined}
+        onMouseLeave={variant === "desktop" && !isRdp ? onMouseLeave : undefined}
         style={bodyStyle}
         className={rowClassName}
       >
