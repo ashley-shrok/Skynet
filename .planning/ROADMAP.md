@@ -1008,7 +1008,6 @@ Plans:
 
 - [x] 31-09-PLAN.md — Grep pass: no JSON.stringify(event), all old prefixes 0 in src/, all D-02+D-03 subsystems COVERED per the crosswalk; frontend + backend builds clean; full vitest suite green; write 31-COVERAGE-REPORT.md + 31-MANUAL-VERIFICATION.md runbook for Ashley's post-ship WS-cycle reproduction; human-verify checkpoint (D-20, D-21, D-22)
 
-<<<<<<< HEAD
 ### Phase 32: Identity-first-turn session discovery + wake-bubble message history
 
 **Goal:** Add a process-independent, disk-based helper for finding the current JSONL of a given identity, and wire it into the dormant branch so the wake bubble (shipped 2026-08-12 as quick 260812-ma8) surfaces the tail of the conversation Ashley is deciding whether to wake — instead of an empty message list. Today the backend chains tmux-pane → PID → cwd → mtime-newest JSONL to find the current session (pane-based discovery). That chain requires a live claude process, so the dormant branch at `src/backend/claude-session/claude-session-server.ts:4675-4700` gets no session file and never opens a tail — the browser's `messages` array stays empty for dormant panes, which the pre-260812-ma8 scrim hid from Ashley and the new in-flow bubble reveals.
@@ -1049,6 +1048,11 @@ Plans:
 
 **Rebase risk:** LOW — additive: new helper file + wire into an existing branch that emits only a single dormant frame today + explicit tail-close ordering at the wake transition + fallback preserves existing behavior. No upstream Skynet surfaces touched.
 
+**Plans:** 3/3 complete
+
+- [x] 32-01-PLAN.md — pure `discoverIdentitySessionFile(sshConn, identityName)` helper + 22 unit tests (TDD; byte-pattern mirrors Layer 1 detector; D-01..D-07)
+- [x] 32-02-PLAN.md — wire helper into dormant branch at claude-session-server.ts:4675-4799 via new `__applyDormantBranchTailOpenForTests` seam + open dormant tail + wake→active safe-close ordering + `basename()`-only log payload + 7 CASE-DT integration tests (D-01, D-02, D-05, D-07, D-08, D-09)
+- [x] 32-03-PLAN.md — deploy-runbook hardening: `~/.claude/roles/box-maintainer/box-map.md` corrected `/app/dist/` → `/app/html/` + mandatory served-bundle-hash-match check codified in the standard deploy loop (external file, no repo commit; D-05 loose motivating reference)
 
 ### Phase 33: Redesign pretty-view auto-scroll — three-case sticky-bottom hook (session load / follow-on-new-when-at-bottom / send-forces-bottom) replacing the temp-disabled 225-line use-auto-scroll.ts. Design settled with Ashley 2026-08-12: keep-it-simple ~80-line hook, one stickyRef + one programmaticRef, one exported scrollToBottomAndFollow used by pill AND all send paths (Enter/click/queued-fire/voice/aside-resume), ResizeObserver on OUTER scroll container (closes H1 accessory-mount blind spot from WipBubble/PlanPendingBubble/AsideBubble living as in-flow siblings post-Phase-27 Step-B), single scroll listener replaces old wheel+keydown+touchmove trifecta (programmaticRef distinguishes our writes from user), no load-lock-that-blocks-gestures. Implicit inverse Ashley confirmed: new messages while scrolled up do NOT yank down (pill stays manual affordance). Verify at implementation: whether TanStack Virtual writes scrollTop directly on re-measure (mitigation if yes: flag around known measurement events). Ships with tests for the four scenarios + Ashley UAT. Full design detail in bounty pv-auto-scroll-redesign timeline entry 2026-08-12T18:05:00Z. Supersedes bounty pv-disable-auto-scroll-temp. Rebase risk LOW — fork-local pretty-view; no upstream surfaces touched.
 
