@@ -1,7 +1,7 @@
 /**
  * Patch #146: frontend console-forwarder.
  *
- * Intercepts console.log/warn/error calls after main.tsx boot, preserving
+ * Intercepts console.log/info/warn/error calls after main.tsx boot, preserving
  * the original method behavior (DevTools console still fires) while also
  * batching entries to POST /debug/console-log every 500ms or when 20
  * entries accumulate.
@@ -21,7 +21,7 @@
 
 // --- types ---
 
-type LogLevel = "log" | "warn" | "error";
+type LogLevel = "log" | "info" | "warn" | "error";
 
 type LogEntry = {
   ts: string;
@@ -159,6 +159,7 @@ export function initConsoleForwarder(
   initialized = true;
 
   const origLog = console.log.bind(console);
+  const origInfo = console.info.bind(console);
   const origWarn = console.warn.bind(console);
   const origError = console.error.bind(console);
 
@@ -188,6 +189,11 @@ export function initConsoleForwarder(
   console.log = (...args: unknown[]) => {
     origLog(...args);
     enqueueWithCallback("log", args);
+  };
+
+  console.info = (...args: unknown[]) => {
+    origInfo(...args);
+    enqueueWithCallback("info", args);
   };
 
   console.warn = (...args: unknown[]) => {

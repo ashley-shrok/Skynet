@@ -26,7 +26,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 
 // --- types ---
 
-export type LogLevel = "log" | "warn" | "error";
+export type LogLevel = "log" | "info" | "warn" | "error";
 
 export type LogEntry = {
   ts: string;
@@ -45,7 +45,7 @@ export function isValidEntry(x: unknown): x is LogEntry {
   if (typeof x !== "object" || x === null) return false;
   const e = x as Record<string, unknown>;
   if (typeof e.ts !== "string") return false;
-  if (e.level !== "log" && e.level !== "warn" && e.level !== "error") return false;
+  if (e.level !== "log" && e.level !== "info" && e.level !== "warn" && e.level !== "error") return false;
   if (typeof e.tabId !== "string") return false;
   if (typeof e.msg !== "string") return false;
   if ("hostId" in e && typeof e.hostId !== "number") return false;
