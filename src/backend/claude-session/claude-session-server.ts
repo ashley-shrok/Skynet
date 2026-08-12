@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { createHash } from "node:crypto";
+import { basename } from "node:path";
 import type { Client as SSHClientType } from "ssh2";
 import { AuthManager } from "../utils/auth-manager.js";
 import { UserCrypto } from "../utils/user-crypto.js";
@@ -7,6 +8,7 @@ import { sshLogger, databaseLogger } from "../utils/logger.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession } from "./session-file-discovery.js";
+import { discoverIdentitySessionFile } from "./discover-identity-session-file.js";
 import { parseSessionLine, detectIdReset } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 import {
@@ -4651,6 +4653,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // inline+await so the branch decision (teardown vs. keep-alive) is synchronous.
       // Fail-safe: any SSH throw here falls through to the normal teardown path
       // (do not hold an SSH conn open on error).
+      //
+      // Phase 32 (identity-first-turn session-discovery-wake-bubble-message-hi):
+      // on the DORMANT branch (identity-shape probe = yes AND .dormant present),
+      // we ALSO call discoverIdentitySessionFile(conn, tmuxSession) and — when
+      // the helper returns a non-null absolute path — open a tail on that file
+      // through the SAME onLine/onError closures the active flow uses. That
+      // wires the wake-bubble's historical message list into the existing
+      // appendDedup + eventId pipeline (D-08 latency parity — no new lambdas,
+      // no new frame types). Null-return preserves today's dormant-branch
+      // behavior byte-for-byte (D-05 fallback). This is a DIFFERENT contract
+      // from the L145-150 FALLBACK-01 rule — FALLBACK-01 governs the ACTIVE-
+      // path `inactive` handling ("never reach back to a prior session
+      // file"); this branch is dormant + identity-attributed, where the
+      // "identity's own JSONL" IS the intended source of truth. D-09 keeps
+      // the active-flow discovery at L~4634 UNCHANGED — the helper is called
+      // from this one dormant site only.
       let enteredDormantPoll = false;
       if (result.reason === "not_claude") {
         // Only probe for dormancy on not_claude (the signal that no claude process is
@@ -4795,6 +4813,97 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   }
                 })();
               }, 3000);
+              // Phase 32 Wave 2: open a dormant tail on the identity's most-
+              // recently active JSONL so the wake-bubble is backed by the
+              // historical conversation the user is deciding whether to
+              // wake. Uses the SAME closure-scoped `tailHandle` variable
+              // (L1279) as the active flow so:
+              //   1. WS-close cleanup via teardownPane() → tailHandle.stop()
+              //      at L1557-1564 works unchanged (no new ws.on("close")
+              //      code needed — this is by construction — see T-32-06).
+              //   2. Wake-handoff safe-close ordering (Task 2 Part A) can
+              //      call `if (tailHandle) { tailHandle.stop(); tailHandle
+              //      = null; }` BEFORE startActiveSessionFlow reassigns
+              //      tailHandle at L~4634 (prevents dormant+active tail
+              //      overlap — see T-32-04 + D-08).
+              //
+              // D-01: byte-pattern match delegated entirely to the helper
+              //   (which uses `line.includes` on the identity's first
+              //   `/id <name>` user turn — no JSON.parse).
+              // D-05: on null return the dormant branch is byte-identical
+              //   to today (dormant frame sent, no tail opened, no
+              //   messages). Never throws.
+              // D-08: SAME `onLine` closure (L1601) and SAME `onError`
+              //   closure (L2102) as the active flow — the dormant tail's
+              //   line-emission path IS the active-flow line-emission
+              //   path. No new lambdas, no wrapping.
+              // D-09: active-flow discovery at L~4634 UNTOUCHED — this is
+              //   the ONE production call site for the helper.
+              //
+              // T-32-05 (info disclosure): the discovered-file log payload
+              // carries `discoveredFileBasename` (the JSONL's UUID, e.g.
+              // `abc-123.jsonl`) — NOT the absolute path (which would
+              // leak the encoded project-dir path segment). The
+              // no-match log carries no path payload at all.
+              //
+              // Wrapping this in its own try/catch (rather than widening
+              // the enclosing L4659 try) avoids poisoning
+              // `isIdentityShapedCached` on any throw here: Wave 1's
+              // helper contract guarantees no-throw (SSH errors return
+              // null), and `tailSessionFile` funnels errors through the
+              // `onError` closure — but the try is defense-in-depth for
+              // future evolution.
+              try {
+                const discoveredFile = await discoverIdentitySessionFile(
+                  conn,
+                  tmuxSession,
+                );
+                if (discoveredFile !== null) {
+                  sshLogger.info("Dormant tail discovered", {
+                    operation: "claude_session_dormant_tail_discovered",
+                    userId,
+                    sessionId,
+                    hostId,
+                    tmuxSession,
+                    discoveredFileBasename: basename(discoveredFile),
+                  });
+                  tailHandle = tailSessionFile(
+                    sshConn!,
+                    discoveredFile,
+                    onLine,
+                    onError,
+                  );
+                } else {
+                  sshLogger.info(
+                    "Dormant tail not discovered — no matching identity session file",
+                    {
+                      operation: "claude_session_dormant_tail_no_match",
+                      userId,
+                      sessionId,
+                      hostId,
+                      tmuxSession,
+                    },
+                  );
+                }
+              } catch (err) {
+                // Defense-in-depth: helper contract is no-throw; tail
+                // errors funnel through onError. If anything here does
+                // throw, degrade gracefully to today's dormant behavior
+                // (no tail opened) and log via the no-match op code so
+                // post-deploy dashboards see it as fallback traffic. No
+                // rethrow — do not poison isIdentityShapedCached.
+                sshLogger.info(
+                  "Dormant tail not discovered — no matching identity session file",
+                  {
+                    operation: "claude_session_dormant_tail_no_match",
+                    userId,
+                    sessionId,
+                    hostId,
+                    tmuxSession,
+                    err: err instanceof Error ? err.message : String(err),
+                  },
+                );
+              }
               enteredDormantPoll = true;
             }
           }
