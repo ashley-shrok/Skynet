@@ -36,7 +36,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, waitFor } from "@testing-library/react";
+import { render, act, waitFor, fireEvent } from "@testing-library/react";
 
 // ── WS stub scaffolding (verbatim copy from PrettyView.test.tsx) ───────────
 
@@ -381,18 +381,25 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     });
   });
 
-  // SKIP TEMP 2026-08-10: auto-scroll disabled per bounty
-  // pv-disable-auto-scroll-temp — restore this assertion when
-  // bounty pv-auto-scroll-redesign lands.
-  it.skip("Test 2: auto-scroll-to-bottom-when-pinned — scrollTop jumps to bottom via paneKey rAF-chain over virtualized layout", async () => {
-    // CONTEXT.md § Success criteria #4. useAutoScroll's paneKey-change
-    // useEffect (use-auto-scroll.ts:108-127) arms a 300ms rAF-chain that
-    // writes scrollTop = scrollHeight every frame. That primitive works
-    // uniformly over any scrollable container — including the virtualized
-    // one whose scrollHeight now derives from `rowVirtualizer.getTotalSize()
-    // + accessory heights`. Test proves the primitive still fires.
+  it("Test 2: session first load lands at bottom — scrollTop jumps to bottom via paneKey rAF-chain over virtualized layout", async () => {
+    // CONTEXT.md § Test coverage scenario 1 ("Session first load lands at
+    // bottom"). Phase 32 useAutoScroll's paneKey-change useEffect
+    // (use-auto-scroll.ts § Case 1, ~L96-114) arms a rAF-chain that writes
+    // scrollTop = scrollHeight every frame for STICK_ARM_MS (150ms). That
+    // primitive works uniformly over any scrollable container — including
+    // the virtualized one whose scrollHeight derives from
+    // `rowVirtualizer.getTotalSize() + accessory heights`. Test proves the
+    // primitive still fires end-to-end through PrettyView's wire-through.
+    //
+    // rAF-in-JSDOM: vitest's fake-timer wrapper does NOT polyfill
+    // requestAnimationFrame by default. We stub it via setTimeout(..., 16)
+    // so vi.advanceTimersByTime() flushes the rAF chain synchronously —
+    // same pattern that lets the hook's chain ticks run under fake timers.
     vi.useFakeTimers();
     try {
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+        setTimeout(() => cb(performance.now()), 16),
+      );
       const { container } = render(
         <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
       );
@@ -415,34 +422,37 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
       const geom = shrinkScrollContainer(outerScroll, 600, 5000);
       expect(geom.getScrollTop()).toBe(0);
 
-      // Advance timers past LOAD_LOCK_MS (300ms) + the rAF-chain window so
-      // the pane-change useEffect fires its jumpToBottom writes. Fake
-      // timers stub Date.now(), which the rAF loop uses to decide when to
-      // stop.
+      // Advance timers past STICK_ARM_MS (150ms) so the paneKey-change
+      // useEffect's rAF chain completes its jumpToBottom writes. 200ms is
+      // a comfortable overshoot that guarantees the chain has run its
+      // final tick and settled.
       act(() => {
-        vi.advanceTimersByTime(400);
+        vi.advanceTimersByTime(200);
       });
 
       // scrollTop should have been driven to scrollHeight (=5000) by the
-      // rAF-chain. This is the "pinned-to-bottom auto-scroll" primitive
-      // firing over the virtualized-DOM scroll container.
+      // rAF-chain. This is the "session first load lands at bottom"
+      // primitive firing over the virtualized-DOM scroll container.
       expect(geom.getScrollTop()).toBe(5000);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("Test 3: don't-yank-when-scrolled-up — after wheel-up gesture, subsequent frames do not force scrollTop back to bottom", async () => {
-    // CONTEXT.md § Success criteria #5. After the user gestures scroll-up
-    // (wheel deltaY<0), useAutoScroll flips stickToBottomRef to false.
-    // Subsequent WS frames must NOT reset scrollTop to bottom.
-    // With the no-op ResizeObserver stub, the RO-driven jump path in
-    // useAutoScroll (use-auto-scroll.ts:137-159) never fires — but this
-    // is the EXACT invariant we want to prove: no matter which path
-    // useAutoScroll takes, scrollTop is NOT yanked back to bottom while
-    // the user is scrolled up. So the test asserts scrollTop stays put.
+  it("Test 2b: incoming message while at bottom — follows (pin-to-bottom via RO on scrollHeight growth)", async () => {
+    // CONTEXT.md § Test coverage scenario 2 ("New messages while already
+    // at bottom → follow"). After the paneKey rAF-chain lands us at
+    // bottom (stickyRef.current === true), a subsequent content-height
+    // growth must trigger the hook's ResizeObserver (use-auto-scroll.ts
+    // § Case 2, ~L123-140) — which reads scrollHeight, sees no shrink,
+    // and calls jumpToBottom(scrollEl) to follow. JSDOM's RO stub does
+    // not fire on its own, so we drive it via the capturedROCallbacks
+    // pattern (same shape as Test 1 L360-364 and Test 7 L791-795).
     vi.useFakeTimers();
     try {
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+        setTimeout(() => cb(performance.now()), 16),
+      );
       const { container } = render(
         <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
       );
@@ -460,28 +470,117 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
       const outerScroll = getOuterScrollContainer(container);
       const geom = shrinkScrollContainer(outerScroll, 600, 5000);
 
-      // Advance past LOAD_LOCK_MS so the load-lock gate opens and wheel
-      // gestures can register.
+      // Let the paneKey rAF chain settle so scrollTop lands at 5000
+      // (baseline = at bottom, sticky = true).
       act(() => {
-        vi.advanceTimersByTime(400);
+        vi.advanceTimersByTime(200);
+      });
+      expect(geom.getScrollTop()).toBe(5000);
+
+      // Simulate content growth: bump the mocked scrollHeight and fire a
+      // fresh WS frame so real DOM content is added too (RO would fire in
+      // a real browser after the growth is measured).
+      geom.setScrollHeight(5200);
+      fireWsMessage(ws, {
+        type: "message",
+        role: "assistant",
+        content: "new frame while at bottom",
+        eventId: "evt-new",
+        ts: 2_000_000,
       });
 
-      // User scrolls up: set scrollTop below bottom and dispatch a wheel
-      // event with deltaY < 0 to exit sticky mode.
+      // Manually invoke every captured RO callback — JSDOM's RO stub
+      // never fires on its own; we drive the outer-container RO to
+      // simulate the browser having noticed the scrollHeight growth.
+      act(() => {
+        for (const cb of capturedROCallbacks) {
+          cb([], {} as ResizeObserver);
+        }
+      });
+
+      // Let any deferred rAF (programmaticRef clear, etc.) settle.
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+
+      // The hook's RO callback should have fired jumpToBottom(scrollEl)
+      // because stickyRef.current is still true (user never scrolled up)
+      // and !shrunk (nextHeight > prev). scrollTop follows to the new
+      // scrollHeight (5200).
+      expect(geom.getScrollTop()).toBe(5200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Test 3: incoming message while scrolled up — does NOT yank to bottom (scroll-listener source)", async () => {
+    // CONTEXT.md § Test coverage scenario 3 ("Incoming message while
+    // scrolled up → do NOT yank"). Under the Phase 32 hook, `scroll` is
+    // the SINGLE event source (wheel/keydown/touchmove listeners are
+    // gone — CONTEXT.md § Event handling LOCK). The user scrolling up
+    // fires a scroll event whose scrollTop is below the previous value;
+    // the hook's scroll listener (use-auto-scroll.ts § scroll listener,
+    // ~L146-177) flips stickyRef.current = false. Subsequent RO fires
+    // then take the !stickyRef branch and only recompute pill
+    // visibility — they NEVER write scrollTop.
+    //
+    // The programmaticRef gate skips our own writes; the sub-20px
+    // MEASUREMENT_DELTA_IGNORE_PX gate skips TanStack Virtual's
+    // measurement-adjustment writes. Neither applies here: the delta
+    // between the initial scrollTop (0) and the mocked 1000 is >20px,
+    // and no programmaticRef.current is set at test-time.
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+        setTimeout(() => cb(performance.now()), 16),
+      );
+      const { container } = render(
+        <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
+
+      fireMessageBatch(ws, 20, (i) => ({
+        type: "message",
+        role: "assistant",
+        content: `message ${i}`,
+        eventId: `evt-${i}`,
+        ts: 1_000_000 + i,
+      }));
+
+      const outerScroll = getOuterScrollContainer(container);
+      const geom = shrinkScrollContainer(outerScroll, 600, 5000);
+
+      // Let the paneKey rAF chain settle (baseline at bottom, sticky).
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // Two-step scroll dispatch to properly simulate "user scrolls up
+      // from bottom." The scroll listener's `lastScrollTop` closure
+      // captures scrollEl.scrollTop at effect-attach time, and our own
+      // programmatic writes are gated out (programmaticRef guard) so
+      // the listener never sees them. We therefore first dispatch a
+      // scroll event at the current mocked bottom (5000) to sync the
+      // listener's baseline to a value that matches what the user
+      // sees, THEN dispatch a scroll event at 1000 so the listener
+      // observes `now (1000) < lastScrollTop (5000)` and flips
+      // stickyRef.current = false. Under the new hook, `scroll` is the
+      // single event source (wheel/keydown/touchmove listeners are
+      // gone — CONTEXT.md § Event handling LOCK).
+      geom.setScrollTop(5000);
+      act(() => {
+        outerScroll.dispatchEvent(new Event("scroll"));
+      });
       geom.setScrollTop(1000);
       act(() => {
-        const wheelEvt = new WheelEvent("wheel", {
-          deltaY: -100,
-          bubbles: true,
-          cancelable: true,
-        });
-        outerScroll.dispatchEvent(wheelEvt);
+        outerScroll.dispatchEvent(new Event("scroll"));
       });
 
       // Fire a new frame. The critical assertion: scrollTop was NOT
       // driven back to scrollHeight (5000). It stays at 1000.
       // Bump scrollHeight to simulate content growth from the new frame
-      // — if useAutoScroll incorrectly yanked, scrollTop would follow.
+      // — if the hook incorrectly yanked, scrollTop would follow.
       geom.setScrollHeight(5200);
       fireWsMessage(ws, {
         type: "message",
@@ -491,12 +590,112 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
         ts: 2_000_000,
       });
 
+      // Manually fire captured RO callbacks — proves the RO branch takes
+      // the !stickyRef path (no scrollTop write) rather than yanking.
+      act(() => {
+        for (const cb of capturedROCallbacks) {
+          cb([], {} as ResizeObserver);
+        }
+      });
+
       // Give React + any RO/rAF a chance to run.
       act(() => {
         vi.advanceTimersByTime(100);
       });
 
       expect(geom.getScrollTop()).toBe(1000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Test 2d: user send from scrolled-up state — forces scroll to bottom via handleComposeSend → scrollToBottomAndFollow", async () => {
+    // CONTEXT.md § Test coverage scenario 4 ("User send from any state →
+    // force bottom"). Even after the user has un-stuck by scrolling up
+    // (stickyRef.current === false), invoking handleComposeSend via the
+    // ComposeBox Send button must re-stick and jump back to bottom.
+    // handleComposeSend (PrettyView.tsx L610-628) closes over the hook's
+    // scrollToBottomAndFollow (use-auto-scroll.ts § Case 3, ~L182-195)
+    // and calls it after invoking onSend — the send is the strongest
+    // possible "I want to see the reply" signal.
+    //
+    // We drive this via the real ComposeBox UI (Option A per plan §
+    // Change 4): type into the compose textarea and click the Send
+    // button (aria-label="Send"). ComposeBox test patterns already
+    // exercise this shape (ComposeBox.test.tsx Test 7 L262-269, Test 13
+    // L338-341). Option A gives true end-to-end wire-through
+    // verification — the whole point of scenario 4.
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+        setTimeout(() => cb(performance.now()), 16),
+      );
+      const { container, getByRole, getByPlaceholderText } = render(
+        <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
+
+      fireMessageBatch(ws, 20, (i) => ({
+        type: "message",
+        role: "assistant",
+        content: `message ${i}`,
+        eventId: `evt-${i}`,
+        ts: 1_000_000 + i,
+      }));
+
+      const outerScroll = getOuterScrollContainer(container);
+      const geom = shrinkScrollContainer(outerScroll, 600, 5000);
+
+      // Baseline: paneKey rAF chain lands at bottom (sticky).
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(geom.getScrollTop()).toBe(5000);
+
+      // User scrolls up — flips stickyRef.current to false via the
+      // single scroll listener (same two-step baseline pattern as
+      // Test 3: sync listener's `lastScrollTop` closure to the mocked
+      // bottom first, then dispatch the down-scroll so the listener
+      // observes `now < lastScrollTop`).
+      geom.setScrollTop(5000);
+      act(() => {
+        outerScroll.dispatchEvent(new Event("scroll"));
+      });
+      geom.setScrollTop(1000);
+      act(() => {
+        outerScroll.dispatchEvent(new Event("scroll"));
+      });
+      // Verify we're NOT sticky (baseline for the send assertion).
+      expect(geom.getScrollTop()).toBe(1000);
+
+      // Drive the compose Send flow via the real ComposeBox UI. Pattern
+      // mirrors ComposeBox.test.tsx Test 7 (L262-269) + Test 13 (L338-341):
+      // fireEvent.change writes the value + dispatches an input event that
+      // ComposeBox's textarea onChange handler consumes.
+      const textarea = getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+      act(() => {
+        fireEvent.change(textarea, { target: { value: "user follow-up" } });
+      });
+
+      // Click Send. ComposeBox's inside-textarea send button carries
+      // aria-label="Send" (per patch #129, verified in ComposeBox.tsx
+      // L2423 + ComposeBox.test.tsx L268/L288).
+      const sendBtn = getByRole("button", { name: "Send" });
+      act(() => {
+        fireEvent.click(sendBtn);
+      });
+
+      // scrollToBottomAndFollow enters sticky + jumps + brief rAF re-arm
+      // for STICK_ARM_MS (150ms). 200ms overshoot flushes the chain.
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // The send should have re-stuck and jumped back to bottom. If the
+      // wire-through (handleComposeSend → scrollToBottomAndFollow) is
+      // broken, scrollTop would remain at 1000.
+      expect(geom.getScrollTop()).toBe(5000);
     } finally {
       vi.useRealTimers();
     }
