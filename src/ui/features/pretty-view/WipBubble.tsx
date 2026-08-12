@@ -160,7 +160,7 @@ export function WipBubble() {
   }, []);
 
   return (
-    <div className={cn("flex", "justify-start")}>
+    <div className={cn("flex", "justify-start", "mt-3")}>
       <canvas
         ref={canvasRef}
         role="status"
