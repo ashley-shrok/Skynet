@@ -179,10 +179,17 @@ describe("PrettyView autoplay dispatch", () => {
     wsStubs.length = 0;
     const w = window as typeof window & { __pvTestLongPress?: Map<string, (id: string) => void> };
     w.__pvTestLongPress = new Map();
+    // Phase 32 (Plan 32-03 Task 3, Rule 3 auto-fix): useAutoScroll now runs
+    // whenever <PrettyView> mounts and uses ResizeObserver. jsdom doesn't
+    // implement RO, so provide a no-op stub. Pattern mirrors PrettyView.test.tsx.
+    vi.stubGlobal('ResizeObserver', function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("D1: armed + visible + assistant message → autoplayTargetEventId set to new eventId", async () => {
@@ -474,10 +481,16 @@ describe("PrettyView autoplay long-press toggle", () => {
     wsStubs.length = 0;
     const w = window as typeof window & { __pvTestLongPress?: Map<string, (id: string) => void> };
     w.__pvTestLongPress = new Map();
+    // Phase 32 (Plan 32-03 Task 3, Rule 3 auto-fix): useAutoScroll uses
+    // ResizeObserver; jsdom lacks it — provide a no-op stub.
+    vi.stubGlobal('ResizeObserver', function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("D8: onLongPressSpeak called while disarmed → armed=true + target=eventId", async () => {
@@ -559,10 +572,16 @@ describe("PrettyView autoplay pane-scope reset", () => {
     wsStubs.length = 0;
     const w = window as typeof window & { __pvTestLongPress?: Map<string, (id: string) => void> };
     w.__pvTestLongPress = new Map();
+    // Phase 32 (Plan 32-03 Task 3, Rule 3 auto-fix): useAutoScroll uses
+    // ResizeObserver; jsdom lacks it — provide a no-op stub.
+    vi.stubGlobal('ResizeObserver', function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("D10: paneKey change (hostId+tmuxSession change) resets autoplayArmed to false + target to null", async () => {
