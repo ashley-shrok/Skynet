@@ -206,6 +206,51 @@ export function initConsoleForwarder(
     }
   });
   window.addEventListener("pagehide", flushBeacon);
+
+  // Route uncaught exceptions + unhandled promise rejections through the same
+  // forwarder pipeline as console.error. Without this, errors thrown inside
+  // event-listener callbacks or from unhandled promise rejections are invisible
+  // to the backend log (they hit only DevTools + window.onerror). On iOS PWA
+  // where DevTools isn't attached, we'd silently miss them.
+  window.addEventListener("error", (event) => {
+    try {
+      const err = event.error;
+      let msg: string;
+      if (err instanceof Error) {
+        msg = `[uncaught-error] ${err.name}: ${err.message}\n${err.stack ?? ""}`.trim();
+      } else if (event.message) {
+        msg = `[uncaught-error] ${event.message}`;
+      } else {
+        msg = `[uncaught-error] unknown`;
+      }
+      if (event.filename) {
+        msg += ` (source=${event.filename}:${event.lineno ?? "?"}:${event.colno ?? "?"})`;
+      }
+      console.error(msg);
+    } catch {
+      // Never let the error-handler throw — would infinite-loop.
+    }
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    try {
+      const reason = event.reason;
+      let msg: string;
+      if (reason instanceof Error) {
+        msg = `[unhandled-rejection] ${reason.name}: ${reason.message}\n${reason.stack ?? ""}`.trim();
+      } else if (typeof reason === "string") {
+        msg = `[unhandled-rejection] ${reason}`;
+      } else {
+        try {
+          msg = `[unhandled-rejection] ${JSON.stringify(reason)}`;
+        } catch {
+          msg = `[unhandled-rejection] ${String(reason)}`;
+        }
+      }
+      console.error(msg);
+    } catch {
+      // Never let the error-handler throw — would infinite-loop.
+    }
+  });
 }
 
 /** @internal test-only — returns a shallow copy of the current buffer */
