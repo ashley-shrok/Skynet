@@ -1,122 +1,109 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ============================================================================
-// pretty-view scroll model — sticky-bottom (sole variant).
+// pretty-view auto-scroll — three-case sticky-bottom model.
 //
-// Model:
-//   - One axis: stickToBottomRef (bool). Default true.
-//   - Content grows (ResizeObserver) → if sticky, scrollTop = scrollHeight.
-//     No prior-message anchoring; browser scroll-anchoring is suppressed via
-//     overflow-anchor: none applied inline on the scroll container while the
-//     hook is mounted (prior value is restored on unmount).
-//   - Pane change (paneKey diff) → force stick = true + rAF-chain jump for
-//     LOAD_LOCK_MS, absorbing image-load / batched-WS-backfill layout settle
-//     so a fresh conversation load always lands at the bottom.
-//   - Exit sticky ONLY on real scroll-up gestures:
-//       * wheel with deltaY < 0
-//       * keydown PageUp / ArrowUp / Home
-//       * touchmove that reduces scrollTop from previous tick by > 2px
-//     Passive touchmove from tap-then-scroll-list finger travel (which does
-//     NOT reduce scrollTop) is filtered out — this is the fix for "opening
-//     a conversation and immediately being scrolled up on mobile".
-//   - forceStickAndJump(): re-enter sticky + jump + re-arm the load-lock for
-//     LOAD_LOCK_MS. PrettyView's handleComposeSend calls this on every send
-//     so a fresh reply is guaranteed to land at the bottom regardless of
-//     prior scroll position.
-//   - scrollToBottomAndFollow(): re-enter sticky + jump WITHOUT arming the
-//     load-lock. The jump-to-latest pill uses this — user intent is only
-//     "go to the bottom right now", not "protect that stickiness across
-//     a follow-up load".
+// Design source: .planning/phases/32-redesign-pretty-view-auto-scroll-three-
+// case-sticky-bottom-ho/32-CONTEXT.md (LOCKED — do not re-litigate).
+//
+// The hook covers exactly three user-facing cases:
+//
+//   1. Session first load          → paneKey-change useEffect enters sticky +
+//                                     runs a self-halting rAF chain for
+//                                     STICK_ARM_MS so image decode / batched WS
+//                                     backfill settle at the bottom.
+//   2. New messages while at bottom → ResizeObserver on the OUTER scroll
+//                                     container fires on any child growth
+//                                     (including post-Phase-27 accessory mounts
+//                                     that are in-flow siblings of the sized
+//                                     virtualizer container); if sticky and not
+//                                     shrinking, jump to bottom.
+//   3. User send                    → scrollToBottomAndFollow() enters sticky +
+//                                     jumps + brief rAF re-arm. Wired by
+//                                     PrettyView to both the jump-to-bottom
+//                                     pill AND every send-path caller.
+//
+// Implicit inverse (Ashley confirmed 2026-08-12): if the user is scrolled up
+// reading history, new incoming messages do NOT yank them down — the scroll
+// listener flips stickyRef.current = false on any user scroll-up and the RO
+// callback then only recomputes pill visibility, never writes scrollTop.
+//
+// Event model — ONE scroll listener, gated by two flags:
+//   - programmaticRef  → filters out our own scrollTop writes (set true before
+//                        the write, cleared in the next rAF).
+//   - <20 px delta     → filters out TanStack Virtual's own scrollTo({top})
+//                        writes from `applyScrollAdjustment` (verified in
+//                        32-01-VERIFICATION-REPORT.md — measurement corrections
+//                        are typically <20 px; real user scrolls are ≥40 px).
+//
+// Deliberately NOT here (see CONTEXT.md § Decisions LOCKED):
+//   - No wheel / keydown / touchmove listeners  (single `scroll` covers all).
+//   - No loadLockUntilRef gate                   (chain self-halts on un-stick).
+//   - No inline overflow-anchor:none write       (patch #385 static Tailwind
+//                                                 class on composeScrollRefs div
+//                                                 is authoritative).
+//   - No contentRef export                       (RO observes outer scrollEl
+//                                                 only — captures accessory
+//                                                 sibling mounts too).
+//   - No forceStickAndJump export                (folded into single action).
 // ============================================================================
 
-const BOTTOM_THRESHOLD = 100; // px
-const LOAD_LOCK_MS = 300; // rAF-chain duration after paneKey change / send
+const BOTTOM_THRESHOLD = 100; // px — matches old hook
+const STICK_ARM_MS = 150; // rAF chain duration for load/send re-arm
+// Per 32-01-VERIFICATION-REPORT.md § Recommendation: TanStack Virtual's
+// `scrollWithAdjustments` (virtual-core/dist/esm/index.js:152-160) invokes
+// `element.scrollTo({ top })` for measurement corrections — that write fires a
+// `scroll` event on the container just like a real user scroll. Adjustments
+// are typically small (a few px); user scroll events per tick are ≥40 px
+// (mouse wheel default 100 px, keyboard PageUp ≥600 px, touch drag never
+// yields a single ≤20 px event mid-drag). 20 px cleanly separates the two.
+const MEASUREMENT_DELTA_IGNORE_PX = 20;
 
 export interface UseAutoScrollResult {
   scrollRef: (el: HTMLElement | null) => void;
-  contentRef: (el: HTMLElement | null) => void;
   scrollToBottomAndFollow: () => void;
-  forceStickAndJump: () => void;
   isPinnedToBottom: boolean;
 }
 
-export function useAutoScroll(paneKey?: string): UseAutoScrollResult {
+export function useAutoScroll(paneKey: string): UseAutoScrollResult {
+  // Callback-ref → useState (NOT useRef): the state setter is what re-fires
+  // mount-driven useEffects when PrettyView's composed callback ref binds.
   const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
-  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
-
-  const stickToBottomRef = useRef<boolean>(true);
-  const [isPinnedToBottom, setIsPinnedToBottom] = useState<boolean>(true);
-
-  // Load-lock: ignore user-gesture-driven un-stick for LOAD_LOCK_MS after a
-  // paneKey change or a send, so a residual mobile touchmove from the row-tap
-  // gesture can't strand us above the last message during backfill.
-  const loadLockUntilRef = useRef<number>(0);
-
-  // Track scrollTop across touchmove ticks so we can distinguish "user pulled
-  // content down" (real scroll-up gesture → exit sticky) from "container
-  // didn't actually move" (passive gesture → ignore).
-  const lastScrollTopRef = useRef<number>(0);
-
   const scrollRef = useCallback((el: HTMLElement | null) => {
     setScrollEl(el);
   }, []);
-  const contentRef = useCallback((el: HTMLElement | null) => {
-    setContentEl(el);
-  }, []);
 
+  const stickyRef = useRef<boolean>(true);
+  const programmaticRef = useRef<boolean>(false);
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState<boolean>(true);
+  const prevScrollHeightRef = useRef<number>(0);
+
+  // Wrap every scrollTop write so the shared scroll listener can distinguish
+  // "we jumped" from "user scrolled." Clearing in rAF (not synchronously) lets
+  // the browser fire its resulting `scroll` event before the flag is dropped.
   const jumpToBottom = useCallback((el: HTMLElement) => {
+    programmaticRef.current = true;
     el.scrollTop = el.scrollHeight;
-    lastScrollTopRef.current = el.scrollTop;
+    requestAnimationFrame(() => {
+      programmaticRef.current = false;
+    });
   }, []);
 
-  const enterStick = useCallback(() => {
-    stickToBottomRef.current = true;
+  // Case 1 — paneKey change (incl. initial mount) → enter sticky + rAF chain
+  // for STICK_ARM_MS so async content settle (image decode, backfill) lands us
+  // at the bottom. Chain self-halts when stickyRef flips false, so a user
+  // scroll-up mid-chain un-sticks naturally with no time-gated blocking.
+  useEffect(() => {
+    if (!scrollEl) return;
+    stickyRef.current = true;
     setIsPinnedToBottom(true);
-  }, []);
-
-  const exitStick = useCallback(() => {
-    stickToBottomRef.current = false;
-    setIsPinnedToBottom(false);
-  }, []);
-
-  const scrollToBottomAndFollow = useCallback(() => {
-    enterStick();
-    if (scrollEl) jumpToBottom(scrollEl);
-  }, [scrollEl, enterStick, jumpToBottom]);
-
-  const forceStickAndJump = useCallback(() => {
-    // Send-intent signal — arm the load-lock briefly too so a reply that
-    // arrives with images / async content can't be un-stuck by a stray gesture.
-    loadLockUntilRef.current = Date.now() + LOAD_LOCK_MS;
-    enterStick();
-    if (scrollEl) jumpToBottom(scrollEl);
-  }, [scrollEl, enterStick, jumpToBottom]);
-
-  // Apply overflow-anchor: none inline on the scroll container so the browser
-  // doesn't fight our scrollTop writes when content grows above the viewport.
-  useEffect(() => {
-    if (!scrollEl) return;
-    const prev = scrollEl.style.overflowAnchor;
-    scrollEl.style.overflowAnchor = "none";
-    return () => {
-      scrollEl.style.overflowAnchor = prev;
-    };
-  }, [scrollEl]);
-
-  // Pane change → force stick + rAF-chain jump for LOAD_LOCK_MS so image loads,
-  // batched WS backfill, and layout settle can't leave us stranded.
-  useEffect(() => {
-    if (!scrollEl) return;
-    enterStick();
-    loadLockUntilRef.current = Date.now() + LOAD_LOCK_MS;
     let cancelled = false;
     const start = Date.now();
     const tick = () => {
       if (cancelled || !scrollEl) return;
-      if (stickToBottomRef.current) {
-        jumpToBottom(scrollEl);
-      }
-      if (Date.now() - start < LOAD_LOCK_MS) {
+      if (!stickyRef.current) return; // user un-stuck mid-chain → halt
+      jumpToBottom(scrollEl);
+      if (Date.now() - start < STICK_ARM_MS) {
         requestAnimationFrame(tick);
       }
     };
@@ -124,102 +111,92 @@ export function useAutoScroll(paneKey?: string): UseAutoScrollResult {
     return () => {
       cancelled = true;
     };
-  }, [scrollEl, paneKey, enterStick, jumpToBottom]);
+  }, [scrollEl, paneKey, jumpToBottom]);
 
-  // ResizeObserver → if sticky, jump to bottom on content GROWTH only.
-  // Skip the jump on shrink (WipBubble unmount, aside close, etc.) — when
-  // truly at the bottom the browser auto-clamps scrollTop on shrink so the
-  // extra jumpToBottom is redundant, and in the near-bottom-but-not-quite
-  // case (say 30px above) forcing a jump drags the viewport further than
-  // the user intended, which reads as "content jumps down when WIP
-  // disappears."
-  const prevScrollHeightRef = useRef<number>(0);
+  // Case 2 — ResizeObserver on the OUTER scroll container.
+  // Post-Phase-27, accessories (WipBubble/PlanPendingBubble/AsideBubble) are
+  // in-flow siblings of the sized virtualizer container inside the outer
+  // scroll container — observing outer catches those mounts too. The `shrunk`
+  // guard preserves the old hook's WipBubble-unmount behavior (browser auto-
+  // clamps on shrink; extra jump would drag a near-bottom viewport further
+  // than the user intended).
   useEffect(() => {
-    if (!scrollEl || !contentEl) return;
+    if (!scrollEl) return;
     prevScrollHeightRef.current = scrollEl.scrollHeight;
     const ro = new ResizeObserver(() => {
       const nextHeight = scrollEl.scrollHeight;
       const shrunk = nextHeight < prevScrollHeightRef.current;
       prevScrollHeightRef.current = nextHeight;
-      if (stickToBottomRef.current) {
+      if (stickyRef.current) {
         if (!shrunk) jumpToBottom(scrollEl);
-        // Keep pill hidden while sticky.
-        if (!isPinnedToBottom) setIsPinnedToBottom(true);
       } else {
-        // Recompute pill visibility from geometry — content grew but user is
-        // scrolled up, so distFromBottom likely increased.
+        // Not sticky — user is reading history; only refresh pill visibility.
         const dist = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
         setIsPinnedToBottom(dist <= BOTTOM_THRESHOLD);
       }
     });
-    ro.observe(contentEl);
-    ro.observe(scrollEl);
+    ro.observe(scrollEl); // outer only — no inner contentEl
     return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollEl, contentEl, jumpToBottom]);
+  }, [scrollEl, jumpToBottom]);
 
-  // User-gesture listeners — only real scroll-up motion exits sticky.
+  // Single scroll listener. Every input source (mouse wheel, keyboard
+  // PageUp/ArrowUp/Home, touch drag, scrollbar drag, iOS momentum, and
+  // TanStack Virtual's `scrollTo({top})` measurement corrections) fires
+  // `scroll` — no need for the old wheel+keydown+touchmove trifecta.
   useEffect(() => {
     if (!scrollEl) return;
-
-    const gestureIsLocked = () => Date.now() < loadLockUntilRef.current;
-
-    const handleWheel = (e: WheelEvent) => {
-      if (gestureIsLocked()) return;
-      // deltaY < 0 = scrolling up (content moves down). Exit sticky.
-      if (e.deltaY < 0) exitStick();
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (gestureIsLocked()) return;
-      if (e.key === "PageUp" || e.key === "ArrowUp" || e.key === "Home") {
-        exitStick();
-      }
-    };
-
-    const handleTouchMove = () => {
-      if (gestureIsLocked()) return;
-      // touchmove doesn't have a delta — compare scrollTop to last known.
-      // If scrollTop decreased (moved up), user is actively scrolling up.
-      const now = scrollEl.scrollTop;
-      const prev = lastScrollTopRef.current;
-      if (now < prev - 2) {
-        exitStick();
-      }
-      lastScrollTopRef.current = now;
-    };
-
-    // Scroll event — keep pill state in sync as user drags scrollbar or
-    // momentum-scrolls, AND detect scrolling back into the bottom threshold
-    // (re-enter sticky if user landed at the bottom without hitting the pill).
+    let lastScrollTop = scrollEl.scrollTop;
     const handleScroll = () => {
-      const dist = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+      if (programmaticRef.current) return; // gate 1: our own writes
+      const now = scrollEl.scrollTop;
+      const dist = scrollEl.scrollHeight - now - scrollEl.clientHeight;
       const atBottom = dist <= BOTTOM_THRESHOLD;
-      // If user scrolled back to bottom on their own, re-enter sticky.
-      if (atBottom && !stickToBottomRef.current) enterStick();
-      // Keep pill visibility in sync with current geometry (even when sticky
-      // is unchanged — momentum scroll past the threshold).
-      setIsPinnedToBottom(atBottom);
-      lastScrollTopRef.current = scrollEl.scrollTop;
-    };
 
-    scrollEl.addEventListener("wheel", handleWheel, { passive: true });
-    scrollEl.addEventListener("touchmove", handleTouchMove, { passive: true });
-    scrollEl.addEventListener("keydown", handleKeyDown, { passive: true });
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      scrollEl.removeEventListener("wheel", handleWheel);
-      scrollEl.removeEventListener("touchmove", handleTouchMove);
-      scrollEl.removeEventListener("keydown", handleKeyDown);
-      scrollEl.removeEventListener("scroll", handleScroll);
+      // Gate 2 — TanStack Virtual measurement-adjustment tolerance (per
+      // 32-01-VERIFICATION-REPORT.md § Recommendation). Sub-threshold deltas
+      // still update lastScrollTop + pill visibility so a series of tiny
+      // corrections in the same direction can't silently accumulate a supra-
+      // threshold shift measured against a stale baseline — they just must
+      // not touch stickyRef.
+      if (Math.abs(now - lastScrollTop) < MEASUREMENT_DELTA_IGNORE_PX) {
+        setIsPinnedToBottom(atBottom);
+        lastScrollTop = now;
+        return;
+      }
+
+      if (now < lastScrollTop) {
+        stickyRef.current = false; // user scrolled up
+      } else if (atBottom) {
+        stickyRef.current = true; // user landed back at bottom on their own
+      }
+      setIsPinnedToBottom(atBottom);
+      lastScrollTop = now;
     };
-  }, [scrollEl, exitStick, enterStick]);
+    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollEl.removeEventListener("scroll", handleScroll);
+  }, [scrollEl]);
+
+  // Case 3 — single exported action. Enters sticky, jumps, then brief rAF
+  // re-arm to absorb async content settle. Chain self-halts on user un-stick
+  // so this action never fights a subsequent user scroll-up.
+  const scrollToBottomAndFollow = useCallback(() => {
+    stickyRef.current = true;
+    setIsPinnedToBottom(true);
+    if (!scrollEl) return;
+    jumpToBottom(scrollEl);
+    const start = Date.now();
+    const tick = () => {
+      if (!scrollEl) return;
+      if (!stickyRef.current) return; // self-halt on user un-stick
+      jumpToBottom(scrollEl);
+      if (Date.now() - start < STICK_ARM_MS) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [scrollEl, jumpToBottom]);
 
   return {
     scrollRef,
-    contentRef,
     scrollToBottomAndFollow,
-    forceStickAndJump,
     isPinnedToBottom,
   };
 }
