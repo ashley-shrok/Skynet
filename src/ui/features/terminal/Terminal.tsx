@@ -1302,6 +1302,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       rows: number,
     ) {
       ws.addEventListener("open", () => {
+        console.info(`[ws] open hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} wsUrl=${baseWsUrl} readyState=${ws.readyState}`);
         connectionTimeoutRef.current = setTimeout(() => {
           if (
             !isConnected &&

@@ -41,7 +41,6 @@ export type LogContext = {
 // --- module-scoped state ---
 
 const buffer: LogEntry[] = [];
-const MAX_BATCH = 20;
 const FLUSH_INTERVAL_MS = 500;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let initialized = false;
@@ -137,9 +136,7 @@ function enqueue(level: LogLevel, args: unknown[]): void {
     msg: args.map(serializeArg).join(" "),
   });
 
-  if (buffer.length >= MAX_BATCH) {
-    flushFetch();
-  } else if (flushTimer === null) {
+  if (flushTimer === null) {
     flushTimer = setTimeout(flushFetch, FLUSH_INTERVAL_MS);
   }
 }
@@ -183,9 +180,7 @@ export function initConsoleForwarder(
     buffer.push(entry);
     onEnqueue?.(entry);
 
-    if (buffer.length >= MAX_BATCH) {
-      flushFetch();
-    } else if (flushTimer === null) {
+    if (flushTimer === null) {
       flushTimer = setTimeout(flushFetch, FLUSH_INTERVAL_MS);
     }
   }
