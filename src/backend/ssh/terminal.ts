@@ -1441,6 +1441,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
     isConnecting = true;
     sshConn = new Client();
+    // Set by the reuse-existing-session branch below when we intentionally
+    // end() this fresh sshConn because the tab-instance already had a live
+    // session we want to attach to instead. The close-event that end() will
+    // fire must NOT be surfaced to the client as "disconnected", or the WS
+    // that just successfully attached will pop the Connection Lost overlay.
+    let sessionWasTakenOverByExisting = false;
 
     sendLog("dns", "info", `Starting address resolution of ${ip}`);
     sendLog("tcp", "info", `Connecting to ${ip} port ${port}`);
@@ -1647,6 +1653,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           },
         );
         try {
+          sessionWasTakenOverByExisting = true;
           sshConn?.end();
         } catch {
           /* ignore */
@@ -2538,6 +2545,24 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
     sshConn.on("close", () => {
       clearTimeout(connectionTimeout);
+      if (sessionWasTakenOverByExisting) {
+        // The reuse-existing-session branch above called end() on this fresh
+        // sshConn on purpose after attaching the ws to the pre-existing live
+        // session. Firing the disconnected-send below would pop the client's
+        // Connection Lost overlay on the ws that just successfully attached
+        // (Ashley 2026-08-12 desktop tab-switch bug — pane A → pane B → pane A
+        // flips A to the overlay).
+        sshLogger.info(
+          "SSH connection closed (replaced by existing session — suppressing disconnect send)",
+          {
+            operation: "terminal_ssh_replaced_by_existing_session",
+            sessionId,
+            userId,
+            hostId: id,
+          },
+        );
+        return;
+      }
       sshLogger.info("SSH connection closed", {
         operation: "terminal_ssh_disconnected",
         sessionId,
