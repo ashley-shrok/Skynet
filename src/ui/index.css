@@ -402,13 +402,13 @@ html.fs-xl {
 }
 @media (max-width: 767.98px) {
   .pv-speak-btn {
-    width: 52px;
-    height: 52px;
-    border-radius: 10px;
+    width: 39px;
+    height: 39px;
+    border-radius: 8px;
   }
   .pv-speak-btn svg {
-    width: 26px;
-    height: 26px;
+    width: 20px;
+    height: 20px;
   }
 }
 
