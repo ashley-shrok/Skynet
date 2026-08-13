@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-08-13T16:00:38.492Z"
-last_activity: 2026-08-13 -- Phase 37 Plan 02 complete (useHoldToRecord wired into ComposeBox primary+slot; B-2/B-3/M-2 gates)
+status: executed
+last_updated: "2026-08-13T16:52:00.000Z"
+last_activity: 2026-08-13 -- Phase 37 EXECUTED (all 3 plans done: race-safety fix + useHoldToRecord hook + ComposeBox wiring + integration tests); orchestrator ship next
 progress:
   total_phases: 36
-  completed_phases: 28
+  completed_phases: 29
   total_plans: 141
-  completed_plans: 137
-  percent: 78
+  completed_plans: 138
+  percent: 80
 ---
 
 # Project State
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 37 (Hold-to-send gesture on send button) — EXECUTING
-Plan: 3 of 3 (Plan 32-02 complete — ComposeBox primary+slot wired via useHoldToRecord + B-2/B-3/M-2 gates; Plan 32-03 next — integration tests)
-Status: Plan 32-02 complete — awaiting Plan 32-03 (ComposeBox.hold-to-send.test.tsx integration tests)
-Last activity: 2026-08-13 -- Phase 37 Plan 02 complete. useHoldToRecord wired into primary send button (ComposeBox.tsx L2380) and slot send button (QueuedRow subcomponent) symmetrically; B-2 aside-dismiss onClick preserved (onClick={asideActive ? () => onAsideDismiss?.() : undefined}); B-3 showRecordingControls gated on !holdInitiatedRef.current so hold-record does NOT swap RecordingControls under the pointer; M-2 slotSendDisabled shared local extracted (no drift between JSX disabled and hook arg); data-hold-active CSS pulse toward --color-pv-code-fg coral added in src/ui/index.css. Three atomic commits ee2c98f + c54b6ea + 2b371d2; SUMMARY 07eff33 + addendum 45960ce. NO worktrees. NOT pushed / NOT built / NOT deployed per fork discipline. Plan 32-03 (integration tests) UNBLOCKED.
+Phase: 37 (Hold-to-send gesture on send button) — EXECUTED
+Plan: 3 of 3 (all plans complete — 32-01 hook + race-safety; 32-02 ComposeBox wiring + CSS; 32-03 integration tests)
+Status: Executed — awaiting orchestrator ship (deploy in flight now: rebased past Tiffany's #435, bundling with quick-260813-spkbtn shrink)
+Last activity: 2026-08-13 -- Phase 37 Plan 03 complete. New file src/ui/features/pretty-view/ComposeBox.hold-to-send.test.tsx (854 lines) — 10 deterministic integration tests covering all 9 CONTEXT.md § specifics cases (short-tap-sends, in-place-recording-during-hold with B-3 gating, glued-transcript-on-release-inside, slide-off-cancels, B-2 aside-morph inertness with preserved onClick, disabled-state inertness, voice.state≠idle guard, D-16-02 iOS Safari sync-gesture invariant, both-paths-coexist) plus a HOLD_THRESHOLD_MS boundary regression guard. Two atomic commits aefeb34 + 337bb06. `npx vitest run` full suite: 1923 pass / 7 skipped / 1 todo / 0 failed (delta vs Plan 32-01 baseline: +14 pass, -4 fail; pre-existing flakes did NOT reproduce). All Phase 37 plans complete; ship next.
 
 Last activity: 2026-08-12 — Completed quick task 260812-ma8 (dormancy-bubble-in-flow). Converted `DormancyOverlay` from a full-surface scrim covering the chat region into an assistant-aligned in-flow bubble at the bottom of the message list (mirrors `PlanPendingBubble`'s Phase 4 Glass treatment). Ashley 2026-08-12: *"just because the session is asleep doesn't mean I shouldn't be able to read the convo. Where that convo left off might be the deciding factor for whether I even wake that session up or not."* Two files, two atomic commits (`6741f81` DormancyOverlay restyle + `3e7a3ef` mount move + scroll-container gate widen). All three states preserved (asleep+Wake, waking+90s progress, warm-red error retry); STATIC Moon guardrail intact; ComposeBox `dormantActive` unchanged. One documented Rule-1 deviation bundled into Task 2's commit: widened outer scroll-container gate to include `renderedState === "dormant"` so the cold-pane-discovered-dormant path stays reachable (PrettyView.test.tsx Test E caught it). `npm run type-check` clean; pretty-view suite 555/555 pass. Deployed via `docker cp` to container `76c8ed0a8fcc`; HTTPS smoke test `200 0.412783s`. Patch #422 appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. NO worktrees.
 
@@ -221,6 +221,7 @@ Progress: [█████████░] 97%
 | Phase 35 P02 | 95 | 4 tasks | 4 files |
 | Phase 37 P01 | 55min | 3 tasks | 4 files (2 created, 2 modified) |
 | Phase 37 P02 | 90min | 3 tasks | 8 files |
+| Phase 37 P03 | 30min | 1 task | 1 file (1 created) |
 
 ## Accumulated Context
 
@@ -229,6 +230,9 @@ Progress: [█████████░] 97%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- 2026-08-13 (32-03): Fake-timers + advanceTimersByTimeAsync + double-act pattern established for ComposeBox integration tests that need to step through the async voice pipeline (getUserMedia resolution → MediaRecorder construction → voice.state re-render → optional STT fetch). vitest 4.x's `advanceTimersByTimeAsync` flushes microtasks between each fake-timer tick, correctly handling interleaved setTimeout + Promise chains. Combined with `await act(async () => { ... })` wrappers for React state commits. Any future ComposeBox test that involves voice.start() should follow this shape.
+- 2026-08-13 (32-03): Race-preserving short-tap simulation pattern established — for tests that need to reproduce the pre-resolve cancel race Plan 32-01 Task 1's pendingCancelRef defends, do NOT advance fake timers between pointerdown and pointerup. The hook uses `e.timeStamp` (not wall-clock) for elapsedMs computation, so `timeStamp: 0` on pointerdown + `timeStamp: 200` on pointerup lands the short-tap branch while keeping the getUserMedia .then() unflushed. Cancel then fires with state still "idle" and sets pendingCancelRef=true; the deferred .then() takes the teardown branch and no MediaRecorder is ever constructed. This is strictly stronger than the post-resolve branch (both must work; the pre-resolve one is the harder invariant).
+- 2026-08-13 (32-03): jsdom does NOT synthesize a click event from a fireEvent.pointerDown/pointerUp pair the way a real browser does. For tests exercising the B-2 pattern (preserved native onClick + pointer-hook coexistence on the same button), explicitly `fireEvent.click(button)` after the pointer-pair to simulate the browser-native short-tap behavior. This mirrors the pattern used in the existing ComposeBox.aside-morph.test.tsx Task 2 Test 5.
 - 2026-08-04 (24-05): OR-in-in-every-recycleActive-site pattern established for the third ComposeBox disable prop — `planPendingActive` keeps independence rather than collapsing into a combined `interactionsDisabled` flag because Send-button behavior differs across the three modes (asideActive morphs Send into X/Resume; recycleActive + planPendingActive keep Send-as-Send but disabled). Slot-arm-idle button gate updated to include BOTH `!recycleActive` AND `!planPendingActive` (Rule 2 auto-fix — closed a pre-existing latent parity gap from quick 260803-05i's QueuedRow extraction).
 - 2026-07-17: Adopt GSD for the fork — patch #43 is large enough (~500+ lines, backend session-file tail + WS bridge + new pane component + compose box + layout refactor) to justify one-time GSD bootstrap
 - 2026-07-17: Vertical-MVP phase mode (phase = user-visible slice) — matches how the fork has always worked
@@ -526,6 +530,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-13T16:00:37.919Z
-Stopped at: Completed 32-02-PLAN.md (Phase 37 P02) — Plan 32-03 (ComposeBox integration tests for hold gesture) next
+Last session: 2026-08-13T16:52:00.000Z
+Stopped at: Completed 32-03-PLAN.md (Phase 37 P03) — Phase 37 EXECUTED (all 3 plans done); orchestrator picks up ship/deploy
 Resume file: None
