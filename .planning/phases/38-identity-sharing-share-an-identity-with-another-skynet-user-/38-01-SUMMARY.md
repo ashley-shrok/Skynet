@@ -186,9 +186,10 @@ npm run build                                                            # exit 
 
 ## Final HEAD SHA
 
-Full HEAD after this plan: **`9d10abe7e2f011998e1f00c5a6363e783ef97dc0`** (short: `9d10abe`).
+Full HEAD after this plan (including this SUMMARY commit): **`7d369530a04f3730dc5620017de0a7048d4d8731`** (short: `7d36953`). Last code-motion commit (pre-SUMMARY): **`9d10abe7e2f011998e1f00c5a6363e783ef97dc0`** (short: `9d10abe`).
 
 Commits (in reverse chronological order):
+- `7d36953 plan(38-01): backend endpoints for identity sharing — POST /identities/:id/share + GET /users/list-basic` — Task 3 handoff SUMMARY
 - `9d10abe feat(38-01): POST /identities/:id/share — copy-and-diverge identity share` — Task 2 GREEN
 - `bf0c7d2 test(38-01): add failing tests for POST /identities/:id/share` — Task 2 RED
 - `123e778 feat(38-01): add GET /users/list-basic picker route for identity sharing` — Task 1 GREEN
