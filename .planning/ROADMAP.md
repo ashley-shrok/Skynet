@@ -1136,3 +1136,13 @@ Plans:
 Plans:
 - [ ] 38-01-PLAN.md — Backend: POST /identities/:id/share (copy-and-diverge row duplicator, no-op on repeat, no permission gate) + GET /users/list-basic (slim per-authenticated-user route excluding requester, only {id, username} fields exposed) + tests for both endpoints
 - [ ] 38-02-PLAN.md — Frontend: shareIdentity + getUsersListBasic API clients + ShareIdentityPicker component (empty-state hide, populated dropdown, already-shared marker on selectable rows, toast confirmation on share) + IdentityModal DialogHeader wiring with parent-owned alreadySharedUserIds Set state + tests
+
+### Phase 39: Fleet-status Gate 2: SSH-poll decrypt-via-user-session + presence-driven lifecycle — Rewire SSH-poll orchestrator to lazy start/stop keyed off fleet-status subscription registry (first subscriber starts poller, last unsubscriber stops it). Poller uses subscribing user's authenticated session for resolveHostById(hostId, userId) — the standard request-driven decrypt path used by every other SSH caller in the app. Fixes the ciphertext-passed-to-ssh2 bug in current SSH-poll (bypassing SimpleDBOps.select/DataCrypto). Bundles: (a) fix swallowed err.message in fleet-status structured logger, (b) verify Plan 04 Stop-hook install status per host + install where missing. Bounty: fleet-status-ssh-poll-decrypt-and-lazy-lifecycle. Path C decided by Ashley 2026-08-13.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 38
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 39 to break down)
