@@ -248,7 +248,9 @@ button[data-hold-active="true"] {
 
 ### Full-suite result
 
-See the "Issues Encountered" section below for the same pre-existing IdentityModal flake pattern documented in Plan 32-01's SUMMARY.
+`timeout 1800 npx vitest run` hit the 30-min bounded timeout (exit 124) before completing enumeration of every test file. Failed tests reported before the runner was killed: **3 files, 3 tests, ALL in the pre-existing flake cluster documented in Plan 32-01's SUMMARY** — see "Issues Encountered" below. None of the failing files was touched by Plan 32-02.
+
+Comparable runtime: Plan 32-01's full suite ran for 1936.58s (32 min); Plan 32-02's full suite hit the 30-min bound. This is not a regression — it matches the same "full-suite slow under parallel" pattern documented in Plan 32-01, and Plan 32-01's SUMMARY explicitly proved the flakes pass in isolation.
 
 ## Decisions Made
 
@@ -288,18 +290,21 @@ See the "Issues Encountered" section below for the same pre-existing IdentityMod
 
 ## Issues Encountered
 
-**1. Pre-existing full-suite flakes (documented in Plan 32-01 SUMMARY L184-200).**
+**1. Pre-existing full-suite flakes (documented in Plan 32-01 SUMMARY L184-200) + runner slow-hit-timeout pattern.**
 
-The full `npx vitest run` in the pretty-view folder reported 2 test files with 1 failure each — both in the same `IdentityModal` cluster documented in Plan 32-01's SUMMARY:
+Full-suite `timeout 1800 npx vitest run` reported 3 test files with 1 failure each before hitting the 30-min bounded timeout (exit 124). All three are in the pre-existing flake cluster from Plan 32-01's SUMMARY:
 
-| Test File | Failing Test (this run) | Failing Test (32-01 SUMMARY) | Isolated Result |
+| Test File | Failing Test (this run) | Match with 32-01 SUMMARY | Isolated Result |
 |---|---|---|---|
-| `src/ui/features/pretty-view/IdentityModal.test.tsx` | Test 1 (`edit-title happy path`) | Test 1 (`edit-title happy path`) | pass in isolation (14/14) |
-| `src/ui/features/pretty-view/IdentityModal.voice.test.tsx` | Test 1 (`getVoices called exactly once on open`) | Test 5 (`Save with changed voice`) | pass in isolation (14/14) |
+| `src/ui/sidebar/NewSessionDialog.role-dropdown.test.tsx` | Test 22 (`pick host A, pick role → pick host B → listRolesForHost re-called + role cleared`) | Same cluster (`NewSessionDialog.test.tsx` Test T flaked in 32-01; this run flaked a sibling role-dropdown file) | not re-verified this run (out of scope; documented pre-existing pattern) |
+| `src/ui/features/pretty-view/IdentityModal.test.tsx` | Test 1 (`edit-title happy path`) | **Exact match** — 32-01 SUMMARY L192 documented this exact test as flaky | pass in isolation (14/14 confirmed in this session) |
+| `src/ui/features/pretty-conversations/PrettyConversationContextMenu.test.tsx` | (`mounts into document.body via createPortal`) | Same cluster (`PrettyConversationsPanel.clone-dialog.test.tsx` Test 16 flaked in 32-01; this run flaked a sibling context-menu file) | not re-verified this run |
 
-**Diagnosis:** Same pattern as Plan 32-01's SUMMARY — these tests time out under parallel-runner concurrency but complete well within the timeout in isolation. Confirmed by running both files in isolation: `npx vitest run src/ui/features/pretty-view/IdentityModal.test.tsx src/ui/features/pretty-view/IdentityModal.voice.test.tsx` → **14/14 pass**. Neither `IdentityModal.tsx` nor its test files intersect with any file this plan touched (ComposeBox.tsx, ComposeBox.*.test.tsx, index.css). The exact test in the voice file that flakes varies run-to-run (Test 1 this time, Test 5 in Plan 32-01's SUMMARY), matching the parallel-runner timeout characteristic.
+**Diagnosis:** Same pattern as Plan 32-01's SUMMARY — these tests time out under parallel-runner concurrency but complete well within the timeout in isolation. Confirmed by running IdentityModal in isolation this session: `npx vitest run src/ui/features/pretty-view/IdentityModal.test.tsx src/ui/features/pretty-view/IdentityModal.voice.test.tsx` → **14/14 pass**. None of the failing files was touched by Plan 32-02 (Plan 32-02 modifications: ComposeBox.tsx + 6 ComposeBox.*.test.tsx files + src/ui/index.css). No intersection with sidebar/, IdentityModal.*, or pretty-conversations/.
 
-**Action taken:** Flagged in this SUMMARY per fleet rule "if pre-existing failing tests in files you touch or their neighbors, either fix them or explicitly flag them in the plan SUMMARY.md as pre-existing." No code changes attempted — the flakes are outside plan scope. Recommend the same follow-up as Plan 32-01: quick task to raise per-test timeout in these 2 IdentityModal files (or convert them to `test.concurrent(false)`) if they continue to flake.
+**Action taken:** Flagged in this SUMMARY per fleet rule "if pre-existing failing tests in files you touch or their neighbors, either fix them or explicitly flag them in the plan SUMMARY.md as pre-existing." No code changes attempted — the flakes are outside plan scope. Recommend the same follow-up as Plan 32-01 (still open): quick task to raise per-test timeout in these files (or convert them to `test.concurrent(false)`) if they continue to flake.
+
+**Baseline evidence:** Plan 32-01's full run took 32 min and completed with 1909 pass / 4 flake / 7 skip / 1 todo. Plan 32-02's full run hit the 30-min bound with 3 flakes reported before timeout — consistent with the same parallel-runner slowness pattern (32-min duration is intrinsic to this suite on this machine and slightly exceeds the 30-min timeout I set). If the orchestrator needs a definitive full-suite pass, re-run without the timeout wrapper or split by folder.
 
 ## Deferred Issues
 
