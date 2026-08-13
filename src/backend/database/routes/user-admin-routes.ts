@@ -1,6 +1,6 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import type { RequestHandler, Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { authLogger } from "../../utils/logger.js";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
@@ -43,6 +43,60 @@ export function registerUserAdminRoutes(
       res.json({ users: allUsers });
     } catch (err) {
       authLogger.error("Failed to list users", err);
+      res.status(500).json({ error: "Failed to list users" });
+    }
+  });
+
+  /**
+   * @openapi
+   * /users/list-basic:
+   *   get:
+   *     summary: List other users (picker-facing)
+   *     description: |
+   *       Returns {id, username} for every user OTHER than the requester.
+   *       Reachable by any authenticated user (NOT admin-gated). Used by the
+   *       Phase 38 identity-sharing picker inside the identity modal to
+   *       populate the target-user selector.
+   *
+   *       Explicitly excludes sensitive fields: isAdmin, isOidc, passwordHash,
+   *       totpSecret, OIDC config, email, etc. The picker only needs display
+   *       identity, and this route only ever exposes that.
+   *
+   *       Self-exclusion is enforced server-side so the frontend does not need
+   *       to know the requester's id to filter it out client-side.
+   *     tags:
+   *       - Users
+   *     responses:
+   *       200:
+   *         description: |
+   *           A list of other users as `{ users: [{id, username}] }`.
+   *           Returns 200 with an empty array (NOT 404/204) when the requester
+   *           is the only user in the deployment; the frontend hides its
+   *           picker affordance on empty response.
+   *       401:
+   *         description: Missing or invalid JWT.
+   *       500:
+   *         description: Failed to list users.
+   */
+  router.get("/list-basic", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    try {
+      // Explicit column list — this route MUST NOT leak isAdmin, isOidc,
+      // passwordHash, totpSecret, OIDC config, or any other sensitive column.
+      // `ne(users.id, userId)` enforces server-side self-exclusion so the
+      // requester never appears in their own picker (Phase 38 shape guard:
+      // "If the picker shows the current user in the list.").
+      const otherUsers = await db
+        .select({ id: users.id, username: users.username })
+        .from(users)
+        .where(ne(users.id, userId));
+
+      res.json({ users: otherUsers });
+    } catch (err) {
+      authLogger.error("Failed to list users (basic)", err, {
+        operation: "list_users_basic",
+        userId,
+      });
       res.status(500).json({ error: "Failed to list users" });
     }
   });
