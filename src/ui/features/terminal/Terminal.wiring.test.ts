@@ -65,17 +65,17 @@ describe("Terminal.tsx Phase 05 Plan 03 wiring — structural", () => {
     expect(defBlock.test(src)).toBe(true);
   });
 
-  it("Test 4 (patch #110): PrettyView onSend is a single WS event with mqid + text+CR", () => {
-    // Patch #110 collapsed the prior two-event split (text + setTimeout(60ms)
-    // for \r) into a single event with a synthetic messageQueueItemId. The
-    // backend's isPrettyViewSubmit gate then fires and does the split
-    // server-side, eliminating the 60ms WS-race window that silently dropped
-    // Enter on WS flap.
+  it("Test 4 (patch #110 + Phase 35): PrettyView onSend routes through pvSendInputRef with mqid + text+CR (Phase 35 cutover)", () => {
+    // Patch #110 collapsed the prior two-event split into a single event with
+    // a synthetic messageQueueItemId. Phase 35 migrated the send from the
+    // borrowed terminal SSH WS (webSocketRef.current) to PrettyView's own
+    // claude-session WS via pvSendInputRef (the ref-forwarding surface added
+    // by Task 1).
     //
-    // This test guards ALL THREE load-bearing invariants:
-    //   1. WS-not-ready check + false return still present (fail-fast path)
-    //   2. Exactly ONE ws.send call, carrying `text + "\r"` (no split)
-    //   3. messageQueueItemId is attached (backend gate requires it)
+    // This test guards ALL load-bearing invariants post-Phase-35:
+    //   1. null-ref guard + false return still present (pvSendInputRef not yet set)
+    //   2. mqid generated as "pv-adhoc-" + UUID (same prefix → backend gate fires)
+    //   3. send call uses pvSendInputRef.current (not webSocketRef.current)
     //   4. NO setTimeout in the pretty-view onSend block (regression guard —
     //      re-introducing setTimeout re-opens the race)
     const openIdx = src.indexOf(
@@ -83,33 +83,27 @@ describe("Terminal.tsx Phase 05 Plan 03 wiring — structural", () => {
     );
     expect(openIdx).toBeGreaterThan(0);
     // Read to the end of the arrow function body (matching closing `}}`).
-    // The block is bounded by the next line starting with `            terminalWs=`.
+    // The block is bounded by the next line starting with `            onInterrupt=`.
     const closeIdx = src.indexOf(
-      "            terminalWs={webSocketRef.current}",
+      "            onInterrupt={() => {",
       openIdx,
     );
     expect(closeIdx).toBeGreaterThan(openIdx);
     const block = src.slice(openIdx, closeIdx);
-    // (1) fail-fast path preserved
-    expect(block).toContain("if (!ws || ws.readyState !== 1) return false;");
-    // (2) single event with text + "\r" (no split)
-    expect(block).toContain('data: text + "\\r"');
-    // (3) synthetic mqid attached
+    // (1) null-ref guard + false return (Phase 35 shape: pvSendInputRef.current === null)
+    expect(block).toContain("if (!send) return false;");
+    // (2) synthetic mqid still constructed with same prefix (backend gate requires it)
     expect(block).toContain('"pv-adhoc-" + crypto.randomUUID()');
-    expect(block).toContain("messageQueueItemId: mqid");
-    // (4) regression guard: no setTimeout CALL and no ws2 re-fetch. Both
-    //     would reintroduce the 60ms cross-event race window we're closing.
-    //     Match the CALL shape (arrow-fn arg) rather than the bare word —
-    //     the explanatory comment above the fix mentions "setTimeout(60ms)"
-    //     in prose, which we don't want to false-positive on.
+    // (3) send call routes through pvSendInputRef (Phase 35 cutover)
+    expect(block).toContain("pvSendInputRef.current");
+    expect(block).toContain("return send(text +");
+    // (4) regression guard: no setTimeout CALL in onSend (would reintroduce the race)
     expect(block).not.toContain("setTimeout(() => {");
-    expect(block).not.toMatch(/\bws2\s*=/);
-    expect(block).not.toContain("ws2.send(");
-    // (5) still returns true on the happy path
-    expect(block).toContain("return true;");
+    // (5) no direct webSocketRef.current read in onSend (Phase 35 invariant)
+    expect(block).not.toContain("webSocketRef.current");
   });
 
-  it("Test 4b (patch #110): PrettyView onSend attaches a non-empty messageQueueItemId every call", () => {
+  it("Test 4b (patch #110 + Phase 35): PrettyView onSend attaches a non-empty messageQueueItemId every call", () => {
     // Backend gate: isPrettyViewSubmit = typeof mqid === 'string' && mqid.length > 0.
     // If the pretty-view onSend ever emits a bare {type,data} without mqid,
     // the backend falls through to generic write and the split-send is dormant
@@ -120,7 +114,7 @@ describe("Terminal.tsx Phase 05 Plan 03 wiring — structural", () => {
     );
     expect(openIdx).toBeGreaterThan(0);
     const closeIdx = src.indexOf(
-      "            terminalWs={webSocketRef.current}",
+      "            onInterrupt={() => {",
       openIdx,
     );
     const block = src.slice(openIdx, closeIdx);
@@ -128,21 +122,27 @@ describe("Terminal.tsx Phase 05 Plan 03 wiring — structural", () => {
     expect(block).toMatch(/const mqid = "pv-adhoc-" \+ crypto\.randomUUID\(\);/);
   });
 
-  it("Test 5: pre-existing MessageQueueDrawer onSend callback (line ~2869) is byte-identical", () => {
-    // patch #60 template — the injected-turn callback is a byte-identical
-    // copy of THIS pattern with an extra messageQueueItemId always present.
+  it("Test 5 (Phase 35 cutover): MessageQueueDrawer onSend callback routes through pvSendInputRef with two-event split-send", () => {
+    // Phase 35 migrated MessageQueueDrawer's onSend from borrowing
+    // webSocketRef.current (the terminal SSH WS) to routing through
+    // pvSendInputRef.current (PrettyView's own claude-session WS via
+    // the ref-forwarding surface added in Task 2). The two-event body-then-
+    // 60ms-\r+mqid pattern (patch #60) is preserved in shape and timing.
     const openIdx = src.indexOf(
-      "            onSend={(text, messageQueueItemId) => {\n              const ws = webSocketRef.current;\n              if (!ws || ws.readyState !== 1) return false;",
+      "            onSend={(text, messageQueueItemId) => {\n              const send = pvSendInputRef.current;",
     );
     expect(openIdx).toBeGreaterThan(0);
-    // Positive content of the split-send + mqid attach.
+    // Positive content: null-ref guard, two-event split, 60ms timer.
     const block = src.slice(openIdx, openIdx + 1200);
-    expect(block).toContain('ws.send(JSON.stringify({ type: "input", data: text }));');
+    // (1) null-ref guard (Phase 35 shape)
+    expect(block).toContain("if (!send) return false;");
+    // (2) body event first (no mqid on body)
+    expect(block).toContain("send(text);");
+    // (3) 60ms delayed second event with \r + mqid
     expect(block).toContain("setTimeout(() => {");
-    expect(block).toContain("messageQueueItemId?: string;");
-    expect(block).toContain("if (messageQueueItemId)");
-    expect(block).toContain("payload.messageQueueItemId = messageQueueItemId;");
     expect(block).toContain("}, 60);");
+    // (4) no direct webSocketRef.current read (Phase 35 invariant)
+    expect(block).not.toContain("webSocketRef.current");
   });
 
   it("Test 6 (patch #143 structural): visibilitychange listener added/removed as a pair, respects wasDisconnectedBySSH guard, adds no new terminal.clear()", () => {

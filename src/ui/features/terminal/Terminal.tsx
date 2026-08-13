@@ -3362,9 +3362,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             terminalWs={webSocketRef.current}
             onInjectedTurnReady={handleInjectedTurnReady}
             // Phase 35 ref-forwarding — PrettyView.tsx calls these on mount/unmount
-            // so handleInjectedTurnReady, onSend, onInterrupt, and MessageQueueDrawer's
-            // onSend (all in this file) can reach pretty-view's WS without
-            // prop-drilling wsRef upward.
+            // so the injected-turn handler, onSend, onInterrupt, and
+            // MessageQueueDrawer's onSend (all in this file) can reach pretty-view's
+            // WS without prop-drilling wsRef upward.
             onRegisterSendInput={(fn) => { pvSendInputRef.current = fn; }}
             onUnregisterSendInput={() => { pvSendInputRef.current = null; }}
             onRegisterSendInterrupt={(fn) => { pvSendInterruptRef.current = fn; }}
