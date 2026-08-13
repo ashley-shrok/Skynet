@@ -274,6 +274,47 @@ export async function createRole(input: {
   }
 }
 
+// ─── Phase 38: identity sharing ─────────────────────────────────────────────
+// Backing route: src/backend/database/routes/identity-share.ts
+// POST /identities/:id/share with JSON body {targetUserId} →
+//   { identityId: string, shared: boolean }
+// Consumed by ShareIdentityPicker inside IdentityModal DialogHeader (Wave 2).
+//
+// Contract intentionally JSON — sidesteps the Phase 20 patch #77 silent-200
+// trap that hits form-data POSTs whose backend expects `data=<json>`. Wave 1
+// backend gates non-JSON content types at the router level.
+//
+// `shared: true` = fresh row inserted onto target user's identities.
+// `shared: false` = target already had a row with the same identityKey; the
+//   endpoint returns the EXISTING row's id so the picker can update its
+//   "already shared" set without a second round-trip. Both cases are HTTP 200.
+//
+// Error handling: 400 (targetUserId missing / self-target / target-not-found)
+// and 404 (source not in requester's scope) and 500 all surface via
+// handleApiError with the "share identity" label. The picker prevents the
+// 400 branches at the UI layer (backend re-validates as defense-in-depth per
+// threat model T-38-02-01), so no typed error subclass is warranted.
+
+export interface ShareIdentityResponse {
+  identityId: string;
+  shared: boolean; // true = new row inserted onto target; false = target already had this identityKey
+}
+
+export async function shareIdentity(
+  sourceIdentityId: string,
+  targetUserId: string,
+): Promise<ShareIdentityResponse> {
+  try {
+    const response = await authApi.post(
+      `/identities/${sourceIdentityId}/share`,
+      { targetUserId },
+    );
+    return response.data as ShareIdentityResponse;
+  } catch (error) {
+    handleApiError(error, "share identity");
+  }
+}
+
 // ─── openBirthStream ─────────────────────────────────────────────────────────
 // SSE consumer for POST /identities/birth. EventSource does NOT support POST;
 // we use fetch + ReadableStream instead. Auth is cookie-based (withCredentials

@@ -13,6 +13,32 @@ export async function getUserList(): Promise<{ users: UserInfo[] }> {
   }
 }
 
+// ─── Phase 38: identity sharing — picker-facing users list ──────────────────
+// Backing route: src/backend/database/routes/user-admin-routes.ts (/users/list-basic)
+// GET /users/list-basic → { users: [{id, username}, ...] }
+// Every user OTHER than the requester (server-side ne(users.id, requester)).
+// Empty array on single-user deployments — picker hides itself in that case.
+//
+// Distinct from /users/list (admin-gated, exposes isAdmin/isOidc/etc.); this
+// route is reachable by any authenticated user and is scoped to id+username
+// only, enforced by an explicit-columns drizzle select on the backend.
+//
+// Consumed by ShareIdentityPicker to populate the DropdownMenu content.
+
+export interface BasicUser {
+  id: string;
+  username: string;
+}
+
+export async function getUsersListBasic(): Promise<BasicUser[]> {
+  try {
+    const response = await authApi.get("/users/list-basic");
+    return (response.data as { users: BasicUser[] }).users;
+  } catch (error) {
+    handleApiError(error, "list basic users");
+  }
+}
+
 export async function getSessions(): Promise<{
   sessions: {
     id: string;
