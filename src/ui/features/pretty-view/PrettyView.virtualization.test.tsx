@@ -439,15 +439,20 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     }
   });
 
-  it("Test 2b: incoming message while at bottom — follows (pin-to-bottom via RO on scrollHeight growth)", async () => {
+  it("Test 2b: incoming message while at bottom — follows (pin-to-bottom via new-message useEffect on messageCount growth)", async () => {
     // CONTEXT.md § Test coverage scenario 2 ("New messages while already
     // at bottom → follow"). After the paneKey rAF-chain lands us at
-    // bottom (stickyRef.current === true), a subsequent content-height
-    // growth must trigger the hook's ResizeObserver (use-auto-scroll.ts
-    // § Case 2, ~L123-140) — which reads scrollHeight, sees no shrink,
-    // and calls jumpToBottom(scrollEl) to follow. JSDOM's RO stub does
-    // not fire on its own, so we drive it via the capturedROCallbacks
-    // pattern (same shape as Test 1 L360-364 and Test 7 L791-795).
+    // bottom (stickyRef.current === true), a subsequent message arrival
+    // must drive a follow-to-bottom.
+    //
+    // Under the post-2026-08-13 correction the follow is driven by the
+    // new-message useEffect (use-auto-scroll.ts § Case 2, keyed on
+    // [scrollEl, messageCount, jumpToBottom]) — NOT by the RO. RO fires
+    // are now setIsPinnedToBottom-only. fireWsMessage below appends via
+    // setMessages, which grows messages.length; PrettyView passes
+    // messages.length to useAutoScroll; the useEffect fires on that dep
+    // change and calls jumpToBottom(scrollEl) because stickyRef.current
+    // is still true. No manual RO fire needed here.
     vi.useFakeTimers();
     try {
       vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
@@ -478,8 +483,9 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
       expect(geom.getScrollTop()).toBe(5000);
 
       // Simulate content growth: bump the mocked scrollHeight and fire a
-      // fresh WS frame so real DOM content is added too (RO would fire in
-      // a real browser after the growth is measured).
+      // fresh WS frame so real DOM content is added AND messages.length
+      // grows in the component's setMessages handler. That drives the
+      // new-message useEffect (keyed on messageCount) to fire jumpToBottom.
       geom.setScrollHeight(5200);
       fireWsMessage(ws, {
         type: "message",
@@ -489,25 +495,91 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
         ts: 2_000_000,
       });
 
-      // Manually invoke every captured RO callback — JSDOM's RO stub
-      // never fires on its own; we drive the outer-container RO to
-      // simulate the browser having noticed the scrollHeight growth.
+      // Let the new-message useEffect commit + its rAF-based
+      // programmaticRef clear settle.
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+
+      // The new-message useEffect fires jumpToBottom(scrollEl) because
+      // stickyRef.current is still true (user never scrolled up). scrollTop
+      // follows to the new scrollHeight (5200). The RO no longer drives
+      // this follow — it only updates pill visibility now.
+      expect(geom.getScrollTop()).toBe(5200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Test 2c: tall-bubble re-measure while sticky — RO-only fire (no new message) does NOT trigger jumpToBottom (post-2026-08-13 correction; pre-fix would have yanked to 5800)", async () => {
+    // Post-2026-08-13 correction (Ashley: "snaps back to the bottom or
+    // jumps to a completely different area … coincides with very tall
+    // bubbles"). The Phase 32 Case 2 useEffect conflated "new message
+    // arrived" with "existing bubble re-measured by TanStack Virtual" —
+    // both fired the same RO callback which called jumpToBottom. Under
+    // the correction Case 2 is split: new-message useEffect (keyed on
+    // messageCount) is the ONLY jumpToBottom-on-arrival path; the
+    // retained RO callback is setIsPinnedToBottom-only.
+    //
+    // This test is the invariant witness — it FAILS under the pre-fix
+    // hook (RO fires with no new message → jumpToBottom yanks scrollTop
+    // to 5800) and PASSES under the post-fix hook (RO fires with no new
+    // message → setIsPinnedToBottom only → scrollTop stays at 5000).
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+        setTimeout(() => cb(performance.now()), 16),
+      );
+      const { container } = render(
+        <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
+
+      fireMessageBatch(ws, 20, (i) => ({
+        type: "message",
+        role: "assistant",
+        content: `message ${i}`,
+        eventId: `evt-${i}`,
+        ts: 1_000_000 + i,
+      }));
+
+      const outerScroll = getOuterScrollContainer(container);
+      const geom = shrinkScrollContainer(outerScroll, 600, 5000);
+
+      // Let the paneKey rAF chain settle so scrollTop lands at 5000
+      // (baseline = at bottom, sticky = true).
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(geom.getScrollTop()).toBe(5000);
+
+      // Simulate a tall-bubble re-measure: an image bubble whose
+      // estimatePvBubbleSize=400px ceiling proves too small when the real
+      // decoded height (on a wide viewport) exceeds it. TanStack Virtual's
+      // measurement path re-measures and scrollHeight grows — but NO new
+      // message has arrived, so messages.length is unchanged.
+      geom.setScrollHeight(5800);
+
+      // Manually fire captured RO callbacks — this is the browser's RO
+      // firing on the scrollHeight growth. Under the pre-fix hook, this
+      // callback would have called jumpToBottom → scrollTop yanks to 5800.
+      // Under the post-fix hook, this callback is setIsPinnedToBottom-only
+      // → scrollTop stays at 5000.
       act(() => {
         for (const cb of capturedROCallbacks) {
           cb([], {} as ResizeObserver);
         }
       });
 
-      // Let any deferred rAF (programmaticRef clear, etc.) settle.
+      // Let any deferred rAF settle.
       act(() => {
         vi.advanceTimersByTime(50);
       });
 
-      // The hook's RO callback should have fired jumpToBottom(scrollEl)
-      // because stickyRef.current is still true (user never scrolled up)
-      // and !shrunk (nextHeight > prev). scrollTop follows to the new
-      // scrollHeight (5200).
-      expect(geom.getScrollTop()).toBe(5200);
+      // Critical assertion: NO auto-jump. scrollTop stays at 5000. This
+      // is the invariant the 2026-08-13 correction ships.
+      expect(geom.getScrollTop()).toBe(5000);
     } finally {
       vi.useRealTimers();
     }
@@ -590,8 +662,11 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
         ts: 2_000_000,
       });
 
-      // Manually fire captured RO callbacks — proves the RO branch takes
-      // the !stickyRef path (no scrollTop write) rather than yanking.
+      // Fire RO callbacks — under the post-2026-08-13 correction the RO
+      // ONLY updates pill visibility (setIsPinnedToBottom); this fires
+      // that path and confirms no scrollTop write. New-message useEffect
+      // also does nothing because stickyRef.current is false (user
+      // scrolled up).
       act(() => {
         for (const cb of capturedROCallbacks) {
           cb([], {} as ResizeObserver);

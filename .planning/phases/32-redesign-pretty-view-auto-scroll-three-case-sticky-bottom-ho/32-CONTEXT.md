@@ -179,3 +179,65 @@ Executor should not skip this verification.
 
 *Phase: 32-redesign-pretty-view-auto-scroll-three-case-sticky-bottom-ho*
 *Context captured: 2026-08-12 directly from Ashley ↔ Tina design conversation. No discuss-phase run — design was settled interactively before phase-open.*
+
+## Post-ship correction (2026-08-13)
+
+### Symptom
+Ashley 2026-08-13: "if I try to scroll up, I get a little ways up before it either
+snaps back to the bottom or jumps to a completely different area in the overall
+height. And it seems to coincide with very tall bubbles that are taller than the
+screen."
+
+### Root cause
+The Case 2 ResizeObserver useEffect in `use-auto-scroll.ts` (pre-correction
+lines 136-166) observed the outer scroll container AND every direct child to
+catch scrollHeight growth from both new messages and virtualizer re-measure.
+Its callback fired on ANY scrollHeight growth and called `jumpToBottom(scrollEl)`
+when `stickyRef.current` was true — conflating two semantically-different events:
+
+- **New message arrived** (messages array grew) → jump-to-bottom IS desired
+- **Existing bubble re-measured by TanStack Virtual** (tall image or long code
+  block whose real DOM height exceeds `estimatePvBubbleSize` 400px ceiling) →
+  jump-to-bottom is NOT desired; user may be scrolled up reading history
+
+Two failure modes flowed from the conflation:
+1. **Snap back to bottom.** Slow touch scroll on iOS produces a chain of <20px
+   scroll deltas that get filtered as measurement adjustments by the scroll
+   listener's `MEASUREMENT_DELTA_IGNORE_PX=20` guard; `stickyRef` never flipped
+   false. A subsequent tall-bubble re-measure fired the RO → jumpToBottom → snap.
+2. **Jump to different area.** TanStack Virtual's own `scrollWithAdjustments`
+   writes 500-1500px scrollTop deltas on tall-bubble re-measure, not
+   `programmaticRef`-flagged, blowing through the 20px filter. Visible directly
+   as content shifting.
+
+### Structural fix
+Ashley greenlit the structural fix over a narrow threshold-bump. Split the
+Case 2 useEffect into two effects:
+
+- **New effect (jump-on-new-message)**: keyed on
+  `[scrollEl, messageCount, jumpToBottom]`. On mount and every `messageCount`
+  change: if `stickyRef.current` is true, call `jumpToBottom(scrollEl)`. This
+  is the ONLY code path that calls `jumpToBottom` from message-arrival —
+  semantically clean, no false fires on re-measure.
+- **Retained RO effect (pill-visibility-only)**: keeps the outer-container +
+  children RO wiring, keeps the MutationObserver for accessory mounts, but
+  its callback ONLY updates `setIsPinnedToBottom(dist <= BOTTOM_THRESHOLD)`.
+  No more `stickyRef.current ? jumpToBottom : setPill()` branch — always just
+  pill visibility. Dropped the `prevScrollHeightRef` / `shrunk` guard (existed
+  only to gate the jumpToBottom call, which is gone).
+
+Hook signature changes from `useAutoScroll(paneKey)` to
+`useAutoScroll(paneKey, messageCount: number)`. Caller passes `messages.length`.
+
+### What is NOT re-litigated
+Everything else in this CONTEXT.md remains LOCKED — this is an additive
+correction, not a re-litigation. Preserved verbatim: Case 1 paneKey-change
+rAF chain, Case 3 `scrollToBottomAndFollow`, single scroll listener, both
+programmaticRef gate and MEASUREMENT_DELTA_IGNORE_PX guard, no
+wheel/keydown/touchmove listeners, no `loadLockUntilRef`, no `contentRef`
+export, no `forceStickAndJump` export, no inline `overflow-anchor` write,
+`BOTTOM_THRESHOLD = 100`, `STICK_ARM_MS = 150`.
+
+Verification anchor: Test 2c in `PrettyView.virtualization.test.tsx` asserts
+the post-correction invariant — tall-bubble re-measure while sticky (RO fires
+with no new message) does NOT produce a scrollTop write.
