@@ -1384,13 +1384,19 @@ export function ComposeBox({
     // On null result: voice.errorMessage is set by the hook; no send.
   }
 
-  // beginRecord(target): sets micTarget then calls voice.start() synchronously.
+  // beginRecord(target): sets micTarget then calls voice.start({ autoCommit: true }) synchronously.
   // NO await before voice.start() — D-16-02 iOS Safari constraint.
   // setMicTarget is a synchronous React setState (no microtask boundary), safe
   // to precede voice.start().
+  //
+  // autoCommit:true preserves mic-tap UX parity: the .then() callback transitions
+  // directly to state="recording" and plays start.mp3 without requiring an external
+  // commitStartVisibility() call. The hold-to-record path (useHoldToRecord) uses
+  // voice.start() WITHOUT autoCommit (default false), deferring the state transition
+  // and audio cue until the 250ms threshold-timer fires and calls commitStartVisibility().
   function beginRecord(target: "primary" | string) {
     setMicTarget(target);
-    voice.start();
+    voice.start({ autoCommit: true });
   }
 
   // Reset-send: mirrors handleSend (clears textarea on success, surfaces

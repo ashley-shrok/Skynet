@@ -79,10 +79,13 @@ export const HOLD_THRESHOLD_MS = 250;
  * Narrowed subset of useVoiceRecording's return that useHoldToRecord depends on.
  * The hook does NOT import useVoiceRecording directly — the consumer supplies
  * the singleton, keeping the two hooks decoupled (each testable in isolation).
+ *
+ * Includes commitStartVisibility so the 250ms threshold-timer callback can advance
+ * state from "starting" → "recording" + play start.mp3 at the exact hold-commit moment.
  */
 export type UseHoldToRecordVoice = Pick<
   UseVoiceRecordingReturn,
-  "state" | "start" | "cancel"
+  "state" | "start" | "cancel" | "commitStartVisibility"
 >;
 
 export type UseHoldToRecordArgs = {
@@ -242,6 +245,12 @@ export function useHoldToRecord(
         clearTimeout(holdTimerRef.current);
       }
       holdTimerRef.current = setTimeout(() => {
+        // B-2 fix: commitStartVisibility() fires at the exact threshold instant,
+        // advancing state "starting" → "recording" and playing start.mp3. This
+        // ensures start.mp3 sounds ONLY when the hold gesture crosses 250ms —
+        // not on every quick tap. Called BEFORE setHoldCommitted so the state
+        // transition (and audio cue) precede the UI visual commit.
+        voice.commitStartVisibility();
         setHoldCommitted(true);
       }, effectiveThreshold);
 

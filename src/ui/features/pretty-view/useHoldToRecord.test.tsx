@@ -13,7 +13,7 @@
 //     check needs a real rect for the release-inside-vs-outside branch.
 //   - vi.useFakeTimers({ shouldAdvanceTime: false }) so the 250ms threshold
 //     boundary can be walked deterministically.
-//   - Voice mock: a Pick<UseVoiceRecordingReturn, "state" | "start" | "cancel">
+//   - Voice mock: a Pick<UseVoiceRecordingReturn, "state"|"start"|"cancel"|"commitStartVisibility">
 //     object with vi.fn() spies. `cancel` returns a resolved promise by default;
 //     Test 5 overrides it with a controllable promise to prove the awaited
 //     ordering of the short-tap-rollback branch.
@@ -34,14 +34,15 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Narrowed voice mock — matches Pick<UseVoiceRecordingReturn, "state"|"start"|"cancel">. */
+/** Narrowed voice mock — matches Pick<UseVoiceRecordingReturn, "state"|"start"|"cancel"|"commitStartVisibility">. */
 function makeMockVoice(
   state: VoiceRecordingState = "idle",
-): Pick<UseVoiceRecordingReturn, "state" | "start" | "cancel"> {
+): Pick<UseVoiceRecordingReturn, "state" | "start" | "cancel" | "commitStartVisibility"> {
   return {
     state,
     start: vi.fn(),
     cancel: vi.fn().mockResolvedValue(undefined),
+    commitStartVisibility: vi.fn().mockReturnValue(undefined),
   };
 }
 
@@ -205,10 +206,11 @@ describe("useHoldToRecord", () => {
           resolveCancel = r;
         }),
     );
-    const voice: Pick<UseVoiceRecordingReturn, "state" | "start" | "cancel"> = {
+    const voice: Pick<UseVoiceRecordingReturn, "state" | "start" | "cancel" | "commitStartVisibility"> = {
       state: "idle",
       start: vi.fn(),
       cancel: cancelSpy,
+      commitStartVisibility: vi.fn().mockReturnValue(undefined),
     };
     const args = makeArgs({ voice });
     render(<TestConsumer args={args} />);
@@ -447,5 +449,125 @@ describe("useHoldToRecord", () => {
     expect((args.voice.cancel as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     expect((args.onLongPressSend as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // New tests for Task 2 — commitStartVisibility threshold-timer wiring (B-2 fix)
+  // ---------------------------------------------------------------------------
+
+  it("Test 11: short tap (elapsed < 250ms) → voice.commitStartVisibility NOT called", async () => {
+    // B-2 regression guard: a quick tap must NEVER call commitStartVisibility, which
+    // would play start.mp3 and transition state to "recording" before cancel().
+    const args = makeArgs();
+    render(<TestConsumer args={args} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+
+    fireEvent.pointerDown(button, {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+      timeStamp: 0,
+    });
+    // Advance 200ms — threshold timer has NOT fired (needs 250ms).
+    act(() => { vi.advanceTimersByTime(200); });
+    // Release before threshold.
+    await act(async () => {
+      fireEvent.pointerUp(button, {
+        pointerId: 1,
+        clientX: 20,
+        clientY: 20,
+        timeStamp: 200,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    expect((args.voice.cancel as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+  });
+
+  it("Test 12: hold at exactly 250ms threshold → voice.commitStartVisibility called exactly once", async () => {
+    // B-2 fix: at the threshold, the timer callback fires and calls
+    // voice.commitStartVisibility() BEFORE setHoldCommitted(true). This advances
+    // state "starting" → "recording" and plays start.mp3 at the exact commit moment.
+    const args = makeArgs();
+    render(<TestConsumer args={args} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+
+    fireEvent.pointerDown(button, {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+      timeStamp: 0,
+    });
+
+    // Advance exactly to the threshold — fires the setTimeout callback synchronously.
+    act(() => { vi.advanceTimersByTime(HOLD_THRESHOLD_MS); });
+
+    // commitStartVisibility should have been called exactly once (inside the timer callback).
+    expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+
+    // Release at threshold (long-press-inside branch).
+    await act(async () => {
+      fireEvent.pointerUp(button, {
+        pointerId: 1,
+        clientX: 20,
+        clientY: 20,
+        timeStamp: HOLD_THRESHOLD_MS,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((args.onLongPressSend as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect((args.voice.cancel as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it("Test 13: hold past threshold then slide-off then release outside → commitStartVisibility called once, voice.cancel called once", async () => {
+    // Slide-off after commit: commitStartVisibility fires at threshold (once),
+    // then on slide-off → pointerUp outside, voice.cancel() runs.
+    // commitStartVisibility must NOT be called again on release.
+    const args = makeArgs();
+    render(<TestConsumer args={args} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+
+    fireEvent.pointerDown(button, {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+      timeStamp: 0,
+    });
+
+    // Advance 300ms — threshold fires at 250ms, commitStartVisibility called.
+    act(() => { vi.advanceTimersByTime(300); });
+
+    // commitStartVisibility fired once at threshold.
+    expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+
+    // Slide off button bounds.
+    fireEvent.pointerLeave(button, { pointerId: 1, clientX: 200, clientY: 200 });
+
+    // Release outside — should cancel, NOT call commitStartVisibility again.
+    await act(async () => {
+      fireEvent.pointerUp(button, {
+        pointerId: 1,
+        clientX: 200,
+        clientY: 200,
+        timeStamp: 300,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // commitStartVisibility was called ONLY at threshold, not on release.
+    expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect((args.voice.cancel as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect((args.onLongPressSend as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 });
