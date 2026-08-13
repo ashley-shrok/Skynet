@@ -22,6 +22,11 @@ import identityBirthRoutes from "./routes/identity-birth.js";
 // Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
 // with the same match-precedence discipline (specific paths BEFORE /identities).
 import identityCloneRoutes from "./routes/identity-clone.js";
+// Phase 38 (identity-sharing, Plan 38-01): POST /identities/:id/share —
+// copy-and-diverge row duplicator. Same mount-order discipline: mounted
+// BEFORE the generic /identities router so /:id/share doesn't fall through
+// to the identitiesRoutes PUT/DELETE :id handlers.
+import identityShareRoutes from "./routes/identity-share.js";
 import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import rolesCreateRoutes from "./routes/roles-create.js";
 import globalFilesListRoutes from "./routes/global-files.js";
@@ -1821,6 +1826,11 @@ app.use("/identities", identityExistsOnHostRoutes);
 // the generic /identities router so /:key/no-dormancy resolves here and does
 // not fall through to identitiesRoutes's /:id routes.
 app.use("/identities", identityNoDormancyRoutes);
+// Phase 38: identity share endpoint. Mounted BEFORE the general /identities
+// router so POST /:id/share resolves here without falling through to
+// identitiesRoutes (which owns PUT/DELETE /:id and would otherwise absorb
+// the /:id/share path before Express reached us).
+app.use("/identities", identityShareRoutes);
 // Phase 22 (SRIC-02): /roles?hostId=<n> — target-host-side role directory
 // enumeration. Standalone mount; kept ABOVE /identities to preserve match
 // precedence should a future /roles subpath ever collide.
