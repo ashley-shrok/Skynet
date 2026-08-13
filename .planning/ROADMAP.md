@@ -1066,3 +1066,28 @@ Plans:
 - [x] 32-02-PLAN.md — Rewrite src/ui/features/pretty-view/use-auto-scroll.ts to the CONTEXT.md-locked design (one stickyRef + one programmaticRef + one scrollToBottomAndFollow + single scroll listener + RO on OUTER container + self-halting rAF chain + no load-lock)
 - [x] 32-03-PLAN.md — Wire the new hook into PrettyView.tsx (delete L744-784+L912-915 stub + forceStickAndJumpRef scaffolding + local contentRef; insert useAutoScroll(paneKey); swap handleComposeSend :627 forceStickAndJumpRef.current() → scrollToBottomAndFollow(); wire ComposeBox.tsx L2055 /explain quick-button through onGoodToGo?.())
 - [x] 32-04-PLAN.md — Extend PrettyView.virtualization.test.tsx with the four CONTEXT.md § Test coverage scenarios (un-skip Test 2 session-first-load; add Test 2b incoming-at-bottom; adapt Test 3 wheel→scroll for the new listener; add Test 2d user-send-forces-bottom via integration path)
+
+### Phase 34: Backend-authoritative fleet-status broadcast channel via harness session-status file and hooks — retires PTY-scraped ttyBusy/hasBgWork signals and adds waiting-state PrettyView bubble
+
+**Goal:** The Skynet frontend derives every session's working-signal (conversation-list dot + PrettyView WipBubble) from a single backend-authoritative fleet-status control WebSocket sourced from Claude Code's own `~/.claude/sessions/<pid>.json` files plus Stop-hook `background_tasks[]`, retiring the PTY-scraped ttyBusy + backgrounded_agents/shells feeders that have accumulated months of signal-quality noise (harness bottom-bar redraws, sibling-tmux status-line flapping, hidden-pane WS drops freezing the signal). Bundles a new WaitingBubble PrettyView surface for the harness-waiting state (e.g. file-deletion permission prompts that slip past dangerously-skip-permissions).
+**Requirements**: none (no REQUIREMENTS.md entry — decisions captured in 34-CONTEXT.md as LOCKED)
+**Depends on:** Phase 33
+**Plans:** 6 plans
+
+**Wave 1**
+
+- [ ] 34-01-PLAN.md — Per-box fleet-status watcher core: Node.js/TypeScript daemon with session-JSON inotify + procStart liveness + PID→tmux resolver + Stop-hook Unix-socket consumer + ambient description-prefix filter
+- [ ] 34-02-PLAN.md — Skynet backend fleet-status broadcast WS server on port 30012 with dual handshake modes (frontend consumer + box watcher), subscription registry with snapshot + fan-out + gone semantics, zod-validated versioned wire protocol
+- [ ] 34-03-PLAN.md — PrettyView WaitingBubble presentational component (PlanPendingBubble visual template, presence-only, no interactive controls per D-CTX lock — Ashley switches to terminal pane to answer)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 34-04-PLAN.md — Watcher-to-Skynet WS transport + retry backoff + systemd user unit + Stop-hook install script + dynamic identity-host discovery + nginx location blocks in BOTH configs + Monitor-payload live verification (closes RESEARCH § OQ-2) + human-verify deploy checkpoint (closes OQ-1 + OQ-4)
+
+**Wave 3** *(blocked on Wave 2 completion — EXTERNAL orchestrator gate)*
+
+- [ ] 34-05-PLAN.md — External gate: id-skill on-wake block ships [ambient] description-prefix on every persistent Monitor + at least one live identity reloaded with tag in effect + Nellie coordinates fleet-agent-supervisor parallel path (companion bounty ambient-monitor-tagging-in-id-skill closes here — NOT a Skynet-repo executor task)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 34-06-PLAN.md — Frontend cutover: new fleet-status browser WS client owned by AppShell at boot + session-working-store rewired around D-CTX composite formula + new session-waiting-store + PrettyView mounts WaitingBubble + Terminal.tsx retires publishSessionTtyBusy + PrettyView.tsx retires the 4 publishSessionHasBackgroundedWork call sites + end-to-end integration test + retired-feeder grep gate + full-suite green
