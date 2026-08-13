@@ -10,7 +10,7 @@
  * rule — see box-maintainer.md § Standing directives).
  *
  * Owns:
- *   - State machine: idle → recording → transcribing → idle
+ *   - State machine: idle → starting → recording → transcribing → idle
  *   - MediaRecorder lifecycle (getUserMedia, start, stop, cleanup)
  *   - Fetch to POST /voice/transcribe with FormData `file` field
  *   - Transcript-to-text glue rule (single space if currentText does not end in whitespace)
@@ -33,8 +33,9 @@
  *   {
  *     state: "idle" | "recording" | "transcribing"
  *     errorMessage: string | null
- *     start: () => void                                       — call from tap handler (no await)
+ *     start: (opts?: { autoCommit?: boolean }) => void       — call from tap handler (no await)
  *     cancel: () => Promise<void>                             — drops blob, transitions to idle
+ *     commitStartVisibility: () => void                       — advances "starting" → "recording"
  *     endAppend: (currentText: string) => Promise<{transcript: string, glued: string} | null>
  *     endSend: (currentText: string) => Promise<{transcript: string, glued: string} | null>
  *   }
@@ -46,7 +47,7 @@
  * endSend → set textarea value AND call the existing send handler.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import startUrl from "../../assets/sounds/mic/start.mp3?url";
 import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
 import cancelUrl from "../../assets/sounds/mic/cancel.mp3?url";
@@ -62,7 +63,29 @@ const TRANSCRIBE_URL = "/voice/transcribe";
 // Types
 // ---------------------------------------------------------------------------
 
-export type VoiceRecordingState = "idle" | "recording" | "transcribing";
+/**
+ * Four-state machine for voice recording:
+ *
+ *   "idle"         — no active recording, microphone not in use.
+ *
+ *   "starting"     — getUserMedia resolved and MediaRecorder.start() was called,
+ *                    but commitStartVisibility() has NOT yet been invoked. This is
+ *                    the hold-to-record "grey zone" (0–250ms window before the
+ *                    threshold timer fires). From the consumer's perspective the
+ *                    mic is active but the UI has NOT yet committed to a recording
+ *                    (no state=recording, no start.mp3). Mic-tap consumers should
+ *                    call voice.start({ autoCommit: true }) to skip this state and
+ *                    jump straight to "recording".
+ *
+ *   "recording"    — recording in progress; start.mp3 has played. The hold
+ *                    threshold has been crossed (commitStartVisibility was called)
+ *                    or autoCommit:true was used.
+ *
+ *   "transcribing" — recorder stopped, blob uploaded to /voice/transcribe, awaiting
+ *                    STT response. Transitions back to "idle" when transcription
+ *                    completes (or fails).
+ */
+export type VoiceRecordingState = "idle" | "starting" | "recording" | "transcribing";
 
 export interface VoiceRecordingResult {
   transcript: string;
@@ -78,8 +101,18 @@ export interface VoiceLogContext {
 export interface UseVoiceRecordingReturn {
   state: VoiceRecordingState;
   errorMessage: string | null;
-  start: () => void;
+  start: (opts?: { autoCommit?: boolean }) => void;
   cancel: () => Promise<void>;
+  /**
+   * commitStartVisibility() — advances the "starting" state to "recording" and
+   * plays start.mp3. Called by:
+   *   - useHoldToRecord's threshold-timer callback (after 250ms hold)
+   *   - The autoCommit:true path in start() (mic-tap parity)
+   *
+   * Idempotent: if not in "starting" state, this is a no-op. Safe to call after
+   * cancel() or before getUserMedia resolves.
+   */
+  commitStartVisibility: () => void;
   endAppend: (currentText: string) => Promise<VoiceRecordingResult | null>;
   endSend: (currentText: string) => Promise<VoiceRecordingResult | null>;
 }
@@ -93,6 +126,15 @@ export function useVoiceRecording(
 ): UseVoiceRecordingReturn {
   const [state, setState] = useState<VoiceRecordingState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // stateRef mirrors the useState value synchronously so callbacks (cancel,
+  // commitStartVisibility, start's .then()) always read the CURRENT state rather
+  // than the closure snapshot baked in at render time. Updated by useEffect on
+  // every state change — approach (a) from the plan spec.
+  const stateRef = useRef<VoiceRecordingState>("idle");
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   // Refs hold the mutable recorder state so they survive re-renders without
   // causing additional renders (mirrors the prototype's module-level locals).
@@ -287,27 +329,47 @@ export function useVoiceRecording(
   // ---------------------------------------------------------------------------
 
   /**
-   * start() — initiates recording.
+   * start(opts?) — initiates recording.
    *
    * MUST be a plain function (NOT async). Its FIRST non-conditional statement
    * is navigator.mediaDevices.getUserMedia({ audio: true }) — called
    * synchronously inside the user-gesture handler so iOS Safari presents
    * the mic permission prompt (D-16-02 lock, Nelly warning 2026-07-27).
    *
-   * No-op if state !== "idle" (gate against rapid-tap, T-16-10).
+   * No-op if stateRef.current !== "idle" (gates against rapid-tap during the
+   * "starting" grey zone AND T-16-10 double-arm guard).
    *
-   * Pending-cancel race defense: cancel() may be invoked BEFORE the
-   * streamPromise.then() callback runs (short-tap on hold-send during a slow
-   * mic-permission grant). In that window the state guard in cancel() would
-   * previously turn cancel into a no-op, and the mic would stay hot. This
-   * function's .then() callback now checks pendingCancelRef and tears down the
-   * arriving stream before constructing MediaRecorder — see Task 1 of Plan 32-01.
+   * opts.autoCommit (default false):
+   *   When true, the .then() callback skips the "starting" intermediate and
+   *   transitions directly to "recording" + plays start.mp3. Use this for the
+   *   mic-tap path (beginRecord) where UX parity requires immediate transition.
+   *   When false (hold-to-record path), the .then() sets state to "starting"
+   *   and waits for commitStartVisibility() to be called at the 250ms threshold.
+   *
+   * Two-layer race defense (fix for shipped defects B-1 + B-2):
+   *   Layer 1 (orphan-guard): Inside .then(), AFTER recorder.start() fires and
+   *   BEFORE setState/playSound, re-check pendingCancelRef.current. If it flipped
+   *   true between the initial pre-.then() check and now (cancel() ran while
+   *   getUserMedia was in-flight), tear down the recorder + stream + refs and
+   *   return WITHOUT setState or playSound. This closes the "post-getUserMedia
+   *   orphan" race captured in Ashley's bug log (patch #436 B-1).
+   *
+   *   Layer 2 (commitStartVisibility split): setState("recording") and
+   *   playSound(startAudioRef) are NO LONGER called unconditionally inside .then().
+   *   Instead, .then() sets state to "starting" (unless autoCommit:true). This
+   *   prevents start.mp3 from playing on every quick tap before the hold threshold
+   *   is crossed (patch #436 B-2).
    */
-  function start(): void {
+  function start(opts?: { autoCommit?: boolean }): void {
+    const autoCommit = opts?.autoCommit ?? false;
+
     // Clear stale pending-cancel flag so a prior cancel cannot kill this fresh start.
     pendingCancelRef.current = false;
 
-    if (state !== "idle") return;
+    // Use stateRef (not state) so re-entrance during the "starting" grey zone
+    // is correctly gated — a second pointerdown finds stateRef.current="starting",
+    // not "idle", and short-circuits without double-arming getUserMedia.
+    if (stateRef.current !== "idle") return;
 
     // ⚠️ MUST be the first non-conditional statement — NO await before this.
     // iOS Safari requires getUserMedia to be called synchronously in the tap
@@ -316,9 +378,10 @@ export function useVoiceRecording(
 
     streamPromise
       .then((stream) => {
-        // Pending-cancel check: if cancel() was called while getUserMedia was
-        // resolving, tear down the just-arrived stream and short-circuit before
-        // any recorder / state / audio side effects.
+        // Pre-construction pending-cancel check: if cancel() was called while
+        // getUserMedia was resolving (i.e., state === "idle" → cancel armed
+        // pendingCancelRef), tear down the just-arrived stream before building
+        // the recorder. This is the existing PC-A / PC-C path.
         if (pendingCancelRef.current) {
           pendingCancelRef.current = false;
           stream.getTracks().forEach((t) => t.stop());
@@ -347,10 +410,45 @@ export function useVoiceRecording(
         };
 
         recorder.start();
-        console.info(`[voice] recording-started state=recording ${ctxSuffix}`);
-        setState("recording");
-        playSound(startAudioRef.current);
+        console.info(`[voice] recording-started autoCommit=${autoCommit} ${ctxSuffix}`);
+
+        // Layer 1 — post-recorder.start() orphan guard (B-1 fix):
+        // Re-check pendingCancelRef AFTER recorder.start() fires. If cancel() ran
+        // while getUserMedia was in-flight but AFTER the pre-construction check
+        // above (race window: state==="starting" path set pendingCancelRef), the
+        // recorder was constructed but cancel() couldn't yet stop it. Tear down
+        // here so the mic does NOT stay hot. This is the smoking-gun path from
+        // Ashley's bug log.
+        if (pendingCancelRef.current) {
+          pendingCancelRef.current = false;
+          recorder.stop();
+          stream.getTracks().forEach((t) => t.stop());
+          recorderRef.current = null;
+          streamRef.current = null;
+          chunksRef.current = [];
+          // Do NOT setState (leave as "idle"). Do NOT playSound. The cancel
+          // semantics are "returned to idle" — stateRef.current is still "idle"
+          // here because setState("starting") hasn't been called yet.
+          return;
+        }
+
         setErrorMessage(null);
+
+        if (autoCommit) {
+          // Mic-tap parity: immediately transition to "recording" + play start.mp3.
+          // No "starting" intermediate — the caller (beginRecord) wants the same
+          // UX as the old unconditional path.
+          setState("recording");
+          stateRef.current = "recording";
+          playSound(startAudioRef.current);
+        } else {
+          // Hold-to-record path: enter the "starting" grey zone. State is visible
+          // as "starting" to anyone reading stateRef but the consumer-visible
+          // transition to "recording" + start.mp3 are deferred until
+          // commitStartVisibility() is called at the 250ms threshold.
+          setState("starting");
+          stateRef.current = "starting";
+        }
       })
       .catch((err: Error) => {
         // Surface mic-denied state — matches prototype's error string.
@@ -366,24 +464,51 @@ export function useVoiceRecording(
 
   /**
    * cancel() — stops recording, discards blob, returns to idle.
-   * No-op if state !== "recording".
+   *
+   * Handles three cases:
+   *   1. state === "idle" (getUserMedia in-flight or start not yet called):
+   *      Arms pendingCancelRef so start()'s .then() tears down the arriving
+   *      stream before constructing MediaRecorder (existing PC-A path).
+   *
+   *   2. state === "starting" AND recorderRef.current != null (recorder built
+   *      but commitStartVisibility not yet called):
+   *      Runs the same stopRecording() + setState("idle") teardown as the
+   *      "recording" branch — the recorder is live regardless of whether the
+   *      consumer-visible state has committed. Also arms pendingCancelRef as a
+   *      belt-and-suspenders in case start()'s post-recorder.start() re-check
+   *      (Layer 1) races with this path.
+   *
+   *   3. state === "recording" (normal cancel while recording):
+   *      Unchanged behavior — stopRecording() + cancel.mp3 + setState("idle").
    */
   async function cancel(): Promise<void> {
-    console.info(`[voice] cancel-entry state=${state} ${ctxSuffix}`);
-    if (state !== "recording") {
+    const currentState = stateRef.current;
+    console.info(`[voice] cancel-entry state=${currentState} ${ctxSuffix}`);
+
+    if (currentState !== "recording" && currentState !== "starting") {
       // Defensive: mark a pending cancel so an in-flight start()'s
       // streamPromise.then() will tear down the resolved stream before
       // constructing MediaRecorder. This closes the race where a caller
       // (e.g., useHoldToRecord short-tap) calls cancel() before
       // getUserMedia has resolved.
       pendingCancelRef.current = true;
-      console.warn(`[voice] cancel-gate-rejected state=${state} expected=recording pending-cancel-armed=true ${ctxSuffix}`);
+      console.warn(`[voice] cancel-gate-rejected state=${currentState} expected=recording-or-starting pending-cancel-armed=true ${ctxSuffix}`);
       return;
     }
+
+    // "starting" state: recorder may or may not be constructed yet.
+    // If NOT constructed, arm pendingCancelRef and return (start()'s Layer 1
+    // re-check will handle teardown when it runs).
+    if (currentState === "starting" && recorderRef.current === null) {
+      pendingCancelRef.current = true;
+      console.warn(`[voice] cancel-starting-no-recorder state=${currentState} pending-cancel-armed=true ${ctxSuffix}`);
+      setState("idle");
+      stateRef.current = "idle";
+      return;
+    }
+
     // Belt-and-suspenders: proactively clear pendingCancelRef in the
-    // state === "recording" branch. It should already be false here, but if
-    // the caller sequence was cancel → start → (getUserMedia resolves) →
-    // recording → cancel, the second cancel must not leave a stale true flag.
+    // state === "recording" or "starting" (with recorder) branch.
     pendingCancelRef.current = false;
     // AudioSession-safety: play cancel.mp3 AFTER recorder teardown, not before.
     // iOS Safari shares one AudioSession between MediaRecorder and Audio playback;
@@ -414,14 +539,15 @@ export function useVoiceRecording(
    * endAppend(currentText) — stops recording, transcribes, returns {transcript, glued}.
    * Caller sets textarea.value = glued.
    * Returns null on STT error (errorMessage is set).
-   * No-op if state !== "recording".
+   * No-op if state !== "recording" (cannot end-send during the "starting" grey zone;
+   * the consumer only reaches end-send after long-press commits via commitStartVisibility).
    */
   async function endAppend(
     currentText: string,
   ): Promise<VoiceRecordingResult | null> {
-    console.info(`[voice] end-append-entry state=${state} currentTextLen=${currentText.length} ${ctxSuffix}`);
-    if (state !== "recording") {
-      console.warn(`[voice] end-append-gate-rejected state=${state} expected=recording ${ctxSuffix}`);
+    console.info(`[voice] end-append-entry state=${stateRef.current} currentTextLen=${currentText.length} ${ctxSuffix}`);
+    if (stateRef.current !== "recording") {
+      console.warn(`[voice] end-append-gate-rejected state=${stateRef.current} expected=recording ${ctxSuffix}`);
       return null;
     }
 
@@ -466,14 +592,14 @@ export function useVoiceRecording(
    * endSend(currentText) — stops recording, transcribes, returns {transcript, glued}.
    * Caller sets textarea.value = glued AND calls the existing send handler.
    * Returns null on STT error (errorMessage is set).
-   * No-op if state !== "recording".
+   * No-op if state !== "recording" (cannot end-send during the "starting" grey zone).
    */
   async function endSend(
     currentText: string,
   ): Promise<VoiceRecordingResult | null> {
-    console.info(`[voice] end-send-entry state=${state} currentTextLen=${currentText.length} ${ctxSuffix}`);
-    if (state !== "recording") {
-      console.warn(`[voice] end-send-gate-rejected state=${state} expected=recording ${ctxSuffix}`);
+    console.info(`[voice] end-send-entry state=${stateRef.current} currentTextLen=${currentText.length} ${ctxSuffix}`);
+    if (stateRef.current !== "recording") {
+      console.warn(`[voice] end-send-gate-rejected state=${stateRef.current} expected=recording ${ctxSuffix}`);
       return null;
     }
 
@@ -514,5 +640,24 @@ export function useVoiceRecording(
     return { transcript, glued };
   }
 
-  return { state, errorMessage, start, cancel, endAppend, endSend };
+  /**
+   * commitStartVisibility() — advances state from "starting" to "recording" and
+   * plays start.mp3.
+   *
+   * Called by:
+   *   - useHoldToRecord's 250ms threshold-timer callback (long-press committed)
+   *   - The autoCommit:true path in start()'s .then() is handled inline, not here
+   *
+   * Idempotent: if stateRef.current !== "starting", this is a no-op. Safe to call
+   * after cancel() (state will be "idle"), before getUserMedia resolves (state is
+   * "idle"), or twice in a row (second call sees "recording", no-ops).
+   */
+  function commitStartVisibility(): void {
+    if (stateRef.current !== "starting") return;
+    setState("recording");
+    stateRef.current = "recording";
+    playSound(startAudioRef.current);
+  }
+
+  return { state, errorMessage, start, cancel, commitStartVisibility, endAppend, endSend };
 }

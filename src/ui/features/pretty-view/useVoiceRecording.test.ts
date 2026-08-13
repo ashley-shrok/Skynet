@@ -130,16 +130,19 @@ describe("useVoiceRecording", () => {
     expect(result.current.errorMessage).toBeNull();
     expect(typeof result.current.start).toBe("function");
     expect(typeof result.current.cancel).toBe("function");
+    expect(typeof result.current.commitStartVisibility).toBe("function");
     expect(typeof result.current.endAppend).toBe("function");
     expect(typeof result.current.endSend).toBe("function");
   });
 
-  it("Test 2: start() calls getUserMedia SYNCHRONOUSLY (before first await resolves), then transitions to recording", async () => {
+  it("Test 2: start({ autoCommit: true }) calls getUserMedia SYNCHRONOUSLY (before first await resolves), then transitions to recording", async () => {
+    // Uses autoCommit:true to exercise the mic-tap path that skips the "starting"
+    // grey zone and transitions directly to "recording" + plays start.mp3.
     const { result } = renderHook(() => useVoiceRecording());
 
-    // Call start() — getUserMedia MUST be called synchronously as the first action.
+    // Call start({ autoCommit: true }) — getUserMedia MUST be called synchronously.
     act(() => {
-      result.current.start();
+      result.current.start({ autoCommit: true });
     });
 
     // Assert getUserMedia was called SYNCHRONOUSLY — before any microtask resolves.
@@ -149,6 +152,7 @@ describe("useVoiceRecording", () => {
     expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: true });
 
     // Now await until state transitions to recording (the promise resolves).
+    // With autoCommit:true the "starting" intermediate is skipped.
     await waitFor(() => {
       expect(result.current.state).toBe("recording");
     });
@@ -161,8 +165,8 @@ describe("useVoiceRecording", () => {
   it("Test 3: cancel() while recording → idle, no fetch, MediaRecorder.stop and stream.getTracks called", async () => {
     const { result } = renderHook(() => useVoiceRecording());
 
-    // Start recording.
-    act(() => { result.current.start(); });
+    // Start recording (autoCommit:true to skip the "starting" grey zone).
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     // Cancel while recording.
@@ -180,7 +184,7 @@ describe("useVoiceRecording", () => {
   it("Test 4: endAppend() while recording → recording→transcribing→idle, fetch POST /voice/transcribe, returns space-glued transcript", async () => {
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     // Push a data chunk so the blob is non-empty.
@@ -211,7 +215,7 @@ describe("useVoiceRecording", () => {
   it("Test 5: endSend() while recording → same transitions + fetch, returns distinguishable result for caller to send", async () => {
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     const recorder = MockMediaRecorder.instances[0];
@@ -243,7 +247,7 @@ describe("useVoiceRecording", () => {
 
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     let returnValue: Awaited<ReturnType<typeof result.current.endAppend>> = undefined as unknown as null;
@@ -286,7 +290,7 @@ describe("useVoiceRecording", () => {
     const { result } = renderHook(() => useVoiceRecording());
 
     // --- Case A: text ending in whitespace → no extra space glued ---
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     let resA: Awaited<ReturnType<typeof result.current.endAppend>> = null;
@@ -297,7 +301,7 @@ describe("useVoiceRecording", () => {
     expect(resA!.glued).toBe("hello hello world");
 
     // --- Case B: empty string → transcript only, no leading space ---
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     let resB: Awaited<ReturnType<typeof result.current.endAppend>> = null;
@@ -312,10 +316,10 @@ describe("useVoiceRecording", () => {
   // Audio feedback tests (Tests A–F)
   // ---------------------------------------------------------------------------
 
-  it("Test A: start.mp3 plays after MediaRecorder init succeeds (not before)", async () => {
+  it("Test A: start.mp3 plays after MediaRecorder init succeeds (not before) — via autoCommit:true (mic-tap path)", async () => {
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     const startAudio = getAudioBySrc("start.mp3");
@@ -368,7 +372,7 @@ describe("useVoiceRecording", () => {
     // --- endAppend variant ---
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     const recorder = MockMediaRecorder.instances[0];
@@ -395,7 +399,7 @@ describe("useVoiceRecording", () => {
 
     const { result: result2 } = renderHook(() => useVoiceRecording());
 
-    act(() => { result2.current.start(); });
+    act(() => { result2.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result2.current.state).toBe("recording"));
 
     const recorder2 = MockMediaRecorder.instances[0];
@@ -422,7 +426,7 @@ describe("useVoiceRecording", () => {
     // AudioSession-safety anti-regression — see Test C.
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     const recorder = MockMediaRecorder.instances[0];
@@ -455,7 +459,7 @@ describe("useVoiceRecording", () => {
 
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     await act(async () => {
@@ -477,7 +481,7 @@ describe("useVoiceRecording", () => {
 
     const { result: result2 } = renderHook(() => useVoiceRecording());
 
-    act(() => { result2.current.start(); });
+    act(() => { result2.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result2.current.state).toBe("recording"));
 
     await act(async () => {
@@ -506,7 +510,7 @@ describe("useVoiceRecording", () => {
     );
 
     const { result } = renderHook(() => useVoiceRecording());
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     let returnValue: Awaited<ReturnType<typeof result.current.endAppend>> = null;
@@ -530,7 +534,7 @@ describe("useVoiceRecording", () => {
     );
 
     const { result } = renderHook(() => useVoiceRecording());
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     let returnValue: Awaited<ReturnType<typeof result.current.endSend>> = null;
@@ -554,7 +558,7 @@ describe("useVoiceRecording", () => {
     );
 
     const { result } = renderHook(() => useVoiceRecording());
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     let returnValue: Awaited<ReturnType<typeof result.current.endAppend>> = null;
@@ -578,7 +582,7 @@ describe("useVoiceRecording", () => {
     );
 
     const { result } = renderHook(() => useVoiceRecording({ hostId: 42, sessionId: "mysession" }));
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
     await act(async () => { await result.current.endAppend(""); });
 
@@ -600,7 +604,7 @@ describe("useVoiceRecording", () => {
     );
 
     const { result } = renderHook(() => useVoiceRecording()); // NO logContext arg
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
     await act(async () => { await result.current.endAppend(""); });
 
@@ -647,7 +651,7 @@ describe("useVoiceRecording", () => {
     //      happen. Any regression that removes the guard would trip this.
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
     const recorder = MockMediaRecorder.instances[0];
@@ -692,7 +696,7 @@ describe("useVoiceRecording", () => {
     try {
       const { result } = renderHook(() => useVoiceRecording());
 
-      act(() => { result.current.start(); });
+      act(() => { result.current.start({ autoCommit: true }); });
       // waitFor uses real-time internals; with fake timers we need to flush
       // pending microtasks (the getUserMedia .then chain) manually before
       // asserting state.
@@ -810,7 +814,7 @@ describe("useVoiceRecording", () => {
       // branch of cancel() still runs byte-identically.
       const { result } = renderHook(() => useVoiceRecording());
 
-      act(() => { result.current.start(); });
+      act(() => { result.current.start({ autoCommit: true }); });
       await waitFor(() => expect(result.current.state).toBe("recording"));
 
       expect(MockMediaRecorder.instances).toHaveLength(1);
@@ -867,13 +871,273 @@ describe("useVoiceRecording", () => {
       expect(result.current.state).toBe("idle");
 
       // Second cycle: fresh start must clear the pending-cancel flag at entry and
-      // proceed through .then() normally.
-      act(() => { result.current.start(); });
+      // proceed through .then() normally. Use autoCommit:true to verify the full
+      // recording path completes (not just the "starting" intermediate).
+      act(() => { result.current.start({ autoCommit: true }); });
       await waitFor(() => expect(result.current.state).toBe("recording"));
 
       // Fresh MediaRecorder constructed for the second cycle.
       expect(MockMediaRecorder.instances).toHaveLength(1);
       expect(MockMediaRecorder.instances[0].start).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // New tests for Task 1 — commitStartVisibility split + orphan-guard (patch #436)
+  // ---------------------------------------------------------------------------
+
+  describe("cancel() race-safety — post-recorder-start orphan guard (Layer 1 fix, B-1)", () => {
+    it("Test PC-D: getUserMedia resolves BEFORE cancel() — recorder constructed, then cancel() tears it down via stateRef", async () => {
+      // Scenario: start() fires, getUserMedia resolves quickly (before cancel() runs).
+      // .then() runs and sets stateRef="starting". THEN cancel() is called.
+      // Expected: cancel() reads stateRef.current==="starting", recorder exists, so
+      // it runs the teardown path: recorder.stop, tracks stopped, state=idle.
+      const { result } = renderHook(() => useVoiceRecording());
+
+      // Start without autoCommit — state will go "idle" → "starting" after .then().
+      act(() => { result.current.start(); });
+
+      // Wait for getUserMedia to resolve and state to reach "starting".
+      await waitFor(() => expect(result.current.state).toBe("starting"));
+
+      // Recorder was constructed (by this point .then() has run).
+      expect(MockMediaRecorder.instances).toHaveLength(1);
+      const recorder = MockMediaRecorder.instances[0];
+
+      // Now cancel() — state is "starting" with recorder present.
+      await act(async () => { await result.current.cancel(); });
+
+      // State returns to idle.
+      expect(result.current.state).toBe("idle");
+      // Recorder was stopped.
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+      // start.mp3 was NEVER played (commitStartVisibility was never called).
+      const startAudio = getAudioBySrc("start.mp3");
+      if (startAudio) {
+        expect(startAudio.play).not.toHaveBeenCalled();
+      }
+
+      // After cancel, a fresh start() should construct a new MediaRecorder,
+      // proving refs were properly cleared.
+      act(() => { result.current.start({ autoCommit: true }); });
+      await waitFor(() => expect(result.current.state).toBe("recording"));
+      expect(MockMediaRecorder.instances).toHaveLength(2);
+    });
+
+    it("Test PC-E: post-recorder.start() re-check path (B-1 smoking-gun — cancel arms pendingCancelRef AFTER recorder construction)", async () => {
+      // This tests the exact Ashley bug log scenario:
+      //   start() called → getUserMedia in-flight → cancel() called → pendingCancelRef=true
+      //   → getUserMedia resolves → .then() runs pre-construction check (sees true) but...
+      // Wait, actually the pre-construction check would catch it. Let me replicate the
+      // exact race: cancel() runs while state is STILL "idle" (before .then() sets "starting").
+      // Then the pre-construction pendingCancelRef check clears pendingCancelRef (sets false)
+      // and returns. But we want to test the POST-recorder.start() re-check.
+      //
+      // The post-recorder.start() re-check fires when:
+      //   1. start() fires, getUserMedia promise is created.
+      //   2. .then() starts running — pre-construction check passes (pendingCancelRef=false at entry).
+      //   3. Recorder is constructed and recorder.start() fires.
+      //   4. During step 3, in a race scenario, pendingCancelRef is set true by cancel().
+      //   5. Post-recorder.start() re-check sees pendingCancelRef=true → tears down.
+      //
+      // To simulate this in tests: use a controllable getUserMedia, call start(),
+      // call cancel() (arms pendingCancelRef), then resolve getUserMedia.
+      // The pre-construction check will see pendingCancelRef=true and tear down
+      // WITHOUT constructing recorder — demonstrating the first defense.
+      // For the true Layer 1 re-check path, we need pendingCancelRef to be set
+      // AFTER pre-construction check but BEFORE post-recorder.start() re-check.
+      //
+      // Simplest way: manually patch pendingCancelRef via a mock that sets it
+      // inside MediaRecorder constructor (between pre-check and post-check).
+      let resolveStream: (stream: ReturnType<typeof makeMockStream>) => void = () => {};
+      const controlledStream = makeMockStream();
+      Object.defineProperty(globalThis, "navigator", {
+        value: {
+          mediaDevices: {
+            getUserMedia: vi.fn(
+              () => new Promise<ReturnType<typeof makeMockStream>>((r) => { resolveStream = r; }),
+            ),
+          },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      // Capture the real MockMediaRecorder and wrap it to simulate the race:
+      // set pendingCancelRef=true INSIDE the constructor (after pre-check, before post-check).
+      let pendingCancelFlipper: (() => void) | null = null;
+      const OriginalMockRecorder = MockMediaRecorder;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).MediaRecorder = class RacyMockRecorder extends OriginalMockRecorder {
+        constructor(stream: MediaStream) {
+          super(stream);
+          // Flip pendingCancelRef AFTER recorder construction (simulating the race)
+          // by calling any queued callback.
+          if (pendingCancelFlipper) pendingCancelFlipper();
+        }
+      };
+
+      const { result } = renderHook(() => useVoiceRecording());
+
+      act(() => { result.current.start(); });
+      // State is idle — getUserMedia in-flight.
+      expect(result.current.state).toBe("idle");
+
+      // Set up the race: cancel will be called synchronously from inside
+      // MediaRecorder constructor (via pendingCancelFlipper). This simulates
+      // cancel() called between pre-construction check and post-recorder.start() re-check.
+      // We arm it BEFORE resolving getUserMedia.
+      // Actually, more accurately: cancel() arms pendingCancelRef before getUserMedia resolves.
+      // The pre-construction check MISSES it because it was cleared by a prior check.
+      // To force the post-recorder.start() path, we'll directly arm the pending cancel
+      // inside the constructor via the flipper:
+      pendingCancelFlipper = () => {
+        // Simulate cancel() having set pendingCancelRef — we do this by calling
+        // the actual cancel() which sets pendingCancelRef=true via the "not recording/starting" branch.
+        // But result.current.cancel() is async, so capture and call synchronously inline:
+        // (The hook's cancel() on state==="idle" sets pendingCancelRef=true synchronously before returning)
+        void result.current.cancel();
+      };
+
+      // Resolve getUserMedia — this triggers .then() which: pre-check passes (false),
+      // constructs recorder (pendingCancelFlipper fires → cancel() sets pendingCancelRef=true),
+      // calls recorder.start(), then post-recorder.start() re-check sees true → teardown.
+      await act(async () => {
+        resolveStream(controlledStream);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // Post-recorder.start() re-check should have torn down:
+      // Recorder was constructed (instances.length >= 1)
+      expect(MockMediaRecorder.instances.length).toBeGreaterThanOrEqual(1);
+      const recorder = MockMediaRecorder.instances[0];
+      // Recorder.stop() was called by the re-check teardown path.
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+      // Stream tracks were stopped.
+      expect(controlledStream._track.stop).toHaveBeenCalled();
+      // State stays idle.
+      expect(result.current.state).toBe("idle");
+      // start.mp3 was NEVER played.
+      const startAudio = getAudioBySrc("start.mp3");
+      if (startAudio) {
+        expect(startAudio.play).not.toHaveBeenCalled();
+      }
+    });
+  });
+
+  describe("commitStartVisibility() — Layer 2 UX split (B-2 fix)", () => {
+    it("Test COMMIT-A: happy path via commitStartVisibility — start.mp3 NOT played until commit, state 'starting' until commit", async () => {
+      const { result } = renderHook(() => useVoiceRecording());
+
+      act(() => { result.current.start(); });
+
+      // Wait for the "starting" intermediate state (getUserMedia resolved + .then() ran).
+      await waitFor(() => expect(result.current.state).toBe("starting"));
+
+      // Assert start.mp3 has NOT played yet.
+      const startAudio = getAudioBySrc("start.mp3");
+      if (startAudio) {
+        expect(startAudio.play).not.toHaveBeenCalled();
+      }
+
+      // Now commit — should transition to "recording" and play start.mp3.
+      act(() => { result.current.commitStartVisibility(); });
+
+      await waitFor(() => expect(result.current.state).toBe("recording"));
+
+      // start.mp3 played exactly once.
+      const startAudioAfter = getAudioBySrc("start.mp3");
+      expect(startAudioAfter).not.toBeNull();
+      expect(startAudioAfter!.play).toHaveBeenCalledTimes(1);
+    });
+
+    it("Test COMMIT-B: commitStartVisibility called BEFORE getUserMedia resolves → no-op (state stays idle, no start.mp3)", async () => {
+      // Install controllable getUserMedia — .then() hasn't run yet.
+      let resolveStream: (stream: ReturnType<typeof makeMockStream>) => void = () => {};
+      const controlledStream = makeMockStream();
+      Object.defineProperty(globalThis, "navigator", {
+        value: {
+          mediaDevices: {
+            getUserMedia: vi.fn(
+              () => new Promise<ReturnType<typeof makeMockStream>>((r) => { resolveStream = r; }),
+            ),
+          },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const { result } = renderHook(() => useVoiceRecording());
+
+      act(() => { result.current.start(); });
+      // .then() hasn't run yet — state is "idle".
+      expect(result.current.state).toBe("idle");
+
+      // Call commitStartVisibility before getUserMedia resolves — should be a no-op.
+      act(() => { result.current.commitStartVisibility(); });
+
+      // State still idle, no start.mp3.
+      expect(result.current.state).toBe("idle");
+      const startAudio = getAudioBySrc("start.mp3");
+      if (startAudio) {
+        expect(startAudio.play).not.toHaveBeenCalled();
+      }
+
+      // Now resolve getUserMedia — .then() runs, sets state to "starting" (not "recording").
+      await act(async () => {
+        resolveStream(controlledStream);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // State is "starting" — commitStartVisibility()'s call above was a no-op, so
+      // the transition was NOT skipped. Consumer must call commitStartVisibility() again.
+      expect(result.current.state).toBe("starting");
+      const startAudioAfter = getAudioBySrc("start.mp3");
+      if (startAudioAfter) {
+        expect(startAudioAfter.play).not.toHaveBeenCalled();
+      }
+    });
+
+    it("Test COMMIT-C: re-entrance during grey zone — second start() is a no-op (getUserMedia called only once)", async () => {
+      const { result } = renderHook(() => useVoiceRecording());
+
+      act(() => { result.current.start(); });
+
+      // Wait for "starting" (grey zone: .then() ran, commitStartVisibility not yet called).
+      await waitFor(() => expect(result.current.state).toBe("starting"));
+
+      // Second start() while in "starting" — stateRef.current === "starting" !== "idle"
+      // so the guard should short-circuit without calling getUserMedia again.
+      act(() => { result.current.start(); });
+
+      // getUserMedia was called ONLY ONCE total.
+      expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+      // MockMediaRecorder instance count stays at 1.
+      expect(MockMediaRecorder.instances).toHaveLength(1);
+    });
+
+    it("Test COMMIT-D: start({ autoCommit: true }) skips 'starting' and goes directly to 'recording' + plays start.mp3", async () => {
+      // This is the mic-tap parity path: beginRecord() calls start({ autoCommit: true }).
+      const { result } = renderHook(() => useVoiceRecording());
+
+      act(() => { result.current.start({ autoCommit: true }); });
+
+      // Should jump straight to "recording" without passing through "starting".
+      await waitFor(() => expect(result.current.state).toBe("recording"));
+
+      // start.mp3 was played (without calling commitStartVisibility()).
+      const startAudio = getAudioBySrc("start.mp3");
+      expect(startAudio).not.toBeNull();
+      expect(startAudio!.play).toHaveBeenCalledTimes(1);
+
+      // commitStartVisibility is a no-op in "recording" state (idempotent safety check).
+      act(() => { result.current.commitStartVisibility(); });
+      expect(result.current.state).toBe("recording");
+      // No second play() call.
+      expect(startAudio!.play).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -897,7 +1161,7 @@ describe("useVoiceRecording", () => {
 
     const { result } = renderHook(() => useVoiceRecording());
 
-    act(() => { result.current.start(); });
+    act(() => { result.current.start({ autoCommit: true }); });
 
     // State should still transition to recording despite the play() rejection
     await waitFor(() => {
