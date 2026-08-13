@@ -173,6 +173,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const backgroundColor = themeColors.background;
     const fitAddonRef = useRef<FitAddon | null>(null);
     const webSocketRef = useRef<WebSocket | null>(null);
+    // Phase 35 — PrettyView populates these on mount via onRegisterSendInput /
+    // onRegisterSendInterrupt props; callers read `.current?.()` at call time.
+    // Refs are null before PrettyView mounts and after it unmounts
+    // (isPrettyMode=false); callers treat null as a silent noop — same posture
+    // as the old `if (!ws || ws.readyState !== 1) return` guard.
+    const pvSendInputRef = useRef<((text: string, mqid?: string) => boolean) | null>(null);
+    const pvSendInterruptRef = useRef<(() => void) | null>(null);
     // Bounty pretty-view-per-pane-cost-diag: rolling counter of SSH WS
     // bytes received since the last diag emit (measured as raw JSON string
     // length of each event.data, which approximates the payload cost since
@@ -3258,16 +3265,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // webSocketRef.current at call time).
     const handleInjectedTurnReady = useCallback(
       (text: string, messageQueueItemId: string) => {
-        const ws = webSocketRef.current;
-        if (!ws || ws.readyState !== 1) return; // silent noop — Plan 02 hook keeps batch in staging for retry
-        ws.send(JSON.stringify({ type: "input", data: text }));
+        const send = pvSendInputRef.current;
+        if (!send) return; // silent noop — Plan 02 hook keeps batch in staging for retry
+        send(text);
         setTimeout(() => {
-          const ws2 = webSocketRef.current;
-          if (ws2 && ws2.readyState === 1) {
-            ws2.send(
-              JSON.stringify({ type: "input", data: "\r", messageQueueItemId }),
-            );
-          }
+          const send2 = pvSendInputRef.current;
+          if (send2) send2("\r", messageQueueItemId);
         }, 60);
       },
       [],
@@ -3336,17 +3339,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               //   it only reads it as "yes, this is a pretty-view submit,
               //   apply split-send" — so any non-empty string works. The
               //   "pv-adhoc-" prefix keeps it grep-able in backend logs.
-              const ws = webSocketRef.current;
-              if (!ws || ws.readyState !== 1) return false;
+              // Phase 35: send now routes through PrettyView's own WS
+              // (pvSendInputRef) instead of the borrowed terminal SSH WS.
+              const send = pvSendInputRef.current;
+              if (!send) return false;
               const mqid = "pv-adhoc-" + crypto.randomUUID();
-              ws.send(
-                JSON.stringify({
-                  type: "input",
-                  data: text + "\r",
-                  messageQueueItemId: mqid,
-                }),
-              );
-              return true;
+              return send(text + "\r", mqid);
             }}
             onInterrupt={() => {
               // Patch #120 — safety-valve Ctrl-C. Uses the same per-pane
@@ -3356,12 +3354,21 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               // errors. Silent no-op on WS-not-ready: if the WS is dead
               // there is nothing to interrupt anyway (matches onSend's
               // posture above).
-              const ws = webSocketRef.current;
-              if (!ws || ws.readyState !== 1) return;
-              ws.send(JSON.stringify({ type: "interrupt" }));
+              // Phase 35: interrupt now routes through PrettyView's own WS.
+              const send = pvSendInterruptRef.current;
+              if (!send) return;
+              send();
             }}
             terminalWs={webSocketRef.current}
             onInjectedTurnReady={handleInjectedTurnReady}
+            {/* Phase 35 ref-forwarding — PrettyView.tsx calls these on mount/unmount
+                so handleInjectedTurnReady, onSend, onInterrupt, and MessageQueueDrawer's
+                onSend (all in this file) can reach pretty-view's WS without
+                prop-drilling wsRef upward. */}
+            onRegisterSendInput={(fn) => { pvSendInputRef.current = fn; }}
+            onUnregisterSendInput={() => { pvSendInputRef.current = null; }}
+            onRegisterSendInterrupt={(fn) => { pvSendInterruptRef.current = fn; }}
+            onUnregisterSendInterrupt={() => { pvSendInterruptRef.current = null; }}
             // Quick 260806-lzd — long-press-to-toggle-pretty-view. Threads
             // through to PrettyView's IdentityBadge so the pretty-view
             // surface badge can flip back to terminal mode via the same
@@ -3380,25 +3387,18 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             hostId={hostConfig.id}
             tmuxSession={tmuxSessionName}
             onSend={(text, messageQueueItemId) => {
-              const ws = webSocketRef.current;
-              if (!ws || ws.readyState !== 1) return false;
+              const send = pvSendInputRef.current;
+              if (!send) return false;
               // First WS event: body only. Second event (60ms later): the
               // \r that Ink treats as submit, PLUS the messageQueueItemId
               // so the backend deletes the row atomically after both writes
               // have been applied to the SSH stream (patch #60).
-              ws.send(JSON.stringify({ type: "input", data: text }));
+              // Phase 35: both events now route through PrettyView's own WS
+              // (pvSendInputRef) instead of the borrowed terminal SSH WS.
+              send(text);
               setTimeout(() => {
-                const ws2 = webSocketRef.current;
-                if (ws2 && ws2.readyState === 1) {
-                  const payload: {
-                    type: "input";
-                    data: string;
-                    messageQueueItemId?: string;
-                  } = { type: "input", data: "\r" };
-                  if (messageQueueItemId)
-                    payload.messageQueueItemId = messageQueueItemId;
-                  ws2.send(JSON.stringify(payload));
-                }
+                const send2 = pvSendInputRef.current;
+                if (send2) send2("\r", messageQueueItemId);
               }, 60);
               return true;
             }}
