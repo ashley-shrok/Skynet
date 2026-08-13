@@ -523,3 +523,39 @@ html.fs-xl {
     scale: 1;
   }
 }
+
+/* Phase 32 hold-to-send visual affordance. Applied to the ComposeBox primary
+ * + slot send buttons while the useHoldToRecord hook has holdActive=true.
+ * Tints the paper-plane glyph coral (matches the RecordingControls Send
+ * button color) and applies a subtle pulse.
+ *
+ * Rationale (CONTEXT.md § Visual during hold — LOCKED): do NOT swap the
+ * button for RecordingControls under the pointer — morphing the button the
+ * user is pressing makes the slide-off-to-cancel gesture fuzzy. The button
+ * stays in place; only its color and a subtle pulse change. (Enforced
+ * structurally by the !primaryHold.holdInitiatedRef.current /
+ * !slotHold.holdInitiatedRef.current gates on showRecordingControls /
+ * showSlotRecording — see ComposeBox.tsx.)
+ *
+ * Selector scoped to `button[...]` (not the bare attribute selector) so
+ * only elements that are semantically buttons participate; guards against
+ * future collisions with any other element that grows a `data-hold-active`
+ * attribute.
+ *
+ * `color:` sets the currentColor pipeline — the paper-plane inline SVG uses
+ * fill="currentColor" and the Loader2 lucide spinner inherits color from
+ * its parent button, so the coral tint reaches the glyph correctly. */
+button[data-hold-active="true"] {
+  color: var(--color-pv-code-fg);
+  animation: pv-hold-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pv-hold-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
