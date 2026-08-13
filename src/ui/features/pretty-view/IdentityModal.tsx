@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlarmClock, Clock, Handshake, Pencil, Target, User, Users, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
@@ -87,6 +87,8 @@ import { RoleFileTab } from "./RoleFileTab";
 import { HistoryTab } from "./HistoryTab";
 import { WakeupsTab } from "./WakeupsTab";
 import { HandoffTab } from "./HandoffTab";
+// Phase 38 Wave 2: share this identity with another Skynet user from the modal header.
+import { ShareIdentityPicker } from "./ShareIdentityPicker";
 
 // Patch #87: tabbed near-fullscreen modal for the identity's bounties.
 // Patch #17g: renamed Standing Directives → Identity; promoted Identity to
@@ -207,6 +209,37 @@ export function IdentityModal({
   // Quick 260811-ax1: "Stays awake" switch — null = loading, boolean = loaded.
   const [staysAwake, setStaysAwake] = useState<boolean | null>(null);
   const [staysAwakeSaving, setStaysAwakeSaving] = useState<boolean>(false);
+
+  // Phase 38 Wave 2 (plan 38-02): Parent-owned set of userIds who already have
+  // this identityKey. Empty at open — the frontend does NOT precompute
+  // "who has this identityKey" via a cross-user query in Phase 38 (there is
+  // no such endpoint, and adding one is the deferred provenance-display
+  // feature). As the user shares to targets this session, ShareIdentityPicker
+  // reports each successful share via onShareSuccess; we add the targetUserId
+  // to the Set so subsequent picker opens render the "shared" marker without
+  // a refetch. Set is created lazily so a re-render does not thrash the
+  // referential identity (which would churn the picker's props).
+  const [alreadySharedUserIds, setAlreadySharedUserIds] = useState<Set<string>>(
+    () => new Set<string>(),
+  );
+
+  // handleShareSuccess adds result.targetUserId to alreadySharedUserIds so the
+  // picker's per-row marker updates on the next open without a refetch.
+  const handleShareSuccess = useCallback(
+    (result: { targetUserId: string; shared: boolean; resultingIdentityId: string }) => {
+      // Fresh Set instance so React sees a new reference and re-renders the
+      // picker with the updated marker state. Handles both shared:true (real
+      // hand-over) and shared:false (silent no-op-on-repeat) the same way —
+      // per CONTEXT.md re-share-to-same-target contract, the marker should
+      // stay marked after any successful call, not flip.
+      setAlreadySharedUserIds((prev) => {
+        const next = new Set(prev);
+        next.add(result.targetUserId);
+        return next;
+      });
+    },
+    [],
+  );
 
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
   // Replaces the previous shadcn TabsList strip, which (a) aesthetically didn't
@@ -1038,6 +1071,16 @@ export function IdentityModal({
             />
             <span className="text-xs text-[#a89a80]">Stays awake</span>
           </label>
+          {/* Phase 38 Wave 2 (plan 38-02): share this identity with another
+              Skynet user. Hides itself when the deployment has no other users
+              so the header does not carry a dead affordance. Parent owns the
+              already-shared Set + updates it via handleShareSuccess. */}
+          <ShareIdentityPicker
+            identityId={identity.id}
+            identityKey={identity.identityKey}
+            alreadySharedUserIds={alreadySharedUserIds}
+            onShareSuccess={handleShareSuccess}
+          />
           {/* Patch #277: pencil toggle button — reveals/hides the edit block.
               Matches close-button glass affordance (same size, border, glow
               recipe) but NOT wrapped in DialogClose — does not close the dialog. */}
