@@ -1920,3 +1920,100 @@ describe("quick 260812-x5f — PrettyView hidden-pane WS close debounce (~60s)",
     expect(ws.close).toHaveBeenCalledTimes(callCountAtUnmount);
   });
 });
+
+// ── Phase 34 Plan 06: WaitingBubble mount + feeder retirement tests ────────
+//
+// Test 1 (new): When useSessionWaitingFor returns a reason, PrettyView renders
+//               WaitingBubble with that reason.
+// Test 2 (new): When useSessionWaitingFor returns null, PrettyView renders
+//               zero WaitingBubbles.
+// Test 3 (structural grep): PrettyView.tsx has 0 hits for the retired publish
+//               symbol — proves the feeder was removed.
+
+// Mock session-waiting-store so we can control useSessionWaitingFor without
+// wiring the full fleet-status WS stack.
+vi.mock("@/state/session-waiting-store", () => ({
+  useSessionWaitingFor: vi.fn(() => null),
+  publishFleetStatusWaitingFor: vi.fn(),
+  __resetForTestWaiting: vi.fn(),
+}));
+
+import { readFileSync } from "fs";
+import { resolve } from "path";
+import { useSessionWaitingFor } from "@/state/session-waiting-store";
+
+describe("PrettyView — Phase 34 Plan 06: WaitingBubble mount", () => {
+  beforeEach(() => {
+    wsStubs.length = 0;
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    // Stub ResizeObserver — jsdom doesn't implement it; useAutoScroll needs it.
+    const resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal("ResizeObserver", resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("Test 1: renders WaitingBubble with reason when useSessionWaitingFor returns a non-null string", () => {
+    vi.mocked(useSessionWaitingFor).mockReturnValue("approve Bash");
+
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
+    );
+
+    // Flip PrettyView to streaming state so the scroll container + accessories render
+    const ws = getCurrentWs();
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "session", sessionFile: "/tmp/test.jsonl" }),
+        }),
+      );
+    });
+
+    // The WaitingBubble should be present with the correct text
+    const waitingBubble = container.querySelector('[aria-label^="Harness waiting"]');
+    expect(waitingBubble).toBeTruthy();
+    expect(waitingBubble?.textContent).toContain("approve Bash");
+  });
+
+  it("Test 2: renders zero WaitingBubbles when useSessionWaitingFor returns null", () => {
+    vi.mocked(useSessionWaitingFor).mockReturnValue(null);
+
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
+    );
+
+    // Flip PrettyView to streaming state
+    const ws = getCurrentWs();
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "session", sessionFile: "/tmp/test.jsonl" }),
+        }),
+      );
+    });
+
+    // No WaitingBubble rendered when waitingFor is null
+    const waitingElements = container.querySelectorAll('[aria-label^="Harness waiting"]');
+    expect(waitingElements.length).toBe(0);
+  });
+
+  it("Test 3 (structural grep): PrettyView.tsx has 0 references to the retired publish symbol", () => {
+    const src = readFileSync(
+      resolve(__dirname, "PrettyView.tsx"),
+      "utf8",
+    );
+    // Use token split to avoid self-matching in test description strings
+    const retired = "publish" + "SessionHasBackgroundedWork";
+    expect(src.includes(retired)).toBe(false);
+  });
+});

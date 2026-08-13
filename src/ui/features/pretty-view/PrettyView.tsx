@@ -48,10 +48,9 @@ import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { publishSessionRecycling } from "@/state/session-recycling-store";
-import {
-  publishSessionHasBackgroundedWork,
-  useSessionIsWorking,
-} from "@/state/session-working-store";
+import { useSessionIsWorking } from "@/state/session-working-store";
+import { useSessionWaitingFor } from "@/state/session-waiting-store";
+import { WaitingBubble } from "./WaitingBubble";
 
 // Patch #148: mirror Terminal.tsx's proven WebSocket auto-reconnect pattern.
 // When the claude-session bridge WS closes unexpectedly (deploy container
@@ -647,6 +646,12 @@ export function PrettyView({
   const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
   const isWorking = useSessionIsWorking(sessionWorkingKey);
 
+  // Phase 34 Plan 06: fleet-status waiting signal. When the harness is in
+  // 'waiting' state (permission prompt etc.), show WaitingBubble alongside
+  // WipBubble. Key format matches sessionWorkingKey exactly.
+  const waitingKey = hostId != null ? `${hostId}:${tmuxSession ?? ""}` : null;
+  const waitingFor = useSessionWaitingFor(waitingKey);
+
   const wsRef = useRef<WebSocket | null>(null);
   // Bounty pretty-view-per-pane-cost-diag: rolling counter of WS frames
   // received since the last diag emit. Snapshot fn reads + resets. Also
@@ -988,13 +993,10 @@ export function PrettyView({
       setHarnessTasks([]);
       setBackgroundedAgents([]);
       setBackgroundedShells([]);
-      // Composite store: clear hasBgWork for this key on fresh-pane mount.
-      // Guard on hostId being non-null — matches Terminal.tsx's pattern;
-      // PrettyView is always mounted with a hostId in practice, but defensive.
-      if (hostId != null) {
-        const key = `${hostId}:${tmuxSession ?? ""}`;
-        publishSessionHasBackgroundedWork(key, false);
-      }
+      // Phase 34 Plan 06: hasBgWork feeder RETIRED here.
+      // The fleet-status channel is now the sole source for the composite
+      // working signal. The fresh-pane reset is unnecessary — the
+      // fleet-status WS snapshot repopulates the store for this key.
       setPlanPending(null);
       // Phase 30 (PS30-04): reset paneState on cold-mount (fresh pane needs
       // to re-resolve). Fresh pane clears its own paneState state slot so
@@ -1252,33 +1254,18 @@ export function PrettyView({
           break;
         }
         case "backgrounded_agents": {
+          // Phase 34 Plan 06: hasBgWork feeder RETIRED from this case.
+          // The fleet-status channel is now the sole source for the composite
+          // working signal. The backgrounded_agents frame still powers the
+          // BackgroundedAgentsPanel UI surface (kept) — only the store publish
+          // is removed. The panels remain fully functional.
           setBackgroundedAgents(parsed.agents);
-          // Publish composite has-bg-work flag. Use the functional-setter
-          // trick to read the CURRENT backgroundedShells synchronously —
-          // the WS onmessage closure captures stale state, but the setter
-          // callback receives the latest value from React.
-          setBackgroundedShells((currentShells) => {
-            const key = `${hostId}:${tmuxSession ?? ""}`;
-            publishSessionHasBackgroundedWork(
-              key,
-              parsed.agents.length > 0 || currentShells.length > 0,
-            );
-            return currentShells; // no state change to shells
-          });
           break;
         }
         case "backgrounded_shells": {
+          // Phase 34 Plan 06: hasBgWork feeder RETIRED from this case.
+          // Same rationale as backgrounded_agents case above.
           setBackgroundedShells(parsed.shells);
-          // Mirror: read the CURRENT backgroundedAgents to compute the
-          // composite flag correctly when only shells arrive.
-          setBackgroundedAgents((currentAgents) => {
-            const key = `${hostId}:${tmuxSession ?? ""}`;
-            publishSessionHasBackgroundedWork(
-              key,
-              parsed.shells.length > 0 || currentAgents.length > 0,
-            );
-            return currentAgents; // no state change to agents
-          });
           break;
         }
         case "plan_pending": {
@@ -1381,13 +1368,8 @@ export function PrettyView({
           setContextPct(null);
           setBackgroundedAgents([]);
           setBackgroundedShells([]);
-          // Composite store: clear hasBgWork on session_changed (recycle).
-          // A recycled session cannot carry backgrounded work from the OLD
-          // session. Same hostId guard as the fresh-pane reset above.
-          if (hostId != null) {
-            const key = `${hostId}:${tmuxSession ?? ""}`;
-            publishSessionHasBackgroundedWork(key, false);
-          }
+          // Phase 34 Plan 06: hasBgWork feeder RETIRED on session_changed.
+          // Fleet-status channel owns the working signal now; no manual clear needed.
           setPlanPending(null);
           setStatus("streaming");
           // Phase 14 followup: full aside-surface reset — a recycled
@@ -2234,6 +2216,12 @@ export function PrettyView({
               in normal document flow, they layer naturally below the last
               virtualized item at the visual bottom of the message column. */}
           {isWorking && <WipBubble />}
+          {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
+              Mounts when the fleet-status channel reports status='waiting' for this
+              session's (hostId, tmuxSession) key. Sibling of WipBubble + PlanPendingBubble
+              in the in-flow message-list column. Presence-only — no interactive controls
+              (Ashley must switch to terminal to answer). See WaitingBubble.tsx header. */}
+          {waitingFor !== null && <WaitingBubble reason={waitingFor} />}
           {planPending && (
             <PlanPendingBubble
               planFilePath={planPending.planFilePath}
