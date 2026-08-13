@@ -2692,12 +2692,38 @@ function QueuedRow(props: QueuedRowProps) {
     slotHasText &&
     !planPendingActive &&
     !reconnectingActive;
-  const showSlotRecording = isSlotRecording;
   const showSlotTranscribingSend = isSlotTranscribing;
-  const showSlotSend = !showSlotRecording;
   // Quick 260802-uow bounty 3 (parity with primary): bump right padding
   // when send + mic + arm-idle all render together.
   const slotThreeButtonState = showSlotMic && showSlotArmButton;
+  // M-2 (Phase 32): extract disabled predicate as a shared local so the JSX
+  // disabled prop and the useHoldToRecord disabled arg cannot silently drift.
+  const slotSendDisabled =
+    showSlotTranscribingSend ||
+    slot.text.trim() === "" ||
+    slotArmed ||
+    recycleActive === true ||
+    planPendingActive === true ||
+    reconnectingActive === true ||
+    dormantActive === true;
+  // Phase 32: hold-to-record gesture layer on the slot send button. Symmetric
+  // with the primary — same hook, slot-scoped callbacks. holdInitiatedRef
+  // consumed at showSlotRecording predicate below (B-3 gate).
+  const slotHold = useHoldToRecord({
+    voice,
+    onShortTap: () => handleQueueSlotSend(slot.id),
+    onLongPressSend: () => {
+      void handleVoiceSend(slot.id);
+    },
+    asideActive: asideActive ?? false,
+    disabled: slotSendDisabled,
+  });
+  // B-3 (Phase 32, slot variant): gate on !holdInitiatedRef so a hold-initiated
+  // slot recording does NOT swap in RecordingControls under the pointer
+  // (CONTEXT.md § Visual during hold — LOCKED). Mic-tap slot path leaves
+  // holdInitiatedRef false, so it retains its existing swap behavior.
+  const showSlotRecording = isSlotRecording && !slotHold.holdInitiatedRef.current;
+  const showSlotSend = !showSlotRecording;
 
   return (
     <div className="relative flex-1" data-slot-id={slot.id}>
@@ -2879,16 +2905,12 @@ function QueuedRow(props: QueuedRowProps) {
             {showSlotSend && (
               <button
                 type="button"
-                onClick={() => handleQueueSlotSend(slot.id)}
-                disabled={
-                  showSlotTranscribingSend ||
-                  slot.text.trim() === "" ||
-                  slotArmed ||
-                  recycleActive === true ||
-                  planPendingActive === true ||
-                  reconnectingActive === true ||
-                  dormantActive === true
-                }
+                onPointerDown={slotHold.onPointerDown}
+                onPointerUp={slotHold.onPointerUp}
+                onPointerCancel={slotHold.onPointerCancel}
+                onPointerLeave={slotHold.onPointerLeave}
+                data-hold-active={slotHold.holdActive ? "true" : "false"}
+                disabled={slotSendDisabled}
                 aria-label="Send queued message"
                 title="Send queued message"
                 className={cn(

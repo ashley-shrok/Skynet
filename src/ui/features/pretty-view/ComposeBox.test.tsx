@@ -41,6 +41,44 @@ const mkAtt = (
   error: null,
 });
 
+// Phase 32 Plan 32-02: the primary send button's onClick is now
+// `asideActive ? () => onAsideDismiss?.() : undefined` — the non-aside send
+// path is served exclusively by useHoldToRecord's pointer handlers. Tests
+// that previously used `fireEvent.click(sendBtn)` to exercise the enabled
+// send path now drive a short-tap (elapsedMs < 250ms) pointer sequence
+// instead. Also stubs navigator.mediaDevices so voice.start() inside the
+// hook's onPointerDown does not crash on missing getUserMedia; the short-tap
+// branch awaits voice.cancel() (Plan 32-01 pendingCancelRef synchronous
+// teardown) which discards the never-resolving getUserMedia promise.
+async function shortTapSendButton(sendBtn: HTMLButtonElement): Promise<void> {
+  fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+  fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
+  // Flush microtasks so the awaited voice.cancel() → onShortTap resolves.
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+// Install/uninstall a navigator.mediaDevices stub around a scope. Returns the
+// restore closure — call it in a `finally` block. Used by tests that drive
+// the pointer-gesture send path.
+function withMediaDevicesStub(): () => void {
+  const originalNavigator = globalThis.navigator;
+  const getUserMediaMock = vi.fn(() => new Promise(() => {}));
+  Object.defineProperty(globalThis, "navigator", {
+    value: { mediaDevices: { getUserMedia: getUserMediaMock } },
+    writable: true,
+    configurable: true,
+  });
+  return () => {
+    Object.defineProperty(globalThis, "navigator", {
+      value: originalNavigator,
+      writable: true,
+      configurable: true,
+    });
+  };
+}
+
 describe("ComposeBox — Phase 05 upload wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -242,52 +280,59 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     expect(onAttachFiles).not.toHaveBeenCalled();
   });
 
-  it("Test 7: Send with attachments routes to onSendWithAttachments; without attachments still uses onSend", () => {
-    const onSend = vi.fn(() => true);
-    const onSendWithAttachments = vi.fn();
+  it("Test 7: Send with attachments routes to onSendWithAttachments; without attachments still uses onSend", async () => {
+    const restore = withMediaDevicesStub();
+    try {
+      const onSend = vi.fn(() => true);
+      const onSendWithAttachments = vi.fn();
 
-    // With attachments — Send should call onSendWithAttachments, not onSend.
-    const { rerender } = render(
-      <ComposeBox
-        {...baseProps({
-          onSend,
-          stagedAttachments: [mkAtt("a", "one.txt")],
-          onRemoveAttachment: vi.fn(),
-          showPaperclip: false,
-          onAttachFiles: vi.fn(),
-          onSendWithAttachments,
-        })}
-      />,
-    );
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "hey" } });
-    // Patch #129: selector updated from getByLabelText(/send message/i) to
-    // getByRole('button', { name: 'Send' }) — the retired amber-Send from
-    // patch #121 wore aria-label="Send message"; the new inside-textarea
-    // Send button wears aria-label="Send" (exact match, no regex).
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(onSendWithAttachments).toHaveBeenCalledWith("hey");
-    expect(onSend).not.toHaveBeenCalled();
+      // With attachments — Send should call onSendWithAttachments, not onSend.
+      const { rerender } = render(
+        <ComposeBox
+          {...baseProps({
+            onSend,
+            stagedAttachments: [mkAtt("a", "one.txt")],
+            onRemoveAttachment: vi.fn(),
+            showPaperclip: false,
+            onAttachFiles: vi.fn(),
+            onSendWithAttachments,
+          })}
+        />,
+      );
+      const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "hey" } });
+      // Patch #129: selector updated from getByLabelText(/send message/i) to
+      // getByRole('button', { name: 'Send' }) — the retired amber-Send from
+      // patch #121 wore aria-label="Send message"; the new inside-textarea
+      // Send button wears aria-label="Send" (exact match, no regex).
+      // Phase 32: short-tap-pointer sequence replaces fireEvent.click (see
+      // shortTapSendButton helper comment above).
+      await shortTapSendButton(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement);
+      expect(onSendWithAttachments).toHaveBeenCalledWith("hey");
+      expect(onSend).not.toHaveBeenCalled();
 
-    // Rerender WITHOUT attachments — Send should use onSend.
-    onSendWithAttachments.mockClear();
-    onSend.mockClear();
-    rerender(
-      <ComposeBox
-        {...baseProps({
-          onSend,
-          stagedAttachments: [],
-          onRemoveAttachment: vi.fn(),
-          showPaperclip: false,
-          onAttachFiles: vi.fn(),
-          onSendWithAttachments,
-        })}
-      />,
-    );
-    fireEvent.change(textarea, { target: { value: "plain" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(onSend).toHaveBeenCalledWith("plain");
-    expect(onSendWithAttachments).not.toHaveBeenCalled();
+      // Rerender WITHOUT attachments — Send should use onSend.
+      onSendWithAttachments.mockClear();
+      onSend.mockClear();
+      rerender(
+        <ComposeBox
+          {...baseProps({
+            onSend,
+            stagedAttachments: [],
+            onRemoveAttachment: vi.fn(),
+            showPaperclip: false,
+            onAttachFiles: vi.fn(),
+            onSendWithAttachments,
+          })}
+        />,
+      );
+      fireEvent.change(textarea, { target: { value: "plain" } });
+      await shortTapSendButton(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement);
+      expect(onSend).toHaveBeenCalledWith("plain");
+      expect(onSendWithAttachments).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
   });
 
   it("Test 8: Send button ENABLED with attachments even when caption text is empty; disabled without either", () => {
@@ -408,16 +453,26 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     expect(wrapper!.contains(sendBtn)).toBe(true);
   });
 
-  it("inside-textarea send button: click with text present calls onSend with trimmed payload and clears the textarea (COMPOSE-04)", () => {
-    const onSend = vi.fn(() => true);
-    render(<ComposeBox {...baseProps({ onSend })} />);
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "hi there  " } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    // handleSend trims trailing whitespace before dispatch.
-    expect(onSend).toHaveBeenCalledWith("hi there");
-    // COMPOSE-04 clear-on-success: textarea is empty after a truthy dispatch.
-    expect(textarea.value).toBe("");
+  it("inside-textarea send button: short-tap with text present calls onSend with trimmed payload and clears the textarea (COMPOSE-04)", async () => {
+    const restore = withMediaDevicesStub();
+    try {
+      const onSend = vi.fn(() => true);
+      render(<ComposeBox {...baseProps({ onSend })} />);
+      const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "hi there  " } });
+      // Phase 32: short-tap-pointer sequence replaces fireEvent.click. Wrap
+      // in act so React commits the setText("") state update triggered inside
+      // handleSend's success branch before we assert on textarea.value.
+      await act(async () => {
+        await shortTapSendButton(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement);
+      });
+      // handleSend trims trailing whitespace before dispatch.
+      expect(onSend).toHaveBeenCalledWith("hi there");
+      // COMPOSE-04 clear-on-success: textarea is empty after a truthy dispatch.
+      expect(textarea.value).toBe("");
+    } finally {
+      restore();
+    }
   });
 
   it("inside-textarea send button: disabled state — button reports disabled and click is a no-op", () => {
@@ -539,62 +594,75 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
   });
 
   // QS 4: Send slot success — onSend called with text, slot disappears
-  it("QS 4 — clicking slot Send with text calls onSend and removes the slot on success (true)", async () => {
-    const onSend = vi.fn(() => true);
-    render(<ComposeBox {...baseProps({ onSend })} />);
-    await flushMountEffect();
+  it("QS 4 — short-tap slot Send with text calls onSend and removes the slot on success (true)", async () => {
+    // Phase 32 Plan 32-02: slot send button is now pointer-gesture-owned
+    // (onClick removed; hook onShortTap → handleQueueSlotSend). Drive short-
+    // tap sequence, mock mediaDevices for voice.start() in the hook.
+    const restore = withMediaDevicesStub();
+    try {
+      const onSend = vi.fn(() => true);
+      render(<ComposeBox {...baseProps({ onSend })} />);
+      await flushMountEffect();
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+      });
 
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
-    const slotTextarea = allTextareas[0];
+      const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+      // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
+      const slotTextarea = allTextareas[0];
 
-    await act(async () => {
-      fireEvent.change(slotTextarea, { target: { value: "send this" } });
-    });
+      await act(async () => {
+        fireEvent.change(slotTextarea, { target: { value: "send this" } });
+      });
 
-    // Find the slot's Send button (not the primary Send)
-    const slotSendBtn = screen.getByRole("button", { name: /send queued message/i });
-    await act(async () => {
-      fireEvent.click(slotSendBtn);
-    });
+      // Find the slot's Send button (not the primary Send)
+      const slotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
+      await act(async () => {
+        await shortTapSendButton(slotSendBtn);
+      });
 
-    expect(onSend).toHaveBeenCalledWith("send this");
-    // Slot should be removed after successful send
-    expect(screen.getAllByRole("textbox").length).toBe(1); // only primary
+      expect(onSend).toHaveBeenCalledWith("send this");
+      // Slot should be removed after successful send
+      expect(screen.getAllByRole("textbox").length).toBe(1); // only primary
+    } finally {
+      restore();
+    }
   });
 
   // QS 5: Send slot failure — slot persists, errorMessage surfaces
-  it("QS 5 — clicking slot Send when onSend returns false keeps the slot and shows error", async () => {
-    const onSend = vi.fn(() => false);
-    render(<ComposeBox {...baseProps({ onSend })} />);
-    await flushMountEffect();
+  it("QS 5 — short-tap slot Send when onSend returns false keeps the slot and shows error", async () => {
+    const restore = withMediaDevicesStub();
+    try {
+      const onSend = vi.fn(() => false);
+      render(<ComposeBox {...baseProps({ onSend })} />);
+      await flushMountEffect();
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+      });
 
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
-    const slotTextarea = allTextareas[0];
+      const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+      // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
+      const slotTextarea = allTextareas[0];
 
-    await act(async () => {
-      fireEvent.change(slotTextarea, { target: { value: "failing send" } });
-    });
+      await act(async () => {
+        fireEvent.change(slotTextarea, { target: { value: "failing send" } });
+      });
 
-    const slotSendBtn = screen.getByRole("button", { name: /send queued message/i });
-    await act(async () => {
-      fireEvent.click(slotSendBtn);
-    });
+      const slotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
+      await act(async () => {
+        await shortTapSendButton(slotSendBtn);
+      });
 
-    expect(onSend).toHaveBeenCalledWith("failing send");
-    // Slot persists
-    expect(screen.getAllByRole("textbox").length).toBe(2);
-    // Error message surfaces
-    expect(screen.getByText(/not connected/i)).toBeTruthy();
+      expect(onSend).toHaveBeenCalledWith("failing send");
+      // Slot persists
+      expect(screen.getAllByRole("textbox").length).toBe(2);
+      // Error message surfaces
+      expect(screen.getByText(/not connected/i)).toBeTruthy();
+    } finally {
+      restore();
+    }
   });
 
   // QS 6: Send slot disabled when empty

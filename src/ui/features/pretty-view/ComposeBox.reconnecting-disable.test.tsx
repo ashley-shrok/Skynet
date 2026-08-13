@@ -89,16 +89,40 @@ describe("ComposeBox — reconnectingActive gating", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("R5: reconnectingActive=false (default) — baseline sanity, Send enabled and click fires onSend", () => {
-    const onSend = vi.fn(() => true);
-    render(<ComposeBox {...baseProps({ onSend })} />);
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "normal send" } });
-    const sendBtn = screen.getByLabelText("Send") as HTMLButtonElement;
-    expect(sendBtn.disabled).toBe(false);
-    fireEvent.click(sendBtn);
-    expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("normal send");
+  it("R5: reconnectingActive=false (default) — baseline sanity, Send enabled and short-tap fires onSend", async () => {
+    // Phase 32 Plan 32-02: send path is now pointer-gesture-owned, not click-
+    // owned. Stub navigator.mediaDevices so useHoldToRecord's onPointerDown ->
+    // voice.start() -> getUserMedia does not crash; the short-tap branch awaits
+    // voice.cancel() (Plan 32-01 pendingCancelRef synchronous teardown) which
+    // discards the never-resolving getUserMedia promise.
+    const originalNavigator = globalThis.navigator;
+    const getUserMediaMock = vi.fn(() => new Promise(() => {}));
+    Object.defineProperty(globalThis, "navigator", {
+      value: { mediaDevices: { getUserMedia: getUserMediaMock } },
+      writable: true,
+      configurable: true,
+    });
+    try {
+      const onSend = vi.fn(() => true);
+      render(<ComposeBox {...baseProps({ onSend })} />);
+      const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "normal send" } });
+      const sendBtn = screen.getByLabelText("Send") as HTMLButtonElement;
+      expect(sendBtn.disabled).toBe(false);
+      fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+      fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(onSend).toHaveBeenCalledTimes(1);
+      expect(onSend).toHaveBeenCalledWith("normal send");
+    } finally {
+      Object.defineProperty(globalThis, "navigator", {
+        value: originalNavigator,
+        writable: true,
+        configurable: true,
+      });
+    }
   });
 });
 

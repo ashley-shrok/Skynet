@@ -91,16 +91,44 @@ describe("ComposeBox — dormantActive gating", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("D5: dormantActive=false (default) — baseline sanity, Send enabled and click fires onSend", () => {
-    const onSend = vi.fn(() => true);
-    render(<ComposeBox {...baseProps({ onSend })} />);
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "normal send" } });
-    const sendBtn = screen.getByLabelText("Send") as HTMLButtonElement;
-    expect(sendBtn.disabled).toBe(false);
-    fireEvent.click(sendBtn);
-    expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("normal send");
+  it("D5: dormantActive=false (default) — baseline sanity, Send enabled and short-tap fires onSend", async () => {
+    // Phase 32 Plan 32-02: the primary send button's onClick prop is now
+    // `asideActive ? () => onAsideDismiss?.() : undefined`; the non-aside
+    // send path is served exclusively by useHoldToRecord's pointer handlers.
+    // Drive the short-tap (elapsedMs < 250ms) sequence which triggers the
+    // hook's onShortTap → handleSend. Stub navigator.mediaDevices because the
+    // hook calls voice.start() → getUserMedia inside onPointerDown (D-16-02).
+    // Short-tap awaits voice.cancel() which takes the Plan 32-01
+    // pendingCancelRef synchronous branch; the never-resolving getUserMedia
+    // promise is discarded by that teardown, so state never leaves "idle".
+    const originalNavigator = globalThis.navigator;
+    const getUserMediaMock = vi.fn(() => new Promise(() => {}));
+    Object.defineProperty(globalThis, "navigator", {
+      value: { mediaDevices: { getUserMedia: getUserMediaMock } },
+      writable: true,
+      configurable: true,
+    });
+    try {
+      const onSend = vi.fn(() => true);
+      render(<ComposeBox {...baseProps({ onSend })} />);
+      const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "normal send" } });
+      const sendBtn = screen.getByLabelText("Send") as HTMLButtonElement;
+      expect(sendBtn.disabled).toBe(false);
+      fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+      fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(onSend).toHaveBeenCalledTimes(1);
+      expect(onSend).toHaveBeenCalledWith("normal send");
+    } finally {
+      Object.defineProperty(globalThis, "navigator", {
+        value: originalNavigator,
+        writable: true,
+        configurable: true,
+      });
+    }
   });
 });
 
