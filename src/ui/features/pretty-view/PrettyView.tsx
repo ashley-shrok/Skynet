@@ -161,6 +161,22 @@ export interface PrettyViewProps {
   // patch #148 reconnect scheduler reopens the WS. Terminal.tsx is the sole
   // caller and always has `isVisible` in scope — required, not optional.
   isVisible: boolean;
+  // Phase 35 — ref-forwarding registration surface for pretty-view outbound
+  // writes. Terminal.tsx holds two refs (pvSendInputRef, pvSendInterruptRef)
+  // that PrettyView populates on mount so MessageQueueDrawer (mounted OUTSIDE
+  // PrettyView as a sibling at Terminal.tsx:3327) and other Terminal.tsx-scope
+  // callers can write to PrettyView's WS without prop-drilling `wsRef` upward.
+  //
+  // Pattern: parent (Terminal.tsx) passes inline lambdas that write the fn
+  // into a React ref. PrettyView calls onRegisterSendInput?.(sendInput) in a
+  // mount effect; on unmount, calls onUnregisterSendInput?.() to null the ref.
+  // Callers read `.current?.()` at call time — null when PrettyView is
+  // unmounted (isPrettyMode=false), treated as a silent noop (same posture as
+  // the pre-cutover `if (!ws || ws.readyState !== 1) return` guard).
+  onRegisterSendInput?: (fn: (text: string, mqid?: string) => boolean) => void;
+  onUnregisterSendInput?: () => void;
+  onRegisterSendInterrupt?: (fn: () => void) => void;
+  onUnregisterSendInterrupt?: () => void;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -246,6 +262,10 @@ export function PrettyView({
   onInjectedTurnReady,
   onTogglePrettyMode,
   isVisible,
+  onRegisterSendInput,
+  onUnregisterSendInput,
+  onRegisterSendInterrupt,
+  onUnregisterSendInterrupt,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
@@ -592,6 +612,53 @@ export function PrettyView({
       /* swallow — best-effort; ws may be mid-close */
     }
   }, []);
+
+  // Phase 35 — outbound-write callbacks registered with Terminal.tsx via the
+  // ref-forwarding surface (onRegisterSendInput / onRegisterSendInterrupt props).
+  // Callers in Terminal.tsx (handleInjectedTurnReady, onSend, onInterrupt,
+  // MessageQueueDrawer.onSend) read pvSendInputRef.current / pvSendInterruptRef.current
+  // at call time and invoke these closures. Both close over wsRef (a stable React
+  // ref); .current is read at call time — not captured — so deps:[] is correct
+  // (same posture as handleWake / handlePlanApprove above).
+
+  // sendInput: sends {type:"input", data, [messageQueueItemId]} on PrettyView's
+  // own claude-session WS. Returns true on successful send, false on guard-trip
+  // or catch. The boolean return lets callers (e.g. handleInjectedTurnReady's
+  // comment at Terminal.tsx) treat false as "batch stays in staging for retry".
+  // try/catch is AUTHORITATIVE (supersedes PATTERNS.md brevity example): ws.send
+  // CAN throw if the socket transitions from OPEN to CLOSING between the readyState
+  // guard and the actual send (backgrounding, tab-hide, mid-write network flap).
+  // Returning false on catch gives the caller a truthful no-send signal.
+  const sendInput = useCallback((text: string, mqid?: string): boolean => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "input",
+          data: text,
+          ...(mqid ? { messageQueueItemId: mqid } : {}),
+        }),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // sendInterrupt: sends {type:"interrupt"} on PrettyView's WS. Returns void
+  // (no boolean signal — matching the existing onInterrupt contract in Terminal.tsx).
+  // Swallow-on-throw is fine here: best-effort Ctrl-C, nothing to signal upstream.
+  const sendInterrupt = useCallback((): void => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(JSON.stringify({ type: "interrupt" }));
+    } catch {
+      /* swallow — best-effort; ws may be mid-close */
+    }
+  }, []);
+
   // Phase 14 quick-task 260726-vbd: onSend wrapper that detects /btw
   // submissions and arms the asidePending flag + 60s safety timer.
   //
@@ -1877,6 +1944,20 @@ export function PrettyView({
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Phase 35 — register sendInput + sendInterrupt with Terminal.tsx on mount;
+  // unregister on unmount. Terminal.tsx stores the registered fn in a React ref
+  // (pvSendInputRef / pvSendInterruptRef); callers read .current?.() at call
+  // time. Cleanup nulls the refs so callers treat null as a silent noop when
+  // PrettyView is unmounted (isPrettyMode=false).
+  useEffect(() => {
+    onRegisterSendInput?.(sendInput);
+    onRegisterSendInterrupt?.(sendInterrupt);
+    return () => {
+      onUnregisterSendInput?.();
+      onUnregisterSendInterrupt?.();
+    };
+  }, [sendInput, sendInterrupt, onRegisterSendInput, onRegisterSendInterrupt, onUnregisterSendInput, onUnregisterSendInterrupt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div
