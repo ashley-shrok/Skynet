@@ -738,6 +738,145 @@ describe("useVoiceRecording", () => {
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // cancel() race-safety (pending cancel flag) — Plan 32-01 Task 1 B-1 fix
+  //
+  // The race being defended: cancel() invoked BEFORE getUserMedia resolves
+  // (short-tap on hold-send during a slow mic-permission grant). Before this
+  // fix, cancel()'s state !== "recording" guard turned it into a no-op, so
+  // the arriving stream was still wired up to a fresh MediaRecorder and the
+  // mic stayed hot with no way to stop it.
+  //
+  // The fix: cancel() in the pending window sets pendingCancelRef=true;
+  // start()'s streamPromise.then() reads that flag, tears down the stream,
+  // and short-circuits BEFORE constructing MediaRecorder / firing setState /
+  // playing the start sound.
+  // ---------------------------------------------------------------------------
+
+  describe("cancel() race-safety (pending cancel flag)", () => {
+    it("Test PC-A: cancel() BEFORE getUserMedia resolves → MediaRecorder NEVER constructed, state stays idle, stream tracks stopped", async () => {
+      // Install a controllable getUserMedia so the .then() callback does not run
+      // until we explicitly resolve it. This models the "slow mic-permission grant"
+      // window: state stays "idle" throughout, so pre-fix cancel() would be a no-op.
+      let resolveStream: (stream: ReturnType<typeof makeMockStream>) => void = () => {};
+      const controlledStream = makeMockStream();
+      Object.defineProperty(globalThis, "navigator", {
+        value: {
+          mediaDevices: {
+            getUserMedia: vi.fn(
+              () =>
+                new Promise<ReturnType<typeof makeMockStream>>((r) => {
+                  resolveStream = r;
+                }),
+            ),
+          },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const { result } = renderHook(() => useVoiceRecording());
+
+      // Fire start() — getUserMedia called synchronously; .then() has NOT run yet.
+      act(() => { result.current.start(); });
+      expect(result.current.state).toBe("idle");
+      expect(MockMediaRecorder.instances).toHaveLength(0);
+
+      // Cancel while state is still "idle" — pre-fix, this was a no-op; post-fix,
+      // it sets pendingCancelRef=true.
+      await act(async () => { await result.current.cancel(); });
+      expect(result.current.state).toBe("idle");
+      expect(MockMediaRecorder.instances).toHaveLength(0);
+
+      // Now resolve the pending getUserMedia. The .then() callback runs, sees
+      // pendingCancelRef=true, tears down the stream, and returns early.
+      await act(async () => {
+        resolveStream(controlledStream);
+        // Flush the microtask queue so .then() executes.
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // MediaRecorder was NEVER constructed — the race is closed.
+      expect(MockMediaRecorder.instances).toHaveLength(0);
+      // State never transitioned to "recording".
+      expect(result.current.state).toBe("idle");
+      // Stream tracks were stopped (torn down by the .then() pending-cancel branch).
+      expect(controlledStream._track.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it("Test PC-B: cancel() AFTER recording started → unchanged behavior (recorder.stop called, state → idle)", async () => {
+      // This proves the fix is purely additive: the pre-existing state === "recording"
+      // branch of cancel() still runs byte-identically.
+      const { result } = renderHook(() => useVoiceRecording());
+
+      act(() => { result.current.start(); });
+      await waitFor(() => expect(result.current.state).toBe("recording"));
+
+      expect(MockMediaRecorder.instances).toHaveLength(1);
+      const recorderInstance = MockMediaRecorder.instances[0];
+      const stream = recorderInstance.stream as unknown as ReturnType<typeof makeMockStream>;
+
+      await act(async () => { await result.current.cancel(); });
+
+      expect(result.current.state).toBe("idle");
+      expect(recorderInstance.stop).toHaveBeenCalledTimes(1);
+      expect(stream._track.stop).toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("Test PC-C: cancel-then-start sequence → stale pending-cancel flag is cleared at start() entry", async () => {
+      // Install a controllable getUserMedia so we can drive the pending window
+      // for the FIRST start()/cancel() pair. After cancel resolves the .then(),
+      // we switch getUserMedia back to auto-resolving so the SECOND start()
+      // completes normally.
+      let resolveStream1: (stream: ReturnType<typeof makeMockStream>) => void = () => {};
+      const controlledStream1 = makeMockStream();
+      const getUserMediaMock = vi
+        .fn()
+        // First call: controlled promise (pending until we resolve it).
+        .mockImplementationOnce(
+          () =>
+            new Promise<ReturnType<typeof makeMockStream>>((r) => {
+              resolveStream1 = r;
+            }),
+        )
+        // Second call: auto-resolves with a fresh stream so the second start proceeds.
+        .mockImplementation(() => Promise.resolve(makeMockStream()));
+      Object.defineProperty(globalThis, "navigator", {
+        value: {
+          mediaDevices: { getUserMedia: getUserMediaMock },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const { result } = renderHook(() => useVoiceRecording());
+
+      // First cycle: start → cancel while pending → resolve → .then() tears down.
+      act(() => { result.current.start(); });
+      await act(async () => { await result.current.cancel(); });
+      await act(async () => {
+        resolveStream1(controlledStream1);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      // No MediaRecorder from the first cycle.
+      expect(MockMediaRecorder.instances).toHaveLength(0);
+      expect(controlledStream1._track.stop).toHaveBeenCalledTimes(1);
+      expect(result.current.state).toBe("idle");
+
+      // Second cycle: fresh start must clear the pending-cancel flag at entry and
+      // proceed through .then() normally.
+      act(() => { result.current.start(); });
+      await waitFor(() => expect(result.current.state).toBe("recording"));
+
+      // Fresh MediaRecorder constructed for the second cycle.
+      expect(MockMediaRecorder.instances).toHaveLength(1);
+      expect(MockMediaRecorder.instances[0].start).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("Test F: failed .play() Promise does not throw or break the recording flow", async () => {
     // Make start.mp3's play() reject (e.g., Safari autoplay blocked)
     // We need to intercept the Audio constructor to inject this behavior.

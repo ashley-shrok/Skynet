@@ -100,6 +100,13 @@ export function useVoiceRecording(
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  // Defensive: set true if cancel() is called while getUserMedia is still
+  // resolving. Consumed by the streamPromise.then() callback in start() to
+  // abort the recording setup before MediaRecorder is constructed. Prevents
+  // a race where a short-tap on hold-send lands during the mic-permission
+  // grant window and would otherwise leave the mic hot indefinitely.
+  const pendingCancelRef = useRef<boolean>(false);
+
   // Audio feedback instances — lazy-initialized once on first render via ref.
   // Persists across renders so we don't reconstruct Audio objects on every render.
   const startAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -288,8 +295,18 @@ export function useVoiceRecording(
    * the mic permission prompt (D-16-02 lock, Nelly warning 2026-07-27).
    *
    * No-op if state !== "idle" (gate against rapid-tap, T-16-10).
+   *
+   * Pending-cancel race defense: cancel() may be invoked BEFORE the
+   * streamPromise.then() callback runs (short-tap on hold-send during a slow
+   * mic-permission grant). In that window the state guard in cancel() would
+   * previously turn cancel into a no-op, and the mic would stay hot. This
+   * function's .then() callback now checks pendingCancelRef and tears down the
+   * arriving stream before constructing MediaRecorder — see Task 1 of Plan 32-01.
    */
   function start(): void {
+    // Clear stale pending-cancel flag so a prior cancel cannot kill this fresh start.
+    pendingCancelRef.current = false;
+
     if (state !== "idle") return;
 
     // ⚠️ MUST be the first non-conditional statement — NO await before this.
@@ -299,6 +316,18 @@ export function useVoiceRecording(
 
     streamPromise
       .then((stream) => {
+        // Pending-cancel check: if cancel() was called while getUserMedia was
+        // resolving, tear down the just-arrived stream and short-circuit before
+        // any recorder / state / audio side effects.
+        if (pendingCancelRef.current) {
+          pendingCancelRef.current = false;
+          stream.getTracks().forEach((t) => t.stop());
+          // Do NOT setState (stays "idle"), do NOT play start sound, do NOT
+          // construct MediaRecorder. Nothing to clean up in refs — the pre-.then()
+          // path did not touch streamRef / chunksRef / recorderRef.
+          return;
+        }
+
         streamRef.current = stream;
         chunksRef.current = [];
 
@@ -342,9 +371,20 @@ export function useVoiceRecording(
   async function cancel(): Promise<void> {
     console.info(`[voice] cancel-entry state=${state} ${ctxSuffix}`);
     if (state !== "recording") {
-      console.warn(`[voice] cancel-gate-rejected state=${state} expected=recording ${ctxSuffix}`);
+      // Defensive: mark a pending cancel so an in-flight start()'s
+      // streamPromise.then() will tear down the resolved stream before
+      // constructing MediaRecorder. This closes the race where a caller
+      // (e.g., useHoldToRecord short-tap) calls cancel() before
+      // getUserMedia has resolved.
+      pendingCancelRef.current = true;
+      console.warn(`[voice] cancel-gate-rejected state=${state} expected=recording pending-cancel-armed=true ${ctxSuffix}`);
       return;
     }
+    // Belt-and-suspenders: proactively clear pendingCancelRef in the
+    // state === "recording" branch. It should already be false here, but if
+    // the caller sequence was cancel → start → (getUserMedia resolves) →
+    // recording → cancel, the second cancel must not leave a stale true flag.
+    pendingCancelRef.current = false;
     // AudioSession-safety: play cancel.mp3 AFTER recorder teardown, not before.
     // iOS Safari shares one AudioSession between MediaRecorder and Audio playback;
     // starting playback while recording is active can drop MediaRecorder.onstop and
