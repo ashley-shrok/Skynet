@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-13T14:22:00.000Z"
-last_activity: 2026-08-13 -- Phase 37 (Hold-to-send, dir 32-hold-to-send-...) Plan 01 complete on top of Tiffany's #435 base
+last_updated: "2026-08-13T16:00:38.492Z"
+last_activity: 2026-08-13 -- Phase 37 Plan 02 complete (useHoldToRecord wired into ComposeBox primary+slot; B-2/B-3/M-2 gates)
 progress:
   total_phases: 36
   completed_phases: 28
   total_plans: 141
-  completed_plans: 136
+  completed_plans: 137
   percent: 78
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 37 (Hold-to-send gesture on send button) — EXECUTING
-Plan: 2 of 3 (Plan 32-01 code + tests complete; Plan 32-02 next — ComposeBox wiring)
-Status: Plan 32-01 complete — awaiting Plan 32-02 (ComposeBox integration)
-Last activity: 2026-08-13 -- Phase 37 Plan 32-01 complete. useVoiceRecording.cancel() is race-safe against a pending getUserMedia (B-1 defensive fix via pendingCancelRef — set in cancel()'s state !== "recording" branch, consumed by streamPromise.then() to tear down the arriving stream before MediaRecorder is constructed; closes the race where a short-tap on hold-send during a slow mic-permission grant would leave the mic hot). New file src/ui/features/pretty-view/useHoldToRecord.ts exports the press-and-hold gesture hook (Shape 1 optimistic-start + rollback per CONTEXT.md § iOS Safari sync-gesture invariant). D-16-02 invariant preserved by construction. 13 new tests (3 in useVoiceRecording.test.ts covering PC-A/B/C cancel-race + 10 in useHoldToRecord.test.tsx). Three atomic commits: f822acf (fix pendingCancelRef) + 4aba86f (feat useHoldToRecord) + de58a08 (test useHoldToRecord). Full-suite npx vitest run → 1909 pass with 4 pre-existing flakes (all pass in isolation, documented in SUMMARY under Issues Encountered as jsdom-concurrency-timeout outside plan scope). NO worktrees. NOT pushed / NOT built / NOT deployed per fork discipline. Plan 32-02 (ComposeBox primary + slot send-button wiring) is UNBLOCKED.
+Plan: 3 of 3 (Plan 32-02 complete — ComposeBox primary+slot wired via useHoldToRecord + B-2/B-3/M-2 gates; Plan 32-03 next — integration tests)
+Status: Plan 32-02 complete — awaiting Plan 32-03 (ComposeBox.hold-to-send.test.tsx integration tests)
+Last activity: 2026-08-13 -- Phase 37 Plan 02 complete. useHoldToRecord wired into primary send button (ComposeBox.tsx L2380) and slot send button (QueuedRow subcomponent) symmetrically; B-2 aside-dismiss onClick preserved (onClick={asideActive ? () => onAsideDismiss?.() : undefined}); B-3 showRecordingControls gated on !holdInitiatedRef.current so hold-record does NOT swap RecordingControls under the pointer; M-2 slotSendDisabled shared local extracted (no drift between JSX disabled and hook arg); data-hold-active CSS pulse toward --color-pv-code-fg coral added in src/ui/index.css. Three atomic commits ee2c98f + c54b6ea + 2b371d2; SUMMARY 07eff33 + addendum 45960ce. NO worktrees. NOT pushed / NOT built / NOT deployed per fork discipline. Plan 32-03 (integration tests) UNBLOCKED.
 
 Last activity: 2026-08-12 — Completed quick task 260812-ma8 (dormancy-bubble-in-flow). Converted `DormancyOverlay` from a full-surface scrim covering the chat region into an assistant-aligned in-flow bubble at the bottom of the message list (mirrors `PlanPendingBubble`'s Phase 4 Glass treatment). Ashley 2026-08-12: *"just because the session is asleep doesn't mean I shouldn't be able to read the convo. Where that convo left off might be the deciding factor for whether I even wake that session up or not."* Two files, two atomic commits (`6741f81` DormancyOverlay restyle + `3e7a3ef` mount move + scroll-container gate widen). All three states preserved (asleep+Wake, waking+90s progress, warm-red error retry); STATIC Moon guardrail intact; ComposeBox `dormantActive` unchanged. One documented Rule-1 deviation bundled into Task 2's commit: widened outer scroll-container gate to include `renderedState === "dormant"` so the cold-pane-discovered-dormant path stays reachable (PrettyView.test.tsx Test E caught it). `npm run type-check` clean; pretty-view suite 555/555 pass. Deployed via `docker cp` to container `76c8ed0a8fcc`; HTTPS smoke test `200 0.412783s`. Patch #422 appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. NO worktrees.
 
@@ -141,7 +141,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 100%
+Progress: [█████████░] 97%
 
 ## Performance Metrics
 
@@ -220,6 +220,7 @@ Progress: [██████████] 100%
 | Phase 32 P04 | 553 | 1 tasks | 1 files |
 | Phase 35 P02 | 95 | 4 tasks | 4 files |
 | Phase 37 P01 | 55min | 3 tasks | 4 files (2 created, 2 modified) |
+| Phase 37 P02 | 90min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -329,6 +330,7 @@ Recent decisions affecting current work:
 - 2026-08-13 (37 / commit-prefix 32-01): useHoldToRecord Shape 1 (optimistic-start + rollback) locked over Shape 2 (debounced-start) per CONTEXT.md § iOS Safari sync-gesture invariant — Shape 2 requires an iOS Safari 26.6 real-device prototype and none exists in this tree. Shape 1 calls voice.start() synchronously in the pointerdown handler and rolls back via `await voice.cancel()` if the release is short-tap-fast; awaiting keeps the ordering deterministic (M-1 fix) and closes the race between rollback teardown and typed-send dispatch.
 - 2026-08-13 (37 / commit-prefix 32-01): holdInitiatedRef exposed as MutableRefObject (not state) on useHoldToRecord's return so the ComposeBox consumer can read it during render without triggering an infinite render loop. Set true BEFORE voice.start() so it's already true when the async voice.state → "recording" re-render fires — the consumer's `!holdInitiatedRef.current` predicate gates showRecordingControls off at the exact right moment (B-3 fix; prevents the 3-button RecordingControls from swapping in under the pointer during a hold-initiated recording).
 - 2026-08-13 (37 / commit-prefix 32-01): Injected-narrowed-voice pattern for gesture hooks — useHoldToRecord accepts `Pick<UseVoiceRecordingReturn, "state" | "start" | "cancel">` rather than calling useVoiceRecording itself. Enables ComposeBox to share ONE voice singleton across primary + slot send-button gestures + mic-tap path without duplicate hook instances. Also enables unit testing with a plain vi.fn() mock (no vi.mock of the whole useVoiceRecording module).
+- 2026-08-13 (37 / commit-prefix 32-02): Wired useHoldToRecord into ComposeBox primary + slot send buttons — B-2 aside-dismiss onClick preserved (onClick={asideActive ? () => onAsideDismiss?.() : undefined}); B-3 !holdInitiatedRef gates on showRecordingControls/showSlotRecording so hold-record does NOT swap RecordingControls under the pointer; M-2 slotSendDisabled shared local extracted (no drift between JSX disabled and hook arg); button[data-hold-active=true] CSS pulse tinting toward --color-pv-code-fg coral added in src/ui/index.css.
 
 ### Pending Todos
 
@@ -524,6 +526,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-13T15:46:28.692Z
-Stopped at: Completed 32-04-PLAN.md — Phase 32 FINAL wave complete; ready for verification
+Last session: 2026-08-13T16:00:37.919Z
+Stopped at: Completed 32-02-PLAN.md (Phase 37 P02) — Plan 32-03 (ComposeBox integration tests for hold gesture) next
 Resume file: None
