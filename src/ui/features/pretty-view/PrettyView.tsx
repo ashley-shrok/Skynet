@@ -75,6 +75,17 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 // to restore the original Phase 14 behavior.
 const AUTO_ASIDE_ARM_ENABLED = false;
 
+// quick-260812-x5f — debounced hidden-pane WS close (~60s).
+// Ashley 2026-08-12: voice-record + send + immediately switching to another
+// session broke because the WS used for the transcription-and-send pipeline
+// was closed immediately on isVisible=false (quick-260808-b74 regression).
+// A 60s grace window lets in-flight nav-away work (queued sends, pending
+// fetches, transcription pipelines) finish before the WS is ripped out.
+// See bounty: debounced-hidden-pane-ws-drop.
+// NOTE: this constant is intentionally DUPLICATED from Terminal.tsx — the
+// two files stay independent per bounty guidance (no shared helper invented).
+const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000;
+
 // Minimal read-only pretty view for a live Claude Code session.
 //
 // Opens a WebSocket to the claude-session bridge (Plan 01-02), sends
@@ -656,6 +667,10 @@ export function PrettyView({
   //   without calling setStatus's functional-update form from inside a WS callback.
   const reconnectAttemptsRef = useRef<number>(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // quick-260812-x5f: pending debounced-close timer handle.
+  // Set when isVisible=false schedules a WS close; cleared on isVisible=true
+  // (race-safe cancellation) and on unmount (no timer leak).
+  const hiddenPaneCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const paneKeyRef = useRef<string>('');
   const [retryKey, setRetryKey] = useState<number>(0);
   const statusRef = useRef<Status>('connecting');
@@ -1635,27 +1650,56 @@ export function PrettyView({
   // (Terminal.tsx only mounts PrettyView inside `isPrettyMode && ...`). The
   // main WS-setup effect (deps [hostId, tmuxSession, retryKey]) is already
   // opening the WS on mount — do not double-trigger.
+  //
+  // quick-260812-x5f — the close-on-hide is now DEBOUNCED by
+  // HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS (60s) so voice-record+send+nav-away
+  // and other in-flight nav-away work can complete before the WS is
+  // ripped out. Cancellation on isVisible=true is race-safe: if the
+  // timer already fired and close() ran, the existing reopen path on
+  // the next visible=false→true edge handles reconnection unchanged.
   useEffect(() => {
     if (!isVisible) {
-      // Pane became hidden — close the WS if it is open or connecting.
+      // Pane became hidden — schedule a debounced WS close after HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS.
+      // Clear any pending debounce timer first so a re-enter of the hidden
+      // state RESTARTS the 60s window from scratch (bounty scenario c).
+      if (hiddenPaneCloseTimerRef.current !== null) {
+        clearTimeout(hiddenPaneCloseTimerRef.current);
+        hiddenPaneCloseTimerRef.current = null;
+      }
       const ws = wsRef.current;
       if (ws !== null && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        // Clear any in-flight reconnect timer first so it doesn't fire while
-        // hidden and immediately reopen (the isVisibleRef guard on onclose's
-        // retry scheduler is the belt; this clearTimeout is the suspenders).
-        if (reconnectTimeoutRef.current !== null) {
-          clearTimeout(reconnectTimeoutRef.current);
-          reconnectTimeoutRef.current = null;
-        }
-        ws.close();
-        // onclose fires → setStatus('error') + setErrorMessage('Connection closed')
-        // (unconditional path in onclose) → patch #339 render gates keep bubbles
-        // visible and Send disabled, exactly as during a real reconnect pause.
-        // isVisibleRef.current will be false (mirror effect ran synchronously
-        // before this effect on the same render) → retry scheduler short-circuits.
+        console.info(`[ws-pause] hidden-pane-close-scheduled hostId=${hostId} sessionId=${tmuxSession} delayMs=${HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS}`);
+        hiddenPaneCloseTimerRef.current = setTimeout(() => {
+          hiddenPaneCloseTimerRef.current = null;
+          // Re-check readyState inside the callback — if the WS was already
+          // closed by another path during the 60s window, no-op.
+          if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+            // Clear any in-flight reconnect timer first so it doesn't fire
+            // while hidden and immediately reopen (the isVisibleRef guard on
+            // onclose's retry scheduler is the belt; this clearTimeout is the
+            // suspenders — mirrors the immediate-close variant this replaces).
+            if (reconnectTimeoutRef.current !== null) {
+              clearTimeout(reconnectTimeoutRef.current);
+              reconnectTimeoutRef.current = null;
+            }
+            console.info(`[ws-pause] hidden-pane-close-fired hostId=${hostId} sessionId=${tmuxSession} debounced=true`);
+            ws.close();
+            // onclose fires → setStatus('error') + setErrorMessage('Connection closed')
+            // (unconditional path in onclose) → patch #339 render gates keep bubbles
+            // visible and Send disabled, exactly as during a real reconnect pause.
+            // isVisibleRef.current will be false (mirror effect ran synchronously
+            // before this effect on the same render) → retry scheduler short-circuits.
+          }
+        }, HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS);
       }
     } else {
-      // Pane became visible — reopen the WS if it is gone or closing.
+      // Pane became visible — cancel any pending debounced-close first (race-safe).
+      if (hiddenPaneCloseTimerRef.current !== null) {
+        clearTimeout(hiddenPaneCloseTimerRef.current);
+        hiddenPaneCloseTimerRef.current = null;
+        console.info(`[ws-pause] hidden-pane-close-cancelled hostId=${hostId} sessionId=${tmuxSession}`);
+      }
+      // Reopen the WS if it is gone or closing.
       const ws = wsRef.current;
       if (ws === null || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
         // Fresh budget for this re-show (mirrors visibilitychange handler at ~970).
@@ -1683,9 +1727,18 @@ export function PrettyView({
       // If WS is already OPEN or CONNECTING (e.g. initial mount with isVisible=true),
       // no-op — don't interfere with the WS-setup effect.
     }
+    return () => {
+      // Unmount cleanup: clear the pending debounce timer so no timer leaks
+      // into unmounted components (bounty scenario e).
+      if (hiddenPaneCloseTimerRef.current !== null) {
+        clearTimeout(hiddenPaneCloseTimerRef.current);
+        hiddenPaneCloseTimerRef.current = null;
+      }
+    };
   }, [isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
   // deps: [isVisible] only. Reads only refs (wsRef, reconnectTimeoutRef,
-  // reconnectAttemptsRef) and calls setRetryKey — all stable across renders.
+  // reconnectAttemptsRef, hiddenPaneCloseTimerRef) and calls setRetryKey —
+  // all stable across renders.
   // Adding wsRef/setRetryKey would be superfluous (refs are stable; setRetryKey
   // is setState-stable). Do NOT add hostId/tmuxSession/retryKey — that would
   // conflate this effect with the main WS-setup effect.

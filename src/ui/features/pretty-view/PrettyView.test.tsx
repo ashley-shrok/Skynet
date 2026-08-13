@@ -1779,3 +1779,144 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     expect(holdingRoot?.getAttribute("role")).toBe("status");
   });
 });
+
+// ── quick 260812-x5f — PrettyView hidden-pane WS close debounce (~60s) ──────
+
+// The debounce constant from PrettyView.tsx (HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS).
+// Hardcoded here to avoid coupling this test to PrettyView's module exports.
+const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000;
+
+describe("quick 260812-x5f — PrettyView hidden-pane WS close debounce (~60s)", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // Mount PrettyView in streaming state, ready for debounce scenario tests.
+  function mountStreamingPV() {
+    const onSend = vi.fn(() => true);
+    const utils = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    // Flip to streaming so the WS is OPEN (readyState=1).
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'session', sessionFile: '/tmp/test.jsonl' }),
+        }),
+      );
+    });
+    return { ...utils, onSend, ws };
+  }
+
+  // (a) hidden 30s then visible: timer should NOT fire — WS stays alive.
+  it("(a) hide 30s then show: ws.close never called (timer cancelled before firing)", () => {
+    const { rerender, ws } = mountStreamingPV();
+
+    // Hide the pane — schedules debounced close.
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={false} />);
+    // Advance only 30s — timer has NOT fired yet.
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(ws.close).not.toHaveBeenCalled();
+
+    // Show the pane again — timer should be cancelled.
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />);
+    // Advance 60s more — timer is gone, close should NEVER be called.
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(ws.close).not.toHaveBeenCalled();
+    // No new WS stub created (reopen path did not fire — WS was not closed).
+    expect(wsStubs.length).toBe(1);
+  });
+
+  // (b) hidden 70s: ws.close fires exactly once at the 60s mark.
+  it("(b) hide 70s: ws.close fires exactly once at 60s", () => {
+    const { rerender, ws } = mountStreamingPV();
+
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={false} />);
+    // Advance to just before the threshold — not yet.
+    act(() => { vi.advanceTimersByTime(59_999); });
+    expect(ws.close).not.toHaveBeenCalled();
+    // Cross the threshold.
+    act(() => { vi.advanceTimersByTime(2); });
+    expect(ws.close).toHaveBeenCalledTimes(1);
+    // Advance more time — no additional calls.
+    act(() => { vi.advanceTimersByTime(10_000); });
+    expect(ws.close).toHaveBeenCalledTimes(1);
+  });
+
+  // (c) hide 30s → show 5s → hide 45s: second hide RESTARTS the 60s timer.
+  it("(c) rehide restarts the 60s timer (not accumulated)", () => {
+    const { rerender, ws } = mountStreamingPV();
+
+    // First hide: 30s into timer.
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={false} />);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(ws.close).not.toHaveBeenCalled();
+
+    // Show for 5s — timer cancelled.
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />);
+    act(() => { vi.advanceTimersByTime(5_000); });
+    expect(ws.close).not.toHaveBeenCalled();
+
+    // Second hide: restarts a fresh 60s window.
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={false} />);
+    // 45s from second hide — still below 60s from second hide.
+    act(() => { vi.advanceTimersByTime(45_000); });
+    expect(ws.close).not.toHaveBeenCalled();
+
+    // 20s more (now 65s from second hide) — timer fires.
+    act(() => { vi.advanceTimersByTime(20_000); });
+    expect(ws.close).toHaveBeenCalledTimes(1);
+  });
+
+  // (d) rapid flap (hidden 10s → visible 10s × 4): close never called.
+  it("(d) rapid hide/show flap: ws.close never called after full sequence", () => {
+    const { rerender, ws } = mountStreamingPV();
+
+    for (let i = 0; i < 4; i++) {
+      rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={false} />);
+      act(() => { vi.advanceTimersByTime(10_000); });
+      rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />);
+      act(() => { vi.advanceTimersByTime(10_000); });
+    }
+    expect(ws.close).not.toHaveBeenCalled();
+  });
+
+  // (e) unmount while timer pending: debounced timer does NOT fire after unmount.
+  // NOTE: the main WS-setup effect cleanup calls ws.close() on every unmount
+  // as part of its normal teardown — that is expected and correct. What we
+  // assert here is that the DEBOUNCE timer does not add extra ws.close() calls
+  // after unmount (i.e. cleanup cleared the pending debounce timer).
+  it("(e) unmount while timer pending: debounced timer does not add extra ws.close calls after unmount", () => {
+    const { rerender, ws, unmount } = mountStreamingPV();
+
+    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={false} />);
+    // Advance 30s — debounce timer still pending, not yet fired.
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(ws.close).not.toHaveBeenCalled();
+
+    // Unmount — the main WS-setup cleanup calls ws.close() (expected).
+    // The debounce cleanup should clear the pending debounce timer.
+    act(() => { unmount(); });
+    const callCountAtUnmount = ws.close.mock.calls.length;
+
+    // Advance 60s more — debounce timer is gone, so no additional ws.close calls.
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(ws.close).toHaveBeenCalledTimes(callCountAtUnmount);
+  });
+});
