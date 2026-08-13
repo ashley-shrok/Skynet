@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executed
-last_updated: "2026-08-13T16:52:00.000Z"
-last_activity: 2026-08-13 -- Phase 37 EXECUTED (all 3 plans done: race-safety fix + useHoldToRecord hook + ComposeBox wiring + integration tests); orchestrator ship next
+status: verifying
+last_updated: "2026-08-13T22:30:06.089Z"
+last_activity: 2026-08-13
 progress:
-  total_phases: 36
-  completed_phases: 29
-  total_plans: 141
-  completed_plans: 138
-  percent: 80
+  total_phases: 38
+  completed_phases: 30
+  total_plans: 153
+  completed_plans: 147
+  percent: 79
 ---
 
 # Project State
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 37 (Hold-to-send gesture on send button) — EXECUTED
 Plan: 3 of 3 (all plans complete — 32-01 hook + race-safety; 32-02 ComposeBox wiring + CSS; 32-03 integration tests)
-Status: Executed — awaiting orchestrator ship (deploy in flight now: rebased past Tiffany's #435, bundling with quick-260813-spkbtn shrink)
-Last activity: 2026-08-13 -- Phase 37 Plan 03 complete. New file src/ui/features/pretty-view/ComposeBox.hold-to-send.test.tsx (854 lines) — 10 deterministic integration tests covering all 9 CONTEXT.md § specifics cases (short-tap-sends, in-place-recording-during-hold with B-3 gating, glued-transcript-on-release-inside, slide-off-cancels, B-2 aside-morph inertness with preserved onClick, disabled-state inertness, voice.state≠idle guard, D-16-02 iOS Safari sync-gesture invariant, both-paths-coexist) plus a HOLD_THRESHOLD_MS boundary regression guard. Two atomic commits aefeb34 + 337bb06. `npx vitest run` full suite: 1923 pass / 7 skipped / 1 todo / 0 failed (delta vs Plan 32-01 baseline: +14 pass, -4 fail; pre-existing flakes did NOT reproduce). All Phase 37 plans complete; ship next.
+Status: Phase complete — ready for verification
+Last activity: 2026-08-13
 
 Last activity: 2026-08-12 — Completed quick task 260812-ma8 (dormancy-bubble-in-flow). Converted `DormancyOverlay` from a full-surface scrim covering the chat region into an assistant-aligned in-flow bubble at the bottom of the message list (mirrors `PlanPendingBubble`'s Phase 4 Glass treatment). Ashley 2026-08-12: *"just because the session is asleep doesn't mean I shouldn't be able to read the convo. Where that convo left off might be the deciding factor for whether I even wake that session up or not."* Two files, two atomic commits (`6741f81` DormancyOverlay restyle + `3e7a3ef` mount move + scroll-container gate widen). All three states preserved (asleep+Wake, waking+90s progress, warm-red error retry); STATIC Moon guardrail intact; ComposeBox `dormantActive` unchanged. One documented Rule-1 deviation bundled into Task 2's commit: widened outer scroll-container gate to include `renderedState === "dormant"` so the cold-pane-discovered-dormant path stays reachable (PrettyView.test.tsx Test E caught it). `npm run type-check` clean; pretty-view suite 555/555 pass. Deployed via `docker cp` to container `76c8ed0a8fcc`; HTTPS smoke test `200 0.412783s`. Patch #422 appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. NO worktrees.
 
