@@ -294,4 +294,60 @@ describe("IdentityModal — ShareIdentityPicker integration (Phase 38 Wave 2)", 
       expect(next.alreadySharedUserIds.has("u-existing")).toBe(true);
     });
   });
+
+  it("Test 5: alreadySharedUserIds resets when the modal binds to a different identity (persistent-mount, prop-swap regression)", async () => {
+    // Regression guard for the persistent-mount identity-switch trap:
+    // PrettyView keeps ONE IdentityModal mounted and swaps the `identity`
+    // prop as Ashley taps different badges. Without an explicit reset,
+    // the Set from the previous identity would carry over and render
+    // misleading "shared ✓" markers on the picker under the new identity.
+    // (The Set is deliberately session-scoped for a SINGLE identity —
+    // cross-session persistence is out of scope per CONTEXT.md § Deferred:
+    // provenance display — but within a session the marker must match
+    // whichever identity the modal is currently bound to.)
+    const identityA: Identity = { ...BASE_IDENTITY, id: "id-tina", identityKey: "tina" };
+    const identityB: Identity = { ...BASE_IDENTITY, id: "id-sara", identityKey: "sara" };
+
+    const { rerender } = render(
+      <IdentityModal
+        open={true}
+        onOpenChange={vi.fn()}
+        identity={identityA}
+        hue={200}
+        hostId={1}
+        container={document.body}
+      />,
+    );
+
+    // Load the picker under identity A and simulate a shared:true so u-new
+    // lands in the Set.
+    await waitFor(() => {
+      expect(screen.getByTestId("share-identity-picker-spy")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId("spy-simulate-share-true"));
+    await waitFor(() => {
+      expect(latestPickerProps().alreadySharedUserIds.has("u-new")).toBe(true);
+    });
+
+    // Switch the modal to identity B — same persistent mount, prop swap.
+    rerender(
+      <IdentityModal
+        open={true}
+        onOpenChange={vi.fn()}
+        identity={identityB}
+        hue={200}
+        hostId={1}
+        container={document.body}
+      />,
+    );
+
+    // The Set MUST be empty for identity B — u-new was accumulated under
+    // identity A, and A's share state has nothing to do with B's picker.
+    await waitFor(() => {
+      const props = latestPickerProps();
+      expect(props.identityKey).toBe("sara"); // sanity: prop swap landed
+      expect(props.alreadySharedUserIds.has("u-new")).toBe(false);
+      expect(props.alreadySharedUserIds.size).toBe(0);
+    });
+  });
 });

@@ -223,6 +223,21 @@ export function IdentityModal({
     () => new Set<string>(),
   );
 
+  // Reset alreadySharedUserIds when the modal is bound to a different identity.
+  // IdentityModal is mounted persistently in the tree (PrettyView reuses a
+  // single mount and swaps the `identity` prop as Ashley taps different badges),
+  // so the Set would otherwise carry stale target-user ids from the previous
+  // identity and render misleading "shared" markers under the new one.
+  // Keyed on identity.identityKey — that is the actual "am I looking at the
+  // same person?" signal (identity.id is the row PK, which also changes on
+  // switch, but identityKey is the semantic key that maps to the underlying
+  // agent). Session-scoped by design per CONTEXT.md § Deferred: provenance
+  // display — cross-session persistence would require a "who has this
+  // identityKey" endpoint that is explicitly out of scope for Phase 38.
+  useEffect(() => {
+    setAlreadySharedUserIds(new Set<string>());
+  }, [identity.identityKey]);
+
   // handleShareSuccess adds result.targetUserId to alreadySharedUserIds so the
   // picker's per-row marker updates on the next open without a refetch.
   const handleShareSuccess = useCallback(
