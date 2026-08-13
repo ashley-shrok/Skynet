@@ -1156,3 +1156,13 @@ Plans:
 **Wave 3** *(blocked on 39-02 completion — same-file overlap on starter.ts)*
 
 - [x] 39-04-PLAN.md — Wire installStopHook fire-and-forget on first successful acquireSshChannel per host per lifecycle + install-once tracking Set + reset on onLastUnsubscriber + starter.test.ts coverage for the install-once + non-blocking + failure-logs-with-err.message invariants (GATE2-05)
+
+### Phase 40: text editor in skynet
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 39
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 40 to break down)
