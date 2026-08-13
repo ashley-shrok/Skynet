@@ -1125,3 +1125,14 @@ Plans:
 - [x] 32-01-PLAN.md — useVoiceRecording.cancel() race-safety fix (pendingCancelRef) + useHoldToRecord hook (Shape 1 optimistic-start + rollback with awaited cancel before onShortTap) + unit tests (3 new useVoiceRecording tests + 10 useHoldToRecord tests including iOS Safari sync-gesture invariant assertion) (HOLD-SEND-01..05) — completed 2026-08-13, see 32-01-SUMMARY.md, commits f822acf + 4aba86f + de58a08
 - [x] 32-02-PLAN.md — Wire useHoldToRecord into ComposeBox primary send button (L2380-2437, preserves onClick={asideActive ? onAsideDismiss : undefined} per B-2) AND slot send button (L2807-2846 in QueuedRow subcomponent, with extracted slotSendDisabled shared local per M-2) + gate showRecordingControls / showSlotRecording on !holdInitiatedRef.current per B-3 + data-hold-active CSS rule + @keyframes in src/ui/index.css (HOLD-SEND-06..10) — completed 2026-08-13, see 32-02-SUMMARY.md, commits ee2c98f + c54b6ea + 2b371d2
 - [x] 32-03-PLAN.md — ComposeBox.hold-to-send.test.tsx integration tests covering all 9 CONTEXT.md § specifics test cases + 1 threshold-boundary regression guard, with deterministic B-2 (aside-dismiss via preserved onClick) and B-3 (RecordingControls does NOT swap in during hold-initiated recording) assertions (HOLD-SEND-11..13) — completed 2026-08-13, see 32-03-SUMMARY.md, commit aefeb34
+
+### Phase 38: Identity sharing — share an identity with another Skynet user from the identity modal
+
+**Goal:** Deliver a one-tap in-header picker in the identity modal that hands one Skynet user's identity to another via a copy-and-diverge duplicate INSERT onto the target user's row set — no permissioning, silent no-op on repeat, already-shared marker but still selectable, picker hides entirely when the deployment has no other users.
+**Requirements**: none (shape file + CONTEXT.md carry the locked decisions; no REQUIREMENTS.md IDs enumerated for this phase)
+**Depends on:** Phase 37
+**Plans:** 2 plans
+
+Plans:
+- [ ] 38-01-PLAN.md — Backend: POST /identities/:id/share (copy-and-diverge row duplicator, no-op on repeat, no permission gate) + GET /users/list-basic (slim per-authenticated-user route excluding requester, only {id, username} fields exposed) + tests for both endpoints
+- [ ] 38-02-PLAN.md — Frontend: shareIdentity + getUsersListBasic API clients + ShareIdentityPicker component (empty-state hide, populated dropdown, already-shared marker on selectable rows, toast confirmation on share) + IdentityModal DialogHeader wiring with parent-owned alreadySharedUserIds Set state + tests
