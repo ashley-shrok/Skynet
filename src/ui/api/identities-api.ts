@@ -306,7 +306,7 @@ export async function shareIdentity(
 ): Promise<ShareIdentityResponse> {
   try {
     const response = await authApi.post(
-      `/identities/${sourceIdentityId}/share`,
+      `/identities/${encodeURIComponent(sourceIdentityId)}/share`,
       { targetUserId },
     );
     return response.data as ShareIdentityResponse;
