@@ -1076,13 +1076,13 @@ Plans:
 
 **Wave 1**
 
-- [ ] 34-01-PLAN.md — Per-box fleet-status watcher core: Node.js/TypeScript daemon with session-JSON inotify + procStart liveness + PID→tmux resolver + Stop-hook Unix-socket consumer + ambient description-prefix filter
+- [ ] 34-01-PLAN.md — Backend fleet-status pure-library modules under src/backend/fleet-status/*: SessionJson + StopHookPayload zod parsers, procStart liveness (pure), PID→tmux correlation (dependency-injected SSH-exec), ambient description-prefix filter — the parse/logic layer Plan 04 SSH-poll orchestrator drives (per PIVOT 2026-08-13: NO per-box daemon, watcher runs inside Skynet backend)
 - [ ] 34-02-PLAN.md — Skynet backend fleet-status broadcast WS server on port 30012 with dual handshake modes (frontend consumer + box watcher), subscription registry with snapshot + fan-out + gone semantics, zod-validated versioned wire protocol
 - [ ] 34-03-PLAN.md — PrettyView WaitingBubble presentational component (PlanPendingBubble visual template, presence-only, no interactive controls per D-CTX lock — Ashley switches to terminal pane to answer)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 34-04-PLAN.md — Watcher-to-Skynet WS transport + retry backoff + systemd user unit + Stop-hook install script + dynamic identity-host discovery + nginx location blocks in BOTH configs + Monitor-payload live verification (closes RESEARCH § OQ-2) + human-verify deploy checkpoint (closes OQ-1 + OQ-4)
+- [ ] 34-04-PLAN.md — ssh-poll-orchestrator (2s SSH polling per identity-hosting host over existing SSH pool; state-delta publish into Plan 02 subscription registry; PID→tmux caching; 30s stale sweep) + remote-hook-install (one-time-per-host file drop + idempotent settings.json merge; NO persistent process) + stop-hook.sh (fire-and-forget bash) + fail-open regression tests for missing hook payload file (Ashley 2026-08-13 LOCKED) + verify-monitor-payload.sh (closes RESEARCH § OQ-2) + starter.ts wire-in + human-verify checkpoint against a real scratch identity
 
 **Wave 3** *(blocked on Wave 2 completion — EXTERNAL orchestrator gate)*
 
