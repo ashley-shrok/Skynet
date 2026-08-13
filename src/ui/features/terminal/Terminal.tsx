@@ -84,6 +84,17 @@ import { createLogDedup } from "@/lib/log-dedup";
 const visibilityDedup = createLogDedup({ N: 3, W: 5000 });
 const wsMsgDedup = createLogDedup({ N: 3, W: 5000 });
 
+// quick-260812-x5f — debounced hidden-pane WS close (~60s).
+// Ashley 2026-08-12: voice-record + send + immediately switching to another
+// session broke because the SSH WS was closed immediately on isVisible=false
+// (quick-260809-eqk regression for the nav-away case). A 60s grace window
+// lets in-flight nav-away work (queued sends, pending fetches, transcription
+// pipelines) finish before the WS is ripped out.
+// See bounty: debounced-hidden-pane-ws-drop.
+// NOTE: this constant is intentionally DUPLICATED from PrettyView.tsx — the
+// two files stay independent per bounty guidance (no shared helper invented).
+const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000;
+
 type HostKeyVerificationData = Omit<
   React.ComponentProps<typeof HostKeyVerificationDialog>,
   "isOpen" | "scenario" | "onAccept" | "onReject" | "backgroundColor"
@@ -341,6 +352,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const prevIsVisibleRef = useRef<boolean>(isVisible);
     const isFittingRef = useRef(false);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // quick-260812-x5f: pending debounced-close timer handle.
+    // Set when isVisible=false schedules a WS close; cleared on isVisible=true
+    // (race-safe cancellation) and on unmount (no timer leak).
+    const hiddenPaneCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
     const reconnectAttempts = useRef(0);
     const maxReconnectAttempts = 8;
     const isUnmountingRef = useRef(false);
@@ -658,6 +673,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // at line ~2903 is already opening the WS on mount via connectToHost —
     // do not double-trigger. The visible branch below is a no-op when
     // readyState is OPEN or CONNECTING.
+    //
+    // quick-260812-x5f — the close-on-hide is now DEBOUNCED by
+    // HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS (60s) so voice-record+send+nav-away
+    // and other in-flight nav-away work can complete before the WS is
+    // ripped out. Cancellation on isVisible=true is race-safe: if the
+    // timer already fired and close() ran, the existing reopen path on
+    // the next visible=false→true edge handles reconnection unchanged.
     useEffect(() => {
       // quick-260809-ih9: capture prev isVisible before mutating the ref.
       // The visible branch below is gated on `!prev && isVisible` so it
@@ -669,8 +691,24 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       // a still-null `terminal` closure.
       const prev = prevIsVisibleRef.current;
       prevIsVisibleRef.current = isVisible;
+
+      // quick-260812-x5f: race-safe cancellation — fire on EVERY isVisible=true
+      // observation (not just the false→true edge) so any pending debounced-close
+      // is cancelled regardless of whether prev-gated reopen fires.
+      if (isVisible && hiddenPaneCloseTimerRef.current !== null) {
+        clearTimeout(hiddenPaneCloseTimerRef.current);
+        hiddenPaneCloseTimerRef.current = null;
+        console.info(`[ws-pause] hidden-pane-close-cancelled hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'}`);
+      }
+
       if (!isVisible) {
-        // Pane became hidden — close the WS if it is open or connecting.
+        // Pane became hidden — schedule a debounced WS close after HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS.
+        // Clear any pending debounce timer first so a re-enter of the hidden
+        // state RESTARTS the 60s window from scratch (bounty scenario c).
+        if (hiddenPaneCloseTimerRef.current !== null) {
+          clearTimeout(hiddenPaneCloseTimerRef.current);
+          hiddenPaneCloseTimerRef.current = null;
+        }
         // NOTE: this branch stays always-firing (no edge gate). Its
         // readyState guard makes it a safe no-op when ws is null (initial
         // mount case). Keeping it always-firing preserves close-on-hide
@@ -682,18 +720,27 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           (ws.readyState === WebSocket.OPEN ||
             ws.readyState === WebSocket.CONNECTING)
         ) {
-          // Clear any in-flight reconnect timer first so it doesn't fire
-          // while hidden and immediately reopen (the isVisibleRef guard on
-          // attemptReconnection is the belt; this clearTimeout is the
-          // suspenders — mirrors PrettyView.tsx:1041-1044).
-          if (reconnectTimeoutRef.current !== null) {
-            clearTimeout(reconnectTimeoutRef.current);
-            reconnectTimeoutRef.current = null;
-          }
-          ws.close();
-          // onclose fires → the existing close handling path runs. The
-          // isVisibleRef guard added to attemptReconnection short-circuits
-          // any auto-reconnect scheduling while hidden.
+          console.info(`[ws-pause] hidden-pane-close-scheduled hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} delayMs=${HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS}`);
+          hiddenPaneCloseTimerRef.current = setTimeout(() => {
+            hiddenPaneCloseTimerRef.current = null;
+            // Re-check readyState inside the callback — if the WS was already
+            // closed by another path during the 60s window, no-op.
+            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+              // Clear any in-flight reconnect timer first so it doesn't fire
+              // while hidden and immediately reopen (the isVisibleRef guard on
+              // attemptReconnection is the belt; this clearTimeout is the
+              // suspenders — mirrors PrettyView.tsx pattern).
+              if (reconnectTimeoutRef.current !== null) {
+                clearTimeout(reconnectTimeoutRef.current);
+                reconnectTimeoutRef.current = null;
+              }
+              console.info(`[ws-pause] hidden-pane-close-fired hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} debounced=true`);
+              ws.close();
+              // onclose fires → the existing close handling path runs. The
+              // isVisibleRef guard added to attemptReconnection short-circuits
+              // any auto-reconnect scheduling while hidden.
+            }
+          }, HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS);
         }
       } else if (!prev && isVisible) {
         // quick-260809-ih9: gate reopen on genuine false→true edge only.
@@ -729,13 +776,22 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         // If WS is already OPEN or CONNECTING (e.g. a stray previously
         // opened socket), no-op — don't interfere with the WS-setup effect.
       }
+      return () => {
+        // Unmount cleanup: clear the pending debounce timer so no timer leaks
+        // into unmounted components (bounty scenario e).
+        if (hiddenPaneCloseTimerRef.current !== null) {
+          clearTimeout(hiddenPaneCloseTimerRef.current);
+          hiddenPaneCloseTimerRef.current = null;
+        }
+      };
     }, [isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
     // deps: [isVisible] only. Reads only refs (webSocketRef,
-    // reconnectTimeoutRef, reconnectAttempts) and calls attemptReconnection
-    // (a stable function reference in this file — declared as `function` at
-    // line ~945, not `useCallback`). Adding `attach` to deps would re-fire
-    // this effect on the attach flip, which is already handled by the main
-    // WS-setup effect at line ~2903 — deliberate separation of concerns.
+    // reconnectTimeoutRef, reconnectAttempts, hiddenPaneCloseTimerRef) and
+    // calls attemptReconnection (a stable function reference in this file —
+    // declared as `function` at line ~945, not `useCallback`).
+    // Adding `attach` to deps would re-fire this effect on the attach flip,
+    // which is already handled by the main WS-setup effect at line ~2903 —
+    // deliberate separation of concerns.
 
     // Bounty pretty-view-per-pane-cost-diag: register with the diag registry
     // so the interval emitter can query this pane's cost snapshot. Keyed

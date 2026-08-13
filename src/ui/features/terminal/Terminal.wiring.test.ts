@@ -564,9 +564,12 @@ describe("quick-260809-eqk — hidden-pane WS-pause + diag fix", () => {
     const anchorIdx = src.indexOf(anchor);
     expect(anchorIdx).toBeGreaterThan(0);
     // Effect body spans from the tag comment to the next useEffect / other
-    // block. 8000 chars covers the verbose ~40-line rationale header plus
-    // the ~35-line effect body.
-    const block = src.slice(anchorIdx, anchorIdx + 8000);
+    // block. 10000 chars covers the verbose ~55-line rationale header
+    // (expanded by quick-260812-x5f paragraph) plus the ~80-line effect body
+    // (expanded by the debounce setTimeout/clearTimeout/cleanup additions).
+    // Previous window was 8000; bumped to 10000 to remain sufficient after
+    // quick-260812-x5f additions (quick-260812-x5f auto-fix Rule 3).
+    const block = src.slice(anchorIdx, anchorIdx + 10000);
     expect(block).toMatch(/useEffect\(\(\) => \{/);
     expect(block).toContain("webSocketRef.current");
     expect(block).toContain("ws.close()");
@@ -769,9 +772,10 @@ describe("quick-260809-ih9 — pause-effect initial-mount race fix (prevIsVisibl
     const anchor = "quick-260809-eqk — Terminal-SSH WS-pause lifecycle effect";
     const anchorIdx = src.indexOf(anchor);
     expect(anchorIdx).toBeGreaterThan(0);
-    // Effect body + rationale header lives within ~8000 chars of anchor
-    // (same window size as eqk-2).
-    const block = src.slice(anchorIdx, anchorIdx + 8000);
+    // Effect body + rationale header lives within ~10000 chars of anchor.
+    // Previous window was 8000; bumped to 10000 after quick-260812-x5f
+    // expanded the effect body with debounce additions (auto-fix Rule 3).
+    const block = src.slice(anchorIdx, anchorIdx + 10000);
     // Edge-detector prelude: capture prev + update ref.
     expect(block).toContain("const prev = prevIsVisibleRef.current;");
     expect(block).toContain("prevIsVisibleRef.current = isVisible;");
@@ -843,5 +847,110 @@ describe("Terminal.tsx terminal-connecting-loader-shows-in-pretty-mode wiring �
     // line — its gate must include !isPrettyMode.
     const window = src.slice(Math.max(0, anchorIdx - 300), anchorIdx);
     expect(window).toMatch(/visible=\{[^}]*!isPrettyMode[^}]*\}/);
+  });
+});
+
+/**
+ * quick-260812-x5f — Terminal hidden-pane WS-close debounce (~60s).
+ *
+ * Structural-grep assertions anchored on the quick-260809-eqk comment tag
+ * (the WS-pause effect header) to verify the debounce wiring added by
+ * quick-260812-x5f: module-scope constant, hiddenPaneCloseTimerRef,
+ * setTimeout in the !isVisible branch, clearTimeout in the isVisible branch,
+ * unmount cleanup return-function, console.info forensic trail, and negative
+ * guard that bare top-level ws.close() is gone from the !isVisible branch.
+ */
+describe("quick-260812-x5f — Terminal hidden-pane WS-close debounce (~60s)", () => {
+  const src = readFileSync(TERMINAL_TSX, "utf-8");
+
+  // Anchor block: from the eqk comment to the deps comment that closes the effect.
+  // 12000 chars covers the verbose rationale header (~60 lines) plus the
+  // expanded effect body (~80 lines after the debounce additions).
+  const ANCHOR = "quick-260809-eqk — Terminal-SSH WS-pause lifecycle effect";
+  const anchorIdx = src.indexOf(ANCHOR);
+  const block = anchorIdx >= 0 ? src.slice(anchorIdx, anchorIdx + 12000) : "";
+
+  it("Test x5f-1: Terminal.tsx declares HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000 (or 60000) at module scope", () => {
+    // The constant must be at module scope (outside any function/component)
+    // so it is declared before the component body. Numeric separator is allowed.
+    expect(src).toMatch(/const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60[_]?000;/);
+  });
+
+  it("Test x5f-2: Terminal.tsx declares hiddenPaneCloseTimerRef via useRef", () => {
+    expect(src).toContain("hiddenPaneCloseTimerRef");
+    expect(src).toMatch(/hiddenPaneCloseTimerRef = useRef</);
+  });
+
+  it("Test x5f-3: pause effect contains setTimeout referencing HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS assigned to hiddenPaneCloseTimerRef.current", () => {
+    expect(anchorIdx).toBeGreaterThan(0);
+    // The setTimeout must be assigned to hiddenPaneCloseTimerRef.current.
+    expect(block).toContain("hiddenPaneCloseTimerRef.current = setTimeout(");
+    // The constant must appear as the delay argument (on the setTimeout closing line).
+    // Pattern: `}, HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS)` — the closing of the callback arrow fn.
+    expect(block).toContain("}, HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS)");
+  });
+
+  it("Test x5f-4: ws.close() is inside a setTimeout callback (not at top level of !isVisible branch)", () => {
+    expect(anchorIdx).toBeGreaterThan(0);
+    // ws.close() must appear AFTER the first setTimeout( in the block.
+    const setTimeoutIdx = block.indexOf("setTimeout(");
+    expect(setTimeoutIdx).toBeGreaterThan(0);
+    const wsCloseIdx = block.indexOf("ws.close()");
+    expect(wsCloseIdx).toBeGreaterThan(0);
+    // ws.close() must come AFTER setTimeout — proves it lives inside the callback.
+    expect(wsCloseIdx).toBeGreaterThan(setTimeoutIdx);
+  });
+
+  it("Test x5f-5: visible branch (or effect entry) contains clearTimeout(hiddenPaneCloseTimerRef.current) for race-safe cancellation on isVisible=true", () => {
+    expect(anchorIdx).toBeGreaterThan(0);
+    expect(block).toContain("clearTimeout(hiddenPaneCloseTimerRef.current)");
+  });
+
+  it("Test x5f-6: pause effect returns a cleanup function that clears hiddenPaneCloseTimerRef", () => {
+    expect(anchorIdx).toBeGreaterThan(0);
+    // Must have a return () => { ... } cleanup.
+    expect(block).toMatch(/return \(\) => \{/);
+    // And clearTimeout on hiddenPaneCloseTimerRef.current inside it.
+    // Assert both are present in the block (positional check via indexOf).
+    const returnIdx = block.indexOf("return () => {");
+    expect(returnIdx).toBeGreaterThan(0);
+    const cleanupWindow = block.slice(returnIdx, returnIdx + 300);
+    expect(cleanupWindow).toContain("clearTimeout(hiddenPaneCloseTimerRef.current)");
+  });
+
+  it("Test x5f-7: console.info forensic log preserved — block contains debounced or hidden-pane-close-scheduled", () => {
+    expect(anchorIdx).toBeGreaterThan(0);
+    // Either style satisfies the forensic-trail requirement.
+    const hasScheduledLog = block.includes("hidden-pane-close-scheduled");
+    const hasDebouncedAnnotation = block.includes("debounced=true") || block.includes("debounced");
+    expect(hasScheduledLog || hasDebouncedAnnotation).toBe(true);
+    // Both must be present per plan spec (schedule event + close event).
+    expect(block).toContain("hidden-pane-close-scheduled");
+    expect(block).toContain("debounced=true");
+  });
+
+  it("Test x5f-8 (regression guard): ws.close() appears AFTER setTimeout — no bare top-level ws.close() in the !isVisible branch", () => {
+    expect(anchorIdx).toBeGreaterThan(0);
+    // Extract the !isVisible branch: from `if (!isVisible)` to the matching `} else`.
+    // We anchor on the always-present readyState check that guards the close path.
+    const notVisibleIdx = block.indexOf("if (!isVisible)");
+    expect(notVisibleIdx).toBeGreaterThan(0);
+    // The else-if or else for the visible branch marks the end of the !isVisible arm.
+    const elseIfIdx = block.indexOf("} else if (", notVisibleIdx);
+    const elseIdx = block.indexOf("} else {", notVisibleIdx);
+    const branchEnd = Math.min(
+      elseIfIdx >= 0 ? elseIfIdx : Infinity,
+      elseIdx >= 0 ? elseIdx : Infinity,
+    );
+    expect(branchEnd).toBeGreaterThan(notVisibleIdx);
+    const notVisibleBranch = block.slice(notVisibleIdx, branchEnd);
+    // ws.close() must exist in this branch.
+    const wsCloseOccurrences = (notVisibleBranch.match(/ws\.close\(\)/g) ?? []).length;
+    expect(wsCloseOccurrences).toBe(1);
+    // And it must appear AFTER the first setTimeout( in the same branch.
+    const setTimeoutInBranch = notVisibleBranch.indexOf("setTimeout(");
+    expect(setTimeoutInBranch).toBeGreaterThan(0);
+    const wsCloseInBranch = notVisibleBranch.indexOf("ws.close()");
+    expect(wsCloseInBranch).toBeGreaterThan(setTimeoutInBranch);
   });
 });
