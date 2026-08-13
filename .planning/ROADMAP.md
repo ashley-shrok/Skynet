@@ -1116,10 +1116,12 @@ Plans:
 
 **Note on phase-number renumber**: originally added as Phase 32 in tanya's tree but collided with tanya's pre-existing Phase 32 (Identity-first-turn session discovery, already shipped earlier). Renumbered to Phase 37 on rebase past Tina's #434 + Tiffany's #435; **directory on disk stays `32-hold-to-send-gesture-on-send-button/` per prior fleet precedent (Tiffany's Phase 34→36, tanya's Phase 32→33); commit messages retain `plan(32-XX)` prefix per no-`git rebase -i` rule.** Root cause: SDK `phase.add` race with no cross-tree lock — bounty `gsd-sdk-phase-add-race-no-cross-tree-lock` remains open.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 31
-**Plans:** 0 plans
+**Goal:** Add press-and-hold gesture (>=250ms) to the existing ComposeBox send button — hold to start voice recording (reuses useVoiceRecording), release inside bounds to end + send (transcript glued to any typed text via existing single-space rule, then routed through the same handleSend as tap-mic then RecordingControls Send per D-16-05), slide off and release to cancel. Short taps under 250ms continue to fire the existing typed-send path byte-identically. Gesture is inert when the button is morphed to X (asideActive), disabled, or the mic-tap path is already recording (voice.state !== "idle" guard). D-16-02 iOS Safari sync-getUserMedia invariant preserved via Shape 1 (optimistic start + rollback on short-tap). Both mic-tap then RecordingControls path (careful record with append option) and hold-to-send path (fast one-shot) coexist. Visual during hold: send button tinted coral (--color-pv-code-fg) in place; do NOT swap in RecordingControls under the pointer. Applied symmetrically to primary AND slot send buttons.
+**Requirements**: HOLD-SEND-01, HOLD-SEND-02, HOLD-SEND-03, HOLD-SEND-04, HOLD-SEND-05, HOLD-SEND-06, HOLD-SEND-07, HOLD-SEND-08, HOLD-SEND-09, HOLD-SEND-10, HOLD-SEND-11, HOLD-SEND-12, HOLD-SEND-13
+**Depends on:** Phase 31 (numeric predecessor only; functionally depends on Phase 16 voice pipeline + Phase 9 ComposeBox 2-row shell)
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 32 to break down)
+- [ ] 32-01-PLAN.md — useVoiceRecording.cancel() race-safety fix (pendingCancelRef) + useHoldToRecord hook (Shape 1 optimistic-start + rollback with awaited cancel before onShortTap) + unit tests (3 new useVoiceRecording tests + 10 useHoldToRecord tests including iOS Safari sync-gesture invariant assertion) (HOLD-SEND-01..05)
+- [ ] 32-02-PLAN.md — Wire useHoldToRecord into ComposeBox primary send button (L2380-2437, preserves onClick={asideActive ? onAsideDismiss : undefined} per B-2) AND slot send button (L2807-2846 in QueuedRow subcomponent, with extracted slotSendDisabled shared local per M-2) + gate showRecordingControls / showSlotRecording on !holdInitiatedRef.current per B-3 + data-hold-active CSS rule + @keyframes in src/ui/index.css (HOLD-SEND-06..10)
+- [ ] 32-03-PLAN.md — ComposeBox.hold-to-send.test.tsx integration tests covering all 9 CONTEXT.md § specifics test cases + 1 threshold-boundary regression guard, with deterministic B-2 (aside-dismiss via preserved onClick) and B-3 (RecordingControls does NOT swap in during hold-initiated recording) assertions (HOLD-SEND-11..13)
