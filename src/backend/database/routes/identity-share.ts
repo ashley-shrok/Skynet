@@ -216,7 +216,51 @@ router.post(
         updatedAt: now,
       };
 
-      db.insert(identities).values(insertRow).run();
+      // Race-safe insert: the (targetUserId, identityKey) SELECT above narrows
+      // the common case, but a concurrent request (mobile double-tap, or a
+      // concurrent independent identity creation on the target with the same
+      // identityKey) can land its own row between our SELECT and INSERT. The
+      // schema declares UNIQUE (user_id, identity_key) on identities, so the
+      // second INSERT throws SQLITE_CONSTRAINT_UNIQUE. That is semantically a
+      // "silent no-op on repeat" per CONTEXT.md, not an internal error — we
+      // re-SELECT the winning row and return {shared:false} with its id so the
+      // frontend still gets the marker signal.
+      try {
+        db.insert(identities).values(insertRow).run();
+      } catch (insertErr) {
+        const errCode = (insertErr as { code?: string })?.code;
+        const isUniqueRace = errCode === "SQLITE_CONSTRAINT_UNIQUE";
+        if (!isUniqueRace) throw insertErr;
+        const raceWinnerRows = db
+          .select()
+          .from(identities)
+          .where(
+            and(
+              eq(identities.userId, targetUserId),
+              eq(identities.identityKey, sourceRow.identityKey),
+            ),
+          )
+          .all();
+        if (raceWinnerRows.length === 0) {
+          // Should not happen — the UNIQUE constraint fired, so a row must
+          // exist. If we can't find it we can't honor the no-op contract.
+          throw insertErr;
+        }
+        const raceWinnerId = raceWinnerRows[0].id;
+        databaseLogger.info(
+          "identity-share: no-op via UNIQUE-constraint race",
+          {
+            operation: "identity_share_race_noop",
+            requesterUserId: userId,
+            targetUserId,
+            sourceId,
+            identityKey: sourceRow.identityKey,
+            existingIdentityId: raceWinnerId,
+          },
+        );
+        res.status(200).json({ identityId: raceWinnerId, shared: false });
+        return;
+      }
 
       databaseLogger.info("identity-share: shared identity to target user", {
         operation: "identity_share_success",

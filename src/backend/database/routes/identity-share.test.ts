@@ -112,6 +112,11 @@ const dbState: {
   lastSelectedKeys: string[] | null;
   lastPendingInsertRow: IdentityRow | null;
   insertCount: number;
+  // Race-injection hook (Test 11 UNIQUE-constraint safety):
+  // When set, the very next .run() throws a stubbed SQLITE_CONSTRAINT_UNIQUE
+  // error AFTER pushing winnerRow into dbState.identities. This simulates a
+  // concurrent request landing between our SELECT and INSERT.
+  nextInsertRaceInjection: { winnerRow: IdentityRow } | null;
 } = {
   identities: [],
   users: [],
@@ -120,6 +125,7 @@ const dbState: {
   lastSelectedKeys: null,
   lastPendingInsertRow: null,
   insertCount: 0,
+  nextInsertRaceInjection: null,
 };
 
 let filterAccum: {
@@ -237,12 +243,26 @@ vi.mock("../db/index.js", () => {
     },
     run: () => {
       const row = dbState.lastPendingInsertRow;
-      if (row && dbState.lastTable === "identities") {
+      const table = dbState.lastTable;
+      dbState.lastPendingInsertRow = null;
+      dbState.lastTable = null;
+      const injection = dbState.nextInsertRaceInjection;
+      if (injection) {
+        // Simulate a concurrent insert landing between our SELECT and INSERT:
+        // the "winner" row lands in the table, then our INSERT fails with
+        // the schema's UNIQUE(user_id, identity_key) constraint. One-shot.
+        dbState.nextInsertRaceInjection = null;
+        dbState.identities.push(injection.winnerRow);
+        const err = new Error(
+          "UNIQUE constraint failed: identities.user_id, identities.identity_key",
+        ) as Error & { code: string };
+        err.code = "SQLITE_CONSTRAINT_UNIQUE";
+        throw err;
+      }
+      if (row && table === "identities") {
         dbState.identities.push(row);
         dbState.insertCount++;
       }
-      dbState.lastPendingInsertRow = null;
-      dbState.lastTable = null;
     },
   };
   return { db: chain };
@@ -358,6 +378,7 @@ beforeEach(() => {
   dbState.lastSelectedKeys = null;
   dbState.lastPendingInsertRow = null;
   dbState.insertCount = 0;
+  dbState.nextInsertRaceInjection = null;
   filterAccum = {};
   mockUserId = "u-alice";
 
@@ -573,5 +594,43 @@ describe("POST /identities/:id/share", () => {
     expect(carolRow!.voice).toBe("Elena.wav");
     expect(carolRow!.avatarMime).toBe("image/webp");
     expect(carolRow!.avatarData.equals(sourceAvatarBytes)).toBe(true);
+  });
+
+  it("Test 11: race safety — UNIQUE(user_id, identity_key) conflict on INSERT → 200 shared:false with race-winner's id (not 500)", async () => {
+    // Setup: target user has NO conflicting row at the moment of the initial
+    // no-op SELECT (so the handler proceeds toward INSERT). We inject a
+    // one-shot race: when the handler's INSERT runs, the concurrent winner
+    // row appears in the table AND the INSERT fails with the schema's
+    // UNIQUE(user_id, identity_key) constraint. Handler must catch the
+    // constraint, re-SELECT, and return 200 shared:false with the winner's
+    // id — not 500 — so the client's re-share contract still holds under
+    // concurrency.
+    const raceWinnerRow = makeSourceIdentity({
+      id: "race-winner-bob-tina-id",
+      userId: "u-bob",
+      identityKey: "tina",
+      displayName: "Bob's Tina (race winner)",
+      title: "From concurrent request",
+    });
+    dbState.nextInsertRaceInjection = { winnerRow: raceWinnerRow };
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/src-id-nano/share",
+      body: JSON.stringify({ targetUserId: "u-bob" }),
+    });
+
+    // 200 shared:false — silent-no-op contract honored despite the race
+    expect(res.status).toBe(200);
+    const body = res.body as { identityId: string; shared: boolean };
+    expect(body.shared).toBe(false);
+    // Returns the race-winner's id (not a fresh nanoid, not the source's)
+    expect(body.identityId).toBe("race-winner-bob-tina-id");
+
+    // The winner row is in the table (from the injection); no additional
+    // insertCount bump from OUR insert path (it threw before reaching the
+    // normal push).
+    expect(dbState.insertCount).toBe(0);
+    expect(dbState.identities.some((r) => r.id === "race-winner-bob-tina-id")).toBe(true);
   });
 });
