@@ -1111,3 +1111,15 @@ Plans:
 - [x] 34-01-PLAN.md — Pure server-side matcher module (`src/backend/voice/slashCommandTransform.ts`): wake-word regex + tokenizer + greedy longest-prefix matcher + 21-case truth-table test suite mirroring CONTEXT.md § Specific Ideas — shipped as commit `756c6e3` (pre-rebase SHA; post-rebase equivalent per `git log --grep=34-01`)
 - [x] 34-02-PLAN.md — SSH-fetch skill-catalog helper (`src/backend/voice/skill-catalog.ts`): `fetchSkillCatalog(hostId, userId, timeoutMs=10000): Promise<Set<string>>` reusing connectOneShot + execCommand + resolveHostById; fail-open on every failure branch (empty Set, never throws) — shipped as commit `b7b906d` (pre-rebase SHA)
 - [x] 34-03-PLAN.md — Atomic cutover: wire matcher + fetcher into STT route (`handleTranscribe` accepts hostId/tmuxSession multipart fields, gates on wake-word, applies transform); DELETE client-side `composeIntentTransform.ts` + tests + two `applyIntentTransform` call sites in `useVoiceRecording.ts`; client posts hostId+tmuxSession alongside audio blob — shipped as single-commit `728973a` (pre-rebase SHA; all three tasks in one atomic commit per plan's ⚠️ ATOMICITY note; server + client + delete land together)
+
+### Phase 37: Hold-to-send gesture on send button
+
+**Note on phase-number renumber**: originally added as Phase 32 in tanya's tree but collided with tanya's pre-existing Phase 32 (Identity-first-turn session discovery, already shipped earlier). Renumbered to Phase 37 on rebase past Tina's #434 + Tiffany's #435; **directory on disk stays `32-hold-to-send-gesture-on-send-button/` per prior fleet precedent (Tiffany's Phase 34→36, tanya's Phase 32→33); commit messages retain `plan(32-XX)` prefix per no-`git rebase -i` rule.** Root cause: SDK `phase.add` race with no cross-tree lock — bounty `gsd-sdk-phase-add-race-no-cross-tree-lock` remains open.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 31
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 32 to break down)
