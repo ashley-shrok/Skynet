@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-13T14:01:42.637Z"
+last_updated: "2026-08-13T15:46:28.967Z"
 last_activity: 2026-08-13
 progress:
   total_phases: 35
-  completed_phases: 27
+  completed_phases: 28
   total_plans: 138
-  completed_plans: 134
-  percent: 77
+  completed_plans: 135
+  percent: 80
 ---
 
 # Project State
@@ -141,7 +141,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -218,6 +218,7 @@ Progress: [██████████] 99%
 | Phase 31-whole-app-structured-logging-backfill P07 | 8 minutes | 2 tasks | 5 files |
 | Phase 31-whole-app-structured-logging-backfill P09 | 5 minutes | 4 tasks | 2 files |
 | Phase 32 P04 | 553 | 1 tasks | 1 files |
+| Phase 35 P02 | 95 | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -322,6 +323,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 32-04 Test 2d integration path: Option A (drive real ComposeBox UI via fireEvent.change + getByRole('button', {name: 'Send'})) — verifies handleComposeSend to scrollToBottomAndFollow wire-through end-to-end
 - [Phase ?]: Phase 32-04 two-step scroll dispatch pattern for Tests 3 and 2d: sync scroll-listener's lastScrollTop closure baseline first, then dispatch at lower position to flip stickyRef (Rule 1 fix — compensates for programmaticRef gating out rAF chain writes from the closure)
 - [Phase ?]: Phase 32-04 vi.stubGlobal(requestAnimationFrame, setTimeout+16ms) shim required in all rAF-dependent tests under vi.useFakeTimers — vitest fake-timers do not polyfill rAF
+- [Phase ?]: Phase 35-02 decisions: ref-forwarding via onRegisterSendInput props; sendInput try/catch returns boolean; wiring tests updated
 
 ### Pending Todos
 
@@ -515,6 +517,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-13T14:01:42.290Z
+Last session: 2026-08-13T15:46:28.692Z
 Stopped at: Completed 32-04-PLAN.md — Phase 32 FINAL wave complete; ready for verification
 Resume file: None
