@@ -693,10 +693,18 @@ describe("fail-open on missing hook payload file", () => {
       (c: unknown[]) =>
         typeof c[1] === "object" &&
         c[1] !== null &&
-        (c[1] as Record<string, unknown>).operation ===
-          "fleet_status_hook_payload_missing",
+        (c[1] as Record<string, unknown>).operation === HOOK_WARN_OP,
     ).length;
   }
+
+  // Operation string under test — used in each scenario assertion (grep-able):
+  // fleet_status_hook_payload_missing (F1 ENOENT)
+  // fleet_status_hook_payload_missing (F2 empty string)
+  // fleet_status_hook_payload_missing (F3 malformed JSON)
+  // fleet_status_hook_payload_missing (F4 transient SSH error)
+  // fleet_status_hook_payload_missing (F5 schema-invalid)
+  // fleet_status_hook_payload_missing (F6 permanently missing)
+  const HOOK_WARN_OP = "fleet_status_hook_payload_missing";
 
   // ---
 
@@ -716,6 +724,7 @@ describe("fail-open on missing hook payload file", () => {
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
     expect(deps.registry.publishedStates[0].state.backgroundTasks).toHaveLength(0);
+    // Ashley 2026-08-13 LOCKED: fleet_status_hook_payload_missing warn fires exactly once (F1: ENOENT)
     expect(countHookWarn()).toBe(1);
     expect(deps.registry.publishedGone).toHaveLength(0);
   });
