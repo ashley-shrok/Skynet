@@ -1077,3 +1077,13 @@ Plans:
 - [x] 34-01-PLAN.md — Pure server-side matcher module (`src/backend/voice/slashCommandTransform.ts`): wake-word regex + tokenizer + greedy longest-prefix matcher + 21-case truth-table test suite mirroring CONTEXT.md § Specific Ideas — shipped as commit `756c6e3`
 - [x] 34-02-PLAN.md — SSH-fetch skill-catalog helper (`src/backend/voice/skill-catalog.ts`): `fetchSkillCatalog(hostId, userId, timeoutMs=10000): Promise<Set<string>>` reusing connectOneShot + execCommand + resolveHostById; fail-open on every failure branch (empty Set, never throws) — shipped as commit `b7b906d`
 - [x] 34-03-PLAN.md — Atomic cutover: wire matcher + fetcher into STT route (`handleTranscribe` accepts hostId/tmuxSession multipart fields, gates on wake-word, applies transform); DELETE client-side `composeIntentTransform.ts` + tests + two `applyIntentTransform` call sites in `useVoiceRecording.ts`; client posts hostId+tmuxSession alongside audio blob — shipped as single-commit `728973a` (all three tasks in one atomic commit per plan's ⚠️ ATOMICITY note; server + client + delete land together)
+
+### Phase 35: pretty-view-owns-compose-send-migrate-off-terminal-ws-borrow
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 34
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 35 to break down)
