@@ -1,10 +1,11 @@
 ---
 phase: 40
 slug: text-editor-in-skynet
-status: draft
+status: approved
 shadcn_initialized: true
 preset: fork-local (existing Skynet configuration — pretty-view visual language on top of shadcn primitives)
 created: 2026-08-13
+reviewed_at: 2026-08-13
 ---
 
 # Phase 40 — UI Design Contract
@@ -58,9 +59,9 @@ Declared values (multiples of 4):
 | Editor textarea (mono) | 14px (`text-sm`) | 400 | 1.5 | Editor body — verbatim from `GlobalFileTab.tsx` L90 (`font-mono text-sm`) |
 | Body / label | 14px (`text-sm`) | 400 | 1.5 | Save button label, error message copy, host-info line if shown |
 | Modal title | 15px (`text-[15px]`) | 600 (semibold) | 1.2 | "Edit {filename}" header — matches `GlobalFilesModal.tsx` L226 `text-[15px] font-semibold` |
-| Edit affordance label | 11px (`text-[11px]`) | 500 (medium) | 1 (single-line) | The "Edit" text alongside the pencil glyph on the per-link affordance (desktop only — mobile is icon-only for space) |
+| Edit affordance label | 11px (`text-[11px]`) | 400 (regular) | 1 (single-line) | The "Edit" text alongside the pencil glyph on the per-link affordance (desktop only — mobile is icon-only for space) |
 
-**Weights used: exactly 2** (400 regular + 600 semibold). The `500` on the affordance label is the same weight tier the fleet uses for interactive-but-not-primary chrome (matches BountyCard timeline chip weights); if the checker flags this, collapse to 400 — the visual difference at 11px is negligible.
+**Weights used: exactly 2** (400 regular + 600 semibold). The affordance label collapsed to 400 per UI-checker rev-1 — the visual difference at 11px is negligible and the pencil glyph carries the affordance's visual weight.
 
 **Line heights:** 1.5 body / 1.2 heading — standard. Textarea uses 1.5 for readable multiline code.
 
@@ -145,7 +146,7 @@ Components this phase introduces or modifies, in the order the executor will tou
 | Desktop (hover-capable, `useIsTouchDevice() === false`) | Affordance opacity 0. Message bubble on hover → affordance fades to opacity 1 over 120ms (matches speak-button convention at `ChatMessage.tsx` L493 `transition: "opacity 120ms"`). Pencil glyph at 16px, warm-coral. Hover the affordance itself → glyph brightens to identity-hue with drop-shadow glow, label text `Edit` slides in beside the glyph. | Focus-visible outline uses identity-hue at 0.5 alpha (matches textarea focus ring). Click opens `EditableFileModal`. |
 | Mobile / touch (`useIsTouchDevice() === true`) | Affordance always visible at opacity 0.72 (matches speak-button `[@media(hover:none)]:!opacity-[0.72]` convention). Icon-only, 44×44px touch target, coral glyph at 16px. No label text. | Tap opens `EditableFileModal`. Tap on the underlying `<a>` (not the affordance) still opens/downloads the link in a new tab per the additive-not-replacive LOCKED decision. |
 
-**Positioning:** Affordance renders inline after the link's closing text — same visual line, `margin-left: 6px`, `vertical-align: baseline`. On links that wrap to multiple lines, the affordance rides the last line naturally. Do NOT reflow the link itself.
+**Positioning:** Affordance renders inline after the link's closing text — same visual line, `margin-left: 4px` (xs spacing token — 4-point scale compliant per UI-checker rev-1), `vertical-align: baseline`. On links that wrap to multiple lines, the affordance rides the last line naturally. Do NOT reflow the link itself.
 
 ### Editor modal open transition
 
@@ -222,14 +223,14 @@ Per Ashley's stated primary use case (iPhone PWA), each contract element has bee
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS (rev-1 fix: affordance-label weight 500→400)
+- [x] Dimension 5 Spacing: PASS (rev-1 fix: affordance margin-left 6px→4px)
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** APPROVED — 2026-08-13
 
 ---
 
