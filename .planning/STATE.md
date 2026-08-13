@@ -24,9 +24,9 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 34 (voice-slash-server-side-skill-catalog) — CODE COMPLETE, NOT DEPLOYED
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 35 (pretty-view-owns-compose-send-migrate-off-terminal-ws-borrow) — CODE COMPLETE + VERIFIED, DEPLOY IN FLIGHT
+Plan: 2 of 2
+Status: Full verification passed 2026-08-13T16:35Z (8/8 must-haves); rebased past tina's #434 (fleet-status broadcast) with `-X theirs` strategy; both features' targeted test suites green (Phase 35: 21/21, tina's Phase 34: 115/115); ROADMAP reconciled — tina's Phase 34 restored + mine (voice-slash) renumbered 34→36 per prior collision-rename precedent (dir on disk stays `34-voice-slash-...`, commit messages retain `plan(34-XX)`); coord-room BEFORE announced; beginning docker build for batched deploy of quick 260813-0qx + Phase 36 (voice-slash) + Phase 35 (compose-send migration).
 Last activity: 2026-08-13
 
 Last activity: 2026-08-12 — Completed quick task 260812-ma8 (dormancy-bubble-in-flow). Converted `DormancyOverlay` from a full-surface scrim covering the chat region into an assistant-aligned in-flow bubble at the bottom of the message list (mirrors `PlanPendingBubble`'s Phase 4 Glass treatment). Ashley 2026-08-12: *"just because the session is asleep doesn't mean I shouldn't be able to read the convo. Where that convo left off might be the deciding factor for whether I even wake that session up or not."* Two files, two atomic commits (`6741f81` DormancyOverlay restyle + `3e7a3ef` mount move + scroll-container gate widen). All three states preserved (asleep+Wake, waking+90s progress, warm-red error retry); STATIC Moon guardrail intact; ComposeBox `dormantActive` unchanged. One documented Rule-1 deviation bundled into Task 2's commit: widened outer scroll-container gate to include `renderedState === "dormant"` so the cold-pane-discovered-dormant path stays reachable (PrettyView.test.tsx Test E caught it). `npm run type-check` clean; pretty-view suite 555/555 pass. Deployed via `docker cp` to container `76c8ed0a8fcc`; HTTPS smoke test `200 0.412783s`. Patch #422 appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. NO worktrees.
