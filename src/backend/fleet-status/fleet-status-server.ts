@@ -292,7 +292,7 @@ async function handleWatcherConnection(
       systemLogger.warn("Fleet-status watcher frame parse error", {
         operation: "fleet_status_parse_error",
         remoteIp,
-        hostId,
+        fleetHostId: hostId,
         error: err instanceof Error ? err.message : "unknown",
       });
       ws.close(1003, "Invalid data");
@@ -304,7 +304,7 @@ async function handleWatcherConnection(
       systemLogger.warn("Fleet-status watcher frame invalid", {
         operation: "fleet_status_parse_error",
         remoteIp,
-        hostId,
+        fleetHostId: hostId,
         zodError: result.error.message,
       });
       ws.close(1003, "Invalid data");
@@ -353,7 +353,7 @@ async function handleWatcherConnection(
       systemLogger.info("Fleet-status watcher host resolved", {
         operation: "fleet_status_watcher_host_resolved",
         hostname,
-        hostId,
+        fleetHostId: hostId,
         remoteIp,
       });
       return;
@@ -376,7 +376,7 @@ async function handleWatcherConnection(
   ws.on("close", (code, reason) => {
     systemLogger.info("Fleet-status watcher disconnected", {
       operation: "fleet_status_disconnect",
-      hostId,
+      fleetHostId: hostId,
       wsState: code,
       reason: reason.toString(),
       remoteIp,
@@ -386,7 +386,7 @@ async function handleWatcherConnection(
   ws.on("error", (err: Error) => {
     systemLogger.warn("Fleet-status watcher WS error", {
       operation: "fleet_status_error",
-      hostId,
+      fleetHostId: hostId,
       remoteIp,
       error: err.message,
     });
