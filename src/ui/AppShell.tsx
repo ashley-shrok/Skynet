@@ -78,6 +78,13 @@ import {
   navigateToList,
 } from "@/lib/mobile-flow";
 import { useIdentities } from "@/state/identities-store";
+// Phase 34 Plan 06: fleet-status control WebSocket — boot-time singleton
+import { createFleetStatusClient } from "@/api/fleet-status-client";
+import {
+  publishFleetStatusSessionState,
+  publishFleetStatusSessionGone,
+} from "@/state/session-working-store";
+import { publishFleetStatusWaitingFor } from "@/state/session-waiting-store";
 // Phase 11 Plan 03 (Ashley "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -370,6 +377,51 @@ export function AppShell({
     dbHealthMonitor.on("session-expired", handleSessionExpired);
     return () => dbHealthMonitor.off("session-expired", handleSessionExpired);
   }, [onLogout]);
+
+  // Phase 34 Plan 06: fleet-status control WebSocket — exactly one WS opened
+  // at AppShell boot. Reconnects on drop via createFleetStatusClient's built-in
+  // retry-with-backoff (mirrors patch #148 pattern). Dispatches snapshot/update/gone
+  // frames to session-working-store + session-waiting-store via the callbacks below.
+  //
+  // Callback wiring (per D-CTX § Composite state + Waiting bubble UX):
+  //   onSnapshot: for each SessionState → publishFleetStatusSessionState + publishFleetStatusWaitingFor
+  //   onUpdate:   same as onSnapshot but for a single state
+  //   onGone:     publishFleetStatusSessionGone + publishFleetStatusWaitingFor(null)
+  //
+  // URL derivation: same protocol (ws/wss) as the page + same host + /fleet-status/ws
+  // deps: [] — mount-once; reads only stable window.location at mount time.
+  useEffect(() => {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const fleetStatusUrl = `${proto}//${window.location.host}/fleet-status/ws`;
+
+    const client = createFleetStatusClient({
+      url: fleetStatusUrl,
+      onSnapshot: (states) => {
+        for (const state of states) {
+          publishFleetStatusSessionState(state.hostId, state);
+          publishFleetStatusWaitingFor(
+            state.hostId,
+            state.tmuxSession,
+            state.status === "waiting" ? state.waitingFor ?? "input needed" : null,
+          );
+        }
+      },
+      onUpdate: (state) => {
+        publishFleetStatusSessionState(state.hostId, state);
+        publishFleetStatusWaitingFor(
+          state.hostId,
+          state.tmuxSession,
+          state.status === "waiting" ? state.waitingFor ?? "input needed" : null,
+        );
+      },
+      onGone: (hostId, tmuxSession, sessionId) => {
+        publishFleetStatusSessionGone(hostId, tmuxSession, sessionId);
+        publishFleetStatusWaitingFor(hostId, tmuxSession, null);
+      },
+    });
+
+    return () => client.dispose();
+  }, []);
 
   const handleTmuxSessionChange = useCallback(
     (tabId: string, sessionName: string | null) => {
