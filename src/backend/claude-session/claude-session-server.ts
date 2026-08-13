@@ -950,6 +950,47 @@ export function __applyRepollResultForTests(
   }
 }
 
+// ─── Test seam: attach-path inactive classifier (quick 260813-0qx) ───────────
+//
+// The initial-attach `if (result.status === "inactive") { ... }` block has to
+// decide, between the dormant-identity branch and FALLBACK-01, whether the
+// discovery result signals a /id-reset (or fresh-spawn) window on THIS pane
+// — in which case we enter holding + start the discovery-repoll timer instead
+// of tearing down. Terminal reasons (no_tmux_session, exec_error) fall through
+// unchanged to FALLBACK-01; not_claude on a non-identity pane (bare shell)
+// also falls through.
+//
+// This pure classifier is the SINGLE SOURCE OF TRUTH for the "reset_window vs
+// fallback_01" decision — the production branch calls it directly (so the
+// reducer and the test-observed classifier are the same code), and the tests
+// exercise the same function via this seam. That guarantees drift between
+// "what tests assert" and "what production does" cannot arise here.
+//
+// Reset-window reasons (map to "reset_window"):
+//   • no_pid_session_file
+//   • no_open_session_file
+//   • not_claude AND isIdentityShapedCached === true
+//
+// Terminal reasons (map to "fallback_01"):
+//   • no_tmux_session, exec_error
+//   • not_claude AND isIdentityShapedCached !== true (bare shell OR probe
+//     never ran / threw → conservative fallback)
+//   • defensive: status === "active" (attach path only calls this on inactive)
+export function __classifyAttachInactiveForTests(
+  result: import("./session-file-discovery.js").ClaudeSessionDiscoveryResult,
+  isIdentityShapedCached: boolean | null,
+): "reset_window" | "fallback_01" {
+  if (result.status === "active") return "fallback_01";
+  const reason = result.reason;
+  if (reason === "no_pid_session_file" || reason === "no_open_session_file") {
+    return "reset_window";
+  }
+  if (reason === "not_claude" && isIdentityShapedCached === true) {
+    return "reset_window";
+  }
+  return "fallback_01";
+}
+
 // ─── Test seam: dormant poll tick logic (quick 260808-cd6) ───────────────────
 //
 // The dormant stat check lives inside the contextPctTimer IIFE alongside a
@@ -2592,6 +2633,106 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // "terminal, no recovery attempts."
     teardownPane();
     changeoverState = "dead";
+  };
+
+  // quick 260813-0qx — shared discovery-repoll timer setup (Option A).
+  //
+  // Extracted from the inline `discoveryRepollTimer = setInterval(...)` block
+  // that used to live inside startActiveSessionFlow (~L4700 pre-refactor).
+  // Now both call sites use this single helper:
+  //   1. startActiveSessionFlow (steady-state — active session established
+  //      on initial attach or via wake-from-dormant handoff).
+  //   2. The attach-path reset-window branch inside the initial-attach
+  //      inactive block (see below near L~5087) — flips changeoverState
+  //      to "holding" then starts the timer here so the /id-reset window
+  //      recovery uses the same recovery reducer the steady-state ticker uses.
+  //
+  // Behavior is byte-preserved for the steady-state site (same closure vars,
+  // same helper calls, same interval, same catch/finally shape). The .then()
+  // body IS the same code the __applyRepollResultForTests reducer at ~L920
+  // covers — no drift.
+  //
+  // Declared at connection scope AFTER transitionToActiveNew /
+  // transitionFromHoldingToActiveSameFile / transitionToDead / transitionToHolding
+  // so all closure references are visible. Reads discoveryRepollTimer,
+  // discoveryRepollInFlight, currentSessionFile, changeoverState, holdingTicks,
+  // stopped, ws, sshConn — the same set the inline block closed over.
+  const startDiscoveryRepollTimer = (activeTmuxSession: string): void => {
+    discoveryRepollTimer = setInterval(() => {
+      if (stopped || ws.readyState !== WebSocket.OPEN) return;
+      if (!sshConn) return;
+      if (discoveryRepollInFlight) return;
+      discoveryRepollInFlight = true;
+      const connSnapshot = sshConn;
+      discoverClaudeSession(connSnapshot, activeTmuxSession)
+        .then((result) => {
+          if (stopped || ws.readyState !== WebSocket.OPEN) return;
+          if (changeoverState === "dead") return; // idempotent guard
+
+          // Fix A (2026-07-30): hoist isExecErrorTick flag so BOTH the
+          // inactive branch (which must not arm holding) and the
+          // holdingTicks++ block (which must not burn the timeout budget)
+          // can check the same value without duplicating the predicate.
+          //
+          // exec_error = "we couldn't reliably ask" (SSH-side failure at
+          // any of the four SSH-throw sites: queryPanePid, descendant walk,
+          // PID-file read, JSONL test). Categorically different from the
+          // real-inactive reasons below, which mean "we asked and got a
+          // definitive no":
+          //   • not_claude            — pane has no claude in its tree
+          //   • no_pid_session_file   — claude PID exists but no PID file
+          //   • no_open_session_file  — PID file found but JSONL missing
+          //   • no_tmux_session       — no tmux pane to query at all
+          //   • pid_unavailable       — kept for backcompat; no longer emitted
+          // A transient SSH round-trip failure must NOT arm the overlay.
+          const isExecErrorTick =
+            result.status === "inactive" && result.reason === "exec_error";
+
+          if (result.status === "active") {
+            if (result.sessionFile !== currentSessionFile) {
+              // File moved: recycle OR recover-in-different-cwd.
+              if (changeoverState === "active") {
+                // SIGTERM-fallback path: /exit never landed but the file
+                // changed. Emit both holding and changed on the SAME tick.
+                transitionToHolding("discovery_diff");
+              }
+              transitionToActiveNew(result.sessionFile);
+            } else if (changeoverState === "holding") {
+              // Fix B (2026-07-30): same file + still active + we're in holding
+              // → the overlay was a false alarm. Self-clear on this repoll tick.
+              transitionFromHoldingToActiveSameFile();
+            }
+            // else: same file + active + changeoverState === "active"
+            // — nominal steady-state, no state change needed.
+          } else if (!isExecErrorTick) {
+            // status === "inactive" with a REAL inactive reason (not an SSH
+            // failure). Bare-shell gap during recycle is expected.
+            if (changeoverState === "active") {
+              transitionToHolding("discovery_diff");
+            }
+          }
+          // else: isExecErrorTick — SSH-side failure; silent tick.
+          // Do NOT call transitionToHolding. !isExecErrorTick guard below
+          // also prevents burning the holding budget.
+
+          // Fix A (2026-07-30): guard with !isExecErrorTick so transient SSH
+          // failures don't burn the 5-min holding budget on no-signal ticks.
+          if (changeoverState === "holding" && !isExecErrorTick) {
+            holdingTicks++;
+            if (holdingTicks >= HOLDING_TIMEOUT_TICKS) {
+              transitionToDead("holding_timeout");
+            }
+          }
+        })
+        .catch(() => {
+          /* Silent — same posture as the context-pct and harness-tasks
+             pollers. A discovery failure on one tick shouldn't kill the
+             session; the next tick tries again. */
+        })
+        .finally(() => {
+          discoveryRepollInFlight = false;
+        });
+    }, DISCOVERY_REPOLL_INTERVAL_MS);
   };
 
   let wsAlive = true;
@@ -4697,81 +4838,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // may not be the same one we started from. `discoverClaudeSession`
     // walks pane→pid→cwd→slug fresh each tick and correctly follows the
     // move. See CONTEXT.md D-30 and CHANGEOVER-05.
-    discoveryRepollTimer = setInterval(() => {
-      if (stopped || ws.readyState !== WebSocket.OPEN) return;
-      if (!sshConn) return;
-      if (discoveryRepollInFlight) return;
-      discoveryRepollInFlight = true;
-      const connSnapshot = sshConn;
-      discoverClaudeSession(connSnapshot, activeTmuxSession)
-        .then((result) => {
-          if (stopped || ws.readyState !== WebSocket.OPEN) return;
-          if (changeoverState === "dead") return; // idempotent guard
-
-          // Fix A (2026-07-30): hoist isExecErrorTick flag so BOTH the
-          // inactive branch (which must not arm holding) and the
-          // holdingTicks++ block (which must not burn the timeout budget)
-          // can check the same value without duplicating the predicate.
-          //
-          // exec_error = "we couldn't reliably ask" (SSH-side failure at
-          // any of the four SSH-throw sites: queryPanePid, descendant walk,
-          // PID-file read, JSONL test). Categorically different from the
-          // real-inactive reasons below, which mean "we asked and got a
-          // definitive no":
-          //   • not_claude            — pane has no claude in its tree
-          //   • no_pid_session_file   — claude PID exists but no PID file
-          //   • no_open_session_file  — PID file found but JSONL missing
-          //   • no_tmux_session       — no tmux pane to query at all
-          //   • pid_unavailable       — kept for backcompat; no longer emitted
-          // A transient SSH round-trip failure must NOT arm the overlay.
-          const isExecErrorTick =
-            result.status === "inactive" && result.reason === "exec_error";
-
-          if (result.status === "active") {
-            if (result.sessionFile !== currentSessionFile) {
-              // File moved: recycle OR recover-in-different-cwd.
-              if (changeoverState === "active") {
-                // SIGTERM-fallback path: /exit never landed but the file
-                // changed. Emit both holding and changed on the SAME tick.
-                transitionToHolding("discovery_diff");
-              }
-              transitionToActiveNew(result.sessionFile);
-            } else if (changeoverState === "holding") {
-              // Fix B (2026-07-30): same file + still active + we're in holding
-              // → the overlay was a false alarm. Self-clear on this repoll tick.
-              transitionFromHoldingToActiveSameFile();
-            }
-            // else: same file + active + changeoverState === "active"
-            // — nominal steady-state, no state change needed.
-          } else if (!isExecErrorTick) {
-            // status === "inactive" with a REAL inactive reason (not an SSH
-            // failure). Bare-shell gap during recycle is expected.
-            if (changeoverState === "active") {
-              transitionToHolding("discovery_diff");
-            }
-          }
-          // else: isExecErrorTick — SSH-side failure; silent tick.
-          // Do NOT call transitionToHolding. !isExecErrorTick guard below
-          // also prevents burning the holding budget.
-
-          // Fix A (2026-07-30): guard with !isExecErrorTick so transient SSH
-          // failures don't burn the 5-min holding budget on no-signal ticks.
-          if (changeoverState === "holding" && !isExecErrorTick) {
-            holdingTicks++;
-            if (holdingTicks >= HOLDING_TIMEOUT_TICKS) {
-              transitionToDead("holding_timeout");
-            }
-          }
-        })
-        .catch(() => {
-          /* Silent — same posture as the context-pct and harness-tasks
-             pollers. A discovery failure on one tick shouldn't kill the
-             session; the next tick tries again. */
-        })
-        .finally(() => {
-          discoveryRepollInFlight = false;
-        });
-    }, DISCOVERY_REPOLL_INTERVAL_MS);
+    //
+    // quick 260813-0qx: timer setup extracted to the connection-scoped
+    // startDiscoveryRepollTimer helper (~L2600) so the attach-path
+    // reset-window branch can start the same timer without duplicating the
+    // body. Behavior byte-preserved for this steady-state site.
+    startDiscoveryRepollTimer(activeTmuxSession);
 
     tailHandle = tailSessionFile(sshConn!, sessionFile, onLine, onError);
     }; // end of startActiveSessionFlow
@@ -5084,6 +5156,82 @@ wss.on("connection", async (ws: WebSocket, req) => {
         // SSH stays alive; dormant-poll loop is running. Return WITHOUT teardown.
         return;
       }
+
+      // quick 260813-0qx — attach-path reset-window branch.
+      //
+      // If discoverClaudeSession returned inactive with a reason that signals we
+      // are inside a /id reset (or fresh spawn) window on THIS pane — rather
+      // than a terminal "no claude here" verdict — enter holding + start the
+      // discovery-repoll timer instead of falling through to FALLBACK-01. The
+      // repoll timer's existing branches (see startDiscoveryRepollTimer /
+      // __applyRepollResultForTests) then own the recovery path: active with a
+      // new session file -> transitionToActiveNew; HOLDING_TIMEOUT_TICKS
+      // elapsed with no recovery -> transitionToDead('holding_timeout') which
+      // emits the terminal inactive frame FALLBACK-01 would have sent
+      // immediately.
+      //
+      // Reset-window reasons (classified via __classifyAttachInactiveForTests
+      // — the SINGLE SOURCE OF TRUTH shared with the test suite so the
+      // production branch and the classifier tests never drift):
+      //   * no_pid_session_file  — claude process exists but hasn't written a
+      //                            fresh PID file yet
+      //   * no_open_session_file — PID file found but new JSONL not yet open
+      //   * not_claude AND identity-shape pane WITHOUT .dormant sentinel — the
+      //                            identity pane is mid-reset (claude process
+      //                            gone briefly), not a bare shell. Piggybacks
+      //                            on isIdentityShapedCached set inside the
+      //                            dormant-identity probe block above; we do
+      //                            NOT re-run the SSH probe.
+      //
+      // Terminal reasons (no_tmux_session, exec_error, and not_claude on a
+      // non-identity pane) fall through unchanged to FALLBACK-01 below.
+      //
+      // WIRING CHOICE — reuse transitionToHolding("discovery_diff"): at attach
+      // time changeoverState === "active" (module default at L1690), so the
+      // helper's `if (changeoverState !== "active") return;` guard passes and
+      // it flips state to "holding", sets holdingReason = "discovery_diff",
+      // resets holdingTicks = 0, sends {type:"session_holding"} on the WS,
+      // fires paneStateEmitter.emit("holding", "discovery_diff"), and logs
+      // "claude_session_holding". currentSessionFile is null at this point
+      // (no baseline yet — the attach-time active path hadn't run) — the
+      // helper's log payload records that as `oldSessionFile: null`, which is
+      // the correct semantics: there IS no old file. Below we seed
+      // currentHostId / currentTmuxSession so the log payload references the
+      // right pane, then add an extra reset-window-specific log line and start
+      // the discovery-repoll timer via the shared helper.
+      if (
+        __classifyAttachInactiveForTests(result, isIdentityShapedCached) ===
+        "reset_window"
+      ) {
+        currentHostId = hostId;
+        currentTmuxSession = tmuxSession;
+        transitionToHolding("discovery_diff");
+        sshLogger.info(
+          "Claude session entering attach-path reset-window holding",
+          {
+            operation: "claude_session_holding_attach_reset_window",
+            reason: result.reason,
+            identityShape: isIdentityShapedCached,
+            userId,
+            sessionId,
+            hostId,
+            tmuxSession,
+          },
+        );
+        // Start the discovery-repoll timer via the shared helper (Option A).
+        // Same helper startActiveSessionFlow uses — the ticker's reducer
+        // branches (see __applyRepollResultForTests at ~L920) own the
+        // recovery path: active-with-new-file → transitionToActiveNew;
+        // HOLDING_TIMEOUT_TICKS elapsed → transitionToDead('holding_timeout').
+        // currentSessionFile stays null so the first tick that finds a real
+        // file trips the sessionFile !== currentSessionFile branch and fires
+        // transitionToActiveNew (correct recovery).
+        startDiscoveryRepollTimer(tmuxSession);
+        // SSH stays alive; repoll timer is running. Return WITHOUT teardown
+        // (mirrors the enteredDormantPoll early-return above).
+        return;
+      }
+
       // FALLBACK-01: emit one inactive frame and STOP. Do not open a tail,
       // do not fall through to any prior session file. The `never reach
       // back` rule is enforced structurally — there is no branch below
