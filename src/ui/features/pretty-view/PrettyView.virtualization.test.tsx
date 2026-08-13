@@ -753,24 +753,50 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
         fireEvent.change(textarea, { target: { value: "user follow-up" } });
       });
 
-      // Click Send. ComposeBox's inside-textarea send button carries
-      // aria-label="Send" (per patch #129, verified in ComposeBox.tsx
-      // L2423 + ComposeBox.test.tsx L268/L288).
-      const sendBtn = getByRole("button", { name: "Send" });
-      act(() => {
-        fireEvent.click(sendBtn);
+      // Short-tap the Send button. Post-patch #436 (tanya Phase 37 hold-to-send),
+      // the Send button's send-fire path moved from onClick → useHoldToRecord's
+      // onPointerUp (elapsedMs < 250ms branch → onShortTap). A synthetic click
+      // no longer fires handleSend when asideActive is false — pointer sequence
+      // is now the only path. Mirrors ComposeBox.test.tsx `shortTapSendButton`
+      // helper (L53-60); local copy avoids cross-file test-utils export churn.
+      // navigator.mediaDevices stub prevents voice.start() → getUserMedia crash
+      // inside the hook's onPointerDown; the short-tap branch awaits
+      // voice.cancel() (Plan 32-01 pendingCancelRef synchronous teardown)
+      // which discards the never-resolving getUserMedia promise.
+      const originalNavigator = globalThis.navigator;
+      Object.defineProperty(globalThis, "navigator", {
+        value: { mediaDevices: { getUserMedia: vi.fn(() => new Promise(() => {})) } },
+        writable: true,
+        configurable: true,
       });
+      try {
+        const sendBtn = getByRole("button", { name: "Send" });
+        await act(async () => {
+          fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+          fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
+          // Flush microtasks so the awaited voice.cancel() → onShortTap resolves.
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
 
-      // scrollToBottomAndFollow enters sticky + jumps + brief rAF re-arm
-      // for STICK_ARM_MS (150ms). 200ms overshoot flushes the chain.
-      act(() => {
-        vi.advanceTimersByTime(200);
-      });
+        // scrollToBottomAndFollow enters sticky + jumps + brief rAF re-arm
+        // for STICK_ARM_MS (150ms). 200ms overshoot flushes the chain.
+        act(() => {
+          vi.advanceTimersByTime(200);
+        });
 
-      // The send should have re-stuck and jumped back to bottom. If the
-      // wire-through (handleComposeSend → scrollToBottomAndFollow) is
-      // broken, scrollTop would remain at 1000.
-      expect(geom.getScrollTop()).toBe(5000);
+        // The send should have re-stuck and jumped back to bottom. If the
+        // wire-through (handleComposeSend → scrollToBottomAndFollow) is
+        // broken, scrollTop would remain at 1000.
+        expect(geom.getScrollTop()).toBe(5000);
+      } finally {
+        Object.defineProperty(globalThis, "navigator", {
+          value: originalNavigator,
+          writable: true,
+          configurable: true,
+        });
+      }
     } finally {
       vi.useRealTimers();
     }
