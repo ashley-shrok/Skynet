@@ -1,0 +1,25 @@
+{
+  "name": "@skynet/fleet-status-watcher",
+  "version": "1.0.0",
+  "description": "Per-managed-box fleet-status watcher: reads ~/.claude/sessions/<pid>.json via inotify, correlates PID→tmux, consumes Stop hook payloads, emits SessionState records to stdout.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ws": "^8.20.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
