@@ -1076,6 +1076,83 @@ export async function __applyDormantPollTickForTests(
 }
 
 /**
+ * Apply the input message handler logic for tests.
+ * Phase 35 — pretty-view compose-send migrated onto claude-session WS.
+ * Mirrors __applyWakeMessageForTests shape (Tests D/E/F from dormant-poll.test.ts).
+ *
+ * Handles both the split-send case (mqid non-empty + data ends in \r →
+ * body write, 250ms delay, Enter write) and the non-split case (one send-keys call).
+ *
+ * @param deps.sshConn              - SSH connection (null if not connected)
+ * @param deps.currentTmuxSession   - current pane tmux session name (null if none)
+ * @param deps.currentHostId        - connection-scoped host ID (for logging)
+ * @param deps.execCommand          - injectable SSH exec helper
+ * @param deps.data                 - the input data string (may contain trailing \r for split-send)
+ * @param deps.messageQueueItemId   - optional mqid; non-empty triggers split-send gate
+ */
+export async function __applyInputMessageForTests(deps: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sshConn: any | null;
+  currentTmuxSession: string | null;
+  currentHostId: number | null;
+  execCommand: (conn: unknown, cmd: string) => Promise<string>;
+  data: string;
+  messageQueueItemId?: string;
+}): Promise<void> {
+  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
+  if (!sshConn || !currentTmuxSession) return;
+  const data = String(deps.data ?? "");
+  if (data.length === 0) return;
+  // Cap payload size before handing to tmux send-keys (mirrors MAX_RAW_KEYSTROKES_BYTES
+  // at :4025 — same ARG_MAX rationale; 16KB is comfortably above any realistic composebox
+  // input. Per D-PVWS-04).
+  const MAX_INPUT_BYTES = 16 * 1024;
+  if (data.length > MAX_INPUT_BYTES) {
+    sshLogger.warn("input rejected: payload too large", {
+      operation: "input_reject_size",
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      dataLength: data.length,
+      maxBytes: MAX_INPUT_BYTES,
+    });
+    return;
+  }
+  const mqid = String(deps.messageQueueItemId ?? "");
+  // Split-send gate (mirrors terminal.ts:499 split-send semantics):
+  // mqid non-empty + data ends in \r → pretty-view compose-send shape (patch #110).
+  // Body write first, then 250ms (matches terminal.ts:842 — patch #111 raised from 50ms
+  // after Ashley UAT confirmed 50ms caused paste-detection-still-active symptom), then Enter.
+  const isSplitSend = mqid.length > 0 && data.endsWith("\r");
+  try {
+    if (isSplitSend) {
+      const body = data.slice(0, -1);
+      if (body.length > 0) {
+        await exec(
+          sshConn,
+          `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} ${shellQuote(body)}`,
+        );
+      }
+      // 250ms — matches terminal.ts:842 (patch #111). Do NOT change to 50ms.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} Enter`);
+    } else {
+      await exec(
+        sshConn,
+        `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} ${shellQuote(data)}`,
+      );
+    }
+  } catch (err) {
+    sshLogger.warn("input send failed", {
+      operation: "input_send_error",
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      dataLength: data.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
  * Apply the wake message handler logic for tests.
  * Tests D/E/F from dormant-poll.test.ts use this seam.
  *
@@ -4050,6 +4127,33 @@ wss.on("connection", async (ws: WebSocket, req) => {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+      return;
+    }
+
+    // Phase 35 — pretty-view compose-send owns its own WebSocket instead of
+    // borrowing the terminal SSH WS (see bounty: terminal-ws-silent-death-on-session-return).
+    //
+    // `input` handler: accepts the same payload shape as terminal.ts:499's split-send gate
+    // ({ type: "input", data: string, messageQueueItemId?: string }) and replicates the
+    // split-send semantics via tmux send-keys:
+    //   - Split-send (mqid non-empty + data ends in \r): body write → 250ms → Enter write.
+    //   - Non-split (no mqid OR no trailing \r): one send-keys -l call.
+    // Citation: 250ms delay from src/backend/ssh/terminal.ts:842, patch #111.
+    //
+    // Trust boundary (mirrors aside_dismissed T-14-02-01): the send target
+    // is derived from the connection's captured currentTmuxSession (set on
+    // connectToPane discovery success). We IGNORE any client-supplied
+    // hostId/tmuxSession in the payload — a client cannot spoof an input
+    // frame into a pane it doesn't own.
+    if (msg.type === "input") {
+      await __applyInputMessageForTests({
+        sshConn,
+        currentTmuxSession,
+        currentHostId,
+        execCommand,
+        data: String((msg as { data?: unknown }).data ?? ""),
+        messageQueueItemId: String((msg as { messageQueueItemId?: unknown }).messageQueueItemId ?? "") || undefined,
+      });
       return;
     }
 
