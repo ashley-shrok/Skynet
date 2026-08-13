@@ -1,52 +1,44 @@
-// ─── Session working-state store (patch #137, extended patch #260806-ixl) ─────
+// ─── Session working-state store (Phase 34 Plan 06 — fleet-status cutover) ───
 // Module-scoped in-memory store for per-(host, tmuxSession) "is the session
-// working?" composite state. Fed by Terminal.tsx (PTY idle signal → ttyBusy)
-// and PrettyView.tsx (backgrounded_agents / backgrounded_shells WS frames →
-// hasBgWork). Consumed by PrettyConversationsPanel (row ready-dot) and
-// PrettyView (WipBubble mount) via the shared `useSessionIsWorking` hook.
+// working?" composite state. Sourced exclusively from the fleet-status
+// WebSocket channel (the backend-authoritative signal). Two old feeders
+// (PTY-idle from Terminal.tsx + backgrounded-work from PrettyView.tsx)
+// were REMOVED in Plan 06 — see 34-06-SUMMARY.md for the retired symbols.
 //
-// Composite shape: Map<string, { ttyBusy: boolean | null; hasBgWork: boolean }>
+// Composite formula (D-CTX § Composite state):
+//   main      = status === "busy" || status === "shell"
+//   waiting   = status === "waiting"   // separate axis — NOT working, bubble-only
+//   bg        = backgroundTasks.length > 0
+//   isWorking = main || bg
 //
-//   - `ttyBusy: null`  = PTY state unknown; no idle frame observed yet. Hook
-//                        treats null as not-working ("unknown → suppress dot").
-//   - `ttyBusy: true`  = PTY is busy (isIdle === false) — agent working.
-//   - `ttyBusy: false` = PTY is idle (isIdle === true) — agent idle.
-//   - `hasBgWork: true` = at least one backgrounded agent OR shell is live.
-//   - `hasBgWork: false` = no backgrounded work (default).
+// The ambient filter runs at the WATCHER (Plan 04), not here. By the time
+// SessionState arrives at the browser, backgroundTasks[] is already
+// ambient-filtered — every entry is non-ambient work.
 //
-// Derivation: `isWorking = ttyBusy === true || hasBgWork`.
-// A session with an idle PTY BUT backgrounded work → isWorking = true.
-// A session with a busy PTY AND no backgrounded work → isWorking = true.
-// A session with null ttyBusy AND no backgrounded work → isWorking = false
-// (suppress dot, same as original "suppress until first frame" behavior).
+// Internal state shape: Map<string, { isWorking: boolean }>
+// Key format: `${hostId}:${tmuxSession ?? ""}` — unchanged convention.
 //
-// Storage layer: NONE. In-memory Map only. Deliberately NOT persisted —
-// a page refresh resets the store; the very next isIdle emit from each
-// mounted Terminal.tsx re-populates ttyBusy, and the next WS frame re-
-// populates hasBgWork. Cross-tab isolation is a side benefit.
+// Per-key no-op notify guard: if the new isWorking === existing isWorking AND
+// the key already exists, skip notify. First-time publish always notifies.
 //
-// Publishing null ttyBusy OVERWRITES to null (does NOT delete the key). The
-// same "overwrite, not delete" rationale applies to hasBgWork: publishing
-// false after a true does NOT remove the key — the composite record persists.
+// publishFleetStatusSessionGone: deletes the key from the map and notifies.
+// Unlike publishFleetStatusSessionState, gone always notifies (deletion is
+// always a change).
 //
-// Per-field no-op notify guard: if the target FIELD is unchanged AND the key
-// already existed in the map, we skip the notify. This is truly per-field —
-// an intervening publish to the OTHER field does NOT reset the guard for the
-// unchanged field. First-time publish of any value (key not yet in map) always
-// notifies (React may be observing the key).
+// Storage layer: NONE. In-memory Map only. A page refresh resets the store;
+// the fleet-status WS snapshot on re-connect repopulates all keys.
 //
-// Store pattern mirrors src/ui/state/conversation-store.ts verbatim: module-
-// scoped `state` object with a Map + Set<() => void> listener registry +
-// snapshotVersion counter; notify() bumps + iterates; subscribe() returns
-// disposer. No zustand / jotai / redux — the fork rolls its own.
+// Store pattern mirrors src/ui/state/conversation-store.ts: module-scoped
+// `state` object + Map + Set<() => void> listener registry + snapshotVersion
+// counter; notify() bumps + iterates; subscribe() returns disposer.
 
 import { useSyncExternalStore } from "react";
+import type { SessionState } from "../api/fleet-status-types.js";
 
 // ─── Module-scoped state ─────────────────────────────────────────────────────
 
 type WorkingRecord = {
-  ttyBusy: boolean | null;
-  hasBgWork: boolean;
+  isWorking: boolean;
 };
 
 type State = {
@@ -76,88 +68,120 @@ function subscribe(cb: () => void): () => void {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Publish the PTY-side busy state for a (host, tmuxSession) key. Called by
- * Terminal.tsx from a useEffect on `[isIdle, hostConfig.id, tmuxSessionName]`
- * with `isIdle === null ? null : isIdle === false`.
+ * Publish a new or updated SessionState from the fleet-status channel.
+ * Computes isWorking from the D-CTX composite formula and updates the map.
  *
- * Per-field no-op notify guard: if ttyBusy is unchanged AND the key already
- * existed in the map, skip notify. An intervening hasBgWork publish to the
- * SAME key does NOT reset this guard — the field check is truly independent.
- * First-time publish (key not yet present) always notifies.
+ * Per-key no-op notify guard: if isWorking is unchanged AND the key already
+ * exists in the map, skip notify. This prevents spurious re-renders when the
+ * backend sends repeated frames with identical effective states.
+ *
+ * Structured logging: logs every state transition at the hostId + tmuxSession
+ * level so dot regressions can be traced through the browser console.
+ * Per T-34-20 (Repudiation mitigation).
  */
-export function publishSessionTtyBusy(
-  key: string,
-  ttyBusy: boolean | null,
+export function publishFleetStatusSessionState(
+  hostId: string,
+  state_arg: SessionState,
 ): void {
+  const key = `${hostId}:${state_arg.tmuxSession ?? ""}`;
+
+  // D-CTX § Composite state formula (EXACT — do not alter):
+  const main = state_arg.status === "busy" || state_arg.status === "shell";
+  const bg = state_arg.backgroundTasks.length > 0;
+  const isWorking = main || bg;
+
   const existing = state.map.get(key);
-  if (existing !== undefined && existing.ttyBusy === ttyBusy) return; // no-op
-  const nextRecord: WorkingRecord = existing
-    ? { ...existing, ttyBusy }
-    : { ttyBusy, hasBgWork: false };
+  if (existing !== undefined && existing.isWorking === isWorking) {
+    // No-op: effective working state unchanged — skip notify to prevent
+    // spurious re-renders. Log at trace level only.
+    return;
+  }
+
+  console.info({
+    operation: "fleet_status_working_state_change",
+    hostId,
+    tmuxSession: state_arg.tmuxSession,
+    sessionId: state_arg.sessionId,
+    status: state_arg.status,
+    backgroundTaskCount: state_arg.backgroundTasks.length,
+    isWorking,
+    previous: existing?.isWorking ?? null,
+  });
+
   const nextMap = new Map(state.map);
-  nextMap.set(key, nextRecord);
+  nextMap.set(key, { isWorking });
   state = { map: nextMap };
   notify();
 }
 
 /**
- * Publish whether this session has any backgrounded work (agents or shells).
- * Called by PrettyView.tsx on every `backgrounded_agents` / `backgrounded_shells`
- * WS frame and on both reset paths (fresh-pane mount, session_changed).
- *
- * Per-field no-op notify guard: if hasBgWork is unchanged AND the key already
- * existed in the map, skip notify. An intervening ttyBusy publish does NOT
- * reset this guard.
+ * Mark a session as gone (session ended or watcher lost track of it).
+ * Deletes the key from the map and notifies subscribers so the dot
+ * clears immediately. If the key does not exist, this is a no-op
+ * (prevents double-delete churn from watcher restart cycles — mirrors
+ * the server-side SubscriptionRegistry.publishSessionGone behavior).
  */
-export function publishSessionHasBackgroundedWork(
-  key: string,
-  hasBgWork: boolean,
+export function publishFleetStatusSessionGone(
+  hostId: string,
+  tmuxSession: string | null,
+  sessionId: string,
 ): void {
-  const existing = state.map.get(key);
-  if (existing !== undefined && existing.hasBgWork === hasBgWork) return; // no-op
-  const nextRecord: WorkingRecord = existing
-    ? { ...existing, hasBgWork }
-    : { ttyBusy: null, hasBgWork };
+  const key = `${hostId}:${tmuxSession ?? ""}`;
+  if (!state.map.has(key)) return; // no-op
+
+  console.info({
+    operation: "fleet_status_session_gone",
+    hostId,
+    tmuxSession,
+    sessionId,
+    key,
+  });
+
   const nextMap = new Map(state.map);
-  nextMap.set(key, nextRecord);
+  nextMap.delete(key);
   state = { map: nextMap };
   notify();
 }
 
 /**
- * Hook: derive "is this session working?" for a single key. Returns a plain
- * boolean — true if ttyBusy === true OR hasBgWork is true, false otherwise.
+ * Hook: derive "is this session working?" for a single key.
+ * Returns a plain boolean.
  *
  *   - Null key → false (short-circuit; no useSyncExternalStore work).
- *   - Unknown key → false (key never published — same "suppress dot" default).
- *   - ttyBusy === null + hasBgWork === false → false ("unknown PTY, no bg
- *     work" — preserve the original "suppress ready-dot until first idle
- *     frame" behavior; the backend hasn't spoken yet).
- *   - ttyBusy === null + hasBgWork === true → true (backgrounded work alone
- *     dominates the unknown PTY state — WipBubble mounts, dot suppressed).
+ *   - Unknown key → false (key never published — suppress dot until first frame).
+ *   - isWorking === false (idle, no bg work, or waiting) → false.
+ *   - isWorking === true (busy, shell, or bg work present) → true.
+ *
+ * NOTE: waiting status returns FALSE — waiting is a SEPARATE axis from
+ * working. The WaitingBubble (session-waiting-store) handles the waiting
+ * axis. Per D-CTX § Composite state (LOCKED).
  */
 export function useSessionIsWorking(key: string | null): boolean {
   const getSnapshot = (): boolean => {
     if (key === null) return false;
     const record = state.map.get(key);
     if (record === undefined) return false;
-    return record.ttyBusy === true || record.hasBgWork;
+    return record.isWorking;
   };
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 /**
- * Test-only: return the raw internal Map as a ReadonlyMap view. NOT for
- * production callers. Kept exported (rather than gated on
- * `import.meta.env.MODE === "test"`) because Vite's tree-shaker will drop it
- * from the production bundle if no production code imports it.
+ * Return the raw internal Map as a ReadonlyMap view.
+ * NOT for production callers. Kept exported (rather than gated on
+ * import.meta.env.MODE === "test") because Vite's tree-shaker drops it from
+ * the production bundle if no production code imports it.
  */
 export function getSessionWorkingSnapshot(): ReadonlyMap<
   string,
-  { ttyBusy: boolean | null; hasBgWork: boolean }
+  { isWorking: boolean }
 > {
   return state.map;
 }
+
+// Unused variable reference to suppress TypeScript "declared but never read"
+// for snapshotVersion if nothing else uses it. The notify() caller bumps it.
+void snapshotVersion;
 
 // ─── Test-only helpers ───────────────────────────────────────────────────────
 

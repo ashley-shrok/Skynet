@@ -1,52 +1,71 @@
-// ─── session-working-store — Vitest coverage (patch #137, extended #260806-ixl) ─
-// 11 tests (A–K) covering the composite { ttyBusy, hasBgWork } working-state
+// ─── session-working-store — Vitest coverage (Phase 34 Plan 06, Task 1) ──────
+// 12 tests (A–L) covering the fleet-status-channel-sourced composite working-state
 // store and the derived useSessionIsWorking hook:
 //
-//   A. publishSessionTtyBusy(k, true) alone → useSessionIsWorking returns true.
-//   B. publishSessionTtyBusy(k, false) alone → returns false.
-//   C. publishSessionHasBackgroundedWork(k, true) alone → returns true.
-//   D. both true → true; both false → false.
-//   E. ttyBusy=null + hasBgWork=false → false (null PTY does NOT false-positive).
-//   F. ttyBusy=null + hasBgWork=true → true (hasBgWork dominates unknown ttyBusy).
-//   G. no-op notify guard, ttyBusy field: unchanged ttyBusy publish after an
-//      intervening hasBgWork publish does NOT re-notify.
-//   H. mirror of G for hasBgWork field.
-//   I. Unknown key → useSessionIsWorking returns false (was null in old API).
-//   J. Null key → useSessionIsWorking(null) returns false (short-circuit).
-//   K. Multiple keys are independent.
+//   A. publishFleetStatusSessionState(hostId, {status:'busy',...}) → useSessionIsWorking true
+//   B. status:'shell' → useSessionIsWorking true (shell counts as main per D-CTX)
+//   C. status:'idle' + backgroundTasks w/ running shell → true (bg dominates)
+//   D. status:'idle' + backgroundTasks:[] → false
+//   E. status:'waiting' + backgroundTasks:[] → FALSE (waiting is NOT working per D-CTX)
+//   F. publishFleetStatusSessionGone deletes key → subsequent useSessionIsWorking false
+//   G. no-op notify guard: unchanged isWorking publish skips notify
+//   H. publishFleetStatusSessionGone on unknown key is a no-op (no crash)
+//   I. Unknown key → useSessionIsWorking returns false
+//   J. Null key → useSessionIsWorking(null) returns false (short-circuit)
+//   K. Multiple keys are independent
+//   L. Source-level grep: publishSessionTtyBusy + publishSessionHasBackgroundedWork NOT imported in test file
 //
 // Pattern mirrors src/ui/state/conversation-store.test.ts — Vitest +
 // @testing-library/react's renderHook; module-scope state reset via a
 // __resetForTest() helper in beforeEach.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 
 import {
-  publishSessionTtyBusy,
-  publishSessionHasBackgroundedWork,
+  publishFleetStatusSessionState,
+  publishFleetStatusSessionGone,
   useSessionIsWorking,
   getSessionWorkingSnapshot,
   __resetForTest,
 } from "./session-working-store.js";
 
+import type { SessionState } from "../api/fleet-status-types.js";
+
 beforeEach(() => {
   __resetForTest();
 });
 
+// ─── Test helpers ─────────────────────────────────────────────────────────────
+
+function makeState(overrides: Partial<SessionState> = {}): SessionState {
+  return {
+    hostId: "h1",
+    tmuxSession: "s1",
+    sessionId: "sess-1",
+    pid: 1234,
+    status: "idle",
+    backgroundTasks: [],
+    updatedAt: Date.now(),
+    ...overrides,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Test A — ttyBusy=true alone → isWorking true
+// Test A — status:'busy' → isWorking true
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("session-working-store: Test A — ttyBusy=true alone", () => {
-  it("publishSessionTtyBusy(k, true) → useSessionIsWorking returns true", () => {
+describe("session-working-store: Test A — status:'busy' → isWorking true", () => {
+  it("publishFleetStatusSessionState with status:'busy' → useSessionIsWorking returns true", () => {
     const { result, rerender } = renderHook(() =>
       useSessionIsWorking("h1:s1"),
     );
     expect(result.current).toBe(false); // unknown → false
 
     act(() => {
-      publishSessionTtyBusy("h1:s1", true);
+      publishFleetStatusSessionState("h1", makeState({ status: "busy" }));
     });
     rerender();
     expect(result.current).toBe(true);
@@ -54,17 +73,64 @@ describe("session-working-store: Test A — ttyBusy=true alone", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test B — ttyBusy=false alone → isWorking false
+// Test B — status:'shell' → isWorking true
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("session-working-store: Test B — ttyBusy=false alone", () => {
-  it("publishSessionTtyBusy(k, false) → useSessionIsWorking returns false", () => {
+describe("session-working-store: Test B — status:'shell' → isWorking true", () => {
+  it("publishFleetStatusSessionState with status:'shell' → useSessionIsWorking returns true", () => {
     const { result, rerender } = renderHook(() =>
       useSessionIsWorking("h1:s1"),
     );
 
     act(() => {
-      publishSessionTtyBusy("h1:s1", false);
+      publishFleetStatusSessionState("h1", makeState({ status: "shell" }));
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test C — status:'idle' + bg shell task → isWorking true
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store: Test C — idle + bg shell task → isWorking true", () => {
+  it("status:'idle' + one running shell background task → true (bg dominates)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          backgroundTasks: [
+            { id: "bt-1", type: "shell", status: "running" },
+          ],
+        }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test D — status:'idle' + no bg tasks → isWorking false
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store: Test D — idle + no bg tasks → isWorking false", () => {
+  it("status:'idle' + backgroundTasks:[] → useSessionIsWorking returns false", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", backgroundTasks: [] }),
+      );
     });
     rerender();
     expect(result.current).toBe(false);
@@ -72,45 +138,29 @@ describe("session-working-store: Test B — ttyBusy=false alone", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test C — hasBgWork=true alone → isWorking true
+// Test E — status:'waiting' → isWorking FALSE (waiting is NOT working per D-CTX)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("session-working-store: Test C — hasBgWork=true alone", () => {
-  it("publishSessionHasBackgroundedWork(k, true) alone → useSessionIsWorking returns true", () => {
-    const { result, rerender } = renderHook(() =>
-      useSessionIsWorking("h1:s1"),
-    );
-    expect(result.current).toBe(false); // unknown → false
-
-    act(() => {
-      publishSessionHasBackgroundedWork("h1:s1", true);
-    });
-    rerender();
-    expect(result.current).toBe(true);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test D — both true → true; both false → false
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("session-working-store: Test D — composite logic", () => {
-  it("both ttyBusy=true and hasBgWork=true → true; then cleared → false", () => {
+describe("session-working-store: Test E — status:'waiting' → isWorking FALSE", () => {
+  it("status:'waiting' + backgroundTasks:[] → useSessionIsWorking returns false (waiting is NOT working per D-CTX)", () => {
     const { result, rerender } = renderHook(() =>
       useSessionIsWorking("h1:s1"),
     );
 
     act(() => {
-      publishSessionTtyBusy("h1:s1", true);
-      publishSessionHasBackgroundedWork("h1:s1", true);
-    });
-    rerender();
-    expect(result.current).toBe(true);
-
-    // Clear both
-    act(() => {
-      publishSessionTtyBusy("h1:s1", false);
-      publishSessionHasBackgroundedWork("h1:s1", false);
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          tmuxSession: "s1",
+          status: "waiting",
+          backgroundTasks: [],
+          sessionId: "x",
+          pid: 1,
+          updatedAt: 0,
+          hostId: "h1",
+          waitingFor: "approve Bash",
+        }),
+      );
     });
     rerender();
     expect(result.current).toBe(false);
@@ -118,117 +168,79 @@ describe("session-working-store: Test D — composite logic", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test E — ttyBusy=null + hasBgWork=false → false (no false-positive)
+// Test F — publishFleetStatusSessionGone deletes key → useSessionIsWorking false
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("session-working-store: Test E — null ttyBusy + no bg work → false", () => {
-  it("ttyBusy=null + hasBgWork=false → useSessionIsWorking returns false", () => {
+describe("session-working-store: Test F — publishFleetStatusSessionGone clears key", () => {
+  it("after gone, useSessionIsWorking returns false and key is absent from snapshot", () => {
     const { result, rerender } = renderHook(() =>
       useSessionIsWorking("h1:s1"),
     );
 
-    // Publish null ttyBusy (unknown PTY) + false hasBgWork
+    // First publish working state
     act(() => {
-      publishSessionTtyBusy("h1:s1", null);
-      publishSessionHasBackgroundedWork("h1:s1", false);
-    });
-    rerender();
-    expect(result.current).toBe(false);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test F — ttyBusy=null + hasBgWork=true → true (hasBgWork dominates)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("session-working-store: Test F — null ttyBusy + hasBgWork=true → true", () => {
-  it("ttyBusy=null + hasBgWork=true → useSessionIsWorking returns true", () => {
-    const { result, rerender } = renderHook(() =>
-      useSessionIsWorking("h1:s1"),
-    );
-
-    act(() => {
-      publishSessionTtyBusy("h1:s1", null);
-      publishSessionHasBackgroundedWork("h1:s1", true);
+      publishFleetStatusSessionState("h1", makeState({ status: "busy" }));
     });
     rerender();
     expect(result.current).toBe(true);
+
+    // Now send gone
+    act(() => {
+      publishFleetStatusSessionGone("h1", "s1", "sess-1");
+    });
+    rerender();
+    expect(result.current).toBe(false);
+
+    // Key should be absent from the snapshot map
+    const snap = getSessionWorkingSnapshot();
+    expect(snap.has("h1:s1")).toBe(false);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test G — no-op guard for ttyBusy field (per-field independence)
+// Test G — no-op notify guard: unchanged isWorking skips notify
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("session-working-store: Test G — ttyBusy no-op guard is per-field", () => {
-  it("unchanged ttyBusy after an intervening hasBgWork publish does NOT re-notify", () => {
-    // Set initial state: ttyBusy=true, hasBgWork=false.
+describe("session-working-store: Test G — no-op notify guard (unchanged isWorking)", () => {
+  it("publishing the same isWorking value twice does NOT bump snapshot reference", () => {
     act(() => {
-      publishSessionTtyBusy("h1:s1", true);
+      publishFleetStatusSessionState("h1", makeState({ status: "busy" }));
     });
 
-    // Capture snapshot reference BEFORE the intervening hasBgWork publish.
     const snapBefore = getSessionWorkingSnapshot();
 
-    // Publish hasBgWork — this MUST notify (hasBgWork changed).
+    // Publish same effective state (still busy → isWorking=true)
     act(() => {
-      publishSessionHasBackgroundedWork("h1:s1", true);
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "busy", updatedAt: Date.now() + 1 }),
+      );
     });
 
-    // The snapshot reference should have changed (hasBgWork updated).
-    const snapAfterBgWork = getSessionWorkingSnapshot();
-    expect(snapAfterBgWork).not.toBe(snapBefore);
-
-    // Now publish SAME ttyBusy (true again, unchanged). Per-field guard should
-    // skip notify — the snapshot reference MUST stay the same.
-    const snapBeforeSameTtyBusy = getSessionWorkingSnapshot();
-    act(() => {
-      publishSessionTtyBusy("h1:s1", true); // unchanged
-    });
-    const snapAfterSameTtyBusy = getSessionWorkingSnapshot();
-    expect(snapAfterSameTtyBusy).toBe(snapBeforeSameTtyBusy);
+    const snapAfter = getSessionWorkingSnapshot();
+    // Map reference unchanged because notify was skipped
+    expect(snapAfter).toBe(snapBefore);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test H — no-op guard for hasBgWork field (mirror of G)
+// Test H — publishFleetStatusSessionGone on unknown key is a no-op
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("session-working-store: Test H — hasBgWork no-op guard is per-field", () => {
-  it("unchanged hasBgWork after an intervening ttyBusy publish does NOT re-notify", () => {
-    // Set initial state: hasBgWork=true, ttyBusy=null.
-    act(() => {
-      publishSessionHasBackgroundedWork("h1:s1", true);
-    });
-
-    // Capture snapshot before the intervening ttyBusy publish.
-    const snapBefore = getSessionWorkingSnapshot();
-
-    // Publish ttyBusy — this MUST notify (ttyBusy changed from null).
-    act(() => {
-      publishSessionTtyBusy("h1:s1", false);
-    });
-
-    // Snapshot reference should have changed.
-    const snapAfterTtyBusy = getSessionWorkingSnapshot();
-    expect(snapAfterTtyBusy).not.toBe(snapBefore);
-
-    // Now publish SAME hasBgWork (true, unchanged). Guard should skip notify.
-    const snapBeforeSameHasBgWork = getSessionWorkingSnapshot();
-    act(() => {
-      publishSessionHasBackgroundedWork("h1:s1", true); // unchanged
-    });
-    const snapAfterSameHasBgWork = getSessionWorkingSnapshot();
-    expect(snapAfterSameHasBgWork).toBe(snapBeforeSameHasBgWork);
+describe("session-working-store: Test H — gone on unknown key is a no-op", () => {
+  it("publishFleetStatusSessionGone on unknown key does not throw", () => {
+    expect(() => {
+      publishFleetStatusSessionGone("unknown-host", "unknown-session", "no-sess-id");
+    }).not.toThrow();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test I — Unknown key → false (not null, per new API contract)
+// Test I — Unknown key → useSessionIsWorking returns false
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("session-working-store: Test I — unknown key returns false", () => {
-  it("useSessionIsWorking on a never-published key returns false (was null in old API)", () => {
+  it("useSessionIsWorking on a never-published key returns false", () => {
     const { result } = renderHook(() =>
       useSessionIsWorking("never-set"),
     );
@@ -241,7 +253,7 @@ describe("session-working-store: Test I — unknown key returns false", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("session-working-store: Test J — null key short-circuits to false", () => {
-  it("useSessionIsWorking(null) returns false (avoids subscribe work for host-less rows)", () => {
+  it("useSessionIsWorking(null) returns false (short-circuit)", () => {
     const { result } = renderHook(() => useSessionIsWorking(null));
     expect(result.current).toBe(false);
   });
@@ -261,8 +273,16 @@ describe("session-working-store: Test K — multiple keys are independent", () =
     );
 
     act(() => {
-      publishSessionTtyBusy("h1:s1", true);
-      publishSessionHasBackgroundedWork("h2:s2", true);
+      publishFleetStatusSessionState("h1", makeState({ hostId: "h1", tmuxSession: "s1", status: "busy" }));
+      publishFleetStatusSessionState(
+        "h2",
+        makeState({
+          hostId: "h2",
+          tmuxSession: "s2",
+          status: "idle",
+          backgroundTasks: [{ id: "bt", type: "subagent", status: "running" }],
+        }),
+      );
     });
     rerenderA();
     rerenderB();
@@ -270,23 +290,42 @@ describe("session-working-store: Test K — multiple keys are independent", () =
     expect(a.current).toBe(true);
     expect(b.current).toBe(true);
 
-    // Setting key A's ttyBusy to false + hasBgWork to false must not change B.
+    // Clear key A
     act(() => {
-      publishSessionTtyBusy("h1:s1", false);
-      publishSessionHasBackgroundedWork("h1:s1", false);
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ hostId: "h1", tmuxSession: "s1", status: "idle", backgroundTasks: [] }),
+      );
     });
     rerenderA();
     rerenderB();
     expect(a.current).toBe(false);
     expect(b.current).toBe(true); // key B unchanged
+  });
+});
 
-    // Publishing hasBgWork=false on B should clear it.
-    act(() => {
-      publishSessionHasBackgroundedWork("h2:s2", false);
-    });
-    rerenderA();
-    rerenderB();
-    expect(a.current).toBe(false); // key A still false
-    expect(b.current).toBe(false);
+// ─────────────────────────────────────────────────────────────────────────────
+// Test L — Source-level grep: retired functions NOT in test file
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store: Test L — retired functions not imported in test file", () => {
+  it("retired feeder symbols do not appear in import statements of this test file", () => {
+    const src = readFileSync(
+      resolve(__dirname, "session-working-store.test.ts"),
+      "utf8",
+    );
+    // Only check import lines — that's where forbidden symbols would be imported.
+    // String literals in test descriptions and token-split assignments are intentional.
+    const importLines = src
+      .split("\n")
+      .filter((line) => line.trimStart().startsWith("import "))
+      .join("\n");
+
+    // Use token split to avoid self-matching in THIS file's source text
+    const retiredA = "publish" + "SessionTtyBusy";
+    const retiredB = "publish" + "SessionHas" + "BackgroundedWork";
+
+    expect(importLines.includes(retiredA)).toBe(false);
+    expect(importLines.includes(retiredB)).toBe(false);
   });
 });
