@@ -490,22 +490,22 @@ describe("useVoiceRecording", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Intent transform tests (Tests I1-I4) — verify endAppend/endSend apply
-  // applyIntentTransform to the STT transcript before glue
+  // Phase 34 tests — client consumes server transcript VERBATIM (no client-side
+  // transform). Server-side wake-word + skill-catalog transform is exercised
+  // by src/backend/database/routes/voice.test.ts.
   // ---------------------------------------------------------------------------
 
-  it("Test I1: endAppend with 'bounty bounty add a banana button' transcript transforms to '/bounty add a banana button' in both fields", async () => {
+  it("Test P34-01: endAppend uses server response text verbatim (server returns pre-transformed '/gsd-quick fix')", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ text: "bounty bounty add a banana button" }),
+        json: () => Promise.resolve({ text: "/gsd-quick fix the login bug" }),
       }),
     );
 
     const { result } = renderHook(() => useVoiceRecording());
-
     act(() => { result.current.start(); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
@@ -515,22 +515,21 @@ describe("useVoiceRecording", () => {
     });
 
     expect(returnValue).not.toBeNull();
-    expect(returnValue!.transcript).toBe("/bounty add a banana button");
-    expect(returnValue!.glued).toBe("/bounty add a banana button");
+    expect(returnValue!.transcript).toBe("/gsd-quick fix the login bug");
+    expect(returnValue!.glued).toBe("/gsd-quick fix the login bug");
   });
 
-  it("Test I2: endSend with 'bounty bounty add a banana button' transcript transforms to '/bounty add a banana button' in both fields", async () => {
+  it("Test P34-02: endSend uses server response text verbatim (server returns pre-transformed)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ text: "bounty bounty add a banana button" }),
+        json: () => Promise.resolve({ text: "/gsd-quick fix the login bug" }),
       }),
     );
 
     const { result } = renderHook(() => useVoiceRecording());
-
     act(() => { result.current.start(); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
@@ -540,22 +539,21 @@ describe("useVoiceRecording", () => {
     });
 
     expect(returnValue).not.toBeNull();
-    expect(returnValue!.transcript).toBe("/bounty add a banana button");
-    expect(returnValue!.glued).toBe("/bounty add a banana button");
+    expect(returnValue!.transcript).toBe("/gsd-quick fix the login bug");
+    expect(returnValue!.glued).toBe("/gsd-quick fix the login bug");
   });
 
-  it("Test I3: endAppend with non-triggering transcript 'hello world' round-trips unchanged", async () => {
+  it("Test P34-03: endAppend passes non-transformed text through unchanged when server returns raw", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ text: "hello world" }),
+        json: () => Promise.resolve({ text: "just some raw text" }),
       }),
     );
 
     const { result } = renderHook(() => useVoiceRecording());
-
     act(() => { result.current.start(); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
@@ -565,33 +563,52 @@ describe("useVoiceRecording", () => {
     });
 
     expect(returnValue).not.toBeNull();
-    expect(returnValue!.transcript).toBe("hello world");
-    expect(returnValue!.glued).toBe("hello world");
+    expect(returnValue!.transcript).toBe("just some raw text");
+    expect(returnValue!.glued).toBe("just some raw text");
   });
 
-  it("Test I4: endAppend with single 'bounty' (no doubling) round-trips unchanged", async () => {
+  it("Test P34-04: transcribeBlob appends hostId + tmuxSession form fields when logContext provided", async () => {
+    let capturedBody: FormData | null = null;
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ text: "bounty" }),
+      vi.fn().mockImplementation(async (_url: string, opts: RequestInit) => {
+        capturedBody = opts.body as FormData;
+        return { ok: true, status: 200, json: () => Promise.resolve({ text: "x" }) };
       }),
     );
 
-    const { result } = renderHook(() => useVoiceRecording());
-
+    const { result } = renderHook(() => useVoiceRecording({ hostId: 42, sessionId: "mysession" }));
     act(() => { result.current.start(); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
+    await act(async () => { await result.current.endAppend(""); });
 
-    let returnValue: Awaited<ReturnType<typeof result.current.endAppend>> = null;
-    await act(async () => {
-      returnValue = await result.current.endAppend("");
-    });
+    expect(capturedBody).not.toBeNull();
+    const fd = capturedBody as FormData;
+    expect(fd.get("hostId")).toBe("42");
+    expect(fd.get("tmuxSession")).toBe("mysession");
+    expect(fd.get("file")).not.toBeNull();
+  });
 
-    expect(returnValue).not.toBeNull();
-    expect(returnValue!.transcript).toBe("bounty");
-    expect(returnValue!.glued).toBe("bounty");
+  it("Test P34-05: transcribeBlob OMITS hostId + tmuxSession when logContext is undefined", async () => {
+    let capturedBody: FormData | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (_url: string, opts: RequestInit) => {
+        capturedBody = opts.body as FormData;
+        return { ok: true, status: 200, json: () => Promise.resolve({ text: "x" }) };
+      }),
+    );
+
+    const { result } = renderHook(() => useVoiceRecording()); // NO logContext arg
+    act(() => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+    await act(async () => { await result.current.endAppend(""); });
+
+    expect(capturedBody).not.toBeNull();
+    const fd = capturedBody as FormData;
+    expect(fd.get("hostId")).toBeNull();
+    expect(fd.get("tmuxSession")).toBeNull();
+    expect(fd.get("file")).not.toBeNull();
   });
 
   // ---------------------------------------------------------------------------

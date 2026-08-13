@@ -51,7 +51,6 @@ import startUrl from "../../assets/sounds/mic/start.mp3?url";
 import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
 import cancelUrl from "../../assets/sounds/mic/cancel.mp3?url";
 import errorUrl from "../../assets/sounds/mic/error.mp3?url";
-import { applyIntentTransform } from "./composeIntentTransform";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -218,6 +217,16 @@ export function useVoiceRecording(
 
     const fd = new FormData();
     fd.append("file", blob, `clip.${ext}`);
+    // Phase 34: pass target-pane context so the backend can SSH-fetch the
+    // skill catalog and apply the server-side slash-command transform when
+    // the transcript begins with the "slash <content>" wake-word. Server
+    // fail-opens (returns raw transcript) if either field is absent.
+    if (logContext?.hostId !== undefined) {
+      fd.append("hostId", String(logContext.hostId));
+    }
+    if (logContext?.sessionId !== undefined) {
+      fd.append("tmuxSession", logContext.sessionId);
+    }
 
     console.info(`[voice] transcribe-post url=${TRANSCRIBE_URL} blobSize=${blob.size} ext=${ext} ${ctxSuffix}`);
 
@@ -409,9 +418,8 @@ export function useVoiceRecording(
       playSound(errorAudioRef.current);
     }
 
-    const transformedTranscript = applyIntentTransform(transcript).transformed;
-    const glued = applyGlue(currentText, transformedTranscript);
-    return { transcript: transformedTranscript, glued };
+    const glued = applyGlue(currentText, transcript);
+    return { transcript, glued };
   }
 
   /**
@@ -462,9 +470,8 @@ export function useVoiceRecording(
       playSound(errorAudioRef.current);
     }
 
-    const transformedTranscript = applyIntentTransform(transcript).transformed;
-    const glued = applyGlue(currentText, transformedTranscript);
-    return { transcript: transformedTranscript, glued };
+    const glued = applyGlue(currentText, transcript);
+    return { transcript, glued };
   }
 
   return { state, errorMessage, start, cancel, endAppend, endSend };

@@ -10,7 +10,18 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+// Phase 34: mock the SSH fetcher so the STT-route slash-transform tests can
+// inject arbitrary catalog Sets without spinning up SSH. The matcher
+// (slashCommandTransform) is intentionally NOT mocked — it's a pure function
+// and we want to assert the real transformed output.
+vi.mock("../../voice/skill-catalog.js", () => ({
+  fetchSkillCatalog: vi.fn(),
+  DEFAULT_SKILL_CATALOG_TIMEOUT_MS: 10_000,
+}));
+
 import { handleTranscribe, handleSpeak, handleListVoices, handleSpeakStream, DEFAULT_VOICE, SPEAK_TEXT_MAX } from "./voice.js";
+import { fetchSkillCatalog } from "../../voice/skill-catalog.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Express mock (enough to drive the handler)
@@ -97,10 +108,11 @@ type MockReq = {
     mimetype: string;
     originalname?: string;
   };
+  body?: Record<string, unknown>;
 };
 
-function makeReq(file?: MockReq["file"]): MockReq {
-  return { file };
+function makeReq(file?: MockReq["file"], body?: Record<string, unknown>): MockReq {
+  return { file, body };
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +284,139 @@ describe("handleTranscribe", () => {
     const body = res._body as { error: string; status: number };
     expect(body.error).toBe("STT timeout");
     expect(body.status).toBe(504);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleTranscribe — Phase 34 slash-command transform tests (SD-P34-01..06)
+// Wire-in of the server-side "slash <skill>" wake-word + skill-catalog match.
+// The pure matcher (slashCommandTransform.ts) runs for real; only the SSH
+// fetcher (fetchSkillCatalog) is mocked so we can inject arbitrary catalogs.
+// ---------------------------------------------------------------------------
+
+describe("handleTranscribe — Phase 34 slash-command transform", () => {
+  const mockedFetchSkillCatalog = fetchSkillCatalog as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockedFetchSkillCatalog.mockReset();
+  });
+
+  it("Test SD-P34-01: transform SKIPPED when hostId form field is absent — raw transcript returned", async () => {
+    const req = makeReq({ buffer: Buffer.from("bytes"), mimetype: "audio/webm" }, {});
+    const res = makeRes();
+
+    vi.stubGlobal("fetch", async () => makeFetchResponse(200, { text: "slash gsd status" }));
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("slash gsd status");
+    expect(mockedFetchSkillCatalog).not.toHaveBeenCalled();
+  });
+
+  it("Test SD-P34-02: transform SKIPPED when wake-word regex misses — fetchSkillCatalog NOT called", async () => {
+    const req = makeReq(
+      { buffer: Buffer.from("bytes"), mimetype: "audio/webm" },
+      { hostId: "1" },
+    );
+    (req as unknown as { userId: string }).userId = "user-1";
+    const res = makeRes();
+
+    vi.stubGlobal("fetch", async () => makeFetchResponse(200, { text: "hello world" }));
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("hello world");
+    expect(mockedFetchSkillCatalog).not.toHaveBeenCalled();
+  });
+
+  it("Test SD-P34-03: wake-word HIT + catalog HIT → transformed text returned", async () => {
+    const req = makeReq(
+      { buffer: Buffer.from("bytes"), mimetype: "audio/webm" },
+      { hostId: "42" },
+    );
+    (req as unknown as { userId: string }).userId = "user-1";
+    const res = makeRes();
+
+    vi.stubGlobal("fetch", async () => makeFetchResponse(200, { text: "slash gsd status" }));
+    mockedFetchSkillCatalog.mockResolvedValue(new Set(["gsd", "bounty"]));
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("/gsd status");
+    expect(mockedFetchSkillCatalog).toHaveBeenCalledTimes(1);
+    expect(mockedFetchSkillCatalog).toHaveBeenCalledWith(42, "user-1", 10_000);
+  });
+
+  it("Test SD-P34-04: wake-word HIT + empty catalog (fail-open) → raw transcript returned", async () => {
+    const req = makeReq(
+      { buffer: Buffer.from("bytes"), mimetype: "audio/webm" },
+      { hostId: "42" },
+    );
+    (req as unknown as { userId: string }).userId = "user-1";
+    const res = makeRes();
+
+    vi.stubGlobal("fetch", async () => makeFetchResponse(200, { text: "slash gsd status" }));
+    mockedFetchSkillCatalog.mockResolvedValue(new Set<string>());
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("slash gsd status");
+  });
+
+  it("Test SD-P34-05: fetchSkillCatalog THROWS (defensive — should never happen per contract) → raw transcript returned via outer try/catch", async () => {
+    const req = makeReq(
+      { buffer: Buffer.from("bytes"), mimetype: "audio/webm" },
+      { hostId: "42" },
+    );
+    (req as unknown as { userId: string }).userId = "user-1";
+    const res = makeRes();
+
+    vi.stubGlobal("fetch", async () => makeFetchResponse(200, { text: "slash gsd status" }));
+    mockedFetchSkillCatalog.mockRejectedValue(new Error("boom"));
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("slash gsd status");
+  });
+
+  it("Test SD-P34-06: hostId non-numeric ('abc') → transform SKIPPED, raw transcript returned", async () => {
+    const req = makeReq(
+      { buffer: Buffer.from("bytes"), mimetype: "audio/webm" },
+      { hostId: "abc" },
+    );
+    (req as unknown as { userId: string }).userId = "user-1";
+    const res = makeRes();
+
+    vi.stubGlobal("fetch", async () => makeFetchResponse(200, { text: "slash gsd status" }));
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("slash gsd status");
+    expect(mockedFetchSkillCatalog).not.toHaveBeenCalled();
   });
 });
 

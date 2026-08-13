@@ -4,6 +4,8 @@ import multer from "multer";
 import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
+import { WAKE_WORD_REGEX, applyServerSlashTransform } from "../../voice/slashCommandTransform.js";
+import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice/skill-catalog.js";
 
 // Patch #155: POST /voice/transcribe — authenticated reverse-proxy to tailnet
 // faster-whisper STT service on GigaAshleyPC.
@@ -108,6 +110,51 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     const sttJson = await response.json() as unknown;
     const textLen = (sttJson as { text?: string } | null)?.text?.length ?? 0;
     databaseLogger.info(`[voice-server] transcribe-ok status=${response.status} textLen=${textLen}`, { operation: "voice_transcribe" });
+
+    // --- Phase 34 (patch #TBD): server-side slash-command transform ---
+    // If the transcript starts with the "slash <content>" wake-word AND the
+    // client provided a hostId form field, SSH-fetch the target box's user-wide
+    // skill catalog (~/.claude/skills/*) and apply a greedy longest-prefix
+    // matcher. Fail-open on any error (return raw transcript). See 34-CONTEXT.md.
+    let transformedText: string | undefined;
+    try {
+      const rawText = (sttJson as { text?: string } | null)?.text;
+      const hostIdRaw = typeof req.body?.hostId === "string" ? req.body.hostId : undefined;
+      const hostId = hostIdRaw !== undefined ? parseInt(hostIdRaw, 10) : NaN;
+      if (
+        typeof rawText === "string" &&
+        rawText.length > 0 &&
+        Number.isFinite(hostId) &&
+        hostId > 0 &&
+        WAKE_WORD_REGEX.test(rawText)
+      ) {
+        const authReq = req as AuthenticatedRequest;
+        const userId = authReq.userId;
+        const catalog = await fetchSkillCatalog(hostId, userId, DEFAULT_SKILL_CATALOG_TIMEOUT_MS);
+        const result = applyServerSlashTransform(rawText, catalog);
+        if (result.matched) {
+          transformedText = result.transformed;
+          databaseLogger.info(
+            `[voice-server] slash-transform-applied hostId=${hostId} command=${result.command} rawLen=${rawText.length} transformedLen=${transformedText.length}`,
+            { operation: "voice_slash_transform_applied", hostId, command: result.command },
+          );
+        }
+      }
+    } catch (err: unknown) {
+      // Fail-open — an unexpected throw here (should be unreachable because
+      // fetchSkillCatalog and applyServerSlashTransform are both non-throwing)
+      // must not break the passthrough transcript response.
+      databaseLogger.warn(
+        `[voice-server] slash-transform-unexpected-throw errMessage=${err instanceof Error ? err.message : String(err)}`,
+        { operation: "voice_slash_transform_unexpected_throw" },
+      );
+    }
+
+    // If transform matched, splice the transformed text into the response envelope
+    // (preserve any other fields Whisper returned). Otherwise return the raw json.
+    if (transformedText !== undefined) {
+      return res.status(200).json({ ...(sttJson as object), text: transformedText });
+    }
     return res.status(200).json(sttJson);
   } catch (err: unknown) {
     clearTimeout(timeoutId);
@@ -355,6 +402,8 @@ export async function handleListVoices(req: Request, res: Response): Promise<Res
 // → handleTranscribe (forwards to STT, returns transcript)
 router.post(
   "/transcribe",
+  // Phase 34: multer.single("file") parses non-file multipart fields into req.body
+  // (hostId, tmuxSession). handleTranscribe reads these to gate slash-transform.
   authenticateJWT,
   upload.single("file"),
   (req: Request, res: Response) => {
