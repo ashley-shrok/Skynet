@@ -95,7 +95,11 @@ The `Stop` hook payload is fully documented at `https://code.claude.com/docs/en/
 }
 ```
 
-**Critical finding for ambient-Monitor filtering:** The `Monitor` tool in Claude Code appears in `background_tasks[]` with `"type": "monitor"`. The `server` and `tool` fields are present. The `description` field is populated (from the Monitor tool's own description). **There is NO `env` or environment-variable field in background_tasks entries** — env vars set when launching a Monitor are NOT propagated into the hook payload.
+**Critical finding for ambient-Monitor filtering:** The `Monitor` tool in Claude Code appears in `background_tasks[]` with `"type": "monitor"` per the docs field table. The `server` and `tool` fields are present. The `description` field is populated (from the Monitor tool's own description). **There is NO `env` or environment-variable field in background_tasks entries** — env vars set when launching a Monitor are NOT propagated into the hook payload.
+
+**⚠️ EMPIRICAL DEVIATION (Task 5 live capture, 2026-08-13, evidence at `34-04-EVIDENCE-oq2-payload.json`):** All 4 of tina's persistent Monitor tool calls (thenasty-recv, skynet-recv, wake-up-scheduler, context-watch) reported `"type": "shell"` in the Stop payload, NOT `"type": "monitor"`. The 7-discriminant list from the docs field table overstates the taxonomy — empirically at v2.1.150, Monitor tool-call background tasks are indistinguishable from `run_in_background` bash by `type` alone. Entry fields observed per task: `id`, `type`, `description`, `command`, `status`. NO `server` or `tool` field on these entries. **This does NOT break the ambient filter** — `filterAmbientTasks` in Plan 01 (`src/backend/fleet-status/ambient-filter.ts`) filters on `description.startsWith('[ambient]')` regardless of `type`, so the marker mechanism still holds. But any code that specifically checks `type === "monitor"` would fail on Monitor tool calls; the Plan 01 code does not.
+
+**Also observed in the same live capture:** the payload includes a top-level `effort` field not listed in the docs field table — safe to ignore (parsed but unused).
 
 **`background_tasks[]` is available from Claude Code v2.1.145+.** This box is on v2.1.150 — confirmed via session JSON files. No version gap.
 
