@@ -158,7 +158,7 @@ export function createSshPollOrchestrator(
 
     systemLogger.info("Fleet-status poll start", {
       operation: "fleet_status_poll_start",
-      hostId: host.id,
+      fleetHostId: host.id,
       tick: pollTickCount,
     });
 
@@ -170,7 +170,7 @@ export function createSshPollOrchestrator(
     if (listing === null) {
       systemLogger.warn("Fleet-status: ls of sessions dir returned null (SSH error)", {
         operation: "fleet_status_host_ssh_unreachable",
-        hostId: host.id,
+        fleetHostId: host.id,
       });
       return;
     }
@@ -195,7 +195,7 @@ export function createSshPollOrchestrator(
 
     systemLogger.info("Fleet-status poll end", {
       operation: "fleet_status_poll_end",
-      hostId: host.id,
+      fleetHostId: host.id,
       tick: pollTickCount,
       pidCount: pidNumbers.length,
     });
@@ -250,7 +250,7 @@ export function createSshPollOrchestrator(
 
       systemLogger.info("Fleet-status: session stale — publishing gone", {
         operation: "fleet_status_stale_reap",
-        hostId: host.id,
+        fleetHostId: host.id,
         pid,
         sessionId,
       });
@@ -315,7 +315,7 @@ export function createSshPollOrchestrator(
 
       systemLogger.info("Fleet-status: session state published", {
         operation: "fleet_status_session_state_published",
-        hostId: host.id,
+        fleetHostId: host.id,
         pid,
         sessionId: sessionJson.sessionId,
         status: sessionJson.status,
@@ -350,7 +350,7 @@ export function createSshPollOrchestrator(
         "Fleet-status: Stop-hook payload file missing/empty/malformed — treating backgroundTasks as []",
         {
           operation: "fleet_status_hook_payload_missing",
-          hostId,
+          fleetHostId: hostId,
         },
       );
     }
@@ -389,7 +389,7 @@ export function createSshPollOrchestrator(
       } catch (err) {
         systemLogger.warn("Fleet-status: poll error for host", {
           operation: "fleet_status_poll_error",
-          hostId: hostState.host.id,
+          fleetHostId: hostState.host.id,
           error: err instanceof Error ? err.message : "unknown",
         });
       }
@@ -406,7 +406,7 @@ export function createSshPollOrchestrator(
       if (channel === null) {
         systemLogger.warn("Fleet-status: SSH channel unavailable for host", {
           operation: "fleet_status_host_ssh_unreachable",
-          hostId: host.id,
+          fleetHostId: host.id,
           hostName: host.name,
         });
         return;
@@ -421,7 +421,7 @@ export function createSshPollOrchestrator(
     } catch (err) {
       systemLogger.warn("Fleet-status: SSH channel acquire threw for host", {
         operation: "fleet_status_host_ssh_unreachable",
-        hostId: host.id,
+        fleetHostId: host.id,
         hostName: host.name,
         error: err instanceof Error ? err.message : "unknown",
       });
@@ -446,7 +446,7 @@ export function createSshPollOrchestrator(
       } catch (err) {
         systemLogger.warn("Fleet-status: sweep error for host", {
           operation: "fleet_status_sweep_error",
-          hostId: hostState.host.id,
+          fleetHostId: hostState.host.id,
           error: err instanceof Error ? err.message : "unknown",
         });
       }
@@ -465,7 +465,7 @@ export function createSshPollOrchestrator(
             "Fleet-status: stale sweep reaped PID",
             {
               operation: "fleet_status_stale_reap",
-              hostId: host.id,
+              fleetHostId: host.id,
               pid,
               sessionId: entry.sessionId,
             },
@@ -480,7 +480,7 @@ export function createSshPollOrchestrator(
       } catch (err) {
         systemLogger.warn("Fleet-status: sweep stat read error", {
           operation: "fleet_status_sweep_stat_error",
-          hostId: host.id,
+          fleetHostId: host.id,
           pid,
           error: err instanceof Error ? err.message : "unknown",
         });

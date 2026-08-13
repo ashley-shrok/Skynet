@@ -21,6 +21,34 @@ Ashley 2026-08-12 verbatim: *"they're decent, but you know, all it takes is like
 <decisions>
 ## Implementation Decisions (LOCKED — do not re-litigate)
 
+### PIVOT 2026-08-13 (LOCKED) — no per-box daemon; watcher runs inside Skynet backend over existing SSH pool
+
+Ashley 2026-08-13, on the original plan's assumption that the watcher would run as a persistent systemd user unit on every identity-hosting box: verbatim *"we shouldn't need that, considering all boxes that Skynet has as hosts can already be SSH into."* All Wave 1 watcher subpackage code (Plan 01 as first-shipped in commits `6003221` / `62a4898` / `cb2938a`) was reverted; Plan 01 replanned to fit this new shape. Plan 04 was replanned; Plans 02, 03, 05, 06 unaffected.
+
+**Locked constraints under this pivot:**
+
+- **Watcher lives in `src/backend/fleet-status/*`** — ordinary Skynet backend TypeScript modules, alongside the Plan 02 modules already shipped in commits `7f85f2f`→`a60d30c`. No standalone subpackage. No separate `package.json` / `tsconfig.json` / `vitest.config.ts`. Builds and tests with the rest of the Skynet backend.
+- **No per-box daemon.** No systemd user unit. No install script for a persistent process. No dynamic host-discovery daemon. Skynet backend already knows the identity-host list from its own DB.
+- **Delivery mechanism: 2s polling over the existing SSH pool** (poll over event-driven `inotifywait`; Ashley 2026-08-13 chose the polling path for zero-dep operation on any host with a shell). Uses whatever SSH primitives the backend already exposes for its tmux/pane plumbing. One channel per identity-hosting host, multiplexed.
+- **Stop hook install is a one-time remote file drop + settings-file edit over SSH**, NOT a persistent process. Drop the hook script into a well-known location on each identity-hosting box; append one entry to that box's `~/.claude/settings.json` `hooks.Stop[0]` array. Hook writes payloads to a well-known local file on the box; Skynet polls that file over the same SSH channel it polls the session-JSON files.
+- **Scope of hook install: identity-hosting boxes only.** NOT every managed host — RDP-only endpoints (ashley-beelink, GIGAASHLEYPC, aither Windows RDP boxes) don't run Claude Code so they need nothing.
+- **Fail-open on missing hook payload file** (Ashley 2026-08-13 verbatim: *"just make sure that it fails open if the file that the hook is supposed to generate isn't found"*). If the well-known Stop-hook payload file doesn't exist on a given host (hook never installed, freshly deleted, crashed before writing anything, or transient FS glitch), the watcher MUST NOT crash, log-spam, or mark the session as broken. Treat that host's background-task view as empty/unknown and continue relying on the session-JSON file for the main working signal. The dot may under-report background work on that host until the hook is (re-)installed, but the app stays functional. This applies to any host at any time — first-time provisioning is just the most common trigger, but the same code path also handles "hook file existed then vanished" and "hook file exists but is empty/corrupt."
+
+**What stays from the pre-pivot design (unchanged):**
+
+- Session-JSON file (`~/.claude/sessions/<pid>.json`) remains the primary signal (busy/shell/idle/waiting).
+- Stop hook remains the complementary signal for `background_tasks[]` (bg work running while main is idle).
+- Ambient-Monitor tagging via `[ambient]` description prefix stays (per RESEARCH § 1 — env-var marker mechanism is BLOCKED because env vars don't appear in the Stop payload).
+- Wire protocol + backend broadcast WS (Plan 02) UNAFFECTED — the backend broadcasts the same shape regardless of where the watching happens.
+- Frontend cutover (Plan 06) UNAFFECTED — the app opens the fleet-status control WS and consumes the same wire-protocol frames.
+- Ambient tagging in id-skill (Plan 05) UNAFFECTED — orthogonal to the delivery mechanism.
+
+**Plans affected by the pivot:**
+
+- **Plan 01**: REVERTED (single revert commit removes `src/fleet-status-watcher/` entirely) + REPLANNED. New shape = backend modules in `src/backend/fleet-status/*`. The pure-library concepts (types, logger, liveness check, PID→tmux resolver via SSH-exec, `filterAmbientTasks`) transfer conceptually but get rewritten to Skynet backend conventions (no standalone subpackage stack).
+- **Plan 04**: REPLANNED. New shape = (a) SSH-driven pull orchestrator inside the Skynet backend that opens one multiplexed SSH channel per identity-hosting host and polls session-JSON + Stop-hook payload files every 2s; (b) remote Stop-hook install helper (file drop + settings-file edit over the same SSH pool) with fail-open behavior when the hook-payload file is missing; (c) live Monitor-payload verify against a scratch identity to close RESEARCH OQ-2 before we ship the ambient filter in Plan 06.
+- **Plans 02, 03, 05, 06**: UNAFFECTED. Wave dependency ordering (Plan 06 depends_on Plan 05, etc.) stands.
+
 ### Signal source
 - **Primary**: consume `~/.claude/sessions/<pid>.json` (harness-authored). Inotify-watch OR poll — planner's call, informed by research subtask #4.
 - **Complementary**: Claude Code hooks (`Stop.background_tasks[]`, `SubagentStart/Stop`, `PermissionRequest`, `PreToolUse/PostToolUse`). Registration mechanism informed by research subtask #2.
