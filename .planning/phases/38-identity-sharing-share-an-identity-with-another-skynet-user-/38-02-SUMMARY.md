@@ -175,4 +175,24 @@ Zero regressions introduced by Wave 2 — the JSX addition to IdentityModal's Di
 
 ## Final HEAD SHA
 
-Recorded after the phase-close commit lands (last section of this file's own trailing note).
+Full HEAD after this plan (including this SUMMARY commit): **`82964e1`** (phase-close commit `plan(38-02): frontend picker for identity sharing in IdentityModal header`). Last code-motion commit (pre-SUMMARY): **`2c3f228`** (`feat(38-02): mount ShareIdentityPicker in IdentityModal DialogHeader`).
+
+Commits (reverse chronological, Wave 2 only):
+
+- `82964e1 plan(38-02): frontend picker for identity sharing in IdentityModal header` — Task 4 phase-close (this SUMMARY)
+- `2c3f228 feat(38-02): mount ShareIdentityPicker in IdentityModal DialogHeader` — Task 3
+- `3a50965 feat(38-02): ShareIdentityPicker component + 11 tests` — Task 2
+- `dfc0c37 feat(38-02): add shareIdentity + getUsersListBasic API clients` — Task 1
+
+Pre-Wave-2 baseline (last Wave 1 / phase-open commit): `11709d5 docs(38): shape file + ROADMAP + STATE entries for identity-sharing phase`.
+
+## Self-Check: PASSED
+
+- `src/ui/features/pretty-view/ShareIdentityPicker.tsx` exists (197 lines).
+- `src/ui/features/pretty-view/ShareIdentityPicker.test.tsx` exists (501 lines, 11 tests).
+- `src/ui/features/pretty-view/IdentityModal.share.test.tsx` exists (297 lines, 4 tests).
+- `<ShareIdentityPicker` mounted in `IdentityModal.tsx` between Stays-awake (L1072) and pencil (L1089) — verified by awk placement check.
+- All four task commits (`dfc0c37`, `3a50965`, `2c3f228`, `82964e1`) exist in `git log`.
+- SUMMARY.md written to phase directory (this file).
+- Full-suite `npx vitest run` exit 0 (178 files / 2233 tests).
+- `npm run build:backend` exit 0. `npm run build` exit 0.
