@@ -23,6 +23,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   __applyRepollResultForTests,
+  __classifyAttachInactiveForTests,
   type __RepollStateForTests,
   type __RepollHelpersForTests,
 } from "./claude-session-server.js";
@@ -381,5 +382,319 @@ describe("discovery repoll branch — case (e): inactive/not_claude + state=acti
     // After transitionToHolding flipped state to "holding", the holdingTicks++
     // block should have fired (reason is not exec_error):
     expect(state.holdingTicks).toBe(1);
+  });
+});
+
+// ── quick 260813-0qx — attach-path reset-window coverage ────────────────────
+//
+// Groups A/B/C exercise the new attach-path reset-window branch
+// (claude-session-server.ts ~L5155-onward) that fixes the deactivate →
+// /id reset window → reactivate → "no active Claude session" latch. See
+// .planning/quick/260813-0qx-deactivate-reactivate-during-reset-latch/
+// 260813-0qx-PLAN.md for the diagnosis + spec.
+//
+// Group A drives the pure classifier __classifyAttachInactiveForTests
+// (12-case truth table over the 5 discovery reasons × 3 identity-shape
+// cache states, plus a defensive active case).
+//
+// Group B proves the post-holding handoff into the existing repoll
+// reducer works: after the attach branch seeds
+// {changeoverState:"holding", holdingReason:"discovery_diff",
+// holdingTicks:0, currentSessionFile:null}, subsequent ticks flowing
+// through __applyRepollResultForTests recover correctly (active-with-new-
+// file → transitionToActiveNew; N ticks of no_pid_session_file →
+// transitionToDead at HOLDING_TIMEOUT_TICKS; exec_error ticks don't burn
+// budget).
+//
+// Group C is a mixed-sequence integration smoke test — proves the whole
+// handoff-to-recovery cycle end-to-end.
+
+// ── Group A: __classifyAttachInactiveForTests truth table ───────────────────
+
+describe("attach-path reset-window classifier — Group A truth table (quick 260813-0qx)", () => {
+  // Helper factories for the two shapes the classifier consumes.
+  const inactive = (
+    reason:
+      | "no_tmux_session"
+      | "not_claude"
+      | "pid_unavailable"
+      | "no_pid_session_file"
+      | "no_open_session_file"
+      | "exec_error",
+  ) => ({ status: "inactive" as const, reason });
+  const active = () => ({
+    status: "active" as const,
+    pid: 100,
+    sessionFile: SESSION_FILE,
+  });
+
+  // no_pid_session_file → always reset_window (identity-shape irrelevant).
+  it("no_pid_session_file + isIdentityShapedCached:null → reset_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), null)).toBe("reset_window");
+  });
+  it("no_pid_session_file + isIdentityShapedCached:false → reset_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), false)).toBe("reset_window");
+  });
+  it("no_pid_session_file + isIdentityShapedCached:true → reset_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), true)).toBe("reset_window");
+  });
+
+  // no_open_session_file → always reset_window (identity-shape irrelevant).
+  it("no_open_session_file + isIdentityShapedCached:null → reset_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), null)).toBe("reset_window");
+  });
+  it("no_open_session_file + isIdentityShapedCached:false → reset_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), false)).toBe("reset_window");
+  });
+  it("no_open_session_file + isIdentityShapedCached:true → reset_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), true)).toBe("reset_window");
+  });
+
+  // not_claude — identity-shape gates the verdict.
+  it("not_claude + isIdentityShapedCached:true → reset_window (identity pane mid-reset)", () => {
+    expect(__classifyAttachInactiveForTests(inactive("not_claude"), true)).toBe("reset_window");
+  });
+  it("not_claude + isIdentityShapedCached:false → fallback_01 (bare shell — terminal)", () => {
+    expect(__classifyAttachInactiveForTests(inactive("not_claude"), false)).toBe("fallback_01");
+  });
+  it("not_claude + isIdentityShapedCached:null → fallback_01 (probe never ran / failed — conservative)", () => {
+    // Locks in the T-260813-0qx-04 mitigation from the plan's threat model:
+    // if the dormant-probe SSH-throw catch (~L5150-5152) sets
+    // isIdentityShapedCached = false, we DO NOT want a stray null path to
+    // slip a permanently-terminal not_claude into the 10min hold.
+    expect(__classifyAttachInactiveForTests(inactive("not_claude"), null)).toBe("fallback_01");
+  });
+
+  // no_tmux_session → always fallback_01 (no pane to poll).
+  it("no_tmux_session + isIdentityShapedCached:null → fallback_01", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_tmux_session"), null)).toBe("fallback_01");
+  });
+  it("no_tmux_session + isIdentityShapedCached:false → fallback_01", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_tmux_session"), false)).toBe("fallback_01");
+  });
+  it("no_tmux_session + isIdentityShapedCached:true → fallback_01", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_tmux_session"), true)).toBe("fallback_01");
+  });
+
+  // exec_error → always fallback_01 (SSH-side failure, attach-time can't
+  // distinguish transient from persistent).
+  it("exec_error + isIdentityShapedCached:null → fallback_01", () => {
+    expect(__classifyAttachInactiveForTests(inactive("exec_error"), null)).toBe("fallback_01");
+  });
+  it("exec_error + isIdentityShapedCached:false → fallback_01", () => {
+    expect(__classifyAttachInactiveForTests(inactive("exec_error"), false)).toBe("fallback_01");
+  });
+  it("exec_error + isIdentityShapedCached:true → fallback_01", () => {
+    expect(__classifyAttachInactiveForTests(inactive("exec_error"), true)).toBe("fallback_01");
+  });
+
+  // Defensive: attach path only calls this on inactive, but the classifier
+  // must handle a stray active input safely (map to fallback_01, don't throw).
+  it("status:'active' (defensive) → fallback_01", () => {
+    expect(__classifyAttachInactiveForTests(active(), true)).toBe("fallback_01");
+    expect(__classifyAttachInactiveForTests(active(), false)).toBe("fallback_01");
+    expect(__classifyAttachInactiveForTests(active(), null)).toBe("fallback_01");
+  });
+});
+
+// ── Group B: post-holding repoll behavior via __applyRepollResultForTests ───
+
+// HOLDING_TIMEOUT_TICKS is not re-exported from claude-session-server.ts —
+// the plan explicitly says "don't modify HOLDING_TIMEOUT_TICKS at L187",
+// so tests reference it via a local const with a comment tying it to the
+// production constant. Keep in sync.
+const TIMEOUT = 200; // ← MUST equal HOLDING_TIMEOUT_TICKS in claude-session-server.ts:187
+
+describe("attach-path reset-window handoff — Group B post-holding recovery/timeout (quick 260813-0qx)", () => {
+  // Case B1: recovery — new session file appears after attach-branch seeded
+  // holding with currentSessionFile:null.
+  it("B1: active tick with new sessionFile → transitionToActiveNew fires; no other helpers called", () => {
+    const state = makeState({
+      changeoverState: "holding",
+      currentSessionFile: null,
+      holdingTicks: 0,
+      holdingReason: "discovery_diff",
+    });
+    const {
+      stubs,
+      transitionToHolding,
+      transitionToActiveNew,
+      transitionFromHoldingToActiveSameFile,
+      transitionToDead,
+    } = makeHelpers();
+
+    __applyRepollResultForTests(
+      { status: "active", pid: 100, sessionFile: "/some/new.jsonl" },
+      state,
+      stubs,
+    );
+
+    // sessionFile ("/some/new.jsonl") !== currentSessionFile (null) — this
+    // is the sessionFile-changed branch. But state was already "holding"
+    // (not "active"), so transitionToHolding does NOT fire (its guard is
+    // `changeoverState === "active"`). Only transitionToActiveNew fires.
+    expect(transitionToActiveNew).toHaveBeenCalledOnce();
+    expect(transitionToActiveNew).toHaveBeenCalledWith("/some/new.jsonl");
+    expect(transitionToHolding).not.toHaveBeenCalled();
+    expect(transitionFromHoldingToActiveSameFile).not.toHaveBeenCalled();
+    expect(transitionToDead).not.toHaveBeenCalled();
+  });
+
+  // Case B2: timeout — 200 consecutive no_pid_session_file ticks trip
+  // transitionToDead("holding_timeout"). Proves HOLDING_TIMEOUT_TICKS
+  // budget is intact through the attach-path handoff.
+  it("B2: N=199 no_pid_session_file ticks holds; 200th trips transitionToDead('holding_timeout')", () => {
+    const state = makeState({
+      changeoverState: "holding",
+      currentSessionFile: null,
+      holdingTicks: 0,
+      holdingReason: "discovery_diff",
+    });
+    const { stubs, transitionToDead } = makeHelpers();
+
+    // Fire 199 no_pid_session_file ticks. changeoverState stays "holding"
+    // throughout (transitionToHolding's stub is a no-op vi.fn — real helper
+    // would flip state, but state is already "holding" so its guard would
+    // short-circuit anyway; this seam faithfully preserves that behavior
+    // because the reducer's `if (changeoverState === "active")` gate
+    // prevents transitionToHolding from being called when state is
+    // "holding").
+    for (let i = 0; i < TIMEOUT - 1; i++) {
+      __applyRepollResultForTests(
+        { status: "inactive", reason: "no_pid_session_file" },
+        state,
+        stubs,
+      );
+    }
+    expect(state.holdingTicks).toBe(TIMEOUT - 1); // 199
+    expect(transitionToDead).not.toHaveBeenCalled();
+
+    // 200th tick — trips the timeout.
+    __applyRepollResultForTests(
+      { status: "inactive", reason: "no_pid_session_file" },
+      state,
+      stubs,
+    );
+    expect(state.holdingTicks).toBe(TIMEOUT); // 200
+    expect(transitionToDead).toHaveBeenCalledOnce();
+    expect(transitionToDead).toHaveBeenCalledWith("holding_timeout");
+  });
+
+  // Case B3: exec_error ticks do NOT burn the holding budget (Fix A guard
+  // preserved through the attach-path handoff).
+  it("B3: exec_error tick from attach-seeded holding → transitionToDead NOT called; holdingTicks unchanged", () => {
+    const state = makeState({
+      changeoverState: "holding",
+      currentSessionFile: null,
+      holdingTicks: 0,
+      holdingReason: "discovery_diff",
+    });
+    const {
+      stubs,
+      transitionToHolding,
+      transitionToActiveNew,
+      transitionFromHoldingToActiveSameFile,
+      transitionToDead,
+    } = makeHelpers();
+
+    __applyRepollResultForTests(
+      { status: "inactive", reason: "exec_error" },
+      state,
+      stubs,
+    );
+
+    // Fix A guard: exec_error → NO holdingTicks++, NO transitions.
+    expect(state.holdingTicks).toBe(0);
+    expect(transitionToDead).not.toHaveBeenCalled();
+    expect(transitionToHolding).not.toHaveBeenCalled();
+    expect(transitionToActiveNew).not.toHaveBeenCalled();
+    expect(transitionFromHoldingToActiveSameFile).not.toHaveBeenCalled();
+  });
+
+  // Case B4: defensive — active-with-new-file after some prior ticks still
+  // dispatches transitionToActiveNew regardless of tick count.
+  it("B4: active tick with new sessionFile after 5 prior ticks → transitionToActiveNew fires", () => {
+    const state = makeState({
+      changeoverState: "holding",
+      currentSessionFile: null,
+      holdingTicks: 5,
+      holdingReason: "discovery_diff",
+    });
+    const { stubs, transitionToActiveNew } = makeHelpers();
+
+    __applyRepollResultForTests(
+      { status: "active", pid: 100, sessionFile: "/x.jsonl" },
+      state,
+      stubs,
+    );
+
+    expect(transitionToActiveNew).toHaveBeenCalledOnce();
+    expect(transitionToActiveNew).toHaveBeenCalledWith("/x.jsonl");
+    // holdingTicks value at time of dispatch isn't asserted — bookkeeping
+    // downstream (transitionToActiveNew's real body resets holdingTicks to 0
+    // in production; the stub doesn't touch it, and that's fine — we're
+    // testing the reducer's dispatch, not the helper's internal reset).
+  });
+});
+
+// ── Group C: mixed-sequence integration smoke test ──────────────────────────
+
+describe("attach-path reset-window handoff — Group C integration smoke test (quick 260813-0qx)", () => {
+  it("no_pid×2 → exec_error×3 → active recovery: budget preserved, recovery fires", () => {
+    const state = makeState({
+      changeoverState: "holding",
+      currentSessionFile: null,
+      holdingTicks: 0,
+      holdingReason: "discovery_diff",
+    });
+    const { stubs, transitionToActiveNew } = makeHelpers();
+    // Wire transitionToActiveNew to also mutate state (so if the test grew
+    // a 4th tick, downstream branches would read the right state — the real
+    // helper mutates changeoverState and currentSessionFile). Defensive:
+    // the 3-step test doesn't fire a 4th, but this keeps the test robust
+    // to expansion.
+    stubs.transitionToActiveNew = vi.fn((sf: string) => {
+      state.changeoverState = "active";
+      state.currentSessionFile = sf;
+      state.holdingTicks = 0;
+    });
+
+    // Step 1: two no_pid_session_file ticks — budget increments to 2.
+    for (let i = 0; i < 2; i++) {
+      __applyRepollResultForTests(
+        { status: "inactive", reason: "no_pid_session_file" },
+        state,
+        stubs,
+      );
+    }
+    expect(state.holdingTicks).toBe(2);
+    expect(state.changeoverState).toBe("holding");
+
+    // Step 2: three exec_error ticks — budget STILL 2 (transient failures
+    // don't burn the timeout; Fix A guard preserved).
+    for (let i = 0; i < 3; i++) {
+      __applyRepollResultForTests(
+        { status: "inactive", reason: "exec_error" },
+        state,
+        stubs,
+      );
+    }
+    expect(state.holdingTicks).toBe(2);
+    expect(state.changeoverState).toBe("holding");
+    expect(stubs.transitionToActiveNew).not.toHaveBeenCalled();
+
+    // Step 3: active tick with a new file — recovery fires.
+    __applyRepollResultForTests(
+      { status: "active", pid: 100, sessionFile: "/recovered.jsonl" },
+      state,
+      stubs,
+    );
+    expect(stubs.transitionToActiveNew).toHaveBeenCalledOnce();
+    expect((stubs.transitionToActiveNew as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
+      "/recovered.jsonl",
+    );
+    expect(state.changeoverState).toBe("active");
+    expect(state.currentSessionFile).toBe("/recovered.jsonl");
+    expect(state.holdingTicks).toBe(0);
   });
 });
