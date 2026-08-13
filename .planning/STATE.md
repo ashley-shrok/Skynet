@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-08-13T15:46:28.967Z"
-last_activity: 2026-08-13
+status: executing
+last_updated: "2026-08-13T14:22:00.000Z"
+last_activity: 2026-08-13 -- Phase 37 (Hold-to-send, dir 32-hold-to-send-...) Plan 01 complete on top of Tiffany's #435 base
 progress:
-  total_phases: 35
+  total_phases: 36
   completed_phases: 28
-  total_plans: 138
-  completed_plans: 135
-  percent: 80
+  total_plans: 141
+  completed_plans: 136
+  percent: 78
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 31 — whole-app-structured-logging-backfill
+**Current focus:** Phase 37 — Hold-to-send gesture on send button (dir on disk: 32-hold-to-send-gesture-on-send-button/, per fleet renumber precedent)
 
 ## Current Position
 
-Phase: 35 (pretty-view-owns-compose-send-migrate-off-terminal-ws-borrow) — CODE COMPLETE + VERIFIED, DEPLOY IN FLIGHT
-Plan: 2 of 2
-Status: Full verification passed 2026-08-13T16:35Z (8/8 must-haves); rebased past tina's #434 (fleet-status broadcast) with `-X theirs` strategy; both features' targeted test suites green (Phase 35: 21/21, tina's Phase 34: 115/115); ROADMAP reconciled — tina's Phase 34 restored + mine (voice-slash) renumbered 34→36 per prior collision-rename precedent (dir on disk stays `34-voice-slash-...`, commit messages retain `plan(34-XX)`); coord-room BEFORE announced; beginning docker build for batched deploy of quick 260813-0qx + Phase 36 (voice-slash) + Phase 35 (compose-send migration).
-Last activity: 2026-08-13
+Phase: 37 (Hold-to-send gesture on send button) — EXECUTING
+Plan: 2 of 3 (Plan 32-01 code + tests complete; Plan 32-02 next — ComposeBox wiring)
+Status: Plan 32-01 complete — awaiting Plan 32-02 (ComposeBox integration)
+Last activity: 2026-08-13 -- Phase 37 Plan 32-01 complete. useVoiceRecording.cancel() is race-safe against a pending getUserMedia (B-1 defensive fix via pendingCancelRef — set in cancel()'s state !== "recording" branch, consumed by streamPromise.then() to tear down the arriving stream before MediaRecorder is constructed; closes the race where a short-tap on hold-send during a slow mic-permission grant would leave the mic hot). New file src/ui/features/pretty-view/useHoldToRecord.ts exports the press-and-hold gesture hook (Shape 1 optimistic-start + rollback per CONTEXT.md § iOS Safari sync-gesture invariant). D-16-02 invariant preserved by construction. 13 new tests (3 in useVoiceRecording.test.ts covering PC-A/B/C cancel-race + 10 in useHoldToRecord.test.tsx). Three atomic commits: f822acf (fix pendingCancelRef) + 4aba86f (feat useHoldToRecord) + de58a08 (test useHoldToRecord). Full-suite npx vitest run → 1909 pass with 4 pre-existing flakes (all pass in isolation, documented in SUMMARY under Issues Encountered as jsdom-concurrency-timeout outside plan scope). NO worktrees. NOT pushed / NOT built / NOT deployed per fork discipline. Plan 32-02 (ComposeBox primary + slot send-button wiring) is UNBLOCKED.
 
 Last activity: 2026-08-12 — Completed quick task 260812-ma8 (dormancy-bubble-in-flow). Converted `DormancyOverlay` from a full-surface scrim covering the chat region into an assistant-aligned in-flow bubble at the bottom of the message list (mirrors `PlanPendingBubble`'s Phase 4 Glass treatment). Ashley 2026-08-12: *"just because the session is asleep doesn't mean I shouldn't be able to read the convo. Where that convo left off might be the deciding factor for whether I even wake that session up or not."* Two files, two atomic commits (`6741f81` DormancyOverlay restyle + `3e7a3ef` mount move + scroll-container gate widen). All three states preserved (asleep+Wake, waking+90s progress, warm-red error retry); STATIC Moon guardrail intact; ComposeBox `dormantActive` unchanged. One documented Rule-1 deviation bundled into Task 2's commit: widened outer scroll-container gate to include `renderedState === "dormant"` so the cold-pane-discovered-dormant path stays reachable (PrettyView.test.tsx Test E caught it). `npm run type-check` clean; pretty-view suite 555/555 pass. Deployed via `docker cp` to container `76c8ed0a8fcc`; HTTPS smoke test `200 0.412783s`. Patch #422 appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. NO worktrees.
 
@@ -219,6 +219,7 @@ Progress: [██████████] 100%
 | Phase 31-whole-app-structured-logging-backfill P09 | 5 minutes | 4 tasks | 2 files |
 | Phase 32 P04 | 553 | 1 tasks | 1 files |
 | Phase 35 P02 | 95 | 4 tasks | 4 files |
+| Phase 37 P01 | 55min | 3 tasks | 4 files (2 created, 2 modified) |
 
 ## Accumulated Context
 
@@ -324,6 +325,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 32-04 two-step scroll dispatch pattern for Tests 3 and 2d: sync scroll-listener's lastScrollTop closure baseline first, then dispatch at lower position to flip stickyRef (Rule 1 fix — compensates for programmaticRef gating out rAF chain writes from the closure)
 - [Phase ?]: Phase 32-04 vi.stubGlobal(requestAnimationFrame, setTimeout+16ms) shim required in all rAF-dependent tests under vi.useFakeTimers — vitest fake-timers do not polyfill rAF
 - [Phase ?]: Phase 35-02 decisions: ref-forwarding via onRegisterSendInput props; sendInput try/catch returns boolean; wiring tests updated
+- 2026-08-13 (37 / commit-prefix 32-01): Race-safety pending-flag pattern established for async-init hooks — pendingCancelRef in useVoiceRecording lets cancel() called BEFORE getUserMedia resolves signal the resolving streamPromise.then() to tear down the arriving stream before MediaRecorder is constructed. cancel() remains a no-op-safe API to callers while defending the pre-resolve window. D-16-02 iOS Safari sync-getUserMedia invariant preserved: only a synchronous ref write is inserted between the state guard and the getUserMedia call. Future async-init hooks with a cancel path should follow the same shape.
+- 2026-08-13 (37 / commit-prefix 32-01): useHoldToRecord Shape 1 (optimistic-start + rollback) locked over Shape 2 (debounced-start) per CONTEXT.md § iOS Safari sync-gesture invariant — Shape 2 requires an iOS Safari 26.6 real-device prototype and none exists in this tree. Shape 1 calls voice.start() synchronously in the pointerdown handler and rolls back via `await voice.cancel()` if the release is short-tap-fast; awaiting keeps the ordering deterministic (M-1 fix) and closes the race between rollback teardown and typed-send dispatch.
+- 2026-08-13 (37 / commit-prefix 32-01): holdInitiatedRef exposed as MutableRefObject (not state) on useHoldToRecord's return so the ComposeBox consumer can read it during render without triggering an infinite render loop. Set true BEFORE voice.start() so it's already true when the async voice.state → "recording" re-render fires — the consumer's `!holdInitiatedRef.current` predicate gates showRecordingControls off at the exact right moment (B-3 fix; prevents the 3-button RecordingControls from swapping in under the pointer during a hold-initiated recording).
+- 2026-08-13 (37 / commit-prefix 32-01): Injected-narrowed-voice pattern for gesture hooks — useHoldToRecord accepts `Pick<UseVoiceRecordingReturn, "state" | "start" | "cancel">` rather than calling useVoiceRecording itself. Enables ComposeBox to share ONE voice singleton across primary + slot send-button gestures + mic-tap path without duplicate hook instances. Also enables unit testing with a plain vi.fn() mock (no vi.mock of the whole useVoiceRecording module).
 
 ### Pending Todos
 

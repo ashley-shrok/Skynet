@@ -1122,6 +1122,6 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 32-01-PLAN.md — useVoiceRecording.cancel() race-safety fix (pendingCancelRef) + useHoldToRecord hook (Shape 1 optimistic-start + rollback with awaited cancel before onShortTap) + unit tests (3 new useVoiceRecording tests + 10 useHoldToRecord tests including iOS Safari sync-gesture invariant assertion) (HOLD-SEND-01..05)
+- [x] 32-01-PLAN.md — useVoiceRecording.cancel() race-safety fix (pendingCancelRef) + useHoldToRecord hook (Shape 1 optimistic-start + rollback with awaited cancel before onShortTap) + unit tests (3 new useVoiceRecording tests + 10 useHoldToRecord tests including iOS Safari sync-gesture invariant assertion) (HOLD-SEND-01..05) — completed 2026-08-13, see 32-01-SUMMARY.md, commits f822acf + 4aba86f + de58a08
 - [ ] 32-02-PLAN.md — Wire useHoldToRecord into ComposeBox primary send button (L2380-2437, preserves onClick={asideActive ? onAsideDismiss : undefined} per B-2) AND slot send button (L2807-2846 in QueuedRow subcomponent, with extracted slotSendDisabled shared local per M-2) + gate showRecordingControls / showSlotRecording on !holdInitiatedRef.current per B-3 + data-hold-active CSS rule + @keyframes in src/ui/index.css (HOLD-SEND-06..10)
 - [ ] 32-03-PLAN.md — ComposeBox.hold-to-send.test.tsx integration tests covering all 9 CONTEXT.md § specifics test cases + 1 threshold-boundary regression guard, with deterministic B-2 (aside-dismiss via preserved onClick) and B-3 (RecordingControls does NOT swap in during hold-initiated recording) assertions (HOLD-SEND-11..13)
