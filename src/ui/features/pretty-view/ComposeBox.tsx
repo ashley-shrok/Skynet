@@ -12,6 +12,7 @@ import {
 import { publishSessionQueuePending } from "@/state/session-queue-pending-store";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
 import { useVoiceRecording } from "./useVoiceRecording";
+import { useHoldToRecord } from "./useHoldToRecord";
 import { MicButton } from "./MicButton";
 import { RecordingControls } from "./RecordingControls";
 
@@ -1632,7 +1633,6 @@ export function ComposeBox({
     !recycleActive &&
     !planPendingActive &&
     !reconnectingActive;
-  const showRecordingControls = isPrimaryRecording;
   const showTranscribingSend = isPrimaryTranscribing;
   // Quick 260802-uow bounty 3: when 3 buttons render on the primary
   // (send at right-1 + mic at right-11 + arm-idle at right-21), pr-10
@@ -1669,6 +1669,30 @@ export function ComposeBox({
     dormantActive === true ||
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
+
+  // Phase 32: hold-to-record gesture layer on the primary send button. Uses
+  // the SAME useVoiceRecording singleton as the mic-tap path so voice.state
+  // gates prevent double-arm. Note: onShortTap covers ONLY the non-aside
+  // branch — the aside-dismiss short-tap is served by the button's preserved
+  // native onClick (B-2 fix). holdInitiatedRef is consumed below at the
+  // showRecordingControls predicate to prevent the RecordingControls swap
+  // during a hold-initiated recording (B-3 fix).
+  const primaryHold = useHoldToRecord({
+    voice,
+    onShortTap: () => {
+      if (!sendDisabled) handleSend(undefined, "send-button");
+    },
+    onLongPressSend: () => {
+      void handleVoiceSend("primary");
+    },
+    asideActive,
+    disabled: sendDisabled || showTranscribingSend,
+  });
+  // B-3 (Phase 32): gate on !holdInitiatedRef so a hold-initiated recording
+  // does NOT swap in RecordingControls under the pointer (CONTEXT.md § Visual
+  // during hold — LOCKED). The mic-tap path leaves holdInitiatedRef false, so
+  // it retains its existing RecordingControls swap behavior.
+  const showRecordingControls = isPrimaryRecording && !primaryHold.holdInitiatedRef.current;
 
   // Layout: 2-row shell per UI-SPEC.md § Layout Contract (Phase 9 / 09-01).
   //
@@ -2415,10 +2439,22 @@ export function ComposeBox({
                 wiring needed). */}
             <button
               type="button"
-              onClick={() => {
-                if (asideActive) { onAsideDismiss?.(); return; }
-                if (!sendDisabled) handleSend(undefined, "send-button");
-              }}
+              // B-2 (Phase 37): preserve aside-dismiss short-tap via the
+              // button's native onClick. When asideActive=true, the
+              // useHoldToRecord hook is inert (guards short-circuit
+              // pointerdown), so the hook's own short-tap callback never
+              // fires — but the browser still synthesizes a click event from
+              // a valid pointerdown/pointerup pair, and that click triggers
+              // this onClick. When !asideActive, onClick is undefined and
+              // the hook's pointer handlers govern the short-tap-send path
+              // exclusively (handleSend is called from the hook's onShortTap
+              // with the "send-button" origin marker preserved from Phase 35).
+              onClick={asideActive ? () => onAsideDismiss?.() : undefined}
+              onPointerDown={primaryHold.onPointerDown}
+              onPointerUp={primaryHold.onPointerUp}
+              onPointerCancel={primaryHold.onPointerCancel}
+              onPointerLeave={primaryHold.onPointerLeave}
+              data-hold-active={primaryHold.holdActive ? "true" : "false"}
               disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
               aria-label={asideActive ? "Resume" : "Send"}
               title={asideActive ? "Resume" : "Send"}

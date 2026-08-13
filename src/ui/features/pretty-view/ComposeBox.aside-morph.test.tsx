@@ -179,16 +179,54 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)
     expect(resumeBtn.getAttribute("title")).toBe("Resume");
   });
 
-  it("Task 2 Test 4: Send button click routes to handleSend when asideActive is undefined", () => {
-    const onSend = vi.fn(() => true);
-    render(
-      <ComposeBox {...baseProps({ onSend })} />,
-    );
-    const textarea = screen.getByRole("textbox");
-    fireEvent.change(textarea, { target: { value: "hello" } });
-    const sendBtn = screen.getByRole("button", { name: "Send" });
-    fireEvent.click(sendBtn);
-    expect(onSend).toHaveBeenCalledWith("hello");
+  it("Task 2 Test 4: Send button short-tap routes to handleSend when asideActive is undefined", async () => {
+    // Phase 32 (Plan 32-02): the primary send button's onClick prop is now
+    // `asideActive ? () => onAsideDismiss?.() : undefined` — the non-aside
+    // send path is served exclusively by the useHoldToRecord hook's pointer
+    // handlers. Test drives the short-tap-under-threshold pointer sequence,
+    // which fires the hook's onShortTap after awaiting voice.cancel() (safe
+    // synchronous no-op in state="idle" via the pendingCancelRef branch from
+    // Plan 32-01 Task 1). onShortTap invokes the plan's `handleSend` wrapper
+    // which forwards to the parent's onSend.
+    //
+    // navigator.mediaDevices mock: the hook's onPointerDown calls voice.start()
+    // as its first non-conditional statement (D-16-02 invariant), which unconditionally
+    // reaches into navigator.mediaDevices.getUserMedia. jsdom does not define
+    // mediaDevices so we stub it (matching the pattern in ComposeBox.voice.test.tsx).
+    // getUserMedia returns a never-resolving promise here because Test 4 only
+    // exercises the SHORT-TAP path — the hook's onPointerUp calls voice.cancel()
+    // before getUserMedia resolves, and cancel() takes the Plan 32-01 pendingCancelRef
+    // branch that tears down the arriving stream. Test never touches recording state.
+    const originalNavigator = globalThis.navigator;
+    const getUserMediaMock = vi.fn(() => new Promise(() => {}));
+    Object.defineProperty(globalThis, "navigator", {
+      value: { mediaDevices: { getUserMedia: getUserMediaMock } },
+      writable: true,
+      configurable: true,
+    });
+    try {
+      const onSend = vi.fn(() => true);
+      render(
+        <ComposeBox {...baseProps({ onSend })} />,
+      );
+      const textarea = screen.getByRole("textbox");
+      fireEvent.change(textarea, { target: { value: "hello" } });
+      const sendBtn = screen.getByRole("button", { name: "Send" });
+      // Short-tap: pointerdown → immediate pointerup, elapsed < 250ms.
+      fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
+      fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
+      // Flush microtasks so the awaited voice.cancel() → onShortTap dispatch resolves.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(onSend).toHaveBeenCalledWith("hello");
+    } finally {
+      Object.defineProperty(globalThis, "navigator", {
+        value: originalNavigator,
+        writable: true,
+        configurable: true,
+      });
+    }
   });
 
   it("Task 2 Test 5: Send button click routes to onAsideDismiss when asideActive=true, NOT handleSend", () => {
