@@ -1067,27 +1067,13 @@ Plans:
 - [x] 32-03-PLAN.md — Wire the new hook into PrettyView.tsx (delete L744-784+L912-915 stub + forceStickAndJumpRef scaffolding + local contentRef; insert useAutoScroll(paneKey); swap handleComposeSend :627 forceStickAndJumpRef.current() → scrollToBottomAndFollow(); wire ComposeBox.tsx L2055 /explain quick-button through onGoodToGo?.())
 - [x] 32-04-PLAN.md — Extend PrettyView.virtualization.test.tsx with the four CONTEXT.md § Test coverage scenarios (un-skip Test 2 session-first-load; add Test 2b incoming-at-bottom; adapt Test 3 wheel→scroll for the new listener; add Test 2d user-send-forces-bottom via integration path)
 
-### Phase 34: Backend-authoritative fleet-status broadcast channel via harness session-status file and hooks — retires PTY-scraped ttyBusy/hasBgWork signals and adds waiting-state PrettyView bubble
+### Phase 34: voice-slash-server-side-skill-catalog — Retire client-side double-word intent-transform (composeIntentTransform.ts / INTENT_REGISTRY) in favor of a server-side STT-endpoint-scoped transform that lets Ashley say "slash <skill-name> <args>" (voice-first path only) to invoke ANY skill on the target box's ~/.claude/skills/ with no maintained registry. Wake-word gate first (transcript must begin with /^\s*slash[\s.,;:!?\-]+/); on hit, server SSH-fetches skill catalog (~/.claude/skills/*/) with generous 10s timeout + fail-open, then greedy longest-prefix matcher against words after "slash" (kebab-case normalization: "gsd quick" -> "gsd-quick"); on match returns transformed transcript ("/skill-name rest"), on miss returns transcript unchanged. Transform applies to BOTH endSend (direct-send) and endAppend (into-textarea) paths in useVoiceRecording.ts. Client passes {hostId, tmuxSession} alongside audio blob to STT endpoint. Typed messages unaffected (voice-only path). User-wide skills only (~/.claude/skills/*). NO TTL cache at v1. Retire composeIntentTransform.ts + INTENT_REGISTRY + doubled-word regex + associated tests + the two call sites in useVoiceRecording.ts.
 
-**Goal:** The Skynet frontend derives every session's working-signal (conversation-list dot + PrettyView WipBubble) from a single backend-authoritative fleet-status control WebSocket sourced from Claude Code's own `~/.claude/sessions/<pid>.json` files plus Stop-hook `background_tasks[]`, retiring the PTY-scraped ttyBusy + backgrounded_agents/shells feeders that have accumulated months of signal-quality noise (harness bottom-bar redraws, sibling-tmux status-line flapping, hidden-pane WS drops freezing the signal). Bundles a new WaitingBubble PrettyView surface for the harness-waiting state (e.g. file-deletion permission prompts that slip past dangerously-skip-permissions).
-**Requirements**: none (no REQUIREMENTS.md entry — decisions captured in 34-CONTEXT.md as LOCKED)
+**Goal:** Ashley says "slash <skill-name> <args>" into a pretty-view mic in a Claude Code pane, and the transcript arriving at the compose textarea / tmux send is already rewritten to "/<skill-name> <args>" — invoking any skill present on the target box's ~/.claude/skills/ with no client-maintained registry, no client-side transform, and fail-open passthrough if the target box's catalog can't be reached.
+**Requirements**: (none — scope fully captured by CONTEXT.md)
 **Depends on:** Phase 33
-**Plans:** 6 plans
+**Plans:** 3/3 complete
 
-**Wave 1**
-
-- [ ] 34-01-PLAN.md — Backend fleet-status pure-library modules under src/backend/fleet-status/*: SessionJson + StopHookPayload zod parsers, procStart liveness (pure), PID→tmux correlation (dependency-injected SSH-exec), ambient description-prefix filter — the parse/logic layer Plan 04 SSH-poll orchestrator drives (per PIVOT 2026-08-13: NO per-box daemon, watcher runs inside Skynet backend)
-- [ ] 34-02-PLAN.md — Skynet backend fleet-status broadcast WS server on port 30012 with dual handshake modes (frontend consumer + box watcher), subscription registry with snapshot + fan-out + gone semantics, zod-validated versioned wire protocol
-- [ ] 34-03-PLAN.md — PrettyView WaitingBubble presentational component (PlanPendingBubble visual template, presence-only, no interactive controls per D-CTX lock — Ashley switches to terminal pane to answer)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [ ] 34-04-PLAN.md — ssh-poll-orchestrator (2s SSH polling per identity-hosting host over existing SSH pool; state-delta publish into Plan 02 subscription registry; PID→tmux caching; 30s stale sweep) + remote-hook-install (one-time-per-host file drop + idempotent settings.json merge; NO persistent process) + stop-hook.sh (fire-and-forget bash) + fail-open regression tests for missing hook payload file (Ashley 2026-08-13 LOCKED) + verify-monitor-payload.sh (closes RESEARCH § OQ-2) + starter.ts wire-in + human-verify checkpoint against a real scratch identity
-
-**Wave 3** *(blocked on Wave 2 completion — EXTERNAL orchestrator gate)*
-
-- [ ] 34-05-PLAN.md — External gate: id-skill on-wake block ships [ambient] description-prefix on every persistent Monitor + at least one live identity reloaded with tag in effect + Nellie coordinates fleet-agent-supervisor parallel path (companion bounty ambient-monitor-tagging-in-id-skill closes here — NOT a Skynet-repo executor task)
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [ ] 34-06-PLAN.md — Frontend cutover: new fleet-status browser WS client owned by AppShell at boot + session-working-store rewired around D-CTX composite formula + new session-waiting-store + PrettyView mounts WaitingBubble + Terminal.tsx retires publishSessionTtyBusy + PrettyView.tsx retires the 4 publishSessionHasBackgroundedWork call sites + end-to-end integration test + retired-feeder grep gate + full-suite green
+- [x] 34-01-PLAN.md — Pure server-side matcher module (`src/backend/voice/slashCommandTransform.ts`): wake-word regex + tokenizer + greedy longest-prefix matcher + 21-case truth-table test suite mirroring CONTEXT.md § Specific Ideas — shipped as commit `756c6e3`
+- [x] 34-02-PLAN.md — SSH-fetch skill-catalog helper (`src/backend/voice/skill-catalog.ts`): `fetchSkillCatalog(hostId, userId, timeoutMs=10000): Promise<Set<string>>` reusing connectOneShot + execCommand + resolveHostById; fail-open on every failure branch (empty Set, never throws) — shipped as commit `b7b906d`
+- [x] 34-03-PLAN.md — Atomic cutover: wire matcher + fetcher into STT route (`handleTranscribe` accepts hostId/tmuxSession multipart fields, gates on wake-word, applies transform); DELETE client-side `composeIntentTransform.ts` + tests + two `applyIntentTransform` call sites in `useVoiceRecording.ts`; client posts hostId+tmuxSession alongside audio blob — shipped as single-commit `728973a` (all three tasks in one atomic commit per plan's ⚠️ ATOMICITY note; server + client + delete land together)
