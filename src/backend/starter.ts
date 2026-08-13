@@ -149,6 +149,29 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
     await import("./ssh/docker-console.js");
     await import("./dashboard.js");
 
+    // Phase 34-02: Fleet-status broadcast WebSocket server (port 30012)
+    {
+      const { startFleetStatusServer } = await import(
+        "./fleet-status/fleet-status-server.js"
+      );
+      const { createSubscriptionRegistry } = await import(
+        "./fleet-status/subscription-registry.js"
+      );
+      const { resolveHostRecordByName } = await import(
+        "./fleet-status/host-id-resolver.js"
+      );
+      startFleetStatusServer({
+        port: 30012,
+        authManager,
+        registry: createSubscriptionRegistry(),
+        resolveHostRecordByName,
+      });
+      systemLogger.info("Fleet-status WS server initialized", {
+        operation: "fleet_status_init",
+        port: 30012,
+      });
+    }
+
     // Initialize log level from database settings
     const { getDb: getDbForSettings } = await import("./database/db/index.js");
     const settingsDb = getDbForSettings();
