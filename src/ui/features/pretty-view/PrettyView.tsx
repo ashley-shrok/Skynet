@@ -682,7 +682,7 @@ export function PrettyView({
   const paneKey = `${hostId}::${tmuxSession}`;
   // Phase 32: three-case sticky-bottom auto-scroll (session load / follow-when-at-bottom /
   // force-on-send). See 32-CONTEXT.md § Decisions LOCKED.
-  const { scrollRef, scrollToBottomAndFollow, isPinnedToBottom } = useAutoScroll(paneKey);
+  const { scrollRef, scrollToBottomAndFollow, isPinnedToBottom } = useAutoScroll(paneKey, messages.length);
 
   const handleComposeSend = useCallback((text: string): boolean => {
     const trimmed = text.trim();

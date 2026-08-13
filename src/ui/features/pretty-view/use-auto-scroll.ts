@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // pretty-view auto-scroll — three-case sticky-bottom model.
 //
 // Design source: .planning/phases/32-redesign-pretty-view-auto-scroll-three-
-// case-sticky-bottom-ho/32-CONTEXT.md (LOCKED — do not re-litigate).
+// case-sticky-bottom-ho/32-CONTEXT.md (LOCKED for the original three-case
+// design) + Post-ship correction 2026-08-13 (§ appended section).
 //
 // The hook covers exactly three user-facing cases:
 //
@@ -12,21 +13,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //                                     runs a self-halting rAF chain for
 //                                     STICK_ARM_MS so image decode / batched WS
 //                                     backfill settle at the bottom.
-//   2. New messages while at bottom → ResizeObserver on the OUTER scroll
-//                                     container fires on any child growth
-//                                     (including post-Phase-27 accessory mounts
-//                                     that are in-flow siblings of the sized
-//                                     virtualizer container); if sticky and not
-//                                     shrinking, jump to bottom.
+//   2. New messages while at bottom → new-message useEffect keyed on
+//                                     `messageCount`; if sticky, jump to
+//                                     bottom. Semantic separation from
+//                                     re-measure — the RO no longer writes
+//                                     scrollTop.
 //   3. User send                    → scrollToBottomAndFollow() enters sticky +
 //                                     jumps + brief rAF re-arm. Wired by
 //                                     PrettyView to both the jump-to-bottom
 //                                     pill AND every send-path caller.
 //
+// Case 2b — pill-visibility RO. The outer-container + per-child RO +
+// MutationObserver-for-new-children machinery is retained because pill
+// visibility must reflect ANY scrollHeight change while non-sticky (tall-
+// bubble re-measure grows scrollHeight → pill should still show "jump to
+// bottom" correctly). But the RO callback ONLY writes
+// `setIsPinnedToBottom(...)` — it NEVER calls jumpToBottom. That decoupling
+// is the fix for 2026-08-13 (Ashley: "snaps back to the bottom or jumps to a
+// completely different area … coincides with very tall bubbles").
+//
 // Implicit inverse (Ashley confirmed 2026-08-12): if the user is scrolled up
 // reading history, new incoming messages do NOT yank them down — the scroll
-// listener flips stickyRef.current = false on any user scroll-up and the RO
-// callback then only recomputes pill visibility, never writes scrollTop.
+// listener flips stickyRef.current = false on any user scroll-up, the new-
+// message useEffect then sees stickyRef.current === false and does nothing,
+// and the RO callback only recomputes pill visibility (never writes scrollTop).
 //
 // Event model — ONE scroll listener, gated by two flags:
 //   - programmaticRef  → filters out our own scrollTop writes (set true before
@@ -65,7 +75,7 @@ export interface UseAutoScrollResult {
   isPinnedToBottom: boolean;
 }
 
-export function useAutoScroll(paneKey: string): UseAutoScrollResult {
+export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScrollResult {
   // Callback-ref → useState (NOT useRef): the state setter is what re-fires
   // mount-driven useEffects when PrettyView's composed callback ref binds.
   const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
@@ -76,7 +86,6 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
   const stickyRef = useRef<boolean>(true);
   const programmaticRef = useRef<boolean>(false);
   const [isPinnedToBottom, setIsPinnedToBottom] = useState<boolean>(true);
-  const prevScrollHeightRef = useRef<number>(0);
 
   // Wrap every scrollTop write so the shared scroll listener can distinguish
   // "we jumped" from "user scrolled." Clearing in rAF (not synchronously) lets
@@ -113,39 +122,47 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     };
   }, [scrollEl, paneKey, jumpToBottom]);
 
-  // Case 2 — observe content growth inside the outer scroll container.
+  // Case 2 — new-message signal. Fires on mount and every time `messageCount`
+  // grows. If sticky, jump to bottom. This is the ONLY code path that calls
+  // jumpToBottom on message arrival — cleanly separated from re-measure so a
+  // tall-bubble RO fire (no new message) never yanks scrollTop.
   //
-  // Observing scrollEl itself catches viewport resize but NOT scrollHeight
-  // growth, because scrollEl's own box is fixed by the parent flex layout —
-  // messages arriving grow scrollHeight, not scrollEl's boundingRect. So we
-  // also observe every direct child (whose box DOES grow with content: the
-  // sized virtualizer container's inline height reflects
-  // rowVirtualizer.getTotalSize(); accessory siblings each have their own
-  // size), and wire a MutationObserver to observe newly-mounted children too
-  // (accessories mount/unmount post-Phase-27 — WipBubble/PlanPendingBubble/
-  // AsideBubble). This composite catches every scrollHeight change without
-  // reintroducing a contentRef API.
+  // Post-ship correction 2026-08-13 (Ashley: "snaps back to the bottom or
+  // jumps to a completely different area … coincides with very tall bubbles"):
+  // the previous single Case 2 useEffect conflated "new message arrived"
+  // (jump desired) with "existing bubble re-measured by TanStack Virtual"
+  // (jump NOT desired). Splitting into (a) this new-message signal keyed on
+  // messageCount + (b) the retained RO for pill-visibility only is the
+  // structural fix Ashley greenlit.
   //
-  // The `shrunk` guard preserves the old hook's WipBubble-unmount behavior
-  // (browser auto-clamps on shrink; extra jump would drag a near-bottom
-  // viewport further than the user intended).
-  //
-  // Fix for shipped #426 UAT failure (Ashley 2026-08-12: session first load
-  // didn't land at bottom, follow-on-new-when-at-bottom didn't follow —
-  // both fail if RO doesn't fire on scrollHeight growth).
+  // This effect intentionally fires on mount (initial messageCount value)
+  // even when messageCount is 0; Case 1's paneKey effect already handles
+  // session-first-load stickying so a harmless second nudge here is fine.
   useEffect(() => {
     if (!scrollEl) return;
-    prevScrollHeightRef.current = scrollEl.scrollHeight;
+    if (stickyRef.current) jumpToBottom(scrollEl);
+  }, [scrollEl, messageCount, jumpToBottom]);
+
+  // Case 2b — pill-visibility RO. Observes the outer scroll container AND
+  // every direct child (accessory siblings + sized virtualizer container),
+  // with a MutationObserver watching for newly-mounted children so the RO
+  // set stays complete across post-Phase-27 accessory mount/unmount cycles
+  // (WipBubble/PlanPendingBubble/AsideBubble).
+  //
+  // The callback ONLY updates `setIsPinnedToBottom(...)` — it NEVER calls
+  // jumpToBottom. That decoupling is the fix for 2026-08-13: tall-bubble
+  // re-measure fires this RO, but the RO no longer writes scrollTop, so no
+  // snap-back / no jump-to-different-area.
+  //
+  // The RO must stay (rather than being dropped entirely) because pill
+  // visibility must reflect ANY scrollHeight change while non-sticky —
+  // e.g., a tall-bubble re-measure while the user is scrolled up should
+  // still update the "jump to bottom" pill's dist-from-bottom calculation.
+  useEffect(() => {
+    if (!scrollEl) return;
     const ro = new ResizeObserver(() => {
-      const nextHeight = scrollEl.scrollHeight;
-      const shrunk = nextHeight < prevScrollHeightRef.current;
-      prevScrollHeightRef.current = nextHeight;
-      if (stickyRef.current) {
-        if (!shrunk) jumpToBottom(scrollEl);
-      } else {
-        const dist = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
-        setIsPinnedToBottom(dist <= BOTTOM_THRESHOLD);
-      }
+      const dist = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+      setIsPinnedToBottom(dist <= BOTTOM_THRESHOLD);
     });
     ro.observe(scrollEl);
     for (const child of Array.from(scrollEl.children)) {
@@ -163,7 +180,7 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
       ro.disconnect();
       mo.disconnect();
     };
-  }, [scrollEl, jumpToBottom]);
+  }, [scrollEl]);
 
   // Single scroll listener. Every input source (mouse wheel, keyboard
   // PageUp/ArrowUp/Home, touch drag, scrollbar drag, iOS momentum, and
