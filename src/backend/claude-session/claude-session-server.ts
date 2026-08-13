@@ -1153,6 +1153,42 @@ export async function __applyInputMessageForTests(deps: {
 }
 
 /**
+ * Apply the interrupt message handler logic for tests.
+ * Phase 35 — pretty-view compose-send migrated onto claude-session WS.
+ * Mirrors __applyWakeMessageForTests shape (Tests D/E/F from dormant-poll.test.ts).
+ *
+ * Fires a single `tmux send-keys -t <session> C-c` to send Ctrl-C into the pane.
+ * Original safety-valve Ctrl-C was patch #120 on the terminal WS (Terminal.tsx:3300-3311).
+ *
+ * @param deps.sshConn              - SSH connection (null if not connected)
+ * @param deps.currentTmuxSession   - current pane tmux session name (null if none)
+ * @param deps.currentHostId        - connection-scoped host ID (for logging)
+ * @param deps.execCommand          - injectable SSH exec helper
+ */
+export async function __applyInterruptMessageForTests(deps: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sshConn: any | null;
+  currentTmuxSession: string | null;
+  currentHostId: number | null;
+  execCommand: (conn: unknown, cmd: string) => Promise<string>;
+}): Promise<void> {
+  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
+  if (!sshConn || !currentTmuxSession) return;
+  try {
+    // C-c is a tmux key name for Ctrl-C — no -l flag (it's a key name, not literal bytes),
+    // no shellQuote around C-c (it's a fixed constant from our code, not user input).
+    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} C-c`);
+  } catch (err) {
+    sshLogger.warn("interrupt send failed", {
+      operation: "interrupt_send_error",
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
  * Apply the wake message handler logic for tests.
  * Tests D/E/F from dormant-poll.test.ts use this seam.
  *
@@ -4153,6 +4189,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
         execCommand,
         data: String((msg as { data?: unknown }).data ?? ""),
         messageQueueItemId: String((msg as { messageQueueItemId?: unknown }).messageQueueItemId ?? "") || undefined,
+      });
+      return;
+    }
+
+    // Phase 35 — pretty-view owns its own safety-valve Ctrl-C after migrating off the
+    // borrowed terminal WS. Original Ctrl-C was patch #120 on terminal WS (Terminal.tsx:3300-3311).
+    //
+    // Trust boundary (mirrors T-14-02-01): target pane derived exclusively from
+    // connection-scoped currentTmuxSession. Client-supplied hostId/tmuxSession IGNORED.
+    // Ancestor: Terminal.tsx:3300-3311 (patch #120).
+    if (msg.type === "interrupt") {
+      await __applyInterruptMessageForTests({
+        sshConn,
+        currentTmuxSession,
+        currentHostId,
+        execCommand,
       });
       return;
     }
