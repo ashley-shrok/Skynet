@@ -2178,6 +2178,7 @@ export function ComposeBox({
               slot={slot}
               voice={voice}
               micTarget={micTarget}
+              setMicTarget={setMicTarget}
               isSourceArmed={isSourceArmed}
               asideActive={asideActive}
               recycleActive={recycleActive}
@@ -2581,7 +2582,20 @@ export function ComposeBox({
                 // for browsers that fire click without a hook-observable
                 // pointerup pair).
                 onClick={() => beginRecord("primary")}
-                onPointerDown={primaryHold.onPointerDown}
+                // quick-260814-o22: setMicTarget MUST fire synchronously BEFORE
+                // the hook's pointerdown. MicButton wraps onPointerDown with
+                // e.preventDefault() (quick-260814-iwy) to suppress iOS Safari's
+                // long-press callout — but preventDefault on pointerdown on a
+                // <button> ALSO suppresses the synthesized click event, so
+                // onClick={() => beginRecord("primary")} never fires on iOS.
+                // Without this wrapper, micTarget stays at its default "primary"
+                // for the primary path (accidental correctness) but NEVER
+                // updates for the slot path — the visible symptom of the bug.
+                // setMicTarget is a synchronous React setState (no microtask),
+                // so this does NOT break D-16-02's iOS Safari sync-gesture
+                // invariant that voice.start() (inside primaryHold.onPointerDown)
+                // must be reachable synchronously from the user gesture.
+                onPointerDown={(e) => { setMicTarget("primary"); primaryHold.onPointerDown(e); }}
                 onPointerUp={primaryHold.onPointerUp}
                 onPointerCancel={primaryHold.onPointerCancel}
                 onPointerLeave={primaryHold.onPointerLeave}
@@ -2638,6 +2652,13 @@ interface QueuedRowProps {
   slot: { id: string; text: string };
   voice: ReturnType<typeof useVoiceRecording>;
   micTarget: "primary" | string;
+  // quick-260814-o22: threaded from parent so the slot MicButton's onPointerDown
+  // wrapper can setMicTarget(slot.id) synchronously before delegating to
+  // slotHold.onPointerDown(e). See slot MicButton comment below (~L3060) for
+  // the full rationale (MicButton's preventDefault-on-pointerdown suppresses
+  // the synthesized click on iOS Safari, so beginRecord(slot.id)'s onClick
+  // never runs — the pointerdown wrapper is the only reliable seam).
+  setMicTarget: React.Dispatch<React.SetStateAction<"primary" | string>>;
   isSourceArmed: (source: "primary" | string) => boolean;
   asideActive?: boolean;
   recycleActive?: boolean;
@@ -2678,6 +2699,7 @@ function QueuedRow(props: QueuedRowProps) {
     slot,
     voice,
     micTarget,
+    setMicTarget,
     isSourceArmed,
     asideActive,
     recycleActive,
@@ -3049,7 +3071,21 @@ function QueuedRow(props: QueuedRowProps) {
                 // tap-to-record path; hook's onShortTap also calls
                 // beginRecord(slot.id) — idempotent via voice.state guard.
                 onClick={() => beginRecord(slot.id)}
-                onPointerDown={slotHold.onPointerDown}
+                // quick-260814-o22: setMicTarget MUST fire synchronously BEFORE
+                // the hook's pointerdown for the slot path. Same MicButton
+                // preventDefault interaction as the primary path above — the
+                // synthesized click from onClick={() => beginRecord(slot.id)}
+                // does NOT fire on iOS Safari (MicButton's wrappedPointerDown
+                // preventDefault under quick-260814-iwy suppresses it), so
+                // without this wrapper micTarget stays "primary" and
+                // RecordingControls swap in on the PRIMARY compose area
+                // instead of this slot. This is THE fix for quick-260814-o22
+                // (the primary path only worked accidentally because "primary"
+                // is the default). setMicTarget is a synchronous React
+                // setState — does NOT break D-16-02's iOS Safari sync-gesture
+                // invariant that voice.start() must be reachable synchronously
+                // from the user gesture.
+                onPointerDown={(e) => { setMicTarget(slot.id); slotHold.onPointerDown(e); }}
                 onPointerUp={slotHold.onPointerUp}
                 onPointerCancel={slotHold.onPointerCancel}
                 onPointerLeave={slotHold.onPointerLeave}
