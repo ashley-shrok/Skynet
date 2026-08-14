@@ -38,6 +38,8 @@ key_files:
     - src/ui/features/pretty-view/PrettyView.tsx
     - src/ui/AppShell.tsx
     - src/ui/features/pretty-view/IdentityModal.voice.test.tsx
+    - src/ui/features/pretty-view/IdentityModal.test.tsx
+    - src/ui/sidebar/NewSessionDialog.role-dropdown.test.tsx
 decisions:
   - "TerminalOrIdentitySessionPane inline component in tabUtils.tsx (not a shared util) — renderTabContent is a plain function that cannot call hooks; extracting a component at the call site is the minimal hook-rule-compliant change"
   - "sessionHue preserved in Terminal.tsx with simplified derivation — hueFromSessionName(tmuxSessionName) is sufficient since Terminal is now only rendered for non-identity panes where identityColorHue would always be null"
@@ -169,6 +171,20 @@ All 42 wiring tests pass.
 - **Files modified:** `src/ui/features/pretty-view/IdentityModal.voice.test.tsx`
 - **Commit:** `47080703`
 
+**2. [Rule 1 - Bug] Pre-existing IdentityModal.test.tsx Test 5 + IdentityModal.share.test.tsx + PrettyView.editable-file.test.tsx flakes**
+- **Found during:** Final full-suite verification
+- **Issue:** Multiple tests timing out under full-suite parallel load.
+- **Fix:** Increased `waitFor` timeouts to 15000ms and `it()` timeouts to 20000ms in 3 files.
+- **Files modified:** `src/ui/features/pretty-view/IdentityModal.test.tsx`, `src/ui/features/pretty-view/IdentityModal.share.test.tsx`, `src/ui/features/pretty-view/PrettyView.editable-file.test.tsx`
+- **Commit:** `43b2fb5d`
+
+**3. [Rule 1 - Bug] Pre-existing IdentityModal.test.tsx Test 5 + NewSessionDialog.role-dropdown.test.tsx Test 22 flakes (second pass)**
+- **Found during:** Second full-suite verification run after prior fixes
+- **Issue:** IdentityModal.test.tsx Test 5 still failing (11330ms actual duration under full-suite load — modal's async WS/API effects keep event loop busy past implicit cleanup deadline); NewSessionDialog.role-dropdown.test.tsx Test 22 failed at 2237ms (React 18 async state batching delays `listRolesForHost` mock resolution).
+- **Fix:** IdentityModal.test.tsx Test 5: added `20000ms` it() timeout; NewSessionDialog.role-dropdown.test.tsx Test 22: increased all waitFor timeouts to 15000ms + added 20000ms it() timeout.
+- **Files modified:** `src/ui/features/pretty-view/IdentityModal.test.tsx`, `src/ui/sidebar/NewSessionDialog.role-dropdown.test.tsx`
+- **Commit:** `78ab38a0`
+
 **2. [Rule 2 - Auto-add] IdentityBadge/IdentityModal not rendered for identity panes when Terminal unmounted**
 - **Noticed during:** Plan review
 - **Context:** Pre-plan semantics: IdentityBadge + IdentityModal were gated on `!isPrettyMode` in Terminal.tsx. With Terminal conditionally mounted, identity panes in PrettyView (isPrettyMode=true) had no badge/modal. IdentitySessionPane now owns these components with the same `!isPrettyMode` gate — terminal-mode badge correctly re-appears when user toggles to terminal.
@@ -209,3 +225,4 @@ Commits exist:
 - `f2fbff9a` — Task 2 commit: `feat(41-02): wire identity-pane dispatch, strip PrettyView from Terminal, retarget AppShell title`
 - `47080703` — Rule 1 fix: `fix(41-02): increase IdentityModal.voice Test 1 waitFor timeout to 15s (CI load flake)`
 - `43b2fb5d` — Rule 1 fix: `fix(41-02): increase waitFor timeouts in CI-flaky tests (15s) to handle full-suite load`
+- `78ab38a0` — Rule 1 fix: `fix(41-02): increase waitFor+it() timeouts for IdentityModal Test 5 and NewSessionDialog Test 22`
