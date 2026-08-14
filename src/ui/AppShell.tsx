@@ -88,6 +88,7 @@ import { publishFleetStatusWaitingFor } from "@/state/session-waiting-store";
 import {
   publishFleetStatusTmuxSession,
   publishFleetStatusTmuxSessionGone,
+  useSessionTmuxName,
 } from "@/state/session-tmux-store";
 // Phase 11 Plan 03 (Ashley "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
@@ -272,6 +273,25 @@ export function AppShell({
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
   const { byKey: identitiesByKey } = useIdentities();
+
+  // Phase 41 Plan 02: document.title retarget — read the active tab's tmux
+  // session name from the fleet-status broadcast store (session-tmux-store)
+  // instead of ONLY from the Terminal-callback-fed tmuxSessionNames record.
+  // This satisfies CONTEXT.md LOCKED: "tab-title mechanism reads tmuxSessionName
+  // from the fleet-status broadcast" — required so identity panes (where
+  // Terminal is not mounted at open time) still surface a meaningful title.
+  //
+  // Key format: `${numericHostId}:${tmuxSessionName}` — matches
+  // session-tmux-store's publishFleetStatusTmuxSession key convention.
+  // Computed once at hook scope so useSessionTmuxName (a hook) can be called
+  // unconditionally per React rules.
+  const _activeTabForTitle = tabs.find((t) => t.id === activeTabId);
+  const activeSessionKey =
+    _activeTabForTitle?.host?.id != null
+      ? `${_activeTabForTitle.host.id}:${_activeTabForTitle.targetTmuxSession ?? ""}`
+      : null;
+  const activeTmuxFromStore = useSessionTmuxName(activeSessionKey);
+
   // Plan 06-03: mobile-flow drives list-vs-view rendering on touchscreen
   // viewports. Reads the `#mv=1` URL fragment key (patch #25 pattern
   // extended); AppShell gates ALL mobile-flow-driven rendering on
@@ -481,7 +501,14 @@ export function AppShell({
 
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeTabId);
-    const tmux = tmuxSessionNames[activeTabId];
+    // Phase 41 Plan 02: tmux source is now the fleet-status broadcast store
+    // (activeTmuxFromStore, derived at hook scope via useSessionTmuxName)
+    // with the legacy Terminal-callback-fed tmuxSessionNames[activeTabId]
+    // record as the fallback for non-identity panes where the store has no
+    // entry (workstation-style SSH hosts without a live tmux+claude backend).
+    // The identity displayName → tmux → label → "SKYNET" fallback chain is
+    // preserved verbatim — only the tmux source changes.
+    const tmux = activeTmuxFromStore ?? tmuxSessionNames[activeTabId];
     // Ashley 2026-08-01: browser tab title mirrors the conversation-list
     // main-label source (patch #258) — for identity sessions, use the
     // properly-cased `identity.displayName` ("Tina") instead of the
@@ -492,7 +519,14 @@ export function AppShell({
     const identity = resolvedKey ? identitiesByKey.get(resolvedKey) : null;
     document.title =
       identity?.displayName || tmux || activeTab?.label || "SKYNET";
-  }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey]);
+    console.info({
+      operation: "app_shell_title_resolve",
+      activeTabId,
+      tmuxFromStore: activeTmuxFromStore,
+      tmuxFromLegacyRecord: tmuxSessionNames[activeTabId] ?? null,
+      resolvedTitle: document.title,
+    });
+  }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey, activeTmuxFromStore]);
 
   // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
   // The conversation-store is a pure DERIVATION of AppShell's tab state; it
@@ -1450,7 +1484,14 @@ export function AppShell({
     }
 
     for (const tab of tabs) {
-      const isTerminal = tab.type === "terminal";
+      // Phase 41 Plan 02: identity terminal panes get the pv-base background
+      // (like non-terminal tabs) since PrettyView is the primary surface.
+      // Non-identity terminal panes keep the terminal dark background.
+      const isIdentityTerminal =
+        tab.type === "terminal" &&
+        tab.targetTmuxSession != null &&
+        identitiesByKey.has(tab.targetTmuxSession.toLowerCase());
+      const isTerminal = tab.type === "terminal" && !isIdentityTerminal;
       const node = getTabNode(tab.id, isTerminal);
       const paneIdx = isSplit ? paneTabIds.indexOf(tab.id) : -1;
       const inPane = paneIdx !== -1;
@@ -1925,7 +1966,13 @@ export function AppShell({
                 }}
               >
                 {tabs.map((tab) => {
-                  const tabNode = getTabNode(tab.id, tab.type === "terminal");
+                  // Phase 41 Plan 02: identity terminal panes get pv-base
+                  // background (PrettyView is the primary surface).
+                  const _isIdentityTerminal =
+                    tab.type === "terminal" &&
+                    tab.targetTmuxSession != null &&
+                    identitiesByKey.has(tab.targetTmuxSession.toLowerCase());
+                  const tabNode = getTabNode(tab.id, tab.type === "terminal" && !_isIdentityTerminal);
                   const paneIdx = isSplit ? paneTabIds.indexOf(tab.id) : -1;
                   const inPane = paneIdx !== -1;
                   // Plan 06-02: `isVisible` signal for every mounted pane

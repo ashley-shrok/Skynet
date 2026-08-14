@@ -6,20 +6,18 @@
  * real fidelity. This suite instead pins the WIRING SHAPE via two
  * complementary techniques:
  *
- *   1. Structural grep on the source file — asserts that the exact prop
- *      names + attribute lines Plan 03 requires (terminalWs=..., onInjectedTurnReady=...,
- *      handleInjectedTurnReady callback definition) are present. Also
- *      asserts that the pre-existing PrettyView onSend callback (line ~2846)
- *      and MessageQueueDrawer onSend callback (line ~2869) are byte-identical
- *      to their known-good pre-Plan-03 sha256 (patch #60 / #100 protection).
+ *   1. Structural grep on the source file — asserts that identifiers
+ *      required by current architecture are present (or absent after Plan 41-02).
  *
- *   2. Behavioral reproduction — copies the same two-event split-send
- *      pattern that handleInjectedTurnReady uses (as documented in the
- *      plan's Task 1 Step A action block) into a helper here and verifies
- *      the emitted mock-WS `.send()` calls match the expected split-send
- *      shape: body event first (no mqid), then \r event with mqid 60ms
- *      later. This is byte-identical to the MessageQueueDrawer onSend
- *      pattern at line 2869 (patch #60 template).
+ *   2. Behavioral reproduction — copies the same patterns from Terminal.tsx
+ *      into a helper here and verifies against fake refs + spies.
+ *
+ * Phase 41 Plan 02 update: PrettyView / MessageQueueDrawer / IdentityBadge /
+ * IdentityModal / pvSendInputRef / isPrettyMode / hasAutoActivatedPrettyRef /
+ * handleInjectedTurnReady are all REMOVED from Terminal.tsx. Tests 1a-1d,
+ * 4, 4b, and 5 (which asserted these were PRESENT) are replaced with
+ * regression guards that assert they are ABSENT. The behavioral reproduction
+ * tests (2, 3a-3c, 7-10, eqk-*, ih9-*) are byte-unchanged.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
@@ -37,112 +35,54 @@ function sha256(s: string): string {
 describe("Terminal.tsx Phase 05 Plan 03 wiring — structural", () => {
   const src = readFileSync(TERMINAL_TSX, "utf-8");
 
-  it("Test 1a: PrettyView mount includes terminalWs={webSocketRef.current}", () => {
-    const matches = src.match(/terminalWs=\{webSocketRef\.current\}/g);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBe(1);
+  // Phase 41 Plan 02 — regression guards: assert that hoisted state and
+  // identity-pane components are GONE from Terminal.tsx (now owned by
+  // IdentitySessionPane). Flipping these from positive to negative
+  // preserves the structural-grep contract while reflecting the new
+  // architecture.
+
+  it("Test 1a (Phase 41-02 regression guard): <PrettyView is NOT present in Terminal.tsx", () => {
+    expect(src).not.toMatch(/<PrettyView/);
   });
 
-  it("Test 1b: PrettyView mount includes onInjectedTurnReady={handleInjectedTurnReady}", () => {
-    const matches = src.match(/onInjectedTurnReady=\{handleInjectedTurnReady\}/g);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBe(1);
+  it("Test 1b (Phase 41-02 regression guard): isPrettyMode is NOT present in Terminal.tsx", () => {
+    expect(src).not.toMatch(/isPrettyMode/);
   });
 
-  it("Test 1c: handleInjectedTurnReady callback is defined exactly once", () => {
-    // Two occurrences expected: one definition (const handleInjectedTurnReady = ...)
-    // and one JSX attribute usage above.
-    const matches = src.match(/handleInjectedTurnReady/g);
-    expect(matches).not.toBeNull();
-    // definition + usage
-    expect(matches!.length).toBe(2);
+  it("Test 1c (Phase 41-02 regression guard): pvSendInputRef is NOT present in Terminal.tsx", () => {
+    expect(src).not.toMatch(/pvSendInputRef/);
   });
 
-  it("Test 1d: handleInjectedTurnReady definition uses useCallback", () => {
-    // The callback must be memoized (docs live in the JSDoc — the body is
-    // idempotent because webSocketRef is read via .current inside).
-    const defBlock = /const handleInjectedTurnReady = useCallback\(/;
-    expect(defBlock.test(src)).toBe(true);
+  it("Test 1d (Phase 41-02 regression guard): pvSendInterruptRef is NOT present in Terminal.tsx", () => {
+    expect(src).not.toMatch(/pvSendInterruptRef/);
   });
 
-  it("Test 4 (patch #110 + Phase 35): PrettyView onSend routes through pvSendInputRef with mqid + text+CR (Phase 35 cutover)", () => {
-    // Patch #110 collapsed the prior two-event split into a single event with
-    // a synthetic messageQueueItemId. Phase 35 migrated the send from the
-    // borrowed terminal SSH WS (webSocketRef.current) to PrettyView's own
-    // claude-session WS via pvSendInputRef (the ref-forwarding surface added
-    // by Task 1).
-    //
-    // This test guards ALL load-bearing invariants post-Phase-35:
-    //   1. null-ref guard + false return still present (pvSendInputRef not yet set)
-    //   2. mqid generated as "pv-adhoc-" + UUID (same prefix → backend gate fires)
-    //   3. send call uses pvSendInputRef.current (not webSocketRef.current)
-    //   4. NO setTimeout in the pretty-view onSend block (regression guard —
-    //      re-introducing setTimeout re-opens the race)
-    const openIdx = src.indexOf(
-      "            onSend={(text) => {\n              // Patch #110:",
-    );
-    expect(openIdx).toBeGreaterThan(0);
-    // Read to the end of the arrow function body (matching closing `}}`).
-    // The block is bounded by the next line starting with `            onInterrupt=`.
-    const closeIdx = src.indexOf(
-      "            onInterrupt={() => {",
-      openIdx,
-    );
-    expect(closeIdx).toBeGreaterThan(openIdx);
-    const block = src.slice(openIdx, closeIdx);
-    // (1) null-ref guard + false return (Phase 35 shape: pvSendInputRef.current === null)
-    expect(block).toContain("if (!send) return false;");
-    // (2) synthetic mqid still constructed with same prefix (backend gate requires it)
-    expect(block).toContain('"pv-adhoc-" + crypto.randomUUID()');
-    // (3) send call routes through pvSendInputRef (Phase 35 cutover)
-    expect(block).toContain("pvSendInputRef.current");
-    expect(block).toContain("return send(text +");
-    // (4) regression guard: no setTimeout CALL in onSend (would reintroduce the race)
-    expect(block).not.toContain("setTimeout(() => {");
-    // (5) no direct webSocketRef.current read in onSend (Phase 35 invariant)
-    expect(block).not.toContain("webSocketRef.current");
+  it("Test 4 (Phase 41-02 regression guard): hasAutoActivatedPrettyRef is NOT present in Terminal.tsx", () => {
+    expect(src).not.toMatch(/hasAutoActivatedPrettyRef/);
   });
 
-  it("Test 4b (patch #110 + Phase 35): PrettyView onSend attaches a non-empty messageQueueItemId every call", () => {
-    // Backend gate: isPrettyViewSubmit = typeof mqid === 'string' && mqid.length > 0.
-    // If the pretty-view onSend ever emits a bare {type,data} without mqid,
-    // the backend falls through to generic write and the split-send is dormant
-    // → the ORIGINAL bug (Enter dropped) resurfaces. Belt-and-suspenders check
-    // that mqid is always constructed non-empty.
-    const openIdx = src.indexOf(
-      "            onSend={(text) => {\n              // Patch #110:",
-    );
-    expect(openIdx).toBeGreaterThan(0);
-    const closeIdx = src.indexOf(
-      "            onInterrupt={() => {",
-      openIdx,
-    );
-    const block = src.slice(openIdx, closeIdx);
-    // The mqid construction is a non-empty prefix + a UUID (both non-empty).
-    expect(block).toMatch(/const mqid = "pv-adhoc-" \+ crypto\.randomUUID\(\);/);
+  it("Test 4b (Phase 41-02 regression guard): <MessageQueueDrawer is NOT present in Terminal.tsx", () => {
+    expect(src).not.toMatch(/<MessageQueueDrawer/);
   });
 
-  it("Test 5 (Phase 35 cutover): MessageQueueDrawer onSend callback routes through pvSendInputRef with two-event split-send", () => {
-    // Phase 35 migrated MessageQueueDrawer's onSend from borrowing
-    // webSocketRef.current (the terminal SSH WS) to routing through
-    // pvSendInputRef.current (PrettyView's own claude-session WS via
-    // the ref-forwarding surface added in Task 2). The two-event body-then-
-    // 60ms-\r+mqid pattern (patch #60) is preserved in shape and timing.
-    const openIdx = src.indexOf(
-      "            onSend={(text, messageQueueItemId) => {\n              const send = pvSendInputRef.current;",
-    );
-    expect(openIdx).toBeGreaterThan(0);
-    // Positive content: null-ref guard, two-event split, 60ms timer.
-    const block = src.slice(openIdx, openIdx + 1200);
-    // (1) null-ref guard (Phase 35 shape)
-    expect(block).toContain("if (!send) return false;");
-    // (2) body event first (no mqid on body)
-    expect(block).toContain("send(text);");
-    // (3) 60ms delayed second event with \r + mqid
-    expect(block).toContain("setTimeout(() => {");
-    expect(block).toContain("}, 60);");
-    // (4) no direct webSocketRef.current read (Phase 35 invariant)
-    expect(block).not.toContain("webSocketRef.current");
+  it("Test 5 (Phase 41-02 regression guard): <IdentityBadge is NOT present in Terminal.tsx", () => {
+    expect(src).not.toMatch(/<IdentityBadge/);
+  });
+
+  it("Test 5b (Phase 41-02 regression guard): <IdentityModal is NOT present in Terminal.tsx", () => {
+    expect(src).not.toMatch(/<IdentityModal/);
+  });
+
+  it("Test 5c (Phase 41-02 regression guard): handleInjectedTurnReady is NOT present in Terminal.tsx", () => {
+    // handleInjectedTurnReady was the callback that bridged PrettyView uploads
+    // into the split-send path; now owned by IdentitySessionPane.
+    expect(src).not.toMatch(/handleInjectedTurnReady/);
+  });
+
+  it("Test 5d (Phase 41-02 regression guard): togglePrettyMode and toggleMessageQueue are NOT in Terminal.tsx useImperativeHandle", () => {
+    // These are now owned by IdentitySessionPane's useImperativeHandle.
+    expect(src).not.toMatch(/togglePrettyMode:/);
+    expect(src).not.toMatch(/toggleMessageQueue:/);
   });
 
   it("Test 6 (patch #143 structural): visibilitychange listener added/removed as a pair, respects wasDisconnectedBySSH guard, adds no new terminal.clear()", () => {
@@ -830,23 +770,33 @@ describe("quick-260809-ih9 — pause-effect initial-mount race fix (prevIsVisibl
   });
 });
 
-describe("Terminal.tsx terminal-connecting-loader-shows-in-pretty-mode wiring — structural", () => {
+describe("Terminal.tsx terminal-connecting-loader — structural", () => {
   const src = readFileSync(TERMINAL_TSX, "utf-8");
 
-  // terminal-connecting-loader-shows-in-pretty-mode (2026-08-10): the
-  // SimpleLoader that renders the black-bg "Connecting..." overlay for
-  // terminal SSH handshakes must NOT mount in pretty mode — its
-  // connection-status semantics belong to PrettyView's own overlays there.
-  // The `visible` prop wires isConnecting + !isConnectionLogExpanded +
-  // !isPrettyMode; regression-guard on the third gate specifically.
-  it("SimpleLoader (terminal.connecting) visible prop includes !isPrettyMode gate", () => {
+  // Phase 41 Plan 02: the `!isPrettyMode` gate was REMOVED from the
+  // SimpleLoader's `visible` prop. Terminal.tsx only mounts for non-identity
+  // (raw terminal) panes, so the loader is always the correct authority for
+  // connection state. Regression guard: assert the gate IS gone and the
+  // loader IS still present.
+  it("SimpleLoader (terminal.connecting) visible prop does NOT include !isPrettyMode gate (Phase 41-02)", () => {
     const anchor = 'message={t("terminal.connecting")}';
     const anchorIdx = src.indexOf(anchor);
     expect(anchorIdx).toBeGreaterThan(0);
-    // Look at the ~200 chars preceding the anchor for the `visible` prop
-    // line — its gate must include !isPrettyMode.
+    // Look at the ~300 chars preceding the anchor for the `visible` prop.
     const window = src.slice(Math.max(0, anchorIdx - 300), anchorIdx);
-    expect(window).toMatch(/visible=\{[^}]*!isPrettyMode[^}]*\}/);
+    // Phase 41-02: isPrettyMode must NOT appear in the visible prop.
+    expect(window).not.toMatch(/!isPrettyMode/);
+    // Positive: the loader still exists (anchor is valid).
+    expect(window).toMatch(/visible=\{/);
+  });
+
+  it("SimpleLoader (terminal.connecting) visible prop still wires isConnecting + !isConnectionLogExpanded", () => {
+    const anchor = 'message={t("terminal.connecting")}';
+    const anchorIdx = src.indexOf(anchor);
+    expect(anchorIdx).toBeGreaterThan(0);
+    const window = src.slice(Math.max(0, anchorIdx - 300), anchorIdx);
+    expect(window).toContain("isConnecting");
+    expect(window).toContain("!isConnectionLogExpanded");
   });
 });
 

@@ -130,18 +130,10 @@ export interface PrettyViewProps {
   // Omit when PrettyView is read-only; the Stop button then never
   // renders.
   onInterrupt?: () => void;
-  // IGNORED as of Phase 41-01 — PrettyView now derives isIdle internally
-  // from the fleet-status session-working-store via useSessionIsWorkingRaw.
-  // Prop is preserved for source compatibility with Terminal.tsx (Plan 41-02
-  // removes the caller). Do not add new call sites.
-  //
-  // Prior semantics (for historical reference):
-  //   PTY-side "Claude is currently working" signal from the terminal
-  //   WebSocket (patch #13 mechanism). `false` = Claude quiet ≥4s AND
-  //   foreground = claude → hide the WIP bubble. `true` = actively
-  //   working → show the WIP bubble. `null` = backend has not spoken
-  //   yet on the current attach → do not show (unknown).
-  isIdle?: boolean | null;
+  // Phase 41 Plan 02: isIdle prop removed — PrettyView derives isIdle
+  // internally from the fleet-status session-working-store via
+  // useSessionIsWorkingRaw (wired in Phase 41-01). Terminal.tsx no longer
+  // renders PrettyView; IdentitySessionPane renders it without this prop.
   // Phase 05: the terminal-pane's SSH WebSocket. When provided, the
   // upload orchestrator hook uses it to emit upload_start / upload_chunk
   // and to listen for upload_progress / upload_complete / upload_failed /
@@ -324,7 +316,6 @@ export function PrettyView({
   style,
   onSend,
   onInterrupt,
-  isIdle,
   terminalWs,
   onInjectedTurnReady,
   onTogglePrettyMode,
@@ -803,8 +794,8 @@ export function PrettyView({
   //           → aside-arm may fire on false→true transition.
   //   true  → broadcast says working; isIdleDerived=false.
   //
-  // The incoming `isIdle` prop is accepted for backward-compat (Terminal.tsx
-  // still passes it) but is IGNORED at runtime. Plan 41-02 removes the caller.
+  // Phase 41 Plan 02: isIdle prop removed. PrettyView now derives isIdle
+  // entirely from the fleet-status store.
   const isWorkingRaw = useSessionIsWorkingRaw(sessionWorkingKey);
   const isIdleDerived: boolean | null =
     isWorkingRaw === null ? null : !isWorkingRaw;

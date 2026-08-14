@@ -40,13 +40,11 @@ import {
   TERMINAL_FONTS,
 } from "@/lib/terminal-themes.ts";
 import "./terminal-global-styles.ts";
-import { sessionMatchKey, hueFromSessionName } from "./session-hue.ts";
-import { IdentityBadge } from "./IdentityBadge.tsx";
-import { IdentityModal } from "@/features/pretty-view/IdentityModal";
-import { MessageQueueDrawer } from "./MessageQueueDrawer.tsx";
-import { PrettyView } from "@/features/pretty-view/PrettyView";
-import { listMessageQueueItems } from "@/api/message-queue-api";
-import { useIdentities } from "@/state/identities-store";
+// Phase 41 Plan 02: sessionMatchKey removed from this file (no longer needed;
+// hueFromSessionName is the only session-hue export used by Terminal.tsx now).
+// PrettyView, MessageQueueDrawer, IdentityBadge, IdentityModal, useIdentities,
+// listMessageQueueItems all removed — now owned by IdentitySessionPane.
+import { hueFromSessionName } from "./session-hue.ts";
 // Phase 34 Plan 06: PTY-idle feeder RETIRED — fleet-status channel now
 // sources the working signal from the box-side session JSON, not PTY scraping.
 import { useTheme } from "@/components/theme-provider.tsx";
@@ -173,13 +171,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const backgroundColor = themeColors.background;
     const fitAddonRef = useRef<FitAddon | null>(null);
     const webSocketRef = useRef<WebSocket | null>(null);
-    // Phase 35 — PrettyView populates these on mount via onRegisterSendInput /
-    // onRegisterSendInterrupt props; callers read `.current?.()` at call time.
-    // Refs are null before PrettyView mounts and after it unmounts
-    // (isPrettyMode=false); callers treat null as a silent noop — same posture
-    // as the old `if (!ws || ws.readyState !== 1) return` guard.
-    const pvSendInputRef = useRef<((text: string, mqid?: string) => boolean) | null>(null);
-    const pvSendInterruptRef = useRef<(() => void) | null>(null);
+    // Phase 41 Plan 02: ref pair for per-pane PrettyView send REMOVED — hoisted
+    // to IdentitySessionPane wrapper which owns these for identity panes. Terminal
+    // is now only rendered for non-identity panes and does not own PrettyView state.
     // Bounty pretty-view-per-pane-cost-diag: rolling counter of SSH WS
     // bytes received since the last diag emit (measured as raw JSON string
     // length of each event.data, which approximates the payload cost since
@@ -270,74 +264,28 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     } | null>(null);
     const tmuxSessionNameRef = useRef<string | null>(null);
     const [tmuxSessionName, setTmuxSessionName] = useState<string | null>(null);
-    const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
-    const [isPrettyMode, setIsPrettyMode] = useState(false);
-    // Quick 260806-lzd — terminal-mode IdentityBadge tap opens this modal.
-    // Parity with PrettyView.tsx's identity-badge affordance so the identity
-    // modal is reachable from BOTH surfaces (previously PrettyView-only).
-    const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
-    // Auto-activate pretty view once per tab when the tab's tmux session
-    // resolves to a registered identity. A ref (not state) tracks the
-    // one-shot flag so a later Ctrl+Shift+O off is respected forever after —
-    // auto-activate never fights the manual toggle.
-    const hasAutoActivatedPrettyRef = useRef(false);
-    // PTY-side "Claude is currently working" signal. Backend emits
-    // {type:"idle", idle:bool} on transitions (patch #13) plus an initial
-    // state on WS attach. `null` = we haven't heard from the backend yet;
-    // consumers treat null as "unknown / do not show WIP indicator" so a
-    // fresh open doesn't false-positive before the first ticker fires.
-    const [isIdle, setIsIdle] = useState<boolean | null>(null);
-    // Phase 34 Plan 06: PTY-idle feeder useEffect RETIRED.
-    // The fleet-status channel (AppShell boot-time WS) now sources the
-    // working signal from the box-side ~/.claude/sessions/<pid>.json file
-    // via the backend SSH-poll orchestrator (Plan 04). PTY-scraping is no
-    // longer the primary signal. isIdle is preserved — other consumers in
-    // this file still use it (e.g. aside arm emitter, PTY diagnostics).
-    const autoOpenCheckedKeysRef = useRef<Set<string>>(new Set());
-    useEffect(() => {
-      const hostId = hostConfig.id;
-      if (hostId == null) return;
-      const key = `${hostId}:${tmuxSessionName ?? ""}`;
-      if (autoOpenCheckedKeysRef.current.has(key)) return;
-      autoOpenCheckedKeysRef.current.add(key);
-      let cancelled = false;
-      listMessageQueueItems({ hostId, tmuxSession: tmuxSessionName })
-        .then((items) => {
-          // Auto-open ONLY when the queue has at least one meaningful
-          // draft. Empty-body items (e.g. an auto-primed draft the user
-          // never typed into) would otherwise pop the drawer with just
-          // an empty textarea visible — ghost-open bug.
-          const hasContent = items.some((it) => it.body.trim().length > 0);
-          if (!cancelled && hasContent) setIsMessageQueueOpen(true);
-        })
-        .catch(() => {});
-      return () => {
-        cancelled = true;
-      };
-    }, [hostConfig.id, tmuxSessionName]);
-    const identityKey = useMemo(
-      () => sessionMatchKey(tmuxSessionName),
+    // Phase 41 Plan 02: all identity-pane state and component mounts REMOVED
+    // and hoisted to IdentitySessionPane wrapper (src/ui/shell/IdentitySessionPane.tsx).
+    // Terminal is now only rendered for non-identity panes (direct workstation-style
+    // SSH). Identity panes route through IdentitySessionPane which conditionally mounts
+    // Terminal when the user summons it (toggle).
+    //
+    // Removed from this file:
+    //   - pretty-mode toggle state + related auto-activate logic
+    //   - message-queue open state
+    //   - identity modal open state
+    //   - per-pane PrettyView send/interrupt ref pair
+    //   - idle state (was null-in-production since Phase 34)
+    //   - identity-lookup / color-hue derivation (only used by removed JSX blocks)
+    //   - PrettyView, MessageQueueDrawer, IdentityBadge, IdentityModal JSX blocks
+    //   - toggle-mode + toggle-queue from useImperativeHandle (owned by wrapper)
+    //
+    // sessionHue is preserved (drives --session-hue CSS var on the root div for
+    // non-identity workstation pane coloring; hueFromSessionName provides the value).
+    const sessionHue = useMemo(
+      () => hueFromSessionName(tmuxSessionName),
       [tmuxSessionName],
     );
-    const { byKey: identitiesByKey } = useIdentities();
-    const identityColorHue =
-      identityKey != null
-        ? (identitiesByKey.get(identityKey)?.colorHue ?? null)
-        : null;
-    const sessionHue = useMemo(
-      () =>
-        identityColorHue != null
-          ? identityColorHue
-          : hueFromSessionName(tmuxSessionName),
-      [identityColorHue, tmuxSessionName],
-    );
-    useEffect(() => {
-      if (hasAutoActivatedPrettyRef.current) return;
-      if (identityKey == null) return;
-      if (!identitiesByKey.has(identityKey)) return;
-      hasAutoActivatedPrettyRef.current = true;
-      setIsPrettyMode(true);
-    }, [identityKey, identitiesByKey]);
     const [isTmuxAttached, setIsTmuxAttached] = useState(false);
     const tmuxCopyModeHintShownRef = useRef(false);
 
@@ -1128,12 +1076,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             webSocketRef.current.send(JSON.stringify(payload));
           }
         },
-        toggleMessageQueue: () => {
-          setIsMessageQueueOpen((v) => !v);
-        },
-        togglePrettyMode: () => {
-          setIsPrettyMode((v) => !v);
-        },
+        // Phase 41 Plan 02: toggleMessageQueue and togglePrettyMode REMOVED from
+        // Terminal's useImperativeHandle. Identity panes expose these via
+        // IdentitySessionPane's wrapper useImperativeHandle. Non-identity terminal
+        // panes (the only panes Terminal now serves) do not have a message queue
+        // or pretty mode to toggle — AppShell calls these via the identity-pane
+        // ref path (IdentitySessionPane) or the ref is null for non-identity panes.
         notifyResize: () => {
           try {
             const cols = terminal?.cols ?? undefined;
@@ -3258,23 +3206,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // in its input buffer un-submitted — same failure mode as any other
     // sub-second WS disconnect. No parallel send path; no new queue row.
     //
-    // Deps are `[]` because `webSocketRef` is a React ref (mutation does not
-    // re-render) and the ref's `.current` is read at call time inside the
-    // callback body — never captured at callback-creation time. This is the
-    // same pattern MessageQueueDrawer's inline onSend uses (also reads
-    // webSocketRef.current at call time).
-    const handleInjectedTurnReady = useCallback(
-      (text: string, messageQueueItemId: string) => {
-        const send = pvSendInputRef.current;
-        if (!send) return; // silent noop — Plan 02 hook keeps batch in staging for retry
-        send(text);
-        setTimeout(() => {
-          const send2 = pvSendInputRef.current;
-          if (send2) send2("\r", messageQueueItemId);
-        }, 60);
-      },
-      [],
-    );
+    // Phase 41 Plan 02: injected-turn callback removed — PrettyView and
+    // the message queue drawer are now owned by IdentitySessionPane. Terminal.tsx
+    // only renders the raw xterm surface for non-identity panes.
 
     return (
       <div
@@ -3292,12 +3226,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           ref={xtermRef}
           className="flex-1 min-h-0 w-full"
           style={{
-            pointerEvents: isVisible && !isPrettyMode ? "auto" : "none",
+            pointerEvents: isVisible ? "auto" : "none",
             visibility:
               isConnected && isFitted && !connectionError
                 ? "visible"
                 : "hidden",
-            display: isPrettyMode ? "none" : undefined,
           }}
           onClick={() => {
             if (terminal && !splitScreen) {
@@ -3305,147 +3238,17 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             }
           }}
         />
-        {isPrettyMode && hostConfig.id != null && tmuxSessionName && (
-          <PrettyView
-            hostId={hostConfig.id}
-            tmuxSession={tmuxSessionName}
-            className="flex-1 min-h-0"
-            isVisible={isVisible}
-            isIdle={isIdle}
-            onSend={(text) => {
-              // Patch #110: collapse the pretty-view submit into a SINGLE
-              // WS event with text+CR + a synthetic messageQueueItemId.
-              // WHY:
-              //   The prior shape sent two events (text, then a
-              //   setTimeout(60ms) for \r). The 60ms gap silently DROPPED
-              //   Enter when the WebSocket blipped in that window
-              //   (readyState !== 1 at fire time). Text arrived at Claude
-              //   Code's composer; Enter didn't; the message sat unsent.
-              //   Also — mqid was never attached, so backend's
-              //   isPrettyViewSubmit gate (terminal.ts:499) never fired,
-              //   which meant the backend split-send path (patch #100)
-              //   was dormant and the frontend was doing all the work.
-              // HOW THE FIX WORKS:
-              //   Backend gate fires when mqid non-empty AND data ends in
-              //   \r. Sending `text + "\r"` in ONE event with mqid trips
-              //   the gate → backend writes body without \r, waits 50ms,
-              //   writes \r alone. Pty byte stream is byte-identical to
-              //   the previous behavior; only the WS-level event count
-              //   changes (2 → 1), eliminating the race window entirely.
-              // WHY SYNTHETIC MQID:
-              //   Pretty-view composer submits aren't tied to a queue row
-              //   (MessageQueueDrawer's onSend at ~2911 has a real mqid).
-              //   The backend gate is agnostic to what the mqid encodes —
-              //   it only reads it as "yes, this is a pretty-view submit,
-              //   apply split-send" — so any non-empty string works. The
-              //   "pv-adhoc-" prefix keeps it grep-able in backend logs.
-              // Phase 35: send now routes through PrettyView's own WS
-              // (pvSendInputRef) instead of the borrowed terminal SSH WS.
-              const send = pvSendInputRef.current;
-              if (!send) return false;
-              const mqid = "pv-adhoc-" + crypto.randomUUID();
-              return send(text + "\r", mqid);
-            }}
-            onInterrupt={() => {
-              // Patch #120 — safety-valve Ctrl-C. Uses the same per-pane
-              // SSH WS the compose-box submit rides. Backend
-              // `case "interrupt"` fires `tmux send-keys ... C-c` and
-              // falls back to a raw \x03 byte on non-tmux panes / exec
-              // errors. Silent no-op on WS-not-ready: if the WS is dead
-              // there is nothing to interrupt anyway (matches onSend's
-              // posture above).
-              // Phase 35: interrupt now routes through PrettyView's own WS.
-              const send = pvSendInterruptRef.current;
-              if (!send) return;
-              send();
-            }}
-            terminalWs={webSocketRef.current}
-            onInjectedTurnReady={handleInjectedTurnReady}
-            // Phase 35 ref-forwarding — PrettyView.tsx calls these on mount/unmount
-            // so the injected-turn handler, onSend, onInterrupt, and
-            // MessageQueueDrawer's onSend (all in this file) can reach pretty-view's
-            // WS without prop-drilling wsRef upward.
-            onRegisterSendInput={(fn) => { pvSendInputRef.current = fn; }}
-            onUnregisterSendInput={() => { pvSendInputRef.current = null; }}
-            onRegisterSendInterrupt={(fn) => { pvSendInterruptRef.current = fn; }}
-            onUnregisterSendInterrupt={() => { pvSendInterruptRef.current = null; }}
-            // Quick 260806-lzd — long-press-to-toggle-pretty-view. Threads
-            // through to PrettyView's IdentityBadge so the pretty-view
-            // surface badge can flip back to terminal mode via the same
-            // tap-and-hold gesture the terminal-surface badge uses.
-            // Semantically equivalent to AppShell's Ctrl+Shift+O.
-            onTogglePrettyMode={() => setIsPrettyMode((v) => !v)}
-          />
-        )}
-        {isPrettyMode && (hostConfig.id == null || !tmuxSessionName) && (
-          <div className="flex-1 min-h-0 flex items-center justify-center p-4 text-sm text-[color:var(--color-pv-fg-muted)]">
-            no active Claude session
-          </div>
-        )}
-        {isMessageQueueOpen && hostConfig.id != null && (
-          <MessageQueueDrawer
-            hostId={hostConfig.id}
-            tmuxSession={tmuxSessionName}
-            onSend={(text, messageQueueItemId) => {
-              const send = pvSendInputRef.current;
-              if (!send) return false;
-              // First WS event: body only. Second event (60ms later): the
-              // \r that Ink treats as submit, PLUS the messageQueueItemId
-              // so the backend deletes the row atomically after both writes
-              // have been applied to the SSH stream (patch #60).
-              // Phase 35: both events now route through PrettyView's own WS
-              // (pvSendInputRef) instead of the borrowed terminal SSH WS.
-              send(text);
-              setTimeout(() => {
-                const send2 = pvSendInputRef.current;
-                if (send2) send2("\r", messageQueueItemId);
-              }, 60);
-              return true;
-            }}
-            onClose={() => setIsMessageQueueOpen(false)}
-          />
-        )}
+        {/* Phase 41 Plan 02: PrettyView, MessageQueueDrawer, IdentityBadge,
+            and IdentityModal removed from Terminal.tsx. These are now rendered
+            by IdentitySessionPane (src/ui/shell/IdentitySessionPane.tsx) which
+            wraps Terminal for identity panes. Terminal.tsx only renders the raw
+            xterm surface regardless of pretty-mode state. */}
 
-        {isConnected && sessionHue != null && !isPrettyMode && (
+        {isConnected && sessionHue != null && (
           <div className="session-tint" aria-hidden="true" />
         )}
 
-        {isConnected && identityKey && !isPrettyMode && (
-          <IdentityBadge
-            identityKey={identityKey}
-            // Quick 260806-lzd — tap opens the identity modal (parity with
-            // pretty-view surface); long-press toggles pretty-view mode
-            // (semantically equivalent to Ctrl+Shift+O on desktop, and the
-            // only path to toggle on mobile / gamepad).
-            onClick={() => setIsIdentityModalOpen(true)}
-            onLongPress={() => setIsPrettyMode((v) => !v)}
-          />
-        )}
-        {/* Quick 260806-lzd — terminal-mode identity modal. Mount guarded
-            by identityKey non-null AND hostConfig.id non-null (Modal needs
-            the full Identity object AND the numeric hostId for its 5
-            parallel WS artifact fetches). Portals to document.body via
-            shadcn Dialog — the terminal surface has no equivalent of
-            PrettyView's chatRegionEl container. Root-body portal is
-            behaviorally correct: modal is app-modal at z-[500], overlay
-            at z-[110], both above the xterm surface. Ashley wants modal
-            reachability from terminal mode, not a specific portal target. */}
-        {isConnected &&
-          identityKey &&
-          !isPrettyMode &&
-          hostConfig.id != null &&
-          identitiesByKey.get(identityKey) && (
-            <IdentityModal
-              open={isIdentityModalOpen}
-              onOpenChange={setIsIdentityModalOpen}
-              identity={identitiesByKey.get(identityKey)!}
-              hue={sessionHue ?? 35}
-              hostId={hostConfig.id}
-              container={null}
-            />
-          )}
-
-        {isMobile && isConnected && !isPrettyMode && (
+        {isMobile && isConnected && (
           <Toolbar
             adapter={sshAdapter}
             onStickyChange={(mods) => {
@@ -3457,18 +3260,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           />
         )}
 
-        {/* terminal-connecting-loader-shows-in-pretty-mode (2026-08-10):
-            `!isPrettyMode` gate added. In pretty mode, the connection-status
-            surface belongs to PrettyView (its own loading/resolving overlays),
-            not to this terminal-branded black-bg "Connecting..." loader.
-            Every other UI element in this file already checks !isPrettyMode
-            (9 grep hits); this SimpleLoader was overlooked. Ashley UAT: a
-            black-bg full-screen "Connecting..." flashed once or twice on
-            entering an already-active session — this loader mounting on top
-            of pretty-view during the SSH WS handshake (~300-500ms). In raw
-            terminal mode the loader still works as before. */}
+        {/* Phase 41 Plan 02: removed pretty-mode gate — Terminal.tsx only
+            mounts for non-identity (raw terminal) panes, so the loader always
+            applies when connecting. */}
         <SimpleLoader
-          visible={isConnecting && !isConnectionLogExpanded && !isPrettyMode}
+          visible={isConnecting && !isConnectionLogExpanded}
           message={t("terminal.connecting")}
           backgroundColor={backgroundColor}
         />
@@ -3512,14 +3308,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           </div>
         )}
 
-        {!isPrettyMode && (
-          <ConnectionLog
-            isConnecting={isConnecting}
-            isConnected={isConnected}
-            hasConnectionError={hasConnectionError && !showDisconnectedOverlay}
-            position={hasConnectionError ? "top" : "bottom"}
-          />
-        )}
+        {/* Phase 41 Plan 02: removed pretty-mode gate — Terminal.tsx only
+            mounts for non-identity (raw terminal) panes. */}
+        <ConnectionLog
+          isConnecting={isConnecting}
+          isConnected={isConnected}
+          hasConnectionError={hasConnectionError && !showDisconnectedOverlay}
+          position={hasConnectionError ? "top" : "bottom"}
+        />
 
         <TOTPDialog
           isOpen={totpRequired}

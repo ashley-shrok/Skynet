@@ -17,6 +17,9 @@ import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
 import type { Tab, TabType, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 import { useTabsSafe } from "@/shell/TabContext";
+import { IdentitySessionPane } from "@/shell/IdentitySessionPane";
+import { useIdentities } from "@/state/identities-store";
+import { sessionMatchKey } from "@/features/terminal/session-hue";
 
 function hostToSSHHost(h: Host): SSHHost {
   return {
@@ -138,6 +141,70 @@ function TerminalTabContent({
   );
 }
 
+// Phase 41 Plan 02: TerminalOrIdentitySessionPane — inline component that
+// calls useIdentities() at render time (hook rule) and dispatches to either
+// IdentitySessionPane (identity panes where targetTmuxSession matches a registered
+// identity key) or TerminalTabContent (all other terminal panes, byte-unchanged).
+// Non-identity SSH panes and RDP/Guacamole panes MUST route to TerminalTabContent
+// and the existing non-terminal cases respectively — not through this component.
+//
+// No CommandHistoryProvider here: TerminalTabContent provides its own, and
+// IdentitySessionPane provides its own (per Task 1 implementation).
+function TerminalOrIdentitySessionPane({
+  tab,
+  host,
+  label,
+  isVisible,
+  attach,
+  onCloseTab,
+  onTmuxSessionChange,
+  onTmuxSessionMissing,
+}: {
+  tab: Tab;
+  host: Host;
+  label: string;
+  isVisible: boolean;
+  attach: boolean;
+  onCloseTab?: (id: string) => void;
+  onTmuxSessionChange?: (sessionName: string | null) => void;
+  onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
+}) {
+  const { byKey: identitiesByKey } = useIdentities();
+  const identityKey = tab.targetTmuxSession
+    ? sessionMatchKey(tab.targetTmuxSession)
+    : null;
+  const isIdentityPane = identityKey != null && identitiesByKey.has(identityKey);
+
+  if (isIdentityPane) {
+    return (
+      <IdentitySessionPane
+        tab={tab}
+        host={host}
+        label={label}
+        isVisible={isVisible}
+        attach={attach}
+        ref={tab.terminalRef as React.Ref<TerminalHandle>}
+        onCloseTab={onCloseTab}
+        onTmuxSessionChange={onTmuxSessionChange}
+        onTmuxSessionMissing={onTmuxSessionMissing}
+      />
+    );
+  }
+
+  return (
+    <TerminalTabContent
+      tab={tab}
+      host={host}
+      label={label}
+      isVisible={isVisible}
+      attach={attach}
+      onCloseTab={onCloseTab}
+      onTmuxSessionChange={onTmuxSessionChange}
+      onTmuxSessionMissing={onTmuxSessionMissing}
+    />
+  );
+}
+
 export function renderTabContent(
   tab: Tab,
   onOpenSingletonTab?: (type: TabType) => void,
@@ -177,8 +244,11 @@ export function renderTabContent(
             messageKey="terminal.noHostSelected"
           />
         );
+      // Phase 41 Plan 02: dispatch through TerminalOrIdentitySessionPane which
+      // uses useIdentities().byKey to route identity panes → IdentitySessionPane
+      // and non-identity terminal panes → TerminalTabContent (byte-unchanged).
       return (
-        <TerminalTabContent
+        <TerminalOrIdentitySessionPane
           tab={tab}
           host={host}
           label={label}
