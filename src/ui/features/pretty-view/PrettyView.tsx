@@ -19,6 +19,7 @@ import {
   type MalformedLineEvent,
 } from "@/api/claude-session-api";
 import { ChatMessage } from "./ChatMessage";
+import EditableFileModal from "./EditableFileModal";
 import { ImageBubble } from "./ImageBubble";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
 import { RelayInboundBubble } from "./RelayInboundBubble";
@@ -250,6 +251,63 @@ const isIdCommand = (content: string): boolean =>
   content.trimStart().startsWith("/id ") ||
   content.includes("<command-name>/id</command-name>");
 
+// Phase 40 (Research A8): nice-to-have MIME hint for chip UX. Not
+// load-bearing — the composebox chip strip renders name + size, NOT MIME.
+// The MIME is set on the File object so downstream mediation (e.g., copy-
+// to-clipboard, downstream backend handlers) has an accurate hint. Fallback
+// null → caller supplies "text/plain".
+function guessMimeFromFilename(filename: string): string | null {
+  const dot = filename.lastIndexOf(".");
+  if (dot < 0 || dot === filename.length - 1) return null;
+  const ext = filename.slice(dot + 1).toLowerCase();
+  switch (ext) {
+    case "md":
+    case "markdown":
+      return "text/markdown";
+    case "json":
+      return "application/json";
+    case "yaml":
+    case "yml":
+      return "application/yaml";
+    case "ts":
+    case "tsx":
+      return "text/typescript";
+    case "js":
+    case "jsx":
+    case "mjs":
+    case "cjs":
+      return "application/javascript";
+    case "py":
+      return "text/x-python";
+    case "sh":
+    case "bash":
+    case "zsh":
+      return "application/x-sh";
+    case "txt":
+    case "log":
+    case "env":
+      return "text/plain";
+    case "html":
+    case "htm":
+      return "text/html";
+    case "css":
+      return "text/css";
+    case "xml":
+      return "application/xml";
+    case "csv":
+      return "text/csv";
+    case "sql":
+      return "application/sql";
+    case "toml":
+      return "application/toml";
+    case "ini":
+    case "conf":
+      return "text/plain";
+    default:
+      return null;
+  }
+}
+
 export function PrettyView({
   hostId,
   tmuxSession,
@@ -385,6 +443,19 @@ export function PrettyView({
   // this to true; the IdentityModal handles close via onOpenChange (Esc,
   // backdrop, X button all route through shadcn Dialog's onOpenChange).
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+  // Phase 40 D-05/D-06: editor modal open state. Null when closed; an object
+  // holding the URL + filename + messageEventId + agentIdentityName snapshot
+  // when open. Set by handleOpenEditor (fired from a ChatMessage affordance
+  // click), cleared to null by the modal's onOpenChange(false).
+  const [editorOpenState, setEditorOpenState] = useState<
+    | null
+    | {
+        url: string;
+        filename: string;
+        messageEventId: string;
+        agentIdentityName: string | null;
+      }
+  >(null);
   // Phase 30: SessionHoldingOverlay mounts directly on
   // `renderedState === "holding"`. Patch #74's delay-arm boolean was
   // retired in Phase 29 (subsumed into the hook's 150ms spinner delay-arm)
@@ -979,6 +1050,33 @@ export function PrettyView({
   const { identity: pvIdentity, identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession);
   const pvIdentityKey = sessionMatchKey(tmuxSession);
   const pvHue = pvIdentityHue ?? 35;
+
+  // Phase 40 D-05/D-06: editor open + save-deposit callbacks. handleOpenEditor
+  // captures the pvIdentity displayName snapshot at click-time so the modal's
+  // "from {agent}" sub-header stays stable across the modal's open lifecycle
+  // even if the underlying identity re-resolves. handleStageEditedFile
+  // deposits the edited (filename, content) as a fresh File into the primary
+  // composebox attachment strip via the existing usePrettyViewUploads hook API
+  // (Quick 260802-wxy public surface — no new plumbing). D-07 return trip is
+  // closed by construction: from here the existing ComposeBox send-with-
+  // attachments flow takes over untouched.
+  const handleOpenEditor = useCallback(
+    (input: { messageEventId: string; url: string; filename: string }) => {
+      setEditorOpenState({
+        ...input,
+        agentIdentityName: pvIdentity?.displayName ?? null,
+      });
+    },
+    [pvIdentity?.displayName],
+  );
+  const handleStageEditedFile = useCallback(
+    (filename: string, content: string) => {
+      const type = guessMimeFromFilename(filename) ?? "text/plain";
+      const file = new File([content], filename, { type });
+      uploads.stageAttachments("primary", [file]);
+    },
+    [uploads],
+  );
 
   // Phase 30 (PS30-04 + PS30-06): derive wsTransportState for the trivial
   // 2-input state machine from existing PrettyView state (D-13 — WS ladder
@@ -2088,6 +2186,28 @@ export function PrettyView({
           container={chatRegionEl}
         />
       )}
+      {/* Phase 40 D-05/D-06/D-07: editor modal mounts alongside IdentityModal.
+          Portal target is document.body (Research §Pitfall 7 — deliberately
+          NO `container=` prop here; unlike IdentityModal, the editor modal's
+          inset-4 backdrop covers the composer per UI-SPEC L216).
+          onStageEditedFile deposits the saved File into
+          uploads.stageAttachments("primary", [File]) — the chip auto-mounts
+          via the existing AttachmentChipStrip wiring at ComposeBox and the
+          existing reply-with-attachment path handles the send, so this plan
+          adds zero new plumbing on the return trip. */}
+      {editorOpenState && (
+        <EditableFileModal
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setEditorOpenState(null);
+          }}
+          messageEventId={editorOpenState.messageEventId}
+          url={editorOpenState.url}
+          filename={editorOpenState.filename}
+          agentIdentityName={editorOpenState.agentIdentityName}
+          onStageEditedFile={handleStageEditedFile}
+        />
+      )}
       {/* Patch #108: chat-region wrapper. IdentityModal portals INTO this
           element so it covers only the bubble/tasks/shells area — composer
           below AND identity badge above stay uncovered/typable. Wrapper is
@@ -2280,6 +2400,7 @@ export function PrettyView({
                       autoplayArmed={autoplayArmed}
                       autoplayTargetEventId={autoplayTargetEventId}
                       onLongPressSpeak={handleLongPressSpeak}
+                      onOpenEditor={handleOpenEditor}
                     />
                   )}
                 </div>

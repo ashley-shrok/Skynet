@@ -274,6 +274,10 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
     mockedFetch.mockResolvedValue({
       filename: "notes.md",
       contentBase64: btoa("original"),
+      sizeBytes: 8,
+      contentType: "text/markdown",
+      extension: "md",
+      isTextByExt: true,
       isTextByBytes: true,
     });
 
@@ -288,28 +292,66 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
     flipToStreaming(getCurrentWs());
     fireAssistantMessage(getCurrentWs(), "e3", `see [notes.md](${URL_A})`);
 
-    fireEvent.click(
-      await waitFor(() =>
-        screen.getByRole("button", { name: /edit notes\.md/i }),
-      ),
-    );
-
-    // Wait for the textarea to appear (fetch resolved → ready branch).
-    const textarea = await waitFor(() =>
-      document.body.querySelector("textarea"),
-    );
-    expect(textarea).not.toBeNull();
-
-    // Type new content.
-    fireEvent.change(textarea as HTMLTextAreaElement, {
-      target: { value: "edited content" },
+    await act(async () => {
+      fireEvent.click(
+        await waitFor(() =>
+          screen.getByRole("button", { name: /edit notes\.md/i }),
+        ),
+      );
     });
 
-    // Click Save.
-    const saveButton = await waitFor(() =>
-      screen.getByRole("button", { name: /^save$/i }),
+    // First confirm the modal opened (dialog present) — this must be
+    // sequenced BEFORE looking for the textarea so we get a clear failure
+    // diagnostic if the mount itself broke.
+    await waitFor(() => {
+      expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+    });
+
+    // Wait for the textarea to appear AND for the seed effect in
+    // GlobalFileTab to have populated its draft state with the fetched
+    // content — otherwise a subsequent fireEvent.change gets stomped by
+    // the seed effect (which keys on state.data.mtime and fires once after
+    // the fetch resolves).
+    // Scope textarea lookup to the modal dialog — the PrettyView also
+    // renders a ComposeBox textarea in the same document, so a global
+    // getByRole("textbox") is ambiguous.
+    const textarea = await waitFor(
+      () => {
+        const dialog = document.body.querySelector('[role="dialog"]');
+        if (!dialog) throw new Error("dialog not found");
+        const t = dialog.querySelector(
+          "textarea",
+        ) as HTMLTextAreaElement | null;
+        if (!t) throw new Error("dialog textarea not found");
+        if (t.value !== "original") {
+          throw new Error(`textarea not seeded yet (value="${t.value}")`);
+        }
+        return t;
+      },
+      { timeout: 2000 },
     );
-    fireEvent.click(saveButton);
+
+    // Type new content (must differ from state.data.content to enable Save).
+    await act(async () => {
+      fireEvent.change(textarea, {
+        target: { value: "edited content" },
+      });
+    });
+
+    // Click Save — scoped to the dialog.
+    const saveButton = await waitFor(() => {
+      const dialog = document.body.querySelector('[role="dialog"]')!;
+      const buttons = Array.from(
+        dialog.querySelectorAll("button"),
+      ) as HTMLButtonElement[];
+      const b = buttons.find((btn) => /^save/i.test(btn.textContent ?? ""));
+      if (!b) throw new Error("Save button not found");
+      if (b.disabled) throw new Error("Save disabled");
+      return b;
+    });
+    await act(async () => {
+      fireEvent.click(saveButton);
+    });
 
     await waitFor(() => {
       expect(stageAttachmentsSpy).toHaveBeenCalledTimes(1);
