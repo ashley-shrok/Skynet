@@ -400,7 +400,7 @@ export function ChatMessage({
           // Prose scaffolding (typography plugin).
           "prose prose-sm max-w-[90%]",
           "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
-          "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>*:has(+.pv-speak-btn)]:mb-0",
           // Preformatted code blocks: Glass depth (inner shadow + hairline border).
           "prose-pre:my-2 prose-pre:p-2 prose-pre:rounded",
           "prose-pre:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
