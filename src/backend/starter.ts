@@ -13,7 +13,53 @@ import {
   setGlobalLogLevel,
 } from "./utils/logger.js";
 import { flushBackendLogs } from "./utils/console-forward-transport.js";
+import type { SshChannel } from "./fleet-status/ssh-poll-orchestrator.js";
 
+// ---------------------------------------------------------------------------
+// Phase 39 Plan 04 (D-05 / GATE2-05): Module-scope helper for fire-and-forget
+// Stop-hook install on first successful acquireSshChannel per host.
+//
+// Extracted to module scope (per plan-check WARNING 2) so starter.test.ts can
+// import + call directly without driving the whole boot-time IIFE. All deps
+// are injected via `deps` — the helper is pure w.r.t. installStopHook and
+// the logger.
+//
+// Semantics:
+//   - Install-once-per-lifecycle: guarded by the hookInstallAttempted Set
+//     passed in from the caller. Caller is expected to clear the Set inside
+//     onLastUnsubscriber (see fleet-status IIFE) so subsequent lifecycles
+//     re-attempt install. installStopHook itself is idempotent per RESEARCH
+//     §Q5 (readAndMergeStopHookSettings alreadyInstalled short-circuit).
+//   - Fire-and-forget: the helper never awaits the install-hook promise —
+//     the surrounding acquireSshChannel returns immediately so the poll
+//     cycle proceeds without blocking on the install. The .catch handler
+//     is REQUIRED — the install returns a Promise; an unhandled rejection
+//     would crash the process (documented in the starter's
+//     unhandledRejection handler at the bottom of the IIFE).
+//   - Failure does not invalidate the acquire — the SshChannel is still
+//     returned to the orchestrator for polling. RESEARCH §Common Pitfalls
+//     does not list install-failure as a poll blocker.
+// ---------------------------------------------------------------------------
+export function maybeInstallStopHook(
+  _hostId: string,
+  _channelAdapter: SshChannel,
+  _hookInstallAttempted: Set<string>,
+  _deps: {
+    installStopHook: (channel: SshChannel) => Promise<{
+      hookInstalled: boolean;
+      settingsUpdated: boolean;
+    }>;
+    systemLogger: typeof systemLogger;
+  },
+): void {
+  // TDD RED stub — implementation follows in GREEN commit.
+  return;
+}
+
+// Guard the boot IIFE so test imports of exported helpers (Phase 39-04) do
+// not trigger real backend initialization (dotenv, DB init, SSL setup, WS
+// servers). Vitest sets process.env.VITEST === "true" automatically.
+if (process.env.VITEST !== "true") {
 (async () => {
   const initStartTime = Date.now();
   try {
@@ -176,6 +222,13 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
       // Reads hosts via SimpleDBOps.select(..., "ssh_data", userId) which
       // unconditionally runs DataCrypto.decryptRecords before returning.
       const { resolveHostById } = await import("./ssh/host-resolver.js");
+      // Phase 39 D-05 (GATE2-05): blind Stop-hook install per host (LOCKED
+      // 2026-08-13 by researcher — no probe-first). installStopHook is
+      // idempotent per RESEARCH §Q5; readAndMergeStopHookSettings detects
+      // alreadyInstalled and short-circuits the write path.
+      const { installStopHook } = await import(
+        "./fleet-status/remote-hook-install.js"
+      );
 
       // The subscription registry is shared between the WS server and the orchestrator
       const registry = createSubscriptionRegistry();
@@ -265,6 +318,12 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
       // registry.onLastUnsubscriber. Used as the subject for per-host
       // resolveHostById decrypt inside listIdentityHostingHosts.
       let currentSubscriberUserId: string | null = null;
+      // Phase 39 D-05 (GATE2-05): host.id strings that have already had
+      // installStopHook invoked during THIS lifecycle. Cleared on
+      // registry.onLastUnsubscriber alongside hostClients.clear() so a
+      // subsequent poller session re-attempts install (idempotent per
+      // RESEARCH §Q5).
+      const hookInstallAttempted = new Set<string>();
 
       async function acquireSshChannel(host: {
         id: string;
@@ -319,7 +378,7 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
           client.on("close", () => hostClients.delete(host.id));
           client.on("error", () => hostClients.delete(host.id));
 
-          return {
+          const channelAdapter: SshChannel = {
             exec: async (command: string): Promise<string | null> => {
               try {
                 return await execCommand(client, command);
@@ -328,6 +387,22 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
               }
             },
           };
+
+          // Phase 39 D-05 (GATE2-05): fire-and-forget blind Stop-hook
+          // install on FIRST successful new-client acquire per host per
+          // lifecycle. Fires the SAME channelAdapter that we're about to
+          // return to the orchestrator — installStopHook uses it for the
+          // heredoc-quoted script drop + settings.json merge. Install
+          // failures are logged (warn) but never block acquire — the
+          // SshChannel is still returned so the poll cycle proceeds.
+          maybeInstallStopHook(
+            host.id,
+            channelAdapter,
+            hookInstallAttempted,
+            { installStopHook, systemLogger },
+          );
+
+          return channelAdapter;
         } catch (err) {
           systemLogger.warn("Fleet-status: SSH channel acquire failed", {
             operation: "fleet_status_host_ssh_unreachable",
@@ -417,6 +492,11 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
           }
         }
         hostClients.clear();
+        // Phase 39 D-05 (GATE2-05): reset install-once tracking so the
+        // next lifecycle (next fleet-status subscriber) re-attempts install
+        // per host. installStopHook is idempotent (RESEARCH §Q5) so
+        // re-attempts are safe and cheap when already installed.
+        hookInstallAttempted.clear();
         currentSubscriberUserId = null;
       });
 
@@ -528,3 +608,4 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
     process.exit(1);
   }
 })();
+} // end if (process.env.VITEST !== "true")
