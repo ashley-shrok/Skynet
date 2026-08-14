@@ -24,9 +24,12 @@
 // to make it pass.
 //
 // Test scope:
-//   - Primary mic button only. The slot-mode mic button is functionally
-//     identical (same hook, symmetric callbacks per Task 2); the hook's own
-//     unit tests already prove the gesture logic works on any consumer.
+//   - Primary mic button + slot mic button. Test 13 (added under
+//     quick-260814-o22) covers the slot short-tap regression where the
+//     missing setMicTarget in the JSX-seam wrapper caused RecordingControls
+//     to swap in on the PRIMARY compose area instead of the tapped slot.
+//     The hook itself is untested here — its unit tests cover the pointer
+//     state machine.
 //
 // D-16-02 iOS Safari sync-gesture invariant is asserted in Test 8: the
 // getUserMedia call-count assertion appears IMMEDIATELY after fireEvent
@@ -1081,5 +1084,151 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     render(<ComposeBox {...baseProps()} />);
     const button = getMicButton();
     expect(button.className).toContain("[-webkit-touch-callout:none]");
+  });
+
+  it("Test 13 (NEW under 260814-o22): short-tap on a queue-slot mic swaps RecordingControls into the SLOT's data-slot-id container, NOT into the primary compose area", async () => {
+    // quick-260814-o22: the bug. useHoldToRecord.onPointerDown calls
+    // voice.start() synchronously (D-16-02) but does NOT set micTarget;
+    // setMicTarget only ran inside beginRecord(target) — wired to MicButton's
+    // onClick. MicButton's preventDefault-on-pointerdown (quick-260814-iwy,
+    // load-bearing for iOS callout suppression) ALSO suppresses the
+    // synthesized click on <button> in iOS Safari, so onClick never fires and
+    // micTarget stays at its default "primary". Result: short-tapping a slot
+    // mic on iPhone opened RecordingControls in the PRIMARY compose area.
+    // The fix wraps each MicButton's onPointerDown to fire setMicTarget
+    // synchronously BEFORE delegating to the hook. This test asserts the
+    // slot short-tap correctly targets the slot's [data-slot-id] container.
+    //
+    // How this test catches the pre-fix bug: without the wrapper, the
+    // "Cancel recording" button would render OUTSIDE the [data-slot-id]
+    // container (in the primary area), so `cancelBtn.closest("[data-slot-id]")`
+    // would return null and the containment assertion would fail. As a
+    // corollary, the primary compose area would swap into RecordingControls,
+    // hiding the "Send" button — so the "Send button still present" assertion
+    // would also fail.
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+
+    // Flush the compose-drafts draft-load useEffect (see ComposeBox.tsx L694)
+    // BEFORE clicking Queue-a-message. The draft-load's async .then() calls
+    // setQueueSlots(hydratedSlots) — if it lands AFTER our click, it clobbers
+    // the just-added slot with [] (the mocked draft) and no slot renders.
+    // Walking 50ms of fake time + a few microtasks lets the mocked
+    // Promise.resolve() chain settle before we mutate queueSlots.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Add a queue slot via the "Queue a message" button (aria-label at
+    // ComposeBox.tsx L2048).
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Two mic buttons now render: one for the primary compose area and one
+    // for the slot. The slot's mic is the one INSIDE a [data-slot-id]
+    // container. Discriminate by DOM ancestry, not by ordering — ordering
+    // is a footgun if the queued row is ever rearranged above/below the
+    // primary.
+    const allMics = screen.getAllByRole("button", { name: "Record voice" });
+    const slotMic = allMics.find((el) => el.closest("[data-slot-id]") != null);
+    if (!slotMic) throw new Error("expected a slot-scoped mic button");
+    installBoundsShim(slotMic as HTMLElement);
+
+    // Capture the slot's data-slot-id up front so we can assert containment
+    // after RecordingControls swap in.
+    const slotContainer = (slotMic as HTMLElement).closest(
+      "[data-slot-id]",
+    ) as HTMLElement;
+    const slotId = slotContainer.getAttribute("data-slot-id");
+    expect(slotId).toBeTruthy();
+
+    // Baseline: primary send button IS present (proves the primary is not
+    // in RecordingControls mode). Query by aria-label "Send".
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+
+    // Short-tap the SLOT mic: pointerdown → 100ms → pointerup (< 250ms
+    // HOLD_THRESHOLD_MS). Hook's short-tap-keep branch runs
+    // voice.commitStartVisibility() (SYNC) → recording stays alive →
+    // RecordingControls swap in on the SLOT (per quick-260814-o22 fix,
+    // micTarget is now correctly set to slotId synchronously in the
+    // pointerdown wrapper).
+    fireEvent.pointerDown(slotMic, {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+      timeStamp: 0,
+    });
+    // Advance timers BEFORE pointerup so getUserMedia resolves + voice.state
+    // transitions to "starting". Rationale mirrored from Test 1 L242-254.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    await act(async () => {
+      fireEvent.pointerUp(slotMic, {
+        pointerId: 1,
+        clientX: 20,
+        clientY: 20,
+        timeStamp: 100,
+      });
+      await vi.advanceTimersByTimeAsync(50);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Assertion 1 — THE regression assertion: RecordingControls's "Cancel
+    // recording" button is INSIDE the slot's data-slot-id container.
+    // Pre-fix (missing setMicTarget in the pointerdown wrapper) this Cancel
+    // button would render outside the slot (in the primary area) because
+    // micTarget stayed at its default "primary" and showRecordingControls
+    // fired on the primary.
+    const cancelBtn = screen.getByRole("button", { name: "Cancel recording" });
+    const cancelParentSlot = cancelBtn.closest("[data-slot-id]");
+    expect(cancelParentSlot).not.toBeNull();
+    expect(cancelParentSlot?.getAttribute("data-slot-id")).toBe(slotId);
+
+    // Assertion 2 — Corollary: primary send button is STILL present. Proves
+    // the primary compose area did NOT swap into RecordingControls. Under
+    // the bug this assertion would fail because showRecordingControls on the
+    // primary would replace the send button with RecordingControls.
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+
+    // Assertion 3 — Exactly one getUserMedia call (no double-arm, no
+    // cancel+restart). Matches Test 1's tightened invariant under
+    // quick-260814-iwy semantics.
+    const getUserMediaMock = navigator.mediaDevices.getUserMedia as ReturnType<
+      typeof vi.fn
+    >;
+    expect(getUserMediaMock.mock.calls.length).toBe(1);
+
+    // Assertion 4 — Exactly one MediaRecorder constructed (belt-and-suspenders
+    // for Assertion 3).
+    expect(MockMediaRecorder.instances.length).toBe(1);
+
+    // Assertion 5 — No STT fetch (short-tap-keep does not transcribe; only
+    // send/cancel do). Matches Test 1's fetch invariant.
+    expect((fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+
+    // Cleanup — click the slot's Cancel-recording button so afterEach's
+    // unmount doesn't fight an in-flight recording. Mirrors Test 1's cleanup
+    // pattern at L306-313.
+    await act(async () => {
+      fireEvent.click(cancelBtn);
+      await vi.advanceTimersByTimeAsync(50);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Belt: onSend was never called (mic pointer sequences never fire the
+    // typed-send path on either surface).
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
