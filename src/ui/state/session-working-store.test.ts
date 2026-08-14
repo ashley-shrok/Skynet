@@ -28,6 +28,7 @@ import {
   publishFleetStatusSessionState,
   publishFleetStatusSessionGone,
   useSessionIsWorking,
+  useSessionIsWorkingRaw,
   getSessionWorkingSnapshot,
   __resetForTest,
 } from "./session-working-store.js";
@@ -327,5 +328,79 @@ describe("session-working-store: Test L — retired functions not imported in te
 
     expect(importLines.includes(retiredA)).toBe(false);
     expect(importLines.includes(retiredB)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests M–Q — useSessionIsWorkingRaw (Phase 41 Plan 01, Task 1)
+// The "raw" three-state hook that distinguishes "never published" from
+// "published idle". Delta from useSessionIsWorking: unknown-key → null (NOT
+// false). This distinction is load-bearing for PrettyView's aside-arm gate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store: Test M — null key → useSessionIsWorkingRaw returns null", () => {
+  it("useSessionIsWorkingRaw(null) returns null (not false)", () => {
+    const { result } = renderHook(() => useSessionIsWorkingRaw(null));
+    expect(result.current).toBe(null);
+  });
+});
+
+describe("session-working-store: Test N — absent key → useSessionIsWorkingRaw returns null (NOT false)", () => {
+  it("useSessionIsWorkingRaw on a never-published key returns null", () => {
+    const { result } = renderHook(() =>
+      useSessionIsWorkingRaw("never-published-host:s1"),
+    );
+    // CRITICAL: must be null, not false — this is the three-state distinction
+    expect(result.current).toBe(null);
+  });
+});
+
+describe("session-working-store: Test O — idle publish → useSessionIsWorkingRaw returns false", () => {
+  it("after publishFleetStatusSessionState with status:'idle', raw hook returns false", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorkingRaw("h1:s1"),
+    );
+    expect(result.current).toBe(null); // not yet published
+
+    act(() => {
+      publishFleetStatusSessionState("h1", makeState({ status: "idle", backgroundTasks: [] }));
+    });
+    rerender();
+    expect(result.current).toBe(false); // published + idle
+  });
+});
+
+describe("session-working-store: Test P — busy publish → useSessionIsWorkingRaw returns true", () => {
+  it("after publishFleetStatusSessionState with status:'busy', raw hook returns true", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorkingRaw("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState("h1", makeState({ status: "busy" }));
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+});
+
+describe("session-working-store: Test Q — session-gone → useSessionIsWorkingRaw returns null again", () => {
+  it("after publishFleetStatusSessionGone, raw hook returns null (key deleted)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorkingRaw("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState("h1", makeState({ status: "busy" }));
+    });
+    rerender();
+    expect(result.current).toBe(true);
+
+    act(() => {
+      publishFleetStatusSessionGone("h1", "s1", "sess-1");
+    });
+    rerender();
+    // Key is deleted → null again (not false — truly absent)
+    expect(result.current).toBe(null);
   });
 });

@@ -175,6 +175,34 @@ export function useSessionIsWorking(key: string | null): boolean {
 }
 
 /**
+ * Hook: three-state variant of useSessionIsWorking.
+ * Preserves the "never heard from this session" null signal needed for
+ * aside-arm and ComposeBox idle-gate correctness:
+ *
+ *   - Null key         → null  (no key, no data)
+ *   - Unknown key      → null  (key never published — "never heard"; NOT false)
+ *   - isWorking true   → true  (session actively working)
+ *   - isWorking false  → false (session published + idle)
+ *
+ * DISTINCTION from useSessionIsWorking: the non-raw variant collapses
+ * "unknown key" and "idle" both to false (legacy WipBubble semantics).
+ * This raw variant preserves the third state so PrettyView can distinguish
+ * "first broadcast not yet landed" (null → don't fire aside-arm) from
+ * "broadcast says idle" (false → isIdleDerived true → aside-arm may fire).
+ *
+ * Both hooks read from the SAME internal Map — no additional state.
+ */
+export function useSessionIsWorkingRaw(key: string | null): boolean | null {
+  const getSnapshot = (): boolean | null => {
+    if (key === null) return null;
+    const record = state.map.get(key);
+    if (record === undefined) return null;
+    return record.isWorking;
+  };
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
  * Return the raw internal Map as a ReadonlyMap view.
  * NOT for production callers. Kept exported (rather than gated on
  * import.meta.env.MODE === "test") because Vite's tree-shaker drops it from
