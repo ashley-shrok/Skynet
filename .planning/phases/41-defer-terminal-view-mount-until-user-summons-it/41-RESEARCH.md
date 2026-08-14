@@ -734,22 +734,25 @@ export function useSessionTmuxName(key: string | null): string | null {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`tabs` closure in fleet-status `onUpdate` callback**
    - What we know: `useEffect(() => { createFleetStatusClient({onUpdate: ...}) }, [])` — deps `[]` means the callback closes over initial `tabs` value.
    - What's unclear: The tmux-name-to-tabId matching in `onUpdate` needs current `tabs`, but the callback is stale-closed.
    - Recommendation: Use the session-tmux-store pattern (module-scoped Map) rather than trying to call `setTmuxSessionNames` from inside the stale callback. AppShell's document.title effect reads from the new store using `(hostId, tmuxSession)` as the key, derived from the active tab's `host.id` + `targetTmuxSession`.
+   - **RESOLUTION (Plan 41-01 Task 2 + Plan 41-02 Task 2):** Adopted the recommendation verbatim. Plan 41-01 Task 2 publishes to the module-scoped `session-tmux-store` from AppShell's fleet-status `onSnapshot`/`onUpdate`/`onGone` callbacks — no `setTmuxSessionNames` call inside the stale-closed callback (avoids the stale-`tabs` trap entirely). Plan 41-02 Task 2 then retargets AppShell's `document.title` effect to call `useSessionTmuxName(sessionKey)` at hook-scope where `sessionKey = ${activeTab.host.id}:${activeTab.targetTmuxSession ?? ""}`, computed from the active tab's stable identifiers in the render body (fresh on every render — no stale closure).
 
 2. **`IdentitySessionPane` scope detection before tmuxSessionName is known**
    - What we know: At tab-open time, `tab.targetTmuxSession` may be set (if opened from conversation list). But for restored tabs from persisted state, `targetTmuxSession` may reflect the stored name.
    - What's unclear: Is `targetTmuxSession` always set for identity-session tabs?
    - Recommendation: Use `tab.targetTmuxSession?.toLowerCase()` matched against `identitiesByKey` as the scope gate. If it is null (edge case), fall back to the non-wrapper path — Terminal auto-detects and auto-activates PrettyView the old way. This is a corner case for the transition period.
+   - **RESOLUTION (Plan 41-02 Task 2):** Adopted the recommendation. The new `TerminalOrIdentitySessionPane` inline component in `tabUtils.tsx` uses `identityKey = sessionMatchKey(tab.targetTmuxSession)` + `identitiesByKey.has(identityKey)` as the scope gate; when `targetTmuxSession` is null the branch falls through to the byte-unchanged `TerminalTabContent` path (Terminal mounts eagerly as before). The auto-activate-PrettyView-from-inside-Terminal path (Terminal.tsx L334-340) is DELETED by Plan 41-02 Task 2 — the wrapper is the sole owner of the initial-pretty-mode default now, and non-wrapper terminal tabs never open PrettyView by design.
 
 3. **`MessageQueueDrawer` location after restructure**
    - What we know: Currently inside Terminal.tsx JSX at L3385; reads `pvSendInputRef.current`.
    - What's unclear: Should it move to the wrapper, or stay in Terminal and receive `pvSendInputRef` as a prop?
    - Recommendation: Move `MessageQueueDrawer` to the wrapper, alongside PrettyView. The wrapper has `pvSendInputRef` in scope. The MessageQueueDrawer's `isMessageQueueOpen` state also hoists to the wrapper (or wrapper-level state).
+   - **RESOLUTION (Plan 41-02 Task 1):** Adopted the recommendation. `MessageQueueDrawer` mounts inside `IdentitySessionPane.tsx` as a sibling of PrettyView; the two-event split-send closure body is copied VERBATIM from Terminal.tsx L3385-3407 (60ms setTimeout preserved). `isMessageQueueOpen` state is hoisted to the wrapper. `toggleMessageQueue` is re-exposed via the wrapper's `useImperativeHandle` so AppShell's `useKeyboardMessageQueue` hook continues to work through the same `terminalRefs.get(id).current` path with zero AppShell dispatch changes.
 
 ---
 
