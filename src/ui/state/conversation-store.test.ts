@@ -38,6 +38,9 @@ import {
   __resetActiveSetForTest,
   __resetPinnedIdsForTest,
   __resetFleetSessionsForTest,
+  // Phase 41 Plan 01: test-only injection API for row.lastMessageAt.
+  __setLastMessageAtForTest,
+  __resetLastMessageAtForTest,
   type FleetSession,
 } from "./conversation-store.js";
 import * as UserPreferencesApi from "@/api/user-preferences-api";
@@ -143,26 +146,38 @@ beforeEach(() => {
   // Phase 25: reset identitiesByKey so a prior test's role injection does not
   // leak forward into the next test's sort output.
   updateIdentitiesByKey(new Map());
+  // Phase 41 Plan 01: reset the test-only lastMessageAt injection map so a
+  // prior test's stamps don't leak into the next test's middle-zone sort.
+  __resetLastMessageAtForTest();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 1: empty state
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store: empty state", () => {
-  it("returns empty pinned + grouped and null selection when no tabs or tree", () => {
+  it("returns empty pinned + middle + null rdpGroup and null selection when no tabs or tree", () => {
     const { result: convs } = renderHook(() => useConversations());
     const { result: sel } = renderHook(() => useSelectedConversationId());
     expect(convs.current.pinned).toEqual([]);
-    expect(convs.current.grouped).toEqual([]);
+    // Phase 41 Plan 01: `grouped: HostGroup[]` replaced with `middle:
+    // ConversationRow[]` + `rdpGroup: HostGroup | null`.
+    expect(convs.current.middle).toEqual([]);
+    expect(convs.current.rdpGroup).toBeNull();
     expect(sel.current).toBeNull();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2: host-tree order preserved below pins
+// Test 2 (Phase 41 Plan 01 REWRITE — middle-flip supersedes host-tree order):
+// the pre-Phase-41 depth-first host-tree order lock on the middle is retired.
+// The middle is now a FLAT array (no per-host bucketing), and — since Plan 03
+// has not yet landed the recency signal — every row's lastMessageAt is null,
+// so all rows sort by insertion-order key (openTabs iteration order first, then
+// fleetSyntheticRows iteration order). The hostTree-order lock survives ONLY
+// in the RDP synthesis pass (see Test 32 for the RDP-side hostTree assertion).
 // ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store: host-tree order", () => {
-  it("preserves depth-first host-tree order below pins (not insertion, not alphabetical)", () => {
+describe("conversation-store (Phase 41 Plan 01): middle is flat + insertion-order fallback", () => {
+  it("middle emits ALL non-pinned identity-tmux rows in openTabs iteration order (no host bucketing)", () => {
     const hostA1 = makeHost("hA1", "zeus"); // deliberately z-name — proves not alphabetical
     const hostA2 = makeHost("hA2", "apollo");
     const hostRoot1 = makeHost("hR1", "hermes");
@@ -182,19 +197,27 @@ describe("conversation-store: host-tree order", () => {
       updateOpenTabs([
         makeTab("t1", "terminal", hostA2), // opened first in insertion order
         makeTab("t2", "terminal", hostRoot1),
-        makeTab("t3", "rdp", hostA1),
+        makeTab("t3", "terminal", hostA1),  // terminal, not rdp (rdp would go to rdpGroup)
       ]);
     });
 
     const { result } = renderHook(() => useConversations());
-    const groups = result.current.grouped;
-    // Expected DFS traversal: folderA -> [hostA1 (zeus), hostA2 (apollo)],
-    // then hostRoot1 (hermes). Insertion order was t1, t2, t3 — but t3 (hostA1)
-    // MUST come first because hostA1 appears first in tree order.
-    expect(groups.map((g) => g.hostId)).toEqual(["hA1", "hA2", "hR1"]);
-    expect(groups[0].rows.map((r) => r.id)).toEqual(["t3"]);
-    expect(groups[1].rows.map((r) => r.id)).toEqual(["t1"]);
-    expect(groups[2].rows.map((r) => r.id)).toEqual(["t2"]);
+    const middle = result.current.middle;
+    // Phase 41 lock: middle is FLAT. No per-host bucketing. Since all
+    // lastMessageAt values are null (Plan 03 not yet landed), rows sort by
+    // insertion-order key — which is openTabs iteration order: [t1, t2, t3].
+    // The pre-Phase-41 depth-first hostTree traversal that would have placed
+    // t3 (hostA1) first is INTENTIONALLY GONE.
+    expect(Array.isArray(middle)).toBe(true);
+    expect(middle.map((r) => r.id)).toEqual(["t1", "t2", "t3"]);
+    // Belt-and-suspenders: `middle` is NOT a HostGroup[] shape.
+    // Every element carries the ConversationRow shape (has `id`), not the
+    // HostGroup shape (which would have `hostId` + `rows`).
+    for (const row of middle) {
+      expect(typeof row.id).toBe("string");
+      expect((row as unknown as { hostId?: unknown }).hostId).toBeUndefined();
+      expect((row as unknown as { rows?: unknown }).rows).toBeUndefined();
+    }
   });
 });
 
@@ -216,23 +239,23 @@ describe("conversation-store: pin float + unpin restore", () => {
       ]);
     });
 
-    // Snapshot pre-pin: hostA -> [t1], hostB -> [t2, t3]
+    // Phase 41 Plan 01: middle is FLAT (no host bucketing). Snapshot pre-pin:
+    // insertion order [t1, t2, t3] across the flat middle.
     let snap = __getSnapshotForTest();
-    expect(snap.grouped.map((g) => g.hostId)).toEqual(["hA", "hB"]);
-    expect(snap.grouped[1].rows.map((r) => r.id)).toEqual(["t2", "t3"]);
+    expect(snap.middle.map((r) => r.id)).toEqual(["t1", "t2", "t3"]);
 
     act(() => pinConversation("t2"));
     snap = __getSnapshotForTest();
     expect(snap.pinned.map((r) => r.id)).toEqual(["t2"]);
-    // hostB group no longer contains t2 — only t3
-    expect(snap.grouped[1].rows.map((r) => r.id)).toEqual(["t3"]);
+    // Middle no longer contains t2 — only [t1, t3]
+    expect(snap.middle.map((r) => r.id)).toEqual(["t1", "t3"]);
 
     act(() => unpinConversation("t2"));
     snap = __getSnapshotForTest();
     expect(snap.pinned).toEqual([]);
-    // t2 restored to its host-tree slot (BEFORE t3, since tabs order t2 < t3
-    // and host-tree derivation is deterministic on openTabs order).
-    expect(snap.grouped[1].rows.map((r) => r.id)).toEqual(["t2", "t3"]);
+    // t2 restored to the middle at its insertion-order slot (openTabs order:
+    // [t1, t2, t3]; all lastMessageAt values null → insertion-order fallback).
+    expect(snap.middle.map((r) => r.id)).toEqual(["t1", "t2", "t3"]);
   });
 });
 
@@ -255,9 +278,12 @@ describe("conversation-store: pin per-session", () => {
 
     const snap = __getSnapshotForTest();
     expect(snap.pinned.map((r) => r.id)).toEqual(["t1"]);
-    // t3 stays in hostA1's group — unaffected by t1's pin
-    expect(snap.grouped[0].hostId).toBe("hA1");
-    expect(snap.grouped[0].rows.map((r) => r.id)).toEqual(["t3"]);
+    // Phase 41 Plan 01: t3 stays in the flat middle (rdp goes to rdpGroup;
+    // this test uses a `"rdp"` tab type, but tabs of type "rdp" that aren't
+    // synthesized RDP rows still land in middle — RDP zone is derived from
+    // hostsFlat + enableRdp, not from tab.type). Since t3 is `type: "rdp"`
+    // with a host but no enableRdp flag on the host, it goes to middle.
+    expect(snap.middle.map((r) => r.id)).toEqual(["t3"]);
   });
 });
 
@@ -291,8 +317,8 @@ describe("conversation-store: session-end lifecycle", () => {
     // Pin cleared alongside the row
     expect(snap.pinnedIds.has("t2")).toBe(false);
     expect(snap.pinned).toEqual([]);
-    // Row is gone
-    expect(snap.grouped[0].rows.map((r) => r.id)).toEqual(["t1"]);
+    // Phase 41 Plan 01: row is gone from the flat middle.
+    expect(snap.middle.map((r) => r.id)).toEqual(["t1"]);
   });
 });
 
@@ -427,7 +453,8 @@ describe("conversation-store: identity carry-through metadata", () => {
     });
 
     const snap = __getSnapshotForTest();
-    const row = snap.grouped[0].rows[0];
+    // Phase 41 Plan 01: read from the flat middle.
+    const row = snap.middle[0];
     expect(row.targetTmuxSession).toBe("tina-abc");
     // Store MUST NOT compute identity hue itself (purity: it's a selection layer)
     expect((row as unknown as Record<string, unknown>).identityHue).toBeUndefined();
@@ -446,7 +473,8 @@ describe("conversation-store: row shape is exactly the documented fields", () =>
       updateOpenTabs([makeTab("t1", "terminal", hostA, null, "my-session")]);
     });
 
-    const row = __getSnapshotForTest().grouped[0].rows[0];
+    // Phase 41 Plan 01: read from the flat middle.
+    const row = __getSnapshotForTest().middle[0];
     // Positive: expected fields
     expect(row.id).toBe("t1");
     expect(row.type).toBe("terminal");
@@ -460,10 +488,14 @@ describe("conversation-store: row shape is exactly the documented fields", () =>
     // Plan 07-02: `rdpHostRow` is a THIRD OPTIONAL Phase 7 marker analog to
     // fleetOnly, marking a synthetic RDP-host row derived from state.hostsFlat
     // filtered on `enableRdp === true`. Same INTERNAL routing role — never
-    // present on openTabs-derived rows. Filter BOTH before comparing so the
+    // present on openTabs-derived rows.
+    // Phase 41 Plan 01: `lastMessageAt` is a FOURTH OPTIONAL Phase 41 marker —
+    // the recency signal for the middle-zone sort. Deliberately OMITTED until
+    // Plan 03 lands the fleet-status protocol extension, so it does not appear
+    // on rows constructed today. Filter all three before comparing so the
     // locked 5-key core-shape contract is preserved.
     const keysForShapeCheck = Object.keys(row).filter(
-      (k) => k !== "fleetOnly" && k !== "rdpHostRow",
+      (k) => k !== "fleetOnly" && k !== "rdpHostRow" && k !== "lastMessageAt",
     );
     expect(keysForShapeCheck.sort()).toEqual(
       ["host", "id", "label", "targetTmuxSession", "type"].sort(),
@@ -486,10 +518,11 @@ describe("conversation-store: dashboard tab excluded", () => {
     });
 
     const snap = __getSnapshotForTest();
-    // dashboard MUST NOT appear anywhere
+    // dashboard MUST NOT appear anywhere. Phase 41 Plan 01: walk the flat
+    // middle instead of grouped[].
     const allIds = [
       ...snap.pinned.map((r) => r.id),
-      ...snap.grouped.flatMap((g) => g.rows.map((r) => r.id)),
+      ...snap.middle.map((r) => r.id),
     ];
     expect(allIds).not.toContain("dashboard");
     expect(allIds).toEqual(["t1"]);
@@ -782,10 +815,9 @@ describe("conversation-store (Plan 07-01): fleet-only render", () => {
 
     const snap = __getSnapshotForTest();
     expect(snap.pinned).toEqual([]);
-    expect(snap.grouped.length).toBe(1);
-    expect(snap.grouped[0].hostId).toBe("1");
-    expect(snap.grouped[0].rows.length).toBe(1);
-    const row = snap.grouped[0].rows[0];
+    // Phase 41 Plan 01: fleet-derived row lands in flat middle (no host bucket).
+    expect(snap.middle.length).toBe(1);
+    const row = snap.middle[0];
     expect(row.id).toBe("fleet::1::work");
     expect(row.label).toBe("work");
     expect(row.type).toBe("terminal");
@@ -814,9 +846,9 @@ describe("conversation-store (Plan 07-01): openTabs-entry-wins dedup", () => {
     });
 
     const snap = __getSnapshotForTest();
-    expect(snap.grouped.length).toBe(1);
-    expect(snap.grouped[0].rows.length).toBe(1);
-    const row = snap.grouped[0].rows[0];
+    // Phase 41 Plan 01: openTab-derived row lands in flat middle.
+    expect(snap.middle.length).toBe(1);
+    const row = snap.middle[0];
     // openTabs id wins — NOT the synthetic fleet id
     expect(row.id).toBe("t1");
     // Label preserved from the openTabs entry
@@ -850,13 +882,14 @@ describe("conversation-store (Plan 07-01): union rendering", () => {
     });
 
     const snap = __getSnapshotForTest();
-    expect(snap.grouped.length).toBe(1);
-    expect(snap.grouped[0].hostId).toBe("1");
-    const ids = snap.grouped[0].rows.map((r) => r.id);
-    // Both rows appear; alphabetically sorted by row.label:
-    // "scratch" (fleet::1::scratch) < "terminal:hostA" (t1)
-    expect(ids).toEqual(["fleet::1::scratch", "t1"]);
-    const scratchRow = snap.grouped[0].rows[0];
+    // Phase 41 Plan 01: middle is flat; both rows land in it. All lastMessageAt
+    // are null → insertion-order fallback. openTabs iterates first (yields t1),
+    // then fleetSyntheticRows iterates (yields fleet::1::scratch).
+    expect(snap.middle.length).toBe(2);
+    const ids = snap.middle.map((r) => r.id);
+    expect(ids).toEqual(["t1", "fleet::1::scratch"]);
+    // The fleet-synthetic row still carries fleetOnly === true.
+    const scratchRow = snap.middle[1];
     expect(
       (scratchRow as unknown as { fleetOnly?: boolean }).fleetOnly,
     ).toBe(true);
@@ -885,9 +918,10 @@ describe("conversation-store (Plan 07-01): null-target tab does not false-collid
     });
 
     const snap = __getSnapshotForTest();
-    expect(snap.grouped.length).toBe(1);
-    const ids = snap.grouped[0].rows.map((r) => r.id);
-    // Both rows appear — the fleet's "work" is unrelated to t1
+    // Phase 41 Plan 01: both rows land in flat middle in insertion order
+    // (openTabs first → t1, then fleetSyntheticRows → fleet::1::work).
+    expect(snap.middle.length).toBe(2);
+    const ids = snap.middle.map((r) => r.id);
     expect(ids).toEqual(["t1", "fleet::1::work"]);
     expect(__getFleetOnlyRowsForTest().length).toBe(1);
   });
@@ -1059,10 +1093,14 @@ describe("conversation-store (Plan 07-01): host-tree/hostsFlat fallback for flee
     });
 
     const snap = __getSnapshotForTest();
-    expect(snap.grouped.length).toBe(1);
-    expect(snap.grouped[0].hostName).toBe("hostA-fallback-name");
-    expect(snap.grouped[0].rows.length).toBe(1);
-    const row = snap.grouped[0].rows[0];
+    // Phase 41 Plan 01: middle is flat. The pre-Phase-41 host-group hostName
+    // fallback (fleet-session hostName → hostsFlat → raw hostId) surfaced
+    // through the group header. Post-Phase-41 the middle no longer emits
+    // group headers, so the fallback is inert for the middle. The row itself
+    // still surfaces even when host is unresolvable — this is the load-bearing
+    // resilience contract that survives the shape change.
+    expect(snap.middle.length).toBe(1);
+    const row = snap.middle[0];
     expect(row.id).toBe("fleet::1::work");
     expect(row.host).toBeUndefined();
     expect((row as unknown as { fleetOnly?: boolean }).fleetOnly).toBe(true);
@@ -1106,11 +1144,14 @@ describe("conversation-store (Plan 07-01): updateHostsFlat no-op guards", () => 
 // rather than modifying the original, to keep git diff surgical)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (Patch #149 B+C): empty state exposes activeSet field", () => {
-  it("returns empty activeSet alongside empty pinned + grouped on the happy-empty path", () => {
+  it("returns empty activeSet alongside empty pinned + middle + null rdpGroup on the happy-empty path", () => {
     const { result: convs } = renderHook(() => useConversations());
     expect(convs.current.activeSet).toEqual([]);
     expect(convs.current.pinned).toEqual([]);
-    expect(convs.current.grouped).toEqual([]);
+    // Phase 41 Plan 01: `grouped: HostGroup[]` → `middle: ConversationRow[]`
+    // + `rdpGroup: HostGroup | null`.
+    expect(convs.current.middle).toEqual([]);
+    expect(convs.current.rdpGroup).toBeNull();
   });
 });
 
@@ -1134,9 +1175,9 @@ describe("conversation-store (Patch #149 A): fleet-only rows are pinnable", () =
       ]);
     });
 
-    // Sanity: the fleet-only row exists, nothing pinned
+    // Sanity: the fleet-only row exists in the flat middle; nothing pinned
     const snap1 = __getSnapshotForTest();
-    expect(snap1.grouped[0].rows[0].id).toBe("fleet::1::work");
+    expect(snap1.middle[0].id).toBe("fleet::1::work");
     expect(snap1.pinnedIds.size).toBe(0);
 
     // Patch #149 A: pinning a fleet-only row now succeeds
@@ -1145,7 +1186,7 @@ describe("conversation-store (Patch #149 A): fleet-only rows are pinnable", () =
     const snap2 = __getSnapshotForTest();
     expect(snap2.pinnedIds.has("fleet::1::work")).toBe(true);
     // Slice B (Patch #149 B+C): the pinned-section now surfaces fleet rows,
-    // so the fleet row is promoted to snap2.pinned and is NOT in grouped.
+    // so the fleet row is promoted to snap2.pinned and is NOT in middle.
     // The Slice A regression we protect here is that pinnedIds contains the
     // fleet id — that assertion above is the load-bearing one.
     expect(snap2.pinned.length).toBe(1);
@@ -1176,9 +1217,10 @@ describe("conversation-store (Patch #149 B+C): Test 30b — pinned fleet row app
     expect(snap.pinned[0].id).toBe("fleet::1::work");
     expect((snap.pinned[0] as unknown as { fleetOnly?: boolean }).fleetOnly).toBe(true);
 
-    // Dedup: the row must NOT appear in any grouped[] group
-    const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
-    expect(allGroupedIds).not.toContain("fleet::1::work");
+    // Dedup: the row must NOT appear in middle. Phase 41 Plan 01: assert
+    // against the flat middle array (not the old grouped[] shape).
+    const allMiddleIds = snap.middle.map((r) => r.id);
+    expect(allMiddleIds).not.toContain("fleet::1::work");
   });
 });
 
@@ -1247,14 +1289,14 @@ describe("conversation-store (Patch #149 B+C): Test 30c — active-set row overt
     // Strict dedup: NOT in pinned (promoted out)
     expect(snap.pinned.length).toBe(0);
 
-    // Strict dedup: NOT in grouped
-    const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
-    expect(allGroupedIds).not.toContain("fleet::1::work");
+    // Strict dedup: NOT in middle (Phase 41 Plan 01 — flat middle).
+    const allMiddleIds = snap.middle.map((r) => r.id);
+    expect(allMiddleIds).not.toContain("fleet::1::work");
   });
 });
 
 describe("conversation-store (Patch #149 B+C): Test 30d — activeSet-only row (not pinned)", () => {
-  it("fleet row in activeSet but not pinned goes to Tier 1 only; pinned stays empty; not in grouped", () => {
+  it("fleet row in activeSet but not pinned goes to Tier 1 only; pinned stays empty; not in middle", () => {
     const hostA = makeHost("1", "hostA");
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
@@ -1270,8 +1312,9 @@ describe("conversation-store (Patch #149 B+C): Test 30d — activeSet-only row (
     expect(snap.activeSet[0].id).toBe("fleet::1::work");
     expect(snap.pinned.length).toBe(0);
 
-    const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
-    expect(allGroupedIds).not.toContain("fleet::1::work");
+    // Phase 41 Plan 01: assert against flat middle.
+    const allMiddleIds = snap.middle.map((r) => r.id);
+    expect(allMiddleIds).not.toContain("fleet::1::work");
   });
 });
 
@@ -1293,9 +1336,9 @@ describe("conversation-store (Patch #149 B+C): Test 30e — openTab pinned + act
     // Strict dedup: NOT in pinned (promoted to Tier 1)
     expect(snap.pinned.length).toBe(0);
 
-    // Strict dedup: NOT in grouped
-    const allGroupedIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
-    expect(allGroupedIds).not.toContain("t1");
+    // Strict dedup: NOT in middle (Phase 41 Plan 01 — flat middle).
+    const allMiddleIds = snap.middle.map((r) => r.id);
+    expect(allMiddleIds).not.toContain("t1");
   });
 });
 
@@ -1430,12 +1473,13 @@ describe("conversation-store (Plan 07-02): RDP row emission", () => {
     });
 
     const snap = __getSnapshotForTest();
-    // The RDP rows live in a sentinel HostGroup with hostId === "__rdp__" at
-    // the BOTTOM of the grouped output. Identity-tmux HostGroups (hostA,
-    // hostB) have no openTabs and no fleetSessions, so they emit nothing.
-    const rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
-    expect(rdpGroups.length).toBe(1);
-    const rdpRows = rdpGroups[0].rows;
+    // Phase 41 Plan 01: RDP rows live in the standalone `rdpGroup` field
+    // (sentinel HostGroup with hostId === "__rdp__"). Identity-tmux hosts
+    // (hostA, hostB) have no openTabs and no fleetSessions, so nothing lands
+    // in middle either.
+    expect(snap.rdpGroup).not.toBeNull();
+    expect(snap.rdpGroup!.hostId).toBe("__rdp__");
+    const rdpRows = snap.rdpGroup!.rows;
     expect(rdpRows.length).toBe(1);
     const row = rdpRows[0];
     expect(row.id).toBe("rdp-host::1");
@@ -1459,12 +1503,9 @@ describe("conversation-store (Plan 07-02): RDP row emission", () => {
       updateHostsFlat(new Map<number, Host>([[3, hostLegacy]]));
     });
     const snap = __getSnapshotForTest();
-    const rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
-    // Either the RDP group is absent (no matching hosts) or it exists with 0
-    // rows. Both are acceptable; the load-bearing assertion is zero rendered
-    // RDP rows for a host without the field.
-    const rowCount = rdpGroups.reduce((acc, g) => acc + g.rows.length, 0);
-    expect(rowCount).toBe(0);
+    // Phase 41 Plan 01: rdpGroup is null when zero RDP-eligible hosts exist
+    // (Ashley lock #7 — no empty RDP header renders).
+    expect(snap.rdpGroup).toBeNull();
   });
 });
 
@@ -1495,24 +1536,15 @@ describe("conversation-store (Plan 07-02): RDP row placement at BOTTOM", () => {
     });
 
     const snap = __getSnapshotForTest();
-    // Expected group order:
-    //   1. hostA (id="1"): openTabs row t1 (attached) + fleet-only row (work)
-    //   2. __rdp__ sentinel group: RDP row for hostA + RDP row for hostB
-    // hostB has no openTabs and no fleetSessions, so it does NOT get a
-    // regular HostGroup — but IS represented in the RDP sentinel group.
-    const orderedIds = snap.grouped.map((g) => g.hostId);
-    // hostA's identity-tmux group first
-    expect(orderedIds[0]).toBe("1");
-    // RDP sentinel LAST
-    expect(orderedIds[orderedIds.length - 1]).toBe("__rdp__");
-
-    // Concatenate the row ids across all groups to verify the full ordering
-    const concatRowIds = snap.grouped.flatMap((g) => g.rows.map((r) => r.id));
-    // openTabs entry first, fleet-only "work" second (append order per Test 25),
-    // then RDP rows for hostA + hostB in host-tree order.
-    expect(concatRowIds).toEqual([
-      "t1",
-      "fleet::1::work",
+    // Phase 41 Plan 01: shape is (middle: flat, rdpGroup: standalone).
+    //   - `middle` carries the identity-tmux + fleet rows in insertion order:
+    //     openTabs first (t1) → fleetSyntheticRows (fleet::1::work).
+    //   - `rdpGroup.rows` carries RDP rows in hostTree order (hostA, hostB).
+    //     hostB has no openTabs / no fleetSessions but IS RDP-enabled, so it
+    //     surfaces in rdpGroup regardless.
+    expect(snap.middle.map((r) => r.id)).toEqual(["t1", "fleet::1::work"]);
+    expect(snap.rdpGroup).not.toBeNull();
+    expect(snap.rdpGroup!.rows.map((r) => r.id)).toEqual([
       "rdp-host::1",
       "rdp-host::2",
     ]);
@@ -1527,15 +1559,15 @@ describe("conversation-store (Plan 07-02): RDP row persistence tied to enableRdp
     const hostAOn = makeHost("1", "hostA", { enableRdp: true });
     const hostAOff = makeHost("1", "hostA", { enableRdp: false });
 
-    // Prime with enableRdp=true — one RDP row present
+    // Phase 41 Plan 01: rdpGroup is null when zero RDP hosts, an object with
+    // rows when >=1 (Ashley lock #7).
     act(() => {
       updateHostsFlat(new Map<number, Host>([[1, hostAOn]]));
     });
     let snap = __getSnapshotForTest();
-    let rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
-    expect(rdpGroups.length).toBe(1);
-    expect(rdpGroups[0].rows.length).toBe(1);
-    expect(rdpGroups[0].rows[0].id).toBe("rdp-host::1");
+    expect(snap.rdpGroup).not.toBeNull();
+    expect(snap.rdpGroup!.rows.length).toBe(1);
+    expect(snap.rdpGroup!.rows[0].id).toBe("rdp-host::1");
 
     // Simulate Ashley toggling RDP OFF in the host editor → realHostTree
     // rebuild → new hostsFlat Map with enableRdp=false
@@ -1543,19 +1575,15 @@ describe("conversation-store (Plan 07-02): RDP row persistence tied to enableRdp
       updateHostsFlat(new Map<number, Host>([[1, hostAOff]]));
     });
     snap = __getSnapshotForTest();
-    rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
-    // Either the group is absent entirely, or it exists with 0 rows
-    const rowCount = rdpGroups.reduce((acc, g) => acc + g.rows.length, 0);
-    expect(rowCount).toBe(0);
+    expect(snap.rdpGroup).toBeNull();
 
     // Toggle back on — row returns
     act(() => {
       updateHostsFlat(new Map<number, Host>([[1, hostAOn]]));
     });
     snap = __getSnapshotForTest();
-    rdpGroups = snap.grouped.filter((g) => g.hostId === "__rdp__");
-    expect(rdpGroups.length).toBe(1);
-    expect(rdpGroups[0].rows[0].id).toBe("rdp-host::1");
+    expect(snap.rdpGroup).not.toBeNull();
+    expect(snap.rdpGroup!.rows[0].id).toBe("rdp-host::1");
   });
 });
 
@@ -1577,11 +1605,11 @@ describe("conversation-store (Patch #149 A): RDP-row un-pinnability moved to UI 
       updateHostsFlat(new Map<number, Host>([[1, hostA]]));
     });
 
-    // Sanity: RDP row exists
+    // Sanity: RDP row exists. Phase 41 Plan 01: rdpGroup is the standalone
+    // field (not an entry in the retired `grouped` shape).
     let snap = __getSnapshotForTest();
-    const rdpGroup = snap.grouped.find((g) => g.hostId === "__rdp__");
-    expect(rdpGroup).toBeDefined();
-    expect(rdpGroup!.rows[0].id).toBe("rdp-host::1");
+    expect(snap.rdpGroup).not.toBeNull();
+    expect(snap.rdpGroup!.rows[0].id).toBe("rdp-host::1");
     expect(snap.pinnedIds.size).toBe(0);
 
     // Patch #149 A: the store no longer rejects any id. Direct call succeeds.
@@ -1592,10 +1620,9 @@ describe("conversation-store (Patch #149 A): RDP-row un-pinnability moved to UI 
 
     snap = __getSnapshotForTest();
     expect(snap.pinnedIds.has("rdp-host::1")).toBe(true);
-    // Row still visible in the RDP sentinel group
-    const rdpGroupAfter = snap.grouped.find((g) => g.hostId === "__rdp__");
-    expect(rdpGroupAfter).toBeDefined();
-    expect(rdpGroupAfter!.rows[0].id).toBe("rdp-host::1");
+    // Row still visible in the rdpGroup
+    expect(snap.rdpGroup).not.toBeNull();
+    expect(snap.rdpGroup!.rows[0].id).toBe("rdp-host::1");
   });
 });
 
@@ -2318,17 +2345,19 @@ describe("regression: fleet pin survives updateOpenTabs pruner when hydrated aft
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 25: role-clustering sort regression tests
+// Phase 25 (RETARGETED Phase 41 Plan 01): role-clustering sort regression tests
 //
-// These tests lock the (host, role, label) sort tuple introduced in Phase 25
-// Plan 02. Each case drives state via updateIdentitiesByKey (the Phase 25
-// identity mirror) and asserts on __getSnapshotForTest() output shapes.
-// See 25-CONTEXT.md §Sort semantics and §Null-role handling for design locks.
+// Phase 41 retired `compareByHostRoleLabel` from the middle-zone sort site — the
+// middle now uses `compareByRecencyDesc` with insertion-order fallback. The
+// (host, role, label) tuple contract SURVIVES in activeSet, pinned, and
+// rdpGroup. These regression tests retarget from the retired middle-tier
+// site to the PINNED tier (or activeSet where noted) so the role-clustering
+// contract remains locked at its surviving sort sites.
 // ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store (Phase 25): role-clustering sort", () => {
+describe("conversation-store (Phase 25 retargeted Phase 41 Plan 01): role-clustering sort on surviving tiers", () => {
   // Locks: §Sort semantics tuple order (host outer, role middle, label inner)
-  // and §Sort sites (Tier 3 grouped-per-host bucket).
-  it("role-clustering within a host bucket (Tier 3) — identities with same role cluster together", () => {
+  // on the PINNED tier (retargeted from the retired Tier 3 middle-bucket site).
+  it("role-clustering within pinned tier — identities with same role cluster together", () => {
     const hostA = makeHost("hA", "alpha");
     const tabOrwell = makeTab("t-orwell", "terminal", hostA, "orwell", "orwell");
     const tabAsimov = makeTab("t-asimov", "terminal", hostA, "asimov", "asimov");
@@ -2344,12 +2373,16 @@ describe("conversation-store (Phase 25): role-clustering sort", () => {
           makeIdentity("orwell-clone", "novelist"),
         ),
       );
+      // Pin all three so compareByHostRoleLabel drives their order.
+      pinConversation("t-orwell");
+      pinConversation("t-asimov");
+      pinConversation("t-orwell-clone");
     });
 
     const snap = __getSnapshotForTest();
     // essayist ("asimov") sorts before novelist ("orwell*") alphabetically on role.
     // Within novelist: "orwell" < "orwell-clone" on label.
-    expect(snap.grouped[0].rows.map((r) => r.label)).toEqual([
+    expect(snap.pinned.map((r) => r.label)).toEqual([
       "asimov",
       "orwell",
       "orwell-clone",
@@ -2411,9 +2444,8 @@ describe("conversation-store (Phase 25): role-clustering sort", () => {
     expect(snap.pinned.map((r) => r.host?.name)).toEqual(["alpha", "beta"]);
   });
 
-  // Locks: §Null-role handling — identities without role sort to bottom of
-  // their host bucket; rows with no identity also sort last.
-  it("null-role rows sort last within their host — even when their label would sort first alphabetically", () => {
+  // Locks: §Null-role handling — retargeted to the PINNED tier (Phase 41 Plan 01).
+  it("null-role rows sort last within pinned tier — even when their label would sort first alphabetically", () => {
     const hostA = makeHost("hA", "alpha");
     // Label chosen to sort FIRST under a pure-label comparator (a < arch < build).
     // Phase 25 null-role-last must override and place this row LAST because
@@ -2432,13 +2464,16 @@ describe("conversation-store (Phase 25): role-clustering sort", () => {
           makeIdentity("build-session", "builder"),
         ),
       );
+      pinConversation("t-aaa");
+      pinConversation("t-arch");
+      pinConversation("t-build");
     });
 
     const snap = __getSnapshotForTest();
     // "architect" < "builder" on role → arch before build.
     // Null-role tab sorts LAST despite its label being alphabetically first —
     // this is the load-bearing behavioral gate for §Null-role handling.
-    expect(snap.grouped[0].rows.map((r) => r.label)).toEqual([
+    expect(snap.pinned.map((r) => r.label)).toEqual([
       "arch",
       "build",
       "aaa-would-be-first",
@@ -2453,7 +2488,7 @@ describe("conversation-store (Phase 25): role-clustering sort", () => {
   // Case-sensitive order: B(66) < q(113) < z(122) < b(98)
   //   → output: [bm-a, q-tab, zed, bm-b]   (bm-b has lowercase "box-maintainer")
   // The assertion [bm-a, bm-b, q-tab, zed] is only achievable under case-insensitive.
-  it("5a: role compare is case-insensitive — Box-Maintainer and box-maintainer cluster together before q-role and zeta-role", () => {
+  it("5a: role compare is case-insensitive on pinned tier — Box-Maintainer and box-maintainer cluster together before q-role and zeta-role", () => {
     const hostA = makeHost("hA", "alpha");
     const tabBmA = makeTab("t-bm-a", "terminal", hostA, "bm-a-sess", "bm-a");
     const tabBmB = makeTab("t-bm-b", "terminal", hostA, "bm-b-sess", "bm-b");
@@ -2471,13 +2506,17 @@ describe("conversation-store (Phase 25): role-clustering sort", () => {
           makeIdentity("zed-sess", "zeta-role"),
         ),
       );
+      pinConversation("t-bm-a");
+      pinConversation("t-bm-b");
+      pinConversation("t-q");
+      pinConversation("t-zed");
     });
 
     const snap = __getSnapshotForTest();
     // Case-insensitive: "Box-Maintainer" == "box-maintainer" (both cluster at head)
     // then "q-role" < "zeta-role". The two bm rows cluster first (positions 0+1),
     // then q-tab, then zed. This order is ONLY possible with sensitivity:"base".
-    const labels = snap.grouped[0].rows.map((r) => r.label);
+    const labels = snap.pinned.map((r) => r.label);
     // The bm cluster must be at indices 0 and 1 (in either internal order)
     expect(labels.slice(0, 2).sort()).toEqual(["bm-a", "bm-b"]);
     expect(labels[2]).toBe("q-tab");
@@ -2487,7 +2526,7 @@ describe("conversation-store (Phase 25): role-clustering sort", () => {
   // Locks: §Sort semantics "case-insensitive alphabetical throughout" for LABEL.
   // Within the same role, "Alpha" and "alpha" are equivalent under sensitivity:"base"
   // — both sort before "Zebra". Under case-sensitive compare: A(65) < Z(90) < a(97).
-  it("5b: label compare within a role is case-insensitive — Alpha and alpha cluster before Zebra", () => {
+  it("5b: label compare within a role is case-insensitive on pinned tier — Alpha and alpha cluster before Zebra", () => {
     const hostA = makeHost("hA", "alpha");
     const tabAlphaUpper = makeTab("t-au", "terminal", hostA, "au-sess", "Alpha");
     const tabAlphaLower = makeTab("t-al", "terminal", hostA, "al-sess", "alpha");
@@ -2503,23 +2542,21 @@ describe("conversation-store (Phase 25): role-clustering sort", () => {
           makeIdentity("z-sess", "novelist"),
         ),
       );
+      pinConversation("t-au");
+      pinConversation("t-al");
+      pinConversation("t-z");
     });
 
     const snap = __getSnapshotForTest();
     // All three share role "novelist" → fall to label inner key.
     // Case-insensitive: "Alpha" == "alpha" (cluster at positions 0+1) < "Zebra".
-    // Under case-sensitive: "Alpha"(A=65) < "Zebra"(Z=90) < "alpha"(a=97).
-    // We assert on lowercase to check POSITION of the cluster, not internal order
-    // of the two equivalent-under-base "alpha" values (V8 sort stability makes
-    // internal order deterministic but this test should not depend on it).
-    const lowerLabels = snap.grouped[0].rows.map((r) => r.label.toLowerCase());
+    const lowerLabels = snap.pinned.map((r) => r.label.toLowerCase());
     expect(lowerLabels.slice(0, 2).sort()).toEqual(["alpha", "alpha"]);
     expect(lowerLabels[2]).toBe("zebra");
   });
 
-  // Locks: §Sort semantics "within each role, sort by label" — when role is a
-  // tie, the comparator falls back to label inner key (same as pre-Phase-25).
-  it("same-role different-label falls to label — rows with shared role sort alphabetically by label", () => {
+  // Locks: §Sort semantics "within each role, sort by label" — retargeted to pinned tier.
+  it("same-role different-label falls to label on pinned tier — rows with shared role sort alphabetically by label", () => {
     const hostA = makeHost("hA", "alpha");
     const tabMike = makeTab("t-mike", "terminal", hostA, "mike-sess", "mike");
     const tabAlice = makeTab("t-alice", "terminal", hostA, "alice-sess", "alice");
@@ -2535,15 +2572,161 @@ describe("conversation-store (Phase 25): role-clustering sort", () => {
           makeIdentity("zed-sess", "builder"),
         ),
       );
+      pinConversation("t-mike");
+      pinConversation("t-alice");
+      pinConversation("t-zed");
     });
 
     const snap = __getSnapshotForTest();
     // All three share role "builder" → tie on role → label inner key.
     // Alphabetical label order: alice < mike < zed.
-    expect(snap.grouped[0].rows.map((r) => r.label)).toEqual([
+    expect(snap.pinned.map((r) => r.label)).toEqual([
       "alice",
       "mike",
       "zed",
+    ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 41 Plan 01: middle-zone recency sort — compareByRecencyDesc contract
+//
+// These tests lock the four rules from the plan's <behavior> block:
+//   Rule 1: no-history rows (lastMessageAt == null) sort BEFORE rows with a timestamp
+//   Rule 2: among no-history rows, insertion-order key breaks ties
+//   Rule 3: among rows with timestamps, lastMessageAt DESC (freshest first)
+//   Rule 4: identical lastMessageAt values fall back to insertion-order key
+//
+// The rows in these tests are constructed by manually stamping lastMessageAt
+// on the underlying tab-derived rows via a small helper. Plan 03 has NOT yet
+// landed the real fleet-status protocol extension; these tests exercise the
+// comparator's contract by directly constructing rows with test lastMessageAt
+// values — they will keep passing once Plan 03 lands the wire-side signal.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper: forcibly set lastMessageAt on the tab-derived row by post-hoc
+// mutation after the snapshot is computed. Since rowFromTab does not read
+// tab.lastMessageAt today (Plan 03 will), the pragmatic path for these tests
+// is to construct a row directly and inject it via the fleet-synthetic path
+// or by using a small test-fixture Tab type with lastMessageAt on the row.
+//
+// Simplest approach: construct openTabs whose derived rows have specific
+// insertion-order + labels, then patch each snapshot row's lastMessageAt
+// via a shallow Object.assign before re-running the sort comparator directly.
+// But that would test the comparator in isolation, not the store's use of it.
+//
+// Cleaner: extend the makeTab helper with a lastMessageAt field that flows
+// through rowFromTab. Adding that flow to the store is a small, forward-
+// compatible change that stays inert until Plan 03 populates the field.
+
+// See the store's rowFromTab — Phase 41 Plan 01 adds a `lastMessageAt` pass-
+// through hook that reads from a test-injected map. To keep this test file
+// deterministic without introducing production-code plumbing that Plan 03
+// will supersede, we inject lastMessageAt via a post-hoc row-object patch
+// in a separate WeakMap indexed by `sessionName` — see rowLastMessageAt
+// below. The store's comparator reads row.lastMessageAt directly, so
+// patching row.lastMessageAt after snapshot construction and re-running
+// comparator assertions is functionally equivalent to Plan 03's wire signal.
+
+describe("conversation-store (Phase 41 Plan 01): compareByRecencyDesc — middle-zone recency contract", () => {
+  // Test C — no-history-to-top rule.
+  it("Test C: no-history row (lastMessageAt=null) sorts BEFORE a row with any timestamp", () => {
+    const hostA = makeHost("hA", "alpha");
+    // Two rows: R1 has lastMessageAt = 1000 (has history), R2 = null (fresh).
+    const tabR1 = makeTab("r1", "terminal", hostA, "r1-sess", "r1");
+    const tabR2 = makeTab("r2", "terminal", hostA, "r2-sess", "r2");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabR1, tabR2]);
+    });
+    let snap = __getSnapshotForTest();
+    // Pre-patch: insertion-order fallback [r1, r2] (both lastMessageAt = null).
+    expect(snap.middle.map((r) => r.id)).toEqual(["r1", "r2"]);
+    // Inject via the Phase 41 test-only API: r1 gets a real timestamp;
+    // r2 stays null (no-history).
+    act(() => __setLastMessageAtForTest("r1", 1000));
+    snap = __getSnapshotForTest();
+    // r2 (null) sorts BEFORE r1 (1000) per Rule 1 (no-history-to-top).
+    // This is the load-bearing behavioral gate for Ashley's
+    // "no history → top" lock.
+    expect(snap.middle.map((r) => r.id)).toEqual(["r2", "r1"]);
+  });
+
+  // Test D — recency DESC.
+  it("Test D: two rows with timestamps sort by lastMessageAt DESC (freshest first)", () => {
+    const hostA = makeHost("hA", "alpha");
+    const tabR1 = makeTab("r1", "terminal", hostA, "r1-sess", "r1");
+    const tabR2 = makeTab("r2", "terminal", hostA, "r2-sess", "r2");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabR1, tabR2]);
+    });
+    // Inject: r1 = 2000, r2 = 1000. Freshest is r1.
+    act(() => {
+      __setLastMessageAtForTest("r1", 2000);
+      __setLastMessageAtForTest("r2", 1000);
+    });
+    const snap = __getSnapshotForTest();
+    // r1 (2000) sorts before r2 (1000) — DESC.
+    expect(snap.middle.map((r) => r.id)).toEqual(["r1", "r2"]);
+  });
+
+  // Test G — pinned tier does NOT recency-sort. Even with two pinned rows
+  // where one has a fresher lastMessageAt, they sort by compareByHostRoleLabel
+  // (label order), NOT by recency. Locks the "pins don't shuffle on activity"
+  // contract post-Plan-03.
+  it("Test G: pinned zone stays (host, role, label) — does NOT shuffle when a row's lastMessageAt changes", () => {
+    const hostA = makeHost("hA", "alpha");
+    // Two pinned rows with labels chosen to put "zebra" alphabetically LAST.
+    // If pinned recency-sorted DESC, the row with the newer lastMessageAt
+    // would jump to the top. compareByHostRoleLabel (label ASC) puts "alpha"
+    // first regardless of recency.
+    const tabA = makeTab("t-alpha-row", "terminal", hostA, "alpha-sess", "alpha-label");
+    const tabZ = makeTab("t-zebra-row", "terminal", hostA, "zebra-sess", "zebra-label");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabA, tabZ]);
+      pinConversation("t-alpha-row");
+      pinConversation("t-zebra-row");
+    });
+    // Inject: zebra is FRESHER than alpha.
+    act(() => {
+      __setLastMessageAtForTest("t-zebra-row", 9999);
+      __setLastMessageAtForTest("t-alpha-row", 1);
+    });
+    const snap = __getSnapshotForTest();
+    // Label order still wins: alpha-label < zebra-label. Recency is IGNORED
+    // in the pinned zone.
+    expect(snap.pinned.map((r) => r.label)).toEqual(["alpha-label", "zebra-label"]);
+  });
+
+  // Test H — RDP zone stays (host, role, label) — analogous to G for rdpGroup.
+  // Locks the "RDP rows don't shuffle" contract post-Plan-03.
+  it("Test H: RDP zone stays (host, role, label) — does NOT shuffle when a row's lastMessageAt changes", () => {
+    // Two RDP-enabled hosts with names that place "alpha" alphabetically first.
+    const hostAlpha = makeHost("1", "alpha-box", { enableRdp: true });
+    const hostZebra = makeHost("2", "zebra-box", { enableRdp: true });
+    act(() => {
+      updateHostsFlat(
+        new Map<number, Host>([
+          [1, hostAlpha],
+          [2, hostZebra],
+        ]),
+      );
+    });
+    let snap = __getSnapshotForTest();
+    expect(snap.rdpGroup).not.toBeNull();
+    // Inject via the RDP row ids (deterministic shape: rdp-host::${host.id}).
+    act(() => {
+      __setLastMessageAtForTest("rdp-host::2", 9999); // zebra fresher
+      __setLastMessageAtForTest("rdp-host::1", 1);
+    });
+    snap = __getSnapshotForTest();
+    // Label order still wins: alpha-box < zebra-box. Recency is IGNORED
+    // in the RDP zone.
+    expect(snap.rdpGroup!.rows.map((r) => r.label)).toEqual([
+      "alpha-box",
+      "zebra-box",
     ]);
   });
 });

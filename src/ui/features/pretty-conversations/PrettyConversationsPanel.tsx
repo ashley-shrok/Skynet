@@ -1,16 +1,20 @@
 // ─── PrettyConversationsPanel ────────────────────────────────────────────────
-// The flat-list composition of the Phase 10 pretty-conversations rework.
+// The flat-list composition of the Phase 10 pretty-conversations rework
+// (as amended by Phase 41 Plan 01, Ashley 2026-08-14 — three-zone reshape).
 // Wraps Wave 1's `PrettyConversationRow` into a full conversation panel
 // matching the Ashley-signed-off prototypes (prototype.html for mobile,
 // desktop.html for desktop):
 //
-//   - Flat rows, NO "Pinned" section header, NO per-host semibold header
-//   - Pinned rows at the top (only marker = the pin glyph on the row itself)
-//   - Grouped identity-tmux rows below, flat
-//   - RDP-sentinel HostGroup (hostId `"__rdp__"`) at the bottom with a
-//     subtle "Remote desktop" divider chip and Monitor-glyph avatars
-//     (the row's `data-rdp-host-row="true"` attribute already suppresses
-//     pin+swipe intrinsically per Wave 1's contract)
+//   - Pinned rows at the top with a "Pinned" divider chip (patch #234)
+//   - Middle: FLAT recency-sorted rows (Phase 41 Plan 01). No per-host
+//     divider chips. All non-pinned / non-active-set / non-RDP rows land
+//     in `snapshot.middle` as a single flat array. Rendered in one
+//     container with no host bucketing.
+//   - RDP sentinel group rendered from `snapshot.rdpGroup` (nullable). When
+//     `rdpGroup === null` (zero RDP-eligible hosts) the entire section —
+//     divider chip + rows — is suppressed per Ashley lock #7.
+//     (The row's `data-rdp-host-row="true"` attribute already suppresses
+//     pin+swipe intrinsically per Wave 1's contract.)
 //   - Load-in-flight affordance: a compact "Loading conversations…" strip
 //     with a spinning Loader2 renders at the top of the scroll region
 //     while `useFleetSessionsLoaded()` is still false. Sits above whatever
@@ -49,7 +53,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Pin, Server } from "lucide-react";
+// Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
+import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Pin } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import { useTranslation } from "react-i18next";
 
@@ -246,7 +251,10 @@ export function PrettyConversationsPanel({
   sidebarToggleOverlaps?: boolean;
 }) {
   const { t } = useTranslation();
-  const { activeSet: activeSetRows, pinned, grouped } = useConversations();
+  // Phase 41 Plan 01: destructure the three-zone shape — `middle` (flat
+  // recency-sorted rows) + `rdpGroup` (nullable RDP sentinel group) replace
+  // the retired `grouped: HostGroup[]` field.
+  const { activeSet: activeSetRows, pinned, middle, rdpGroup } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
   // quick-260731-tgg: hiddenIds subscription — drives the Hidden section render
@@ -352,11 +360,15 @@ export function PrettyConversationsPanel({
   // panel sections (e.g. in both pinned AND active-set).
   const activeSetRowsRef = useRef(activeSetRows);
   const pinnedRef = useRef(pinned);
-  const groupedRef = useRef(grouped);
+  // Phase 41 Plan 01: refs for the new three-zone shape. `middleRef` replaces
+  // `groupedRef`; `rdpGroupRef` is new. Both stay bumped on every render.
+  const middleRef = useRef(middle);
+  const rdpGroupRef = useRef(rdpGroup);
   const identitiesByKeyRef = useRef(identitiesByKey);
   activeSetRowsRef.current = activeSetRows;
   pinnedRef.current = pinned;
-  groupedRef.current = grouped;
+  middleRef.current = middle;
+  rdpGroupRef.current = rdpGroup;
   identitiesByKeyRef.current = identitiesByKey;
 
   useEffect(() => {
@@ -377,8 +389,14 @@ export function PrettyConversationsPanel({
       };
       for (const row of activeSetRowsRef.current) collect(row);
       for (const row of pinnedRef.current) collect(row);
-      for (const group of groupedRef.current) {
-        for (const row of group.rows) collect(row);
+      // Phase 41 Plan 01: walk `middle` (flat array) + `rdpGroup.rows` (via
+      // the nullable rdpGroup) — replaces the retired grouped[].flatMap pass.
+      // RDP rows have no identity resolution (rdpHostRow rows never match a
+      // session identity), so the collect() call inside is a cheap no-op for
+      // them, but included for shape completeness.
+      for (const row of middleRef.current) collect(row);
+      if (rdpGroupRef.current !== null) {
+        for (const row of rdpGroupRef.current.rows) collect(row);
       }
       return targets;
     };
@@ -512,24 +530,27 @@ export function PrettyConversationsPanel({
     };
   }, [identitiesByKey, bountyCounts, pinnedOnly, needsDeskOnly]);
 
-  // Phase 26 D-02: apply the AND-intersect filter to each render collection
-  // when EITHER toggle is on. Groups with 0 rows post-filter are dropped so
-  // we don't render empty host-divider chips. RDP-sentinel group is filtered
-  // the same way; if all RDP rows fall out, the whole "Remote desktop" section
-  // disappears, matching Ashley's directive that filter applies "to the entire
-  // conversation list."
-  //
-  // Phase 26 D-06 symmetric active-set exemption: the active-set tier is
-  // always shown regardless of filter state — active sessions never hide.
+  // Phase 26 D-02 (as amended by Phase 41 Plan 01): apply the AND-intersect
+  // filter to each render collection when EITHER toggle is on.
+  //   - `displayedActiveSetRows` = active-set tier UNCHANGED (D-06 exemption).
+  //   - `displayedPinned` = pinned tier, filtered when a toggle is on.
+  //   - `displayedMiddle` = FLAT middle zone, filtered when a toggle is on
+  //     (was: `displayedGrouped: HostGroup[]` with per-group empty-drop; now
+  //     just a flat ConversationRow[] filter). Phase 41 retired per-host
+  //     bucketing in the middle.
+  //   - `displayedRdpGroup` = the RDP sentinel group. RDP is NOT filtered by
+  //     the bounty-count toggles today (inherits the pre-Phase-41 policy:
+  //     RDP rows never match the filter predicate anyway — no identity, no
+  //     bounty counts). Pass through verbatim. When `rdpGroup === null` the
+  //     downstream renderer skips the entire section (Ashley lock #7).
   const displayedActiveSetRows = activeSetRows;
   const displayedPinned = anyFilterOn
     ? pinned.filter(matchesFilterForRow)
     : pinned;
-  const displayedGrouped = anyFilterOn
-    ? grouped
-        .map((g) => ({ ...g, rows: g.rows.filter(matchesFilterForRow) }))
-        .filter((g) => g.rows.length > 0)
-    : grouped;
+  const displayedMiddle = anyFilterOn
+    ? middle.filter(matchesFilterForRow)
+    : middle;
+  const displayedRdpGroup = rdpGroup;
 
   // quick-260731-tgg: resolve hidden rows for the Hidden section. We look up
   // rows in the PRE-filter source (activeSetRows ∪ pinned ∪ grouped before the
@@ -590,9 +611,14 @@ export function PrettyConversationsPanel({
   // NOTE: This ref is update-on-every-render (tiny cost; no closure issues).
   const knownRowsRef = useRef(new Map<string, ConversationRowShape>());
   // Accumulate rows from all currently-visible tiers on every render.
+  // Phase 41 Plan 01: walk `middle` (flat) + `rdpGroup.rows` (nullable) —
+  // replaces the retired grouped[].forEach walk.
   for (const r of activeSetRows) knownRowsRef.current.set(r.id, r);
   for (const r of pinned) knownRowsRef.current.set(r.id, r);
-  for (const g of grouped) for (const r of g.rows) knownRowsRef.current.set(r.id, r);
+  for (const r of middle) knownRowsRef.current.set(r.id, r);
+  if (rdpGroup !== null) {
+    for (const r of rdpGroup.rows) knownRowsRef.current.set(r.id, r);
+  }
 
   const hiddenRows = useMemo(() => {
     const out: ConversationRowShape[] = [];
@@ -605,7 +631,7 @@ export function PrettyConversationsPanel({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hiddenIds, activeSetRows, pinned, grouped]);
+  }, [hiddenIds, activeSetRows, pinned, middle, rdpGroup]);
 
   // quick-260802-pq2: swipe-coordination state (currentlySwipedId +
   // handleSwipeOpenChange + forceClosedFor) removed alongside the row's
@@ -1032,111 +1058,87 @@ export function PrettyConversationsPanel({
                 />
               ))}
             </div>
-            {/* Grouped rows — FLAT per Ashley/prototype lock: no per-host
-                semibold header. The `__rdp__` sentinel group renders a
-                subtle "Remote desktop" divider chip above its rows.  */}
-            {displayedGrouped.map((group) => {
-              if (group.hostId === "__rdp__") {
-                return (
-                  <div
-                    key={group.hostId}
-                    className="pv-panel-group"
-                    data-rdp-group="true"
-                  >
-                    {/* Subtle RDP divider chip — mirrors prototype.html
-                        .rdp-divider block: small Monitor glyph +
-                        uppercase muted label + gradient rule. Rendered
-                        ONCE above the RDP row cluster regardless of how
-                        many RDP rows exist. */}
-                    <div
-                      className="flex items-center gap-2 px-4 pt-3 pb-1.5"
-                      data-testid="rdp-divider"
-                    >
-                      {/* quick-260727-f9v: brightness bumped from /50 → /85
-                          on BOTH icon and label so this chip reads at the
-                          same weight as the new per-host chips below. */}
-                      <Monitor
-                        className="size-3 text-[#5c6070]/85 shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
-                        {rdpSectionLabel}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
-                      />
-                    </div>
-                    {group.rows.map((row) => (
-                      <PrettyConversationRowLive
-                        key={row.id}
-                        row={row}
-                        selected={row.id === selectedId}
-                        pinned={false}
-                        variant={variant}
-                        onSelect={() => handleRowSelect(row)}
-                        onTogglePin={rdpNoopTogglePin}
-                        onDeactivate={() => handleRowDeactivate(row)}
-                        onKill={() => handleRowKill(row)}
-                        inActiveSet={activeSet.has(row.id)}
-                        sessionKey={sessionWorkingKey(row)}
-                      />
-                    ))}
-                  </div>
-                );
-              }
-              // Regular host group — quick-260727-f9v: the earlier
-              // "FLAT per Ashley/prototype lock" was intentionally
-              // reversed. Each non-RDP host group now renders a divider
-              // chip above its rows (mirrors the RDP chip's treatment,
-              // Server glyph + uppercase hostName + gradient rule), AND
-              // the rows within receive `subtitleMode="identityTitle"`
-              // so the sublabel reads as identity.title (falling back to
-              // identity.displayName; further fallback to hostname+Server
-              // icon when no identity resolves — the row's built-in
-              // safety net). Active-set + pinned + RDP render sites are
-              // UNTOUCHED (they omit subtitleMode → default "hostname").
-              return (
-                <div key={group.hostId} className="pv-panel-group">
-                  <div
-                    className="flex items-center gap-2 px-4 pt-3 pb-1.5"
-                    data-testid="host-divider"
-                    data-host-id={group.hostId}
-                  >
-                    <Server
-                      className="size-3 text-[#5c6070]/85 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
-                      {group.hostName}
-                    </span>
-                    <span
-                      aria-hidden="true"
-                      className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
-                    />
-                  </div>
-                  {group.rows.map((row) => (
-                    <PrettyConversationRowLive
-                      key={row.id}
-                      row={row}
-                      selected={row.id === selectedId}
-                      pinned={isRowPinned(row)}
-                      hidden={hiddenIds.has(row.id)}
-                      variant={variant}
-                      onSelect={() => handleRowSelect(row)}
-                      onTogglePin={() => handleTogglePin(row)}
-                      onDeactivate={() => handleRowDeactivate(row)}
-                      onToggleHide={() => handleToggleHide(row)}
-                      onClone={() => handleRowClone(row)}
-                      onKill={() => handleRowKill(row)}
-                      inActiveSet={activeSet.has(row.id)}
-                      sessionKey={sessionWorkingKey(row)}
-                      subtitleMode="identityTitle"
-                    />
-                  ))}
+            {/* Phase 41 Plan 01 (Ashley 2026-08-14): FLAT middle zone.
+                No per-host divider chips (retired). Every non-pinned, non-
+                active-set, non-RDP row lands in `displayedMiddle` as a
+                single flat array from `snapshot.middle`, sorted by the
+                store's compareByRecencyDesc + insertion-order fallback.
+                Rendered inside ONE `.pv-panel-group` container without
+                per-host wrappers. */}
+            {displayedMiddle.length > 0 && (
+              <div className="pv-panel-group" data-middle-group="true">
+                {displayedMiddle.map((row) => (
+                  <PrettyConversationRowLive
+                    key={row.id}
+                    row={row}
+                    selected={row.id === selectedId}
+                    pinned={isRowPinned(row)}
+                    hidden={hiddenIds.has(row.id)}
+                    variant={variant}
+                    onSelect={() => handleRowSelect(row)}
+                    onTogglePin={() => handleTogglePin(row)}
+                    onDeactivate={() => handleRowDeactivate(row)}
+                    onToggleHide={() => handleToggleHide(row)}
+                    onClone={() => handleRowClone(row)}
+                    onKill={() => handleRowKill(row)}
+                    inActiveSet={activeSet.has(row.id)}
+                    sessionKey={sessionWorkingKey(row)}
+                    subtitleMode="identityTitle"
+                  />
+                ))}
+              </div>
+            )}
+            {/* Phase 41 Plan 01: RDP zone renderer. When `displayedRdpGroup`
+                is null (zero RDP-eligible hosts), the entire section —
+                divider chip + rows — is suppressed (Ashley lock #7).
+                When non-null, renders the "Remote desktop" divider chip +
+                Monitor-glyph rows. */}
+            {displayedRdpGroup !== null && (
+              <div
+                key={displayedRdpGroup.hostId}
+                className="pv-panel-group"
+                data-rdp-group="true"
+              >
+                {/* Subtle RDP divider chip — mirrors prototype.html
+                    .rdp-divider block: small Monitor glyph + uppercase
+                    muted label + gradient rule. Rendered ONCE above the
+                    RDP row cluster regardless of how many RDP rows exist. */}
+                <div
+                  className="flex items-center gap-2 px-4 pt-3 pb-1.5"
+                  data-testid="rdp-divider"
+                >
+                  {/* quick-260727-f9v: brightness bumped from /50 → /85
+                      on BOTH icon and label so this chip reads at the
+                      same weight as the retired per-host chips did. */}
+                  <Monitor
+                    className="size-3 text-[#5c6070]/85 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                    {rdpSectionLabel}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                  />
                 </div>
-              );
-            })}
+                {displayedRdpGroup.rows.map((row) => (
+                  <PrettyConversationRowLive
+                    key={row.id}
+                    row={row}
+                    selected={row.id === selectedId}
+                    pinned={false}
+                    variant={variant}
+                    onSelect={() => handleRowSelect(row)}
+                    onTogglePin={rdpNoopTogglePin}
+                    onDeactivate={() => handleRowDeactivate(row)}
+                    onKill={() => handleRowKill(row)}
+                    inActiveSet={activeSet.has(row.id)}
+                    sessionKey={sessionWorkingKey(row)}
+                  />
+                ))}
+              </div>
+            )}
             {/* quick-260731-tgg: Hidden section — collapsed by default, rendered
                 BELOW the __rdp__ group iff hiddenIds.size > 0. Header chip mirrors
                 the pinned/RDP chip treatment: EyeOff glyph + uppercase "Hidden"

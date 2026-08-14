@@ -115,10 +115,17 @@ type MockGroup = {
   rows: MockRow[];
 };
 
+// Phase 41 Plan 01: mock snapshot shape mirrors the store's new three-zone
+// output — `middle: MockRow[]` (flat) + `rdpGroup: MockGroup | null` replace
+// the retired `grouped: MockGroup[]`. Tests can still seed the retired
+// `grouped` shape via the `groupedShim` field for backwards compatibility;
+// when present, groupedShim's `__rdp__` group flows into rdpGroup and all
+// other groups' rows flatten into middle (in group iteration order).
 type MockSnapshot = {
   activeSet: MockRow[];
   pinned: MockRow[];
-  grouped: MockGroup[];
+  middle: MockRow[];
+  rdpGroup: MockGroup | null;
   selectedId: string | null;
   pinnedIds: ReadonlySet<string>;
   hiddenIds: ReadonlySet<string>;
@@ -127,17 +134,44 @@ type MockSnapshot = {
 let snapshot: MockSnapshot = {
   activeSet: [],
   pinned: [],
-  grouped: [],
+  middle: [],
+  rdpGroup: null,
   selectedId: null,
   pinnedIds: new Set(),
   hiddenIds: new Set(),
 };
 
-function setSnapshot(next: Partial<MockSnapshot>): void {
+// Phase 41 Plan 01: shim so pre-Phase-41 tests seeding `grouped: MockGroup[]`
+// continue to work. The shim splits groups into middle + rdpGroup at
+// setSnapshot time so the store-consumer contract is preserved: a group with
+// `hostId === "__rdp__"` flows into `rdpGroup`; all other groups' rows are
+// flattened (in group iteration order) into `middle`. New tests should prefer
+// setting `middle` + `rdpGroup` directly.
+function setSnapshot(
+  next: Partial<MockSnapshot> & { grouped?: MockGroup[] },
+): void {
+  let middle: MockRow[] = next.middle ?? [];
+  let rdpGroup: MockGroup | null = next.rdpGroup ?? null;
+  if (next.grouped !== undefined) {
+    // Legacy `grouped` shim: split into middle (flat) + rdpGroup.
+    const derivedMiddle: MockRow[] = [];
+    let derivedRdpGroup: MockGroup | null = null;
+    for (const g of next.grouped) {
+      if (g.hostId === "__rdp__") {
+        derivedRdpGroup = g;
+      } else {
+        for (const r of g.rows) derivedMiddle.push(r);
+      }
+    }
+    // Only apply shim when middle/rdpGroup weren't explicitly set.
+    if (next.middle === undefined) middle = derivedMiddle;
+    if (next.rdpGroup === undefined) rdpGroup = derivedRdpGroup;
+  }
   snapshot = {
     activeSet: next.activeSet ?? [],
     pinned: next.pinned ?? [],
-    grouped: next.grouped ?? [],
+    middle,
+    rdpGroup,
     selectedId: next.selectedId ?? null,
     pinnedIds: next.pinnedIds ?? new Set(),
     hiddenIds: next.hiddenIds ?? new Set(),
@@ -190,7 +224,9 @@ vi.mock("@/state/conversation-store", () => ({
   useConversations: () => ({
     activeSet: snapshot.activeSet,
     pinned: snapshot.pinned,
-    grouped: snapshot.grouped,
+    // Phase 41 Plan 01: three-zone shape.
+    middle: snapshot.middle,
+    rdpGroup: snapshot.rdpGroup,
   }),
   useSelectedConversationId: () => snapshot.selectedId,
   usePinnedIds: () => snapshot.pinnedIds,
@@ -329,7 +365,10 @@ beforeEach(async () => {
   setSnapshot({
     activeSet: [],
     pinned: [],
-    grouped: [],
+    // Phase 41 Plan 01: use `middle` + `rdpGroup`. `grouped` shim still works
+    // for pre-Phase-41 tests that pass grouped: MockGroup[] via setSnapshot.
+    middle: [],
+    rdpGroup: null,
     selectedId: null,
     pinnedIds: new Set(),
     hiddenIds: new Set(),
@@ -532,35 +571,24 @@ describe("PrettyConversationsPanel: pinned-first ordering", () => {
 // Test 3 — "Pinned" divider chip (patch #234); per-host divider chip
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: 'Pinned' divider chip + per-host divider chip (patch #234 Test 3 rewrite)", () => {
-  it('Test 3 (post-#234): renders a "Pinned" divider chip above pinned rows AND a per-host divider chip above the non-RDP grouped section', () => {
-    // Contract change (patch #234): pinned tier now DOES get a divider
-    // chip above it when pinned.length > 0, mirroring the RDP chip's
-    // treatment (Pin glyph + uppercase muted label + gradient rule). The
-    // previous "no 'Pinned' section header" lock (quick-260727-f9v) is
-    // reversed by Ashley's request 2026-07-31.
-    // The per-host divider chip above the non-RDP grouped section
-    // (quick-260727-f9v) is preserved unchanged.
+describe("PrettyConversationsPanel: 'Pinned' divider chip (patch #234) — per-host chip RETIRED in Phase 41 Plan 01", () => {
+  it('Test 3 (updated Phase 41 Plan 01): renders a "Pinned" divider chip above pinned rows; per-host chip is GONE', () => {
+    // Patch #234: pinned tier gets a divider chip when pinned.length > 0.
+    // Phase 41 Plan 01: the per-host divider chip above the middle zone was
+    // RETIRED (Ashley 2026-08-14 — flat recency-sorted middle). Only the
+    // "Pinned" chip + the RDP chip survive.
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       pinned: [makeConversationRow({ id: "a", label: "alpha", host: hostA })],
-      grouped: [
-        {
-          hostId: "h1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "c", label: "charlie", host: hostA }),
-          ],
-        },
+      middle: [
+        makeConversationRow({ id: "c", label: "charlie", host: hostA }),
       ],
       pinnedIds: new Set(["a"]),
     });
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    // NEW (patch #234): "Pinned" divider chip present, INSIDE the
-    // data-pinned-group wrapper (so intra-group spacing rules apply),
-    // and its label text is "Pinned".
+    // Patch #234: "Pinned" divider chip present, INSIDE the pinned wrapper.
     const pinnedChip = container.querySelector(
       '[data-testid="pinned-divider"]',
     ) as HTMLElement | null;
@@ -572,15 +600,9 @@ describe("PrettyConversationsPanel: 'Pinned' divider chip + per-host divider chi
     expect(pinnedGroup).toBeTruthy();
     expect(pinnedGroup!.contains(pinnedChip!)).toBe(true);
 
-    // Preserved (quick-260727-f9v): the per-host divider chip above
-    // hostA's non-RDP grouped section carries data-testid="host-divider"
-    // AND data-host-id="h1" AND label text "hostA".
-    const hostChip = container.querySelector(
-      '[data-testid="host-divider"]',
-    ) as HTMLElement | null;
-    expect(hostChip).toBeTruthy();
-    expect(hostChip!.getAttribute("data-host-id")).toBe("h1");
-    expect(hostChip!.textContent).toMatch(/hostA/);
+    // Phase 41 Plan 01: the per-host divider chip is RETIRED. Assert none.
+    const hostChip = container.querySelector('[data-testid="host-divider"]');
+    expect(hostChip).toBeNull();
   });
 
   it('Test 3B (patch #234): does NOT render the "Pinned" divider chip when pinned is empty', () => {
@@ -619,49 +641,48 @@ describe("PrettyConversationsPanel: 'Pinned' divider chip + per-host divider chi
 // (apart from the /50→/85 brightness bump, which is visually invisible to
 // these DOM-shape tests).
 
-describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", () => {
-  it("Test 19A: two non-RDP host groups → two host-divider chips, each with its hostName + Server icon", () => {
+describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () => {
+  // Phase 41 Plan 01 (Ashley 2026-08-14) REWRITE: the pre-Phase-41 per-host
+  // divider chips (Tests 19A + 19B) were retired. The middle zone now
+  // renders as ONE flat container with no per-host wrappers, no divider
+  // chips. Tests 19A/19B are rewritten to lock the retirement.
+  it("Test 19A (rewritten): two non-RDP rows land in ONE flat middle container with NO host-divider chips", () => {
     const hostA = makeHost("h1", "hostA");
     const hostB = makeHost("h2", "hostB");
     setSnapshot({
       activeSet: [],
       pinned: [],
-      grouped: [
-        {
-          hostId: "h1",
-          hostName: "hostA",
-          rows: [makeConversationRow({ id: "c1", label: "s1", host: hostA })],
-        },
-        {
-          hostId: "h2",
-          hostName: "hostB",
-          rows: [makeConversationRow({ id: "c2", label: "s2", host: hostB })],
-        },
+      middle: [
+        makeConversationRow({ id: "c1", label: "s1", host: hostA }),
+        makeConversationRow({ id: "c2", label: "s2", host: hostB }),
       ],
     });
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
+    // Ashley lock: NO host-divider chips render inside the middle zone.
+    // The retired `[data-testid="host-divider"]` element MUST NOT be
+    // present under any circumstance.
     const chips = Array.from(
       container.querySelectorAll('[data-testid="host-divider"]'),
     ) as HTMLElement[];
-    expect(chips.length).toBe(2);
+    expect(chips.length).toBe(0);
 
-    // One chip per host, labeled with its hostName. Test C's guard on
-    // the load-bearing detail: each chip contains an svg (the Server
-    // glyph) so the visual grouping affordance is present.
-    const byId = new Map(
-      chips.map((c) => [c.getAttribute("data-host-id"), c]),
-    );
-    expect(byId.get("h1")).toBeTruthy();
-    expect(byId.get("h2")).toBeTruthy();
-    expect(byId.get("h1")!.textContent).toMatch(/hostA/);
-    expect(byId.get("h2")!.textContent).toMatch(/hostB/);
-    expect(byId.get("h1")!.querySelector("svg")).toBeTruthy();
-    expect(byId.get("h2")!.querySelector("svg")).toBeTruthy();
+    // Both rows exist in the DOM.
+    expect(container.querySelector('[data-conversation-id="c1"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="c2"]')).toBeTruthy();
+
+    // The middle zone is one flat container (the `.pv-panel-group` with
+    // data-middle-group="true"). Both rows are inside it.
+    const middleGroup = container.querySelector(
+      '[data-middle-group="true"]',
+    ) as HTMLElement | null;
+    expect(middleGroup).toBeTruthy();
+    expect(middleGroup!.querySelector('[data-conversation-id="c1"]')).toBeTruthy();
+    expect(middleGroup!.querySelector('[data-conversation-id="c2"]')).toBeTruthy();
   });
 
-  it("Test 19B: active-set + pinned + one non-RDP group → exactly ONE host-divider (only above the grouped host, NOT above active-set / pinned)", () => {
+  it("Test 19B (rewritten): active-set + pinned + middle → NO host-divider chip renders anywhere in the panel", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [
@@ -670,28 +691,21 @@ describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", 
       pinned: [
         makeConversationRow({ id: "pinned-1", label: "pinned-session", host: hostA }),
       ],
-      grouped: [
-        {
-          hostId: "h1",
-          hostName: "hostA",
-          rows: [makeConversationRow({ id: "c1", label: "charlie", host: hostA })],
-        },
+      middle: [
+        makeConversationRow({ id: "c1", label: "charlie", host: hostA }),
       ],
       pinnedIds: new Set(["pinned-1"]),
     });
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    // Exactly one host-divider — only above the grouped host section.
+    // Ashley lock: zero host-divider chips anywhere in the panel.
     const chips = Array.from(
       container.querySelectorAll('[data-testid="host-divider"]'),
     ) as HTMLElement[];
-    expect(chips.length).toBe(1);
-    expect(chips[0].getAttribute("data-host-id")).toBe("h1");
+    expect(chips.length).toBe(0);
 
-    // Active-set and pinned wrappers exist as structural preconditions,
-    // and NEITHER has a `host-divider` as an immediately-preceding
-    // sibling (i.e. a chip does not render ABOVE those groups).
+    // Active-set + pinned wrappers exist as structural preconditions.
     const activeGroup = container.querySelector(
       '[data-active-set-group="true"]',
     ) as HTMLElement | null;
@@ -700,51 +714,88 @@ describe("PrettyConversationsPanel: per-host divider chips (quick-260727-f9v)", 
     ) as HTMLElement | null;
     expect(activeGroup).toBeTruthy();
     expect(pinnedGroup).toBeTruthy();
-    // Neither's previousElementSibling is a chip.
-    const activePrev = activeGroup!.previousElementSibling as HTMLElement | null;
-    const pinnedPrev = pinnedGroup!.previousElementSibling as HTMLElement | null;
-    expect(activePrev?.getAttribute("data-testid")).not.toBe("host-divider");
-    expect(pinnedPrev?.getAttribute("data-testid")).not.toBe("host-divider");
+
+    // Middle row also renders (inside the flat middle container).
+    expect(container.querySelector('[data-conversation-id="c1"]')).toBeTruthy();
   });
 
-  it("Test 19C: non-RDP host group + __rdp__ sentinel group → BOTH host-divider AND rdp-divider render (new chip does NOT replace / duplicate the RDP chip)", () => {
+  it("Test 19C (rewritten): middle + rdpGroup → NO host-divider chip; the rdp-divider IS present when rdpGroup is non-null", () => {
     const hostA = makeHost("h1", "hostA");
     const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
     setSnapshot({
-      pinned: [],
-      grouped: [
-        {
-          hostId: "h1",
-          hostName: "hostA",
-          rows: [makeConversationRow({ id: "c1", label: "s1", host: hostA })],
-        },
-        {
-          hostId: "__rdp__",
-          hostName: "",
-          rows: [
-            makeConversationRow({
-              id: "r1",
-              label: "GIGAASHLEYPC",
-              host: rdpHost,
-              rdpHostRow: true,
-              targetTmuxSession: null,
-            }),
-          ],
-        },
+      middle: [
+        makeConversationRow({ id: "c1", label: "s1", host: hostA }),
       ],
+      rdpGroup: {
+        hostId: "__rdp__",
+        hostName: "",
+        rows: [
+          makeConversationRow({
+            id: "r1",
+            label: "GIGAASHLEYPC",
+            host: rdpHost,
+            rdpHostRow: true,
+            targetTmuxSession: null,
+          }),
+        ],
+      },
     });
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    // Both chips render side-by-side, one for each group type.
+    // Ashley lock: no host-divider chip. The rdp-divider IS present.
     const hostChips = container.querySelectorAll('[data-testid="host-divider"]');
     const rdpChips = container.querySelectorAll('[data-testid="rdp-divider"]');
-    expect(hostChips.length).toBe(1);
+    expect(hostChips.length).toBe(0);
     expect(rdpChips.length).toBe(1);
-    // The host chip labels hostA (NOT the __rdp__ sentinel, which has
-    // empty hostName and should never surface as a chip label).
-    expect((hostChips[0] as HTMLElement).getAttribute("data-host-id")).toBe("h1");
-    expect((hostChips[0] as HTMLElement).textContent).toMatch(/hostA/);
+  });
+
+  // Phase 41 Plan 01 regression (Ashley lock #7): the RDP section header
+  // (rdp-divider chip) does NOT render when rdpGroup is null.
+  it("Test 19D (rdp-header-hides-on-zero): rdpGroup=null → no rdp-divider chip renders", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      middle: [
+        makeConversationRow({ id: "c1", label: "session", host: hostA }),
+      ],
+      rdpGroup: null,
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
+  });
+
+  // Phase 41 Plan 01 regression (Ashley lock #8): the ready-dot renders on
+  // every non-working middle row regardless of active-set membership. Locks
+  // patch #447 behavior survives the ambient CSS retirement.
+  it("Test 19E (ready-dot-on-all-non-working): every non-working middle row renders the ready-dot regardless of active-set", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      // Two rows, neither in the active-set, both non-working (default in
+      // the mock — useSessionIsWorking returns false → dot renders).
+      middle: [
+        makeConversationRow({ id: "m1", label: "s1", host: hostA }),
+        makeConversationRow({ id: "m2", label: "s2", host: hostA }),
+      ],
+      // mockActiveSet is empty (reset in beforeEach) → both rows have
+      // inActiveSet=false. Post-Phase-41 retirement, the dot MUST still
+      // render for both.
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Both rows carry the ready-dot span.
+    const m1 = container.querySelector('[data-conversation-id="m1"]');
+    const m2 = container.querySelector('[data-conversation-id="m2"]');
+    expect(m1).toBeTruthy();
+    expect(m2).toBeTruthy();
+    expect(m1!.querySelector('[data-pv-conv-ready-dot="true"]')).toBeTruthy();
+    expect(m2!.querySelector('[data-pv-conv-ready-dot="true"]')).toBeTruthy();
   });
 });
 
@@ -2057,9 +2108,12 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     expect(queryByTestId("pretty-conversations-empty")).toBeNull();
   });
 
-  it("Test 27b: filter=on drops groups whose rows are ALL filtered out (no orphan host-divider chip)", () => {
-    // Two groups: hostA (nelly, pinned=0) and hostB (tina, pinned=3).
-    // Pinned toggle on → hostA disappears entirely.
+  it("Test 27b (Phase 41 Plan 01 REWRITE): filter=on drops non-matching middle rows; matching rows still render", () => {
+    // Pre-Phase-41 this test asserted per-host divider chip drop-when-empty
+    // behavior. Phase 41 retired per-host divider chips entirely (the middle
+    // zone is FLAT), so this test now asserts the equivalent post-Phase-41
+    // contract: middle rows that don't match the filter are dropped from
+    // the DOM; matching middle rows continue to render.
     const hostA = makeHost("1", "hostA");
     const hostB = makeHost("2", "hostB");
     mockIdentitiesByKey = new Map([
@@ -2073,21 +2127,9 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     setSnapshot({
       activeSet: [],
       pinned: [],
-      grouped: [
-        {
-          hostId: "1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "nelly-row", targetTmuxSession: "nelly-session", host: hostA }),
-          ],
-        },
-        {
-          hostId: "2",
-          hostName: "hostB",
-          rows: [
-            makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: hostB }),
-          ],
-        },
+      middle: [
+        makeConversationRow({ id: "nelly-row", targetTmuxSession: "nelly-session", host: hostA }),
+        makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: hostB }),
       ],
     });
     const { container, getByTestId } = render(
@@ -2095,10 +2137,11 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     );
     fireEvent.click(getByTestId("pv-filter-toggles"));
     fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    // hostA's divider should be gone (its only row was filtered out).
-    expect(container.querySelector('[data-testid="host-divider"][data-host-id="1"]')).toBeFalsy();
-    // hostB's divider stays.
-    expect(container.querySelector('[data-testid="host-divider"][data-host-id="2"]')).toBeTruthy();
+    // Nelly (pinned=0) drops out of the filtered middle; tina (pinned=3) stays.
+    expect(container.querySelector('[data-conversation-id="nelly-row"]')).toBeFalsy();
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
+    // Ashley lock (Phase 41 Plan 01): NO host-divider chips render, ever.
+    expect(container.querySelectorAll('[data-testid="host-divider"]').length).toBe(0);
   });
 
   it("Test 28: active-set tier is exempt from BOTH filter predicates when both toggles are on", () => {

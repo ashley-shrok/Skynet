@@ -62,7 +62,8 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 vi.mock("@/state/conversation-store", () => ({
-  useConversations: () => ({ activeSet: [], pinned: [], grouped: [] }),
+  // Phase 41 Plan 01: three-zone shape — `middle` + `rdpGroup` replace `grouped`.
+  useConversations: () => ({ activeSet: [], pinned: [], middle: [], rdpGroup: null }),
   useSelectedConversationId: () => null,
   usePinnedIds: () => new Set(),
   useHiddenIds: () => new Set(),

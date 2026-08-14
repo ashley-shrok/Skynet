@@ -1,9 +1,19 @@
 // ─── PrettyConversationRow ───────────────────────────────────────────────────
-// Phase 13 Plan 01 (Ashley 2026-07-23 lift-from-mock v4): the row renders the
+// Phase 13 Plan 01 (Ashley 2026-07-23 lift-from-mock v4) — as amended by
+// Phase 41 Plan 01 (Ashley 2026-08-14 ambient-retirement): the row renders the
 // mock's semantic markup with class-toggle state variants. Every visual
-// definition (base body, avatar disc, ambient recession, selected treatment,
-// hover, RDP, ready-dot) lives in pretty-conversations.css. This component
-// keeps only the surviving JS-only concerns:
+// definition (base body, avatar disc, selected treatment, hover, RDP,
+// ready-dot) lives in pretty-conversations.css.
+//
+// Phase 41 Plan 01 retired the ambient-recession visual entirely: this
+// component no longer derives the pre-Phase-41 amb-recession flag and no
+// longer toggles the recession className. The related CSS block is deleted;
+// every row carries the same visual weight regardless of active-set membership.
+// The `inActiveSet` prop is PRESERVED — it still drives the deactivate-
+// action visibility gate (`.active-set` classname toggle at L873 below)
+// and the swipe machinery. Only the ambient VISUAL axis retired.
+//
+// This component keeps only the surviving JS-only concerns:
 //
 //   - Ready-dot conditional render
 //     (`isWorking === false && !isRecycling && !hasQueuePending`)
@@ -15,9 +25,11 @@
 //     conjunct was dropped 2026-08-14 — since the Phase 34 Plan 06 fleet-
 //     status cutover, isWorking is backend-authoritative for every session
 //     the fleet-status channel knows about (not just active-set rows), so
-//     the dot now surfaces "ready for attention" on ambient/recessed rows
-//     too. Reverses the 2026-07-23 lock that scoped the dot to active-set
-//     only. The CSS `.pv-row:not(.working):not(.recycling) .pv-ready-dot
+//     the dot surfaces "ready for attention" on every non-working row.
+//     Phase 41 Plan 01 formalized this uniformity: the ambient-recession
+//     visual is now retired, so all rows carry the same visual weight, and
+//     the dot's "come look" cue is uniform across the whole list.
+//     The CSS `.pv-row:not(.working):not(.recycling) .pv-ready-dot
 //     { display: block }` provides a secondary gate for the isWorking +
 //     isRecycling axes only; the queue-pending gate lives ONLY in JS
 //     because it isn't surfaced as a row className.
@@ -36,16 +48,18 @@
 // State variants are className toggles composed via `cn`:
 //   className={cn('pv-row', variantClass, selected && 'selected',
 //     inActiveSet && 'active-set', isWorking === true && 'working',
-//     pinned && 'pinned', isAmbient && 'ambient', isRdp && 'rdp')}
+//     pinned && 'pinned', isRdp && 'rdp')}
+// (Phase 41 Plan 01 dropped the retired amb-recession className toggle.)
 //
 // The ONE inline style on `.pv-row` is `{'--pv-hue': hue}` for hue-bearing
 // rows. Post-pq2 mobile has no transform (no swipe machinery) — the row body
 // is a static CSS-rendered card in both variants.
 //
 // Retired vs pre-Phase-13:
-//   - All JS-computed CSSProperties for base body / avatar / ambient /
-//     selected / hover overlays (~250 lines) — now in
-//     pretty-conversations.css as class-toggled selectors.
+//   - All JS-computed CSSProperties for base body / avatar / selected /
+//     hover overlays (~250 lines) — now in pretty-conversations.css as
+//     class-toggled selectors. (Ambient overlays formerly in this list
+//     were retired entirely in Phase 41 Plan 01.)
 //   - `useState(hover)` + onMouseEnter/onMouseLeave handlers — CSS `:hover`
 //     handles hover natively.
 //   - `PC_ROW_MIN_H_MOBILE/DESKTOP` tokens — CSS variants (`.pv-row--mobile`
@@ -206,11 +220,15 @@ export function PrettyConversationRow({
   // — all three stores (working / recycling / queue-pending) share the
   // exact same `${hostId}:${tmuxSession ?? ""}` key shape.
   hasQueuePending?: boolean;
-  // Patch #137: whether this row is in Ashley's active-set (any
-  // session she has selectConversation-ed in this browser-tab
-  // session). Rows in the set keep the full-bubble treatment; rows
-  // out of the set recede to the ambient values (per prototype v4).
-  // RDP rows are exempt from ambient recession regardless of this flag.
+  // Patch #137 (updated Phase 41 Plan 01): whether this row is in Ashley's
+  // active-set (any session she has selectConversation-ed in this browser-tab
+  // session). Phase 41 retired the ambient-recession visual entirely, so this
+  // flag no longer controls "full-bubble vs recessed" appearance — every row
+  // carries the same visual weight. The flag SURVIVES because it still gates:
+  //   1. The `.active-set` className toggle at L873, which drives the
+  //      deactivate-action hover-reveal CSS at pretty-conversations.css:978/994.
+  //   2. The swipe machinery composite logic (swipe-right vs swipe-left routing).
+  //   3. Context-menu item gating (Deactivate item + Move-vs-Open new-window).
   inActiveSet?: boolean;
   // quick-260727-f9v: sublabel render mode.
   //   "hostname"      → default; sublabel renders hostname + Server icon
@@ -253,10 +271,12 @@ export function PrettyConversationRow({
     Number.isFinite(rowHostIdNum) ? rowHostIdNum : null,
   );
 
-  // Patch #137 / Phase 13: ambient recession applies to non-RDP rows NOT in
-  // Ashley's active-set. The `.ambient` class on the row triggers the CSS
-  // recession block; RDP rows are exempt regardless of inActiveSet.
-  const isAmbient = !isRdp && !inActiveSet;
+  // Phase 41 Plan 01 (Ashley 2026-08-14): the pre-Phase-41 amb-recession
+  // derivation (`!isRdp && !inActiveSet`) and its className toggle were
+  // retired here. The related CSS block is deleted; every row carries the
+  // same visual weight. `isRdp` and `inActiveSet` survive as separate flags
+  // for their other consumers (deactivate-action gating, swipe machinery,
+  // context-menu item wiring — see the className composition below).
 
   const isMobile = variant === "mobile";
   const variantClass = isMobile ? "pv-row--mobile" : "pv-row--desktop";
@@ -840,9 +860,9 @@ export function PrettyConversationRow({
 
   // ─── Class composition ────────────────────────────────────────────────────
   // Every state variant is a CSS class toggle; the CSS file (pretty-
-  // conversations.css) handles all visual response. `isAmbient` is derived
-  // from `!isRdp && !inActiveSet` — same logic as pre-Phase-13, moved from
-  // JS-computed style branches to a CSS class.
+  // conversations.css) handles all visual response. Phase 41 Plan 01 retired
+  // the amb-recession className toggle — the corresponding CSS block is
+  // deleted so the row no longer emits that class.
   //
   // quick-260808-fkg: `swipe-past-threshold-right` / `-left` classes toggled
   // on when the armed swipe crosses the threshold. CSS paints a hue-tinted
@@ -874,7 +894,7 @@ export function PrettyConversationRow({
     isWorking === true && "working",
     isRecycling === true && "recycling",
     pinned && "pinned",
-    isAmbient && "ambient",
+    // Phase 41 Plan 01: amb-recession className toggle retired.
     isRdp && "rdp",
     hidden && "hidden",
     swipePastRight && "swipe-past-threshold-right",

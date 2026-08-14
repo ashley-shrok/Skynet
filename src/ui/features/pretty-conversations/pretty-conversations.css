@@ -14,13 +14,15 @@
  *   2. Hue custom-property rename: `--hue` → `--pv-hue`. `.pv-row` uses
  *      `--pv-hue: 216` as fallback so hue-null rows still get a defined
  *      neutral value.
- *   3. Ambient recession scope simplification: the mock scopes ambient
- *      recession under `body[data-active-set-enabled="on"]` because a UI
- *      toggle exists in the mock. In the real app there is no toggle —
- *      ambient IS the default for non-active-set rows. The PrettyConversationRow
- *      component applies the `.ambient` class when `!isRdp && !inActiveSet`.
- *      Selectors were rewritten from `body[data-active-set-enabled="on"] .row:not(.active-set):not(.rdp)`
- *      to `.pv-row.ambient`.
+ *   3. Ambient recession RETIRED in Phase 41 Plan 01 (Ashley 2026-08-14):
+ *      the pre-Phase-41 CSS block that scoped ambient recession under
+ *      `.pv-row.ambient` (deleted below) was retired entirely — every row
+ *      now carries the same visual weight. The `.ambient` class is no
+ *      longer emitted by PrettyConversationRow. Position + the ready-dot
+ *      together carry the "where should I look next" story for the list.
+ *      The `.active-set` class SURVIVES (it gates the deactivate-action
+ *      hover-reveal at `.pv-row.pv-row--desktop.active-set...` selectors
+ *      below); only the `.ambient` counterpart is gone.
  *   4. Reduced/selection-only intensity + tight/cozy density variants are
  *      NOT ported — mock v4 locks Full-intensity + Normal density.
  *   5. Density variants (`.pv-row--mobile`, `.pv-row--desktop`) are added
@@ -32,8 +34,9 @@
  *
  * The React component (PrettyConversationRow.tsx) composes className via
  * `cn('pv-row', variantClass, selected && 'selected', inActiveSet && 'active-set',
- * isWorking && 'working', pinned && 'pinned', isAmbient && 'ambient', isRdp && 'rdp')`
- * and emits `style={{'--pv-hue': hue}}` inline for hue-bearing rows. All other
+ * isWorking && 'working', pinned && 'pinned', isRdp && 'rdp')` — the
+ * `isAmbient && 'ambient'` toggle was retired in Phase 41 Plan 01.
+ * Row emits `style={{'--pv-hue': hue}}` inline for hue-bearing rows. All other
  * visual state lives in this file.
  *
  * DO NOT edit values below without checking prototype.html for the current
@@ -570,68 +573,21 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   AMBIENT RECESSION — rows NOT in the active set (and NOT RDP) recede.
-   Quieter gradient, dimmer border, no drop shadow / hue glow, no backdrop-blur.
-   Still readable but visually back so the active set pops.
+   AMBIENT RECESSION — RETIRED (Phase 41 Plan 01, Ashley 2026-08-14).
+   The `.pv-row.ambient` selector block (5 rules — background, avatar, hover,
+   label, host) was deleted here. Every row now carries the same visual weight
+   (no more dimmed/recessed background for non-active-set rows). Position +
+   the ready-dot together carry the "where should I look next" story for the
+   list.
 
-   The mock scopes this under body[data-active-set-enabled="on"] (a UI toggle
-   for exploration); in the real app ambient IS the default for non-active-set
-   rows. The .ambient class is applied by PrettyConversationRow when
-   `!isRdp && !inActiveSet`.
+   The `.active-set` class (deactivate-action hover-reveal at L978/L982/L994
+   below) SURVIVES — it is not ambient-related. Only the `.ambient` visual
+   axis retired.
    ═══════════════════════════════════════════════════════════════════════════ */
-
-.pv-row.ambient {
-  background: hsla(var(--pv-hue), 40%, 20%, 0.16);
-  border-color: hsla(var(--pv-hue), 40%, 45%, 0.14);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 220, 170, 0.06),
-    0 0 0 0.5px hsla(var(--pv-hue), 60%, 55%, 0.08);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  color: rgba(251, 245, 232, 0.72);
-}
-
-.pv-row.ambient .pv-avatar {
-  background: linear-gradient(160deg,
-    hsla(var(--pv-hue), 35%, 22%, 0.55),
-    hsla(var(--pv-hue), 30%, 14%, 0.65));
-  border-color: hsla(var(--pv-hue), 55%, 50%, 0.24);
-  box-shadow:
-    0 2px 6px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 235, 190, 0.14),
-    0 0 10px hsla(var(--pv-hue), 55%, 50%, 0.14);
-}
-
-.pv-row.ambient:hover {
-  background: hsla(var(--pv-hue), 45%, 25%, 0.26);
-  border-color: hsla(var(--pv-hue), 55%, 55%, 0.22);
-  transform: none;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 220, 170, 0.10),
-    0 0 0 0.5px hsla(var(--pv-hue), 65%, 55%, 0.16);
-}
-
-.pv-row.ambient .pv-body .pv-label {
-  text-shadow: none;
-  font-weight: 500;
-}
-
-.pv-row.ambient .pv-body .pv-host {
-  color: rgba(255, 235, 190, 0.45);
-}
-
-/* Ambient rows DO show the ready-dot when their fleet-status is idle
-   (2026-08-14 reversal — was "no dot on ambient" pre-that-date). Since the
-   Phase 34 Plan 06 fleet-status cutover, isWorking is backend-authoritative
-   for every session, so surfacing "ready for attention" on ambient rows too
-   lets Ashley promote idle ambient sessions INTO the active set intentionally
-   rather than click-to-check. Enforced by the widened
-   `.pv-row:not(.working):not(.recycling) .pv-ready-dot { display: block }`
-   selector above (no `.active-set` requirement). */
 
 /* ═══════════════════════════════════════════════════════════════════════════
    RDP ROWS — neutral, no hue, but same GLASS treatment so they read as part
-   of the same family, just desaturated. Exempt from ambient recession.
+   of the same family, just desaturated.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .pv-rdp-divider {
@@ -1070,9 +1026,13 @@
   height: 20px;
 }
 
-/* Desktop hover-reveal: hidden on ambient rows unless hovered/focus-within
-   (mirrors pin's hide-on-unpinned rule). */
-.pv-row.pv-row--desktop.ambient:not(:hover):not(:focus-within) .pv-hide-action {
+/* Desktop hover-reveal: hidden on non-hovered rows unless hovered/focus-within
+   (mirrors pin's hide-on-unpinned rule). Phase 41 Plan 01 retired the
+   `.ambient` gate on this selector — with ambient recession gone, ALL
+   desktop rows behave the way ambient rows used to: hide-action reveals
+   only on hover / focus-within. Same behavioral contract for the user;
+   the CSS just no longer scopes it under the retired `.ambient` class. */
+.pv-row.pv-row--desktop:not(:hover):not(:focus-within) .pv-hide-action {
   display: none;
 }
 

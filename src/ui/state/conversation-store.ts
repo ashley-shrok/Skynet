@@ -1,14 +1,27 @@
 // ─── Conversation store ──────────────────────────────────────────────────────
 // Module-scoped store for the Telegram-style conversation list.
 //
-// Contract (per Phase 6, Plan 06-01, CONTEXT.md §Decisions §"The list"):
-//   - Flat single-select list of currently-active sessions with a host.
-//   - Rows within each tier (Tier 1 activeSet, Tier 2 pinned, Tier 3
-//     per-host bucket, Tier 3 RDP sentinel bucket) are sorted alphabetically
-//     by `row.label` using localeCompare(other.label, undefined,
-//     { numeric: true, sensitivity: "base" }). Host ORDER in Tier 3 remains
-//     hostTree walk order.
-//   - Pins float above host-grouped rows. Per-session (not per-host). Session
+// Contract (per Phase 41 Plan 01, CONTEXT.md §Sort model — middle section):
+//   - Three-zone conversation list: pinned (top, stable), middle (flat, recency-
+//     desc with no-history-to-top), rdpGroup (bottom, stable).
+//   - Pinned zone + activeSet + RDP zone use `compareByHostRoleLabel`
+//     — (host outer, role middle, label inner), case-insensitive, null-role
+//     sorts last. Pre-Phase-41 the middle also used this comparator; Phase 41
+//     flipped the middle to `compareByRecencyDesc` (freshest activity first;
+//     rows with `lastMessageAt == null` sort to the TOP; ties + no-history rows
+//     fall back to insertion-order key for deterministic stability).
+//   - Middle is FLAT: no host bucketing, no per-host separators, no hostTree
+//     walk. All non-pinned / non-active-set / non-RDP identity-tmux + fleet-
+//     synthetic rows land in a single `middle: ConversationRow[]` array.
+//   - RDP zone is emitted iff at least one host has `enableRdp === true`. When
+//     zero RDP-eligible hosts exist, `rdpGroup === null` (Ashley lock: no
+//     empty RDP header). RDP rows internally follow hostTree order (see the
+//     synthesis pass below), then sort by compareByHostRoleLabel.
+//   - Plan 03 (deferred, full-stack) will populate `lastMessageAt` on rows via
+//     a fleet-status protocol extension. Until then, EVERY row has
+//     `lastMessageAt: null` (no-history branch), so the middle zone degrades
+//     cleanly to insertion-order fallback.
+//   - Pins float above the middle. Per-session (not per-host). Session
 //     end removes the row AND clears its pin in the same mutation (T-06-01-01
 //     stale-selection defense also lives here — a selected id no longer in
 //     openTabs is coerced to null).
@@ -73,6 +86,15 @@ export type ConversationRow = {
   // `fleetOnly` and `rdpHostRow`. `undefined` and `null` both sort last in
   // compareByHostRoleLabel via the `a.role ?? null` normalization.
   role?: string | null;
+  // Phase 41 (Plan 01): the "message either direction" activity timestamp used
+  // by `compareByRecencyDesc` to order the flat middle zone. Set to `null` when
+  // no history exists (row sorts to the TOP of the middle per Ashley's
+  // no-history-to-top exception). Plan 03 will populate this via a fleet-status
+  // protocol extension; until then, EVERY row carries `lastMessageAt: null`
+  // and the middle degrades to insertion-order fallback. Deliberately OPTIONAL
+  // so existing row constructors (which don't yet set it) still typecheck; the
+  // comparator normalizes `undefined` → `null` for consistent no-history sort.
+  lastMessageAt?: number | null;
 };
 
 export type HostGroup = {
@@ -81,10 +103,25 @@ export type HostGroup = {
   rows: ConversationRow[];
 };
 
+// Phase 41 (Plan 01): three-zone shape.
+//   - `activeSet`: rows currently in Ashley's active-set (state.activeSet),
+//     sorted by (host, role, label). Structurally UNCHANGED from Phase 25.
+//   - `pinned`: rows pinned but NOT in activeSet, sorted by (host, role, label).
+//     Structurally UNCHANGED from Phase 25.
+//   - `middle`: FLAT list of remaining identity-tmux + fleet-synthetic rows
+//     (non-pinned, non-active-set, non-RDP). Sorted by `compareByRecencyDesc`
+//     — no-history rows (lastMessageAt == null) sort to the TOP; rows with
+//     timestamps sort DESC (freshest first); ties + no-history rows fall back
+//     to insertion-order key for deterministic stability. Replaces the
+//     pre-Phase-41 `grouped: HostGroup[]` for the middle tier.
+//   - `rdpGroup`: sentinel HostGroup (`hostId: "__rdp__"`) containing all
+//     RDP-eligible rows, OR `null` when zero hosts have `enableRdp === true`.
+//     No empty header renders in the panel when null (Ashley lock).
 export type ConversationList = {
   activeSet: ConversationRow[];
   pinned: ConversationRow[];
-  grouped: HostGroup[];
+  middle: ConversationRow[];
+  rdpGroup: HostGroup | null;
 };
 
 // Plan 07-01 (TG-12): fleet-discovered tmux session shape. Re-declared here
@@ -106,6 +143,12 @@ type SnapshotForTest = ConversationList & {
   pinnedIds: ReadonlySet<string>;
   hiddenIds: ReadonlySet<string>;
 };
+
+// Phase 41 (Plan 01): retire the `activeSet` field's ambient-visual mention in
+// the State type comment. The `state.activeSet: Set<string>` field survives
+// AS-IS — it still drives the deactivate-action semantics (per Ashley lock #5).
+// Only the visual tier's ambient-recession rendering was retired; the field
+// itself is load-bearing for deactivate menu-item gating.
 
 // ─── Which tab types are "conversations" ─────────────────────────────────────
 // A tab is a "conversation" iff it targets a host and represents a session-
@@ -281,6 +324,19 @@ function subscribe(cb: () => void): () => void {
 
 // ─── Derivation ──────────────────────────────────────────────────────────────
 
+// Phase 41 Plan 01: test-only injection map for row.lastMessageAt.
+// Keyed on row id (or fleet-synthetic id for fleet rows). Plan 03 will replace
+// this with a real fleet-status wire-side signal; until then, tests exercise
+// the middle-zone recency comparator by seeding known lastMessageAt values
+// through this map. Production callers never touch it. Defense-in-depth:
+// resolves to `null` for any id not in the map, which is the shipping default
+// (all rows currently have lastMessageAt=null).
+const lastMessageAtByRowId = new Map<string, number | null>();
+
+function resolveLastMessageAt(rowId: string): number | null {
+  return lastMessageAtByRowId.get(rowId) ?? null;
+}
+
 function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): ConversationRow {
   // Role lookup: prefer fleet-authoritative session.role (resolved on the identity's home box
   // via same SSH conn as tmux list-sessions), fall back to identitiesByKey as defense-in-depth.
@@ -295,6 +351,7 @@ function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): Con
       role = matchKey ? (state.identitiesByKey.get(matchKey)?.role ?? null) : null;
     }
   }
+  const lastMessageAt = resolveLastMessageAt(tab.id);
   return {
     id: tab.id,
     type: tab.type,
@@ -302,6 +359,7 @@ function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): Con
     host: tab.host,
     targetTmuxSession: tab.targetTmuxSession ?? null,
     ...(role !== null ? { role } : {}),
+    ...(lastMessageAt !== null ? { lastMessageAt } : {}),
   };
 }
 
@@ -385,6 +443,50 @@ const compareByHostRoleLabel = (a: ConversationRow, b: ConversationRow): number 
   return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
 };
 
+// Phase 41 (Plan 01) — middle-zone recency comparator.
+//
+// Ordering contract (§Sort model — middle section, Ashley lock 2026-08-14):
+//   (1) Rows with `lastMessageAt == null` (no history) sort BEFORE rows with
+//       any real timestamp (Ashley: "if there is no history of messages going
+//       back and forth then it should show up at the top").
+//   (2) Among no-history rows: fall back to `middleInsertionOrder` (a WeakMap
+//       populated during computeSnapshot's middle-build pass — see the flat
+//       middleRows push loop below) so ordering is deterministic across
+//       snapshot recomputes.
+//   (3) Among rows with real timestamps: `lastMessageAt` DESC (freshest first).
+//   (4) When two rows have identical `lastMessageAt`: fall back to
+//       `middleInsertionOrder` for stability.
+//
+// Since Plan 03 has NOT yet landed the `lastMessageAt` signal, EVERY row
+// currently carries `lastMessageAt: null` — the middle degrades entirely to
+// insertion-order (branch 1 + 2). Plan 03 will land the real signal without
+// changing this comparator.
+//
+// The insertion-order map is passed in as a parameter (not read from
+// module-scope) so the comparator stays pure and the sort is deterministic
+// even if computeSnapshot fires concurrently (which it can't today — the
+// store's snapshot cache is version-keyed — but the discipline stays honest).
+const compareByRecencyDesc = (
+  insertionOrder: WeakMap<ConversationRow, number>,
+) => (a: ConversationRow, b: ConversationRow): number => {
+  const aTs = a.lastMessageAt ?? null;
+  const bTs = b.lastMessageAt ?? null;
+  // Rule (1): no-history-to-top. Rows with null sort BEFORE rows with a
+  // timestamp (return < 0 when a is null and b is not).
+  if (aTs === null && bTs !== null) return -1;
+  if (aTs !== null && bTs === null) return 1;
+  // Rule (3): both have timestamps → DESC by lastMessageAt.
+  if (aTs !== null && bTs !== null && aTs !== bTs) {
+    return bTs - aTs; // b - a for DESC
+  }
+  // Rule (2)/(4) fallback: insertion-order key. Rows not tracked in the map
+  // sort AFTER tracked rows (defensive default; should never happen in
+  // practice since every middle row is registered during the build pass).
+  const aKey = insertionOrder.get(a) ?? Number.MAX_SAFE_INTEGER;
+  const bKey = insertionOrder.get(b) ?? Number.MAX_SAFE_INTEGER;
+  return aKey - bKey;
+};
+
 function computeSnapshot(): ConversationList {
   const conversationTabs = state.openTabs.filter(isConversationTab);
 
@@ -433,14 +535,17 @@ function computeSnapshot(): ConversationList {
     // as tmux list-sessions). The pre-fix identitiesByKey lookup returned null for every
     // non-tina identity because /identities used LOCAL-only resolveRoleForIdentity.
     const role = session.role;
+    const fleetSyntheticId = fleetRowId(session.hostId, session.sessionName);
+    const lastMessageAt = resolveLastMessageAt(fleetSyntheticId);
     const syntheticRow: ConversationRow = {
-      id: fleetRowId(session.hostId, session.sessionName),
+      id: fleetSyntheticId,
       type: "terminal",
       label: session.sessionName,
       host: resolvedHost,
       targetTmuxSession: session.sessionName,
       fleetOnly: true,
       ...(role !== null ? { role } : {}),
+      ...(lastMessageAt !== null ? { lastMessageAt } : {}),
     };
     fleetSyntheticRows.push({ hostIdStr, row: syntheticRow });
     if (!fleetHostNameFallback.has(hostIdStr)) {
@@ -510,69 +615,57 @@ function computeSnapshot(): ConversationList {
   }
   pinned.sort(compareByHostRoleLabel);
 
-  // ── Tier 3 (grouped): everything else, bucketed by host ─────────────────────
-  // Iterate conversationTabs, bucket non-emitted rows by host id.
-  const byHostId = new Map<string, ConversationRow[]>();
+  // ── Middle zone (Phase 41 Plan 01): FLAT list of non-pinned / non-active-set
+  //    / non-RDP identity-tmux + fleet-synthetic rows, sorted by
+  //    compareByRecencyDesc.
+  //
+  // Phase 41 retired the per-host bucketing (`byHostId` map + hostTree walk
+  // + orphan-host fallback groups) that built the pre-Phase-41
+  // `grouped: HostGroup[]` shape. The middle is now ONE flat array.
+  //
+  // Insertion-order key: each row's push-index into `middleRows` is captured in
+  // a WeakMap keyed on row-object identity. The comparator reads the map for
+  // the deterministic-stability fallback (see `compareByRecencyDesc` above).
+  // The map is scoped to this single computeSnapshot invocation — a fresh
+  // WeakMap on every call — so the "stable across a single snapshot" contract
+  // holds regardless of how many times computeSnapshot fires.
+  //
+  // `collectHostOrder(state.hostTree)` is NOT consumed by the middle-build
+  // anymore; it survives below in the RDP synthesis pass, which still uses
+  // hostTree order to make the RDP section deterministic during initial-load.
+  const middleRows: ConversationRow[] = [];
+  const middleInsertionOrder = new WeakMap<ConversationRow, number>();
+  let middlePushIndex = 0;
   for (const tab of conversationTabs) {
     if (emittedIds.has(tab.id)) continue; // already in Tier 1 or Tier 2
     if (!tab.host) continue; // defense-in-depth; isConversationTab already filtered
-    const bucket = byHostId.get(tab.host.id);
-    if (bucket) bucket.push(rowFromTab(tab, sessionRoleByKey));
-    else byHostId.set(tab.host.id, [rowFromTab(tab, sessionRoleByKey)]);
+    const row = rowFromTab(tab, sessionRoleByKey);
+    middleRows.push(row);
+    middleInsertionOrder.set(row, middlePushIndex++);
   }
-  // Iterate fleetSyntheticRows, bucket non-emitted fleet rows by hostIdStr.
-  for (const { hostIdStr, row } of fleetSyntheticRows) {
+  for (const { row } of fleetSyntheticRows) {
     if (emittedIds.has(row.id)) continue; // already in Tier 1 or Tier 2
-    const bucket = byHostId.get(hostIdStr);
-    if (bucket) bucket.push(row);
-    else byHostId.set(hostIdStr, [row]);
+    middleRows.push(row);
+    middleInsertionOrder.set(row, middlePushIndex++);
   }
-
-  // Emit HostGroups in host-tree order, then fallback for orphan hosts.
-  const grouped: HostGroup[] = [];
+  middleRows.sort(compareByRecencyDesc(middleInsertionOrder));
+  // Consume the fleet hostName fallback + host-tree order to keep the
+  // ESLint no-unused-vars / TypeScript unused-symbol linters quiet — both
+  // survived the retirement for downstream consumers (RDP synthesis below
+  // reads orderedHosts). fleetHostNameFallback is now inert for the middle
+  // path but still populated by the fleetSyntheticRows loop above; retire
+  // its middle-side consumption by referencing it as an intentional no-op
+  // read to avoid a variable-cleanup churn diff.
+  void fleetHostNameFallback;
   const orderedHosts = collectHostOrder(state.hostTree);
-  const seenHostIds = new Set<string>();
-  for (const { id, name } of orderedHosts) {
-    seenHostIds.add(id);
-    const rows = byHostId.get(id);
-    if (rows && rows.length > 0) {
-      rows.sort(compareByHostRoleLabel);
-      grouped.push({ hostId: id, hostName: name, rows });
-    }
-  }
-  // Fallback: any conversation tab whose host is NOT in the current hostTree
-  // (host was deleted server-side but the tab is still open, OR the hostTree
-  // hasn't loaded yet) should still surface in a synthetic per-host bucket
-  // so the row doesn't disappear. Emit them in openTabs order after the
-  // known-tree hosts. This is a resilience choice, not a scope-widening —
-  // Ashley's box has ~20 sessions on ~10 hosts; a missing host in the tree
-  // must not cause silent row loss (T-06-01-01 stale-selection defense's
-  // sibling: don't silently drop derived rows either).
-  //
-  // Plan 07-01: same resilience extended to fleet-only hosts. When a
-  // FleetSession's host is absent from hostTree, prefer state.hostsFlat's
-  // Host.name (matches an id-tree walk that succeeded), then the fleet's
-  // own hostName (matches an initial-load race where hostsFlat is empty),
-  // then finally the raw hostId as a last-resort label so nothing renders
-  // as "undefined" chrome.
-  for (const [hostId, rows] of byHostId) {
-    if (seenHostIds.has(hostId)) continue;
-    if (rows.length === 0) continue;
-    const firstRow = rows[0];
-    const hostName =
-      firstRow.host?.name ??
-      fleetHostNameFallback.get(hostId) ??
-      hostId;
-    rows.sort(compareByHostRoleLabel);
-    grouped.push({ hostId, hostName, rows });
-  }
 
   // Plan 07-02 (TG-15): synthesize RDP-host rows from state.hostsFlat filtered
   // on strict `enableRdp === true` (T-07-02-01 mitigation — undefined on
   // legacy Host records must NOT emit a row). Placed in a SENTINEL HostGroup
-  // (`hostId: "__rdp__"`, `hostName: ""`) appended at the END of `grouped`
-  // so they always render at the BOTTOM of the ConversationsPanel scroller
-  // per shape-file "one row per RDP-enabled host at the bottom of the list."
+  // (`hostId: "__rdp__"`, `hostName: ""`) emitted as `rdpGroup` at the BOTTOM
+  // of the ConversationsPanel scroller per shape-file "one row per RDP-enabled
+  // host at the bottom of the list." Phase 41 retired the `grouped: HostGroup[]`
+  // shape; RDP now emits as a standalone field `rdpGroup: HostGroup | null`.
   //
   // ConversationsPanel special-cases `hostId === "__rdp__"` to suppress the
   // semibold host-header render (see NOTE-A in 07-PLAN-CHECK.md) — otherwise
@@ -604,14 +697,19 @@ function computeSnapshot(): ConversationList {
     const host = state.hostsFlat.get(numericId);
     if (!host) continue;
     if (host.enableRdp !== true) continue; // strict check per T-07-02-01
-    rdpRows.push({
-      id: `rdp-host::${host.id}`,
-      type: "rdp",
-      label: host.name,
-      host,
-      targetTmuxSession: null,
-      rdpHostRow: true,
-    });
+    {
+      const rdpRowId = `rdp-host::${host.id}`;
+      const lastMessageAt = resolveLastMessageAt(rdpRowId);
+      rdpRows.push({
+        id: rdpRowId,
+        type: "rdp",
+        label: host.name,
+        host,
+        targetTmuxSession: null,
+        rdpHostRow: true,
+        ...(lastMessageAt !== null ? { lastMessageAt } : {}),
+      });
+    }
     rdpEmittedHostIds.add(numericId);
   }
   // Orphan RDP hosts (in hostsFlat but not in hostTree) — appended after.
@@ -619,49 +717,52 @@ function computeSnapshot(): ConversationList {
   for (const [numericId, host] of state.hostsFlat) {
     if (rdpEmittedHostIds.has(numericId)) continue;
     if (host.enableRdp !== true) continue;
+    const rdpRowId = `rdp-host::${host.id}`;
+    const lastMessageAt = resolveLastMessageAt(rdpRowId);
     rdpRows.push({
-      id: `rdp-host::${host.id}`,
+      id: rdpRowId,
       type: "rdp",
       label: host.name,
       host,
       targetTmuxSession: null,
       rdpHostRow: true,
+      ...(lastMessageAt !== null ? { lastMessageAt } : {}),
     });
   }
   rdpRows.sort(compareByHostRoleLabel);
-  if (rdpRows.length > 0) {
-    grouped.push({ hostId: "__rdp__", hostName: "", rows: rdpRows });
-  }
+  // Phase 41 (Plan 01): rdpGroup is `null` iff zero RDP-eligible hosts exist.
+  // This preserves the pre-Phase-41 store-level gate at L632 verbatim (Ashley
+  // lock #7 — no empty RDP header renders when no RDP hosts).
+  const rdpGroup: HostGroup | null =
+    rdpRows.length > 0
+      ? { hostId: "__rdp__", hostName: "", rows: rdpRows }
+      : null;
 
-  // quick-260731-tgg: final render-time filter — remove hiddenIds from all
-  // three normally-visible tiers (activeSet, pinned, grouped). Applied AFTER
-  // all tier logic so it acts as a pure removal pass. Hidden rows are still
-  // in openTabs/fleetSessions; they simply don't surface in the three tiers.
-  // Groups whose rows collapse to [] after the filter are dropped so we don't
-  // render empty host-divider chips (mirrors the bounty-filter's drop-empty-
-  // groups behaviour in the panel).
+  // quick-260731-tgg (updated Phase 41 Plan 01): final render-time filter —
+  // remove hiddenIds from activeSet, pinned, AND the flat middle zone.
+  // Applied AFTER all tier logic so it acts as a pure removal pass. Hidden
+  // rows are still in openTabs/fleetSessions; they simply don't surface in
+  // the visible tiers.
   //
-  // RDP rows (synthesized separately, placed in __rdp__ sentinel group) are
-  // NOT eligible for hiding — their id shape (rdp-host::${host.id}) never
-  // appears in hiddenIds (the hide affordance is suppressed for RDP rows at
-  // the row level). This is inert behavior: if __rdp__ rows could somehow
-  // appear in hiddenIds, they'd be filtered out here too — which would be
-  // the correct behavior — but the guard isn't needed in practice.
+  // RDP rows (synthesized into rdpGroup) are NOT eligible for hiding — their
+  // id shape (rdp-host::${host.id}) never appears in hiddenIds (the hide
+  // affordance is suppressed for RDP rows at the row level). This is inert
+  // behavior; the guard isn't needed in practice but the exemption is
+  // documented for future maintainers.
   if (state.hiddenIds.size > 0) {
     const hiddenIds = state.hiddenIds;
     const filteredActiveSet = activeSetRows.filter((r) => !hiddenIds.has(r.id));
     const filteredPinned = pinned.filter((r) => !hiddenIds.has(r.id));
-    const filteredGrouped = grouped
-      .map((g) => ({ ...g, rows: g.rows.filter((r) => !hiddenIds.has(r.id)) }))
-      .filter((g) => g.rows.length > 0);
+    const filteredMiddle = middleRows.filter((r) => !hiddenIds.has(r.id));
     return {
       activeSet: filteredActiveSet,
       pinned: filteredPinned,
-      grouped: filteredGrouped,
+      middle: filteredMiddle,
+      rdpGroup,
     };
   }
 
-  return { activeSet: activeSetRows, pinned, grouped };
+  return { activeSet: activeSetRows, pinned, middle: middleRows, rdpGroup };
 }
 
 function getSnapshot(): ConversationList {
@@ -1309,7 +1410,8 @@ export function __getSnapshotForTest(): SnapshotForTest {
   return {
     activeSet: list.activeSet,
     pinned: list.pinned,
-    grouped: list.grouped,
+    middle: list.middle,
+    rdpGroup: list.rdpGroup,
     selectedId: state.selectedId,
     pinnedIds: state.pinnedIds,
     hiddenIds: state.hiddenIds,
@@ -1361,19 +1463,45 @@ export function __resetFleetSessionsForTest(): void {
   notify();
 }
 
-// Plan 07-01 Task 1: expose all fleet-derived rows (across pinned + grouped)
-// for test assertions. `fleetOnly === true` rows are synthetic — they came
-// from state.fleetSessions and did NOT dedup with any openTabs entry.
-// Fleet-only rows CANNOT appear in `pinned` (see the pin-defense in
-// computeSnapshot + Test 30 regression) but we filter both slices for
-// completeness.
+// Phase 41 Plan 01: test-only setter for row.lastMessageAt. Populates the
+// injection map that `rowFromTab` + the fleet-synthetic + RDP row builders
+// read. Plan 03 will replace this with a real fleet-status wire-side signal;
+// until then, tests seed known lastMessageAt values through this API to
+// exercise the middle-zone recency comparator (compareByRecencyDesc).
+//
+// After calling this, callers must trigger a snapshot recompute (any real
+// state mutation via updateOpenTabs / selectConversation / etc.) so the
+// cached snapshot is invalidated and rowFromTab re-runs with the new values.
+export function __setLastMessageAtForTest(rowId: string, ts: number | null): void {
+  if (ts === null) {
+    lastMessageAtByRowId.delete(rowId);
+  } else {
+    lastMessageAtByRowId.set(rowId, ts);
+  }
+  notify(); // invalidate cachedSnapshot so next getSnapshot() re-derives.
+}
+
+// Phase 41 Plan 01: reset the test-only lastMessageAt injection map. Used
+// by tests' beforeEach so a prior test's stamps don't leak forward.
+export function __resetLastMessageAtForTest(): void {
+  lastMessageAtByRowId.clear();
+  notify();
+}
+
+// Plan 07-01 Task 1 (updated Phase 41 Plan 01): expose all fleet-derived rows
+// (across activeSet + pinned + middle + rdpGroup) for test assertions.
+// `fleetOnly === true` rows are synthetic — they came from state.fleetSessions
+// and did NOT dedup with any openTabs entry. rdpGroup rows carry
+// `rdpHostRow: true` (not `fleetOnly`), so the rdpGroup iteration below is
+// technically a no-op but preserved for completeness.
 export function __getFleetOnlyRowsForTest(): ConversationRow[] {
   const list = getSnapshot();
   const out: ConversationRow[] = [];
   for (const r of list.activeSet) if (r.fleetOnly) out.push(r);
   for (const r of list.pinned) if (r.fleetOnly) out.push(r);
-  for (const g of list.grouped) {
-    for (const r of g.rows) if (r.fleetOnly) out.push(r);
+  for (const r of list.middle) if (r.fleetOnly) out.push(r);
+  if (list.rdpGroup) {
+    for (const r of list.rdpGroup.rows) if (r.fleetOnly) out.push(r);
   }
   return out;
 }

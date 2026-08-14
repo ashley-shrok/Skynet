@@ -476,7 +476,12 @@ describe("PrettyConversationRow: no identity chip", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 13 full-bubble class-toggle branch", () => {
-  it("Test 12: unselected non-RDP active-set row has neither `selected` nor `ambient` class + `--pv-hue: 210` inline", () => {
+  it("Test 12: unselected non-RDP active-set row does NOT carry `selected`/`ambient`/`rdp` + `--pv-hue: 210` inline", () => {
+    // Phase 41 Plan 01 (Ashley 2026-08-14) — updated: the `ambient` class is
+    // now retired from the row's className toggle table entirely. The
+    // `.not.toContain("ambient")` assertion below is now trivially true for
+    // every row (see Test AMBIENT-RETIRED-01 for a stronger, coverage-of-
+    // all-combinations regression).
     currentIdentity = makeIdentity(210, "nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -495,11 +500,7 @@ describe("PrettyConversationRow: Phase 13 full-bubble class-toggle branch", () =
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     expect(body.className).toContain("pv-row");
     expect(body.className).toContain("active-set");
-    // Full-bubble branch: NOT selected, NOT ambient, NOT rdp.
     expect(body.className).not.toContain("selected");
-    // We must use a word-boundary check because "pv-row--mobile"/"pv-row--desktop"
-    // don't contain "ambient", and no other class contains "ambient" so
-    // a plain substring check suffices.
     expect(body.className).not.toContain("ambient");
     expect(body.className).not.toContain("rdp");
     // `--pv-hue: 210` inline drives the CSS hsla() expressions.
@@ -746,63 +747,79 @@ describe("PrettyConversationRow: quick-260802-w9e ready-dot suppression — queu
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 18 — [Phase 13] Ambient recession + RDP exemption (class-based)
+// Test 18 (Phase 41 Plan 01 REWRITE) — Ambient recession RETIRED
 // ─────────────────────────────────────────────────────────────────────────────
+// The pre-Phase-41 Test 18 asserted that a `!inActiveSet && !isRdp` row DID
+// carry the `.ambient` class. Ashley 2026-08-14 retired that visual axis
+// entirely: no row ever carries `.ambient` now, regardless of inActiveSet
+// or isRdp inputs. The regression test below covers ALL FOUR combinations
+// of (inActiveSet, isRdp) to lock the retirement.
 
-describe("PrettyConversationRow: Phase 13 ambient recession (class toggle)", () => {
-  it("Test 18: !inActiveSet && !isRdp row carries `ambient` class + does NOT carry `selected`/`rdp`", () => {
-    currentIdentity = makeIdentity(210, "nelly");
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={false}
-        /* isWorking omitted — defaults to null */
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    expect(body.className).toContain("pv-row");
-    expect(body.className).toContain("ambient");
-    expect(body.className).not.toContain("selected");
-    expect(body.className).not.toContain("rdp");
-    expect(body.className).not.toContain("active-set");
-    // Hue custom property still emitted so CSS ambient block can resolve
-    // `hsla(var(--pv-hue), 40%, 20%, 0.16)` etc.
-    const rawStyle = body.getAttribute("style") ?? "";
-    expect(rawStyle).toContain("--pv-hue: 210");
+describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement", () => {
+  it("Test AMBIENT-RETIRED-01: row NEVER carries `.ambient` class regardless of inActiveSet / isRdp inputs", () => {
+    // Iterate all four combinations of (inActiveSet, isRdp). Phase 41 Plan 01:
+    // NO row emits the `.ambient` class under any input combination — the
+    // toggle was retired from the className composition. Ashley lock (§Ready-
+    // dot uniformity + retirement of ambient recession).
+    const combos: Array<{ inActiveSet: boolean; isRdp: boolean; label: string }> = [
+      { inActiveSet: false, isRdp: false, label: "!inActiveSet && !isRdp" },
+      { inActiveSet: true, isRdp: false, label: "inActiveSet && !isRdp" },
+      { inActiveSet: false, isRdp: true, label: "!inActiveSet && isRdp" },
+      { inActiveSet: true, isRdp: true, label: "inActiveSet && isRdp" },
+    ];
+    for (const { inActiveSet, isRdp, label } of combos) {
+      currentIdentity = isRdp ? null : makeIdentity(210, "nelly");
+      const row = isRdp
+        ? makeRow({ rdpHostRow: true, targetTmuxSession: null })
+        : makeRow();
+      const { container, unmount } = render(
+        <PrettyConversationRow
+          row={row}
+          selected={false}
+          pinned={false}
+          variant="desktop"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+          inActiveSet={inActiveSet}
+          isWorking={null}
+        />,
+      );
+      const wrapper = container.querySelector(
+        '[data-conversation-id="conv-1"]',
+      ) as HTMLElement;
+      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+      expect(body.className, `combo=${label}`).toContain("pv-row");
+      expect(body.className, `combo=${label}`).not.toContain("ambient");
+      unmount();
+    }
   });
 
-  it("Test 18b: RDP row is EXEMPT from ambient — carries `rdp` class, does NOT carry `ambient`", () => {
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={false}
-        isWorking={null}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    expect(body.className).toContain("rdp");
-    expect(body.className).not.toContain("ambient");
-    // RDP rows have no hue → no `--pv-hue` inline (CSS fallback of 216 on
-    // `.pv-row` applies but the .rdp block uses non-hue backgrounds so no
-    // visual leak).
-    const rawStyle = body.getAttribute("style") ?? "";
-    expect(rawStyle).not.toContain("--pv-hue");
+  // Phase 41 Plan 01 regression (Ashley lock #8): the ready-dot renders on
+  // every non-working, non-recycling, non-queue-pending row regardless of
+  // `inActiveSet` value. Patch #447 already dropped the inActiveSet gate;
+  // this test locks that the gate stays dropped through the ambient CSS
+  // retirement. Covers both branches (inActiveSet=true and false) so a
+  // future accidental re-introduction of the gate would fail this test.
+  it("Test READY-DOT-UNIFORM-01: ready-dot renders when isWorking===false regardless of inActiveSet", () => {
+    for (const inActiveSet of [true, false]) {
+      currentIdentity = makeIdentity(210);
+      const { queryByLabelText, unmount } = render(
+        <PrettyConversationRow
+          row={makeRow()}
+          selected={false}
+          pinned={false}
+          variant="desktop"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+          inActiveSet={inActiveSet}
+          isWorking={false}
+        />,
+      );
+      const dot = queryByLabelText("ready") as HTMLElement | null;
+      expect(dot, `inActiveSet=${inActiveSet}`).not.toBeNull();
+      expect(dot!.getAttribute("data-pv-conv-ready-dot")).toBe("true");
+      unmount();
+    }
   });
 });
 

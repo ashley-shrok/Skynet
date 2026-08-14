@@ -107,7 +107,12 @@ vi.mock("@/state/conversation-store", () => ({
   useConversations: () => ({
     activeSet: [],
     pinned: [],
-    grouped: [{ hostId: "5", hostName: "thenasty", rows: [stubRow] }],
+    // Phase 41 Plan 01: three-zone shape — flat `middle` + nullable `rdpGroup`
+    // replace the retired `grouped: HostGroup[]`. Seed the single stubRow into
+    // the flat middle so the panel renders it and downstream row-click wiring
+    // (the actual thing this test suite exercises via ContextMenu → Clone) works.
+    middle: [stubRow],
+    rdpGroup: null,
   }),
   useSelectedConversationId: () => null,
   usePinnedIds: () => new Set(),

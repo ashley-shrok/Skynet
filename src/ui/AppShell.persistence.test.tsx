@@ -116,7 +116,9 @@ beforeEach(() => {
   updateHostsFlat(new Map());
   const snap = __getSnapshotForTest();
   expect(snap.pinned.length).toBe(0);
-  expect(snap.grouped.length).toBe(0);
+  // Phase 41 Plan 01: `grouped: HostGroup[]` retired; `middle` + `rdpGroup`.
+  expect(snap.middle.length).toBe(0);
+  expect(snap.rdpGroup).toBeNull();
   expect(snap.selectedId).toBeNull();
   // Reset mount counters between tests
   mountCounts.clear();
@@ -425,9 +427,9 @@ describe("AppShell persistence contract — patch #35 tabNodesRef DOM-move (T-06
     });
 
     const snap = __getSnapshotForTest();
-    expect(snap.grouped.length).toBe(1);
-    expect(snap.grouped[0].rows.length).toBe(1);
-    const row = snap.grouped[0].rows[0];
+    // Phase 41 Plan 01: fleet-derived row lands in flat middle (no host bucket).
+    expect(snap.middle.length).toBe(1);
+    const row = snap.middle[0];
 
     // Handler's required inputs:
     //   - row.host (resolved via hostsFlat — passed to openTab)
