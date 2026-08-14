@@ -208,3 +208,4 @@ Commits exist:
 - `30acb527` — Task 1 commit: `feat(41-02): create IdentitySessionPane wrapper + component tests`
 - `f2fbff9a` — Task 2 commit: `feat(41-02): wire identity-pane dispatch, strip PrettyView from Terminal, retarget AppShell title`
 - `47080703` — Rule 1 fix: `fix(41-02): increase IdentityModal.voice Test 1 waitFor timeout to 15s (CI load flake)`
+- `43b2fb5d` — Rule 1 fix: `fix(41-02): increase waitFor timeouts in CI-flaky tests (15s) to handle full-suite load`
