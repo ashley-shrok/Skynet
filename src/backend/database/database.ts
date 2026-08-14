@@ -31,6 +31,12 @@ import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import rolesCreateRoutes from "./routes/roles-create.js";
 import globalFilesListRoutes from "./routes/global-files.js";
 import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
+// Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
+// POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook (Plan 40-02)
+// and editor open path (Plan 40-03) both consume this. Threat model
+// T-40-01 (SSRF) / T-40-02 (dir-listing spoof) mitigations enforced INSIDE
+// the route via strict CGNAT regex + path guards + content-type sniff.
+import prettyViewFetchTailnetUrlRoutes from "./routes/pretty-view-fetch-tailnet-url.js";
 import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -1849,6 +1855,11 @@ app.use("/global-files", globalFilesListRoutes);
 // router; Express chains routers so GET falls through to the list router
 // and POST/PUT fall through to this read/write router.
 app.use("/global-files", globalFilesReadWriteRoutes);
+// Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
+// POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook + editor
+// open path both consume this. Threat model T-40-01/T-40-02 mitigations
+// enforced inside the route.
+app.use("/pretty-view", prettyViewFetchTailnetUrlRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
