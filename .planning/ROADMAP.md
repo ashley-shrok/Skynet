@@ -1175,10 +1175,26 @@ Plans:
 **UI hint:** yes (new UI components: EditableFileAffordance, EditableFileModal; modification of ChatMessage/PrettyView render tree)
 ### Phase 41: Defer terminal view mount until user summons it
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 39
-**Plans:** 0 plans
+**Goal:** For identity-based sessions (where PrettyView is the default landing view), defer the mount of the Terminal component so it does not exist at all until the user summons it via Ctrl+Shift+O or long-press-identity-badge. On summon, cold-boot the terminal fully (fresh xterm, fresh SSH WebSocket, tmux reattach). Toggle back to PrettyView tears the terminal down completely (unmount, close WS) to reclaim resources. Two Terminal-owned signals PrettyView depends on today (isIdle + tab-title tmuxSession) are re-sourced from the Phase 39 fleet-status backend broadcast so PrettyView can stand alone. Scope: identity-based agent sessions only; non-identity SSH-terminal and RDP/Guacamole panes unaffected.
+
+**Requirements**: None assigned — LOCKED decisions in `41-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40 pattern per CONTEXT.md cross-reference).
+
+**Depends on:** Phase 39 (fleet-status backend broadcast + presence-driven SSH-poll lifecycle), Phase 35 (PrettyView-owned send path — makes standalone PrettyView possible)
+
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 41 to break down)
+- [x] 41-01-PLAN.md — Signal re-source (invisible P2): add `useSessionIsWorkingRaw` three-state hook + new `session-tmux-store` module + extend AppShell fleet-status callbacks to feed the tmux store + rewire PrettyView `isIdle` to derive internally from the fleet-status store; Terminal still nests PrettyView, `isIdle` prop preserved as no-op during transition; user-visible behavior unchanged
+- [ ] 41-02-PLAN.md — Pane restructure (visible P1): new `IdentitySessionPane` wrapper in `src/ui/shell/`, hoists `isPrettyMode` + `pvSendInputRef` + `pvSendInterruptRef` + `isMessageQueueOpen` + `isIdentityModalOpen`; moves `MessageQueueDrawer` + `IdentityBadge` + `IdentityModal` + session-tint out of Terminal.tsx; tabUtils dispatches identity terminal tabs to the wrapper (non-identity terminal tabs unchanged); Terminal.tsx surgically stripped of PrettyView render + all hoisted state + vestigial `isIdle` useState + `togglePrettyMode`/`toggleMessageQueue` imperative-handle entries; PrettyView props drop the `isIdle` field
+- [ ] 41-03-PLAN.md — Deploy prep (docs only, no source diffs): 41-BUILD-VERIFY-LOG.md (objective build/test posture at HEAD) + 41-UAT-CHECKLIST.md (10+ observable-behavior items cross-referencing CONTEXT.md LOCKED decisions) + 41-PATCHES-MD-ENTRY.md (paste-ready patch entry for the orchestrator). Deploy motion (docker build + compose + push + patches paste) is orchestrator-owned per fleet rule 2026-08-08. Ends with end-of-phase human UAT gate.
+
+**Wave 1**
+- [ ] 41-01-PLAN.md
+
+**Wave 2** *(blocked on 41-01 completion — signal re-source must land before pane restructure so intermediate commits never regress the user)*
+- [ ] 41-02-PLAN.md
+
+**Wave 3** *(blocked on 41-01 + 41-02 completion — docs prep + end-of-phase UAT)*
+- [ ] 41-03-PLAN.md
+
+**UI hint:** no source-visible UI redesign — this is an architectural pane composition change; PrettyView and Terminal's own surfaces are byte-unchanged. Only the mount/unmount lifecycle around Terminal changes for identity panes.
