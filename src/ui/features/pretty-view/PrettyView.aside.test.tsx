@@ -25,6 +25,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, waitFor } from "@testing-library/react";
+import {
+  publishFleetStatusSessionState,
+  __resetForTest as resetWorkingStore,
+} from "@/state/session-working-store";
+import type { SessionState } from "@/api/fleet-status-types";
 
 type WsStub = {
   readyState: number;
@@ -116,6 +121,9 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     wsStubs.length = 0;
+    // Reset session-working-store so no stale broadcast state leaks between tests.
+    // Required for C1-C3 which drive the aside-arm via publishFleetStatusSessionState.
+    resetWorkingStore();
     // Default: anonymous session (Tests 4 + baseline). Individual tests
     // override this via useSessionIdentityMock.mockReturnValue().
     useSessionIdentityMock.mockReturnValue({ identity: null, identityHue: null });
@@ -427,6 +435,167 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
       });
       expect(armSend).toBeTruthy();
     });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // C1-C3: Phase 41 Plan 01 — store-driven aside_arm tests
+  //
+  // These prove PrettyView derives isIdle from publishFleetStatusSessionState
+  // (fleet-status broadcast) rather than the isIdle prop. Because
+  // AUTO_ASIDE_ARM_ENABLED=false these are also skipped alongside Tests 3/4/7-9
+  // — they exercise the same wiring path and are inert while the flag is off.
+  // Re-enable together with the flag when the aside subsystem is re-activated.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it.skip("C1: no store publish → isIdleDerived null → aside_arm never fires on mount (null-mount regression guard)", async () => {
+    // Guard: Pitfall 1 from 41-RESEARCH.md — if isIdleDerived collapsed null to
+    // true on first mount, aside_arm would fire immediately. Null → no fire.
+    useSessionIdentityMock.mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    });
+
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    // No publishFleetStatusSessionState — store has no record for "1:s1".
+    // isIdleDerived is null on this mount. Give any deferred effects time to run.
+    await new Promise((r) => setTimeout(r, 40));
+
+    const armSend = ws.send.mock.calls.find(([data]) => {
+      try {
+        return JSON.parse(data as string).type === "aside_arm";
+      } catch {
+        return false;
+      }
+    });
+    expect(armSend).toBeUndefined();
+  });
+
+  it.skip("C2: publish {status:'busy'} then {status:'idle'} → aside_arm fires exactly once on false→true transition", async () => {
+    // Proves store-driven path fires the aside_arm on a real working→idle transition.
+    useSessionIdentityMock.mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    });
+
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
+      hostId: "1",
+      tmuxSession: "s1",
+      sessionId: "sess-1",
+      pid: 1234,
+      status: "idle",
+      backgroundTasks: [],
+      updatedAt: Date.now(),
+      ...overrides,
+    });
+
+    // First: publish working (false→false on isIdleDerived after null — no fire yet)
+    act(() => {
+      publishFleetStatusSessionState("1", makeState({ status: "busy" }));
+    });
+
+    const sendCountAfterBusy = ws.send.mock.calls.length;
+
+    // Then: transition to idle (isIdleDerived: false → true — fire!)
+    act(() => {
+      publishFleetStatusSessionState("1", makeState({ status: "idle" }));
+    });
+
+    await waitFor(() => {
+      const newCalls = ws.send.mock.calls.slice(sendCountAfterBusy);
+      const armSend = newCalls.find(([data]) => {
+        try {
+          return JSON.parse(data as string).type === "aside_arm";
+        } catch {
+          return false;
+        }
+      });
+      expect(armSend).toBeTruthy();
+    });
+  });
+
+  it.skip("C3: publish {status:'busy'} then {status:'idle'} twice → aside_arm fires exactly once (no double-fire on same-value republish)", async () => {
+    // Proves the session-working-store's no-op notify guard prevents double-fire
+    // when the same idle status is re-published without a real state change.
+    useSessionIdentityMock.mockReturnValue({
+      identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
+      identityHue: 200,
+    });
+
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
+      hostId: "1",
+      tmuxSession: "s1",
+      sessionId: "sess-1",
+      pid: 1234,
+      status: "idle",
+      backgroundTasks: [],
+      updatedAt: Date.now(),
+      ...overrides,
+    });
+
+    act(() => {
+      publishFleetStatusSessionState("1", makeState({ status: "busy" }));
+    });
+    const sendCountAfterBusy = ws.send.mock.calls.length;
+
+    // First idle publish — real transition (false → true)
+    act(() => {
+      publishFleetStatusSessionState("1", makeState({ status: "idle" }));
+    });
+
+    // Second identical idle publish — no-op notify guard; isIdleDerived stays true;
+    // prevIsIdleRef is already true so the guard (prev===false) does NOT fire.
+    act(() => {
+      publishFleetStatusSessionState(
+        "1",
+        makeState({ status: "idle", updatedAt: Date.now() + 1 }),
+      );
+    });
+
+    // Wait for effects to settle
+    await new Promise((r) => setTimeout(r, 60));
+
+    const newCalls = ws.send.mock.calls.slice(sendCountAfterBusy);
+    const armSends = newCalls.filter(([data]) => {
+      try {
+        return JSON.parse(data as string).type === "aside_arm";
+      } catch {
+        return false;
+      }
+    });
+    // Exactly one aside_arm — no double-fire
+    expect(armSends).toHaveLength(1);
   });
 
   it.skip("Test 9: isIdle transition does NOT emit aside_arm when last user turn was harness slash-UI /id XML-wrapper form", async () => {

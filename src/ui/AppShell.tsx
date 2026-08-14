@@ -85,6 +85,10 @@ import {
   publishFleetStatusSessionGone,
 } from "@/state/session-working-store";
 import { publishFleetStatusWaitingFor } from "@/state/session-waiting-store";
+import {
+  publishFleetStatusTmuxSession,
+  publishFleetStatusTmuxSessionGone,
+} from "@/state/session-tmux-store";
 // Phase 11 Plan 03 (Ashley "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -381,12 +385,21 @@ export function AppShell({
   // Phase 34 Plan 06: fleet-status control WebSocket — exactly one WS opened
   // at AppShell boot. Reconnects on drop via createFleetStatusClient's built-in
   // retry-with-backoff (mirrors patch #148 pattern). Dispatches snapshot/update/gone
-  // frames to session-working-store + session-waiting-store via the callbacks below.
+  // frames to session-working-store + session-waiting-store + session-tmux-store
+  // via the callbacks below.
   //
   // Callback wiring (per D-CTX § Composite state + Waiting bubble UX):
-  //   onSnapshot: for each SessionState → publishFleetStatusSessionState + publishFleetStatusWaitingFor
+  //   onSnapshot: for each SessionState → publishFleetStatusSessionState
+  //               + publishFleetStatusWaitingFor + publishFleetStatusTmuxSession
   //   onUpdate:   same as onSnapshot but for a single state
   //   onGone:     publishFleetStatusSessionGone + publishFleetStatusWaitingFor(null)
+  //               + publishFleetStatusTmuxSessionGone
+  //
+  // Phase 41 Plan 01: session-tmux-store is an additional dispatch target.
+  // SessionState.tmuxSession is already on the fleet-status wire — no backend
+  // change required. The store keyed by hostId:tmuxSession allows the
+  // document.title effect (Plan 41-02) and PrettyView to resolve the tmux
+  // session name when Terminal is not mounted.
   //
   // URL derivation: same protocol (ws/wss) as the page + same host + /fleet-status/ws
   // deps: [] — mount-once; reads only stable window.location at mount time.
@@ -404,6 +417,7 @@ export function AppShell({
             state.tmuxSession,
             state.status === "waiting" ? state.waitingFor ?? "input needed" : null,
           );
+          publishFleetStatusTmuxSession(state.hostId, state.tmuxSession);
         }
       },
       onUpdate: (state) => {
@@ -413,10 +427,12 @@ export function AppShell({
           state.tmuxSession,
           state.status === "waiting" ? state.waitingFor ?? "input needed" : null,
         );
+        publishFleetStatusTmuxSession(state.hostId, state.tmuxSession);
       },
       onGone: (hostId, tmuxSession, sessionId) => {
         publishFleetStatusSessionGone(hostId, tmuxSession, sessionId);
         publishFleetStatusWaitingFor(hostId, tmuxSession, null);
+        publishFleetStatusTmuxSessionGone(hostId, tmuxSession);
       },
     });
 

@@ -49,7 +49,10 @@ import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { publishSessionRecycling } from "@/state/session-recycling-store";
-import { useSessionIsWorking } from "@/state/session-working-store";
+import {
+  useSessionIsWorking,
+  useSessionIsWorkingRaw,
+} from "@/state/session-working-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
 import { WaitingBubble } from "./WaitingBubble";
 
@@ -127,11 +130,17 @@ export interface PrettyViewProps {
   // Omit when PrettyView is read-only; the Stop button then never
   // renders.
   onInterrupt?: () => void;
-  // PTY-side "Claude is currently working" signal from the terminal
-  // WebSocket (patch #13 mechanism). `false` = Claude quiet ≥4s AND
-  // foreground = claude → hide the WIP bubble. `true` = actively
-  // working → show the WIP bubble. `null` = backend has not spoken
-  // yet on the current attach → do not show (unknown).
+  // IGNORED as of Phase 41-01 — PrettyView now derives isIdle internally
+  // from the fleet-status session-working-store via useSessionIsWorkingRaw.
+  // Prop is preserved for source compatibility with Terminal.tsx (Plan 41-02
+  // removes the caller). Do not add new call sites.
+  //
+  // Prior semantics (for historical reference):
+  //   PTY-side "Claude is currently working" signal from the terminal
+  //   WebSocket (patch #13 mechanism). `false` = Claude quiet ≥4s AND
+  //   foreground = claude → hide the WIP bubble. `true` = actively
+  //   working → show the WIP bubble. `null` = backend has not spoken
+  //   yet on the current attach → do not show (unknown).
   isIdle?: boolean | null;
   // Phase 05: the terminal-pane's SSH WebSocket. When provided, the
   // upload orchestrator hook uses it to emit upload_start / upload_chunk
@@ -784,6 +793,22 @@ export function PrettyView({
   const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
   const isWorking = useSessionIsWorking(sessionWorkingKey);
 
+  // Phase 41 Plan 01: re-source isIdle from the fleet-status broadcast store
+  // instead of reading the isIdle prop (which was always null in production
+  // since Phase 34 retired the PTY-idle feeder). Three-state semantics:
+  //   null  → broadcast has never delivered for this session yet (same as
+  //           Terminal's null-on-first-mount; aside-arm and ComposeBox gate
+  //           treat null as "don't fire / don't gate open").
+  //   false → broadcast says idle (isWorking=false); isIdleDerived=true
+  //           → aside-arm may fire on false→true transition.
+  //   true  → broadcast says working; isIdleDerived=false.
+  //
+  // The incoming `isIdle` prop is accepted for backward-compat (Terminal.tsx
+  // still passes it) but is IGNORED at runtime. Plan 41-02 removes the caller.
+  const isWorkingRaw = useSessionIsWorkingRaw(sessionWorkingKey);
+  const isIdleDerived: boolean | null =
+    isWorkingRaw === null ? null : !isWorkingRaw;
+
   // Phase 34 Plan 06: fleet-status waiting signal. When the harness is in
   // 'waiting' state (permission prompt etc.), show WaitingBubble alongside
   // WipBubble. Key format matches sessionWorkingKey exactly.
@@ -832,11 +857,14 @@ export function PrettyView({
   // arm-emitter useEffect below. Holds the isIdle value from the
   // previous render so we can detect a real false→true transition
   // (agent settled after a completed turn — the WIP-indicator idle
-  // window). Initialized to the current isIdle prop so a mount with
-  // isIdle already true does NOT fire arm on first paint (per
-  // CONTEXT.md § Trigger — only real transitions arm, not the initial
-  // steady-state observation).
-  const prevIsIdleRef = useRef<boolean | null | undefined>(isIdle);
+  // window). Initialized to the current isIdleDerived value so a mount
+  // with isIdleDerived already true does NOT fire arm on first paint
+  // (per CONTEXT.md § Trigger — only real transitions arm, not the
+  // initial steady-state observation).
+  // Phase 41-01: was initialized from `isIdle` prop; now uses the
+  // store-derived `isIdleDerived` (always null on first mount since
+  // no broadcast has landed yet — same behavior as before).
+  const prevIsIdleRef = useRef<boolean | null | undefined>(isIdleDerived);
 
   // phase-29: mirror reconnectAttemptsRef into state so the wsState derivation
   // below re-runs whenever the retry counter changes. reconnectAttemptsRef is
@@ -1989,12 +2017,12 @@ export function PrettyView({
     // emit. See the AUTO_ASIDE_ARM_ENABLED declaration for the full
     // disable rationale.
     if (!AUTO_ASIDE_ARM_ENABLED) {
-      prevIsIdleRef.current = isIdle;
+      prevIsIdleRef.current = isIdleDerived;
       return;
     }
     const prev = prevIsIdleRef.current;
-    prevIsIdleRef.current = isIdle;
-    if (prev === false && isIdle === true && pvIdentity != null) {
+    prevIsIdleRef.current = isIdleDerived;
+    if (prev === false && isIdleDerived === true && pvIdentity != null) {
       // Suppress the trailing false→true transition that follows a
       // user-initiated dismiss (Escape into tmux → pane activity →
       // isIdle bounce). See dismissCooldownUntilRef declaration.
@@ -2029,7 +2057,7 @@ export function PrettyView({
         }
       }
     }
-  }, [isIdle, pvIdentity, messages]);
+  }, [isIdleDerived, pvIdentity, messages]);
 
   // Phase 14 quick-task 260726-vbd: unmount cleanup for the 60s safety timer.
   // Ensures an asidePendingTimerRef pending during component unmount does not
@@ -2613,7 +2641,7 @@ export function PrettyView({
           // stays active while the wake round-trip is in flight).
           dormantActive={renderedState === "dormant" || waking}
           contextPct={contextPct}
-          isIdle={isIdle}
+          isIdle={isIdleDerived}
           hostId={hostId}
           tmuxSession={tmuxSession}
           identityName={pvIdentity?.displayName}
