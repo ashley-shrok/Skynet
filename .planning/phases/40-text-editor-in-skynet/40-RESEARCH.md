@@ -672,7 +672,7 @@ try {
 | A9 | The proxy endpoint path `/pretty-view/fetch-tailnet-url` is free (no collision) | Pattern 3 mount | Low — `grep -rn "/pretty-view/" src/backend` returned no route matches for this URL space. `[VERIFIED via prior grep sweep]` |
 | A10 | `python3 -m http.server` may serve directory listings if the URL path is a directory | Pitfall 3 | Low — well-known Python stdlib behavior. Mitigation: the URL regex requires a non-empty filename after the port. `[ASSUMED]` — treated as defense-in-depth |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Where to mount `EditableFileModal` in the PrettyView subtree?**
    - What we know: `IdentityModal` mounts at PrettyView.tsx L2082 inside the `chatRegionEl` wrapper (portals to that ref). `GlobalFilesModal` mounts inside `PrettyConversationsPanel.tsx` (verified) with portal to document.body.

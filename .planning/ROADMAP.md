@@ -1159,10 +1159,17 @@ Plans:
 
 ### Phase 40: text editor in skynet
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 39
-**Plans:** 0 plans
+**Goal:** An in-app text editor inside Skynet's pretty-view chat surface — Ashley taps the pencil affordance next to an agent-served tailnet URL, edits the file in a modal that reuses the Global Files edit shell, and hits Save to deposit the edited version into her ComposeBox as a fresh attachment; the return trip to the agent rides Skynet's existing reply-with-attachment path. Load-bearing case is mobile (iPhone PWA) where the current multi-agent-round-trip workflow has no viable equivalent.
+
+**Requirements:** No REQ-IDs assigned — LOCKED decisions D-01..D-07 in `.planning/phases/40-text-editor-in-skynet/40-CONTEXT.md` are the de-facto requirements. `must_haves` at plan-level enumerate them.
+**Depends on:** Phase 5 (upload/attachment pipeline this deposit rides on) + Phase 23 GEFM-05 (Global Files edit modal + `GlobalFileTab` — reuse target for the editor UX). Phase-number ordering (39 immediately before) is calendric only, not a functional dependency.
+**Plans:** 5 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 40 to break down)
+- [ ] 40-01-PLAN.md — Backend SSRF-hardened proxy POST /pretty-view/fetch-tailnet-url + shared whitelist/basename constants + inline byte-sniff heuristic + backend unit tests (D-01, D-02, D-04 backend half; T-40-01 SSRF, T-40-02 dir-listing HTML spoof mitigations)
+- [ ] 40-02-PLAN.md — Frontend `fetchTailnetUrl` axios helper + byte-identical whitelist twin + `useEditableFileEligibility` per-message hook (extension-sync-then-byte-sniff-async classifier) + tests; discard-cached-bytes D-04 invariant enforced structurally (D-01, D-02, D-04 frontend half)
+- [ ] 40-03-PLAN.md — `EditableFileAffordance` (Pencil sibling button — desktop hover-reveal, mobile always-visible 44x44) + `EditableFileModal` (forked GlobalFilesModal chrome minus host picker + tabs bar; verbatim `GlobalFileTab` body; fresh-fetch-at-open lifecycle; error-body-plus-toast on re-fetch fail; save deposits to onStageEditedFile callback) + component tests (D-03, D-04, D-05, D-06)
+- [ ] 40-04-PLAN.md — `ChatMessage.tsx` wiring (hook call + `a` override extension to render affordance sibling + `pv-bubble` class token on bubble container) + `PrettyView.tsx` wiring (modal mount alongside IdentityModal at document.body portal; open-state useState; onOpenEditor callback threaded to ChatMessage; onStageEditedFile → uploads.stageAttachments('primary', [File]) closing the D-07 loop into existing send pipeline) + wiring tests (D-03, D-06, D-07)
+- [ ] 40-05-PLAN.md — Deploy-prep docs artifacts: 40-BUILD-VERIFY-LOG.md (objective build/test posture at HEAD) + 40-UAT-CHECKLIST.md (7-item post-deploy walk covering each D-XX observable behavior on production) + 40-PATCHES-MD-ENTRY.md (paste-ready patch entry for the maintainer); ends with a BLOCKING human-verify checkpoint per `human_verify_mode: end-of-phase`. Deploy motion (docker build + docker compose up + git push + patches paste) is the maintainer's remit — NOT the executor's.
+
+**UI hint:** yes (new UI components: EditableFileAffordance, EditableFileModal; modification of ChatMessage/PrettyView render tree)
