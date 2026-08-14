@@ -119,6 +119,18 @@ class MockRegistry implements SubscriptionRegistry {
   getSnapshot(): SessionState[] {
     return this.publishedStates.map((p) => p.state);
   }
+
+  // Phase 39 — presence-signal stubs to satisfy the extended
+  // SubscriptionRegistry interface. Orchestrator tests do not exercise
+  // the lifecycle events at this layer; that behavior is covered by
+  // subscription-registry.test.ts Tests 8-14.
+  onFirstSubscriber(_cb: (ctx: { userId: string }) => void): () => void {
+    return () => {};
+  }
+
+  onLastUnsubscriber(_cb: () => void): () => void {
+    return () => {};
+  }
 }
 
 // ---------------------------------------------------------------------------
