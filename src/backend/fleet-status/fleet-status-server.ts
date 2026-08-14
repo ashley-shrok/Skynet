@@ -239,7 +239,7 @@ async function handleFrontendConnection(
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify(outFrame));
         }
-      });
+      }, { userId: userId! });
     } else if (frame.type === "ping") {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(makePongFrame()));
