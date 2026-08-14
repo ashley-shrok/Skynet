@@ -255,13 +255,14 @@ export default function EditableFileModal({
             // copy is Phase-40-specific (agent-server auto-kill guidance).
             <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-8 text-center">
               <div className="text-lg font-semibold text-[#f0ebe0]">
-                Can&apos;t fetch the current file.
+                {"Can't fetch the current file."}
               </div>
               <div className="text-sm text-[#a89a80] max-w-md">
-                The agent&apos;s temporary server may have shut down (they
-                auto-kill after 30 minutes) or the network is unreachable.
-                Ask the agent to re-share the file if you still want to edit
-                it.
+                {/* UI-SPEC L110 verbatim (Task 3 grep gate depends on the
+                    literal apostrophe — use a JS string expression to keep
+                    the source text exact without triggering the JSX
+                    react/no-unescaped-entities lint rule). */}
+                {"The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it."}
               </div>
               <button
                 type="button"
