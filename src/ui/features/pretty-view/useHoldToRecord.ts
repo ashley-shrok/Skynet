@@ -89,6 +89,20 @@ import type {
  */
 export const HOLD_THRESHOLD_MS = 250;
 
+/**
+ * Bounds tolerance for the release-inside check (post-quick-260814-iwy iOS UAT
+ * follow-up 2026-08-14). Real touch releases wobble a few px around the finger's
+ * intended target; the strict getBoundingClientRect check treated 5-10px of
+ * wobble the same as a deliberate slide-off gesture and routed valid long-press
+ * sends to cancel. 40px is wide enough to swallow finger wobble but narrow enough
+ * that an intentional slide-off (30-50px+ of motion) still reads as cancel.
+ * Also motivates dropping the pointerLeave-driven `outOfBoundsRef` short-circuit —
+ * iOS Safari fires `pointerleave` even under `setPointerCapture` on small
+ * wobbles, and the strict "leave once = cancel" rule was too twitchy for the
+ * design intent ("committed slide-off").
+ */
+export const BOUNDS_TOLERANCE_PX = 40;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -199,6 +213,13 @@ export function useHoldToRecord(
   /** Set true by onPointerLeave so a subsequent pointerup routes to cancel. */
   const outOfBoundsRef = useRef<boolean>(false);
   /**
+   * Sync mirror of the holdCommitted useState, so pointerCancel can read the
+   * committed-vs-window state without waiting for a re-render (2026-08-14 iOS
+   * UAT follow-up — permission-prompt pointercancel that fires before the
+   * 250ms threshold must NOT be treated as a hold-cancel).
+   */
+  const holdCommittedRef = useRef<boolean>(false);
+  /**
    * True from the moment voice.start is called (in pointerdown) until pointerup
    * / pointercancel clears it. Consumer reads this during render to gate
    * showRecordingControls (B-3 fix).
@@ -228,6 +249,7 @@ export function useHoldToRecord(
   const resetGestureState = useCallback((): void => {
     setHoldActive(false);
     setHoldCommitted(false);
+    holdCommittedRef.current = false;
     startedRecordingRef.current = false;
     outOfBoundsRef.current = false;
     holdInitiatedRef.current = false;
@@ -268,6 +290,7 @@ export function useHoldToRecord(
       outOfBoundsRef.current = false;
       setHoldActive(true);
       setHoldCommitted(false);
+      holdCommittedRef.current = false;
 
       if (holdTimerRef.current !== null) {
         clearTimeout(holdTimerRef.current);
@@ -280,6 +303,7 @@ export function useHoldToRecord(
         // transition (and audio cue) precede the UI visual commit.
         voice.commitStartVisibility();
         setHoldCommitted(true);
+        holdCommittedRef.current = true;
       }, effectiveThreshold);
 
       // Pointer capture — recommended in CONTEXT.md § "Claude's Discretion"
@@ -304,17 +328,23 @@ export function useHoldToRecord(
       let withinBounds = true;
       try {
         const rect = e.currentTarget.getBoundingClientRect();
+        const tol = BOUNDS_TOLERANCE_PX;
         withinBounds =
-          e.clientX >= rect.left &&
-          e.clientX <= rect.right &&
-          e.clientY >= rect.top &&
-          e.clientY <= rect.bottom;
+          e.clientX >= rect.left - tol &&
+          e.clientX <= rect.right + tol &&
+          e.clientY >= rect.top - tol &&
+          e.clientY <= rect.bottom + tol;
       } catch {
         // Defensive: if getBoundingClientRect throws (shouldn't in practice),
         // treat as in-bounds so we don't accidentally cancel a valid send.
         withinBounds = true;
       }
-      if (outOfBoundsRef.current) withinBounds = false;
+      // 2026-08-14 iOS UAT follow-up: outOfBoundsRef is no longer consulted —
+      // pointerleave fires spuriously under setPointerCapture on iOS Safari
+      // even for small finger wobbles. The tolerance-widened rect check above
+      // is the sole source of truth for release-inside. The ref is still SET
+      // by onPointerLeave (kept for log-forensic purposes) but no longer
+      // influences the branch decision.
 
       // Clear the hold-committed timer regardless of branch.
       if (holdTimerRef.current !== null) {
@@ -407,9 +437,25 @@ export function useHoldToRecord(
 
   const onPointerCancel = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>): void => {
-      // Same teardown as pointerup's "out of bounds" branch — pointercancel
-      // arrives when the browser interrupts the gesture (e.g., touch canceled
-      // by a system gesture); we treat it as a committed cancel.
+      // pointercancel arrives when the browser interrupts the gesture — either
+      // a benign system-level pre-emption (iOS mic-permission prompt, callout
+      // menu, magnifier) OR an actual user cancellation. We can't distinguish
+      // directly, so we branch on whether the hold had crossed threshold:
+      //
+      //   Case A (short-tap window, holdCommittedRef === false) AND caller opted
+      //   in via keepRecordingOnShortTap: this is almost certainly a benign
+      //   interrupt on a mic-button tap (permission prompt on first-tap after
+      //   page load being the canonical case — iOS shows the prompt mid-gesture
+      //   and fires pointercancel to release the mic button). Cancelling here
+      //   would strand the recording. Instead call voice.commitStartVisibility
+      //   (idempotent no-op if state !== "starting", or arms pendingCommitRef
+      //   for .then() to consume) so the recording continues into
+      //   RecordingControls. Symmetric with pointerup short-tap-keep branch.
+      //
+      //   Case B (committed hold OR opt-out): pre-existing behavior — cancel.
+      //
+      // 2026-08-14 iOS UAT follow-up; before this branch every first-tap-with-
+      // permission-prompt required a second tap to actually record.
       if (holdTimerRef.current !== null) {
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
@@ -420,7 +466,11 @@ export function useHoldToRecord(
         // ignore
       }
       if (startedRecordingRef.current) {
-        void voice.cancel();
+        if (keepRecordingOnShortTap === true && !holdCommittedRef.current) {
+          voice.commitStartVisibility();
+        } else {
+          void voice.cancel();
+        }
       }
       // quick-260814-iwy: forensic log for iOS pointercancel diagnosis. Emitted
       // AFTER the cancel branch runs, BEFORE resetGestureState() mutates the
@@ -435,7 +485,7 @@ export function useHoldToRecord(
       );
       resetGestureState();
     },
-    [voice, resetGestureState],
+    [voice, resetGestureState, keepRecordingOnShortTap],
   );
 
   const onPointerLeave = useCallback(
