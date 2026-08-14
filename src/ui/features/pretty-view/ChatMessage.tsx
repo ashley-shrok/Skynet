@@ -311,7 +311,7 @@ export function ChatMessage({
           // Phase 4 Glass: raised-object bubble treatment.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)]",
-          isUser ? "pl-[12px] pr-[6px] py-[5px]" : "pl-[12px] pr-[42px] pt-[5px] pb-0",
+          isUser ? "px-[12px] py-[5px]" : "pl-[6px] pr-[42px] pt-[5px] pb-0",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
           "border border-white/[0.08]",
