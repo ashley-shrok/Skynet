@@ -124,10 +124,11 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
 
   /**
    * mountWithRefs — renders PrettyView with the ref-forwarding registration
-   * surface and a second terminalWsMock stub passed as the terminalWs prop.
-   * The second stub lets every test assert that the terminal WS received zero
-   * sends (defense-in-depth against accidental cross-wiring to the terminal WS
-   * after the Phase 35 cutover).
+   * surface. After Phase 41-04, PrettyView no longer accepts a terminalWs prop —
+   * uploads are sourced from PrettyView's own claude-session WS (wsRef.current,
+   * the same WS opened via openClaudeSessionSocket()). The defense-in-depth
+   * against accidental cross-wiring to a terminal WS is now structural: there is
+   * no terminal WS prop on the component at all.
    */
   function mountWithRefs() {
     const sendInputRef: { current: ((text: string, mqid?: string) => boolean) | null } = {
@@ -135,30 +136,12 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
     };
     const sendInterruptRef: { current: (() => void) | null } = { current: null };
 
-    // Second WsStub representing the terminal SSH WS that PrettyView receives
-    // via its terminalWs prop in production (per PVWS-11: the
-    // terminalWs={webSocketRef.current} prop at Terminal.tsx stays wired to
-    // the terminal WS after cutover; it feeds usePrettyViewUploads).
-    const terminalWsMock: WsStub = {
-      readyState: 1,
-      bufferedAmount: 0,
-      send: vi.fn(),
-      close: vi.fn(),
-      onmessage: null,
-      onopen: null,
-      onerror: null,
-      onclose: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    };
-
     const { container } = render(
       <PrettyView
         hostId={1}
         tmuxSession="s1"
         isVisible={true}
         onSend={() => true}
-        terminalWs={terminalWsMock as unknown as WebSocket}
         onRegisterSendInput={(fn) => {
           sendInputRef.current = fn;
         }}
@@ -174,11 +157,11 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
       />,
     );
 
-    return { sendInputRef, sendInterruptRef, terminalWsMock, container };
+    return { sendInputRef, sendInterruptRef, container };
   }
 
-  it("Test 1: pretty-view composebox single-event split-send fires {type:input} on pretty-view WS; terminal WS receives zero sends", async () => {
-    const { sendInputRef, terminalWsMock } = mountWithRefs();
+  it("Test 1: pretty-view composebox single-event split-send fires {type:input} on pretty-view WS", async () => {
+    const { sendInputRef } = mountWithRefs();
 
     flipToStreaming(getCurrentWs());
 
@@ -216,13 +199,10 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
       }
     });
     expect(rawKeystrokesFrames).toHaveLength(0);
-
-    // Defense-in-depth: terminal WS must receive zero sends.
-    expect(terminalWsMock.send).not.toHaveBeenCalled();
   });
 
-  it("Test 2: onInterrupt fires {type:interrupt} on pretty-view WS; terminal WS receives zero sends", async () => {
-    const { sendInterruptRef, terminalWsMock } = mountWithRefs();
+  it("Test 2: onInterrupt fires {type:interrupt} on pretty-view WS", async () => {
+    const { sendInterruptRef } = mountWithRefs();
 
     flipToStreaming(getCurrentWs());
 
@@ -256,13 +236,10 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
       }
     });
     expect(rawKeystrokesFrames).toHaveLength(0);
-
-    // Defense-in-depth: terminal WS must receive zero sends.
-    expect(terminalWsMock.send).not.toHaveBeenCalled();
   });
 
   it("Test 3: handleInjectedTurnReady two-event pattern — body first (no mqid), then 60ms-delayed \\r+mqid", async () => {
-    const { sendInputRef, terminalWsMock } = mountWithRefs();
+    const { sendInputRef } = mountWithRefs();
 
     flipToStreaming(getCurrentWs());
 
@@ -339,15 +316,13 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
       });
       expect(rawKeystrokesFrames).toHaveLength(0);
 
-      // Defense-in-depth: terminal WS must receive zero sends across both events.
-      expect(terminalWsMock.send).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
   });
 
   it("Test 4: MessageQueueDrawer.onSend two-event pattern — body-text first, then 60ms-delayed \\r+mq-42", async () => {
-    const { sendInputRef, terminalWsMock } = mountWithRefs();
+    const { sendInputRef } = mountWithRefs();
 
     flipToStreaming(getCurrentWs());
 
@@ -423,15 +398,13 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
       });
       expect(rawKeystrokesFrames).toHaveLength(0);
 
-      // Defense-in-depth: terminal WS must receive zero sends.
-      expect(terminalWsMock.send).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("Test 5: WS-closed regression — sendInput returns false and does not call ws.send; terminal WS zero sends", async () => {
-    const { sendInputRef, terminalWsMock } = mountWithRefs();
+  it("Test 5: WS-closed regression — sendInput returns false and does not call ws.send", async () => {
+    const { sendInputRef } = mountWithRefs();
 
     flipToStreaming(getCurrentWs());
 
@@ -470,9 +443,5 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
       }
     });
     expect(rawKeystrokesFrames).toHaveLength(0);
-
-    // Defense-in-depth: CLOSED pretty-WS must NEVER trigger fallback write to
-    // the terminal WS.
-    expect(terminalWsMock.send).not.toHaveBeenCalled();
   });
 });

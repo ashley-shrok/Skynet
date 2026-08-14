@@ -268,11 +268,6 @@ export const IdentitySessionPane = forwardRef<TerminalHandle, IdentitySessionPan
               if (!send) return;
               send();
             }}
-            // TODO(41-followup): pass Terminal's webSocketRef.current here when
-            // Terminal is mounted so upload chips work in terminal mode. For now
-            // uploads are disabled while Terminal is unmounted — correct since
-            // you can't upload to a disconnected session (RESEARCH.md line 302).
-            terminalWs={null}
             onInjectedTurnReady={handleInjectedTurnReady}
             // Phase 35 ref-forwarding registration surface for pretty-view outbound
             // writes. IdentitySessionPane holds pvSendInputRef / pvSendInterruptRef

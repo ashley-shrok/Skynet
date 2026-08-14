@@ -134,14 +134,6 @@ export interface PrettyViewProps {
   // internally from the fleet-status session-working-store via
   // useSessionIsWorkingRaw (wired in Phase 41-01). Terminal.tsx no longer
   // renders PrettyView; IdentitySessionPane renders it without this prop.
-  // Phase 05: the terminal-pane's SSH WebSocket. When provided, the
-  // upload orchestrator hook uses it to emit upload_start / upload_chunk
-  // and to listen for upload_progress / upload_complete / upload_failed /
-  // upload_ready_to_inject events. When null/undefined, uploads are
-  // effectively disabled — chip strip / drop overlay still render but
-  // startBatch will park pending until the WS arrives (in practice
-  // Terminal.tsx passes the live ref; Plan 03 wires this end).
-  terminalWs?: WebSocket | null;
   // Phase 05: fires when upload_ready_to_inject arrives from the backend
   // for a completed batch. The text is the formatInjectedUserTurn(...)
   // output (caption + delimiter + per-file metadata lines) and the
@@ -316,7 +308,6 @@ export function PrettyView({
   style,
   onSend,
   onInterrupt,
-  terminalWs,
   onInjectedTurnReady,
   onTogglePrettyMode,
   isVisible,
@@ -898,18 +889,22 @@ export function PrettyView({
 
   // Phase 05: upload orchestrator. Owns staged-attachment state, chunk
   // pump, batch atomicity, retry API, and the onUploadReadyToInject seam.
-  // Wired to the terminalWs prop; when the caller doesn't provide a WS
-  // (read-only PrettyView), uploads are effectively parked (startBatch
-  // still works but sits in pending state).
+  // Phase 41 Plan 04 (D-06 → close-verdict follow-up): Uploads rewired off
+  // Terminal SSH WS per shape close-verdict follow-up. usePrettyViewUploads
+  // now receives PrettyView's own claude-session WS opened via
+  // openClaudeSessionSocket() at L1213. Before the WS opens (wsRef.current
+  // is null), uploads park in pendingSendWaitingForWs — same semantics as
+  // before. When the WS reconnects (patch #148 retryKey path), wsRef.current
+  // is updated and the hook re-attaches on the next render.
   const uploads = usePrettyViewUploads({
-    ws: terminalWs ?? null,
+    ws: wsRef.current,
     onUploadReadyToInject: ({ messageQueueItemId, files, caption }) => {
       const injectedText = formatInjectedUserTurn({ caption, files });
       onInjectedTurnReady?.(injectedText, messageQueueItemId);
       // Clear staging after the injected turn is handed off.
       uploads.resetBatch();
     },
-    getBufferedAmount: () => terminalWs?.bufferedAmount ?? 0,
+    getBufferedAmount: () => wsRef.current?.bufferedAmount ?? 0,
   });
 
   // Phase 32: paneKey moved upstream — see Change 5 site above handleComposeSend.
