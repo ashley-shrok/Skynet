@@ -1625,32 +1625,7 @@ export function ComposeBox({
   const primaryArmed = isSourceArmed("primary");
   const isPrimaryRecording = voice.state === "recording" && micTarget === "primary";
   const isPrimaryTranscribing = voice.state === "transcribing" && micTarget === "primary";
-  const showMicButton =
-    typeof navigator !== "undefined" &&
-    navigator.mediaDevices != null &&
-    !isPrimaryRecording &&
-    !isPrimaryTranscribing &&
-    !asideActive &&
-    !primaryArmed;
-  const showPrimaryArmButton =
-    !asideActive &&
-    !primaryArmed &&
-    text.trim() !== "" &&
-    !recycleActive &&
-    !planPendingActive &&
-    !reconnectingActive;
   const showTranscribingSend = isPrimaryTranscribing;
-  // Quick 260802-uow bounty 3: when 3 buttons render on the primary
-  // (send at right-1 + mic at right-11 + arm-idle at right-21), pr-10
-  // is undersized — typed text visually crowds under the mic and
-  // arm-idle icons. Bump right padding to pr-32 (128px) only when the
-  // 3-button state is active. 2-button states keep pr-10.
-  const primaryThreeButtonState = showMicButton && showPrimaryArmButton;
-
-  // Phase 16: merge voice.errorMessage into the existing displayError. The error
-  // display block renders only one message at a time; voice errors are transient
-  // (cleared when recording starts again), so they coexist safely with compose errors.
-  const displayError = errorMessage ?? voice.errorMessage;
 
   // Patch #129: inside-textarea Send button disabled predicate. Locked with
   // Ashley 2026-07-23 (console-iterated visual). Vehicle C v2 (2026-08-01):
@@ -1667,6 +1642,10 @@ export function ComposeBox({
   //     as "not sendable" would over-disable. Matches every other button in
   //     this file (see `disabled={canSend === false}` on the aux-row buttons).
   //   - text.trim() === "" && !hasAttachments → disabled (nothing to send).
+  //
+  // NOTE (Quick 260814-1hz): moved above `showMicButton` so it is in scope
+  // for the primaryHold construction (which itself moved up so its
+  // holdInitiatedRef can be read inside showMicButton).
   const sendDisabled =
     primaryArmed ||
     recycleActive === true ||
@@ -1684,8 +1663,12 @@ export function ComposeBox({
   // guard inside useHoldToRecord makes the short-tap idempotent against
   // MicButton's own onClick={() => beginRecord("primary")}. holdInitiatedRef
   // is consumed at showRecordingControls (B-3, keeps RecordingControls hidden
-  // during a hold) and — Task 3 — at showMicButton (keeps MicButton mounted
-  // during a hold so setPointerCapture stays attached).
+  // during a hold) AND at showMicButton (keeps MicButton mounted during a
+  // hold so setPointerCapture stays attached and the hook's onPointerUp
+  // fires on release).
+  //
+  // NOTE (Quick 260814-1hz): moved above `showMicButton` so the predicate
+  // below can read primaryHold.holdInitiatedRef.current.
   const primaryHold = useHoldToRecord({
     voice,
     onShortTap: () => {
@@ -1697,6 +1680,45 @@ export function ComposeBox({
     asideActive,
     disabled: sendDisabled || showTranscribingSend,
   });
+
+  // showMicButton — see comment above (L1587). Quick 260814-1hz adds the
+  // holdInitiatedRef disjuncts: during a hold-initiated recording,
+  // holdInitiatedRef is true, so keep MicButton mounted through the
+  // voice.state transitions (idle → starting → recording → transcribing).
+  // Symmetric to showRecordingControls's B-3 gate below (which keeps
+  // RecordingControls HIDDEN during a hold); together they preserve the
+  // CONTEXT.md § "Visual during hold" LOCKED rule "the button the user is
+  // pressing does not morph" under the mic-hosted-gesture design.
+  // Both isPrimaryRecording AND isPrimaryTranscribing disjuncts are needed:
+  // after release-to-send, state transitions "recording" → "transcribing"
+  // during the STT round-trip and holdInitiatedRef stays true until the
+  // hook's resetGestureState() runs at the end of the send flow.
+  const showMicButton =
+    typeof navigator !== "undefined" &&
+    navigator.mediaDevices != null &&
+    (!isPrimaryRecording || primaryHold.holdInitiatedRef.current) &&
+    (!isPrimaryTranscribing || primaryHold.holdInitiatedRef.current) &&
+    !asideActive &&
+    !primaryArmed;
+  const showPrimaryArmButton =
+    !asideActive &&
+    !primaryArmed &&
+    text.trim() !== "" &&
+    !recycleActive &&
+    !planPendingActive &&
+    !reconnectingActive;
+  // Quick 260802-uow bounty 3: when 3 buttons render on the primary
+  // (send at right-1 + mic at right-11 + arm-idle at right-21), pr-10
+  // is undersized — typed text visually crowds under the mic and
+  // arm-idle icons. Bump right padding to pr-32 (128px) only when the
+  // 3-button state is active. 2-button states keep pr-10.
+  const primaryThreeButtonState = showMicButton && showPrimaryArmButton;
+
+  // Phase 16: merge voice.errorMessage into the existing displayError. The error
+  // display block renders only one message at a time; voice errors are transient
+  // (cleared when recording starts again), so they coexist safely with compose errors.
+  const displayError = errorMessage ?? voice.errorMessage;
+
   // B-3 (Phase 32): gate on !holdInitiatedRef so a hold-initiated recording
   // does NOT swap in RecordingControls under the pointer (CONTEXT.md § Visual
   // during hold — LOCKED). The mic-tap path leaves holdInitiatedRef false, so
@@ -2690,29 +2712,13 @@ function QueuedRow(props: QueuedRowProps) {
   const slotArmed = isSourceArmed(slot.id);
   const slotHasText = slot.text.trim() !== "";
   const isSlotActiveMic = isSlotRecording || isSlotTranscribing;
-  const showSlotMic =
-    typeof navigator !== "undefined" &&
-    navigator.mediaDevices != null &&
-    !isSlotActiveMic &&
-    !asideActive &&
-    !slotArmed;
-  // Ashley 2026-08-10: dormantActive gate removed here — parallel treatment
-  // to showPrimaryArmButton (see comment there). Arm is pure client state;
-  // dispatch is isIdle-gated so the armed slot naturally sits until the woken
-  // pane's Claude reports idle, then fires. Sibling recycle/plan/reconnect
-  // gates deliberately preserved (scoped ask).
-  const showSlotArmButton =
-    !asideActive &&
-    !slotArmed &&
-    slotHasText &&
-    !planPendingActive &&
-    !reconnectingActive;
   const showSlotTranscribingSend = isSlotTranscribing;
-  // Quick 260802-uow bounty 3 (parity with primary): bump right padding
-  // when send + mic + arm-idle all render together.
-  const slotThreeButtonState = showSlotMic && showSlotArmButton;
   // M-2 (Phase 32): extract disabled predicate as a shared local so the JSX
   // disabled prop and the useHoldToRecord disabled arg cannot silently drift.
+  //
+  // NOTE (Quick 260814-1hz): moved above `showSlotMic` so it is in scope for
+  // the slotHold construction (which itself moved up so its holdInitiatedRef
+  // can be read inside showSlotMic).
   const slotSendDisabled =
     showSlotTranscribingSend ||
     slot.text.trim() === "" ||
@@ -2727,6 +2733,10 @@ function QueuedRow(props: QueuedRowProps) {
   // its direct onClick={handleQueueSlotSend} back below. Pointer handlers
   // spread onto MicButton at ~L2949. Same voice.state !== "idle" guard makes
   // the short-tap idempotent against MicButton's own onClick.
+  //
+  // NOTE (Quick 260814-1hz): moved above `showSlotMic` so the predicate
+  // below can read slotHold.holdInitiatedRef.current — keeps the slot mic
+  // mounted during a hold-initiated slot recording (parity with primary).
   const slotHold = useHoldToRecord({
     voice,
     onShortTap: () => beginRecord(slot.id),
@@ -2736,6 +2746,34 @@ function QueuedRow(props: QueuedRowProps) {
     asideActive: asideActive ?? false,
     disabled: slotSendDisabled,
   });
+  // Quick 260814-1hz: `|| slotHold.holdInitiatedRef.current` disjunct on the
+  // isSlotActiveMic gate keeps the slot MicButton mounted through the voice
+  // .state transitions of a hold-initiated slot recording (idle → starting
+  // → recording → transcribing). Symmetric to showSlotRecording's B-3 gate
+  // below. Preserves the CONTEXT.md § "Visual during hold" LOCKED rule "the
+  // button the user is pressing does not morph" under the mic-hosted-gesture
+  // design. The isSlotActiveMic local already collapses recording +
+  // transcribing, so a single disjunct covers both states.
+  const showSlotMic =
+    typeof navigator !== "undefined" &&
+    navigator.mediaDevices != null &&
+    (!isSlotActiveMic || slotHold.holdInitiatedRef.current) &&
+    !asideActive &&
+    !slotArmed;
+  // Ashley 2026-08-10: dormantActive gate removed here — parallel treatment
+  // to showPrimaryArmButton (see comment there). Arm is pure client state;
+  // dispatch is isIdle-gated so the armed slot naturally sits until the woken
+  // pane's Claude reports idle, then fires. Sibling recycle/plan/reconnect
+  // gates deliberately preserved (scoped ask).
+  const showSlotArmButton =
+    !asideActive &&
+    !slotArmed &&
+    slotHasText &&
+    !planPendingActive &&
+    !reconnectingActive;
+  // Quick 260802-uow bounty 3 (parity with primary): bump right padding
+  // when send + mic + arm-idle all render together.
+  const slotThreeButtonState = showSlotMic && showSlotArmButton;
   // B-3 (Phase 32, slot variant): gate on !holdInitiatedRef so a hold-initiated
   // slot recording does NOT swap in RecordingControls under the pointer
   // (CONTEXT.md § Visual during hold — LOCKED). Mic-tap slot path leaves
