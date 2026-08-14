@@ -184,9 +184,45 @@ export async function installStopHook(
   channel: SshChannel,
   opts: InstallOpts = {},
 ): Promise<InstallResult> {
-  const remoteHookPath = opts.remoteHookPath ?? DEFAULT_REMOTE_HOOK_PATH;
-  const remotePayloadDir = opts.remotePayloadDir ?? DEFAULT_REMOTE_PAYLOAD_DIR;
+  const legacyHookPath = opts.remoteHookPath ?? DEFAULT_REMOTE_HOOK_PATH;
+  const legacyPayloadDir = opts.remotePayloadDir ?? DEFAULT_REMOTE_PAYLOAD_DIR;
+
+  // Resolve remote $HOME once and substitute for `~/` prefix in the defaults.
+  // bash suppresses tilde expansion inside DOUBLE-QUOTED shell strings, and
+  // the mkdir/cat/mv/test commands below all quote their path arguments (safe
+  // for paths with spaces). Without this substitution, `mkdir -p "~/.claude/..."`
+  // creates a literal `~` subdirectory under cwd instead of expanding to
+  // $HOME (patch #453 aftermath — file landed at /home/ubuntu/~/.claude/…).
+  // Resolving to an absolute path also means settings.json stores an absolute
+  // command (not `~/...`), which is what Claude Code's hook runner expects.
+  const homeRaw = await channel.exec("echo $HOME");
+  const home = homeRaw?.trim() ?? "";
+  if (!home || home.startsWith("~") || !home.startsWith("/")) {
+    systemLogger.warn(
+      "Fleet-status: remote $HOME resolution failed",
+      {
+        operation: "fleet_status_hook_install_home_resolve_failed",
+        homeRaw,
+      },
+    );
+    throw new Error(
+      `fleet_status_hook_install_home_resolve_failed: echo $HOME returned ${JSON.stringify(homeRaw)}`,
+    );
+  }
+  const expandTilde = (p: string): string =>
+    p.startsWith("~/") ? `${home}${p.slice(1)}` : p;
+
+  const remoteHookPath = expandTilde(legacyHookPath);
+  const remotePayloadDir = expandTilde(legacyPayloadDir);
   const remoteHookDir = remoteHookPath.replace(/\/[^/]+$/, ""); // dirname
+
+  // Migration: remove the literal `~` subdirectory left by prior installs
+  // where tilde was suppressed inside double-quoted shell strings (fleet
+  // shipped by patch #453 before this fix). Belt-and-suspenders — even if
+  // the settings.json merge below also strips the legacy entry, the on-disk
+  // litter would confuse future maintainers. `rm -rf "$home/~"` is bounded
+  // to a single directory name; ignored quietly if it doesn't exist.
+  await channel.exec(`rm -rf "${home}/~"`);
 
   // Step 1: Resolve hook script contents.
   // Default path uses the inlined STOP_HOOK_SCRIPT_CONTENTS constant — no
@@ -273,9 +309,34 @@ export async function installStopHook(
     }
   }
 
-  // Step 6: Merge (pure, no mutation)
+  // Step 6a: Migration — strip any legacy tilde-form Stop hook entry before
+  // merging the new absolute-form entry. Boxes previously "installed" by
+  // patch #453 (pre-tilde-fix) have `command: "~/.claude/hooks/..."` which
+  // won't match the absolute `remoteHookPath` we merge below; leaving it
+  // would create a duplicate Stop hook entry. Only strip when the substitution
+  // actually happened (legacyHookPath !== remoteHookPath).
+  let settingsForMerge: Record<string, unknown> = currentSettings;
+  if (legacyHookPath !== remoteHookPath) {
+    const hooks = currentSettings.hooks as Record<string, unknown> | undefined;
+    const Stop = hooks?.Stop as Array<{ hooks?: Array<{ command?: string }> }> | undefined;
+    if (Array.isArray(Stop)) {
+      const strippedStop = Stop.map((group) => {
+        if (!Array.isArray(group.hooks)) return group;
+        return {
+          ...group,
+          hooks: group.hooks.filter((e) => e.command !== legacyHookPath),
+        };
+      });
+      settingsForMerge = {
+        ...currentSettings,
+        hooks: { ...(hooks ?? {}), Stop: strippedStop },
+      };
+    }
+  }
+
+  // Step 6b: Merge (pure, no mutation)
   const { merged, alreadyInstalled } = readAndMergeStopHookSettings(
-    currentSettings,
+    settingsForMerge,
     remoteHookPath,
   );
 

@@ -226,6 +226,11 @@ describe("installStopHook", () => {
 
   function buildChannel(settingsJson?: string): MockSshChannel {
     const channel = new MockSshChannel();
+    // remote $HOME resolution (patch #454) — must come before other responses
+    // so callers get an absolute-path expansion of `~/…` defaults.
+    channel.setResponse("echo $HOME", "/home/testuser\n");
+    // literal `~` cleanup (patch #454) — no-op response OK
+    channel.setResponse('rm -rf "/home/testuser/~"', "");
     // mkdir succeeds
     channel.setResponse("mkdir -p", "");
     // script write succeeds (any heredoc/tmp/mv pattern)
@@ -264,7 +269,69 @@ describe("installStopHook", () => {
     expect(settingsWriteCalls).toBeGreaterThan(0);
   });
 
-  it("Test 4: idempotent — second install skips settings write when entry already present", async () => {
+  it("Test 4: idempotent — second install skips settings write when absolute-path entry already present", async () => {
+    // Post-patch-#454: settings.json stores the ABSOLUTE (tilde-expanded) path.
+    const existingSettings = JSON.stringify({
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const channel = buildChannel(existingSettings);
+    const result = await installStopHook(channel, {
+      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+    });
+
+    expect(result.hookInstalled).toBe(true);
+    expect(result.settingsUpdated).toBe(false);
+
+    // Settings write must NOT have been called
+    const settingsWriteCalls = channel.countCallsMatching("settings.json.tmp");
+    expect(settingsWriteCalls).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Patch #454 additions: tilde-expansion + legacy-tilde-entry migration
+  // ---------------------------------------------------------------------------
+
+  it("Test 12: tilde in default paths is expanded to $HOME before shell commands", async () => {
+    const channel = buildChannel();
+    await installStopHook(channel, {
+      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+    });
+
+    // echo $HOME must have been dispatched
+    expect(channel.countCallsMatching("echo $HOME")).toBeGreaterThan(0);
+
+    // Every mkdir/mv/test command must have the absolute path — NO literal `~/`
+    // inside double-quoted paths (the bug this patch fixes).
+    const mkdirCall = channel.callLog.find((c) => c.command.startsWith("mkdir -p"));
+    expect(mkdirCall).toBeDefined();
+    expect(mkdirCall!.command).toContain("/home/testuser/.claude/hooks");
+    expect(mkdirCall!.command).not.toMatch(/"~\//);
+
+    const testCall = channel.callLog.find((c) => c.command.startsWith("test -x"));
+    expect(testCall).toBeDefined();
+    expect(testCall!.command).toContain("/home/testuser/.claude/hooks");
+    expect(testCall!.command).not.toMatch(/"~\//);
+  });
+
+  it("Test 13: legacy tilde-form Stop hook entry gets migrated to absolute-form on next install", async () => {
+    // Simulates a box previously "installed" by patch #453 (pre-tilde-fix):
+    // settings.json has a Stop hook entry whose command is `~/.claude/hooks/...`
+    // (relative tilde). The new install must (a) NOT return alreadyInstalled=true
+    // (that would leave the broken tilde entry stranded), (b) strip the tilde
+    // entry and (c) add the absolute-form entry, resulting in exactly ONE
+    // Stop hook entry for our hook in the merged settings.
     const existingSettings = JSON.stringify({
       hooks: {
         Stop: [
@@ -286,15 +353,73 @@ describe("installStopHook", () => {
     });
 
     expect(result.hookInstalled).toBe(true);
-    expect(result.settingsUpdated).toBe(false);
+    expect(result.settingsUpdated).toBe(true); // legacy stripped, absolute merged in
 
-    // Settings write must NOT have been called
-    const settingsWriteCalls = channel.countCallsMatching("settings.json.tmp");
-    expect(settingsWriteCalls).toBe(0);
+    // Find the SETTINGS_EOF write payload and inspect the JSON that was written.
+    const settingsWrite = channel.callLog.find((c) => c.command.includes("SETTINGS_EOF"));
+    expect(settingsWrite).toBeDefined();
+
+    // Extract the JSON body between the SETTINGS_EOF markers.
+    const cmdBody = settingsWrite!.command;
+    const jsonMatch = cmdBody.match(/<<'SETTINGS_EOF'\n([\s\S]*?)\nSETTINGS_EOF/);
+    expect(jsonMatch).not.toBeNull();
+    const writtenSettings = JSON.parse(jsonMatch![1]) as {
+      hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> };
+    };
+    // Exactly one hook entry for our path, in ABSOLUTE form — no tilde entry lingers.
+    const allCommands = writtenSettings.hooks.Stop.flatMap((g) =>
+      g.hooks.map((h) => h.command),
+    );
+    const ourEntries = allCommands.filter((c) =>
+      c.endsWith("/skynet-fleet-status-stop.sh"),
+    );
+    expect(ourEntries).toHaveLength(1);
+    expect(ourEntries[0]).toBe("/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh");
+    // The legacy tilde-form entry must be gone.
+    expect(allCommands).not.toContain("~/.claude/hooks/skynet-fleet-status-stop.sh");
+  });
+
+  it("Test 14: literal `~` subdirectory cleanup is dispatched after $HOME resolution", async () => {
+    const channel = buildChannel();
+    await installStopHook(channel, {
+      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+    });
+
+    // The `rm -rf "$HOME/~"` migration cleanup must have been dispatched to
+    // reap the literal `~` subdirectory left by patch #453 pre-tilde-fix.
+    const rmCall = channel.callLog.find(
+      (c) => c.command === 'rm -rf "/home/testuser/~"',
+    );
+    expect(rmCall).toBeDefined();
+  });
+
+  it("Test 15: echo $HOME returning empty/tilde/non-absolute throws with structured log", async () => {
+    const channel = new MockSshChannel();
+    // $HOME resolution comes back empty (SSH exec succeeded but returned nothing)
+    channel.setResponse("echo $HOME", "");
+
+    await expect(
+      installStopHook(channel, {
+        remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+      }),
+    ).rejects.toThrow(/fleet_status_hook_install_home_resolve_failed/);
+
+    expect(systemLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "fleet_status_hook_install_home_resolve_failed",
+      }),
+    );
+
+    // Must NOT have proceeded to mkdir / script write
+    expect(channel.countCallsMatching("mkdir -p")).toBe(0);
+    expect(channel.countCallsMatching("STOPHOOK_EOF")).toBe(0);
   });
 
   it("Test 9: SSH read error on settings.json → throws with structured log", async () => {
     const channel = new MockSshChannel();
+    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('rm -rf "/home/testuser/~"', "");
     channel.setResponse("mkdir -p", "");
     channel.setResponse("STOPHOOK_EOF", "");
     channel.setResponse("test -x", "OK");
@@ -318,6 +443,8 @@ describe("installStopHook", () => {
 
   it("Test 10: invalid JSON in settings.json → throws, does NOT overwrite", async () => {
     const channel = new MockSshChannel();
+    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('rm -rf "/home/testuser/~"', "");
     channel.setResponse("mkdir -p", "");
     channel.setResponse("STOPHOOK_EOF", "");
     channel.setResponse("test -x", "OK");
