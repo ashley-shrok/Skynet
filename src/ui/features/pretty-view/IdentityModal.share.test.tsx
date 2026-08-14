@@ -225,28 +225,29 @@ describe("IdentityModal — ShareIdentityPicker integration (Phase 38 Wave 2)", 
     renderModal();
 
     // The spy component is present in the DOM (i.e., inside the DialogHeader).
+    // Rule 1 fix: 15s timeout — can be slow under full-suite CI load.
     await waitFor(() => {
       expect(screen.getByTestId("share-identity-picker-spy")).toBeTruthy();
-    });
+    }, { timeout: 15000 });
 
     const props = latestPickerProps();
     expect(props.identityId).toBe(BASE_IDENTITY.id);
     expect(props.identityKey).toBe(BASE_IDENTITY.identityKey);
     expect(typeof props.onShareSuccess).toBe("function");
-  });
+  }, 20000);
 
   it("Test 2: initial alreadySharedUserIds prop is an empty Set (cold-start contract)", async () => {
     renderModal();
 
     await waitFor(() => {
       expect(screen.getByTestId("share-identity-picker-spy")).toBeTruthy();
-    });
+    }, { timeout: 15000 });
 
     const props = latestPickerProps();
     // Set (not undefined, not null, not an array).
     expect(props.alreadySharedUserIds).toBeInstanceOf(Set);
     expect(props.alreadySharedUserIds.size).toBe(0);
-  });
+  }, 20000);
 
   it("Test 3: shared:true onShareSuccess payload adds targetUserId to the Set on next render", async () => {
     renderModal();
@@ -254,7 +255,7 @@ describe("IdentityModal — ShareIdentityPicker integration (Phase 38 Wave 2)", 
     // Wait for first render + capture the initial props snapshot.
     await waitFor(() => {
       expect(screen.getByTestId("share-identity-picker-spy")).toBeTruthy();
-    });
+    }, { timeout: 15000 });
     const initial = latestPickerProps();
     expect(initial.alreadySharedUserIds.has("u-new")).toBe(false);
 

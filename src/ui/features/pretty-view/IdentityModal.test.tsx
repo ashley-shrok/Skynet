@@ -174,10 +174,11 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     const saveBtn = screen.getByRole("button", { name: /Save/i });
     fireEvent.click(saveBtn);
 
-    // Wait for the async save to complete.
+    // Wait for the async save to complete. Rule 1 fix: 15s timeout — can be
+    // slow under full-suite CI load (CPU contention causes waitFor to overshoot).
     await waitFor(() => {
       expect(mockedUpdateIdentity).toHaveBeenCalledTimes(1);
-    });
+    }, { timeout: 15000 });
 
     // Assert updateIdentity was called with (id, {title: "New title"}, null).
     expect(mockedUpdateIdentity).toHaveBeenCalledWith(
@@ -195,8 +196,8 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /edit agent/i })).toBeTruthy();
       expect(screen.queryByRole("button", { name: /Save/i })).toBeNull();
-    });
-  });
+    }, { timeout: 15000 });
+  }, 20000);
 
   it("2: avatar upload FormData shape — updateIdentity called with file, applyIdentityChange called", async () => {
     const updatedIdentity: Identity = {

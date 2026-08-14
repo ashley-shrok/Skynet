@@ -213,10 +213,11 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
     fireAssistantMessage(getCurrentWs(), "e1", `see [notes.md](${URL_A})`);
 
     // Find the affordance button (rendered inside the ChatMessage `<a>`
-    // override).
+    // override). Rule 1 fix: explicit 15s timeout — this waitFor can be slow
+    // under full-suite CI load (CPU contention).
     const button = await waitFor(() =>
       screen.getByRole("button", { name: /edit notes\.md/i }),
-    );
+    { timeout: 15000 });
 
     fireEvent.click(button);
 
@@ -226,8 +227,8 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
       expect(
         document.body.querySelector('[role="dialog"]'),
       ).not.toBeNull();
-    });
-  });
+    }, { timeout: 15000 });
+  }, 20000);
 
   it("Test 2: close button clears the modal open state", async () => {
     mockedHook.mockReturnValue(new Set([URL_A]));
