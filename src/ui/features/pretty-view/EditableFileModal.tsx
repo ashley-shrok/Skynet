@@ -3,7 +3,6 @@ import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import { fetchTailnetUrl } from "@/api/editable-file-api";
 import GlobalFileTab, { type GlobalFileTabData } from "./GlobalFileTab";
 import type { TabState } from "./IdentityFileTab";
@@ -17,8 +16,12 @@ import type { TabState } from "./IdentityFileTab";
  *   - D-04 (fresh fetch + visible failure over silent stale): every open
  *     fires a fresh `fetchTailnetUrl(url)`. Cached bytes from
  *     `useEditableFileEligibility` are NEVER consulted here. Fetch failure
- *     opens the modal with an explicit in-body error copy AND fires a
- *     parallel `toast.error(...)` — never silently fall back.
+ *     opens the modal with an explicit in-body error copy — never silently
+ *     fall back. (Rev-2 /close 2026-08-14: the parallel sonner toast that
+ *     originally rode alongside the in-body error was removed as an
+ *     unsanctioned addition — its bottom-right anchor occluded the
+ *     composebox on mobile. In-body error copy alone satisfies "visible
+ *     failure over silent stale".)
  *   - D-05 (chrome fork from GlobalFilesModal minus host picker + tabs bar,
  *     editor body reuses GlobalFileTab verbatim): Portal + Overlay + Content
  *     structure copied VERBATIM from GlobalFilesModal.tsx L189-217; the X
@@ -118,8 +121,6 @@ export default function EditableFileModal({
         const detail =
           err instanceof Error ? err.message : "unknown fetch error";
         setFetchState({ status: "error", error: detail });
-        // Parallel toast per D-04 — never silent failure.
-        toast.error(`Couldn't fetch ${filename} — see modal.`);
       });
 
     return () => {
@@ -144,11 +145,14 @@ export default function EditableFileModal({
   // Save handler — mtime is discarded (D-06: editor is stateless; there is
   // no host file to conflict-check against). Sets savingRef FIRST so the
   // subsequent onOpenChange(false) bypasses the draft-guard confirm.
+  // (Rev-2 /close 2026-08-14: the save-success sonner toast was removed as
+  // an unsanctioned addition — the shape never asked for ambient success
+  // feedback, and the bottom-right anchor occluded the composebox on
+  // mobile. The composebox chip appearing on save is confirmation enough.)
   const handleSave = useCallback(
     async (content: string, _expectedMtime: number): Promise<void> => {
       savingRef.current = true;
       onStageEditedFile(filename, content);
-      toast.success(`Attached ${filename} to your reply`);
       onOpenChange(false);
     },
     [filename, onOpenChange, onStageEditedFile],

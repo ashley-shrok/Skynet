@@ -2,7 +2,8 @@
  * Phase 40 Plan 40-03 Task 2 — EditableFileModal tests (14 total).
  *
  * Covers LOCKED decisions:
- *   - D-04 (fresh fetch at open; visible failure over silent stale)
+ *   - D-04 (fresh fetch at open; visible failure over silent stale — via
+ *     in-body error copy only; toast layer removed per rev-2 /close 2026-08-14)
  *   - D-05 (chrome fork from GlobalFilesModal minus host picker + tabs bar;
  *     body reuses GlobalFileTab)
  *   - D-06 (editor stateless — mtime sentinel captured once; every save =
@@ -14,10 +15,11 @@
  *   1. fetch fires exactly once on open (with expected URL)
  *   2. fetch does NOT fire when open=false
  *   3. success renders GlobalFileTab in ready state (textarea shows content)
- *   4. failure renders in-body error copy + fires toast.error
+ *   4. failure renders in-body error copy (in-modal error state — the ONLY
+ *      "visible failure" surface; toast layer removed per rev-2)
  *   5. error-body Close button fires onOpenChange(false)
  *   6. save handler wiring — onStageEditedFile called w/ (filename,content),
- *      modal closes, toast.success fires
+ *      modal closes (composebox chip is the confirmation; toast removed rev-2)
  *   7. mtime sentinel stable (Pitfall 6 defense — typed content stays)
  *   8. portal target === document.body (Pitfall 7 defense)
  *   9. onInteractOutside guard prevents mousedown-close; Esc still closes
@@ -37,18 +39,10 @@ vi.mock("@/api/editable-file-api", () => ({
   fetchTailnetUrl: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({
-  toast: {
-    error: vi.fn(),
-    success: vi.fn(),
-  },
-}));
-
 // ── Late imports (after mocks are registered) ────────────────────────────────
 
 import EditableFileModal from "./EditableFileModal";
 import { fetchTailnetUrl } from "@/api/editable-file-api";
-import { toast } from "sonner";
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
 
@@ -114,7 +108,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     expect((ta as HTMLTextAreaElement).value).toBe("hello");
   });
 
-  it("test 4: failure renders in-body error body + toast.error", async () => {
+  it("test 4: failure renders in-body error body (in-modal is the only visible-failure surface)", async () => {
     failFetch();
     render(<EditableFileModal {...DEFAULT_PROPS} />);
     await waitFor(() => {
@@ -124,10 +118,9 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     expect(
       screen.getByText(/temporary server may have shut down/i),
     ).toBeTruthy();
-    // Parallel toast.error mentions the filename
-    expect(toast.error).toHaveBeenCalled();
-    const toastMsg = (toast.error as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(String(toastMsg)).toContain("notes.md");
+    // Rev-2 /close 2026-08-14: no parallel toast — the in-body error copy is
+    // the sole "visible failure" surface. The toast layer sat at the app-wide
+    // bottom-right anchor and would have occluded the composebox on mobile.
   });
 
   it("test 5: error-body Close button fires onOpenChange(false)", async () => {
@@ -141,7 +134,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("test 6: save wiring — onStageEditedFile(filename,content) + close + toast.success", async () => {
+  it("test 6: save wiring — onStageEditedFile(filename,content) + modal closes (composebox chip is the confirmation)", async () => {
     successFetch();
     const onStageEditedFile = vi.fn();
     const onOpenChange = vi.fn();
@@ -164,9 +157,10 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
       expect(onStageEditedFile).toHaveBeenCalledWith("notes.md", "hello world");
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(toast.success).toHaveBeenCalled();
-    const successMsg = (toast.success as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(String(successMsg)).toContain("notes.md");
+    // Rev-2 /close 2026-08-14: no save-success toast — the shape never asked
+    // for ambient success feedback, and the toast anchor would have occluded
+    // the composebox on mobile. The chip appearing in the composebox on save
+    // is the confirmation.
   });
 
   it("test 7: mtime sentinel is stable — typed content survives re-renders (Pitfall 6)", async () => {
