@@ -2,9 +2,16 @@
  * Phase 40 Plan 40-02 (D-02): Frontend copy of the "eligible file" whitelist.
  *
  * MIRROR: byte-identical copy in src/backend/utils/editable-file-whitelist.ts
- *   — update both files in lockstep. The fleet has no shared code directory in
- *   the ship pipeline (`src/backend/*` and `src/ui/*` are separate build roots);
- *   duplication is the established pattern (see `src/types/` and `src/ui/api/`).
+ *   for the whitelist data (EDITABLE_EXTENSIONS + EDITABLE_BASENAMES +
+ *   classifyByExtension + TAILNET_URL_RE_CLIENT). Update those in lockstep.
+ *   The fleet has no shared code directory in the ship pipeline
+ *   (`src/backend/*` and `src/ui/*` are separate build roots); duplication
+ *   is the established pattern (see `src/types/` and `src/ui/api/`).
+ *
+ *   INTENTIONAL FRONTEND-ONLY: `stripTrailingPunct` — the extract-side URL
+ *   normalizer added in rev-3 2026-08-14 (code-review H2). Backend has no
+ *   use for it (it validates URLs the client has already extracted); adding
+ *   it there would be dead code. The regex + whitelist proper stay mirrored.
  *
  * Contract (D-02):
  *   Wholesale-accept files whose extension is in EDITABLE_EXTENSIONS, OR whose
@@ -71,14 +78,37 @@ export function classifyByExtension(
  * Regex terminator `[^\s)]+` handles bare URLs AND markdown-link internals
  * like `[text](url)` — matching stops at the first whitespace or closing
  * paren, so a markdown link's closing `)` does not get folded into the URL.
+ * Trailing prose punctuation (`.,;:!?`) is trimmed by `stripTrailingPunct`
+ * (see below) rather than in the regex itself — see H2 fix note.
  *
  * The /g flag is INTENTIONAL: consumers scan message bodies for MULTIPLE
  * matches per message (an agent may serve several files in one reply). When
  * using `.exec()` in a loop, reset `.lastIndex` between runs; when using
  * `.match()`, no reset is needed (each call is stateless).
  *
+ * ⚠️ Do NOT call `.test()` on this global regex — it mutates `lastIndex` and
+ * will silently return stale results on subsequent calls. Use `.match()` (or
+ * `.matchAll()`) which is stateless per call.
+ *
  * NOTE: this regex is ONLY unanchored/global on the client (message-scan
  * duty); the backend uses an anchored `^...$` variant for URL validation.
  */
 export const TAILNET_URL_RE_CLIENT =
   /http:\/\/100\.(?:6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3}:\d{1,5}\/[^\s)]+/g;
+
+/**
+ * Strip trailing prose punctuation from an extracted URL (rev-3 2026-08-14
+ * code-review H2). GFM autolink literals trim `.,;:!?` from the end of a URL
+ * when rendering an `<a>` (so `see http://100.64.0.1:8000/notes.md.` renders
+ * as an anchor with `href="http://100.64.0.1:8000/notes.md"` and a literal
+ * `.` outside the anchor). Our extraction regex greedily consumed the
+ * trailing punctuation, so the eligibility Set held `notes.md.` while
+ * ChatMessage's `<a>` override was checking for `notes.md` — every prose-end
+ * URL silently lost its edit affordance. This normalizer aligns both sides.
+ *
+ * Applied at extraction time BEFORE inserting the URL into the eligibility
+ * Set, so all downstream comparisons see the trimmed form.
+ */
+export function stripTrailingPunct(url: string): string {
+  return url.replace(/[.,;:!?]+$/, "");
+}

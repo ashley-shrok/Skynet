@@ -305,4 +305,93 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     expect(window.confirm).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  // Rev-3 2026-08-14 code-review B2: UTF-8 decode regression guard. The
+  // previous `atob()` returned a Latin-1 binary string; non-ASCII content
+  // (emoji, CJK, accents) became mojibake in the textarea. Any subsequent
+  // save then re-encoded the mojibake as UTF-8, producing a different byte
+  // sequence than the agent originally served — silent corruption. The fix
+  // is a two-step decode: base64 → raw bytes → UTF-8 via TextDecoder. This
+  // test proves both directions: (a) the textarea shows the correct
+  // characters (decode), and (b) saving an appended version surfaces the
+  // full corrected string to onStageEditedFile (round-trip). We append
+  // rather than save-unchanged because GlobalFileTab disables the save
+  // button while draft === state.data.content — that's the shipped UX.
+  it("test 15 (rev-3 B2): non-ASCII UTF-8 content decodes correctly + round-trips on save", async () => {
+    const original = "日本語 emoji 🎉 café résumé";
+    const appended = original + " — edited";
+    // Encode the same way a real backend response would: UTF-8 → base64.
+    const utf8Bytes = new TextEncoder().encode(original);
+    let base64 = "";
+    for (const b of utf8Bytes) base64 += String.fromCharCode(b);
+    base64 = btoa(base64);
+    (fetchTailnetUrl as ReturnType<typeof vi.fn>).mockResolvedValue({
+      contentBase64: base64,
+      sizeBytes: utf8Bytes.byteLength,
+      contentType: "text/markdown; charset=utf-8",
+      extension: "md",
+      filename: "notes.md",
+      isTextByExt: true,
+    });
+    const onStageEditedFile = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <EditableFileModal
+        {...DEFAULT_PROPS}
+        onStageEditedFile={onStageEditedFile}
+        onOpenChange={onOpenChange}
+      />,
+    );
+    const ta = (await waitFor(() =>
+      screen.getByRole("textbox"),
+    )) as HTMLTextAreaElement;
+    // (a) textarea shows the correct characters (proves decode)
+    expect(ta.value).toBe(original);
+    // (b) append + save surfaces the CORRECTLY-encoded string (not mojibake)
+    fireEvent.change(ta, { target: { value: appended } });
+    const saveBtn = screen.getByRole("button", { name: /^save$/i });
+    await act(async () => {
+      fireEvent.click(saveBtn);
+    });
+    await waitFor(() => expect(onStageEditedFile).toHaveBeenCalled());
+    const [savedFilename, savedContent] = (
+      onStageEditedFile as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    expect(savedFilename).toBe("notes.md");
+    expect(savedContent).toBe(appended);
+  });
+
+  // Rev-3 2026-08-14 code-review M6: savingRef must reset if onStageEditedFile
+  // throws — otherwise the next close attempt silently bypasses the draft-
+  // guard even though the content was never stored.
+  it("test 16 (rev-3 M6): savingRef resets on throw so draft-guard fires next close", async () => {
+    successFetch();
+    const boom = new Error("stage failed");
+    const onStageEditedFile = vi.fn(() => { throw boom; });
+    const onOpenChange = vi.fn();
+    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(
+      <EditableFileModal
+        {...DEFAULT_PROPS}
+        onStageEditedFile={onStageEditedFile}
+        onOpenChange={onOpenChange}
+      />,
+    );
+    const ta = (await waitFor(() =>
+      screen.getByRole("textbox"),
+    )) as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "dirty draft" } });
+    await new Promise((r) => setTimeout(r, 20)); // let onDraftChange(true) fire
+    const saveBtn = screen.getByRole("button", { name: /^save$/i });
+    // Save throws — we don't care what surfaces, only that savingRef reset.
+    await act(async () => {
+      try { fireEvent.click(saveBtn); } catch { /* expected */ }
+    });
+    // The save handler threw so onOpenChange(false) was never called; the
+    // modal is still open. Now close via X — draft is dirty, savingRef must
+    // be false, so window.confirm must fire.
+    const xBtn = screen.getByRole("button", { name: /^close$/i });
+    fireEvent.click(xBtn);
+    expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
+  });
 });

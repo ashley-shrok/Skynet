@@ -1,11 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
+import {
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from "@/components/dialog";
 import { cn } from "@/lib/utils";
 import { fetchTailnetUrl } from "@/api/editable-file-api";
 import GlobalFileTab, { type GlobalFileTabData } from "./GlobalFileTab";
 import type { TabState } from "./IdentityFileTab";
+
+/**
+ * Monotonic mtime counter (rev-3 2026-08-14 code-review M4). Previously the
+ * modal used `Date.now()` as the mtime sentinel; two sub-millisecond opens
+ * would collide, GlobalFileTab's `useEffect([...state.data.mtime])` would
+ * decline to re-seed the draft, and the second open's editor would show the
+ * first open's draft (or empty). A monotonic counter guarantees a distinct
+ * sentinel per modal-open lifecycle regardless of wall-clock resolution.
+ */
+let mtimeCounter = 0;
 
 /**
  * Phase 40 Plan 40-03 Task 2 — EditableFileModal.
@@ -84,8 +99,10 @@ export default function EditableFileModal({
   // Rev-2: bypass the draft-guard confirm on save-success closes.
   const savingRef = useRef<boolean>(false);
 
-  // D-04 fresh-fetch-on-open effect. Effect key intentionally excludes
-  // `filename` (derivable from `url` and shouldn't drive a re-fetch).
+  // D-04 fresh-fetch-on-open effect. `filename` IS included in the deps but
+  // is derivable from `url`, so it should never change independently — the
+  // extra dep is harmless (rev-3 M7: prior version's comment claimed it was
+  // excluded, but the array said otherwise; comment now matches reality).
   useEffect(() => {
     if (!open) {
       // Reset state on close so re-open starts fresh (D-06 stateless).
@@ -106,12 +123,25 @@ export default function EditableFileModal({
       .then((result) => {
         if (cancelled) return;
         // Capture the mtime sentinel ONCE at success — stable across all
-        // subsequent renders of this modal's open lifecycle.
-        initialMtimeRef.current = Date.now();
+        // subsequent renders of this modal's open lifecycle. Uses a module-
+        // scope monotonic counter (rev-3 M4) rather than Date.now() to avoid
+        // sub-ms collision between rapid opens seeding stale drafts.
+        initialMtimeRef.current = ++mtimeCounter;
+        // Decode base64 -> UTF-8 (rev-3 2026-08-14 code-review B2). The prior
+        // `atob(...)` returned a Latin-1 "binary string" — non-ASCII content
+        // (emoji, CJK, accented Latin, Cyrillic, ...) became mojibake in the
+        // textarea, and saving without editing re-encoded that mojibake as
+        // UTF-8 into a different byte sequence than the original: silent
+        // destructive corruption. Two-step decode: base64 -> raw bytes ->
+        // UTF-8 string via TextDecoder is the standard fix.
+        const rawBytes = Uint8Array.from(atob(result.contentBase64), (c) =>
+          c.charCodeAt(0),
+        );
+        const content = new TextDecoder("utf-8").decode(rawBytes);
         setFetchState({
           status: "ready",
           data: {
-            content: atob(result.contentBase64),
+            content,
             mtime: initialMtimeRef.current,
           },
         });
@@ -149,11 +179,22 @@ export default function EditableFileModal({
   // an unsanctioned addition — the shape never asked for ambient success
   // feedback, and the bottom-right anchor occluded the composebox on
   // mobile. The composebox chip appearing on save is confirmation enough.)
+  //
+  // Rev-3 M6: `try/finally` around the stage-and-close so that if
+  // `onStageEditedFile` throws (or `onOpenChange`), `savingRef` is reset. If
+  // savingRef stayed sticky-true after a failed save, the next close attempt
+  // would silently bypass the draft-guard even though the content was never
+  // stored anywhere and the user still has unsaved edits.
   const handleSave = useCallback(
     async (content: string, _expectedMtime: number): Promise<void> => {
       savingRef.current = true;
-      onStageEditedFile(filename, content);
-      onOpenChange(false);
+      try {
+        onStageEditedFile(filename, content);
+        onOpenChange(false);
+      } catch (err) {
+        savingRef.current = false;
+        throw err;
+      }
     },
     [filename, onOpenChange, onStageEditedFile],
   );
@@ -201,8 +242,16 @@ export default function EditableFileModal({
             color: "#e8e4d8",
           }}
         >
-          {/* a11y: sr-only title */}
+          {/* a11y: sr-only title + description. Radix Dialog v1+ warns to
+              console on every mount if no DialogDescription is present
+              (aria-describedby target). Both are visually hidden — the
+              in-body header carries the visible label; these serve screen
+              readers and satisfy Radix's a11y contract. (Rev-3 M5.) */}
           <DialogTitle className="sr-only">Edit {filename}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Textarea to edit the file's contents and save the result as an
+            attachment on your next reply.
+          </DialogDescription>
 
           {/* Header — Phase 40 custom: "Edit {filename}" + optional
               "from {agentIdentityName}" muted sub-header + glass X close. */}

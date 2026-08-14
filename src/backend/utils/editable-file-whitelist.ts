@@ -1,10 +1,17 @@
 /**
  * Phase 40 Plan 40-01 (D-02): Backend copy of the "eligible file" whitelist.
  *
- * MIRROR: byte-identical copy in src/ui/features/pretty-view/editable-file-whitelist.ts
- *   — update both files in lockstep. The fleet has no shared code directory in
- *   the ship pipeline (`src/backend/*` and `src/ui/*` are separate build roots);
+ * MIRROR: the whitelist DATA (EDITABLE_EXTENSIONS + EDITABLE_BASENAMES +
+ *   classifyByExtension) is a byte-identical copy in
+ *   src/ui/features/pretty-view/editable-file-whitelist.ts — update both
+ *   files in lockstep. The fleet has no shared code directory in the ship
+ *   pipeline (`src/backend/*` and `src/ui/*` are separate build roots);
  *   duplication is the established pattern (see `src/types/` and `src/ui/api/`).
+ *
+ *   The frontend twin also exports `TAILNET_URL_RE_CLIENT` (message-scan
+ *   duty) and `stripTrailingPunct` (URL normalizer for the eligibility hook).
+ *   Backend has no use for either — it validates URLs the client has already
+ *   extracted, using its own anchored `TAILNET_URL_RE` inside the fetch route.
  *
  * Contract (D-02):
  *   Wholesale-accept files whose extension is in EDITABLE_EXTENSIONS, OR whose

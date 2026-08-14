@@ -26,10 +26,11 @@
  * per Research §Open Q 5 that is MEDIUM confidence and deferred until measured.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { fetchTailnetUrl } from "@/api/editable-file-api";
 import {
   classifyByExtension,
+  stripTrailingPunct,
   TAILNET_URL_RE_CLIENT,
 } from "./editable-file-whitelist";
 
@@ -38,23 +39,40 @@ export function useEditableFileEligibility(
   messageBody: string,
 ): Set<string> {
   const [eligibleUrls, setEligibleUrls] = useState<Set<string>>(new Set());
-  const cancelledRef = useRef(false);
 
   useEffect(() => {
-    cancelledRef.current = false;
+    // Closure-local cancellation (rev-3 2026-08-14 code-review H3). The
+    // previous `useRef(false)` pattern reset the ref at the top of every
+    // effect run, which created a stale-write race under rapid re-render
+    // (React 18 strict mode, messageBody churn): a cleanup would set
+    // cancelledRef=true, then the next effect immediately reset it to false,
+    // and an in-flight fetch from the FIRST effect could then resolve and
+    // still see cancelled=false, letting stale data overwrite fresh data.
+    // Closure-scoped `let cancelled = false` is per-effect-run and cannot be
+    // touched by a later effect — matches the pattern EditableFileModal
+    // already uses.
+    let cancelled = false;
 
     if (messageEventId === null) {
       return () => {
-        cancelledRef.current = true;
+        cancelled = true;
       };
     }
 
     // TAILNET_URL_RE_CLIENT is /g — .match() is stateless (unlike .exec loops
     // which require .lastIndex reset). Empty-match short-circuits below.
-    const matches = messageBody.match(TAILNET_URL_RE_CLIENT) ?? [];
+    // Normalize each match via stripTrailingPunct (rev-3 H2) so prose-end
+    // URLs like `see http://.../notes.md.` land as `notes.md` in the Set,
+    // matching what GFM autolink strips into the anchor href for comparison.
+    // Dedupe with a Set (rev-3 M8) so a message quoting the same URL twice
+    // doesn't fire two duplicate proxy fetches.
+    const rawMatches = messageBody.match(TAILNET_URL_RE_CLIENT) ?? [];
+    const matches = Array.from(
+      new Set(rawMatches.map((u) => stripTrailingPunct(u))),
+    );
     if (matches.length === 0) {
       return () => {
-        cancelledRef.current = true;
+        cancelled = true;
       };
     }
 
@@ -80,8 +98,11 @@ export function useEditableFileEligibility(
 
           // Async path: byte-sniff via backend proxy.
           const result = await fetchTailnetUrl(url);
-          if (cancelledRef.current) return;
-          if (result.isTextByBytes === true) {
+          if (cancelled) return;
+          // Belt-and-suspenders (rev-3 M9): accept isTextByExt too, in case
+          // the frontend and backend whitelists have drifted. Both flags being
+          // true is the normal case; either one alone is enough to grant.
+          if (result.isTextByBytes === true || result.isTextByExt === true) {
             eligible.add(url);
           }
           // NOTE: the response's byte payload is intentionally UNREAD here.
@@ -99,14 +120,14 @@ export function useEditableFileEligibility(
         }
       }
 
-      if (!cancelledRef.current) {
+      if (!cancelled) {
         // Single setState — do not commit per-URL, to avoid render thrash.
         setEligibleUrls(eligible);
       }
     })();
 
     return () => {
-      cancelledRef.current = true;
+      cancelled = true;
     };
   }, [messageEventId, messageBody]);
 

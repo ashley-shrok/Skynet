@@ -58,7 +58,6 @@
  * (already a resident dep - package.json lists undici ^7.0.0).
  */
 
-import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -77,11 +76,14 @@ const authenticateJWT = authManager.createAuthMiddleware();
  *   - Third + fourth octets 0..999 (character-class permissive; the second-
  *     octet range is the tight guard).
  *   - Port required (1..65535 by length).
- *   - Path must start with a NON-slash and contain no ?, #, or additional /.
+ *   - Path must start with a NON-slash and contain no `#`. `?query` is allowed
+ *     (rev-3 2026-08-14 code-review H1: client regex accepts `?query`, backend
+ *     must too — otherwise valid URLs pass the client eligibility check but
+ *     fail the modal open with a misleading "server auto-killed" error).
  *   - This also rejects the trailing-"/" (empty filename) case at the regex
  *     level, because the [^/] class requires at least one non-slash first char.
  */
-const TAILNET_URL_RE = /^http:\/\/100\.(?:6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3}:\d{1,5}\/[^/][^?#]*$/;
+const TAILNET_URL_RE = /^http:\/\/100\.(?:6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3}:\d{1,5}\/[^/][^#]*$/;
 
 /** Outbound fetch timeout - matches UI-SPEC L175 ("timeout > 8s"). */
 const FETCH_TIMEOUT_MS = 8_000;
@@ -138,14 +140,37 @@ router.post(
       res.status(400).json({ error: "invalid tailnet URL" });
       return;
     }
-    // The regex already forbids these, but validate independently so a
-    // regression to the regex can't silently open the door.
-    if (url.includes("..") || url.endsWith("/")) {
+    if (url.endsWith("/")) {
       res.status(400).json({ error: "invalid tailnet URL" });
       return;
     }
     // "//" only in the "http://" prefix - reject any additional occurrence.
     if (url.indexOf("//", 7) !== -1) {
+      res.status(400).json({ error: "invalid tailnet URL" });
+      return;
+    }
+    // Raw-URL path-traversal check: reject any traversal-shaped segment in the
+    // raw URL before it's parsed. This runs BEFORE `new URL(...)` because
+    // WHATWG URL normalizes `/../` to nothing (a`/a/../b` becomes `/b`),
+    // which would hide a traversal attempt from the decoded-segment check
+    // below. We check both literal `..` / `.` AND their percent-encoded
+    // forms (`%2e%2e`, `%2E`, mixed case, `%2e.` half-encoded, etc.) by
+    // decoding the raw path first.
+    const pathStart = url.indexOf("/", 8); // past "http://host:port"
+    const rawPath = pathStart === -1 ? "" : url.slice(pathStart);
+    let decodedRawPath: string;
+    try {
+      decodedRawPath = decodeURIComponent(rawPath);
+    } catch {
+      res.status(400).json({ error: "invalid tailnet URL" });
+      return;
+    }
+    if (
+      decodedRawPath.includes("/../") ||
+      decodedRawPath.endsWith("/..") ||
+      decodedRawPath.includes("/./") ||
+      decodedRawPath.endsWith("/.")
+    ) {
       res.status(400).json({ error: "invalid tailnet URL" });
       return;
     }
@@ -158,6 +183,19 @@ router.post(
       parsedUrl = new URL(url);
     } catch {
       // Regex already rejected malformed URLs, but be defensive.
+      res.status(400).json({ error: "invalid tailnet URL" });
+      return;
+    }
+    // Path-traversal check on DECODED path segments (rev-3 2026-08-14
+    // code-review M1+M2): (M1) catches percent-encoded traversal like
+    // `%2e%2e` that the raw-string check above would miss; (M2) tolerates
+    // legit filenames containing `..` in their basename such as `data..sql`
+    // or `..dotfile` because traversal only matters when `..` is a whole
+    // path segment.
+    const pathSegments = parsedUrl.pathname
+      .split("/")
+      .map((seg) => decodeURIComponent(seg));
+    if (pathSegments.some((seg) => seg === "." || seg === "..")) {
       res.status(400).json({ error: "invalid tailnet URL" });
       return;
     }
@@ -174,7 +212,17 @@ router.post(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(url, { signal: ctrl.signal });
+      // `redirect: "error"` closes the SSRF-via-redirect hole (rev-3 2026-08-14
+      // code-review B1): the CGNAT allowlist only validates the initial URL, so
+      // if the upstream tailnet server returned e.g. `302 Location:
+      // http://169.254.169.254/...` (AWS IMDS) or `http://127.0.0.1:6379/`
+      // (local Redis), the default `redirect: "follow"` behavior would happily
+      // fetch it and proxy the bytes back. Refusing to follow any redirect
+      // means the only bytes we ever proxy came from the same URL we validated.
+      const response = await fetch(url, {
+        signal: ctrl.signal,
+        redirect: "error",
+      });
 
       // 4a. Upstream non-2xx -> 502.
       if (!response.ok) {
@@ -208,18 +256,59 @@ router.post(
         return;
       }
 
-      // 4c. Read body -> 413 if over cap (T-40-03).
-      const arrBuf = await response.arrayBuffer();
-      const buf = Buffer.from(arrBuf);
-      if (buf.byteLength > MAX_BYTES) {
+      // 4c. Streaming size guard (rev-3 2026-08-14 code-review H4). Previous
+      //     `await response.arrayBuffer()` buffered the ENTIRE response into
+      //     memory before checking size, so a malicious tailnet server could
+      //     serve 500 MB (or an infinite chunked stream) and OOM the backend
+      //     regardless of the MAX_BYTES cap. Now: check Content-Length header
+      //     first (short-circuit fast when server declares oversize), then
+      //     iterate the response body stream, bailing as soon as accumulated
+      //     bytes cross the cap.
+      const declaredLength = response.headers.get("content-length");
+      if (declaredLength !== null) {
+        const declaredBytes = Number(declaredLength);
+        if (Number.isFinite(declaredBytes) && declaredBytes > MAX_BYTES) {
+          res.status(413).json({ error: "file exceeds max size" });
+          sshLogger.warn("pretty-view proxy: oversized response (declared)", {
+            operation: "pretty_view_fetch_tailnet_url",
+            host: logHost,
+            duration: Date.now() - startEpoch,
+          });
+          return;
+        }
+      }
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      const bodyStream = response.body;
+      if (bodyStream === null) {
+        res.status(502).json({ error: "upstream empty body" });
+        return;
+      }
+      const reader = bodyStream.getReader();
+      let overCap = false;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          totalBytes += value.byteLength;
+          if (totalBytes > MAX_BYTES) {
+            overCap = true;
+            try { await reader.cancel(); } catch { /* best-effort */ }
+            break;
+          }
+          chunks.push(value);
+        }
+      }
+      if (overCap) {
         res.status(413).json({ error: "file exceeds max size" });
-        sshLogger.warn("pretty-view proxy: oversized response", {
+        sshLogger.warn("pretty-view proxy: oversized response (streamed)", {
           operation: "pretty_view_fetch_tailnet_url",
           host: logHost,
           duration: Date.now() - startEpoch,
         });
         return;
       }
+      const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
 
       // 4d. Classification: extension first (D-02); sniff only when extension
       //     is not in the whitelist. sniffTextBytes is intentionally byte-only
