@@ -9,6 +9,8 @@ import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
 import { postSpeakStream } from "@/api/voice-api";
 import { createWebAudioStreamPlayer, type WebAudioStreamPlayer } from "./webAudioStreamPlayer";
+import { useEditableFileEligibility } from "./use-editable-file-eligibility";
+import { EditableFileAffordance } from "./EditableFileAffordance";
 
 // Patch #237 (Phase 19): singleton now tracks a WebAudioStreamPlayer instance.
 // The player encapsulates the AudioContext, scheduled AudioBufferSourceNodes,
@@ -56,6 +58,7 @@ export function ChatMessage({
   autoplayArmed = false,
   autoplayTargetEventId = null,
   onLongPressSpeak,
+  onOpenEditor,
 }: {
   role: "user" | "assistant";
   content: string;
@@ -65,8 +68,19 @@ export function ChatMessage({
   autoplayArmed?: boolean;
   autoplayTargetEventId?: string | null;
   onLongPressSpeak?: (eventId: string) => void;
+  // Phase 40 D-03/D-06: opens the EditableFileModal for a specific tailnet
+  // URL. Optional so callers that don't provide it (tests, historical mount
+  // sites) safely skip the affordance render.
+  onOpenEditor?: (input: {
+    messageEventId: string;
+    url: string;
+    filename: string;
+  }) => void;
 }) {
   const isUser = role === "user";
+  // D-01: hook fires for both roles; user messages never carry tailnet URLs
+  // so the Set stays empty. Simpler than a conditional hook (Rules of Hooks).
+  const eligibleUrls = useEditableFileEligibility(eventId ?? null, content);
   const bubbleIdRef = useRef(Symbol("speak-bubble"));
   const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -307,7 +321,11 @@ export function ChatMessage({
         ref={containerRef}
         title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
         style={{ position: "relative" }}
+        // pv-bubble: hover-target class for descendants like
+        // EditableFileAffordance. Do NOT rename without updating
+        // [.pv-bubble:hover_&] selectors in child components.
         className={cn(
+          "pv-bubble",
           // Phase 4 Glass: raised-object bubble treatment.
           "max-w-[90%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)]",
@@ -395,13 +413,51 @@ export function ChatMessage({
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
-              a: ({ node, ...props }) => (
-                <a
-                  {...props}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                />
-              ),
+              // D-03: affordance renders as fragment sibling — anchor semantics
+              // (target/rel/click) preserved verbatim per LOCKED additive-not-
+              // replacive.
+              a: ({ node: _node, ...rest }) => {
+                const props = rest as React.AnchorHTMLAttributes<HTMLAnchorElement>;
+                const href = props.href;
+                // Compute affordance eligibility (Pitfall 1: href destructured
+                // from props, NOT from `node`).
+                let filename = "";
+                let isEligible = false;
+                if (href && eventId && onOpenEditor) {
+                  try {
+                    const parsed = new URL(href);
+                    // Pitfall 8: URL.pathname strips ?query before we split.
+                    filename = decodeURIComponent(
+                      parsed.pathname.split("/").pop() ?? "",
+                    );
+                    isEligible = eligibleUrls.has(href);
+                  } catch {
+                    // Invalid URL — not a tailnet pattern anyway.
+                    isEligible = false;
+                  }
+                }
+                return (
+                  <>
+                    <a
+                      {...props}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    />
+                    {isEligible ? (
+                      <EditableFileAffordance
+                        filename={filename}
+                        onOpen={() =>
+                          onOpenEditor!({
+                            messageEventId: eventId!,
+                            url: href!,
+                            filename,
+                          })
+                        }
+                      />
+                    ) : null}
+                  </>
+                );
+              },
               p: ({ node, children, ...props }) => (
                 <p {...props}>{splitMarkers(children)}</p>
               ),
