@@ -191,6 +191,10 @@ describe("NewSessionDialog role dropdown: Test 21 — roles render as options", 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog role dropdown: Test 22 — host change clears role + refetches", () => {
   it("Test 22: pick host A, pick role → pick host B → listRolesForHost re-called + role cleared", async () => {
+    // Rule 1 fix: 20s it() timeout + 15s waitFor timeouts — under full-suite CI
+    // load, React 18 async state batching and promise resolution can push these
+    // assertions well past 1000ms (pre-existing flake, same pattern as
+    // quick 260809-ih9 host-change waitFor hardening).
     // Host A: two roles
     mockListRolesForHost.mockResolvedValueOnce([
       { name: "box-maintainer", description: "" },
@@ -200,7 +204,7 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => {
       expect(screen.queryByLabelText(/^role$/i)).toBeTruthy();
-    });
+    }, { timeout: 15000 });
     // Pick a role. The .value assertion is wrapped in waitFor because under
     // full-suite load React 18 concurrent-mode batching can delay the
     // controlled-input re-render past the synchronous fireEvent boundary
@@ -213,7 +217,7 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
       expect(
         (screen.getByLabelText(/^role$/i) as HTMLSelectElement).value,
       ).toBe("tina");
-    });
+    }, { timeout: 15000 });
 
     // Host B: different roles
     mockListRolesForHost.mockResolvedValueOnce([
@@ -222,13 +226,13 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
     fireEvent.click(screen.getByText("bravo"));
     await waitFor(() => {
       expect(mockListRolesForHost).toHaveBeenCalledTimes(2);
-    });
+    }, { timeout: 15000 });
     // Selection cleared — the select falls back to placeholder (empty value)
     await waitFor(() => {
       const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
       expect(sel.value).toBe("");
-    });
-  });
+    }, { timeout: 15000 });
+  }, 20000);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

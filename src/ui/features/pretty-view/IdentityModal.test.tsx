@@ -354,6 +354,10 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
   });
 
   it("5: cancel discards unsaved changes — title reverts, no object URL in preview, updateIdentity not called, modal stays open", async () => {
+    // Rule 1 fix: 20s it() timeout — IdentityModal's async effects (WS open, API
+    // fetches) can keep the JS event loop busy under full-suite CI load, causing
+    // this synchronous test to appear to run for >5000ms before cleanup completes.
+    // This matches the pattern used for Test 1 in this file.
     // Spy on createObjectURL to detect whether it's in use after cancel.
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake-cancel");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(vi.fn());
@@ -412,5 +416,5 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
 
     // Modal is still open (dialog content is still present).
     expect(document.querySelector("[data-slot='identity-modal-content']")).toBeTruthy();
-  });
+  }, 20000);
 });
