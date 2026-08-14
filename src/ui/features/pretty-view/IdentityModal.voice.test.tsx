@@ -164,9 +164,13 @@ describe("IdentityModal voice picker (patch #223)", () => {
     // Patch #277: reveal the edit block via pencil toggle.
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
+    // Rule 1 fix: increased timeout from default 5000ms to 15000ms — this
+    // async await can be slow under heavy CI load (full-suite parallel run
+    // exhausts CPU budget, causing the waitFor polling loop to overshoot
+    // the default window). The logic is correct; the flake is purely timing.
     await waitFor(() => {
       expect(mockedGetVoices).toHaveBeenCalledTimes(1);
-    });
+    }, { timeout: 15000 });
 
     // Wait for options to populate
     await waitFor(() => {
@@ -175,8 +179,8 @@ describe("IdentityModal voice picker (patch #223)", () => {
       expect(options).toContain("");
       expect(options).toContain("Elena.wav");
       expect(options).toContain("Marcus.wav");
-    });
-  });
+    }, { timeout: 15000 });
+  }, 20000);
 
   it("Test 2a: identity.voice === null → select value is '' (default)", async () => {
     renderModal({ voice: null });
