@@ -1678,7 +1678,16 @@ export function ComposeBox({
       void handleVoiceSend("primary");
     },
     asideActive,
-    disabled: sendDisabled || showTranscribingSend,
+    // Quick 260814-1hz [Rule 1 auto-fix]: the hook now lives on the MicButton
+    // (not the Send button), so sendDisabled — which gates on typed-text /
+    // canSend / attachments — no longer applies. The mic must be pressable
+    // even with an empty textarea: press-and-hold to record, release to send
+    // the transcript (Task 3's holdInitiatedRef disjunct keeps the mic
+    // mounted through the flow). Retain showTranscribingSend so a fresh
+    // press cannot arm while the previous STT round-trip is still in
+    // flight. voice.state !== "idle" (checked inside the hook, L219) is the
+    // primary double-arm guard.
+    disabled: showTranscribingSend,
   });
 
   // showMicButton — see comment above (L1587). Quick 260814-1hz adds the
@@ -2744,7 +2753,13 @@ function QueuedRow(props: QueuedRowProps) {
       void handleVoiceSend(slot.id);
     },
     asideActive: asideActive ?? false,
-    disabled: slotSendDisabled,
+    // Quick 260814-1hz [Rule 1 auto-fix, parity with primary]: hook now
+    // lives on the slot MicButton, so slotSendDisabled (which gates on
+    // slot text emptiness / recycle / plan-pending / etc.) no longer
+    // applies to the hold-record gesture. Retain showSlotTranscribingSend
+    // so a fresh press cannot arm while STT is in-flight from a prior
+    // send. voice.state !== "idle" guard inside the hook handles double-arm.
+    disabled: showSlotTranscribingSend,
   });
   // Quick 260814-1hz: `|| slotHold.holdInitiatedRef.current` disjunct on the
   // isSlotActiveMic gate keeps the slot MicButton mounted through the voice

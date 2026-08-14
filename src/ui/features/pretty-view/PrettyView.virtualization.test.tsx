@@ -753,16 +753,12 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
         fireEvent.change(textarea, { target: { value: "user follow-up" } });
       });
 
-      // Short-tap the Send button. Post-patch #436 (tanya Phase 37 hold-to-send),
-      // the Send button's send-fire path moved from onClick → useHoldToRecord's
-      // onPointerUp (elapsedMs < 250ms branch → onShortTap). A synthetic click
-      // no longer fires handleSend when asideActive is false — pointer sequence
-      // is now the only path. Mirrors ComposeBox.test.tsx `shortTapSendButton`
-      // helper (L53-60); local copy avoids cross-file test-utils export churn.
-      // navigator.mediaDevices stub prevents voice.start() → getUserMedia crash
-      // inside the hook's onPointerDown; the short-tap branch awaits
-      // voice.cancel() (Plan 32-01 pendingCancelRef synchronous teardown)
-      // which discards the never-resolving getUserMedia promise.
+      // Quick 260814-1hz: the hold-to-record gesture moved off the Send
+      // button (patch #436 Phase 32 wiring) and onto the MicButton. The
+      // Send button is back to plain onClick={handleSend}, so fireEvent.click
+      // fires the send path directly. No navigator.mediaDevices stub is
+      // required here because no voice.start is invoked from a Send-button
+      // click anymore.
       const originalNavigator = globalThis.navigator;
       Object.defineProperty(globalThis, "navigator", {
         value: { mediaDevices: { getUserMedia: vi.fn(() => new Promise(() => {})) } },
@@ -772,9 +768,7 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
       try {
         const sendBtn = getByRole("button", { name: "Send" });
         await act(async () => {
-          fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
-          fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
-          // Flush microtasks so the awaited voice.cancel() → onShortTap resolves.
+          fireEvent.click(sendBtn);
           await Promise.resolve();
           await Promise.resolve();
           await Promise.resolve();

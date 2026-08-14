@@ -212,10 +212,9 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)
       const textarea = screen.getByRole("textbox");
       fireEvent.change(textarea, { target: { value: "hello" } });
       const sendBtn = screen.getByRole("button", { name: "Send" });
-      // Short-tap: pointerdown → immediate pointerup, elapsed < 250ms.
-      fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
-      fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
-      // Flush microtasks so the awaited voice.cancel() → onShortTap dispatch resolves.
+      // Quick 260814-1hz: Send button reverted to plain onClick (hold gesture
+      // moved to MicButton). Click fires handleSend directly.
+      fireEvent.click(sendBtn);
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();

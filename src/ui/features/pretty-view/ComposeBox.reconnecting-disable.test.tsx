@@ -109,8 +109,9 @@ describe("ComposeBox — reconnectingActive gating", () => {
       fireEvent.change(textarea, { target: { value: "normal send" } });
       const sendBtn = screen.getByLabelText("Send") as HTMLButtonElement;
       expect(sendBtn.disabled).toBe(false);
-      fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
-      fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
+      // Quick 260814-1hz: Send button now uses plain onClick (hold gesture
+      // moved to MicButton). Click fires handleSend directly.
+      fireEvent.click(sendBtn);
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();

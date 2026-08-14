@@ -41,19 +41,20 @@ const mkAtt = (
   error: null,
 });
 
-// Phase 32 Plan 32-02: the primary send button's onClick is now
-// `asideActive ? () => onAsideDismiss?.() : undefined` — the non-aside send
-// path is served exclusively by useHoldToRecord's pointer handlers. Tests
-// that previously used `fireEvent.click(sendBtn)` to exercise the enabled
-// send path now drive a short-tap (elapsedMs < 250ms) pointer sequence
-// instead. Also stubs navigator.mediaDevices so voice.start() inside the
-// hook's onPointerDown does not crash on missing getUserMedia; the short-tap
-// branch awaits voice.cancel() (Plan 32-01 pendingCancelRef synchronous
-// teardown) which discards the never-resolving getUserMedia promise.
+// Quick 260814-1hz: the primary + slot Send buttons no longer host the
+// useHoldToRecord hook — that gesture has moved to MicButton. Send buttons
+// are back to plain onClick={handleSend} / onClick={handleQueueSlotSend}
+// (primary preserves the aside-morph onAsideDismiss branch). Consequently,
+// exercising the enabled send path in tests is once again a fireEvent.click
+// on the button. The Phase 32 short-tap pointer-sequence (pointerdown +
+// pointerup < HOLD_THRESHOLD_MS) is now specific to the MicButton and is
+// exercised by ComposeBox.hold-to-mic.test.tsx.
+//
+// Name preserved so the surrounding tests keep their intent-clear invocation;
+// implementation dispatches a click event (plus microtask flushes for the
+// handleSend success branch's async cleanup effects).
 async function shortTapSendButton(sendBtn: HTMLButtonElement): Promise<void> {
-  fireEvent.pointerDown(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 0 });
-  fireEvent.pointerUp(sendBtn, { pointerId: 1, clientX: 20, clientY: 20, timeStamp: 50 });
-  // Flush microtasks so the awaited voice.cancel() → onShortTap resolves.
+  fireEvent.click(sendBtn);
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
