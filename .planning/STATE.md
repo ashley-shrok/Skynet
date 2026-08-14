@@ -7,10 +7,10 @@ last_updated: "2026-08-14T20:35:00.000Z"
 last_activity: 2026-08-14
 progress:
   total_phases: 41
-  completed_phases: 31
+  completed_phases: 32
   total_plans: 159
-  completed_plans: 156
-  percent: 76
+  completed_plans: 157
+  percent: 78
 ---
 
 # Project State
@@ -232,6 +232,7 @@ Progress: [██████████] 100%
 | Phase 40 P04 | 20 | 3 tasks | 4 files |
 | Phase 41 P1 | 35 | 2 tasks | 7 files |
 | Phase 41 P2 | 90 | 2 tasks | 8 files |
+| Phase 41 P41-03 | 30min | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -350,6 +351,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 39-04 (GATE2-05): Wired fire-and-forget blind Stop-hook install into acquireSshChannel first-successful-new-client path via exported maybeInstallStopHook helper. Install-once tracked per lifecycle in hookInstallAttempted Set (cleared with hostClients on onLastUnsubscriber). No probe-first branch — installStopHook self-detects alreadyInstalled per RESEARCH §Q5.
 - [Phase ?]: Phase 39-04: Guarded starter.ts boot IIFE with if (process.env.VITEST !== 'true') so exported helpers can be imported for isolated vitest coverage without triggering real backend init. Rule 3 auto-fix; production behavior unchanged.
 - [Phase ?]: Plan 40-04 wired Wave 3: ChatMessage <a>-override renders EditableFileAffordance sibling on eligible URLs; PrettyView mounts EditableFileModal alongside IdentityModal with onStageEditedFile deposit into uploads.stageAttachments('primary')
+- [Phase ?]: Phase 41 Plan 03: docs-only deploy prep, Task 2 UAT gate held open
 
 ### Pending Todos
 
@@ -557,6 +559,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T19:10:51.527Z
+Last session: 2026-08-14T20:47:33.216Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Resume file: None
