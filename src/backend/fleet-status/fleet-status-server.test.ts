@@ -307,6 +307,25 @@ describe("fleet-status-server", () => {
     expect([4000, undefined]).toContain(closeCode);
   });
 
+  it("Test 8b (Phase 39-02): Frontend subscribe call threads { userId } into registry.subscribe as ctx", async () => {
+    // Spy BEFORE the frontend connection so the call is captured on first invocation.
+    const subscribeSpy = vi.spyOn(registry, "subscribe");
+
+    const url = `ws://localhost:${port}/fleet-status/ws`;
+    const headers = { Cookie: "jwt=test-token" };
+    const subscribeMsg = JSON.stringify({ schemaVersion: 1, type: "subscribe" });
+
+    await connectAndReceive(url, headers, subscribeMsg);
+
+    // The subscribe call the server made in response to the frontend's {type:'subscribe'} frame
+    // must carry the JWT-verified userId ('test-user' per makeStubAuthManager) as ctx.
+    expect(subscribeSpy).toHaveBeenCalled();
+    const call = subscribeSpy.mock.calls[0];
+    expect(call).toBeDefined();
+    expect(typeof call[0]).toBe("function"); // sendFrame closure
+    expect(call[1]).toEqual({ userId: "test-user" }); // ctx per Phase 39 D-03 (GATE2-03)
+  });
+
   it("Test 8: Every lifecycle event logs a single line with explicit fields — no Event objects", () => {
     // Verify that the logger was called with structured objects (not Event instances)
     const warnMock = vi.mocked(systemLogger.warn);
