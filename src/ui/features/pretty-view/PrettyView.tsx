@@ -2356,10 +2356,10 @@ export function PrettyView({
                     left: 0,
                     width: "100%",
                     transform: `translateY(${virtualRow.start}px)`,
-                    // Was the flex column's 18px vertical rhythm; flexbox
-                    // does nothing on absolutely-positioned children, so the
-                    // 18px rhythm is baked into the item box now.
-                    paddingBottom: 18,
+                    // Was the flex column's vertical rhythm; flexbox does
+                    // nothing on absolutely-positioned children, so the
+                    // rhythm is baked into the item box now.
+                    paddingBottom: 9,
                   }}
                 >
                   {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
