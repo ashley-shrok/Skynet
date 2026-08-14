@@ -62,11 +62,26 @@ export function MicButton({
   onPointerLeave,
   dataHoldActive,
 }: MicButtonProps) {
+  // quick-260814-iwy Bug 1 fix: wrap onPointerDown with e.preventDefault() so
+  // the browser's native long-press gesture layer (iOS Safari callout menu,
+  // magnifier, quick-note) is suppressed at the pointerdown seam. Guarded on
+  // `onPointerDown defined && !disabled` so zero-arg / disabled callers see
+  // byte-identical DOM output (no wrapper attached, no preventDefault side
+  // effect on the disabled button). Paired with the `[-webkit-touch-callout:
+  // none]` Tailwind class below (belt-and-suspenders — the class suppresses
+  // the callout DOM surface; preventDefault suppresses the native gesture).
+  const wrappedPointerDown =
+    onPointerDown && disabled !== true
+      ? (e: React.PointerEvent<HTMLButtonElement>) => {
+          e.preventDefault();
+          onPointerDown(e);
+        }
+      : onPointerDown;
   return (
     <button
       type="button"
       onClick={onClick}
-      onPointerDown={onPointerDown}
+      onPointerDown={wrappedPointerDown}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onPointerLeave={onPointerLeave}
@@ -82,6 +97,14 @@ export function MicButton({
         "p-2",
         "select-none",
         "touch-none",
+        // quick-260814-iwy Bug 1 fix (iOS Safari): suppress the native
+        // long-press callout / magnifier / quick-note gesture surface at the
+        // CSS layer. Sits alongside select-none + touch-none so all three
+        // native long-press suppression utilities are grouped. Without this,
+        // iOS Safari fires pointercancel mid-hold when the callout appears,
+        // which the useHoldToRecord hook correctly routes to voice.cancel()
+        // — audibly cancelling Ashley's hold-to-record attempt.
+        "[-webkit-touch-callout:none]",
         "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
         "disabled:text-[rgba(240,235,224,0.15)]",
         "disabled:cursor-not-allowed",

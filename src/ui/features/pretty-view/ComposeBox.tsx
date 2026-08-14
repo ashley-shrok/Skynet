@@ -1656,27 +1656,44 @@ export function ComposeBox({
     (text.trim() === "" && !hasAttachments);
 
   // Quick 260814-1hz: hold-to-record gesture MOVED from the primary send
-  // button to the MicButton. onShortTap now starts a mic-tap recording
-  // (beginRecord) — the previous mic-onClick behavior. The Send button gets
-  // its direct onClick back (see below). The hook still lives here and the
-  // pointer handlers spread onto MicButton at ~L2530. voice.state !== "idle"
-  // guard inside useHoldToRecord makes the short-tap idempotent against
-  // MicButton's own onClick={() => beginRecord("primary")}. holdInitiatedRef
-  // is consumed at showRecordingControls (B-3, keeps RecordingControls hidden
-  // during a hold) AND at showMicButton (keeps MicButton mounted during a
-  // hold so setPointerCapture stays attached and the hook's onPointerUp
-  // fires on release).
+  // button to the MicButton. The Send button gets its direct onClick back
+  // (see below). The hook still lives here and the pointer handlers spread
+  // onto MicButton at ~L2530.
+  //
+  // quick-260814-iwy update: onShortTap is now a NO-OP (was beginRecord).
+  // The hook's short-tap-keep branch (keepRecordingOnShortTap: true) preserves
+  // the pointerdown-started recording via voice.commitStartVisibility(),
+  // which advances state "starting" → "recording" and plays start.mp3 (NOT
+  // cancel.mp3). Fixes the iPhone "first mic tap plays cancel.mp3 + requires
+  // double-tap" regression. voice.state !== "idle" guard inside the hook
+  // still makes short-tap idempotent against MicButton's own onClick={() =>
+  // beginRecord("primary")} (kept as the mic-tap fallback path from
+  // quick-260814-1hz's decisions.md). holdInitiatedRef is consumed at
+  // showRecordingControls (B-3, keeps RecordingControls hidden during a
+  // hold) AND at showMicButton (keeps MicButton mounted during a hold so
+  // setPointerCapture stays attached and the hook's onPointerUp fires on
+  // release).
   //
   // NOTE (Quick 260814-1hz): moved above `showMicButton` so the predicate
   // below can read primaryHold.holdInitiatedRef.current.
   const primaryHold = useHoldToRecord({
     voice,
-    onShortTap: () => {
-      beginRecord("primary");
-    },
+    // quick-260814-iwy: no-op — voice is already recording from pointerdown's
+    // voice.start(). Hook's short-tap-keep branch (keepRecordingOnShortTap:
+    // true, below) fired commitStartVisibility() to advance the state →
+    // "recording" + play start.mp3. resetGestureState clears holdInitiatedRef,
+    // which makes showRecordingControls (L1735) evaluate true and swap
+    // RecordingControls in. beginRecord("primary") is UNNECESSARY here (would
+    // be a no-op anyway — hook's guard chain short-circuits when voice.state
+    // !== "idle") and explicitly avoided to make the intent legible.
+    onShortTap: () => {},
     onLongPressSend: () => {
       void handleVoiceSend("primary");
     },
+    // quick-260814-iwy: opt in to the short-tap-keep branch. Preserves the
+    // pointerdown-started recording so a sub-threshold tap on the mic advances
+    // "starting" → "recording" (start.mp3) instead of cancel.mp3.
+    keepRecordingOnShortTap: true,
     asideActive,
     // Quick 260814-1hz [Rule 1 auto-fix]: the hook now lives on the MicButton
     // (not the Send button), so sendDisabled — which gates on typed-text /
@@ -2737,21 +2754,38 @@ function QueuedRow(props: QueuedRowProps) {
     reconnectingActive === true ||
     dormantActive === true;
   // Quick 260814-1hz: hold-to-record gesture MOVED from the slot send button
-  // to the slot MicButton. onShortTap now starts a slot mic-tap recording
-  // (beginRecord) — the previous mic-onClick behavior. The Send button gets
-  // its direct onClick={handleQueueSlotSend} back below. Pointer handlers
-  // spread onto MicButton at ~L2949. Same voice.state !== "idle" guard makes
-  // the short-tap idempotent against MicButton's own onClick.
+  // to the slot MicButton. The Send button gets its direct
+  // onClick={handleQueueSlotSend} back below. Pointer handlers spread onto
+  // MicButton at ~L2949.
+  //
+  // quick-260814-iwy update (parity with primary): slot onShortTap is now a
+  // NO-OP (was beginRecord(slot.id)). Hook's short-tap-keep branch
+  // (keepRecordingOnShortTap: true) preserves the pointerdown-started slot
+  // recording via voice.commitStartVisibility(). Fixes the iPhone
+  // "first-tap-plays-cancel.mp3 + double-tap-required" regression on the
+  // slot mic. voice.state !== "idle" guard inside the hook makes short-tap
+  // idempotent against MicButton's own onClick.
   //
   // NOTE (Quick 260814-1hz): moved above `showSlotMic` so the predicate
   // below can read slotHold.holdInitiatedRef.current — keeps the slot mic
   // mounted during a hold-initiated slot recording (parity with primary).
   const slotHold = useHoldToRecord({
     voice,
-    onShortTap: () => beginRecord(slot.id),
+    // quick-260814-iwy (parity with primary): no-op — voice is already
+    // recording from pointerdown's voice.start(). Hook's short-tap-keep
+    // branch (keepRecordingOnShortTap: true, below) fired
+    // commitStartVisibility() to advance the state → "recording" + play
+    // start.mp3. resetGestureState clears holdInitiatedRef, which makes
+    // showSlotRecording (L2796) evaluate true and swap RecordingControls in.
+    // beginRecord(slot.id) is UNNECESSARY (hook guard short-circuits when
+    // voice.state !== "idle") and explicitly avoided to make intent legible.
+    onShortTap: () => {},
     onLongPressSend: () => {
       void handleVoiceSend(slot.id);
     },
+    // quick-260814-iwy: opt in to the short-tap-keep branch (parity with
+    // primary). Preserves the pointerdown-started slot recording.
+    keepRecordingOnShortTap: true,
     asideActive: asideActive ?? false,
     // Quick 260814-1hz [Rule 1 auto-fix, parity with primary]: hook now
     // lives on the slot MicButton, so slotSendDisabled (which gates on

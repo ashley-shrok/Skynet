@@ -205,12 +205,14 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)", () => {
-  it("Test 1 (reformulated per 260814-1hz): short tap on the mic under threshold OPENS a recording via beginRecord — onSend NOT called, RecordingControls swap in", async () => {
-    // Reformulated from the original Phase 32 CONTEXT.md L122 test. Original
-    // semantic: short-tap on the Send button = fire typed-send. New semantic:
-    // short-tap on the Mic button = beginRecord (opens RecordingControls) —
-    // the old mic-onClick behavior. The typed-send path now lives on the Send
-    // button's plain onClick and is not exercised by pointer events at all.
+  it("Test 1 (rewired per 260814-iwy): short tap on the mic under threshold OPENS a recording via commitStartVisibility (NOT via cancel+beginRecord) — onSend NOT called, voice.cancel NOT called, RecordingControls swap in", async () => {
+    // quick-260814-iwy: rewired from the old "await cancel → beginRecord →
+    // second getUserMedia" flow. Under keepRecordingOnShortTap:true on the
+    // primary mic hook, the short-tap-keep branch preserves the
+    // pointerdown-started recording via voice.commitStartVisibility() — no
+    // cancel, no beginRecord, EXACTLY ONE getUserMedia call, EXACTLY ONE
+    // MediaRecorder instance. Fixes the iPhone regression where the first
+    // short-tap played cancel.mp3 and required a double-tap.
     const onSend = vi.fn(() => true);
     const props = baseProps({ onSend });
     render(<ComposeBox {...props} />);
@@ -225,16 +227,30 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     installBoundsShim(button);
 
     // Pointerdown → hook's guard chain passes → voice.start() called synchronously
-    // → getUserMedia queued. Pointerup at t=200ms (< HOLD_THRESHOLD_MS) → hook's
-    // short-tap branch: await voice.cancel() (which rolls back the just-started
-    // recording via Plan 32-01 Task 1's pending-cancel defense) then onShortTap()
-    // → beginRecord("primary"). beginRecord opens a NEW recording (second
-    // getUserMedia call).
+    // (D-16-02) → getUserMedia queued. Pointerup at t=200ms (< HOLD_THRESHOLD_MS)
+    // → hook's short-tap-KEEP branch: voice.commitStartVisibility() (SYNC,
+    // advances "starting" → "recording") → onShortTap() (no-op — voice is
+    // already recording) → resetGestureState clears holdInitiatedRef →
+    // showRecordingControls = isPrimaryRecording && !holdInitiatedRef flips
+    // to true → RecordingControls (Cancel button) render.
     fireEvent.pointerDown(button, {
       pointerId: 1,
       clientX: 20,
       clientY: 20,
       timeStamp: 0,
+    });
+    // Advance timers BEFORE pointerup so getUserMedia has a chance to resolve
+    // and voice.state transitions to "starting" — this mirrors production
+    // behavior where the user's hold takes long enough for the mic-permission
+    // promise chain to complete before release. Without this, the test races
+    // ahead of the microtask queue: pointerup fires while state is still
+    // "idle" (getUserMedia unresolved), commitStartVisibility no-ops (state
+    // guard), and RecordingControls never swap in. In the harness, walking
+    // 200ms of fake time is enough for the mock getUserMedia promise chain
+    // to complete because the mock resolves synchronously — the timer advance
+    // just flushes the accumulated microtasks.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
     });
     await act(async () => {
       fireEvent.pointerUp(button, {
@@ -243,9 +259,9 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
         clientY: 20,
         timeStamp: 200,
       });
-      // Flush voice.cancel + getUserMedia resolution (rollback branch) +
-      // onShortTap → beginRecord → NEW voice.start → getUserMedia + MediaRecorder
-      // + voice.state → "recording" re-render.
+      // Flush the async pointerup handler + short-tap-keep branch's
+      // commitStartVisibility state transition (starting → recording) +
+      // React re-render.
       await vi.advanceTimersByTimeAsync(50);
       await Promise.resolve();
       await Promise.resolve();
@@ -256,18 +272,31 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     // Assertion 1: onSend was NOT called. Short-tap on mic does not send text.
     expect(onSend).not.toHaveBeenCalled();
 
-    // Assertion 2: getUserMedia was called (at least once by the hook's
-    // synchronous pointerdown path; beginRecord in onShortTap fires a second
-    // call after the rollback — the important invariant is "at least one" so
-    // the mic became live).
+    // Assertion 2: getUserMedia was called EXACTLY ONCE — from the hook's
+    // pointerdown voice.start() only. No cancel+beginRecord cycle means no
+    // second getUserMedia call. Tightened from `>=1` under the pre-260814-iwy
+    // semantic to a strict `===1` invariant.
     const getUserMediaMock = navigator.mediaDevices.getUserMedia as ReturnType<
       typeof vi.fn
     >;
-    expect(getUserMediaMock.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(getUserMediaMock.mock.calls.length).toBe(1);
+
+    // Assertion 2b (quick-260814-iwy): no STT fetch — short-tap that keeps
+    // the recording alive does not fire /voice/transcribe. Send/cancel are
+    // the only paths that fire STT.
+    expect((fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+
+    // Assertion 2c (quick-260814-iwy): EXACTLY ONE MediaRecorder was
+    // constructed. Belt-and-suspenders proof that the cancel+beginRecord
+    // sequence did NOT run (that path would construct two recorders — one
+    // torn down by cancel, one built by the beginRecord re-arm).
+    expect(MockMediaRecorder.instances.length).toBe(1);
 
     // Assertion 3: voice.state is now in the recording branch — RecordingControls
-    // swapped in (Cancel-recording button visible). This proves beginRecord
-    // completed and the mic-tap path took over.
+    // swapped in (Cancel-recording button visible). This proves
+    // commitStartVisibility completed the "starting" → "recording" transition
+    // AND resetGestureState cleared holdInitiatedRef so showRecordingControls
+    // evaluated true.
     expect(queryCancelRecordingButton()).not.toBeNull();
 
     // Assertion 4: textarea unchanged — no send fired.
@@ -786,24 +815,18 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     expect(getUserMediaMock.mock.calls.length).toBe(2);
   });
 
-  it("Test 10 (reformulated per 260814-1hz): threshold boundary — 249ms (HOLD_THRESHOLD_MS - 1) short-tap on mic yields cancel+idle (no send, no active recording); 250ms (HOLD_THRESHOLD_MS) long-press sends glued transcript", async () => {
-    // Reformulated: under the old semantics, a <threshold tap on the Send
-    // button fired handleSend with the typed text (Case A tested that). Under
-    // 260814-1hz, a <threshold tap on the Mic button fires beginRecord
-    // instead — the "opens RecordingControls" outcome is covered directly by
-    // Test 1 (fast pending-cancel path) and Test 11 (empty-text new-test).
-    // Case A here specifically exercises the OTHER short-tap path — the one
-    // where the pre-pointerup timer advance forces getUserMedia to resolve
-    // BEFORE cancel fires (so cancel takes the slow real-teardown branch
-    // instead of the pending-cancel fast branch). In that path the beginRecord
-    // re-arm is a no-op in the test harness (see the note inside the pointerup
-    // act about the stateRef sync-lag limitation of useVoiceRecording), so
-    // the invariant we assert here is "the cancel path executed cleanly —
-    // no send, no fetch, voice returned to idle, mic visible again". Case B
-    // (long-press-send) is functionally unchanged — the gesture just runs on
-    // the mic instead of the send button.
+  it("Test 10 (rewired per 260814-iwy): threshold boundary — 249ms (HOLD_THRESHOLD_MS - 1) short-tap on mic KEEPS the recording alive via commitStartVisibility (no send, no fetch, RecordingControls swapped in); 250ms (HOLD_THRESHOLD_MS) long-press sends glued transcript", async () => {
+    // quick-260814-iwy: Case A rewired. Under the new keepRecordingOnShortTap:
+    // true semantic, a <threshold tap on the mic no longer runs voice.cancel
+    // — it runs voice.commitStartVisibility, which advances the pointerdown-
+    // started recording into the "recording" state. RecordingControls swap
+    // in. The stateRef sync-lag limitation of useVoiceRecording (documented
+    // in the pre-260814-iwy version of this test and in deferred-items.md)
+    // is no longer relevant to this code path because no cancel-then-restart
+    // race exists. Case B (long-press-send) is UNCHANGED — the long-press
+    // branch is untouched by the short-tap-keep opt-in.
 
-    // ---- Case A: HOLD_THRESHOLD_MS - 1 = 249ms → short-tap → cancel+idle --
+    // ---- Case A: HOLD_THRESHOLD_MS - 1 = 249ms → short-tap-KEEP → recording alive
     const onSendA = vi.fn(() => true);
     const { unmount } = render(
       <ComposeBox {...baseProps({ onSend: onSendA })} />,
@@ -832,18 +855,9 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
           clientY: 20,
           timeStamp: HOLD_THRESHOLD_MS - 1,
         });
-        // Flush voice.cancel (real teardown because getUserMedia already
-        // resolved during the pre-pointerup 249ms advance) + any subsequent
-        // React re-renders. Note: the hook's onShortTap DOES call
-        // beginRecord("primary") after awaiting cancel, but useVoiceRecording's
-        // stateRef.current syncs from stateRef ← state via a useEffect on the
-        // next render tick, NOT synchronously inside setState. Under this test's
-        // deterministic microtask timing, beginRecord's voice.start guard
-        // (stateRef.current !== "idle" → return) runs BEFORE the sync effect
-        // fires, so the second voice.start is a no-op. In production this
-        // window is imperceptible; in the jsdom + fake-timer harness it is
-        // observable. Test 1 exercises the "fast pending-cancel" alternative
-        // path (no pre-pointerup advance) which does re-arm successfully.
+        // Flush the hook's short-tap-keep branch (commitStartVisibility is
+        // SYNC) + React re-renders + any post-render effects that transition
+        // voice.state -> "recording" and swap in RecordingControls.
         await vi.advanceTimersByTimeAsync(100);
         await Promise.resolve();
         await Promise.resolve();
@@ -851,24 +865,36 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
         await Promise.resolve();
       });
 
-      // Reformulated Case A assertions (adapted to the observed post-tap
-      // state under the fake-timer harness):
-      //   - onSend NOT called (typed-send now lives on the Send button;
-      //     mic-pointer sequences never fire it).
-      //   - No STT fetch (voice.cancel took the teardown path; no send).
-      //   - voice.state has returned to "idle" and MicButton is visible
-      //     again — i.e., getMicButton() succeeds and the Cancel-recording
-      //     button is NOT present (the beginRecord re-arm was suppressed by
-      //     the stateRef sync-lag limitation noted above; the invariant we
-      //     assert here is "no send, no active recording after the short
-      //     tap" — the "recording opened" assertion is covered by Test 1
-      //     and Test 11 which use the fast pending-cancel path).
+      // quick-260814-iwy Case A assertions — "recording is ALIVE post-tap":
+      //   - onSend NOT called (mic-pointer sequences never fire the typed-send
+      //     path; typed-send lives on the Send button's plain onClick).
+      //   - No STT fetch (short-tap keep does not fire /voice/transcribe;
+      //     only send/cancel do).
+      //   - Cancel-recording button IS present — RecordingControls swapped in
+      //     because commitStartVisibility advanced state to "recording" AND
+      //     resetGestureState cleared holdInitiatedRef, making
+      //     showRecordingControls (isPrimaryRecording && !holdInitiatedRef)
+      //     evaluate true.
+      //   - MicButton is UNMOUNTED — showMicButton evaluated false because
+      //     isPrimaryRecording is true AND holdInitiatedRef was cleared
+      //     (neither disjunct saved it).
       expect(onSendA).toHaveBeenCalledTimes(0);
       const fetchMockA = fetch as ReturnType<typeof vi.fn>;
       expect(fetchMockA.mock.calls.length).toBe(0);
-      expect(queryCancelRecordingButton()).toBeNull();
-      // MicButton is present (voice.state === "idle" post-cancel).
-      expect(getMicButton()).toBeTruthy();
+      expect(queryCancelRecordingButton()).not.toBeNull();
+      expect(screen.queryByRole("button", { name: "Record voice" })).toBeNull();
+
+      // Explicit Cancel-recording cleanup before unmount — the recording is
+      // ALIVE now, so the pre-260814-iwy pattern of assuming voice.state ===
+      // "idle" post-tap no longer holds. Click Cancel + flush so unmount()
+      // below doesn't fight an in-flight recording.
+      const cancelBtnA = screen.getByRole("button", { name: "Cancel recording" });
+      await act(async () => {
+        fireEvent.click(cancelBtnA);
+        await vi.advanceTimersByTimeAsync(50);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
     }
 
     unmount();
@@ -949,12 +975,14 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     }
   });
 
-  it("Test 11 (NEW under 260814-1hz): mic short-tap starts recording (opens RecordingControls path) — proves the hook's onShortTap → beginRecord wiring works end-to-end on the mic button", async () => {
-    // Verifies the short-tap-on-mic → beginRecord semantic added by Task 2
-    // (primaryHold.onShortTap now calls beginRecord("primary") instead of
-    // handleSend). This test is orthogonal to Test 1 (which asserts the
-    // ABSENCE of send); it asserts the PRESENCE of a live recording after a
-    // short tap, via the RecordingControls swap-in.
+  it("Test 11 (rewired per 260814-iwy): mic short-tap starts recording (opens RecordingControls path) via commitStartVisibility — proves the hook's keepRecordingOnShortTap:true wiring works end-to-end on the mic button", async () => {
+    // quick-260814-iwy: rewired from the "await cancel → onShortTap →
+    // beginRecord" flow to the new "commitStartVisibility (preserve
+    // pointerdown-started recording) → onShortTap (no-op) → RecordingControls
+    // swap in" flow. This test asserts the PRESENCE of a live recording
+    // after a short tap, via the RecordingControls swap-in, AND that the
+    // cancel+restart cycle did NOT run (exactly one getUserMedia call,
+    // exactly one MediaRecorder instance, no STT fetch).
     const onSend = vi.fn(() => true);
     render(<ComposeBox {...baseProps({ onSend })} />);
 
@@ -965,14 +993,26 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     installBoundsShim(button);
 
     // Fire a sub-threshold tap: pointerdown at t=0, pointerup at t=100
-    // (< HOLD_THRESHOLD_MS = 250). Hook's short-tap branch: await
-    // voice.cancel() (rollback of the optimistic voice.start), then
-    // onShortTap() → beginRecord("primary") → a fresh recording opens.
+    // (< HOLD_THRESHOLD_MS = 250). Hook's short-tap-KEEP branch:
+    // voice.commitStartVisibility() (SYNC, advances "starting" → "recording")
+    // → onShortTap() (no-op — voice is already recording; no beginRecord)
+    // → resetGestureState clears holdInitiatedRef → showRecordingControls
+    // = isPrimaryRecording && !holdInitiatedRef = true → Cancel-recording
+    // button renders.
     fireEvent.pointerDown(button, {
       pointerId: 1,
       clientX: 20,
       clientY: 20,
       timeStamp: 0,
+    });
+    // Advance timers BEFORE pointerup so getUserMedia resolves and
+    // voice.state transitions to "starting" — see Test 1 for the extended
+    // rationale. Without this, the short-tap-keep branch's
+    // commitStartVisibility runs against state="idle" and no-ops (idempotent
+    // state guard in useVoiceRecording.ts), so state stays "idle" through
+    // pointerup and RecordingControls never swap in.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
     });
     await act(async () => {
       fireEvent.pointerUp(button, {
@@ -981,8 +1021,8 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
         clientY: 20,
         timeStamp: 100,
       });
-      // Flush voice.cancel + getUserMedia rollback + onShortTap → beginRecord
-      // → new voice.start → getUserMedia + MediaRecorder + state re-render.
+      // Flush the async pointerup handler + short-tap-keep branch's
+      // commitStartVisibility state transition + React re-render.
       await vi.advanceTimersByTimeAsync(50);
       await Promise.resolve();
       await Promise.resolve();
@@ -991,16 +1031,33 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     });
 
     // Assertion 1: RecordingControls swapped in — Cancel-recording button
-    // exists. This proves beginRecord was invoked (via the hook's onShortTap)
-    // AND holdInitiatedRef is false in this branch (short-tap goes through
-    // resetGestureState which clears holdInitiatedRef), so showRecordingControls
-    // = isPrimaryRecording && !holdInitiatedRef = true.
+    // exists. This proves commitStartVisibility completed the "starting" →
+    // "recording" transition AND holdInitiatedRef is false in this branch
+    // (short-tap-keep goes through resetGestureState which clears
+    // holdInitiatedRef), so showRecordingControls = isPrimaryRecording &&
+    // !holdInitiatedRef = true.
     expect(
       screen.getByRole("button", { name: "Cancel recording" }),
     ).toBeTruthy();
 
     // Assertion 2: onSend was NOT called — mic short-tap does not send.
     expect(onSend).not.toHaveBeenCalled();
+
+    // Assertion 3 (quick-260814-iwy): getUserMedia was called EXACTLY ONCE —
+    // no cancel+restart cycle. Tightened from `>=1` under the old semantic.
+    const getUserMediaMock = navigator.mediaDevices.getUserMedia as ReturnType<
+      typeof vi.fn
+    >;
+    expect(getUserMediaMock.mock.calls.length).toBe(1);
+
+    // Assertion 4 (quick-260814-iwy): EXACTLY ONE MediaRecorder — belt-and-
+    // suspenders proof no cancel+beginRecord cycle ran (that path would
+    // construct two recorders).
+    expect(MockMediaRecorder.instances.length).toBe(1);
+
+    // Assertion 5 (quick-260814-iwy): no STT fetch — short-tap keep does not
+    // fire /voice/transcribe (only send/cancel do).
+    expect((fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
 
     // Cleanup: click Cancel to return to idle.
     const cancelBtn = screen.getByRole("button", { name: "Cancel recording" });
@@ -1010,5 +1067,19 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
       await Promise.resolve();
       await Promise.resolve();
     });
+  });
+
+  it("Test 12 (NEW under 260814-iwy): MicButton className includes [-webkit-touch-callout:none] (iOS Safari callout suppression)", () => {
+    // Static-attribute assertion — jsdom cannot verify the actual iOS Safari
+    // callout suppression behavior, but this guards against a future edit
+    // that strips the class without realizing it was there for iOS. The
+    // class is applied via the cn() list in MicButton.tsx and is one of two
+    // belt-and-suspenders defenses against iOS Safari long-press callout /
+    // magnifier / quick-note firing pointercancel mid-hold (the other is the
+    // preventDefault wrapper on onPointerDown — see Test 8 for the sync-
+    // gesture invariant that preventDefault does NOT break).
+    render(<ComposeBox {...baseProps()} />);
+    const button = getMicButton();
+    expect(button.className).toContain("[-webkit-touch-callout:none]");
   });
 });
