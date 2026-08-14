@@ -20,8 +20,33 @@ vi.mock("../../voice/skill-catalog.js", () => ({
   DEFAULT_SKILL_CATALOG_TIMEOUT_MS: 10_000,
 }));
 
+// Disk-bank tests: mock node:fs so handleTranscribe's fire-and-forget
+// bank-write is intercepted without touching the real filesystem.
+// We use importActual to preserve all real fs methods and only override
+// promises.writeFile and promises.mkdir with vi.fn() spies.
+vi.mock("node:fs", async (importActual) => {
+  const actual = await importActual<typeof import("node:fs")>();
+  return {
+    ...actual,
+    default: {
+      ...actual,
+      promises: {
+        ...actual.promises,
+        writeFile: vi.fn(async () => undefined),
+        mkdir: vi.fn(async () => undefined),
+      },
+    },
+    promises: {
+      ...actual.promises,
+      writeFile: vi.fn(async () => undefined),
+      mkdir: vi.fn(async () => undefined),
+    },
+  };
+});
+
 import { handleTranscribe, handleSpeak, handleListVoices, handleSpeakStream, DEFAULT_VOICE, SPEAK_TEXT_MAX } from "./voice.js";
 import { fetchSkillCatalog } from "../../voice/skill-catalog.js";
+import fs from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Minimal Express mock (enough to drive the handler)
@@ -107,6 +132,7 @@ type MockReq = {
     buffer: Buffer;
     mimetype: string;
     originalname?: string;
+    size?: number;
   };
   body?: Record<string, unknown>;
 };
@@ -151,6 +177,11 @@ function makeSpeakReq(body: Record<string, unknown>): { body: Record<string, unk
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // Reset fs.promises spies so tests are isolated (disk-bank tests)
+  vi.mocked(fs.promises.writeFile).mockClear();
+  vi.mocked(fs.promises.mkdir).mockClear();
+  vi.mocked(fs.promises.writeFile).mockResolvedValue(undefined);
+  vi.mocked(fs.promises.mkdir).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -284,6 +315,71 @@ describe("handleTranscribe", () => {
     const body = res._body as { error: string; status: number };
     expect(body.error).toBe("STT timeout");
     expect(body.status).toBe(504);
+  });
+
+  it("Test bank-write-1: writes audio buffer to disk before issuing STT fetch, with expected filename shape", async () => {
+    const audioBytes = Buffer.from("audio-bytes-fixture");
+    const req = makeReq({ buffer: audioBytes, mimetype: "audio/mp4", size: 19 });
+    const res = makeRes();
+
+    const fetchMock = vi.fn(async () => makeFetchResponse(200, { text: "hello" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    // Give the fire-and-forget chain a chance to settle (Promise microtask flushes)
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // writeFile was called exactly once
+    expect(vi.mocked(fs.promises.writeFile)).toHaveBeenCalledTimes(1);
+
+    // First arg (path) matches expected filename shape
+    const callArgs = vi.mocked(fs.promises.writeFile).mock.calls[0];
+    const writtenPath = callArgs[0] as string;
+    expect(writtenPath).toMatch(/^.*\/\d{8}T\d{6}Z-(anon|\d+)-19\.mp4$/);
+
+    // Second arg is the audio buffer
+    const writtenData = callArgs[1] as Buffer;
+    expect(Buffer.isBuffer(writtenData)).toBe(true);
+    expect(writtenData.equals(audioBytes)).toBe(true);
+
+    // Call-order: the bank-write pipeline is kicked off (mkdir invoked) BEFORE the STT fetch.
+    // The void-prefixed chain evaluates mkdir() synchronously; writeFile runs in the .then()
+    // microtask which settles after handleTranscribe awaits fetch, so we check mkdir order.
+    const mkdirCallOrder = vi.mocked(fs.promises.mkdir).mock.invocationCallOrder[0];
+    const fetchCallOrder = fetchMock.mock.invocationCallOrder[0];
+    expect(mkdirCallOrder).toBeLessThan(fetchCallOrder);
+
+    // Response is still the normal STT result
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("hello");
+  });
+
+  it("Test bank-write-2: bank-write rejection does not affect STT response (best-effort)", async () => {
+    const req = makeReq({ buffer: Buffer.from("bytes"), mimetype: "audio/mp4", size: 5 });
+    const res = makeRes();
+
+    // Make writeFile reject to simulate disk error
+    vi.mocked(fs.promises.writeFile).mockRejectedValueOnce(new Error("EACCES: permission denied"));
+
+    vi.stubGlobal("fetch", async () => makeFetchResponse(200, { text: "still works" }));
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    // Give the .catch() a chance to run (Promise microtask flush)
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // handleTranscribe returned normally — the write rejection was swallowed
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("still works");
   });
 });
 

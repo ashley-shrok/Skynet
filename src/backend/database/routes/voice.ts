@@ -1,6 +1,8 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import multer from "multer";
+import fs from "node:fs";
+import path from "node:path";
 import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -67,6 +69,23 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
 
   const file = req.file;
   const ext = extFromMimetype(file.mimetype);
+
+  // --- Disk-bank: fire-and-forget write of incoming audio buffer to container FS ---
+  // Addresses Ashley 2026-08-14 3.87 MB clip incident: multer is memory-only so once
+  // a 504 returned the audio was GC'd. Banking to disk before the STT fetch ensures
+  // raw bytes are recoverable even if the upstream round-trip fails.
+  const authReq = req as AuthenticatedRequest;
+  const userId = authReq.userId;
+  const dir = process.env.STT_RECORDINGS_DIR ?? "/app/stt-recordings";
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  const filename = `${timestamp}-${userId ?? "anon"}-${file.size}.${ext}`;
+  const fullPath = path.join(dir, filename);
+  databaseLogger.info(`[voice-server] transcribe-bank-write filename=${filename}`, { operation: "voice_transcribe_bank_write", filename });
+  void fs.promises.mkdir(dir, { recursive: true }).then(() => fs.promises.writeFile(fullPath, file.buffer)).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    databaseLogger.warn(`[voice-server] transcribe-bank-write-failed filename=${filename} error=${message}`, { operation: "voice_transcribe_bank_write_failed", filename, error: message });
+  });
+
   databaseLogger.info(`[voice-server] transcribe-req byteSize=${file.size} mimetype=${file.mimetype}`, { operation: "voice_transcribe" });
 
   // (b) Build a fresh FormData for the STT request
@@ -83,9 +102,11 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
   const blob = new Blob([arrayBuf], { type: file.mimetype });
   formData.append("file", blob, `clip.${ext}`);
 
-  // (c) AbortController: T-16-02 mitigation — 30-second STT timeout
+  // (c) AbortController: T-16-02 mitigation — 120-second STT timeout
+  // Bumped from 30s to 120s to support long dictations to the tailnet large-v3 CUDA GPU
+  // STT (Ashley 2026-08-14 3.87 MB clip incident where the original 30s cap fired first).
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
   try {
     // (d) Forward to tailnet STT
