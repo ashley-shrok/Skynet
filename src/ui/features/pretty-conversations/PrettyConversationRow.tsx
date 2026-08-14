@@ -6,13 +6,18 @@
 // keeps only the surviving JS-only concerns:
 //
 //   - Ready-dot conditional render
-//     (`inActiveSet && isWorking === false && !isRecycling && !hasQueuePending`)
+//     (`isWorking === false && !isRecycling && !hasQueuePending`)
 //     — JS-gated so the DOM never contains a ready-dot span when isWorking is
-//     null or true (preserves the test expectations for Tests 15/16/17), when
-//     the SessionHoldingOverlay is up (quick-260730-qbl), OR when the row's
-//     ComposeBox has an armed idle-send queue (quick-260802-w9e — closes the
-//     pinned bounty `hide-idle-dot-when-queued-message-waiting-to-send`).
-//     The CSS `.pv-row.active-set:not(.working):not(.recycling) .pv-ready-dot
+//     null or true, when the SessionHoldingOverlay is up (quick-260730-qbl),
+//     OR when the row's ComposeBox has an armed idle-send queue
+//     (quick-260802-w9e — closes the pinned bounty
+//     `hide-idle-dot-when-queued-message-waiting-to-send`). The `inActiveSet`
+//     conjunct was dropped 2026-08-14 — since the Phase 34 Plan 06 fleet-
+//     status cutover, isWorking is backend-authoritative for every session
+//     the fleet-status channel knows about (not just active-set rows), so
+//     the dot now surfaces "ready for attention" on ambient/recessed rows
+//     too. Reverses the 2026-07-23 lock that scoped the dot to active-set
+//     only. The CSS `.pv-row:not(.working):not(.recycling) .pv-ready-dot
 //     { display: block }` provides a secondary gate for the isWorking +
 //     isRecycling axes only; the queue-pending gate lives ONLY in JS
 //     because it isn't surfaced as a row className.
@@ -1081,17 +1086,15 @@ export function PrettyConversationRow({
               combination in practice — the panel passes isWorking={null}
               for RDP rows because sessionWorkingKey resolves against a
               null tmux session). */}
-          {inActiveSet && isWorking === false && !isRecycling && !hasQueuePending && (
+          {isWorking === false && !isRecycling && !hasQueuePending && (
             <span
               aria-label="ready"
               data-pv-conv-ready-dot="true"
               className="pv-ready-dot"
               // Force display:block inline — CSS gate is
-              // `.pv-row.active-set:not(.working) .pv-ready-dot { display:
-              // block }` but tests that render the dot with isWorking=false
-              // but WITHOUT setting `active-set` on the parent (e.g. Test 14
-              // for RDP) need the dot in the DOM regardless. Inline
-              // display:block guarantees the JS gate is authoritative.
+              // `.pv-row:not(.working):not(.recycling) .pv-ready-dot { display:
+              // block }`; inline display:block guarantees the JS gate is
+              // authoritative regardless of parent className shape.
               style={{ display: "block" }}
             />
           )}

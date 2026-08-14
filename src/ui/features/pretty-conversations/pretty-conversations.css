@@ -551,8 +551,12 @@
   position: relative;
 }
 
-/* Shown only when row is in the active set AND NOT currently working AND NOT currently recycling */
-.pv-row.active-set:not(.working):not(.recycling) .pv-ready-dot {
+/* Shown on any row that is NOT currently working AND NOT currently recycling.
+   Was scoped to `.active-set` pre-2026-08-14; dropped that conjunct after the
+   Phase 34 Plan 06 fleet-status cutover made isWorking backend-authoritative
+   for every session (ambient rows included), so the dot now surfaces "ready
+   for attention" on ambient/recessed rows too. Reverses the 2026-07-23 lock. */
+.pv-row:not(.working):not(.recycling) .pv-ready-dot {
   display: block;
 }
 
@@ -616,11 +620,14 @@
   color: rgba(255, 235, 190, 0.45);
 }
 
-/* No dot on ambient rows regardless of their working state — the dot
-   ONLY means "in active set + ready." Background agents don't shout
-   for attention. (Enforced by the `.pv-row.active-set:not(.working)`
-   selector above — ambient rows never carry `.active-set`, so the
-   `.pv-ready-dot { display: none }` default holds.) */
+/* Ambient rows DO show the ready-dot when their fleet-status is idle
+   (2026-08-14 reversal — was "no dot on ambient" pre-that-date). Since the
+   Phase 34 Plan 06 fleet-status cutover, isWorking is backend-authoritative
+   for every session, so surfacing "ready for attention" on ambient rows too
+   lets Ashley promote idle ambient sessions INTO the active set intentionally
+   rather than click-to-check. Enforced by the widened
+   `.pv-row:not(.working):not(.recycling) .pv-ready-dot { display: block }`
+   selector above (no `.active-set` requirement). */
 
 /* ═══════════════════════════════════════════════════════════════════════════
    RDP ROWS — neutral, no hue, but same GLASS treatment so they read as part

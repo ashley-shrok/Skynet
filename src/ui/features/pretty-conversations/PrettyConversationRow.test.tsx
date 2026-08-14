@@ -33,8 +33,11 @@
 //      gate)
 //  16) [Phase 13] inActiveSet+isWorking===null renders NO ready-dot (JS
 //      gate)
-//  17) [Phase 13] !inActiveSet+isWorking===false renders NO ready-dot (JS
-//      gate)
+//  17) [2026-08-14 reversal] !inActiveSet+isWorking===false renders the
+//      ready-dot (was NO ready-dot pre-reversal). inActiveSet dropped from
+//      the JS gate after fleet-status became backend-authoritative for
+//      every session (Phase 34 Plan 06 cutover); ambient rows now surface
+//      "ready for attention" too.
 // 15b) [quick-260730-qbl] inActiveSet+isWorking===false+isRecycling===true
 //      renders NO ready-dot (JS gate) AND row carries `recycling` class
 //      (CSS defense-in-depth gate)
@@ -622,11 +625,16 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 17 — [Phase 13] !inActiveSet + isWorking===false renders NO ready-dot
+// Test 17 — [2026-08-14 reversal] !inActiveSet + isWorking===false renders
+//           the ready-dot (was: renders NO ready-dot pre-2026-08-14 lock).
+//           inActiveSet was dropped from the JS gate after Phase 34 Plan 06
+//           fleet-status cutover made isWorking backend-authoritative for
+//           every session, so ambient rows now surface "ready for attention"
+//           too.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: Phase 13 ready-dot suppression — ambient", () => {
-  it("Test 17: !inActiveSet+isWorking===false renders NO ready-dot", () => {
+describe("PrettyConversationRow: ambient row ready-dot render (2026-08-14)", () => {
+  it("Test 17: !inActiveSet+isWorking===false renders ready-dot", () => {
     currentIdentity = makeIdentity(210);
     const { queryByLabelText } = render(
       <PrettyConversationRow
@@ -640,7 +648,10 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — ambient", ()
         isWorking={false}
       />,
     );
-    expect(queryByLabelText("ready")).toBeNull();
+    const dot = queryByLabelText("ready") as HTMLElement | null;
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute("data-pv-conv-ready-dot")).toBe("true");
+    expect(dot!.className).toContain("pv-ready-dot");
   });
 });
 
