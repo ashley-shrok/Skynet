@@ -84,7 +84,6 @@ export function EditableFileAffordance({
       }
     >
       <Pencil size={16} />
-      {!isTouchDevice && <span className="text-[11px]">Edit</span>}
     </button>
   );
 }

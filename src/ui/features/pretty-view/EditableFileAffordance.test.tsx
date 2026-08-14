@@ -67,12 +67,13 @@ describe("EditableFileAffordance — Phase 40 Plan 40-03 Task 1", () => {
     expect(cls).toContain("min-h-[44px]");
   });
 
-  it("test 5: desktop (useIsTouchDevice=false) → icon + 'Edit' label + opacity-0 rest", () => {
+  it("test 5: desktop (useIsTouchDevice=false) → icon-only + opacity-0 rest", () => {
     (useIsTouchDevice as ReturnType<typeof vi.fn>).mockReturnValue(false);
     render(<EditableFileAffordance onOpen={vi.fn()} filename="test.md" />);
     const btn = screen.getByRole("button");
-    // Label text visible in DOM (though hover-reveal via opacity in the CSS)
-    expect(btn.textContent).toContain("Edit");
+    // Icon-only per UI-SPEC L124 — no visible "Edit" text label.
+    // aria-label/title still read "Edit {filename}" (see test 2) for a11y.
+    expect(btn.textContent).not.toContain("Edit");
     // Starts hidden via opacity-0 — hover on ancestor .pv-bubble reveals it.
     // JSDOM can't test the ancestor-hover CSS variant; the initial class-list
     // check is sufficient to lock the resting-invisible contract.
