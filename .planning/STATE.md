@@ -3,11 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-<<<<<<< HEAD
 last_updated: "2026-08-14T14:05:00.000Z"
-=======
-last_updated: "2026-08-14T03:15:03.076Z"
->>>>>>> 452c2a93 (docs(40-04): complete ChatMessage + PrettyView wiring plan)
 last_activity: 2026-08-14
 progress:
   total_phases: 40
