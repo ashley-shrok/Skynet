@@ -1503,6 +1503,83 @@ export async function __applyDormantBranchTailOpenForTests(
   }
 }
 
+/**
+ * Phase 41 Plan 04: testability seam for the upload_start / upload_chunk /
+ * upload_abort dispatch logic added to claude-session-server's ws.on("message")
+ * handler. Allows integration tests to exercise the dispatch path directly
+ * without needing a live WebSocket server.
+ *
+ * The closure-scoped state (`ownedUploadBatches`, `pendingStarts`) is passed
+ * as explicit mutable deps so the test can observe batch registration and
+ * the Quick-fix 260801-29v race guard in isolation.
+ *
+ * Pattern mirrors `__applyInputMessageForTests` / `__applyWakeMessageForTests`
+ * above — zero new npm dependencies; test-only callpath.
+ *
+ * @param msg              - already-parsed message object (`type` field identifies branch)
+ * @param uploadDeps       - UploadDeps shape expected by pretty-view-upload handlers
+ * @param ownedUploadBatches - per-connection Set of batch mqids owned by this WS
+ * @param pendingStarts    - per-connection Map of in-flight start promises (260801-29v guard)
+ */
+export async function __dispatchUploadMessageForTests(
+  msg: { type?: unknown } & Record<string, unknown>,
+  uploadDeps: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sshConn: any | null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ws: any;
+    userId: string | undefined;
+    currentSessionId: string | null;
+  },
+  ownedUploadBatches: Set<string>,
+  pendingStarts: Map<string, Promise<void>>,
+): Promise<void> {
+  if (msg.type === "upload_start") {
+    const uploadStart = msg as unknown as UploadStartPayload;
+    const startMqid = uploadStart.messageQueueItemId;
+    if (typeof startMqid === "string" && startMqid.length > 0) {
+      ownedUploadBatches.add(startMqid);
+    }
+    const startPromise = handleUploadStart(uploadDeps, uploadStart);
+    if (typeof startMqid === "string" && startMqid.length > 0) {
+      pendingStarts.set(startMqid, startPromise);
+      startPromise.finally(() => {
+        pendingStarts.delete(startMqid);
+      });
+    }
+    return;
+  }
+  if (msg.type === "upload_chunk") {
+    const uploadChunk = msg as unknown as UploadChunkPayload;
+    const chunkMqid = uploadChunk.messageQueueItemId;
+    const pending =
+      typeof chunkMqid === "string" && chunkMqid.length > 0
+        ? pendingStarts.get(chunkMqid)
+        : undefined;
+    if (pending) {
+      await pending
+        .then(() => handleUploadChunk(uploadDeps, uploadChunk))
+        .catch(() => {
+          // Swallow — see claude-session-server.ts ws.on("message") upload_chunk comment.
+        });
+    } else {
+      handleUploadChunk(uploadDeps, uploadChunk);
+    }
+    return;
+  }
+  if (msg.type === "upload_abort") {
+    const uploadAbort = msg as unknown as UploadAbortPayload;
+    handleUploadAbort(uploadDeps, uploadAbort);
+    if (
+      !uploadAbort.tempId &&
+      typeof uploadAbort.messageQueueItemId === "string"
+    ) {
+      ownedUploadBatches.delete(uploadAbort.messageQueueItemId);
+    }
+    return;
+  }
+}
+
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
