@@ -1676,17 +1676,20 @@ export function ComposeBox({
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
 
-  // Phase 32: hold-to-record gesture layer on the primary send button. Uses
-  // the SAME useVoiceRecording singleton as the mic-tap path so voice.state
-  // gates prevent double-arm. Note: onShortTap covers ONLY the non-aside
-  // branch — the aside-dismiss short-tap is served by the button's preserved
-  // native onClick (B-2 fix). holdInitiatedRef is consumed below at the
-  // showRecordingControls predicate to prevent the RecordingControls swap
-  // during a hold-initiated recording (B-3 fix).
+  // Quick 260814-1hz: hold-to-record gesture MOVED from the primary send
+  // button to the MicButton. onShortTap now starts a mic-tap recording
+  // (beginRecord) — the previous mic-onClick behavior. The Send button gets
+  // its direct onClick back (see below). The hook still lives here and the
+  // pointer handlers spread onto MicButton at ~L2530. voice.state !== "idle"
+  // guard inside useHoldToRecord makes the short-tap idempotent against
+  // MicButton's own onClick={() => beginRecord("primary")}. holdInitiatedRef
+  // is consumed at showRecordingControls (B-3, keeps RecordingControls hidden
+  // during a hold) and — Task 3 — at showMicButton (keeps MicButton mounted
+  // during a hold so setPointerCapture stays attached).
   const primaryHold = useHoldToRecord({
     voice,
     onShortTap: () => {
-      if (!sendDisabled) handleSend(undefined, "send-button");
+      beginRecord("primary");
     },
     onLongPressSend: () => {
       void handleVoiceSend("primary");
@@ -2445,22 +2448,15 @@ export function ComposeBox({
                 wiring needed). */}
             <button
               type="button"
-              // B-2 (Phase 37): preserve aside-dismiss short-tap via the
-              // button's native onClick. When asideActive=true, the
-              // useHoldToRecord hook is inert (guards short-circuit
-              // pointerdown), so the hook's own short-tap callback never
-              // fires — but the browser still synthesizes a click event from
-              // a valid pointerdown/pointerup pair, and that click triggers
-              // this onClick. When !asideActive, onClick is undefined and
-              // the hook's pointer handlers govern the short-tap-send path
-              // exclusively (handleSend is called from the hook's onShortTap
-              // with the "send-button" origin marker preserved from Phase 35).
-              onClick={asideActive ? () => onAsideDismiss?.() : undefined}
-              onPointerDown={primaryHold.onPointerDown}
-              onPointerUp={primaryHold.onPointerUp}
-              onPointerCancel={primaryHold.onPointerCancel}
-              onPointerLeave={primaryHold.onPointerLeave}
-              data-hold-active={primaryHold.holdActive ? "true" : "false"}
+              // Quick 260814-1hz: onClick is now the SOLE driver for both
+              // branches — the aside-dismiss branch (unchanged) AND the
+              // normal typed-send branch (previously hosted on the
+              // useHoldToRecord hook, now moved onto MicButton per the
+              // bounty). Preserves the "send-button" origin marker from
+              // Phase 35 and the aside-morph Resume/X behavior byte-for-byte.
+              // The hold-to-record pointer handlers live on the MicButton
+              // below (~L2530 primary, ~L2949 slot).
+              onClick={asideActive ? () => onAsideDismiss?.() : () => handleSend(undefined, "send-button")}
               disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
               aria-label={asideActive ? "Resume" : "Send"}
               title={asideActive ? "Resume" : "Send"}
@@ -2528,7 +2524,20 @@ export function ComposeBox({
                 the same relative parent (40px separation). */}
             {showMicButton && (
               <MicButton
+                // Quick 260814-1hz: hold-to-record now lives on MicButton.
+                // primaryHold pointer handlers govern press-and-hold → voice
+                // recording. The onClick below is the tap-to-record path;
+                // the hook's onShortTap ALSO calls beginRecord("primary"),
+                // which is safe because useHoldToRecord's voice.state !== "idle"
+                // guard makes the second call a no-op (belt-and-suspenders
+                // for browsers that fire click without a hook-observable
+                // pointerup pair).
                 onClick={() => beginRecord("primary")}
+                onPointerDown={primaryHold.onPointerDown}
+                onPointerUp={primaryHold.onPointerUp}
+                onPointerCancel={primaryHold.onPointerCancel}
+                onPointerLeave={primaryHold.onPointerLeave}
+                dataHoldActive={primaryHold.holdActive}
                 disabled={voice.state !== "idle"}
                 title="Record voice"
                 positionClass="right-11 bottom-0.5"
@@ -2712,12 +2721,15 @@ function QueuedRow(props: QueuedRowProps) {
     planPendingActive === true ||
     reconnectingActive === true ||
     dormantActive === true;
-  // Phase 32: hold-to-record gesture layer on the slot send button. Symmetric
-  // with the primary — same hook, slot-scoped callbacks. holdInitiatedRef
-  // consumed at showSlotRecording predicate below (B-3 gate).
+  // Quick 260814-1hz: hold-to-record gesture MOVED from the slot send button
+  // to the slot MicButton. onShortTap now starts a slot mic-tap recording
+  // (beginRecord) — the previous mic-onClick behavior. The Send button gets
+  // its direct onClick={handleQueueSlotSend} back below. Pointer handlers
+  // spread onto MicButton at ~L2949. Same voice.state !== "idle" guard makes
+  // the short-tap idempotent against MicButton's own onClick.
   const slotHold = useHoldToRecord({
     voice,
-    onShortTap: () => handleQueueSlotSend(slot.id),
+    onShortTap: () => beginRecord(slot.id),
     onLongPressSend: () => {
       void handleVoiceSend(slot.id);
     },
@@ -2911,11 +2923,9 @@ function QueuedRow(props: QueuedRowProps) {
             {showSlotSend && (
               <button
                 type="button"
-                onPointerDown={slotHold.onPointerDown}
-                onPointerUp={slotHold.onPointerUp}
-                onPointerCancel={slotHold.onPointerCancel}
-                onPointerLeave={slotHold.onPointerLeave}
-                data-hold-active={slotHold.holdActive ? "true" : "false"}
+                // Quick 260814-1hz: onClick restored as sole driver — the
+                // hold-to-record hook now lives on the slot MicButton below.
+                onClick={() => handleQueueSlotSend(slot.id)}
                 disabled={slotSendDisabled}
                 aria-label="Send queued message"
                 title="Send queued message"
@@ -2947,7 +2957,16 @@ function QueuedRow(props: QueuedRowProps) {
             )}
             {showSlotMic && (
               <MicButton
+                // Quick 260814-1hz: slotHold pointer handlers govern press-
+                // and-hold → voice recording on the slot mic. onClick is the
+                // tap-to-record path; hook's onShortTap also calls
+                // beginRecord(slot.id) — idempotent via voice.state guard.
                 onClick={() => beginRecord(slot.id)}
+                onPointerDown={slotHold.onPointerDown}
+                onPointerUp={slotHold.onPointerUp}
+                onPointerCancel={slotHold.onPointerCancel}
+                onPointerLeave={slotHold.onPointerLeave}
+                dataHoldActive={slotHold.holdActive}
                 disabled={voice.state !== "idle"}
                 title="Record voice"
                 positionClass="right-11 bottom-0.5"
