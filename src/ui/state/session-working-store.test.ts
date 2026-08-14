@@ -3,7 +3,7 @@
 // store and the derived useSessionIsWorking hook:
 //
 //   A. publishFleetStatusSessionState(hostId, {status:'busy',...}) → useSessionIsWorking true
-//   B. status:'shell' → useSessionIsWorking true (shell counts as main per D-CTX)
+//   B. status:'shell' → useSessionIsWorking false (harness reports shell for ANY local tool exec, including persistent Monitors — see store header)
 //   C. status:'idle' + backgroundTasks w/ running shell → true (bg dominates)
 //   D. status:'idle' + backgroundTasks:[] → false
 //   E. status:'waiting' + backgroundTasks:[] → FALSE (waiting is NOT working per D-CTX)
@@ -73,11 +73,11 @@ describe("session-working-store: Test A — status:'busy' → isWorking true", (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test B — status:'shell' → isWorking true
+// Test B — status:'shell' + bg:[] → isWorking false
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("session-working-store: Test B — status:'shell' → isWorking true", () => {
-  it("publishFleetStatusSessionState with status:'shell' → useSessionIsWorking returns true", () => {
+describe("session-working-store: Test B — status:'shell' + bg:[] → isWorking false", () => {
+  it("publishFleetStatusSessionState with status:'shell' → useSessionIsWorking returns false", () => {
     const { result, rerender } = renderHook(() =>
       useSessionIsWorking("h1:s1"),
     );
@@ -86,7 +86,7 @@ describe("session-working-store: Test B — status:'shell' → isWorking true", 
       publishFleetStatusSessionState("h1", makeState({ status: "shell" }));
     });
     rerender();
-    expect(result.current).toBe(true);
+    expect(result.current).toBe(false);
   });
 });
 

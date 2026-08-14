@@ -5,8 +5,8 @@
 // (PTY-idle from Terminal.tsx + backgrounded-work from PrettyView.tsx)
 // were REMOVED in Plan 06 — see 34-06-SUMMARY.md for the retired symbols.
 //
-// Composite formula (D-CTX § Composite state):
-//   main      = status === "busy" || status === "shell"
+// Composite formula:
+//   main      = status === "busy"
 //   waiting   = status === "waiting"   // separate axis — NOT working, bubble-only
 //   bg        = backgroundTasks.length > 0
 //   isWorking = main || bg
@@ -14,6 +14,15 @@
 // The ambient filter runs at the WATCHER (Plan 04), not here. By the time
 // SessionState arrives at the browser, backgroundTasks[] is already
 // ambient-filtered — every entry is non-ambient work.
+//
+// Deviates from Phase 34 D-CTX which had `main = busy || shell`. Empirically
+// the harness reports `status: "shell"` whenever ANY local tool execution is
+// active, which includes persistent Monitors (the fleet's ambient recv /
+// wakeup / ctxwatch). That kept every session permanently `shell` → WIP
+// always on + dot never showing. Filtering-out-ambient at the bg axis is not
+// enough; shell has to leave `main` entirely. Genuine backgrounded work is
+// still captured via `bg` (post-filter). See bounty
+// phase-39-uat-regression-wip-always-on-idle-dot-missing for evidence.
 //
 // Internal state shape: Map<string, { isWorking: boolean }>
 // Key format: `${hostId}:${tmuxSession ?? ""}` — unchanged convention.
@@ -85,8 +94,7 @@ export function publishFleetStatusSessionState(
 ): void {
   const key = `${hostId}:${state_arg.tmuxSession ?? ""}`;
 
-  // D-CTX § Composite state formula (EXACT — do not alter):
-  const main = state_arg.status === "busy" || state_arg.status === "shell";
+  const main = state_arg.status === "busy";
   const bg = state_arg.backgroundTasks.length > 0;
   const isWorking = main || bg;
 
