@@ -1173,3 +1173,12 @@ Plans:
 - [ ] 40-05-PLAN.md — Deploy-prep docs artifacts: 40-BUILD-VERIFY-LOG.md (objective build/test posture at HEAD) + 40-UAT-CHECKLIST.md (7-item post-deploy walk covering each D-XX observable behavior on production) + 40-PATCHES-MD-ENTRY.md (paste-ready patch entry for the maintainer); ends with a BLOCKING human-verify checkpoint per `human_verify_mode: end-of-phase`. Deploy motion (docker build + docker compose up + git push + patches paste) is the maintainer's remit — NOT the executor's.
 
 **UI hint:** yes (new UI components: EditableFileAffordance, EditableFileModal; modification of ChatMessage/PrettyView render tree)
+### Phase 41: Defer terminal view mount until user summons it
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 39
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 41 to break down)
