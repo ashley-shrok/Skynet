@@ -309,15 +309,15 @@ export function ChatMessage({
         style={{ position: "relative" }}
         className={cn(
           // Phase 4 Glass: raised-object bubble treatment.
-          "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
+          "max-w-[90%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)]",
-          isUser ? "px-[12px] py-[5px]" : "pl-[12px] pr-[42px] pt-[5px] pb-0",
+          isUser ? "px-[12px] py-[7px]" : "pl-[12px] pr-[42px] pt-[7px] pb-[2px]",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
           "border border-white/[0.08]",
           "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
           // Prose scaffolding (typography plugin).
-          "prose prose-sm max-w-[85%]",
+          "prose prose-sm max-w-[90%]",
           "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
           "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
           // Preformatted code blocks: Glass depth (inner shadow + hairline border).
