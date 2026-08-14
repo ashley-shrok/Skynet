@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-14T01:43:40.877Z"
+last_updated: "2026-08-14T02:51:12.899Z"
 last_activity: 2026-08-14
 progress:
   total_phases: 39
-  completed_phases: 29
+  completed_phases: 30
   total_plans: 151
-  completed_plans: 148
-  percent: 74
+  completed_plans: 149
+  percent: 77
 ---
 
 # Project State
@@ -224,6 +224,7 @@ Progress: [██████████] 100%
 | Phase 37 P03 | 30min | 1 task | 1 file (1 created) |
 | Phase 39 P03 | 48min | 1 tasks | 2 files |
 | Phase 39 P02 | ~27min | 2 tasks | 3 files |
+| Phase 39 P04 | 62min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -339,6 +340,8 @@ Recent decisions affecting current work:
 - 2026-08-13 (37 / commit-prefix 32-02): Wired useHoldToRecord into ComposeBox primary + slot send buttons — B-2 aside-dismiss onClick preserved (onClick={asideActive ? () => onAsideDismiss?.() : undefined}); B-3 !holdInitiatedRef gates on showRecordingControls/showSlotRecording so hold-record does NOT swap RecordingControls under the pointer; M-2 slotSendDisabled shared local extracted (no drift between JSX disabled and hook arg); button[data-hold-active=true] CSS pulse tinting toward --color-pv-code-fg coral added in src/ui/index.css.
 - [Phase ?]: Phase 39 Plan 03: generic non-sensitive context passthrough in Logger.formatMessage (RESEARCH §Q4 recommended shape) — sanitizeContext runs first (SENSITIVE_FIELDS → [MASKED]), then the 7-field known-order block emits verbatim, then a bounded loop over remaining sanitizedContext keys emits key:value (String coercion for primitives, JSON.stringify for objects). All backend log callers now surface error/fleetHostId/hostname/etc. through to console-forward.log + docker logs.
 - [Phase ?]: Presence-driven fleet-status SSH-poll orchestrator (Path C, Ashley LOCKED 2026-08-13) — starts on first browser subscriber, stops on last; per-host decrypt via canonical resolveHostById(id, currentSubscriberUserId) — Phase 39 Plan 02
+- [Phase ?]: Phase 39-04 (GATE2-05): Wired fire-and-forget blind Stop-hook install into acquireSshChannel first-successful-new-client path via exported maybeInstallStopHook helper. Install-once tracked per lifecycle in hookInstallAttempted Set (cleared with hostClients on onLastUnsubscriber). No probe-first branch — installStopHook self-detects alreadyInstalled per RESEARCH §Q5.
+- [Phase ?]: Phase 39-04: Guarded starter.ts boot IIFE with if (process.env.VITEST !== 'true') so exported helpers can be imported for isolated vitest coverage without triggering real backend init. Rule 3 auto-fix; production behavior unchanged.
 
 ### Pending Todos
 
@@ -539,6 +542,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T01:43:15.529Z
-Stopped at: Completed 32-03-PLAN.md (Phase 37 P03) — Phase 37 EXECUTED (all 3 plans done); orchestrator picks up ship/deploy
+Last session: 2026-08-14T02:51:12.689Z
+Stopped at: Completed 39-04-PLAN.md
 Resume file: None

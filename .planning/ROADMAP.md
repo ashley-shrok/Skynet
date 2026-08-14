@@ -1142,7 +1142,7 @@ Plans:
 **Goal:** Fleet-status pipeline populates the session-working-store end-to-end from a real browser session — SSH-poll orchestrator runs only while at least one fleet-status browser subscriber is connected, per-host SSH decrypt uses the subscribing user's authenticated session via `resolveHostById(hostId, userId)`, structured log `error` fields surface in `console-forward-logs/console-forward.log` and `docker logs skynet`, and Phase 34 Plan 04's Stop-hook is installed (blind, idempotent) on every enrolled host the first time it's acquired during a lifecycle.
 **Requirements**: GATE2-01, GATE2-02, GATE2-03, GATE2-04, GATE2-05, GATE2-06
 **Depends on:** Phase 38
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 **Wave 1**
 
@@ -1155,4 +1155,4 @@ Plans:
 
 **Wave 3** *(blocked on 39-02 completion — same-file overlap on starter.ts)*
 
-- [ ] 39-04-PLAN.md — Wire installStopHook fire-and-forget on first successful acquireSshChannel per host per lifecycle + install-once tracking Set + reset on onLastUnsubscriber + starter.test.ts coverage for the install-once + non-blocking + failure-logs-with-err.message invariants (GATE2-05)
+- [x] 39-04-PLAN.md — Wire installStopHook fire-and-forget on first successful acquireSshChannel per host per lifecycle + install-once tracking Set + reset on onLastUnsubscriber + starter.test.ts coverage for the install-once + non-blocking + failure-logs-with-err.message invariants (GATE2-05)
