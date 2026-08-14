@@ -47,6 +47,24 @@
  *   - Rendering the visual tint (`data-hold-active` attribute driven from
  *     `holdActive`).
  *
+ * keepRecordingOnShortTap (quick-260814-iwy) — optional prop that changes the
+ * short-tap branch semantics for mic-button consumers:
+ *   (a) Send-button default (omit prop or pass false): short-tap awaits
+ *       voice.cancel() then fires onShortTap(). Byte-identical to the original
+ *       B-1 / M-1 behavior — the just-started recording is rolled back and the
+ *       caller dispatches the normal typed-send path. This preserves the
+ *       D-16-02 / B-1 / B-3 contracts documented above verbatim.
+ *   (b) Mic-button (pass keepRecordingOnShortTap: true + no-op onShortTap):
+ *       short-tap calls voice.commitStartVisibility() (advances "starting" →
+ *       "recording" and plays start.mp3), then fires onShortTap(). The
+ *       pointerdown-started recording is PRESERVED — no cancel, no restart.
+ *       resetGestureState() then clears holdInitiatedRef, which makes
+ *       showRecordingControls (`isPrimaryRecording && !holdInitiatedRef`)
+ *       evaluate true so RecordingControls swap in on the next render.
+ *       commitStartVisibility is idempotent (no-op if state !== "starting"),
+ *       so this call is safe even if the sync-gesture chain in pointerdown
+ *       was short-circuited or getUserMedia auto-committed already.
+ *
  * Guards (short-circuit pointerdown before voice.start is ever called):
  *   - asideActive === true  (X-dismiss mode)
  *   - disabled === true      (sendDisabled / showTranscribingSend)
@@ -113,6 +131,16 @@ export type UseHoldToRecordArgs = {
   disabled: boolean;
   /** Override the hold threshold (test-only). Defaults to HOLD_THRESHOLD_MS. */
   thresholdMs?: number;
+  /**
+   * When true, the short-tap branch calls voice.commitStartVisibility()
+   * instead of voice.cancel() — used by mic-button consumers that want the
+   * pointerdown-started recording to survive a sub-threshold tap. Defaults to
+   * false (send-button behavior — awaited voice.cancel() then onShortTap()).
+   * See the header docstring's "keepRecordingOnShortTap" paragraph for the
+   * full semantic contract. Introduced by quick-260814-iwy to fix the iPhone
+   * "first mic tap plays cancel.mp3 + requires double-tap" regression.
+   */
+  keepRecordingOnShortTap?: boolean;
 };
 
 export type UseHoldToRecordReturn = {
@@ -152,7 +180,7 @@ export type UseHoldToRecordReturn = {
 export function useHoldToRecord(
   args: UseHoldToRecordArgs,
 ): UseHoldToRecordReturn {
-  const { voice, onShortTap, onLongPressSend, asideActive, disabled } = args;
+  const { voice, onShortTap, onLongPressSend, asideActive, disabled, keepRecordingOnShortTap } = args;
   const effectiveThreshold =
     typeof args.thresholdMs === "number" ? args.thresholdMs : HOLD_THRESHOLD_MS;
 
@@ -302,38 +330,79 @@ export function useHoldToRecord(
       }
 
       // Branch on gesture outcome.
+      let branch: "short" | "short-keep" | "long-in" | "long-out" | "guarded";
       if (!startedRecordingRef.current) {
         // Guard-short-circuited pointerdown — nothing to unwind.
+        branch = "guarded";
+        // quick-260814-iwy: forensic log for next iOS UAT window. Emitted
+        // BEFORE the early-return so branch=guarded still surfaces in the
+        // console-forward stream.
+        console.info(
+          "[hold-to-record] pointerup branch=" + branch +
+            " elapsedMs=" + elapsedMs +
+            " withinBounds=" + withinBounds +
+            " outOfBoundsRef=" + outOfBoundsRef.current +
+            " startedRecording=" + startedRecordingRef.current,
+        );
         resetGestureState();
         return;
       }
 
       const threshold = effectiveThreshold;
       if (elapsedMs < threshold) {
-        // Short tap: roll back the just-started recording and dispatch the
-        // normal typed-send. AWAIT cancel() so onShortTap fires AFTER the
-        // teardown — deterministic ordering closes M-1. If voice.state is
-        // still "idle" (getUserMedia hasn't resolved), cancel() takes the
-        // pending-cancel branch from Plan 32-01 Task 1 which is synchronous
-        // and resolves immediately; awaiting is still correct.
-        await voice.cancel();
-        onShortTap();
+        if (keepRecordingOnShortTap === true) {
+          // quick-260814-iwy short-tap-keep branch (mic-button opt-in):
+          // preserve the pointerdown-started recording. commitStartVisibility
+          // is SYNCHRONOUS and idempotent (no-op if state !== "starting"),
+          // so if getUserMedia has already resolved and auto-committed, this
+          // is a safe no-op. onShortTap is expected to be a no-op for mic
+          // consumers — voice is already recording; no beginRecord needed.
+          voice.commitStartVisibility();
+          onShortTap();
+          branch = "short-keep";
+        } else {
+          // Default short tap: roll back the just-started recording and
+          // dispatch the normal typed-send. AWAIT cancel() so onShortTap
+          // fires AFTER the teardown — deterministic ordering closes M-1.
+          // If voice.state is still "idle" (getUserMedia hasn't resolved),
+          // cancel() takes the pending-cancel branch from Plan 32-01 Task 1
+          // which is synchronous and resolves immediately; awaiting is still
+          // correct.
+          await voice.cancel();
+          onShortTap();
+          branch = "short";
+        }
       } else if (withinBounds) {
         // Long press released inside bounds — send. Consumer's onLongPressSend
         // is expected to invoke voice.endSend which stops the recorder
         // gracefully; do NOT call voice.cancel here.
         onLongPressSend();
+        branch = "long-in";
       } else {
         // Long press released outside bounds — cancel. Fire-and-forget is fine
         // because in this branch voice.state === "recording", so cancel() runs
         // the fast teardown path (no ordering requirement with any callback
         // dispatched after).
         void voice.cancel();
+        branch = "long-out";
       }
+
+      // quick-260814-iwy: forensic log — emitted AFTER the branch executed,
+      // BEFORE resetGestureState() runs. Snapshot semantics: elapsedMs and
+      // withinBounds are locals computed at the top of the callback; the
+      // Refs (outOfBoundsRef, startedRecordingRef) still hold pre-reset
+      // values because resetGestureState has not run yet.
+      console.info(
+        "[hold-to-record] pointerup branch=" + branch +
+          " elapsedMs=" + elapsedMs +
+          " withinBounds=" + withinBounds +
+          " outOfBoundsRef=" + outOfBoundsRef.current +
+          " startedRecording=" + startedRecordingRef.current,
+      );
 
       resetGestureState();
     },
-    [voice, onShortTap, onLongPressSend, effectiveThreshold, resetGestureState],
+    [voice, onShortTap, onLongPressSend, effectiveThreshold, resetGestureState, keepRecordingOnShortTap],
   );
 
   const onPointerCancel = useCallback(
@@ -353,6 +422,17 @@ export function useHoldToRecord(
       if (startedRecordingRef.current) {
         void voice.cancel();
       }
+      // quick-260814-iwy: forensic log for iOS pointercancel diagnosis. Emitted
+      // AFTER the cancel branch runs, BEFORE resetGestureState() mutates the
+      // ref — so the logged startedRecording value reflects the pre-reset
+      // gesture state. This is the critical log for Bug 1 (iOS callout /
+      // magnifier firing pointercancel mid-hold); if the callout suppression
+      // in MicButton is insufficient, this line surfaces in the console-forward
+      // stream even when pointerup never fires.
+      console.info(
+        "[hold-to-record] pointercancel triggered startedRecording=" +
+          startedRecordingRef.current,
+      );
       resetGestureState();
     },
     [voice, resetGestureState],

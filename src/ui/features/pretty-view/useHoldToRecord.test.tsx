@@ -570,4 +570,176 @@ describe("useHoldToRecord", () => {
     expect((args.onLongPressSend as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
     expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // New tests for quick-260814-iwy — keepRecordingOnShortTap prop wiring.
+  //
+  // Bug 2 fix: mic-button consumers opt in to `keepRecordingOnShortTap: true`
+  // so that a sub-threshold tap does NOT call voice.cancel() (which played
+  // cancel.mp3 audibly on iPhone) — instead it calls voice.commitStartVisibility
+  // to advance the pointerdown-started recording into "recording" state
+  // (playing start.mp3). onShortTap still fires after the state commit but
+  // consumers pass a no-op (voice is already recording; no beginRecord needed).
+  //
+  // Test 14 (default false): regression guard proving the send-button behavior
+  // is byte-identical to today when the prop is omitted or explicitly false.
+  // Test 15 (opt-in true): proves commitStartVisibility fires and cancel does
+  // NOT fire on a sub-threshold tap.
+  // Test 16 (long-press unaffected): guards against a future edit that
+  // accidentally hoists commitStartVisibility out of the short-tap conditional.
+  // ---------------------------------------------------------------------------
+
+  it("Test 14: keepRecordingOnShortTap=false (default): short tap awaits voice.cancel, fires onShortTap, does NOT call commitStartVisibility", async () => {
+    // Controllable cancel promise — same pattern as Test 5 — proves onShortTap
+    // fires AFTER cancel resolves and, critically, that commitStartVisibility
+    // is NOT called on the default short-tap branch (regression guard against
+    // the quick-260814-iwy refactor accidentally hoisting commitStartVisibility
+    // out of the true-branch of the conditional).
+    let resolveCancel: () => void = () => {};
+    const cancelSpy = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((r) => {
+          resolveCancel = r;
+        }),
+    );
+    const voice: Pick<
+      UseVoiceRecordingReturn,
+      "state" | "start" | "cancel" | "commitStartVisibility"
+    > = {
+      state: "idle",
+      start: vi.fn(),
+      cancel: cancelSpy,
+      commitStartVisibility: vi.fn().mockReturnValue(undefined),
+    };
+    // Explicit `keepRecordingOnShortTap: false` — same as omitting the prop,
+    // but explicit here for regression-guard clarity.
+    const args = makeArgs({ voice, keepRecordingOnShortTap: false });
+    render(<TestConsumer args={args} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+
+    fireEvent.pointerDown(button, {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+      timeStamp: 0,
+    });
+    act(() => { vi.advanceTimersByTime(200); });
+    fireEvent.pointerUp(button, {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+      timeStamp: 200,
+    });
+
+    // Immediately after pointerUp: cancel called, awaiting; onShortTap not yet.
+    expect(cancelSpy.mock.calls.length).toBe(1);
+    expect((voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+
+    // Resolve the cancel promise → awaited pointerup handler unwinds.
+    await act(async () => {
+      resolveCancel();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    // Byte-identical to default behavior: commitStartVisibility NEVER called
+    // (threshold timer did not fire — only 200ms elapsed — and the short-tap
+    // branch did NOT take the keep path).
+    expect((voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    expect((args.onLongPressSend as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it("Test 15: keepRecordingOnShortTap=true: short tap calls voice.commitStartVisibility, fires onShortTap, does NOT call voice.cancel", async () => {
+    // The opt-in mic-button semantic. Sub-threshold tap → hook's new
+    // short-tap-keep branch runs voice.commitStartVisibility() (SYNC, no await)
+    // then onShortTap(). voice.cancel is NOT invoked — cancel.mp3 never plays,
+    // start.mp3 does (via the commitStartVisibility state transition).
+    const args = makeArgs({ keepRecordingOnShortTap: true });
+    render(<TestConsumer args={args} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+
+    fireEvent.pointerDown(button, {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+      timeStamp: 0,
+    });
+    act(() => { vi.advanceTimersByTime(200); });
+    await act(async () => {
+      fireEvent.pointerUp(button, {
+        pointerId: 1,
+        clientX: 20,
+        clientY: 20,
+        timeStamp: 200,
+      });
+      // Handler is async — flush the microtask queue even though the
+      // short-tap-keep branch itself is synchronous (no cancel promise to
+      // await). Belt-and-suspenders for the async wrapper.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // voice.start fired once from pointerdown (D-16-02 sync-gesture chain).
+    expect((args.voice.start as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    // commitStartVisibility fired once from the short-tap-keep branch —
+    // preserves the pointerdown-started recording.
+    expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    // voice.cancel NEVER called — this is the critical iPhone-cancel.mp3 fix.
+    expect((args.voice.cancel as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    // onShortTap fired once (consumer will pass a no-op for the mic path).
+    expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    // onLongPressSend not called (this was a short tap).
+    expect((args.onLongPressSend as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it("Test 16: keepRecordingOnShortTap=true: long-press branch is unaffected — still fires onLongPressSend at threshold, commitStartVisibility called ONCE (from threshold timer, not from pointerup)", async () => {
+    // Guards against a future edit that accidentally hoists commitStartVisibility
+    // out of the short-tap conditional into the top-level or long-press branch.
+    // With keepRecordingOnShortTap=true, a long-press should behave EXACTLY as
+    // it does with the prop false: threshold timer fires commitStartVisibility
+    // once, pointerup takes the long-in branch → onLongPressSend, voice.cancel
+    // NOT called, and pointerup does NOT call commitStartVisibility a second
+    // time.
+    const args = makeArgs({ keepRecordingOnShortTap: true });
+    render(<TestConsumer args={args} />);
+    const button = screen.getByTestId("hold-btn");
+    installBoundsShim(button);
+
+    fireEvent.pointerDown(button, {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+      timeStamp: 0,
+    });
+    act(() => { vi.advanceTimersByTime(HOLD_THRESHOLD_MS); });
+
+    // Threshold timer fired commitStartVisibility exactly once.
+    expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+
+    await act(async () => {
+      fireEvent.pointerUp(button, {
+        pointerId: 1,
+        clientX: 20,
+        clientY: 20,
+        timeStamp: HOLD_THRESHOLD_MS,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Long-press branch fired.
+    expect((args.onLongPressSend as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    // voice.cancel NOT called on long-press-in-bounds regardless of the prop.
+    expect((args.voice.cancel as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    // commitStartVisibility count is STILL 1 — pointerup did NOT call it again
+    // (that would happen only if commitStartVisibility were hoisted out of
+    // the short-tap-keep branch into the long-press branch by accident).
+    expect((args.voice.commitStartVisibility as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    // onShortTap NOT called on long-press branch.
+    expect((args.onShortTap as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
 });
