@@ -31,17 +31,6 @@ import {
   queryPaneCurrentCommand,
 } from "./tmux-helper.js";
 import { MemoryAgent, performPortKnocking } from "./terminal-auth-helpers.js";
-import {
-  handleUploadStart,
-  handleUploadChunk,
-  handleUploadAbort,
-  cleanupBatchesForConnection,
-} from "./pretty-view-upload.js";
-import type {
-  UploadStartPayload,
-  UploadChunkPayload,
-  UploadAbortPayload,
-} from "../../ui/api/pretty-view-upload-protocol.js";
 
 interface ConnectToHostData {
   cols: number;
@@ -225,25 +214,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let warpgateAuthTimeout: NodeJS.Timeout | null = null;
   let isAwaitingAuthCredentials = false;
 
-  // Phase 05 / Plan 05-01: per-connection registry of pretty-view upload
-  // batch ids owned by this WS. Populated on upload_start; consumed on
-  // WS close/error to unlink any orphaned .partial temp files on the
-  // receiving box (patch #60 lifecycle key extended for the pre-send
-  // upload phase — one namespace, one lifecycle).
-  const ownedUploadBatches = new Set<string>();
-
-  // Quick-fix 260801-29v: per-WS map of in-flight `handleUploadStart`
-  // promises, keyed on `messageQueueItemId`. Fixes the race where a
-  // 64 KB `upload_chunk` arriving on the same WS tick as its parent
-  // `upload_start` reaches `handleUploadChunk` before the SFTP setup
-  // (realpath + ensureLandingDir + createWriteStream) has registered
-  // the batch in `activeBatches` — which otherwise emits
-  // `upload_failed reason=unknown_temp_id message="no active batch"`.
-  // The map self-cleans on start settle (finally). Chunks whose parent
-  // start has already resolved bypass this map entirely and continue
-  // to run synchronously (warm-session fast path preserved).
-  const pendingStarts = new Map<string, Promise<void>>();
-
   let wsAlive = true;
 
   ws.on("pong", () => {
@@ -294,12 +264,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
     }
     cleanupAuthState();
-    // Phase 05 / Plan 05-01: unlink any orphaned .partial temp files on
-    // the receiving box for pretty-view upload batches this WS owned.
-    if (ownedUploadBatches.size > 0) {
-      cleanupBatchesForConnection(Array.from(ownedUploadBatches));
-      ownedUploadBatches.clear();
-    }
   });
 
   function resetConnectionState() {
@@ -901,100 +865,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 },
               );
             });
-        }
-        break;
-      }
-
-      // Phase 05 / Plan 05-01: pretty-view file upload — three new WS
-      // message types that layer on the EXISTING per-pane authenticated
-      // SSH channel. Nothing in these cases touches the `case "input":`
-      // send path above — patches #60 (atomic delete-on-send) and #100
-      // (split-and-delay Enter) remain byte-identical. Upload lifecycle
-      // is keyed on the SAME `messageQueueItemId` patch #60 threads
-      // through the existing atomic delete-on-send path; once every
-      // file in a batch has landed, the client sends the injected user
-      // turn via the EXISTING `case "input":` with that same id and
-      // patch #60 deletes the queue row. See
-      // src/backend/ssh/pretty-view-upload.ts for orchestrator + threat
-      // mitigation rationale.
-      case "upload_start": {
-        const uploadStart = parsed as unknown as UploadStartPayload;
-        const startMqid = uploadStart.messageQueueItemId;
-        if (typeof startMqid === "string" && startMqid.length > 0) {
-          ownedUploadBatches.add(startMqid);
-        }
-        // Quick-fix 260801-29v: capture the start promise (do NOT await
-        // at dispatch — other WS message types must keep flowing while
-        // SFTP setup happens) and track it in `pendingStarts` so an
-        // `upload_chunk` arriving on the same tick can defer behind it
-        // instead of hitting "no active batch". Map self-cleans on
-        // settle via `.finally(...)`.
-        const startPromise = handleUploadStart(
-          { sshConn, ws, userId, currentSessionId },
-          uploadStart,
-        );
-        if (typeof startMqid === "string" && startMqid.length > 0) {
-          pendingStarts.set(startMqid, startPromise);
-          startPromise.finally(() => {
-            pendingStarts.delete(startMqid);
-          });
-        }
-        break;
-      }
-
-      case "upload_chunk": {
-        const uploadChunk = parsed as unknown as UploadChunkPayload;
-        // Quick-fix 260801-29v: if the parent `upload_start` is still
-        // in-flight (SFTP setup not yet complete → batch not yet in
-        // `activeBatches`), defer this chunk behind that promise so we
-        // don't emit `upload_failed reason=unknown_temp_id message="no
-        // active batch"`. If the start already resolved (or this chunk
-        // is for a foreign/unknown mqid), fall through to the original
-        // synchronous call — warm-session fast path, no added microtask.
-        const chunkMqid = uploadChunk.messageQueueItemId;
-        const pending =
-          typeof chunkMqid === "string" && chunkMqid.length > 0
-            ? pendingStarts.get(chunkMqid)
-            : undefined;
-        if (pending) {
-          pending
-            .then(() =>
-              handleUploadChunk(
-                { sshConn, ws, userId, currentSessionId },
-                uploadChunk,
-              ),
-            )
-            .catch(() => {
-              // A rejected start already emitted its own upload_failed
-              // event inside handleUploadStart; if handleUploadChunk
-              // then finds no batch it will emit unknown_temp_id, which
-              // is the CORRECT signal for a truly-failed start (vs. the
-              // race we are fixing here). Swallow to avoid an unhandled
-              // rejection.
-            });
-        } else {
-          handleUploadChunk(
-            { sshConn, ws, userId, currentSessionId },
-            uploadChunk,
-          );
-        }
-        break;
-      }
-
-      case "upload_abort": {
-        const uploadAbort = parsed as unknown as UploadAbortPayload;
-        handleUploadAbort(
-          { sshConn, ws, userId, currentSessionId },
-          uploadAbort,
-        );
-        // Batch-wide abort (no tempId) frees the batch; drop the id
-        // from the per-connection registry so ws.close doesn't try to
-        // re-tear-down a batch that's already gone.
-        if (
-          !uploadAbort.tempId &&
-          typeof uploadAbort.messageQueueItemId === "string"
-        ) {
-          ownedUploadBatches.delete(uploadAbort.messageQueueItemId);
         }
         break;
       }

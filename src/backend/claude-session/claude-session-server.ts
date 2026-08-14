@@ -25,6 +25,17 @@ import { isPlanPending, parsePlanFilePath } from "./plan-pending-parser.js";
 import { fetchPlanFile } from "../ssh/plan-file-fetch.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import {
+  handleUploadStart,
+  handleUploadChunk,
+  handleUploadAbort,
+  cleanupBatchesForConnection,
+} from "../ssh/pretty-view-upload.js";
+import type {
+  UploadStartPayload,
+  UploadChunkPayload,
+  UploadAbortPayload,
+} from "../../ui/api/pretty-view-upload-protocol.js";
+import {
   isLocalHostId,
   IDENTITY_KEY_RE,
   IDENTITY_SLUG_RE,
@@ -1575,6 +1586,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let tailHandle: TailHandle | null = null;
   let contextPctTimer: NodeJS.Timeout | null = null;
   let contextPctInFlight = false;
+  // Phase 41 Plan 04: pretty-view upload handler state, ported from
+  // src/backend/ssh/terminal.ts L228-246 verbatim. Owner-set of batch mqids
+  // this WS started (drained on ws.close + teardownPane); pendingStarts is
+  // the Quick-fix 260801-29v race guard preventing "no active batch" errors
+  // when upload_chunk arrives on the same tick as its parent upload_start.
+  const ownedUploadBatches = new Set<string>();
+  const pendingStarts = new Map<string, Promise<void>>();
   // quick 260808-cd6 — dormancy overlay + wake button.
   // Per-connection (closure-scoped) dormancy guards. Mirror the
   // contextPctInFlight pattern: only the dormant-state stat check is
@@ -1857,6 +1875,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
         databaseLogger.warn(`[ws-server] tail-stop-failed hostId=${currentHostId ?? 'null'} err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_tail_stop_failed" });
       }
       tailHandle = null;
+    }
+    // Phase 41 Plan 04: drain in-flight upload batches when the pane's SSH
+    // conn is being closed — an orphaned batch would keep writing to a
+    // destroyed conn otherwise. Mirrors terminal.ts's ws.on("close") posture
+    // ported to per-teardown scope since claude-session-server does pane-
+    // switching within one WS.
+    if (ownedUploadBatches.size > 0) {
+      cleanupBatchesForConnection(Array.from(ownedUploadBatches));
+      ownedUploadBatches.clear();
     }
     if (sshConn) {
       try {
@@ -2878,6 +2905,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
     clearInterval(wsPingInterval);
     stopped = true;
     teardownPane();
+    // Phase 41 Plan 04: unlink any orphaned .partial temp files for pretty-
+    // view upload batches this WS owned. teardownPane() above already drains
+    // ownedUploadBatches for the active pane; this guard handles any batches
+    // that started after the last teardownPane (e.g. if upload_start arrived
+    // after the most recent pane switch). Mirrors terminal.ts L297-302.
+    if (ownedUploadBatches.size > 0) {
+      cleanupBatchesForConnection(Array.from(ownedUploadBatches));
+      ownedUploadBatches.clear();
+    }
     // Phase 14 Wave 2: WS lifetime ended — drop this WS from all module-
     // scope aside state. teardownPane already unregistered this WS from
     // activeViewers[currentSessionKey] (via the per-pane branch), but we
@@ -4240,6 +4276,114 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (lastWakeOk) {
         wakeTriggerTs = Date.now();
       }
+      return;
+    }
+
+    // Phase 41 Plan 04: pretty-view upload dispatch — ported verbatim from
+    // src/backend/ssh/terminal.ts's upload_start/upload_chunk/upload_abort cases
+    // (removed from terminal.ts as part of this plan). The receiving WebSocket
+    // is now PrettyView's own claude-session WS (port 30011) rather than the
+    // Terminal SSH WS (port 30002). The reusable handler module (pretty-view-upload.ts)
+    // is unchanged — it takes UploadDeps { sshConn, ws, userId, currentSessionId }
+    // and emits the same server-to-client events. Wire protocol is byte-identical.
+    //
+    // Trust boundary: this WS is already JWT-authenticated (JWT verified at L1528,
+    // userId + sessionId extracted before ANY message dispatch). The T-05-07 guard
+    // inside pretty-view-upload.ts silently no-ops if sshConn is null (upload_*
+    // received before connectToPane completed).
+    if (msg.type === "upload_start") {
+      const uploadStart = msg as unknown as UploadStartPayload;
+      const startMqid = uploadStart.messageQueueItemId;
+      if (typeof startMqid === "string" && startMqid.length > 0) {
+        ownedUploadBatches.add(startMqid);
+      }
+      // Quick-fix 260801-29v: capture the start promise (do NOT await at dispatch —
+      // other WS message types must keep flowing while SFTP setup happens) and
+      // track it in `pendingStarts` so an `upload_chunk` arriving on the same tick
+      // can defer behind it instead of hitting "no active batch". Map self-cleans
+      // on settle via `.finally(...)`.
+      const startPromise = handleUploadStart(
+        { sshConn, ws, userId, currentSessionId: sessionId ?? null },
+        uploadStart,
+      );
+      if (typeof startMqid === "string" && startMqid.length > 0) {
+        pendingStarts.set(startMqid, startPromise);
+        startPromise.finally(() => {
+          pendingStarts.delete(startMqid);
+        });
+      }
+      sshLogger.info("claude-session upload_start", {
+        operation: "claude_session_upload_start",
+        userId,
+        sessionId,
+        messageQueueItemId: startMqid,
+        hasSshConn: !!sshConn,
+      });
+      return;
+    }
+
+    if (msg.type === "upload_chunk") {
+      const uploadChunk = msg as unknown as UploadChunkPayload;
+      const chunkMqid = uploadChunk.messageQueueItemId;
+      // Quick-fix 260801-29v: defer behind parent upload_start if still in-flight.
+      const pending =
+        typeof chunkMqid === "string" && chunkMqid.length > 0
+          ? pendingStarts.get(chunkMqid)
+          : undefined;
+      if (pending) {
+        pending
+          .then(() =>
+            handleUploadChunk(
+              { sshConn, ws, userId, currentSessionId: sessionId ?? null },
+              uploadChunk,
+            ),
+          )
+          .catch(() => {
+            // A rejected start already emitted its own upload_failed event inside
+            // handleUploadStart; if handleUploadChunk then finds no batch it will
+            // emit unknown_temp_id, which is the CORRECT signal for a truly-failed
+            // start (vs. the race we are fixing here). Swallow to avoid an
+            // unhandled rejection.
+          });
+      } else {
+        handleUploadChunk(
+          { sshConn, ws, userId, currentSessionId: sessionId ?? null },
+          uploadChunk,
+        );
+      }
+      sshLogger.debug?.("claude-session upload_chunk", {
+        operation: "claude_session_upload_chunk",
+        userId,
+        sessionId,
+        messageQueueItemId: chunkMqid,
+        offset: uploadChunk.offset,
+        hasPending: !!pending,
+      });
+      return;
+    }
+
+    if (msg.type === "upload_abort") {
+      const uploadAbort = msg as unknown as UploadAbortPayload;
+      handleUploadAbort(
+        { sshConn, ws, userId, currentSessionId: sessionId ?? null },
+        uploadAbort,
+      );
+      // Batch-wide abort (no tempId) frees the batch; drop the id from
+      // the per-connection registry so ws.close doesn't try to re-tear-down
+      // a batch that's already gone.
+      if (
+        !uploadAbort.tempId &&
+        typeof uploadAbort.messageQueueItemId === "string"
+      ) {
+        ownedUploadBatches.delete(uploadAbort.messageQueueItemId);
+      }
+      sshLogger.info("claude-session upload_abort", {
+        operation: "claude_session_upload_abort",
+        userId,
+        sessionId,
+        messageQueueItemId: uploadAbort.messageQueueItemId,
+        tempId: uploadAbort.tempId ?? null,
+      });
       return;
     }
 
