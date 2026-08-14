@@ -41,10 +41,10 @@ import type { SshChannel } from "./fleet-status/ssh-poll-orchestrator.js";
 //     does not list install-failure as a poll blocker.
 // ---------------------------------------------------------------------------
 export function maybeInstallStopHook(
-  _hostId: string,
-  _channelAdapter: SshChannel,
-  _hookInstallAttempted: Set<string>,
-  _deps: {
+  hostId: string,
+  channelAdapter: SshChannel,
+  hookInstallAttempted: Set<string>,
+  deps: {
     installStopHook: (channel: SshChannel) => Promise<{
       hookInstalled: boolean;
       settingsUpdated: boolean;
@@ -52,8 +52,28 @@ export function maybeInstallStopHook(
     systemLogger: typeof systemLogger;
   },
 ): void {
-  // TDD RED stub — implementation follows in GREEN commit.
-  return;
+  if (hookInstallAttempted.has(hostId)) return;
+  hookInstallAttempted.add(hostId);
+  deps.systemLogger.info("Fleet-status stop-hook install started", {
+    operation: "fleet_status_hook_install_started",
+    fleetHostId: hostId,
+  });
+  deps.installStopHook(channelAdapter)
+    .then((result) => {
+      deps.systemLogger.info("Fleet-status stop-hook install completed", {
+        operation: "fleet_status_hook_install_success",
+        fleetHostId: hostId,
+        hookInstalled: result.hookInstalled,
+        settingsUpdated: result.settingsUpdated,
+      });
+    })
+    .catch((err) => {
+      deps.systemLogger.warn("Fleet-status stop-hook install failed", {
+        operation: "fleet_status_hook_install_failed",
+        fleetHostId: hostId,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+    });
 }
 
 // Guard the boot IIFE so test imports of exported helpers (Phase 39-04) do
