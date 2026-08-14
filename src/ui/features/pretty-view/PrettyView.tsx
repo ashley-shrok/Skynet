@@ -2188,7 +2188,7 @@ export function PrettyView({
       )}
       {/* Phase 40 D-05/D-06/D-07: editor modal mounts alongside IdentityModal.
           Portal target is document.body (Research §Pitfall 7 — deliberately
-          NO `container=` prop here; unlike IdentityModal, the editor modal's
+          no portal-container prop; unlike IdentityModal, the editor modal's
           inset-4 backdrop covers the composer per UI-SPEC L216).
           onStageEditedFile deposits the saved File into
           uploads.stageAttachments("primary", [File]) — the chip auto-mounts
