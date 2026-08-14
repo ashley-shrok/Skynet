@@ -19,6 +19,7 @@
 // send anchor) alongside the send button, instead of the prior swap-in-single-
 // slot pattern. Default preserves the original anchor for backward compat.
 
+import type React from "react";
 import { Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,22 @@ export interface MicButtonProps {
    * sits ~40px left of the send-button anchor (one p-2 hit-target width away).
    */
   positionClass?: string;
+  /**
+   * Optional pointer handlers — supplied by ComposeBox to wire the
+   * useHoldToRecord hook onto the MicButton (Quick 260814-1hz). onPointerUp
+   * accepts a Promise return so the hook's async release path type-checks
+   * verbatim.
+   */
+  onPointerDown?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  onPointerUp?: (e: React.PointerEvent<HTMLButtonElement>) => void | Promise<void>;
+  onPointerCancel?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  onPointerLeave?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  /**
+   * When defined, emits `data-hold-active={dataHoldActive ? "true" : "false"}`
+   * on the rendered button. When undefined the attribute is omitted entirely
+   * so pre-260814-1hz zero-arg callers get byte-identical DOM output.
+   */
+  dataHoldActive?: boolean;
 }
 
 export function MicButton({
@@ -39,18 +56,32 @@ export function MicButton({
   disabled,
   title,
   positionClass = "right-1 bottom-0.5",
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  onPointerLeave,
+  dataHoldActive,
 }: MicButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onPointerLeave={onPointerLeave}
       disabled={disabled}
       aria-label={title || "Record voice"}
       title={title || "Record voice"}
+      {...(dataHoldActive !== undefined
+        ? { "data-hold-active": dataHoldActive ? "true" : "false" }
+        : {})}
       className={cn(
         "absolute",
         positionClass,
         "p-2",
+        "select-none",
+        "touch-none",
         "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
         "disabled:text-[rgba(240,235,224,0.15)]",
         "disabled:cursor-not-allowed",
