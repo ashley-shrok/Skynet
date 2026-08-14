@@ -21,9 +21,18 @@ export type GlobalFileTabData = { content: string; mtime: number };
 export default function GlobalFileTab({
   state,
   onSave,
+  onDraftChange,
 }: {
   state: TabState<GlobalFileTabData>;
   onSave: (content: string, expectedMtime: number) => Promise<void>;
+  /**
+   * Phase 40 Plan 40-03 (rev-2): optional callback fired whenever the draft
+   * diverges from or converges back to the fetched content. EditableFileModal
+   * uses this to drive its close-guard confirm prompt ("Discard unsaved
+   * changes?"). Fully backward-compatible — existing callers (GlobalFilesModal)
+   * pass no prop and see zero behavior change.
+   */
+  onDraftChange?: (dirty: boolean) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -40,6 +49,16 @@ export default function GlobalFileTab({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status === "ready" ? state.data.mtime : null]);
+
+  // Phase 40 Plan 40-03 (rev-2): fire onDraftChange whenever draft diverges
+  // from or converges back to the fetched content. Only fires when state is
+  // ready — there is no "dirty" concept before content loads. Existing callers
+  // that omit the prop see this effect as a no-op.
+  useEffect(() => {
+    if (!onDraftChange) return;
+    if (state.status !== "ready") return;
+    onDraftChange(draft !== state.data.content);
+  }, [draft, state, onDraftChange]);
 
   const handleSave = useCallback(async () => {
     if (state.status !== "ready") return;

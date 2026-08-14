@@ -95,4 +95,62 @@ describe("GlobalFileTab — render branches", () => {
     );
     expect(screen.queryByText(/no content in this file yet/i)).toBeNull();
   });
+
+  // ── Phase 40 Plan 40-03 (rev-2): optional onDraftChange callback ─────────
+  // Backward-compat + firing correctness for the new optional prop consumed
+  // by EditableFileModal's draft-guard confirm gate. Existing callers
+  // (GlobalFilesModal) omit the prop → hook is a no-op.
+
+  it("test 6 (Plan 40-03): backward-compat — no onDraftChange passed → existing behavior, no throw", () => {
+    // Regression gate: GlobalFilesModal never passes onDraftChange. If the
+    // hook throws or misbehaves when the prop is undefined, every Global
+    // Files modal user is affected.
+    const onSave = vi.fn();
+    render(
+      <GlobalFileTab
+        state={{ status: "ready", data: { content: "hi", mtime: 1 } }}
+        onSave={onSave}
+      />,
+    );
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(ta.value).toBe("hi");
+    // Typing should not throw — existing tests already verify the wiring;
+    // this test asserts prop-omitted no-op semantics.
+    fireEvent.change(ta, { target: { value: "hi world" } });
+    expect(ta.value).toBe("hi world");
+    // No throw, no console error — existing save-flow untouched.
+    const saveBtn = screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement;
+    expect(saveBtn.disabled).toBe(false);
+  });
+
+  it("test 7 (Plan 40-03): onDraftChange fires false→true→false as draft diverges/converges", () => {
+    const onDraftChange = vi.fn<(dirty: boolean) => void>();
+    render(
+      <GlobalFileTab
+        state={{ status: "ready", data: { content: "hi", mtime: 1 } }}
+        onSave={vi.fn()}
+        onDraftChange={onDraftChange}
+      />,
+    );
+    // Mount-time: draft = "" briefly (from useState), then the mtime effect
+    // seeds it to "hi" → the onDraftChange effect fires with false (matches).
+    // We wait for at least one call to have been made ending in false.
+    expect(onDraftChange).toHaveBeenCalled();
+    // The most recent call after seeding should be false (clean).
+    const lastCallInitial = onDraftChange.mock.calls[onDraftChange.mock.calls.length - 1];
+    expect(lastCallInitial[0]).toBe(false);
+
+    onDraftChange.mockClear();
+
+    // Diverge → dirty=true
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "hi world" } });
+    expect(onDraftChange).toHaveBeenCalledWith(true);
+
+    onDraftChange.mockClear();
+
+    // Converge back → dirty=false
+    fireEvent.change(ta, { target: { value: "hi" } });
+    expect(onDraftChange).toHaveBeenCalledWith(false);
+  });
 });
