@@ -148,3 +148,50 @@ None.
 ### Notes
 
 Second pass of /close. The rev-1 close flagged sonner toasts (save-success and fetch-failure) as an unsanctioned addition because their bottom-right anchor occluded the composebox on mobile. Commit d01079db removes both toasts from EditableFileModal — the in-body UI-SPEC L110 error copy remains as the sole visible-failure surface, and the composebox chip is the save-success confirmation. Only historical docblock comments referencing the removed toasts remain; no toast import, no toast call. The two prior endorsed-as-drift additions (agent-name sub-header, discard-changes confirm) are still present and unchanged. Material now matches the shape both ways with no unresolved divergence.
+
+---
+
+## Close-Out (rev-3)
+
+**Closed:** 2026-08-14
+**Vehicle used:** GSD phase (Phase 40 — text-editor-in-skynet), 5 plans across 4 waves, plus rev-2 toast-removal fix and rev-3 code-review fix commit (2 blockers + 4 high + 6 medium + regression guards)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · in-app editor for agent-served files inside the chat surface; save deposits a fresh attachment for reply — frontend regex scans, backend SSRF-hardened proxy fetches, modal reuses Global Files editor guts
+- **Shape — passive detection (no agent-side primitive)** — present · frontend regex scans message body; backend proxy fetches on Skynet's behalf; git diff shows zero agent-side / identity-skill / fleet-skill files touched
+- **Shape — extension whitelist first, byte-sniff fallback (Dockerfile/Makefile/.gitignore basenames)** — present · starter whitelist mirrored front and back; sniff runs only when classifyByExtension misses; sniffTextBytes uses null-byte + printable-ratio + UTF-8 validity heuristic
+- **Shape — edit affordance additive alongside the link (never replacive)** — present · ChatMessage's `<a>` override renders the anchor first with original target/rel; EditableFileAffordance renders as fragment sibling, never a wrapper
+- **Shape — tap-edit fetches fresh; explicit error on failure; no silent fallback to detection-time bytes** — present · EditableFileModal fires fetchTailnetUrl on every open; eligibility bytes are discarded and never handed to the editor; failure branch renders UI-SPEC L110 error copy in-body (agent-server auto-kill guidance)
+- **Shape — editor reuses Global Files modal chrome + editor guts** — present · Portal/Overlay/Content/DialogClose copied verbatim from GlobalFilesModal; GlobalFileTab imported with an optional backward-compatible onDraftChange callback that existing GlobalFilesModal caller doesn't pass
+- **Shape — host picker stripped; multi-file tabs stripped** — present · neither the host <select> nor the Tabs bar renders in EditableFileModal — the modal handles exactly one file per open
+- **Shape — save deposits fresh attachment; editor stateless across opens** — present · handleStageEditedFile constructs a new File and calls uploads.stageAttachments('primary', [File]); modal resets all state on close so re-open starts from the agent's original with no draft persistence
+- **Shape — edited attachment returns via existing reply-with-attachment path; remove via composebox chip** — present · zero new plumbing on the return trip — existing ComposeBox send and AttachmentChipStrip handle the reply and unstage
+- **Philosophy — solves the wait / mobile gap** — present · modal inherits mobile-adapted Global Files surface; affordance has 44x44 min touch target and mobile always-visible treatment
+- **Philosophy — passive detection** — present · agents serve exactly as before; enrichment lives entirely inside Skynet
+- **Philosophy — symmetric hand-off (link in, attachment out)** — present · each side does an already-familiar action; all novelty lives inside Skynet between them
+- **Philosophy — additive not replacive** — present · anchor's click/download/target/rel preserved verbatim; edit affordance is opt-in per link
+- **Philosophy — visible failure over silent maybe-wrong** — present · in-body error copy on fetch failure; no fallback to cached eligibility bytes; sonner toast surface from rev-1 remains removed
+- **What would make it wrong: agent-side primitive required** — present · no agent-side change — passive detection honored
+- **What would make it wrong: edit affordance replaces the link's behavior** — present · anchor rendered first with original target/rel; affordance is a fragment sibling
+- **What would make it wrong: silent use of stale bytes when re-fetch fails** — present · eligibility bytes discarded; open-time fetch failure surfaces explicit error; no path to cached bytes exists
+- **What would make it wrong: return path bypasses Ashley's judgment** — present · save deposits an attachment into the composebox — agent only receives via Ashley's reply
+- **What would make it wrong: feature grows into a general file browser** — present · no host picker, no tabs, no cross-conversation state, no arbitrary-file entry point, no persistence (localStorage/IndexedDB grep returned nothing)
+- **What would make it wrong: mobile doesn't work at least as well as desktop** — present · modal inherits mobile-adapted Global Files surface; affordance has mobile-specific touch treatment; rev-1 toast occlusion regression is not present
+- **Scope edges — In (text-shaped files, edit-then-attach, whitelist+sniff, fetch-at-detection + fresh re-fetch)** — present · all four in-scope items honored
+- **Scope edges — Out (general file browser; editor for non-chat files; agent-side primitive; multi-file tabs; draft persistence; auto write-back)** — present · all six out-of-scope items honored
+- **Scope edges — Tempting-but-no (replacive affordance; multi-file tabs; draft resumption; sniff without whitelist)** — present · all four temptations resisted
+
+### Additions (in the result, not in the shape)
+
+- Editor modal header shows a muted "from {agentIdentityName}" sub-header next to the filename — identifies which agent shared the file — endorsed-as-drift
+- "Discard unsaved changes?" window.confirm gate fires on modal close when the draft differs from the fetched content — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Third pass of /close. Rev-3 (commit 88d7b2c8) landed 2 blockers + 4 highs + 6 mediums from an unbiased code-review, plus 8 regression-guard tests. Every rev-3 change is a defensive bug fix or comment-truth correction — no new user-facing surfaces: SSRF-via-redirect closed with redirect:'error', UTF-8 decode via TextDecoder replacing raw atob (fixes silent destructive corruption on emoji/CJK/accented content), decoded-segment path-traversal check that tolerates data..sql basenames, streaming size cap with Content-Length short-circuit, monotonic mtimeCounter replacing Date.now sentinel, per-effect-run closure-local cancelled flag replacing shared useRef, stripTrailingPunct normalizer aligning eligibility Set with GFM autolink hrefs, dedupe URL Set before the fetch loop, isTextByExt accepted as belt-and-suspenders, savingRef reset on throw in handleSave, sr-only DialogDescription for Radix a11y contract. Two rev-2-endorsed additions (agent-name sub-header, discard-changes confirm) remain present and unchanged. No sonner toast import or call exists in EditableFileModal (only historical docblock references). Material matches the shape both ways with zero unresolved divergences.
