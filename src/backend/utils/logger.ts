@@ -153,6 +153,37 @@ export class Logger {
       if (sanitizedContext.duration)
         contextParts.push(`duration:${sanitizedContext.duration}ms`);
 
+      // Phase 39 Plan 03 (GATE2-04): generic non-sensitive passthrough. Every
+      // LogContext field not already claimed by the known-order whitelist above
+      // is emitted here so `error`, `fleetHostId`, `hostname`, `remoteIp`,
+      // `tick`, `pid`, `wsState`, `zodError`, `reason`, etc. flow through to
+      // `console-forward.log` and `docker logs skynet`. Safety: sanitizeContext
+      // ran BEFORE this loop, so SENSITIVE_FIELDS values are already replaced
+      // with "[MASKED]"/"[PRESENT]"/"[ABSENT]" and TRUNCATE_FIELDS strings are
+      // already trimmed to 100 chars + "…". The loop only prints whatever the
+      // sanitizer left behind. See RESEARCH §Q4 canonical shape.
+      const KNOWN_CTX_FIELDS = new Set([
+        "operation",
+        "userId",
+        "hostId",
+        "tunnelName",
+        "sessionId",
+        "requestId",
+        "duration",
+      ]);
+      for (const [k, v] of Object.entries(sanitizedContext)) {
+        if (KNOWN_CTX_FIELDS.has(k)) continue;
+        if (v === undefined || v === null) continue;
+        if (typeof v === "string" && v.length === 0) continue;
+        const valStr =
+          typeof v === "string"
+            ? v
+            : typeof v === "number" || typeof v === "boolean"
+              ? String(v)
+              : JSON.stringify(v);
+        contextParts.push(`${k}:${valStr}`);
+      }
+
       if (contextParts.length > 0) {
         contextStr = chalk.gray(` [${contextParts.join(",")}]`);
       }
