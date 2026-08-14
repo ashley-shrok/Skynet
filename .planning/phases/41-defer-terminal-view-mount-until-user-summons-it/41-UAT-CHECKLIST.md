@@ -123,13 +123,42 @@ Each of the 10 items verifies exactly one LOCKED decision class from `41-CONTEXT
 
 ---
 
+### 11. File upload from identity pane with Terminal never summoned
+
+- **Cross-reference:** CONTEXT.md `Send path` (Phase 35 pattern extended for uploads by Plan 41-04); Phase 41-04 close-verdict follow-up
+- **Setup:** Open an identity pane from the Skynet sidebar (e.g. tanya). Do NOT press Ctrl+Shift+O — Terminal must never have mounted during this session.
+- **Steps:** Drag a file (any image or text file) into the PrettyView compose area, or click the paperclip (on touch devices). Confirm the file chip strip appears in the compose box. Press Send (or use startBatch via the compose flow).
+- **Expected observable:** The upload chip shows progress (uploading → complete). The file is delivered to the agent as an injected user turn — the `upload_ready_to_inject` event fires, the agent receives the file message in the conversation. No error chip ("Upload failed") appears.
+- **Fail signal:** Chip strip appears but upload immediately fails with an error, OR the chip strip never appears (upload_start is never sent), OR the upload hangs indefinitely. Any of these indicates the upload channel did NOT successfully rewire to PrettyView's own claude-session WS (regression to the pre-Plan-41-04 broken state where Terminal had to be mounted).
+- **Technical note:** PrettyView now routes uploads through its own claude-session WebSocket (port 30011) rather than Terminal's SSH WebSocket (port 30002). The `handleUploadStart / handleUploadChunk / handleUploadAbort` handlers now live in `claude-session-server.ts` and use the pane's `sshConn` set at `connectToPane` time.
+
+---
+
+### 12. Upload survives Terminal summon mid-flight
+
+- **Cross-reference:** CONTEXT.md LOCKED decision `Load behavior — cold-every-time`; CONTEXT.md LOCKED decision `Pane restructure — PrettyView promoted, Terminal becomes dormant peer`
+- **Setup:** Start a file upload from the PrettyView compose area (drag a larger file if possible — > 1 MB — so the upload takes a moment). While the upload chip is showing progress (uploading state), press Ctrl+Shift+O to summon Terminal.
+- **Expected observable:** The upload continues to completion. PrettyView's upload channel is carried by PrettyView's own claude-session WS (port 30011) — Terminal's SSH WS (port 30002) is irrelevant. Summoning Terminal does NOT interrupt the upload. When the upload completes, the injected user turn appears in PrettyView as normal.
+- **Fail signal:** Upload shows an error after Terminal is summoned (would indicate the upload was still tied to Terminal's WS and lost the connection). OR the upload hangs indefinitely after the toggle (would indicate Terminal's WS interruption broke the upload path — this should not happen since uploads now route through the claude-session WS which stays live throughout the toggle).
+
+---
+
+### 13. Upload survives toggle-back-to-PrettyView (Terminal torn down mid-upload)
+
+- **Cross-reference:** CONTEXT.md LOCKED decision `Load behavior — cold-every-time` — cold-every-time (Terminal is torn down on toggle-back to PrettyView; previously this would kill uploads carried by Terminal's SSH WS)
+- **Setup:** Summon Terminal (Ctrl+Shift+O) to reach Terminal mode. Then start a file upload — if you can drag a file into the underlying PrettyView (it may be hidden), do so; alternatively toggle back to PrettyView first, start the upload, then toggle Terminal on and quickly toggle back. The key scenario is: an upload is in-flight while you toggle back to PrettyView (causing Terminal to tear down).
+- **Expected observable:** The upload survives Terminal being torn down and completes. PrettyView's own claude-session WS carries the upload independently of Terminal's lifecycle. The injected user turn appears after upload completion.
+- **Fail signal:** Upload fails with an error after toggling back to PrettyView (would indicate the upload was still tied to Terminal's SSH WS which was destroyed on teardown). This was the pre-Plan-41-04 behavior when the upload channel depended on Terminal's WS. After Plan 41-04, uploads are WS-independent of Terminal.
+
+---
+
 ## Regression Suspicions (Areas to Watch)
 
 If something breaks, the RESEARCH.md §9 hot areas are:
 
 - **`src/ui/features/terminal/Terminal.tsx`** — received heavy surgery in Plan 41-02 (403 lines deleted). Primary risk: any state or ref that was removed but is still implicitly expected by non-identity SSH pane paths. The wiring test guards (`Terminal.wiring.test.ts` — 42 tests) cover the key absence assertions.
 - **`src/ui/features/pretty-view/PrettyView.tsx` — `isIdleDerived` path** — PrettyView now derives isIdle from `useSessionIsWorkingRaw(sessionWorkingKey)` via the fleet-status broadcast store, not from a Terminal prop. If the broadcast store is empty (first mount, no fleet-status frame yet), the WipBubble and ready-dot are ABSENT (not stuck-on). This is the LOCKED graceful-degradation behavior, not a bug.
-- **Upload path when Terminal is unmounted** — the chip strip renders in PrettyView and `startBatch` parks, but file upload over the SSH WS is disabled while Terminal is unmounted (IdentitySessionPane passes `terminalWs={null}` to PrettyView in this state). This is ACCEPTED behavioral degradation per RESEARCH.md L302 and the LOCKED rationale — not a bug, but it may be unexpected. Ashley: if you try to attach a file from PrettyView while Terminal is not summoned, the chip strip may appear but the upload will not proceed until Terminal is summoned. This is by design for Phase 41; a follow-up plan can address it if needed.
+- **Upload path when Terminal is unmounted** — RESOLVED in Plan 41-04. File uploads now work correctly when Terminal is unmounted. PrettyView routes uploads through its own claude-session WS (port 30011) which is always live. The `terminalWs={null}` workaround and TODO(41-followup) comment have been removed. See UAT items 11-13 for the upload-specific UAT checklist items.
 
 ---
 
@@ -154,6 +183,9 @@ If something breaks, the RESEARCH.md §9 hot areas are:
 - [ ] Item 8 — RDP / VNC / dashboard tabs unaffected
 - [ ] Item 9 — MessageQueueDrawer sends fire from IdentitySessionPane wrapper
 - [ ] Item 10 — No console errors during toggle sequences
+- [ ] Item 11 — File upload from identity pane with Terminal never summoned (Plan 41-04)
+- [ ] Item 12 — Upload survives Terminal summon mid-flight (Plan 41-04)
+- [ ] Item 13 — Upload survives toggle-back-to-PrettyView with Terminal torn down (Plan 41-04)
 
 Sign-off (Ashley): __________ Date: __________
 
