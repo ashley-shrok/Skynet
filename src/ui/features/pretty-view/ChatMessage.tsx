@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect } from "react";
-import ReactMarkdown from "react-markdown";
+import React, { useRef, useState, useEffect, useMemo } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ThumbsUp, Volume2, Loader2, Pause, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -315,6 +315,69 @@ export function ChatMessage({
   // markers out into <CommandChip> pills. Backend session-file-parser stays
   // faithful to the wire format — this transform is client-render-only.
   const processedContent = preprocessCommandTriplets(content);
+  // BUG C1 fix: memoize the ReactMarkdown `components` object. Passing a fresh
+  // inline object literal every render forced ReactMarkdown to remount its
+  // child overrides — including <EditableFileAffordance>, which then re-fired
+  // useIsTouchDevice's initial-render flash on every parent re-render. Deps
+  // are exactly the values the `a` override closes over: eventId, onOpenEditor,
+  // eligibleUrls. The p/pre/blockquote overrides only close over module-scope
+  // imports (splitMarkers, CopyableBlock) — stable, not deps.
+  const markdownComponents = useMemo<Components>(() => ({
+    // D-03: affordance renders as fragment sibling — anchor semantics
+    // (target/rel/click) preserved verbatim per LOCKED additive-not-
+    // replacive.
+    a: ({ node: _node, ...rest }) => {
+      const props = rest as React.AnchorHTMLAttributes<HTMLAnchorElement>;
+      const href = props.href;
+      // Compute affordance eligibility (Pitfall 1: href destructured
+      // from props, NOT from `node`).
+      let filename = "";
+      let isEligible = false;
+      if (href && eventId && onOpenEditor) {
+        try {
+          const parsed = new URL(href);
+          // Pitfall 8: URL.pathname strips ?query before we split.
+          filename = decodeURIComponent(
+            parsed.pathname.split("/").pop() ?? "",
+          );
+          isEligible = eligibleUrls.has(href);
+        } catch {
+          // Invalid URL — not a tailnet pattern anyway.
+          isEligible = false;
+        }
+      }
+      return (
+        <>
+          <a
+            {...props}
+            target="_blank"
+            rel="noopener noreferrer"
+          />
+          {isEligible ? (
+            <EditableFileAffordance
+              filename={filename}
+              onOpen={() =>
+                onOpenEditor!({
+                  messageEventId: eventId!,
+                  url: href!,
+                  filename,
+                })
+              }
+            />
+          ) : null}
+        </>
+      );
+    },
+    p: ({ node, children, ...props }) => (
+      <p {...props}>{splitMarkers(children)}</p>
+    ),
+    pre: ({ node, children, ...props }) => (
+      <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>
+    ),
+    blockquote: ({ node, children, ...props }) => (
+      <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
+    ),
+  }), [eventId, onOpenEditor, eligibleUrls]);
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
@@ -412,62 +475,7 @@ export function ChatMessage({
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            components={{
-              // D-03: affordance renders as fragment sibling — anchor semantics
-              // (target/rel/click) preserved verbatim per LOCKED additive-not-
-              // replacive.
-              a: ({ node: _node, ...rest }) => {
-                const props = rest as React.AnchorHTMLAttributes<HTMLAnchorElement>;
-                const href = props.href;
-                // Compute affordance eligibility (Pitfall 1: href destructured
-                // from props, NOT from `node`).
-                let filename = "";
-                let isEligible = false;
-                if (href && eventId && onOpenEditor) {
-                  try {
-                    const parsed = new URL(href);
-                    // Pitfall 8: URL.pathname strips ?query before we split.
-                    filename = decodeURIComponent(
-                      parsed.pathname.split("/").pop() ?? "",
-                    );
-                    isEligible = eligibleUrls.has(href);
-                  } catch {
-                    // Invalid URL — not a tailnet pattern anyway.
-                    isEligible = false;
-                  }
-                }
-                return (
-                  <>
-                    <a
-                      {...props}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    />
-                    {isEligible ? (
-                      <EditableFileAffordance
-                        filename={filename}
-                        onOpen={() =>
-                          onOpenEditor!({
-                            messageEventId: eventId!,
-                            url: href!,
-                            filename,
-                          })
-                        }
-                      />
-                    ) : null}
-                  </>
-                );
-              },
-              p: ({ node, children, ...props }) => (
-                <p {...props}>{splitMarkers(children)}</p>
-              ),
-              pre: ({ node, children, ...props }) => (
-                <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>
-              ),
-              blockquote: ({ node, children, ...props }) => (
-                <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
-              ),
-            }}
+            components={markdownComponents}
           >
             {processedContent}
           </ReactMarkdown>

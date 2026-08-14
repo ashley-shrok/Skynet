@@ -122,7 +122,16 @@ export function useEditableFileEligibility(
 
       if (!cancelled) {
         // Single setState — do not commit per-URL, to avoid render thrash.
-        setEligibleUrls(eligible);
+        // Identity-stable when contents unchanged (BUG C2 fix) — stops
+        // downstream remount storm in ChatMessage's memoized `a` override.
+        // Set order is not part of contents equality; size-check + one-way
+        // subset check is a complete equality check for Set<string>.
+        setEligibleUrls((prev) => {
+          if (prev.size === eligible.size && [...prev].every((u) => eligible.has(u))) {
+            return prev;  // identity-stable; React skips re-render
+          }
+          return eligible;
+        });
       }
     })();
 
