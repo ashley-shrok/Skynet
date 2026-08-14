@@ -23,13 +23,13 @@
  * Stop[0].hooks[] — if Stop[0] doesn't exist we create the minimal structure.
  *
  * ## Import pattern for stop-hook.sh
- * Uses import.meta.url → __dirname equivalent to locate the sibling stop-hook.sh
- * at the same directory as this module. readFileSync at call-time (not module
- * load time) so test environments can provide a localHookScriptPath override.
+ * The `stop-hook.sh` shell script contents are inlined at module load as the
+ * `STOP_HOOK_SCRIPT_CONTENTS` constant — no runtime filesystem read is required
+ * for the default install path. This eliminates a fleet-wide ENOENT bug caused
+ * by `tsc` not copying `.sh` sibling assets into `dist/`. The
+ * `opts.localHookScriptPath` escape hatch is retained for tests and uses a
+ * dynamic `node:fs` import so the production path pays no fs import cost.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { systemLogger } from "../utils/logger.js";
 import type { SshChannel } from "./ssh-poll-orchestrator.js";
 
@@ -64,12 +64,33 @@ const DEFAULT_REMOTE_HOOK_PATH =
   "~/.claude/hooks/skynet-fleet-status-stop.sh";
 const DEFAULT_REMOTE_PAYLOAD_DIR = "~/.claude/fleet-status";
 
-function resolveLocalHookScript(): string {
-  // __filename / __dirname equivalent in ESM
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
-  return join(__dirname, "stop-hook.sh");
-}
+// SOURCE OF TRUTH: keep this string byte-for-byte in sync with
+// src/backend/fleet-status/stop-hook.sh. Test 11 in remote-hook-install.test.ts
+// asserts byte-exact equality against the on-disk file so drift is caught at
+// test time. This constant exists because `tsc` compiles .ts → .js but does
+// not copy sibling .sh assets into dist/, so a runtime readFileSync of the
+// sibling stop-hook.sh fails with ENOENT on every deployed host.
+export const STOP_HOOK_SCRIPT_CONTENTS = `#!/bin/bash
+#
+# Skynet fleet-status Stop hook — dropped onto each identity-hosting box by
+# remote-hook-install.ts. Reads the Stop hook payload from stdin and writes
+# it atomically to the well-known payload file, which the Skynet backend
+# polls over SSH every 2s.
+#
+# MUST NOT block Claude Code — the hook fires synchronously during turn
+# completion, so we do the minimum work possible: read stdin, atomic-write
+# to disk, exit 0.
+#
+set -eu
+PAYLOAD_DIR="\${HOME}/.claude/fleet-status"
+PAYLOAD_FILE="\${PAYLOAD_DIR}/last-stop-payload.json"
+TMP_FILE="\${PAYLOAD_FILE}.\$\$.tmp"
+mkdir -p "\${PAYLOAD_DIR}"
+# Belt-and-braces: wrap the write in a timeout so a full disk cannot hang
+# the hook indefinitely. Fire-and-forget beyond this point.
+timeout 2 sh -c "cat > '\${TMP_FILE}' && mv '\${TMP_FILE}' '\${PAYLOAD_FILE}'" || true
+exit 0
+`;
 
 // ---------------------------------------------------------------------------
 // readAndMergeStopHookSettings — PURE FUNCTION, no SSH
@@ -145,7 +166,8 @@ export function readAndMergeStopHookSettings(
  * Install the Stop hook on a remote host via the injected SSH channel.
  *
  * Steps:
- *   1. Read local stop-hook.sh from disk.
+ *   1. Use inlined STOP_HOOK_SCRIPT_CONTENTS (or dynamically read
+ *      opts.localHookScriptPath if provided — test-only escape hatch).
  *   2. SSH mkdir -p for the hook dir and payload dir.
  *   3. Write hook script atomically via heredoc .tmp + mv + chmod +x.
  *   4. Verify: `test -x <remoteHookPath> && echo OK`.
@@ -164,11 +186,20 @@ export async function installStopHook(
 ): Promise<InstallResult> {
   const remoteHookPath = opts.remoteHookPath ?? DEFAULT_REMOTE_HOOK_PATH;
   const remotePayloadDir = opts.remotePayloadDir ?? DEFAULT_REMOTE_PAYLOAD_DIR;
-  const localHookScriptPath = opts.localHookScriptPath ?? resolveLocalHookScript();
   const remoteHookDir = remoteHookPath.replace(/\/[^/]+$/, ""); // dirname
 
-  // Step 1: Read local stop-hook.sh
-  const hookScriptContents = readFileSync(localHookScriptPath, "utf-8");
+  // Step 1: Resolve hook script contents.
+  // Default path uses the inlined STOP_HOOK_SCRIPT_CONTENTS constant — no
+  // filesystem read, no fs import at module load. The opts.localHookScriptPath
+  // escape hatch (test-only) dynamically imports node:fs on demand so the
+  // production install path pays zero fs import cost.
+  let hookScriptContents: string;
+  if (opts.localHookScriptPath) {
+    const { readFileSync } = await import("node:fs");
+    hookScriptContents = readFileSync(opts.localHookScriptPath, "utf-8");
+  } else {
+    hookScriptContents = STOP_HOOK_SCRIPT_CONTENTS;
+  }
 
   // Step 2: mkdir for both directories
   await channel.exec(

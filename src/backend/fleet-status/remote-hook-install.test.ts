@@ -23,6 +23,7 @@ import {
   readAndMergeStopHookSettings,
   installStopHook,
   uninstallStopHook,
+  STOP_HOOK_SCRIPT_CONTENTS,
 } from "./remote-hook-install.js";
 import type { SshChannel } from "./ssh-poll-orchestrator.js";
 
@@ -245,7 +246,6 @@ describe("installStopHook", () => {
     const channel = buildChannel();
     const result = await installStopHook(channel, {
       remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
-      localHookScriptPath: "/home/ubuntu/skynet/src/backend/fleet-status/stop-hook.sh",
     });
 
     expect(result.hookInstalled).toBe(true);
@@ -283,7 +283,6 @@ describe("installStopHook", () => {
     const channel = buildChannel(existingSettings);
     const result = await installStopHook(channel, {
       remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
-      localHookScriptPath: "/home/ubuntu/skynet/src/backend/fleet-status/stop-hook.sh",
     });
 
     expect(result.hookInstalled).toBe(true);
@@ -305,7 +304,6 @@ describe("installStopHook", () => {
     await expect(
       installStopHook(channel, {
         remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
-        localHookScriptPath: "/home/ubuntu/skynet/src/backend/fleet-status/stop-hook.sh",
       }),
     ).rejects.toThrow();
 
@@ -329,7 +327,6 @@ describe("installStopHook", () => {
     await expect(
       installStopHook(channel, {
         remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
-        localHookScriptPath: "/home/ubuntu/skynet/src/backend/fleet-status/stop-hook.sh",
       }),
     ).rejects.toThrow();
 
@@ -344,6 +341,26 @@ describe("installStopHook", () => {
         operation: "fleet_status_hook_install_settings_invalid_json",
       }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test 11: STOP_HOOK_SCRIPT_CONTENTS byte-matches stop-hook.sh on disk.
+// Prevents drift: if someone edits the .sh file but forgets to update the
+// inlined constant (or vice versa), this test fails immediately.
+// The tree-agnostic path is built from import.meta.url in the test file (not
+// in the runtime module) so this works from any identity's worktree.
+// ---------------------------------------------------------------------------
+
+describe("STOP_HOOK_SCRIPT_CONTENTS", () => {
+  it("Test 11: STOP_HOOK_SCRIPT_CONTENTS byte-matches stop-hook.sh on disk", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const testDir = dirname(fileURLToPath(import.meta.url));
+    const diskPath = join(testDir, "stop-hook.sh");
+    const diskContents = readFileSync(diskPath, "utf-8");
+    expect(STOP_HOOK_SCRIPT_CONTENTS).toBe(diskContents);
   });
 });
 
