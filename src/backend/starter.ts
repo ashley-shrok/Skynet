@@ -171,6 +171,11 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
         "./database/db/schema.js"
       );
       const { eq } = await import("drizzle-orm");
+      // Phase 39 D-03 (GATE2-03): canonical decrypt path — same wrapper used by
+      // sessions.ts, identity-birth.ts, roles-create.ts, guacamole/routes.ts.
+      // Reads hosts via SimpleDBOps.select(..., "ssh_data", userId) which
+      // unconditionally runs DataCrypto.decryptRecords before returning.
+      const { resolveHostById } = await import("./ssh/host-resolver.js");
 
       // The subscription registry is shared between the WS server and the orchestrator
       const registry = createSubscriptionRegistry();
@@ -189,38 +194,61 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
       // --- Phase 34-04: SSH-poll orchestrator ---
 
       /**
-       * Query the DB for identity-hosting hosts — hosts that have SSH enabled
-       * and enableTerminal=true (initial approximation; refined per the plan comment).
+       * Query the DB for identity-hosting hosts — hosts that have SSH enabled.
        *
-       * TODO: once an explicit "identity_hosting" flag or join via messageQueueItems
-       * is available, use that instead. For now, enableSsh + enableTerminal is the
-       * best available signal from the schema.
+       * Phase 39 D-03 (GATE2-03): decrypts each host's credentials via the
+       * canonical resolveHostById(id, userId) path so ssh2 receives PLAINTEXT
+       * key/password material. Previously this function read raw drizzle
+       * selects on hostsTable.key/password/keyPassword — Skynet's per-record
+       * ciphertext, which ssh2 rejects as invalid key (the "all hosts
+       * unreachable" pattern in the logs). See 39-CONTEXT §Root cause.
+       *
+       * The subject userId is the currently-subscribing user — captured into
+       * `currentSubscriberUserId` by the registry.onFirstSubscriber callback
+       * below. orchestrator.start() only runs inside that callback, so at the
+       * time this function is called `currentSubscriberUserId` is always set.
        */
       async function listIdentityHostingHosts() {
+        // Defence-in-depth: should never happen because start() lives behind
+        // onFirstSubscriber which assigns currentSubscriberUserId first.
+        if (!currentSubscriberUserId) {
+          systemLogger.warn(
+            "Fleet-status: listIdentityHostingHosts called with no active subscriber userId",
+            {
+              operation: "fleet_status_host_list_no_user",
+            },
+          );
+          return [];
+        }
+        const userId = currentSubscriberUserId;
+
         try {
           const db = getDb();
           const rows = await db
             .select({
               id: hostsTable.id,
               name: hostsTable.name,
-              ip: hostsTable.ip,
-              port: hostsTable.port,
-              sshPort: hostsTable.sshPort,
-              username: hostsTable.username,
-              authType: hostsTable.authType,
-              password: hostsTable.password,
-              key: hostsTable.key,
-              keyPassword: hostsTable.keyPassword,
             })
             .from(hostsTable)
             .where(eq(hostsTable.enableSsh, true));
 
-          return rows.map((row) => ({
-            id: String(row.id),
-            name: row.name ?? String(row.id),
-            // Store connection details for acquireSshChannel
-            _connDetails: row,
-          }));
+          const resolved = await Promise.all(
+            rows.map(async (row) => {
+              const host = await resolveHostById(row.id, userId);
+              if (!host) return null;
+              return {
+                id: String(row.id),
+                name: row.name ?? String(row.id),
+                // Decrypted SSHHost record — connectOneShot consumes this directly
+                // (matches the canonical sessions.ts:70-75 pattern).
+                _connDetails: host as unknown as Record<string, unknown>,
+              };
+            }),
+          );
+          return resolved.filter(
+            (h): h is { id: string; name: string; _connDetails: Record<string, unknown> } =>
+              h !== null,
+          );
         } catch (err) {
           systemLogger.warn("Fleet-status: identity-host list query failed", {
             operation: "fleet_status_host_list_failed",
@@ -232,6 +260,11 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
 
       // Long-lived ssh2 Client connections keyed by hostId
       const hostClients = new Map<string, import("ssh2").Client>();
+      // Phase 39 D-01/D-03: the userId of the currently-subscribed browser
+      // session. Set by registry.onFirstSubscriber; cleared by
+      // registry.onLastUnsubscriber. Used as the subject for per-host
+      // resolveHostById decrypt inside listIdentityHostingHosts.
+      let currentSubscriberUserId: string | null = null;
 
       async function acquireSshChannel(host: {
         id: string;
@@ -336,25 +369,65 @@ import { flushBackendLogs } from "./utils/console-forward-transport.js";
         hookPayloadWarnCooldownMs: 60000,
       });
 
-      // Fire-and-forget start (does not block backend boot)
-      orchestrator.start().catch((err) => {
-        systemLogger.warn("Fleet-status orchestrator start failed", {
-          operation: "fleet_status_orchestrator_start_failed",
-          error: err instanceof Error ? err.message : "unknown",
+      // ---------------------------------------------------------------------
+      // Phase 39 Path C — presence-driven orchestrator lifecycle
+      // (Ashley LOCKED 2026-08-13: "nobody needs to know if something is idle
+      // or not, or anything else that's going on here, if no user is present
+      // to want to know the information")
+      //
+      // D-01 (GATE2-01): first fleet-status browser subscriber → start poller
+      // D-02 (GATE2-02): last unsubscriber → stop poller + close ssh2 Clients
+      // D-03 (GATE2-03): capture that subscriber's userId as the decrypt
+      //                  subject for listIdentityHostingHosts / resolveHostById
+      // ---------------------------------------------------------------------
+      registry.onFirstSubscriber(({ userId }) => {
+        currentSubscriberUserId = userId;
+        systemLogger.info(
+          "Fleet-status orchestrator starting on first subscriber",
+          {
+            operation: "fleet_status_orchestrator_lifecycle",
+            userId,
+          },
+        );
+        orchestrator.start().catch((err) => {
+          systemLogger.warn("Fleet-status orchestrator start failed", {
+            operation: "fleet_status_orchestrator_start_failed",
+            error: err instanceof Error ? err.message : "unknown",
+          });
         });
       });
 
-      // Log initial host count after start (best-effort)
-      listIdentityHostingHosts().then((initialHosts) => {
-        systemLogger.info("Fleet-status orchestrator started", {
-          operation: "fleet_status_orchestrator_started",
-          identityHostCount: initialHosts.length,
+      registry.onLastUnsubscriber(() => {
+        systemLogger.info(
+          "Fleet-status orchestrator stopping on last unsubscriber",
+          {
+            operation: "fleet_status_orchestrator_lifecycle",
+          },
+        );
+        orchestrator.stop();
+        // Close the long-lived ssh2 Clients so we don't leak the very TCP
+        // connections we said "no user watching = no work" — orchestrator.stop()
+        // only clears perHostState (channel wrappers), not the underlying
+        // ssh2 Clients held in hostClients. See 39-RESEARCH §Pitfall 3.
+        for (const [, client] of hostClients) {
+          try {
+            client.end();
+          } catch {
+            // best-effort — client may already be dead
+          }
+        }
+        hostClients.clear();
+        currentSubscriberUserId = null;
+      });
+
+      systemLogger.info(
+        "Fleet-status orchestrator initialized (awaiting first subscriber)",
+        {
+          operation: "fleet_status_awaiting_subscriber",
           pollIntervalMs: 2000,
           staleSweepIntervalMs: 30000,
-        });
-      }).catch(() => {
-        // ignore — logged inside listIdentityHostingHosts already
-      });
+        },
+      );
     }
 
     // Initialize log level from database settings
