@@ -3,7 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
+<<<<<<< HEAD
 last_updated: "2026-08-14T14:05:00.000Z"
+=======
+last_updated: "2026-08-14T03:15:03.076Z"
+>>>>>>> 452c2a93 (docs(40-04): complete ChatMessage + PrettyView wiring plan)
 last_activity: 2026-08-14
 progress:
   total_phases: 40
@@ -225,6 +229,7 @@ Progress: [██████████] 100%
 | Phase 39 P03 | 48min | 1 tasks | 2 files |
 | Phase 39 P02 | ~27min | 2 tasks | 3 files |
 | Phase 39 P04 | 62min | 2 tasks | 2 files |
+| Phase 40 P04 | 20 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -342,6 +347,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Presence-driven fleet-status SSH-poll orchestrator (Path C, Ashley LOCKED 2026-08-13) — starts on first browser subscriber, stops on last; per-host decrypt via canonical resolveHostById(id, currentSubscriberUserId) — Phase 39 Plan 02
 - [Phase ?]: Phase 39-04 (GATE2-05): Wired fire-and-forget blind Stop-hook install into acquireSshChannel first-successful-new-client path via exported maybeInstallStopHook helper. Install-once tracked per lifecycle in hookInstallAttempted Set (cleared with hostClients on onLastUnsubscriber). No probe-first branch — installStopHook self-detects alreadyInstalled per RESEARCH §Q5.
 - [Phase ?]: Phase 39-04: Guarded starter.ts boot IIFE with if (process.env.VITEST !== 'true') so exported helpers can be imported for isolated vitest coverage without triggering real backend init. Rule 3 auto-fix; production behavior unchanged.
+- [Phase ?]: Plan 40-04 wired Wave 3: ChatMessage <a>-override renders EditableFileAffordance sibling on eligible URLs; PrettyView mounts EditableFileModal alongside IdentityModal with onStageEditedFile deposit into uploads.stageAttachments('primary')
 
 ### Pending Todos
 
@@ -544,6 +550,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T02:51:12.689Z
-Stopped at: Completed 39-04-PLAN.md
+Last session: 2026-08-14T03:15:02.364Z
+Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Resume file: None
