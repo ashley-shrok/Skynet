@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-14T01:11:59.281Z"
+last_updated: "2026-08-14T01:43:40.877Z"
 last_activity: 2026-08-14
 progress:
   total_phases: 39
   completed_phases: 29
   total_plans: 151
-  completed_plans: 147
+  completed_plans: 148
   percent: 74
 ---
 
@@ -141,7 +141,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -223,6 +223,7 @@ Progress: [██████████] 99%
 | Phase 37 P02 | 90min | 3 tasks | 8 files |
 | Phase 37 P03 | 30min | 1 task | 1 file (1 created) |
 | Phase 39 P03 | 48min | 1 tasks | 2 files |
+| Phase 39 P02 | ~27min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -337,6 +338,7 @@ Recent decisions affecting current work:
 - 2026-08-13 (37 / commit-prefix 32-01): Injected-narrowed-voice pattern for gesture hooks — useHoldToRecord accepts `Pick<UseVoiceRecordingReturn, "state" | "start" | "cancel">` rather than calling useVoiceRecording itself. Enables ComposeBox to share ONE voice singleton across primary + slot send-button gestures + mic-tap path without duplicate hook instances. Also enables unit testing with a plain vi.fn() mock (no vi.mock of the whole useVoiceRecording module).
 - 2026-08-13 (37 / commit-prefix 32-02): Wired useHoldToRecord into ComposeBox primary + slot send buttons — B-2 aside-dismiss onClick preserved (onClick={asideActive ? () => onAsideDismiss?.() : undefined}); B-3 !holdInitiatedRef gates on showRecordingControls/showSlotRecording so hold-record does NOT swap RecordingControls under the pointer; M-2 slotSendDisabled shared local extracted (no drift between JSX disabled and hook arg); button[data-hold-active=true] CSS pulse tinting toward --color-pv-code-fg coral added in src/ui/index.css.
 - [Phase ?]: Phase 39 Plan 03: generic non-sensitive context passthrough in Logger.formatMessage (RESEARCH §Q4 recommended shape) — sanitizeContext runs first (SENSITIVE_FIELDS → [MASKED]), then the 7-field known-order block emits verbatim, then a bounded loop over remaining sanitizedContext keys emits key:value (String coercion for primitives, JSON.stringify for objects). All backend log callers now surface error/fleetHostId/hostname/etc. through to console-forward.log + docker logs.
+- [Phase ?]: Presence-driven fleet-status SSH-poll orchestrator (Path C, Ashley LOCKED 2026-08-13) — starts on first browser subscriber, stops on last; per-host decrypt via canonical resolveHostById(id, currentSubscriberUserId) — Phase 39 Plan 02
 
 ### Pending Todos
 
@@ -537,6 +539,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T01:11:39.494Z
+Last session: 2026-08-14T01:43:15.529Z
 Stopped at: Completed 32-03-PLAN.md (Phase 37 P03) — Phase 37 EXECUTED (all 3 plans done); orchestrator picks up ship/deploy
 Resume file: None

@@ -1142,7 +1142,7 @@ Plans:
 **Goal:** Fleet-status pipeline populates the session-working-store end-to-end from a real browser session — SSH-poll orchestrator runs only while at least one fleet-status browser subscriber is connected, per-host SSH decrypt uses the subscribing user's authenticated session via `resolveHostById(hostId, userId)`, structured log `error` fields surface in `console-forward-logs/console-forward.log` and `docker logs skynet`, and Phase 34 Plan 04's Stop-hook is installed (blind, idempotent) on every enrolled host the first time it's acquired during a lifecycle.
 **Requirements**: GATE2-01, GATE2-02, GATE2-03, GATE2-04, GATE2-05, GATE2-06
 **Depends on:** Phase 38
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 **Wave 1**
 
@@ -1151,7 +1151,7 @@ Plans:
 
 **Wave 2** *(blocked on 39-01 completion)*
 
-- [ ] 39-02-PLAN.md — Thread { userId } through fleet-status-server.ts subscribe call + rewrite listIdentityHostingHosts in starter.ts to use resolveHostById per-host decrypt + move orchestrator.start/stop behind registry.onFirstSubscriber/onLastUnsubscriber + hostClients cleanup on last-unsub + fleet_status_awaiting_subscriber boot log (GATE2-01, GATE2-02, GATE2-03, GATE2-06)
+- [x] 39-02-PLAN.md — Thread { userId } through fleet-status-server.ts subscribe call + rewrite listIdentityHostingHosts in starter.ts to use resolveHostById per-host decrypt + move orchestrator.start/stop behind registry.onFirstSubscriber/onLastUnsubscriber + hostClients cleanup on last-unsub + fleet_status_awaiting_subscriber boot log (GATE2-01, GATE2-02, GATE2-03, GATE2-06)
 
 **Wave 3** *(blocked on 39-02 completion — same-file overlap on starter.ts)*
 
