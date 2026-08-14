@@ -1181,7 +1181,7 @@ Plans:
 
 **Depends on:** Phase 39 (fleet-status backend broadcast + presence-driven SSH-poll lifecycle), Phase 35 (PrettyView-owned send path — makes standalone PrettyView possible)
 
-**Plans:** 3/3 plans complete
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 41-01-PLAN.md — Signal re-source (invisible P2): add `useSessionIsWorkingRaw` three-state hook + new `session-tmux-store` module + extend AppShell fleet-status callbacks to feed the tmux store + rewire PrettyView `isIdle` to derive internally from the fleet-status store; Terminal still nests PrettyView, `isIdle` prop preserved as no-op during transition; user-visible behavior unchanged
@@ -1195,6 +1195,6 @@ Plans:
 - [x] 41-02-PLAN.md
 
 **Wave 3** *(blocked on 41-01 + 41-02 completion — docs prep + end-of-phase UAT)*
-- [ ] 41-03-PLAN.md
+- [x] 41-03-PLAN.md
 
 **UI hint:** no source-visible UI redesign — this is an architectural pane composition change; PrettyView and Terminal's own surfaces are byte-unchanged. Only the mount/unmount lifecycle around Terminal changes for identity panes.
