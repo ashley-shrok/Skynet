@@ -149,6 +149,18 @@ export function useVoiceRecording(
   // grant window and would otherwise leave the mic hot indefinitely.
   const pendingCancelRef = useRef<boolean>(false);
 
+  // Symmetric with pendingCancelRef — the cold-start commit race. commitStartVisibility()
+  // may be called by useHoldToRecord's 250ms threshold-timer BEFORE getUserMedia's
+  // .then() has resolved and set state to "starting". Without this ref the call
+  // silently no-ops (state guard rejects) and state stays "starting" forever, so
+  // endSend/endAppend reject the long-press release and the mic latches disabled.
+  // With this ref: commitStartVisibility arms it when state !== "starting"; the
+  // .then() handler that later transitions to "starting" checks it and immediately
+  // advances to "recording" + plays start.mp3. Cleared by cancel() and by successful
+  // consumption in .then(). (Diagnosed 2026-08-14 from console-forward logs of
+  // Ashley's iPhone attempt 3 — getUserMedia took 1.1s to resolve.)
+  const pendingCommitRef = useRef<boolean>(false);
+
   // Audio feedback instances — lazy-initialized once on first render via ref.
   // Persists across renders so we don't reconstruct Audio objects on every render.
   const startAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -448,6 +460,18 @@ export function useVoiceRecording(
           // commitStartVisibility() is called at the 250ms threshold.
           setState("starting");
           stateRef.current = "starting";
+          // Cold-start commit race: commitStartVisibility() may have been called
+          // by the 250ms threshold-timer BEFORE we reached this line (getUserMedia
+          // on iOS Safari cold-start can take 500-1500ms). If so, the ref was
+          // armed; consume it now and immediately advance to "recording" so
+          // endSend/endAppend don't reject the long-press release.
+          if (pendingCommitRef.current) {
+            pendingCommitRef.current = false;
+            setState("recording");
+            stateRef.current = "recording";
+            playSound(startAudioRef.current);
+            console.info(`[voice] commit-pending-consumed advancing-to-recording ${ctxSuffix}`);
+          }
         }
       })
       .catch((err: Error) => {
@@ -492,6 +516,7 @@ export function useVoiceRecording(
       // (e.g., useHoldToRecord short-tap) calls cancel() before
       // getUserMedia has resolved.
       pendingCancelRef.current = true;
+      pendingCommitRef.current = false;
       console.warn(`[voice] cancel-gate-rejected state=${currentState} expected=recording-or-starting pending-cancel-armed=true ${ctxSuffix}`);
       return;
     }
@@ -501,6 +526,7 @@ export function useVoiceRecording(
     // re-check will handle teardown when it runs).
     if (currentState === "starting" && recorderRef.current === null) {
       pendingCancelRef.current = true;
+      pendingCommitRef.current = false;
       console.warn(`[voice] cancel-starting-no-recorder state=${currentState} pending-cancel-armed=true ${ctxSuffix}`);
       setState("idle");
       stateRef.current = "idle";
@@ -508,8 +534,11 @@ export function useVoiceRecording(
     }
 
     // Belt-and-suspenders: proactively clear pendingCancelRef in the
-    // state === "recording" or "starting" (with recorder) branch.
+    // state === "recording" or "starting" (with recorder) branch. Also clear
+    // pendingCommitRef so a re-start after cancel does not inherit a stale
+    // commit-pending flag from before the cancel.
     pendingCancelRef.current = false;
+    pendingCommitRef.current = false;
     // AudioSession-safety: play cancel.mp3 AFTER recorder teardown, not before.
     // iOS Safari shares one AudioSession between MediaRecorder and Audio playback;
     // starting playback while recording is active can drop MediaRecorder.onstop and
@@ -653,7 +682,14 @@ export function useVoiceRecording(
    * "idle"), or twice in a row (second call sees "recording", no-ops).
    */
   function commitStartVisibility(): void {
-    if (stateRef.current !== "starting") return;
+    if (stateRef.current !== "starting") {
+      // Cold-start race: getUserMedia's .then() hasn't resolved yet, so state
+      // is still "idle" (or already past "starting"). Arm the pending flag so
+      // .then() picks it up on arrival. See pendingCommitRef declaration.
+      pendingCommitRef.current = true;
+      console.info(`[voice] commit-deferred state=${stateRef.current} pending-commit-armed=true ${ctxSuffix}`);
+      return;
+    }
     setState("recording");
     stateRef.current = "recording";
     playSound(startAudioRef.current);

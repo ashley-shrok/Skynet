@@ -1053,7 +1053,7 @@ describe("useVoiceRecording", () => {
       expect(startAudioAfter!.play).toHaveBeenCalledTimes(1);
     });
 
-    it("Test COMMIT-B: commitStartVisibility called BEFORE getUserMedia resolves → no-op (state stays idle, no start.mp3)", async () => {
+    it("Test COMMIT-B: commitStartVisibility called BEFORE getUserMedia resolves → arms pendingCommitRef; .then() auto-advances to recording (cold-start race fix, 2026-08-14)", async () => {
       // Install controllable getUserMedia — .then() hasn't run yet.
       let resolveStream: (stream: ReturnType<typeof makeMockStream>) => void = () => {};
       const controlledStream = makeMockStream();
@@ -1075,30 +1075,33 @@ describe("useVoiceRecording", () => {
       // .then() hasn't run yet — state is "idle".
       expect(result.current.state).toBe("idle");
 
-      // Call commitStartVisibility before getUserMedia resolves — should be a no-op.
+      // Call commitStartVisibility before getUserMedia resolves — arms pendingCommitRef
+      // (state guard rejects the immediate transition, but the ref is set for .then()
+      // to consume when it runs).
       act(() => { result.current.commitStartVisibility(); });
 
-      // State still idle, no start.mp3.
+      // Before .then() runs: state still idle, no start.mp3.
       expect(result.current.state).toBe("idle");
       const startAudio = getAudioBySrc("start.mp3");
       if (startAudio) {
         expect(startAudio.play).not.toHaveBeenCalled();
       }
 
-      // Now resolve getUserMedia — .then() runs, sets state to "starting" (not "recording").
+      // Now resolve getUserMedia — .then() runs; sees pendingCommitRef=true, skips the
+      // "starting" grey zone and jumps straight to "recording" + plays start.mp3.
+      // This is the cold-start race fix (Ashley iPhone 2026-08-14 — getUserMedia took
+      // 1.1s to resolve, timer had fired at 250ms and armed the ref).
       await act(async () => {
         resolveStream(controlledStream);
         await Promise.resolve();
         await Promise.resolve();
       });
 
-      // State is "starting" — commitStartVisibility()'s call above was a no-op, so
-      // the transition was NOT skipped. Consumer must call commitStartVisibility() again.
-      expect(result.current.state).toBe("starting");
+      // State advanced directly to "recording" via pendingCommitRef consumption.
+      expect(result.current.state).toBe("recording");
       const startAudioAfter = getAudioBySrc("start.mp3");
-      if (startAudioAfter) {
-        expect(startAudioAfter.play).not.toHaveBeenCalled();
-      }
+      expect(startAudioAfter).not.toBeNull();
+      expect(startAudioAfter!.play).toHaveBeenCalledTimes(1);
     });
 
     it("Test COMMIT-C: re-entrance during grey zone — second start() is a no-op (getUserMedia called only once)", async () => {
