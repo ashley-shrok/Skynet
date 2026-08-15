@@ -78,6 +78,25 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 
 // ---------------------------------------------------------------------------
 // SessionState — mirrors the watcher's published state for a (host, tmuxSession)
+//
+// Phase 41 Plan 03 (2026-08-15): added `lastMessageAt` as an OPTIONAL,
+// NULLABLE numeric field carrying the unix-millis timestamp of the newest
+// message-bearing frame in the underlying session JSONL, EITHER DIRECTION
+// (user-sent OR assistant-sent). Tool-use, thinking blocks, streaming ticks,
+// lifecycle events, and background-task starts/stops do NOT contribute to
+// this signal — the recency signal is edge-triggered ONLY on messages either
+// direction (Ashley 2026-08-14 lock: "activity = message either direction,
+// and only that"). Semantics:
+//   - number (unix millis) → newest message-bearing frame timestamp.
+//   - null                → no message-bearing history known for this session.
+//   - undefined           → emitting watcher pre-dates Phase 41 Plan 03; the
+//                           frontend consumer treats undefined and null
+//                           identically (both flip the row to the top of the
+//                           middle zone per Ashley's no-history-to-top rule).
+// Because the field is `.optional().nullable()`, FRAME_SCHEMA_VERSION is
+// deliberately HELD AT 1 — additive+optional extensions never require a
+// version bump (T-41-03-05 mitigation). If a future breaking change lands,
+// THAT change bumps the version.
 // ---------------------------------------------------------------------------
 
 export const SessionStateSchema = z.object({
@@ -89,6 +108,8 @@ export const SessionStateSchema = z.object({
   waitingFor: z.string().optional(),
   backgroundTasks: z.array(BackgroundTaskSchema),
   updatedAt: z.number(),
+  // Phase 41 Plan 03 — recency signal (see block comment above).
+  lastMessageAt: z.number().nullable().optional(),
 });
 
 export type SessionState = z.infer<typeof SessionStateSchema>;

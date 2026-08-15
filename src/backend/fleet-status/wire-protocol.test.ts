@@ -10,6 +10,7 @@ import {
   WatcherInboundFrame,
   FrontendOutboundFrame,
   FrontendInboundFrame,
+  SessionStateSchema,
 } from "./wire-protocol.js";
 
 const validSessionState = {
@@ -117,5 +118,46 @@ describe("wire-protocol", () => {
       const issueTexts = result.error.issues.map((i) => JSON.stringify(i));
       expect(issueTexts.some((t) => t.includes("type"))).toBe(true);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 41 Plan 03 — lastMessageAt is an optional, back-compat field on
+  // SessionState. Additive-only wire extension; FRAME_SCHEMA_VERSION stays at 1.
+  // ---------------------------------------------------------------------------
+
+  it("Test A (Phase 41 Plan 03 schema back-compat): SessionState parses when lastMessageAt is OMITTED — field is optional, watcher pre-dating Phase 41 remains compatible", () => {
+    // validSessionState fixture at top-of-file does NOT carry lastMessageAt —
+    // parse must succeed; the parsed result must have lastMessageAt === undefined
+    // (optional field, no default).
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastMessageAt).toBeUndefined();
+    }
+  });
+
+  it("Test B (Phase 41 Plan 03 schema forward): SessionState parses when lastMessageAt is a numeric unix-millis timestamp — the numeric value is preserved", () => {
+    const withTimestamp = { ...validSessionState, lastMessageAt: 1700000000000 };
+    const result = SessionStateSchema.safeParse(withTimestamp);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastMessageAt).toBe(1700000000000);
+    }
+  });
+
+  it("Test C (Phase 41 Plan 03 schema null): SessionState parses when lastMessageAt is explicitly null — the null value is preserved (no-history convention)", () => {
+    const withNull = { ...validSessionState, lastMessageAt: null };
+    const result = SessionStateSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastMessageAt).toBeNull();
+    }
+  });
+
+  it("Test A-guard (Phase 41 Plan 03): FRAME_SCHEMA_VERSION is NOT bumped by the additive+optional lastMessageAt extension — stays at 1", () => {
+    // Additive+optional fields never require a version bump. If this test
+    // fails, someone bumped the version without recording the breaking change
+    // rationale (Phase 41 Plan 03 is deliberately non-breaking).
+    expect(FRAME_SCHEMA_VERSION).toBe(1);
   });
 });

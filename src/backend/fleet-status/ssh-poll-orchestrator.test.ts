@@ -38,6 +38,15 @@ vi.mock("../utils/logger.js", () => ({
     error: vi.fn(),
     success: vi.fn(),
   },
+  // Phase 41 Plan 03: session-file-parser (imported by the orchestrator for
+  // JSONL tail parsing) uses `databaseLogger` for its per-line classify
+  // trace logs. Mock it here so calls do not throw on the mocked module.
+  databaseLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+  },
 }));
 
 import { systemLogger } from "../utils/logger.js";
@@ -929,5 +938,217 @@ describe("fail-open on missing hook payload file", () => {
 
     expect(countHookWarn()).toBe(1); // cooldown expired
     expect(deps.registry.publishedStates.length).toBe(afterBusyCount); // no new state change
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 41 Plan 03 — recency signal derivation from JSONL tail
+//
+// Contract (locked by CONTEXT.md §Sort model — "activity = message either
+// direction, and only that"):
+//   - Orchestrator tails the JSONL for each polled session on the same SSH
+//     exec channel used elsewhere in fleet-status polling.
+//   - lastMessageAt = the `ts` (unix millis) of the newest JSONL line whose
+//     parsed shape has kind ∈ {"message","image","relay_outbound","relay_inbound"}
+//     (all four map to a user- OR assistant-authored message-bearing turn per
+//     session-file-parser.ts).
+//   - Explicitly EXCLUDED: tool_use frames, thinking blocks, streaming ticks,
+//     status-transition events, background-task starts/stops, session
+//     lifecycle events. If the JSONL has NO message-bearing frames, the
+//     signal is null.
+//   - The derived value is stamped on the SessionState emitted through the
+//     existing publishSessionState pipeline; the wire-protocol lastMessageAt
+//     field carries it end-to-end.
+// ---------------------------------------------------------------------------
+
+describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Helper: build a JSONL message line with an ISO timestamp derived from
+  // unix millis. Mirrors what session-file-parser.parseSessionLine accepts
+  // (ts is derived from the `timestamp` field via Date.parse).
+  function jsonlMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+    overrides: Record<string, unknown> = {},
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+      ...overrides,
+    });
+  }
+
+  // Helper: build a JSONL tool_use line (a synthetic assistant turn whose
+  // message.content is an array of tool_use blocks; session-file-parser drops
+  // these with `kind: "skip"` because they have no textual content — the
+  // orchestrator MUST NOT credit them as message-bearing).
+  function jsonlToolUseLine(tsMillis: number): string {
+    return JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: `tool-${tsMillis}`,
+            name: "Read",
+            input: { file_path: "/tmp/x" },
+          },
+        ],
+      },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `tool-uuid-${tsMillis}`,
+    });
+  }
+
+  // Helper: build a synthetic non-message line (background task start
+  // simulated as a bare non-user/non-assistant type). session-file-parser
+  // will return `kind: "skip"` for these.
+  function jsonlBackgroundTaskLine(tsMillis: number): string {
+    return JSON.stringify({
+      type: "background_task_start",
+      task_id: `bg-${tsMillis}`,
+      timestamp: new Date(tsMillis).toISOString(),
+    });
+  }
+
+  // Helper: default channel wiring that includes a JSONL-tail response. The
+  // JSONL path the orchestrator constructs is
+  //   ~/.claude/projects/${cwd.replace(/\//g, "-")}/${sessionId}.jsonl
+  // For the fixture cwd `/home/ubuntu` and sessionId `test-session-id`, the
+  // path is `~/.claude/projects/-home-ubuntu/test-session-id.jsonl`. The
+  // channel matches SUBSTRINGS via `includes()`, so a broad `.jsonl` pattern
+  // covers whichever tail command form the orchestrator picks.
+  function wireBaseResponses(
+    channel: MockSshChannel,
+    jsonlContents: string,
+  ): void {
+    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    // Match on the JSONL filename fragment — the orchestrator will build a
+    // path ending in `test-session-id.jsonl` and either `tail -n 200` OR
+    // `tail -c +<N>` OR similar. All command shapes route to this same fixture.
+    channel.setResponse("test-session-id.jsonl", jsonlContents);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test D — message-bearing filter locks the "either direction, only messages"
+  //           contract. tool_use and background-task frames must NOT contribute.
+  // ---------------------------------------------------------------------------
+
+  it("Test D: message-bearing filter — user msg + tool_use + assistant msg + bg-task → lastMessageAt = newest ASSISTANT MSG (tool_use and bg-task ignored)", async () => {
+    const channel = new MockSshChannel();
+    // Fixture: user message at ts=1000, tool_use at ts=1500, assistant
+    // message at ts=2000, background-task start at ts=2500. Expected
+    // lastMessageAt = 2000 (the newest MESSAGE-bearing frame).
+    const jsonl =
+      jsonlMessageLine(1000, "user", "hello") +
+      "\n" +
+      jsonlToolUseLine(1500) +
+      "\n" +
+      jsonlMessageLine(2000, "assistant", "hi there") +
+      "\n" +
+      jsonlBackgroundTaskLine(2500) +
+      "\n";
+    wireBaseResponses(channel, jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // Newest MESSAGE-BEARING frame is the assistant turn at ts=2000. tool_use
+    // (1500) and background-task (2500) do NOT touch the signal.
+    expect(published.state.lastMessageAt).toBe(2000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test E — zero message-bearing frames → lastMessageAt = null
+  // ---------------------------------------------------------------------------
+
+  it("Test E: JSONL with only tool_use + background-task frames (zero message-bearing lines) → lastMessageAt = null", async () => {
+    const channel = new MockSshChannel();
+    const jsonl =
+      jsonlToolUseLine(500) +
+      "\n" +
+      jsonlBackgroundTaskLine(1000) +
+      "\n" +
+      jsonlToolUseLine(1500) +
+      "\n";
+    wireBaseResponses(channel, jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // No message-bearing frames → orchestrator emits lastMessageAt === null
+    // (distinct from "field absent"; both are treated identically downstream,
+    // but the orchestrator explicitly stamps null when it has looked and
+    // found no history).
+    expect(published.state.lastMessageAt).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test F — user message alone floats — Ashley lock: "activity = message
+  //           either direction, and ONLY that". User-only sessions count.
+  // ---------------------------------------------------------------------------
+
+  it("Test F: JSONL with ONLY a user message at ts=3000 → lastMessageAt = 3000 (user-only counts, either direction)", async () => {
+    const channel = new MockSshChannel();
+    const jsonl = jsonlMessageLine(3000, "user", "just typed something") + "\n";
+    wireBaseResponses(channel, jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // User-side send counts — Ashley 2026-08-14 verbatim:
+    // "activity counts as me sending them a message, or them sending me a message."
+    expect(published.state.lastMessageAt).toBe(3000);
   });
 });
