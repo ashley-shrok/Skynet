@@ -94,6 +94,16 @@ export interface SessionState {
   waitingFor?: string;
   backgroundTasks: BackgroundTask[];
   updatedAt: number;
+  // Phase 41 Plan 03 (2026-08-15): the "message either direction" recency
+  // signal. Mirrors the backend `SessionStateSchema.lastMessageAt` field
+  // (wire-protocol.ts) — carries unix millis of the newest message-bearing
+  // JSONL frame (user OR assistant, ignoring tool_use / thinking / lifecycle
+  // events). `null` = session has no message-bearing history known;
+  // `undefined` = emitting watcher pre-dates Phase 41 Plan 03. Both are
+  // treated identically by session-working-store (both cache as null) and
+  // both cause the row's compareByRecencyDesc branch to sort no-history-to-top
+  // per Ashley's lock. MUST stay in lockstep with the backend schema.
+  lastMessageAt?: number | null;
 }
 
 // ---------------------------------------------------------------------------

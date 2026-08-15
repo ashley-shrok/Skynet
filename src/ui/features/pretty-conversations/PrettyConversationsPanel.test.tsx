@@ -285,8 +285,19 @@ vi.mock("@/api/user-preferences-api", () => ({
 // every key so the ready-dot render condition is never satisfied —
 // matches the pre-patch-#137 behavior; false is the "not working"
 // boolean equivalent of the old null return.
+//
+// Phase 41 Plan 03: conversation-store also imports
+// subscribeSessionWorkingStore + getSessionLastMessageAt at module init to
+// bridge the working-store's lastMessageAt cache into its snapshot
+// derivation. The panel tests don't need to exercise that bridge, so both
+// exports are stubbed as no-ops here — subscribe returns a no-op disposer;
+// getSessionLastMessageAt returns null so every row's derived lastMessageAt
+// stays null (matches pre-Plan-03 shape).
 vi.mock("@/state/session-working-store", () => ({
   useSessionIsWorking: () => false,
+  useSessionLastMessageAt: () => null,
+  getSessionLastMessageAt: () => null,
+  subscribeSessionWorkingStore: (_cb: () => void) => () => {},
 }));
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal so the panel-level test suite

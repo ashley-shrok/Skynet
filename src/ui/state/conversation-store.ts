@@ -50,6 +50,13 @@ import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
 import { putPinnedIds, putHiddenIds } from "@/api/user-preferences-api";
 import type { Identity } from "@/api/identities-api";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
+// Phase 41 Plan 03 — bridge to the working-store cache for the wire-side
+// lastMessageAt signal + a subscribe hook so a working-store publish invalidates
+// our memoized snapshot (row derivation re-runs and re-picks up fresh recency).
+import {
+  getSessionLastMessageAt,
+  subscribeSessionWorkingStore,
+} from "./session-working-store";
 
 // ─── Public derived types ────────────────────────────────────────────────────
 
@@ -342,16 +349,50 @@ function subscribe(cb: () => void): () => void {
 // ─── Derivation ──────────────────────────────────────────────────────────────
 
 // Phase 41 Plan 01: test-only injection map for row.lastMessageAt.
-// Keyed on row id (or fleet-synthetic id for fleet rows). Plan 03 will replace
-// this with a real fleet-status wire-side signal; until then, tests exercise
-// the middle-zone recency comparator by seeding known lastMessageAt values
-// through this map. Production callers never touch it. Defense-in-depth:
-// resolves to `null` for any id not in the map, which is the shipping default
-// (all rows currently have lastMessageAt=null).
+// Keyed on row id (or fleet-synthetic id for fleet rows). Plan 03 has now
+// landed the real fleet-status wire-side signal (session-working-store's
+// per-key cache is the primary source); this map SURVIVES as the test-only
+// injection API for the store's own unit tests, which don't want to go
+// through the wire path for every assertion. Production callers never touch
+// it. Defense-in-depth: resolves to `null` for any id not in the map.
 const lastMessageAtByRowId = new Map<string, number | null>();
 
-function resolveLastMessageAt(rowId: string): number | null {
-  return lastMessageAtByRowId.get(rowId) ?? null;
+/**
+ * Phase 41 Plan 03 — derive the working-store session-key for a row's
+ * (host, targetTmuxSession) pair. Mirrors sessionWorkingKey() at
+ * PrettyConversationsPanel.tsx:127-130 verbatim — a change to that helper
+ * MUST be mirrored here (search for "sessionWorkingKey" for the sibling
+ * callsite). Returns null when the row lacks a host (fleet-only pre-resolution
+ * race, mirroring the panel's dot-suppression path).
+ */
+function sessionWorkingKeyForRow(
+  host: Host | undefined,
+  targetTmuxSession: string | null | undefined,
+): string | null {
+  if (!host) return null;
+  return `${host.id}:${targetTmuxSession ?? ""}`;
+}
+
+/**
+ * Phase 41 Plan 01 + Plan 03 — resolve lastMessageAt for a row at snapshot
+ * derivation time. Precedence:
+ *   1. Test injection map (Plan 01 __setLastMessageAtForTest hook). Kept as
+ *      the primary path in tests so unit tests don't need to plumb the wire
+ *      publish just to exercise the comparator.
+ *   2. Working-store cache (Plan 03 — real wire-side signal from the
+ *      fleet-status WS). Derived from (host, targetTmuxSession) via
+ *      sessionWorkingKeyForRow.
+ * Returns null when neither source has a value.
+ */
+function resolveLastMessageAt(
+  rowId: string,
+  host: Host | undefined,
+  targetTmuxSession: string | null | undefined,
+): number | null {
+  const injected = lastMessageAtByRowId.get(rowId);
+  if (injected !== undefined) return injected;
+  const key = sessionWorkingKeyForRow(host, targetTmuxSession);
+  return getSessionLastMessageAt(key);
 }
 
 function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): ConversationRow {
@@ -368,7 +409,11 @@ function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): Con
       role = matchKey ? (state.identitiesByKey.get(matchKey)?.role ?? null) : null;
     }
   }
-  const lastMessageAt = resolveLastMessageAt(tab.id);
+  const lastMessageAt = resolveLastMessageAt(
+    tab.id,
+    tab.host,
+    tab.targetTmuxSession,
+  );
   return {
     id: tab.id,
     type: tab.type,
@@ -553,7 +598,11 @@ function computeSnapshot(): ConversationList {
     // non-tina identity because /identities used LOCAL-only resolveRoleForIdentity.
     const role = session.role;
     const fleetSyntheticId = fleetRowId(session.hostId, session.sessionName);
-    const lastMessageAt = resolveLastMessageAt(fleetSyntheticId);
+    const lastMessageAt = resolveLastMessageAt(
+      fleetSyntheticId,
+      resolvedHost,
+      session.sessionName,
+    );
     const syntheticRow: ConversationRow = {
       id: fleetSyntheticId,
       type: "terminal",
@@ -716,7 +765,7 @@ function computeSnapshot(): ConversationList {
     if (host.enableRdp !== true) continue; // strict check per T-07-02-01
     {
       const rdpRowId = `rdp-host::${host.id}`;
-      const lastMessageAt = resolveLastMessageAt(rdpRowId);
+      const lastMessageAt = resolveLastMessageAt(rdpRowId, host, null);
       rdpRows.push({
         id: rdpRowId,
         type: "rdp",
@@ -735,7 +784,7 @@ function computeSnapshot(): ConversationList {
     if (rdpEmittedHostIds.has(numericId)) continue;
     if (host.enableRdp !== true) continue;
     const rdpRowId = `rdp-host::${host.id}`;
-    const lastMessageAt = resolveLastMessageAt(rdpRowId);
+    const lastMessageAt = resolveLastMessageAt(rdpRowId, host, null);
     rdpRows.push({
       id: rdpRowId,
       type: "rdp",
@@ -1522,3 +1571,20 @@ export function __getFleetOnlyRowsForTest(): ConversationRow[] {
   }
   return out;
 }
+
+// ─── Phase 41 Plan 03 — cross-store bridge to session-working-store ──────────
+// The working-store owns the wire-side lastMessageAt cache; conversation-store
+// reads it via getSessionLastMessageAt at row-derivation time. When the
+// working-store publishes ANY change (isWorking flip OR lastMessageAt advance),
+// bump conversation-store's notify() so its memoized snapshot invalidates and
+// the next getSnapshot() re-derives with fresh recency values.
+//
+// This registration fires ONCE at module import — the returned disposer is
+// intentionally discarded because both stores live for the browser session's
+// lifetime. If the working-store ever adds selective per-key subscribes, we
+// can tighten this to only fire on lastMessageAt changes; the current shape
+// is fine because working-store already has a per-key no-op notify guard that
+// suppresses spurious publishes (see publishFleetStatusSessionState).
+subscribeSessionWorkingStore(() => {
+  notify();
+});

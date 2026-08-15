@@ -48,6 +48,14 @@ import type { SessionState } from "../api/fleet-status-types.js";
 
 type WorkingRecord = {
   isWorking: boolean;
+  // Phase 41 Plan 03 — the "message either direction" recency signal mirrored
+  // from the fleet-status wire frame (SessionState.lastMessageAt). `null` when
+  // the wire frame carried `null` (session with no message-bearing history) OR
+  // when the wire frame omitted the field entirely (pre-Phase-41-03 watcher).
+  // The conversation-store row-derivation reads this via getSessionLastMessageAt
+  // and stamps row.lastMessageAt so compareByRecencyDesc can drive the flat
+  // middle-zone sort. See §Sort model — middle section in 41-CONTEXT.md.
+  lastMessageAt: number | null;
 };
 
 type State = {
@@ -74,6 +82,27 @@ function subscribe(cb: () => void): () => void {
   };
 }
 
+/**
+ * Phase 41 Plan 03 — public subscribe API for cross-store bridges.
+ *
+ * Exposes the internal listener registry so other stores (specifically
+ * conversation-store, whose middle-zone snapshot must re-derive when a
+ * session's cached lastMessageAt advances) can register a callback that
+ * fires on ANY working-store mutation. Returns a disposer.
+ *
+ * The alternative — having conversation-store poll working-store on every
+ * getSnapshot() — would still work because the snapshot's row derivation
+ * reads getSessionLastMessageAt() at derivation time, but the snapshot
+ * memoization would then hold a stale snapshot until some other event
+ * bumped conversation-store's own version counter. The subscribe bridge
+ * closes that gap: a working-store publish triggers a conversation-store
+ * notify(), invalidates its cached snapshot, and the next getSnapshot()
+ * picks up fresh lastMessageAt values.
+ */
+export function subscribeSessionWorkingStore(cb: () => void): () => void {
+  return subscribe(cb);
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -97,10 +126,24 @@ export function publishFleetStatusSessionState(
   const main = state_arg.status === "busy";
   const bg = state_arg.backgroundTasks.length > 0;
   const isWorking = main || bg;
+  // Phase 41 Plan 03 — normalize `undefined` (pre-Phase-41 watcher) and
+  // explicit `null` (Phase-41 watcher that has looked and found no history)
+  // to a single null value in the cache. Both downstream branches treat
+  // null identically per the no-history-to-top rule.
+  const lastMessageAt = state_arg.lastMessageAt ?? null;
 
   const existing = state.map.get(key);
-  if (existing !== undefined && existing.isWorking === isWorking) {
-    // No-op: effective working state unchanged — skip notify to prevent
+  // Phase 41 Plan 03: the no-op notify guard now checks BOTH axes — isWorking
+  // AND lastMessageAt. A pure isWorking-unchanged frame that ALSO carries a
+  // fresher lastMessageAt (e.g., an assistant turn completes with status:idle
+  // + new message) MUST publish so the conversation-store re-orders the
+  // middle zone.
+  if (
+    existing !== undefined &&
+    existing.isWorking === isWorking &&
+    existing.lastMessageAt === lastMessageAt
+  ) {
+    // No-op: neither working nor recency changed — skip notify to prevent
     // spurious re-renders. Log at trace level only.
     return;
   }
@@ -113,11 +156,13 @@ export function publishFleetStatusSessionState(
     status: state_arg.status,
     backgroundTaskCount: state_arg.backgroundTasks.length,
     isWorking,
+    lastMessageAt,
     previous: existing?.isWorking ?? null,
+    previousLastMessageAt: existing?.lastMessageAt ?? null,
   });
 
   const nextMap = new Map(state.map);
-  nextMap.set(key, { isWorking });
+  nextMap.set(key, { isWorking, lastMessageAt });
   state = { map: nextMap };
   notify();
 }
@@ -210,9 +255,48 @@ export function useSessionIsWorkingRaw(key: string | null): boolean | null {
  */
 export function getSessionWorkingSnapshot(): ReadonlyMap<
   string,
-  { isWorking: boolean }
+  { isWorking: boolean; lastMessageAt: number | null }
 > {
   return state.map;
+}
+
+// ─── Phase 41 Plan 03 — lastMessageAt cache read paths ───────────────────────
+
+/**
+ * Plain getter — return the cached `lastMessageAt` unix millis for the given
+ * session-working-key, or `null` when the key is not in the cache OR when the
+ * cache holds an explicit null (session with no message-bearing history).
+ *
+ * PRIMARY caller: conversation-store's row-derivation site — every middle-
+ * zone / pinned / RDP row's construction stamps `row.lastMessageAt` by
+ * calling this function with the row's derived sessionKey. compareByRecencyDesc
+ * then reads row.lastMessageAt directly.
+ *
+ * Non-React entry point: does NOT subscribe. The conversation-store's snapshot
+ * memoization is bumped by subscribeSessionWorkingStore's bridge — see
+ * conversation-store.ts's module-init bridge registration.
+ */
+export function getSessionLastMessageAt(sessionKey: string | null): number | null {
+  if (sessionKey === null) return null;
+  const record = state.map.get(sessionKey);
+  if (record === undefined) return null;
+  return record.lastMessageAt;
+}
+
+/**
+ * React hook — subscribe to a single session's cached `lastMessageAt` and
+ * re-render on change. Returns null when the key is absent OR when the
+ * cache holds an explicit null.
+ *
+ * Not currently consumed by production code (conversation-store reads via
+ * the plain getter above at snapshot-derivation time), but exported so any
+ * future per-row surface that wants to observe the raw recency signal
+ * (e.g. a hypothetical "last activity: 3m ago" label) can subscribe
+ * cheaply. Signature parallels useSessionIsWorking.
+ */
+export function useSessionLastMessageAt(sessionKey: string | null): number | null {
+  const getSnapshot = (): number | null => getSessionLastMessageAt(sessionKey);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 // Unused variable reference to suppress TypeScript "declared but never read"

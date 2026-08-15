@@ -2730,3 +2730,184 @@ describe("conversation-store (Phase 41 Plan 01): compareByRecencyDesc — middle
     ]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 41 Plan 03: real fleet-status wire-side signal drives middle-zone sort
+//
+// These tests exercise the FULL path from `publishFleetStatusSessionState` in
+// the working-store → session-working-store cache → conversation-store row
+// derivation stamps `row.lastMessageAt` from `getSessionLastMessageAt(
+// sessionWorkingKey(row))` → compareByRecencyDesc re-orders.
+//
+// Locks the wire-to-render contract that Plan 03 closes. The tests use REAL
+// production `publishFleetStatusSessionState` — no test-only injection API —
+// so a break anywhere along the pipeline (frontend cache write, conversation-
+// store subscription bridge, row stamping, comparator input) fails one of
+// these tests.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Isolate imports to the tests below — top-level file imports must not be
+// re-declared, but these helpers are only used by Phase 41 Plan 03 tests.
+import {
+  publishFleetStatusSessionState,
+  __resetForTest as __resetSessionWorkingForTest,
+} from "./session-working-store.js";
+import type { SessionState } from "../api/fleet-status-types.js";
+
+describe("conversation-store (Phase 41 Plan 03): real fleet-status wire-side signal drives middle-zone sort", () => {
+  // Fresh session-working store per test so a prior test's publish does not
+  // leak forward into the next test's snapshot.
+  beforeEach(() => {
+    __resetSessionWorkingForTest();
+  });
+
+  function makeSessionState(
+    hostId: string,
+    tmuxSession: string | null,
+    lastMessageAt: number | null,
+    overrides: Partial<SessionState> = {},
+  ): SessionState {
+    return {
+      hostId,
+      tmuxSession,
+      sessionId: `sess-${hostId}-${tmuxSession ?? "null"}`,
+      pid: 1,
+      status: "idle",
+      backgroundTasks: [],
+      updatedAt: Date.now(),
+      lastMessageAt,
+      ...overrides,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test I: two rows in the middle zone, publish real lastMessageAt via
+  //          publishFleetStatusSessionState → DESC-by-recency order emerges.
+  // ---------------------------------------------------------------------------
+  it("Test I: real fleet-status publish → middle zone sorts DESC by lastMessageAt (freshest first)", () => {
+    const hostA = makeHost("1", "hostA"); // host.id must be numeric so working-key = "1:sess-name"
+    const tab1 = makeTab("t1", "terminal", hostA, "sess-1", "row-1");
+    const tab2 = makeTab("t2", "terminal", hostA, "sess-2", "row-2");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tab1, tab2]);
+    });
+    // Publish real fleet-status frames: sess-2 is FRESHER than sess-1.
+    act(() => {
+      publishFleetStatusSessionState(
+        "1",
+        makeSessionState("1", "sess-1", 1000),
+      );
+      publishFleetStatusSessionState(
+        "1",
+        makeSessionState("1", "sess-2", 2000),
+      );
+    });
+    const snap = __getSnapshotForTest();
+    // sess-2 (2000) sorts before sess-1 (1000) — DESC by lastMessageAt.
+    expect(snap.middle.map((r) => r.id)).toEqual(["t2", "t1"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test J: mix of published + un-published rows — un-published (lastMessageAt=null
+  //          in the working-store cache OR key absent entirely) sort to the TOP
+  //          (no-history-to-top rule from Plan 01 still holds).
+  // ---------------------------------------------------------------------------
+  it("Test J: middle zone — row with real lastMessageAt vs. row with no wire-side signal → no-history row floats to top", () => {
+    const hostA = makeHost("1", "hostA");
+    const tab1 = makeTab("t1", "terminal", hostA, "sess-1", "row-1");
+    const tab2 = makeTab("t2", "terminal", hostA, "sess-2", "row-2");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tab1, tab2]);
+    });
+    // Only sess-1 has a wire-side lastMessageAt; sess-2's key is never
+    // published → the working-store cache has no entry for it → conversation-
+    // store's row derivation stamps `lastMessageAt: null` on that row →
+    // Plan 01's no-history-to-top rule floats it above the row with real
+    // history.
+    act(() => {
+      publishFleetStatusSessionState(
+        "1",
+        makeSessionState("1", "sess-1", 1000),
+      );
+    });
+    const snap = __getSnapshotForTest();
+    // sess-2 (null) sorts BEFORE sess-1 (1000) per no-history-to-top.
+    expect(snap.middle.map((r) => r.id)).toEqual(["t2", "t1"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test K: recency-change re-orders — publishing a fresher lastMessageAt for
+  //          the currently-second row moves it to position 0. Locks the "row
+  //          jumps to top on message activity" contract at the wire level.
+  // ---------------------------------------------------------------------------
+  it("Test K: publishing a NEWER lastMessageAt for the currently-second row moves it to position 0", () => {
+    const hostA = makeHost("1", "hostA");
+    const tab1 = makeTab("t1", "terminal", hostA, "sess-1", "row-1");
+    const tab2 = makeTab("t2", "terminal", hostA, "sess-2", "row-2");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tab1, tab2]);
+    });
+    // Initial: sess-1 is fresher (t1 at position 0, t2 at position 1).
+    act(() => {
+      publishFleetStatusSessionState(
+        "1",
+        makeSessionState("1", "sess-1", 2000),
+      );
+      publishFleetStatusSessionState(
+        "1",
+        makeSessionState("1", "sess-2", 1000),
+      );
+    });
+    let snap = __getSnapshotForTest();
+    expect(snap.middle.map((r) => r.id)).toEqual(["t1", "t2"]);
+    // Now sess-2 gets a NEWER message → row t2 must jump to position 0.
+    act(() => {
+      publishFleetStatusSessionState(
+        "1",
+        makeSessionState("1", "sess-2", 3000),
+      );
+    });
+    snap = __getSnapshotForTest();
+    expect(snap.middle.map((r) => r.id)).toEqual(["t2", "t1"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test L: pinned zone under REAL recency data — pins do NOT shuffle when the
+  //          wire-side lastMessageAt makes zebra fresher than alpha. Locks Plan
+  //          01's Ashley lock #2 survives real signal flowing through the
+  //          wire path (analogous to Test G but via publishFleetStatusSessionState
+  //          rather than the test-only injection API).
+  // ---------------------------------------------------------------------------
+  it("Test L: pinned zone under REAL wire-side recency data — does NOT shuffle when zebra publishes a fresher lastMessageAt", () => {
+    const hostA = makeHost("1", "hostA");
+    const tabA = makeTab("t-alpha-row", "terminal", hostA, "alpha-sess", "alpha-label");
+    const tabZ = makeTab("t-zebra-row", "terminal", hostA, "zebra-sess", "zebra-label");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabA, tabZ]);
+      pinConversation("t-alpha-row");
+      pinConversation("t-zebra-row");
+    });
+    // Zebra publishes a FRESHER lastMessageAt via the real wire path.
+    act(() => {
+      publishFleetStatusSessionState(
+        "1",
+        makeSessionState("1", "zebra-sess", 9999),
+      );
+      publishFleetStatusSessionState(
+        "1",
+        makeSessionState("1", "alpha-sess", 1),
+      );
+    });
+    const snap = __getSnapshotForTest();
+    // Label order still wins in the pinned zone regardless of wire-side
+    // recency. Recency is IGNORED — pinned rows use compareByHostRoleLabel.
+    expect(snap.pinned.map((r) => r.label)).toEqual([
+      "alpha-label",
+      "zebra-label",
+    ]);
+  });
+});

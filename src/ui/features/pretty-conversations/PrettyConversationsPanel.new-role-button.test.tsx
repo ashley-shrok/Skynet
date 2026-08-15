@@ -80,8 +80,15 @@ vi.mock("@/api/user-preferences-api", () => ({
   putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
+// Phase 41 Plan 03: conversation-store now imports subscribeSessionWorkingStore
+// + getSessionLastMessageAt at module init to bridge the working-store's
+// lastMessageAt cache into row derivation. Both stubbed as no-ops here so
+// module init does not throw when this test file mocks the working-store.
 vi.mock("@/state/session-working-store", () => ({
   useSessionIsWorking: () => false,
+  useSessionLastMessageAt: () => null,
+  getSessionLastMessageAt: () => null,
+  subscribeSessionWorkingStore: (_cb: () => void) => () => {},
 }));
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal so this test suite does not pull in
