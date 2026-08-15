@@ -1504,24 +1504,22 @@ export async function __applyDormantBranchTailOpenForTests(
 }
 
 /**
- * Phase 41 Plan 04: testability seam for the upload_start / upload_chunk /
- * upload_abort dispatch logic added to claude-session-server's ws.on("message")
- * handler. Allows integration tests to exercise the dispatch path directly
- * without needing a live WebSocket server.
+ * Phase 41 Plan 04 + code-review M1: shared upload dispatch used by both
+ * the production `ws.on("message")` handler below AND the
+ * `__dispatchUploadMessageForTests` seam. Extracting the branch logic into
+ * one function eliminates the drift risk of a hand-copied test-only
+ * dispatch body — anything added to the real path (new field, changed
+ * cleanup ordering, new branch) is exercised by the test seam
+ * automatically. Logging + return semantics stay in the outer caller so
+ * production can emit its `claude_session_upload_*` logs at the point
+ * where it has full context (sshLogger, sessionId), and tests can skip
+ * the log path without needing a logger stub.
  *
- * The closure-scoped state (`ownedUploadBatches`, `pendingStarts`) is passed
- * as explicit mutable deps so the test can observe batch registration and
- * the Quick-fix 260801-29v race guard in isolation.
- *
- * Pattern mirrors `__applyInputMessageForTests` / `__applyWakeMessageForTests`
- * above — zero new npm dependencies; test-only callpath.
- *
- * @param msg              - already-parsed message object (`type` field identifies branch)
- * @param uploadDeps       - UploadDeps shape expected by pretty-view-upload handlers
- * @param ownedUploadBatches - per-connection Set of batch mqids owned by this WS
- * @param pendingStarts    - per-connection Map of in-flight start promises (260801-29v guard)
+ * Returns void; branch selection matches production. On upload_chunk with
+ * a pending parent start, awaits the parent (Quick-fix 260801-29v race
+ * guard) before dispatching the chunk.
  */
-export async function __dispatchUploadMessageForTests(
+async function dispatchUploadMessage(
   msg: { type?: unknown } & Record<string, unknown>,
   uploadDeps: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1560,7 +1558,11 @@ export async function __dispatchUploadMessageForTests(
       await pending
         .then(() => handleUploadChunk(uploadDeps, uploadChunk))
         .catch(() => {
-          // Swallow — see claude-session-server.ts ws.on("message") upload_chunk comment.
+          // A rejected start already emitted its own upload_failed event
+          // inside handleUploadStart; if handleUploadChunk then finds no
+          // batch it will emit unknown_temp_id, which is the CORRECT
+          // signal for a truly-failed start (vs. the race we are fixing
+          // here). Swallow to avoid an unhandled rejection.
         });
     } else {
       handleUploadChunk(uploadDeps, uploadChunk);
@@ -1579,6 +1581,17 @@ export async function __dispatchUploadMessageForTests(
     return;
   }
 }
+
+/**
+ * Phase 41 Plan 04: testability seam for the upload_start / upload_chunk /
+ * upload_abort dispatch logic. Post code-review M1, this is a thin
+ * re-export of `dispatchUploadMessage` so tests exercise the same code
+ * path production runs — no drift possible.
+ *
+ * Pattern mirrors `__applyInputMessageForTests` / `__applyWakeMessageForTests`
+ * above — zero new npm dependencies; test-only callpath.
+ */
+export const __dispatchUploadMessageForTests = dispatchUploadMessage;
 
 const wss = new WebSocketServer({ port: 30011 });
 
@@ -4368,99 +4381,70 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // userId + sessionId extracted before ANY message dispatch). The T-05-07 guard
     // inside pretty-view-upload.ts silently no-ops if sshConn is null (upload_*
     // received before connectToPane completed).
-    if (msg.type === "upload_start") {
-      const uploadStart = msg as unknown as UploadStartPayload;
-      const startMqid = uploadStart.messageQueueItemId;
-      if (typeof startMqid === "string" && startMqid.length > 0) {
-        ownedUploadBatches.add(startMqid);
-      }
-      // Quick-fix 260801-29v: capture the start promise (do NOT await at dispatch —
-      // other WS message types must keep flowing while SFTP setup happens) and
-      // track it in `pendingStarts` so an `upload_chunk` arriving on the same tick
-      // can defer behind it instead of hitting "no active batch". Map self-cleans
-      // on settle via `.finally(...)`.
-      const startPromise = handleUploadStart(
-        { sshConn, ws, userId, currentSessionId: sessionId ?? null },
-        uploadStart,
-      );
-      if (typeof startMqid === "string" && startMqid.length > 0) {
-        pendingStarts.set(startMqid, startPromise);
-        startPromise.finally(() => {
-          pendingStarts.delete(startMqid);
+    // Phase 41 code-review M1: upload dispatch extracted to
+    // `dispatchUploadMessage` (module-scope) so the test seam
+    // `__dispatchUploadMessageForTests` exercises the same code path
+    // production runs. Logging stays inline here because the dispatcher
+    // is intentionally logger-free — production emits per-branch
+    // diagnostics with full sshLogger/sessionId context; tests skip logs.
+    if (
+      msg.type === "upload_start" ||
+      msg.type === "upload_chunk" ||
+      msg.type === "upload_abort"
+    ) {
+      const uploadDeps = {
+        sshConn,
+        ws,
+        userId,
+        currentSessionId: sessionId ?? null,
+      };
+      if (msg.type === "upload_start") {
+        const uploadStart = msg as unknown as UploadStartPayload;
+        sshLogger.info("claude-session upload_start", {
+          operation: "claude_session_upload_start",
+          userId,
+          sessionId,
+          messageQueueItemId: uploadStart.messageQueueItemId,
+          hasSshConn: !!sshConn,
+        });
+      } else if (msg.type === "upload_chunk") {
+        const uploadChunk = msg as unknown as UploadChunkPayload;
+        // Snapshot pending presence BEFORE dispatch — dispatchUploadMessage
+        // may await the pending promise, and we want the diagnostic to
+        // reflect the state at the dispatch instant.
+        const chunkMqid = uploadChunk.messageQueueItemId;
+        const hasPending =
+          typeof chunkMqid === "string" &&
+          chunkMqid.length > 0 &&
+          pendingStarts.has(chunkMqid);
+        sshLogger.debug?.("claude-session upload_chunk", {
+          operation: "claude_session_upload_chunk",
+          userId,
+          sessionId,
+          messageQueueItemId: chunkMqid,
+          offset: uploadChunk.offset,
+          hasPending,
+        });
+      } else {
+        const uploadAbort = msg as unknown as UploadAbortPayload;
+        sshLogger.info("claude-session upload_abort", {
+          operation: "claude_session_upload_abort",
+          userId,
+          sessionId,
+          messageQueueItemId: uploadAbort.messageQueueItemId,
+          tempId: uploadAbort.tempId ?? null,
         });
       }
-      sshLogger.info("claude-session upload_start", {
-        operation: "claude_session_upload_start",
-        userId,
-        sessionId,
-        messageQueueItemId: startMqid,
-        hasSshConn: !!sshConn,
-      });
-      return;
-    }
-
-    if (msg.type === "upload_chunk") {
-      const uploadChunk = msg as unknown as UploadChunkPayload;
-      const chunkMqid = uploadChunk.messageQueueItemId;
-      // Quick-fix 260801-29v: defer behind parent upload_start if still in-flight.
-      const pending =
-        typeof chunkMqid === "string" && chunkMqid.length > 0
-          ? pendingStarts.get(chunkMqid)
-          : undefined;
-      if (pending) {
-        pending
-          .then(() =>
-            handleUploadChunk(
-              { sshConn, ws, userId, currentSessionId: sessionId ?? null },
-              uploadChunk,
-            ),
-          )
-          .catch(() => {
-            // A rejected start already emitted its own upload_failed event inside
-            // handleUploadStart; if handleUploadChunk then finds no batch it will
-            // emit unknown_temp_id, which is the CORRECT signal for a truly-failed
-            // start (vs. the race we are fixing here). Swallow to avoid an
-            // unhandled rejection.
-          });
-      } else {
-        handleUploadChunk(
-          { sshConn, ws, userId, currentSessionId: sessionId ?? null },
-          uploadChunk,
-        );
-      }
-      sshLogger.debug?.("claude-session upload_chunk", {
-        operation: "claude_session_upload_chunk",
-        userId,
-        sessionId,
-        messageQueueItemId: chunkMqid,
-        offset: uploadChunk.offset,
-        hasPending: !!pending,
-      });
-      return;
-    }
-
-    if (msg.type === "upload_abort") {
-      const uploadAbort = msg as unknown as UploadAbortPayload;
-      handleUploadAbort(
-        { sshConn, ws, userId, currentSessionId: sessionId ?? null },
-        uploadAbort,
+      // Dispatch — the same function the __dispatchUploadMessageForTests
+      // seam calls. Await so upload_chunk's pending-parent race guard
+      // completes before we return control to the WS message loop (the
+      // dispatcher awaits internally for chunk).
+      await dispatchUploadMessage(
+        msg,
+        uploadDeps,
+        ownedUploadBatches,
+        pendingStarts,
       );
-      // Batch-wide abort (no tempId) frees the batch; drop the id from
-      // the per-connection registry so ws.close doesn't try to re-tear-down
-      // a batch that's already gone.
-      if (
-        !uploadAbort.tempId &&
-        typeof uploadAbort.messageQueueItemId === "string"
-      ) {
-        ownedUploadBatches.delete(uploadAbort.messageQueueItemId);
-      }
-      sshLogger.info("claude-session upload_abort", {
-        operation: "claude_session_upload_abort",
-        userId,
-        sessionId,
-        messageQueueItemId: uploadAbort.messageQueueItemId,
-        tempId: uploadAbort.tempId ?? null,
-      });
       return;
     }
 
