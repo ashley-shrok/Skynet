@@ -685,6 +685,87 @@ export function PrettyConversationsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hiddenIds, activeSetRows, pinned, middle, rdpGroup]);
 
+  // Phase 41 Plan 02 (Ashley 2026-08-14): label-only filter predicate.
+  //
+  // Contract per 41-CONTEXT.md § Filter behavior:
+  //   - Extract the row's visible text: primary label (identity.displayName
+  //     when identity resolves for the row's targetTmuxSession, else
+  //     row.label) + sublabel (identity.title when identity resolves, else
+  //     the row's hostname). Reproduces PrettyConversationRow.tsx:983-1005
+  //     resolution so what the user sees IS what the filter searches.
+  //   - Normalizes both sides via .toLowerCase() and uses .includes() —
+  //     substring match, case-insensitive. No regex interpretation (T-41-02-05
+  //     mitigation), no HTML interpretation.
+  //   - Empty query is a defensive no-op that returns true.
+  //
+  // NOTE: matchesSearch is called from the searchMatches useMemo below when
+  // searchQuery.trim() !== "". Passing identitiesByKey through so the
+  // predicate stays pure.
+  const matchesSearch = useCallback(
+    (row: ConversationRowShape, query: string): boolean => {
+      if (query === "") return true;
+      const q = query.toLowerCase();
+      // Reproduce PrettyConversationRow.tsx:1003-1024 label + sublabel
+      // resolution (the non-RDP render sites all pass subtitleMode="identity
+      // Title" — so identity resolution wins when available; RDP rows use
+      // subtitleMode="hostname" so hostname is the sublabel).
+      const matchKey = sessionMatchKey(row.targetTmuxSession);
+      const identity = matchKey ? identitiesByKey.get(matchKey) : undefined;
+      const isRdp = row.rdpHostRow === true;
+
+      let primary: string;
+      let sublabel: string;
+      if (!isRdp && identity) {
+        primary = String(identity.displayName ?? row.label ?? "");
+        sublabel = String(identity.title ?? identity.displayName ?? "");
+      } else {
+        // RDP rows OR non-RDP rows without a resolved identity: fall through
+        // to the "hostname" mode — primary is row.label, sublabel is the
+        // host's name (matches the row's Server-icon + hostname sublabel).
+        primary = String(row.label ?? "");
+        sublabel = String(row.host?.name ?? "");
+      }
+
+      return primary.toLowerCase().includes(q) || sublabel.toLowerCase().includes(q);
+    },
+    [identitiesByKey],
+  );
+
+  // Phase 41 Plan 02: flat match list when the search query is non-empty.
+  // `null` signals "no filter active → render three-zone view". Non-null
+  // signals "filter active → render this flat list of matches with NO zone
+  // chrome (no divider chips)".
+  //
+  // Ashley locks encoded here:
+  //   - Union of activeSetRows + pinned + middle + rdpGroup.rows. HIDDEN
+  //     ROWS ARE EXCLUDED per Ashley lock #3 (hidden section is not in the
+  //     union).
+  //   - Deduplicate by row.id — activeSet + pinned can overlap in principle.
+  //   - Case-insensitive substring match against primary + sublabel via
+  //     matchesSearch (label-only; no message-body content search).
+  //   - Uses `searchQuery.trim()` to treat whitespace-only queries as empty
+  //     (defensive; no jitter on typing then deleting).
+  const trimmedSearchQuery = searchQuery.trim();
+  const searchMatches = useMemo<ConversationRowShape[] | null>(() => {
+    if (trimmedSearchQuery === "") return null;
+    const seen = new Set<string>();
+    const out: ConversationRowShape[] = [];
+    const pushIfMatches = (row: ConversationRowShape) => {
+      if (seen.has(row.id)) return;
+      seen.add(row.id);
+      if (matchesSearch(row, trimmedSearchQuery)) out.push(row);
+    };
+    for (const r of activeSetRows) pushIfMatches(r);
+    for (const r of pinned) pushIfMatches(r);
+    for (const r of middle) pushIfMatches(r);
+    if (rdpGroup !== null) {
+      for (const r of rdpGroup.rows) pushIfMatches(r);
+    }
+    // NOTE: hiddenRows deliberately NOT included (Ashley lock #3 —
+    // hidden rows do NOT appear in filter matches).
+    return out;
+  }, [trimmedSearchQuery, activeSetRows, pinned, middle, rdpGroup, matchesSearch]);
+
   // quick-260802-pq2: swipe-coordination state (currentlySwipedId +
   // handleSwipeOpenChange + forceClosedFor) removed alongside the row's
   // swipe state machine. Mobile now uses long-press → PrettyConversation
@@ -1063,6 +1144,42 @@ export function PrettyConversationsPanel({
             <span>{loadingLabel}</span>
           </div>
         )}
+        {/* Phase 41 Plan 02 (Ashley 2026-08-14): render tree BRANCHES on
+            whether the search input has a non-empty trimmed query.
+              - searchMatches !== null → FLAT match list — no divider chips,
+                no zone chrome, pinned/middle/rdp all collapse into one
+                container. Hidden rows deliberately excluded from the union
+                (Ashley lock #3). Deactivate/pin actions preserved per row.
+              - searchMatches === null → three-zone view restores (activeSet
+                + pinned + middle + rdpGroup + Hidden). */}
+        {searchMatches !== null ? (
+          <div className="pv-panel-group" data-search-flat-group="true">
+            {searchMatches.map((row) => (
+              <PrettyConversationRowLive
+                key={row.id}
+                row={row}
+                selected={row.id === selectedId}
+                pinned={isRowPinned(row)}
+                hidden={hiddenIds.has(row.id)}
+                variant={variant}
+                onSelect={() => handleRowSelect(row)}
+                onTogglePin={
+                  row.rdpHostRow === true ? rdpNoopTogglePin : () => handleTogglePin(row)
+                }
+                onDeactivate={() => handleRowDeactivate(row)}
+                onToggleHide={
+                  row.rdpHostRow === true ? undefined : () => handleToggleHide(row)
+                }
+                onClone={row.rdpHostRow === true ? undefined : () => handleRowClone(row)}
+                onKill={() => handleRowKill(row)}
+                inActiveSet={activeSet.has(row.id)}
+                sessionKey={sessionWorkingKey(row)}
+                subtitleMode={row.rdpHostRow === true ? undefined : "identityTitle"}
+              />
+            ))}
+          </div>
+        ) : (
+          <>
         {/* Patch #149 B+C: active-set rows overtake pinned per Ashley 2026-07-24.
                 Rows here get pinned={pinnedIds.has(row.id)} so a row that IS pinned
                 AND active still shows the pin glyph.
@@ -1289,6 +1406,8 @@ export function PrettyConversationsPanel({
                   ))}
               </div>
             )}
+          </>
+        )}
       </div>
 
       {/* NewSessionDialog VERBATIM from ConversationsPanel.tsx lines

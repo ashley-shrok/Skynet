@@ -3080,3 +3080,367 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): search input mount + scro
     expect(document.activeElement).not.toBe(searchInput);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 41 Plan 02 — Filter predicate + flat match render branch (Task 2)
+// ─────────────────────────────────────────────────────────────────────────────
+// Ashley 2026-08-14 locks (see 41-CONTEXT.md § Filter behavior):
+//   - Typing flattens the entire list to matches. Pinned zone, flat middle,
+//     and RDP section all collapse into ONE list of matches while a filter
+//     is active. Section boundaries and pin priority are NOT preserved.
+//   - Match target: visible row label text only (label + sublabel where both
+//     shown). No message-body content search.
+//   - Hidden rows do NOT appear in filter matches (Ashley lock #3 — hiding
+//     is a user choice that the filter respects).
+//   - Clearing the filter restores the three-zone view.
+
+describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat match render", () => {
+  beforeEach(() => {
+    // Fresh cold-load sentinel each test so the search-hide effect is quiet.
+    sessionStorage.setItem("pv-conv-search-hidden-once", "1");
+  });
+
+  afterEach(() => {
+    sessionStorage.removeItem("pv-conv-search-hidden-once");
+  });
+
+  it("Test F: empty query → three-zone view renders (pinned divider + rdp divider present)", () => {
+    // Precondition: searchQuery starts as "" — three-zone view intact.
+    const hostA = makeHost("h1", "hostA");
+    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    setSnapshot({
+      pinned: [makeConversationRow({ id: "p1", label: "pinned-alpha", host: hostA })],
+      middle: [makeConversationRow({ id: "m1", label: "middle-beta", host: hostA })],
+      rdpGroup: {
+        hostId: "__rdp__",
+        hostName: "",
+        rows: [
+          makeConversationRow({
+            id: "r1",
+            label: "GIGAASHLEYPC",
+            host: rdpHost,
+            rdpHostRow: true,
+            targetTmuxSession: null,
+          }),
+        ],
+      },
+      pinnedIds: new Set(["p1"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Ashley lock: pinned divider visible, RDP divider visible, all rows
+    // in their respective zones.
+    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="p1"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="r1"]')).toBeTruthy();
+  });
+
+  it("Test G: non-empty query flattens all three zones — matching rows render, divider chips are ALL absent", () => {
+    // Rows spread across all three zones — 2 match the query "foo", 1 does not.
+    const hostA = makeHost("h1", "hostA");
+    const rdpHost = makeHost("h2", "foo-desktop", { enableRdp: true });
+    setSnapshot({
+      pinned: [
+        makeConversationRow({ id: "p-foo", label: "foo-1", host: hostA }),
+        makeConversationRow({ id: "p-bar", label: "bar-1", host: hostA }),
+      ],
+      middle: [makeConversationRow({ id: "m-foo", label: "foo-2", host: hostA })],
+      rdpGroup: {
+        hostId: "__rdp__",
+        hostName: "",
+        rows: [
+          makeConversationRow({
+            id: "r-desktop",
+            label: "foo-desktop",
+            host: rdpHost,
+            rdpHostRow: true,
+            targetTmuxSession: null,
+          }),
+        ],
+      },
+      pinnedIds: new Set(["p-foo", "p-bar"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Type "foo" into the search input.
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLInputElement;
+    expect(searchInput).toBeTruthy();
+    fireEvent.change(searchInput, { target: { value: "foo" } });
+
+    // ALL three divider chips MUST be absent during filter (Ashley lock —
+    // section boundaries not preserved during search).
+    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
+    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
+    expect(container.querySelector('[data-testid="host-divider"]')).toBeNull();
+
+    // Only "foo" matches render.
+    expect(container.querySelector('[data-conversation-id="p-foo"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="m-foo"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="r-desktop"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="p-bar"]')).toBeNull();
+  });
+
+  it("Test H: filter matches both primary label AND sublabel (identity title/hostname)", () => {
+    // Seed an identity that resolves for a row whose targetTmuxSession maps
+    // to "sess-alpha" (via sessionMatchKey — case-insensitive). The row's
+    // visible sublabel is `identity.title` when subtitleMode="identityTitle"
+    // (the pinned + middle render sites use identityTitle mode); or the
+    // hostname when there's no identity resolution.
+    //
+    // Row: primary label = "sess-alpha" (identity.displayName)
+    //      sublabel      = "boxA-beta" (identity.title)
+    const hostA = makeHost("h1", "hostA");
+    mockIdentitiesByKey = new Map([
+      [
+        "sess-alpha",
+        {
+          identityKey: "sess-alpha",
+          displayName: "sess-alpha",
+          title: "boxA-beta",
+        },
+      ],
+    ]);
+    setSnapshot({
+      middle: [
+        makeConversationRow({
+          id: "m1",
+          label: "sess-alpha", // fallback label (not shown when identity resolves)
+          host: hostA,
+          targetTmuxSession: "sess-alpha",
+        }),
+      ],
+    });
+
+    // First render — search for "alpha" (matches primary displayName).
+    const { container, rerender, unmount } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "alpha" } });
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
+
+    // Same input, new query "beta" — matches sublabel (identity.title).
+    fireEvent.change(searchInput, { target: { value: "beta" } });
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
+    unmount();
+    // rerender kept to satisfy linter about unused var; not needed here.
+    void rerender;
+  });
+
+  it("Test I: hidden rows are EXCLUDED from filter matches (Ashley lock #3)", () => {
+    // A hidden row with label matching the query must NOT appear in results.
+    // The store filters hidden ids out of all tiers, so the panel's
+    // knownRowsRef accumulator holds hidden rows separately in `hiddenRows`.
+    // The filter branch's candidate union must exclude `hiddenRows`.
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      // Visible rows — one matches "foo".
+      middle: [
+        makeConversationRow({ id: "m-foo", label: "foo-visible", host: hostA }),
+      ],
+      // Hidden ids include a row that ALSO has "foo" in its label, but the
+      // store has already stripped it from the tiers. To exercise the test
+      // fully, we seed hiddenIds pointing at a stub id — the panel's
+      // knownRowsRef only sees rows that pass through the tiers, so the
+      // stub won't have an entry either. Test structure verifies filter
+      // renders ONLY visible matches, not phantom hidden matches.
+      hiddenIds: new Set(["m-foo-hidden"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "foo" } });
+
+    // Only the visible row renders — hidden id doesn't manifest.
+    expect(container.querySelector('[data-conversation-id="m-foo"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-conversation-id="m-foo-hidden"]'),
+    ).toBeNull();
+  });
+
+  it("Test I2: rows that transitioned into hidden state are NOT re-included in filter matches", () => {
+    // The panel's knownRowsRef accumulates rows seen in the tiers over time.
+    // A row that was visible (middle) becomes hidden (id added to hiddenIds)
+    // and the store re-emits without that row in middle. Even though
+    // knownRowsRef still remembers the row object, the filter's candidate
+    // union comes from the CURRENT visible tiers, so the transitioned row
+    // must not appear.
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      middle: [
+        makeConversationRow({ id: "m1", label: "foo-alpha", host: hostA }),
+        makeConversationRow({ id: "m2", label: "foo-beta", host: hostA }),
+      ],
+    });
+
+    const { container, rerender } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Both rows visible in the middle initially. Now hide m1 — the store
+    // would strip m1 from middle and add its id to hiddenIds.
+    setSnapshot({
+      middle: [
+        makeConversationRow({ id: "m2", label: "foo-beta", host: hostA }),
+      ],
+      hiddenIds: new Set(["m1"]),
+    });
+    rerender(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+
+    // Search for "foo" — only m2 (visible) should render, NOT m1 (hidden).
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "foo" } });
+    expect(container.querySelector('[data-conversation-id="m2"]')).toBeTruthy();
+    // Ashley lock #3: hidden m1 must NOT appear in matches even though
+    // knownRowsRef still holds the row object from the earlier render.
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeNull();
+  });
+
+  it("Test J: clearing the query via the × button restores the three-zone render", () => {
+    const hostA = makeHost("h1", "hostA");
+    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    setSnapshot({
+      pinned: [makeConversationRow({ id: "p1", label: "pinned-alpha", host: hostA })],
+      middle: [makeConversationRow({ id: "m1", label: "middle-beta", host: hostA })],
+      rdpGroup: {
+        hostId: "__rdp__",
+        hostName: "",
+        rows: [
+          makeConversationRow({
+            id: "r1",
+            label: "GIGAASHLEYPC",
+            host: rdpHost,
+            rdpHostRow: true,
+            targetTmuxSession: null,
+          }),
+        ],
+      },
+      pinnedIds: new Set(["p1"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLInputElement;
+
+    // Filter on → dividers gone.
+    fireEvent.change(searchInput, { target: { value: "alpha" } });
+    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
+    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
+
+    // Click the × clear button — the input value goes back to "" and the
+    // three-zone view MUST restore.
+    const clearBtn = container.querySelector(
+      '[data-testid="pretty-conversations-search-clear"]',
+    ) as HTMLButtonElement;
+    expect(clearBtn).toBeTruthy();
+    fireEvent.click(clearBtn);
+
+    // Dividers back.
+    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeTruthy();
+    // All rows visible again.
+    expect(container.querySelector('[data-conversation-id="p1"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="r1"]')).toBeTruthy();
+  });
+
+  it("Test K: case-insensitive substring match against primary label", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      middle: [
+        makeConversationRow({ id: "m1", label: "SessAlpha", host: hostA }),
+      ],
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLInputElement;
+
+    // Lowercase query hits mixed-case label.
+    fireEvent.change(searchInput, { target: { value: "sess" } });
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
+
+    // Uppercase query hits mixed-case label.
+    fireEvent.change(searchInput, { target: { value: "ALPHA" } });
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
+
+    // Non-matching query drops the row.
+    fireEvent.change(searchInput, { target: { value: "zebra" } });
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeNull();
+  });
+
+  it("Test L: no message body content search — the filter never matches text outside label/sublabel", () => {
+    // Row's label is "sess-1". A separate out-of-scope "message content"
+    // string is not part of any row field the panel renders in its label.
+    // The filter MUST return zero matches for a query that only appears in
+    // hypothetical message content, never in label/sublabel.
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      middle: [
+        makeConversationRow({ id: "m1", label: "sess-1", host: hostA }),
+      ],
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLInputElement;
+
+    // "banana" is not in the row's label / sublabel / host name — no match.
+    fireEvent.change(searchInput, { target: { value: "banana" } });
+    expect(container.querySelector('[data-conversation-id="m1"]')).toBeNull();
+  });
+
+  it("Test M (dedupe): rows appearing in both activeSet and pinned tiers render only ONCE during filter", () => {
+    // The panel can emit the same row in multiple tiers (activeSet and
+    // pinned can overlap per the store's tier-precedence contract). The
+    // filter branch's union+dedupe must render the row exactly once.
+    const hostA = makeHost("h1", "hostA");
+    const dupeRow = makeConversationRow({ id: "dupe-1", label: "match-me", host: hostA });
+    setSnapshot({
+      activeSet: [dupeRow],
+      pinned: [dupeRow],
+      pinnedIds: new Set(["dupe-1"]),
+    });
+    mockActiveSet = new Set<string>(["dupe-1"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "match" } });
+
+    const matches = container.querySelectorAll('[data-conversation-id="dupe-1"]');
+    expect(matches.length).toBe(1);
+  });
+});
