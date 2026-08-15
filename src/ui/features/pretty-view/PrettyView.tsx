@@ -798,6 +798,15 @@ export function PrettyView({
   const waitingFor = useSessionWaitingFor(waitingKey);
 
   const wsRef = useRef<WebSocket | null>(null);
+  // Phase 41 code-review H1 fix: reactive mirror of the WS instance for
+  // downstream hooks whose effects key on WS identity (usePrettyViewUploads
+  // in particular). `wsRef.current` mutations are invisible to React's
+  // render loop, so the upload hook only saw a WS transition on the next
+  // unrelated re-render — creating a small window where server-initiated
+  // upload_* frames could be dropped. Setting this in ws.onopen (and
+  // clearing it in ws.onclose + effect cleanup) forces a deterministic
+  // re-render at the exact moment the WS becomes usable.
+  const [uploadWs, setUploadWs] = useState<WebSocket | null>(null);
   // Bounty pretty-view-per-pane-cost-diag: rolling counter of WS frames
   // received since the last diag emit. Snapshot fn reads + resets. Also
   // a ref-mirror of messages.length so the snapshot doesn't need to
@@ -891,20 +900,22 @@ export function PrettyView({
   // pump, batch atomicity, retry API, and the onUploadReadyToInject seam.
   // Phase 41 Plan 04 (D-06 → close-verdict follow-up): Uploads rewired off
   // Terminal SSH WS per shape close-verdict follow-up. usePrettyViewUploads
-  // now receives PrettyView's own claude-session WS opened via
-  // openClaudeSessionSocket() at L1213. Before the WS opens (wsRef.current
-  // is null), uploads park in pendingSendWaitingForWs — same semantics as
-  // before. When the WS reconnects (patch #148 retryKey path), wsRef.current
-  // is updated and the hook re-attaches on the next render.
+  // now receives PrettyView's own claude-session WS. Phase 41 code-review
+  // H1 fix: hand the hook `uploadWs` (React state) rather than
+  // `wsRef.current` (a ref value read at render time). The setUploadWs
+  // call in ws.onopen forces a re-render at the moment the WS is usable,
+  // so the hook's addEventListener attaches deterministically before any
+  // server-initiated upload_* frame can arrive. On close/unmount the
+  // ws.onclose + effect cleanup set uploadWs to null in tandem.
   const uploads = usePrettyViewUploads({
-    ws: wsRef.current,
+    ws: uploadWs,
     onUploadReadyToInject: ({ messageQueueItemId, files, caption }) => {
       const injectedText = formatInjectedUserTurn({ caption, files });
       onInjectedTurnReady?.(injectedText, messageQueueItemId);
       // Clear staging after the injected turn is handed off.
       uploads.resetBatch();
     },
-    getBufferedAmount: () => wsRef.current?.bufferedAmount ?? 0,
+    getBufferedAmount: () => uploadWs?.bufferedAmount ?? 0,
   });
 
   // Phase 32: paneKey moved upstream — see Change 5 site above handleComposeSend.
@@ -1224,6 +1235,12 @@ export function PrettyView({
       // attempt now that the fresh WS is confirmed open. Do NOT reset
       // reconnectAttemptsRef here — a rapid open/close cycle would defeat the cap.
       setErrorMessage(null);
+      // Phase 41 code-review H1 fix: publish the now-open WS into React
+      // state so usePrettyViewUploads re-renders and attaches its
+      // addEventListener before any server-initiated upload_* frame can
+      // arrive. Paired with setUploadWs(null) in ws.onclose + effect
+      // cleanup below.
+      setUploadWs(ws);
     };
 
     ws.onmessage = (event: MessageEvent<string>) => {
@@ -1582,6 +1599,10 @@ export function PrettyView({
 
     ws.onclose = () => {
       if (cancelled) return;
+      // Phase 41 code-review H1 fix: null the reactive WS mirror so the
+      // upload hook detaches its message listener from this dead WS.
+      // Cleared symmetrically with the setUploadWs(ws) in ws.onopen.
+      setUploadWs(null);
       // Patch #148: auto-reconnect on close, mirroring Terminal.tsx's pattern.
       //
       // INACTIVE short-circuit (FALLBACK-01 preservation): when the server has
@@ -1642,6 +1663,11 @@ export function PrettyView({
         /* ignore */
       }
       wsRef.current = null;
+      // Phase 41 code-review H1 fix: null the reactive WS mirror on
+      // unmount / retryKey re-run so the upload hook's next render sees
+      // deps.ws=null and detaches. Paired with setUploadWs(ws) in
+      // ws.onopen.
+      setUploadWs(null);
     };
   }, [hostId, tmuxSession, retryKey]);
 
