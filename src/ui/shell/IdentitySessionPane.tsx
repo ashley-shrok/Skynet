@@ -2,7 +2,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from "react";
 import { CommandHistoryProvider } from "@/features/terminal/command-history/CommandHistoryContext";
 import { Terminal } from "@/features/terminal/Terminal";
-import type { TerminalHandle, TerminalHostConfig } from "@/features/terminal/Terminal";
+import type { IdentityPaneHandle, TerminalHandle, TerminalHostConfig } from "@/features/terminal/Terminal";
 import { PrettyView } from "@/features/pretty-view/PrettyView";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { IdentityModal } from "@/features/pretty-view/IdentityModal";
@@ -66,7 +66,8 @@ export interface IdentitySessionPaneProps {
  * mounted; Terminal is conditionally mounted (only when !isPrettyMode, i.e. when
  * user summons it via Ctrl+Shift+O or long-press-badge).
  *
- * Exposes the full TerminalHandle interface via useImperativeHandle:
+ * Exposes the full IdentityPaneHandle interface via useImperativeHandle
+ * (TerminalHandle + the two wrapper-owned toggles):
  * - togglePrettyMode / toggleMessageQueue: wrapper-owned setters.
  * - disconnect/reconnect/fit/sendInput/notifyResize/refresh: forwarded to inner
  *   Terminal ref when mounted; safe-noop when Terminal is not mounted.
@@ -74,7 +75,7 @@ export interface IdentitySessionPaneProps {
  * Identity panes start in pretty mode (isPrettyMode = true by default), replacing
  * Terminal's hasAutoActivatedPrettyRef one-shot flip.
  */
-export const IdentitySessionPane = forwardRef<TerminalHandle, IdentitySessionPaneProps>(
+export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessionPaneProps>(
   function IdentitySessionPane(
     { tab, host, label, isVisible, attach, onCloseTab, onTmuxSessionChange, onTmuxSessionMissing },
     ref,
@@ -125,10 +126,13 @@ export const IdentitySessionPane = forwardRef<TerminalHandle, IdentitySessionPan
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isPrettyMode]);
 
-    // --- useImperativeHandle: re-expose full TerminalHandle ---
+    // --- useImperativeHandle: expose IdentityPaneHandle (TerminalHandle + toggles) ---
     // togglePrettyMode and toggleMessageQueue are wrapper-owned.
     // All other methods forward to innerTerminalRef when Terminal is mounted;
     // they are safe-noops (no throw, no side effect) when Terminal is not mounted.
+    // openFileManager forwards to inner Terminal (which implements it) — identity
+    // panes never call it in practice, but the forward keeps the interface
+    // contract honest.
     useImperativeHandle(
       ref,
       () => ({
@@ -173,6 +177,9 @@ export const IdentitySessionPane = forwardRef<TerminalHandle, IdentitySessionPan
         },
         refresh: () => {
           innerTerminalRef.current?.refresh?.();
+        },
+        openFileManager: () => {
+          innerTerminalRef.current?.openFileManager?.();
         },
       }),
       // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -13,7 +13,7 @@ import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
 import { useKeyboardMessageQueue } from "@/hooks/use-keyboard-message-queue";
 import { useKeyboardTogglePrettyMode } from "@/hooks/use-keyboard-toggle-pretty-mode";
-import type { TerminalHandle } from "@/features/terminal/terminal-types";
+import type { IdentityPaneHandle } from "@/features/terminal/terminal-types";
 import { CommandPalette } from "@/shell/CommandPalette";
 // Phase 11 Plan 03 (PURGE-02, PURGE-03): AppRail + RailView + 10 sidebar-panel
 // imports (HostsPanel, SessionsPanel, QuickConnectPanel, SshToolsPanel,
@@ -207,12 +207,19 @@ export function AppShell({
   useKeyboardCloseTab(tabs, activeTabId, closeTab);
   useKeyboardMessageQueue(tabs, activeTabId, (id) => {
     const ref = terminalRefs.current.get(id);
-    const handle = (ref?.current as TerminalHandle | null) ?? null;
+    // Phase 41 code-review H2: cast to Partial<IdentityPaneHandle> because
+    // the ref may hold either a plain TerminalHandle (non-identity SSH
+    // panes) or an IdentityPaneHandle (identity panes via
+    // IdentitySessionPane). Only identity panes implement toggleMessageQueue
+    // — optional chaining short-circuits when the method is absent, which
+    // matches runtime reality and satisfies the type.
+    const handle = (ref?.current as Partial<IdentityPaneHandle> | null) ?? null;
     handle?.toggleMessageQueue?.();
   });
   useKeyboardTogglePrettyMode(tabs, activeTabId, (id) => {
     const ref = terminalRefs.current.get(id);
-    const handle = (ref?.current as TerminalHandle | null) ?? null;
+    // Same Partial<IdentityPaneHandle> cast rationale as toggleMessageQueue above.
+    const handle = (ref?.current as Partial<IdentityPaneHandle> | null) ?? null;
     handle?.togglePrettyMode?.();
   });
   const [userPrefs, setUserPrefs] = useState<UserPreferences>({

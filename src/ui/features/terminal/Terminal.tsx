@@ -64,7 +64,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/button";
 import { resolveSkynetThemeColors } from "./terminal-theme.ts";
 import type { TerminalHandle, TerminalHostConfig } from "./terminal-types.ts";
-export type { TerminalHandle, TerminalHostConfig } from "./terminal-types.ts";
+export type { TerminalHandle, IdentityPaneHandle, TerminalHostConfig } from "./terminal-types.ts";
 import { Toolbar } from "@/features/keyboard/Toolbar.tsx";
 import { makeSshAdapter } from "@/features/keyboard/sshAdapter.ts";
 import {
