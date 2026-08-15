@@ -487,8 +487,18 @@ export function AppShell({
   // rehydrate on next login. The tab stays visible so the inline pane
   // error is still readable — the user closes it manually.
   const handleTmuxSessionMissing = useCallback(
-    (instanceId: string, _sessionName: string) => {
-      deleteOpenTab(instanceId).catch(() => {});
+    (instanceId: string, sessionName: string) => {
+      // Phase 41 code-review M5: log the failure. Previously this
+      // swallowed all rejections silently, so a persistent backend
+      // failure to delete the row meant the broken tab kept
+      // rehydrating on every login with zero telemetry. The tab
+      // stays visible either way (see block comment above) — the log
+      // just makes the underlying failure diagnosable.
+      deleteOpenTab(instanceId).catch((err) => {
+        console.warn(
+          `[app-shell] delete-open-tab-failed operation="app_shell_delete_open_tab_failed" instanceId="${instanceId}" sessionName="${sessionName}" err="${err instanceof Error ? err.message : String(err)}"`,
+        );
+      });
     },
     [],
   );
