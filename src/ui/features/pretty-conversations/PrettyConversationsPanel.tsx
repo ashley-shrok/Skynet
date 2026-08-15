@@ -54,7 +54,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
-import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Pin } from "lucide-react";
+// Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
+// input mounted at the top of the pv-panel-scroll region.
+import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Pin, Search, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import { useTranslation } from "react-i18next";
 
@@ -108,6 +110,13 @@ import type { Host, HostFolder } from "@/types/ui-types";
 import { PrettyConversationRow } from "./PrettyConversationRow";
 import WeeklyUsageMeter from "./WeeklyUsageMeter";
 import SkynetLogo from "./SkynetLogo";
+
+// Phase 41 Plan 02: sessionStorage sentinel key for the one-shot cold-load
+// search-input scroll-hide effect. Mirrors the pv-conv-active-set pattern at
+// conversation-store.ts (ACTIVE_SET_STORAGE_KEY): per-tab, dies on tab close,
+// silent try/catch on all reads/writes, cleared by the store's only=1 guard
+// so new-window opener flows start with a fresh cold-load hide.
+const SEARCH_HIDDEN_SENTINEL_KEY = "pv-conv-search-hidden-once";
 
 // Patch #137: derive the (hostId:tmuxSessionName) key used by the session-
 // working-store to look up the row's live isWorking state. Rows without a
@@ -457,6 +466,49 @@ export function PrettyConversationsPanel({
 
   // quick-260731-tgg: collapsed by default on every mount per Ashley's design lock.
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
+
+  // Phase 41 Plan 02: search filter state (Task 2 will consume this for the
+  // label-only flatten-and-filter render branch). Controlled input; the clear
+  // affordance × sets it back to "".
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Phase 41 Plan 02: refs for the one-shot cold-load scroll-hide effect
+  // below. `scrollContainerRef` is attached to the `.pv-panel-scroll` div;
+  // `searchContainerRef` is attached to the `<div className="pv-search-
+  // container">` wrapper so the effect can measure its offsetHeight and set
+  // scrollTop to hide the input just above the viewport. Both are
+  // pre-effect-attached refs — the effect reads .current in the useEffect
+  // body after mount, when both nodes have been rendered.
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Phase 41 Plan 02: one-shot cold-load scroll-hide effect. Gated by a
+  // sessionStorage sentinel (SEARCH_HIDDEN_SENTINEL_KEY) so the hide fires
+  // exactly ONCE per browser session (StrictMode dev double-mount + any
+  // future panel remount both no-op on the second run). Ashley lock —
+  // "we make the effort on first load of the list to hide it and then
+  // don't mess with it after that." Silent try/catch guards protect against
+  // sessionStorage-unavailable environments (SSR / private-mode Safari
+  // quota errors); if the read throws, we fall through and still perform
+  // the hide (best-effort). The `only=1` new-window opener path clears the
+  // sentinel at the store's module init (conversation-store.ts) so a
+  // fresh tab re-hides on first mount. Empty dep array — mount-only.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY) === "1") return;
+    } catch {
+      /* sessionStorage unavailable — fall through and still set scroll */
+    }
+    const scrollEl = scrollContainerRef.current;
+    const searchEl = searchContainerRef.current;
+    if (!scrollEl || !searchEl) return;
+    scrollEl.scrollTop = searchEl.offsetHeight;
+    try {
+      sessionStorage.setItem(SEARCH_HIDDEN_SENTINEL_KEY, "1");
+    } catch {
+      /* best-effort persist */
+    }
+  }, []);
 
   // Phase 23 (GEFM-01): open the header menu anchored below the trigger button.
   const openMenu = useCallback(() => {
@@ -945,8 +997,48 @@ export function PrettyConversationsPanel({
 
       {/* Scroll region: safe-area padding lives on outer container (patch #131)
           so the panel bottom sits ABOVE the safe-area — settings row is not
-          covered when scroll is at rest. */}
-      <div className="pv-panel-scroll min-h-0">
+          covered when scroll is at rest. Phase 41 Plan 02: ref attached so the
+          one-shot cold-load scroll-hide effect can set scrollTop. */}
+      <div ref={scrollContainerRef} className="pv-panel-scroll min-h-0">
+        {/* Phase 41 Plan 02 (Ashley 2026-08-14): always-in-DOM search input at
+            the very top of the scroll region. On the first cold-load per
+            browser session the one-shot effect above sets scrollTop to this
+            container's offsetHeight so the input sits just above the visible
+            area (revealed only by scrolling up). Scoped test-ids per
+            41-02-PLAN.md acceptance criteria. NO auto-focus (Ashley lock #4 —
+            uniform tap/click-to-focus on both mobile + desktop). */}
+        <div
+          ref={searchContainerRef}
+          className="pv-search-container"
+          data-testid="pretty-conversations-search-container"
+        >
+          <Search
+            className="pv-search-icon"
+            aria-hidden="true"
+            width={16}
+            height={16}
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search conversations"
+            className="pv-search-input"
+            data-testid="pretty-conversations-search-input"
+            aria-label="Search conversations"
+          />
+          {searchQuery.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="pv-search-clear"
+              data-testid="pretty-conversations-search-clear"
+              aria-label="Clear search"
+            >
+              <X width={14} height={14} aria-hidden="true" />
+            </button>
+          )}
+        </div>
         {/* Load-in-flight affordance. Renders at the top of the scroll region
             while the fleet enumeration is still in flight; disappears once
             useFleetSessionsLoaded() flips true. RDP and openTab rows tend to

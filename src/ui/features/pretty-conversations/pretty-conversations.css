@@ -353,6 +353,76 @@
   gap: 8px;
 }
 
+/* Phase 41 Plan 02 (Ashley 2026-08-14): always-in-DOM search input mounted
+   as the FIRST child inside .pv-panel-scroll. On cold-load the one-shot
+   effect in PrettyConversationsPanel.tsx sets scrollTop = this container's
+   offsetHeight so the input sits just above the visible area (revealed only
+   by scrolling up). Messaging-app default shape — flex row with a leading
+   search icon, transparent input, and a trailing × clear affordance that
+   appears only when there is text. Uses the same --color-pv-* palette tokens
+   the rest of the panel uses so the input blends into the scroll surface. */
+.pv-search-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-pv-border-quiet);
+}
+
+.pv-search-icon {
+  color: var(--color-pv-fg-muted);
+  flex: 0 0 auto;
+}
+
+.pv-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-pv-fg);
+  font-size: 14px;
+  line-height: 1.4;
+  font-family: inherit;
+  /* Suppress the browser-default search input clear affordance — we render
+     an explicit × button for cross-browser parity. */
+  appearance: none;
+  -webkit-appearance: none;
+}
+.pv-search-input::-webkit-search-decoration,
+.pv-search-input::-webkit-search-cancel-button,
+.pv-search-input::-webkit-search-results-button,
+.pv-search-input::-webkit-search-results-decoration {
+  display: none;
+}
+.pv-search-input::placeholder {
+  color: var(--color-pv-fg-dim);
+  opacity: 1;
+}
+
+.pv-search-clear {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--color-pv-fg-muted);
+  cursor: pointer;
+}
+.pv-search-clear:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-pv-fg);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    THE ROW — real pretty-view bubble treatment translated from ChatMessage.tsx
    L82-129 + IdentityBadge lg lines 50-62. Per-hue custom prop drives EVERYTHING.

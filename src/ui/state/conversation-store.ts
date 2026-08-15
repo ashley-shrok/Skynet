@@ -171,6 +171,15 @@ const CONVERSATION_TAB_TYPES = new Set<TabType>([
 // session, but still dies on tab close.
 const ACTIVE_SET_STORAGE_KEY = "pv-conv-active-set";
 
+// Phase 41 Plan 02: sessionStorage key for the one-shot cold-load scroll-hide
+// sentinel owned by PrettyConversationsPanel's search-input mount. Declared
+// here so the only=1 sessionStorage-bleed guard below can clear it alongside
+// pv-conv-active-set — same T-41-02-01 mitigation as the activeSet key. The
+// panel component owns the read/write semantics; the store only owns the
+// only=1 guard extension so a single hash-parse pass handles every
+// session-scoped key.
+const SEARCH_HIDDEN_SENTINEL_KEY = "pv-conv-search-hidden-once";
+
 // Patch #137: rehydrate the activeSet from sessionStorage on module load.
 // Wrapped in try/catch so malformed JSON, missing key, empty string, quota
 // errors, or an absent sessionStorage (SSR/JSDOM edge) ALL silently fall
@@ -195,6 +204,9 @@ function hydrateActiveSetFromStorage(): Set<string> {
     if (typeof sessionStorage === "undefined") return new Set<string>();
 
     // only=1 sessionStorage-bleed guard — see block comment above.
+    // Phase 41 Plan 02: the guard now clears BOTH pv-conv-active-set AND
+    // pv-conv-search-hidden-once so the new window's search-hide effect
+    // gets a fresh cold-load hide (same rationale as the activeSet clear).
     if (typeof window !== "undefined" && window.location?.hash) {
       const hash = window.location.hash.startsWith("#")
         ? window.location.hash.slice(1)
@@ -203,6 +215,11 @@ function hydrateActiveSetFromStorage(): Set<string> {
       if (params.get("only") === "1") {
         try {
           sessionStorage.removeItem(ACTIVE_SET_STORAGE_KEY);
+        } catch {
+          /* best-effort clear */
+        }
+        try {
+          sessionStorage.removeItem(SEARCH_HIDDEN_SENTINEL_KEY);
         } catch {
           /* best-effort clear */
         }

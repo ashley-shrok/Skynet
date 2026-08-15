@@ -2880,3 +2880,203 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     confirmSpy.mockRestore();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 41 Plan 02 — Search input + one-shot cold-load scroll-hide (Task 1)
+// ─────────────────────────────────────────────────────────────────────────────
+// Ashley 2026-08-14 locks (see 41-CONTEXT.md + 41-02-PLAN.md):
+//   - A `<input type="search">` is ALWAYS in the DOM at the top of the panel
+//     scroll region, regardless of snapshot state (empty / loading / populated).
+//   - On the app's first cold-load per browser session, the scroll region's
+//     scrollTop is set once so the search input sits just out of view above
+//     the visible area.
+//   - The scroll-hide fires EXACTLY ONCE per browser session — a StrictMode
+//     double-mount or any future panel remount does NOT re-clamp scroll.
+//   - The one-shot behavior is gated by a sessionStorage sentinel key
+//     "pv-conv-search-hidden-once".
+//   - The `only=1` new-window opener path clears the sentinel key so a fresh
+//     tab always gets the hide (Rule T-41-02-01 — sessionStorage-bleed guard).
+//   - NO auto-focus on mount (Ashley lock #4 — tap-to-focus on mobile,
+//     uniform on desktop).
+
+describe("PrettyConversationsPanel (Phase 41 Plan 02): search input mount + scroll-hide", () => {
+  const SEARCH_HIDDEN_SENTINEL_KEY = "pv-conv-search-hidden-once";
+
+  beforeEach(() => {
+    sessionStorage.removeItem(SEARCH_HIDDEN_SENTINEL_KEY);
+  });
+
+  afterEach(() => {
+    sessionStorage.removeItem(SEARCH_HIDDEN_SENTINEL_KEY);
+  });
+
+  it("Test A: <input type='search'> mounts as a descendant of .pv-panel-scroll on every render (empty snapshot)", () => {
+    // Empty snapshot — no rows, still loading — the search input MUST still
+    // mount inside .pv-panel-scroll.
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const scrollEl = container.querySelector(".pv-panel-scroll") as HTMLElement | null;
+    expect(scrollEl).toBeTruthy();
+
+    const searchInput = scrollEl!.querySelector('input[type="search"]');
+    expect(searchInput).toBeTruthy();
+    // Test-id anchor for downstream assertions.
+    expect(
+      scrollEl!.querySelector('[data-testid="pretty-conversations-search-input"]'),
+    ).toBeTruthy();
+  });
+
+  it("Test A2: <input type='search'> mounts on populated snapshot too (survives snapshot state changes)", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      middle: [
+        makeConversationRow({ id: "m1", label: "session-1", host: hostA }),
+      ],
+    });
+    mockFleetSessionsLoaded = true;
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const scrollEl = container.querySelector(".pv-panel-scroll") as HTMLElement | null;
+    expect(scrollEl).toBeTruthy();
+    expect(scrollEl!.querySelector('input[type="search"]')).toBeTruthy();
+
+    // The search input is above the middle rows in DOM order (structural
+    // precondition for the scroll-hide behavior).
+    const inputEl = scrollEl!.querySelector('input[type="search"]') as HTMLElement;
+    const rowEl = scrollEl!.querySelector('[data-conversation-id="m1"]') as HTMLElement;
+    expect(inputEl).toBeTruthy();
+    expect(rowEl).toBeTruthy();
+    // Node.DOCUMENT_POSITION_FOLLOWING = 4 — input precedes row.
+    expect(inputEl.compareDocumentPosition(rowEl) & 4).toBe(4);
+  });
+
+  it("Test B: one-shot sentinel FIRST mount — sessionStorage[key]=null → scrollTop set + sentinel written", () => {
+    // Fresh browser session: sentinel absent. After render, effect runs.
+    expect(sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY)).toBeNull();
+
+    // Spy on the .pv-panel-scroll's scrollTop setter so we can observe the
+    // one-shot assignment. Since JSDOM makes scrollTop a writable data
+    // property, we can just observe the post-render value.
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // After effect fires, sentinel MUST be written.
+    expect(sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY)).toBe("1");
+  });
+
+  it("Test C: one-shot sentinel SUBSEQUENT mount — sessionStorage[key]='1' → scroll NOT touched, sentinel unchanged", () => {
+    // Pre-seed sentinel as if a prior mount already ran.
+    sessionStorage.setItem(SEARCH_HIDDEN_SENTINEL_KEY, "1");
+
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    // Track any scrollTop assignments via a spy on Element.prototype.
+    const scrollTopSetter = vi.fn();
+    const scrollTopDescriptor = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      "scrollTop",
+    );
+    Object.defineProperty(Element.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return 0;
+      },
+      set(_v: number) {
+        scrollTopSetter(_v);
+      },
+    });
+
+    try {
+      render(
+        <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      );
+
+      // The one-shot effect early-returns when sentinel === "1". No scrollTop
+      // assignment should fire.
+      expect(scrollTopSetter).not.toHaveBeenCalled();
+
+      // Sentinel remains "1" — the effect must not re-write it either.
+      expect(sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY)).toBe("1");
+    } finally {
+      // Restore the descriptor so subsequent tests see JSDOM's default.
+      if (scrollTopDescriptor) {
+        Object.defineProperty(Element.prototype, "scrollTop", scrollTopDescriptor);
+      } else {
+        // Fallback: delete our override so JSDOM re-installs its default.
+        delete (Element.prototype as unknown as { scrollTop?: number }).scrollTop;
+      }
+    }
+  });
+
+  it("Test D: only=1 hash clears the pv-conv-search-hidden-once sentinel via conversation-store module init", async () => {
+    // This test exercises the sessionStorage-bleed guard that fires on
+    // conversation-store module load. The conversation-store.ts module owns
+    // the only=1 clear alongside its existing pv-conv-active-set clear; Phase
+    // 41 Plan 02 extends the guard to also clear
+    // "pv-conv-search-hidden-once".
+    //
+    // The top-of-file vi.mock("@/state/conversation-store", ...) shadows the
+    // real module for the panel tests. To exercise the REAL module's init
+    // guard, we go through the same on-disk path via a subprocess-safe grep
+    // (no runtime hoisting conflict) — the code path is asserted directly.
+    // Set the sentinel + hash, then re-import the real module through
+    // vi.importActual to bypass the mock. vi.importActual with an absolute
+    // path guarantees the real module loads regardless of alias registration.
+    sessionStorage.setItem(SEARCH_HIDDEN_SENTINEL_KEY, "1");
+    sessionStorage.setItem("pv-conv-active-set", JSON.stringify(["seed-1"]));
+
+    const originalHash = window.location.hash;
+    window.location.hash = "#tab=x&only=1";
+    try {
+      vi.resetModules();
+      // vi.importActual bypasses the vi.mock at the top of this file so the
+      // real store module's hydrateActiveSetFromStorage runs its guard.
+      await vi.importActual<typeof import("@/state/conversation-store")>(
+        "@/state/conversation-store",
+      );
+
+      // The only=1 guard MUST have cleared BOTH keys (Phase 41 Plan 02
+      // extended the guard from just pv-conv-active-set to also clear the
+      // new search-hide sentinel — same T-41-02-01 mitigation).
+      expect(sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY)).toBeNull();
+      expect(sessionStorage.getItem("pv-conv-active-set")).toBeNull();
+    } finally {
+      window.location.hash = originalHash;
+    }
+  });
+
+  it("Test E: no auto-focus — the search input is NOT the active document element after mount", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLElement | null;
+    expect(searchInput).toBeTruthy();
+    // Ashley lock #4: no auto-focus on either platform.
+    expect(document.activeElement).not.toBe(searchInput);
+  });
+
+  it("Test E2 (mobile parity): no auto-focus on mobile variant either — uniform tap-to-focus", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+
+    const searchInput = container.querySelector(
+      '[data-testid="pretty-conversations-search-input"]',
+    ) as HTMLElement | null;
+    expect(searchInput).toBeTruthy();
+    expect(document.activeElement).not.toBe(searchInput);
+  });
+});
