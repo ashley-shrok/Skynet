@@ -619,31 +619,21 @@ function computeSnapshot(): ConversationList {
     }
   }
 
-  // Tier-assignment dedup tracker — every emitted row id is added here after
-  // placement so Tier 2 and Tier 3 can skip ids already claimed by a higher tier.
+  // Tier-assignment dedup tracker — populated by the Tier 2 (pinned) loops
+  // below so Tier 3 (middle) can skip ids already claimed by the pinned tier.
+  //
+  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim):
+  // "sessions are still showing above the pinned area when they are active
+  //  in the current instance of the client. That shouldn't happen. Also the
+  //  pinned header should go away entirely."
+  // The Tier 1 (activeSet) render tier is retired — active-and-pinned rows
+  // stay in the pinned tier; active-and-not-pinned rows fall through to
+  // middle by recency. The `activeSet` field in the returned snapshot shape
+  // is kept as an always-empty ConversationRow[] to avoid destructure churn
+  // at every panel/consumer call site.
   const emittedIds = new Set<string>();
 
-  // ── Tier 1 (activeSet): rows in state.activeSet, overtaking pinned ──────────
-  // Iterate conversationTabs first (openTabs order), then fleetSyntheticRows
-  // (fleetSessions order) — same openTabs-first precedence used throughout.
-  // RDP rows are never eligible: activeSet excludes them per patch #137
-  // contract, and the loops here only iterate conversationTabs +
-  // fleetSyntheticRows (rdpRows is a separate synthesized list that never
-  // joins either set).
-  const activeSetRows: ConversationRow[] = [];
-  for (const tab of conversationTabs) {
-    if (!state.activeSet.has(tab.id)) continue;
-    activeSetRows.push(rowFromTab(tab, sessionRoleByKey));
-    emittedIds.add(tab.id);
-  }
-  for (const { row } of fleetSyntheticRows) {
-    if (!state.activeSet.has(row.id)) continue;
-    activeSetRows.push(row);
-    emittedIds.add(row.id);
-  }
-  activeSetRows.sort(compareByHostRoleLabel);
-
-  // ── Tier 2 (pinned, not in activeSet): rows in pinnedIds and NOT emitted ────
+  // ── Tier 2 (pinned): rows in pinnedIds ──────────────────────────────────────
   // Patch #149 B: previously iterated only conversationTabs; now ALSO iterates
   // fleetSyntheticRows so fleet-derived pinned rows surface at the top.
   const pinned: ConversationRow[] = [];
@@ -669,21 +659,27 @@ function computeSnapshot(): ConversationList {
       state.pinnedIds.has(tab.id) ||
       (shadowFleetId !== null && state.pinnedIds.has(shadowFleetId));
     if (!isPinned) continue;
-    if (emittedIds.has(tab.id)) continue; // already in Tier 1
+    // Defensive dedup — trivially unreachable post-2026-08-17 (no upstream
+    // tier populates emittedIds before this point) but kept as an intent
+    // marker for future re-wiring.
+    if (emittedIds.has(tab.id)) continue;
     pinned.push(rowFromTab(tab, sessionRoleByKey));
     emittedIds.add(tab.id);
   }
   for (const { row } of fleetSyntheticRows) {
     if (!state.pinnedIds.has(row.id)) continue;
-    if (emittedIds.has(row.id)) continue; // already in Tier 1
+    // Defensive dedup — see comment above.
+    if (emittedIds.has(row.id)) continue;
     pinned.push(row);
     emittedIds.add(row.id);
   }
   pinned.sort(compareByHostRoleLabel);
 
-  // ── Middle zone (Phase 41 Plan 01): FLAT list of non-pinned / non-active-set
-  //    / non-RDP identity-tmux + fleet-synthetic rows, sorted by
-  //    compareByRecencyDesc.
+  // ── Middle zone (Phase 41 Plan 01): FLAT list of non-pinned / non-RDP
+  //    identity-tmux + fleet-synthetic rows, sorted by compareByRecencyDesc.
+  //    (Phase 42 UAT amendment 2026-08-17: the former "non-active-set" filter
+  //    is gone — the Tier 1 activeSet render tier was retired; active-set
+  //    rows now flow through to pinned (if pinned) or middle (by recency).)
   //
   // Phase 41 retired the per-host bucketing (`byHostId` map + hostTree walk
   // + orphan-host fallback groups) that built the pre-Phase-41
@@ -703,14 +699,14 @@ function computeSnapshot(): ConversationList {
   const middleInsertionOrder = new WeakMap<ConversationRow, number>();
   let middlePushIndex = 0;
   for (const tab of conversationTabs) {
-    if (emittedIds.has(tab.id)) continue; // already in Tier 1 or Tier 2
+    if (emittedIds.has(tab.id)) continue; // already in pinned tier
     if (!tab.host) continue; // defense-in-depth; isConversationTab already filtered
     const row = rowFromTab(tab, sessionRoleByKey);
     middleRows.push(row);
     middleInsertionOrder.set(row, middlePushIndex++);
   }
   for (const { row } of fleetSyntheticRows) {
-    if (emittedIds.has(row.id)) continue; // already in Tier 1 or Tier 2
+    if (emittedIds.has(row.id)) continue; // already in pinned tier
     middleRows.push(row);
     middleInsertionOrder.set(row, middlePushIndex++);
   }
@@ -804,11 +800,14 @@ function computeSnapshot(): ConversationList {
       ? { hostId: "__rdp__", hostName: "", rows: rdpRows }
       : null;
 
-  // quick-260731-tgg (updated Phase 41 Plan 01): final render-time filter —
-  // remove hiddenIds from activeSet, pinned, AND the flat middle zone.
-  // Applied AFTER all tier logic so it acts as a pure removal pass. Hidden
-  // rows are still in openTabs/fleetSessions; they simply don't surface in
-  // the visible tiers.
+  // quick-260731-tgg (updated Phase 41 Plan 01, Phase 42 UAT amendment
+  // 2026-08-17): final render-time filter — remove hiddenIds from pinned +
+  // middle. Applied AFTER all tier logic so it acts as a pure removal pass.
+  // Hidden rows are still in openTabs/fleetSessions; they simply don't
+  // surface in the visible tiers.
+  //
+  // The `activeSet` field in the returned shape is now an always-empty
+  // ConversationRow[] (Tier 1 render tier retired) — no filter pass needed.
   //
   // RDP rows (synthesized into rdpGroup) are NOT eligible for hiding — their
   // id shape (rdp-host::${host.id}) never appears in hiddenIds (the hide
@@ -817,18 +816,17 @@ function computeSnapshot(): ConversationList {
   // documented for future maintainers.
   if (state.hiddenIds.size > 0) {
     const hiddenIds = state.hiddenIds;
-    const filteredActiveSet = activeSetRows.filter((r) => !hiddenIds.has(r.id));
     const filteredPinned = pinned.filter((r) => !hiddenIds.has(r.id));
     const filteredMiddle = middleRows.filter((r) => !hiddenIds.has(r.id));
     return {
-      activeSet: filteredActiveSet,
+      activeSet: [],
       pinned: filteredPinned,
       middle: filteredMiddle,
       rdpGroup,
     };
   }
 
-  return { activeSet: activeSetRows, pinned, middle: middleRows, rdpGroup };
+  return { activeSet: [], pinned, middle: middleRows, rdpGroup };
 }
 
 function getSnapshot(): ConversationList {

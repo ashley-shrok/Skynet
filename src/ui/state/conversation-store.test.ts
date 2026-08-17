@@ -1139,11 +1139,13 @@ describe("conversation-store (Plan 07-01): updateHostsFlat no-op guards", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1 shape-guard extension: empty state must expose activeSet field
-// (appended to the existing Test 1 assertions inline in a new describe block
-// rather than modifying the original, to keep git diff surgical)
+// Test 1 shape-guard extension: activeSet field is always an empty array
+// (Phase 42 UAT amendment 2026-08-17 — Tier 1 render tier retired; the
+// snapshot field is preserved as an always-empty ConversationRow[] so
+// every consumer's `const { activeSet, ... } = useConversations();`
+// destructure keeps compiling.)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store (Patch #149 B+C): empty state exposes activeSet field", () => {
+describe("conversation-store: activeSet snapshot field is always empty (Phase 42 UAT amendment 2026-08-17)", () => {
   it("returns empty activeSet alongside empty pinned + middle + null rdpGroup on the happy-empty path", () => {
     const { result: convs } = renderHook(() => useConversations());
     expect(convs.current.activeSet).toEqual([]);
@@ -1267,8 +1269,13 @@ describe("conversation-store (quick-260730-wfy): pinned tier alphabetical orderi
   });
 });
 
-describe("conversation-store (Patch #149 B+C): Test 30c — active-set row overtakes pinned tier", () => {
-  it("addToActiveSet on a pinned fleet id promotes it to activeSet and removes it from pinned", () => {
+describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30c — active-set + pinned row stays in pinned tier", () => {
+  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still
+  // showing above the pinned area when they are active in the current instance
+  // of the client. That shouldn't happen." — activeSet render tier retired;
+  // activeSet-and-pinned rows stay in pinned, activeSet-only rows fall
+  // through to middle by recency.
+  it("addToActiveSet on a pinned fleet id keeps the row in pinned; activeSet snapshot field is empty", () => {
     const hostA = makeHost("1", "hostA");
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
@@ -1282,21 +1289,26 @@ describe("conversation-store (Patch #149 B+C): Test 30c — active-set row overt
 
     const snap = __getSnapshotForTest();
 
-    // Tier 1: activeSet contains the fleet row
-    expect(snap.activeSet.length).toBe(1);
-    expect(snap.activeSet[0].id).toBe("fleet::1::work");
+    // Active-set render tier retired: activeSet snapshot field is always empty.
+    expect(snap.activeSet.length).toBe(0);
 
-    // Strict dedup: NOT in pinned (promoted out)
-    expect(snap.pinned.length).toBe(0);
+    // Pin wins: the fleet row lands in the pinned tier.
+    expect(snap.pinned.length).toBe(1);
+    expect(snap.pinned[0].id).toBe("fleet::1::work");
 
-    // Strict dedup: NOT in middle (Phase 41 Plan 01 — flat middle).
+    // Pinned dedup still works: NOT in middle.
     const allMiddleIds = snap.middle.map((r) => r.id);
     expect(allMiddleIds).not.toContain("fleet::1::work");
   });
 });
 
-describe("conversation-store (Patch #149 B+C): Test 30d — activeSet-only row (not pinned)", () => {
-  it("fleet row in activeSet but not pinned goes to Tier 1 only; pinned stays empty; not in middle", () => {
+describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30d — activeSet-only row (not pinned) falls through to middle", () => {
+  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still
+  // showing above the pinned area when they are active in the current instance
+  // of the client. That shouldn't happen." — activeSet render tier retired;
+  // activeSet-and-pinned rows stay in pinned, activeSet-only rows fall
+  // through to middle by recency.
+  it("fleet row in activeSet but not pinned lands in middle; pinned and activeSet snapshot fields are both empty", () => {
     const hostA = makeHost("1", "hostA");
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
@@ -1309,17 +1321,22 @@ describe("conversation-store (Patch #149 B+C): Test 30d — activeSet-only row (
 
     const snap = __getSnapshotForTest();
 
-    expect(snap.activeSet[0].id).toBe("fleet::1::work");
+    // Active-set render tier retired: activeSet snapshot field is always empty.
+    expect(snap.activeSet.length).toBe(0);
     expect(snap.pinned.length).toBe(0);
 
-    // Phase 41 Plan 01: assert against flat middle.
-    const allMiddleIds = snap.middle.map((r) => r.id);
-    expect(allMiddleIds).not.toContain("fleet::1::work");
+    // Fleet row falls through to middle by recency.
+    expect(snap.middle.some((r) => r.id === "fleet::1::work")).toBe(true);
   });
 });
 
-describe("conversation-store (Patch #149 B+C): Test 30e — openTab pinned + activeSet → activeSet only", () => {
-  it("openTab row in both pinnedIds and activeSet goes to Tier 1 only (dedup applies to openTab path too)", () => {
+describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30e — openTab pinned + activeSet stays in pinned", () => {
+  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still
+  // showing above the pinned area when they are active in the current instance
+  // of the client. That shouldn't happen." — activeSet render tier retired;
+  // activeSet-and-pinned rows stay in pinned, activeSet-only rows fall
+  // through to middle by recency.
+  it("openTab row in both pinnedIds and activeSet stays in pinned; activeSet snapshot field is empty", () => {
     const hostA = makeHost("hA", "hostA");
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
@@ -1330,13 +1347,14 @@ describe("conversation-store (Patch #149 B+C): Test 30e — openTab pinned + act
 
     const snap = __getSnapshotForTest();
 
-    // Tier 1: t1 is in activeSet
-    expect(snap.activeSet[0].id).toBe("t1");
+    // Active-set render tier retired: activeSet snapshot field is always empty.
+    expect(snap.activeSet.length).toBe(0);
 
-    // Strict dedup: NOT in pinned (promoted to Tier 1)
-    expect(snap.pinned.length).toBe(0);
+    // Pin wins: t1 lands in the pinned tier.
+    expect(snap.pinned.length).toBe(1);
+    expect(snap.pinned[0].id).toBe("t1");
 
-    // Strict dedup: NOT in middle (Phase 41 Plan 01 — flat middle).
+    // Pinned dedup still works: NOT in middle.
     const allMiddleIds = snap.middle.map((r) => r.id);
     expect(allMiddleIds).not.toContain("t1");
   });
@@ -2389,33 +2407,15 @@ describe("conversation-store (Phase 25 retargeted Phase 41 Plan 01): role-cluste
     ]);
   });
 
-  // Locks: §Sort semantics "host is always outer" — even in the flat ActiveSet tier,
-  // host is the primary sort key (no sub-heading, no chrome — just ordering).
-  it("host is outer sort key in ActiveSet — same-role rows from different hosts stay host-ordered", () => {
-    const hostA = makeHost("hA", "alpha");
-    const hostB = makeHost("hB", "beta");
-    const tabA = makeTab("t-a", "terminal", hostA, "sess-a", "sess-a");
-    const tabB = makeTab("t-b", "terminal", hostB, "sess-b", "sess-b");
-
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA, hostB] });
-      updateHostsFlat(new Map([["hA" as unknown as number, hostA], ["hB" as unknown as number, hostB]]));
-      updateOpenTabs([tabB, tabA]); // intentionally reversed insertion order
-      updateIdentitiesByKey(
-        identitiesMap(
-          makeIdentity("sess-a", "architect"),
-          makeIdentity("sess-b", "architect"),
-        ),
-      );
-      addToActiveSet("t-a");
-      addToActiveSet("t-b");
-    });
-
-    const snap = __getSnapshotForTest();
-    // Both rows share role "architect" → tie on role → host outer key resolves:
-    // "alpha" < "beta" → hostA row first.
-    expect(snap.activeSet.map((r) => r.host?.name)).toEqual(["alpha", "beta"]);
-  });
+  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still
+  // showing above the pinned area when they are active in the current instance
+  // of the client. That shouldn't happen." — the activeSet render tier is
+  // retired. The previous "host is outer sort key in ActiveSet — same-role
+  // rows from different hosts stay host-ordered" test is DELETED; the same
+  // host-outer sort semantic is exhaustively covered by the sibling test
+  // "host is outer sort key in Pinned — same-role rows from different hosts
+  // stay host-ordered" immediately below (identical two-host architect setup
+  // on a surviving tier).
 
   // Locks: §Sort semantics "applies to all three tiers, not just Tier 3" —
   // Pinned tier must also honour host-outer ordering.
