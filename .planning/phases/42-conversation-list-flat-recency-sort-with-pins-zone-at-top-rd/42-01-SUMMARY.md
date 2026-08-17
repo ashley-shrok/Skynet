@@ -1,5 +1,5 @@
 ---
-phase: 41-conversation-list-flat-recency-sort-with-pins-zone-at-top-rd
+phase: 42-conversation-list-flat-recency-sort-with-pins-zone-at-top-rd
 plan: 01
 subsystem: ui
 tags:
@@ -18,13 +18,13 @@ requires:
     provides: compareByHostRoleLabel comparator (host outer, role middle, label inner) — surviving sort sites (activeSet / pinned / rdpGroup)
 provides:
   - "ConversationList: { activeSet, pinned, middle: ConversationRow[], rdpGroup: HostGroup | null } — three-zone shape replaces the retired grouped: HostGroup[]"
-  - "compareByRecencyDesc (Phase 41) — middle-zone comparator with no-history-to-top rule + insertion-order fallback for deterministic stability"
+  - "compareByRecencyDesc (Phase 42) — middle-zone comparator with no-history-to-top rule + insertion-order fallback for deterministic stability"
   - "row.lastMessageAt: number | null | undefined — optional pass-through hook wired via test-only __setLastMessageAtForTest injection map; Plan 03 will replace the test hook with a real fleet-status wire-side signal"
   - "Ambient-recession CSS + row-class-toggle RETIRED — every row carries the same visual weight"
   - "Panel: flat middle-zone renderer (no per-host divider chips) + conditional rdpGroup renderer (Ashley lock #7 — no header on zero RDP)"
 affects:
-  - 41-02-search-and-filter
-  - 41-03-fleet-status-recency-signal-wiring
+  - 42-02-search-and-filter
+  - 42-03-fleet-status-recency-signal-wiring
   - pretty-conversations-mount-order-any-future-panel-work
 
 # Tech tracking
@@ -54,7 +54,7 @@ key-decisions:
   - "Task 1 + Task 2 committed as ONE atomic unit — the store shape change (Task 1) forces the panel's useConversations destructure to change (Task 2), so splitting into two commits would violate the fork's 'full-suite green at each commit' precondition. Plan spirit preserved (both tasks documented distinctly here)."
   - "Retire the ambient VISUAL only — .active-set className toggle + inActiveSet prop SURVIVE (drive deactivate-action hover-reveal at pretty-conversations.css L978/L982/L994 + swipe machinery + context-menu item gating). Ashley lock #1 verified."
   - "Middle-zone insertion-order fallback — implemented via a WeakMap keyed on row-object identity, populated during computeSnapshot's flat-middle push loop. Passed as a parameter into compareByRecencyDesc so the comparator stays pure."
-  - "Phase 41 lastMessageAt field wiring — added as an OPTIONAL row field with a test-only __setLastMessageAtForTest injection map. Production callers never touch it; Plan 03 will replace the test hook with a fleet-status protocol extension. This keeps Plan 01 frontend-only per the three-plan split."
+  - "Phase 42 lastMessageAt field wiring — added as an OPTIONAL row field with a test-only __setLastMessageAtForTest injection map. Production callers never touch it; Plan 03 will replace the test hook with a fleet-status protocol extension. This keeps Plan 01 frontend-only per the three-plan split."
   - "Phase 25 role-clustering tests RETARGETED — moved 5 tests from middle-tier assertions to pinned-tier assertions. The (host, role, label) contract SURVIVES for activeSet + pinned + rdpGroup; only the middle tier flipped to compareByRecencyDesc."
   - "Snap-reorder lock verified — grep confirmed no CSS transition on transform/top/order was introduced on .pv-row selectors."
   - "Ready-dot regression locked TWICE — once at the row level (READY-DOT-UNIFORM-01, covers inActiveSet=true and false) and once at the panel level (Test 19E, covers full render pipeline)."
@@ -72,7 +72,7 @@ duration: ~1h 45m
 completed: 2026-08-14
 ---
 
-# Phase 41 Plan 01: Three-zone conversation list + retire ambient-recession visual Summary
+# Phase 42 Plan 01: Three-zone conversation list + retire ambient-recession visual Summary
 
 **ConversationList reshaped to { activeSet, pinned, middle: ConversationRow[], rdpGroup: HostGroup | null }; middle-zone compareByRecencyDesc with no-history-to-top + insertion-order fallback; ambient-recession CSS + row-class-toggle retired; panel middle-zone flattened (no per-host divider chips); rdpGroup=null suppresses the entire RDP section (Ashley lock #7).**
 
@@ -99,14 +99,14 @@ completed: 2026-08-14
 
 Task 1 + Task 2 committed as ONE atomic unit (see Decisions Made for the rationale). Commit hash recorded post-commit.
 
-1. **Task 1 (store reshape + comparator) + Task 2 (ambient retirement + panel flat middle)** — single commit `plan(41-01): ...`
+1. **Task 1 (store reshape + comparator) + Task 2 (ambient retirement + panel flat middle)** — single commit `plan(42-01): ...`
 
 _Note: The plan called for per-task commits, but the two tasks are tightly coupled — the store shape change forces the panel's `useConversations()` destructure to change simultaneously. Committing Task 1 alone would leave the panel runtime-broken (grouped is undefined → for-of throws), violating the fork's "full-suite green at each commit" rule. See Deviations from Plan below._
 
 ## Files Created/Modified
 
 - `src/ui/state/conversation-store.ts` — ConversationList type reshape (retired `grouped: HostGroup[]`; added `middle: ConversationRow[]` + `rdpGroup: HostGroup | null`); new `compareByRecencyDesc` comparator with no-history-to-top + insertion-order fallback; rewrote `computeSnapshot` middle-build (retired per-host bucketing + hostTree walk + orphan-host fallback); added `resolveLastMessageAt` hook + `__setLastMessageAtForTest`/`__resetLastMessageAtForTest` test-only injection API for Plan 03 forward-compat; updated `__getSnapshotForTest` + `__getFleetOnlyRowsForTest` for the new shape.
-- `src/ui/state/conversation-store.test.ts` — 40+ test-shape retargets grouped → middle/rdpGroup; rewrote Test 2 (host-tree-order → middle-flat + insertion-order); Phase 25 role-clustering tests (7 tests) retargeted from middle to pinned tier (surviving sort site); added new Tests A/C/D/E/F/G/H for the Phase 41 comparator contract + rdpGroup null-when-zero + pinned-and-rdp stay-stable regressions; added `__resetLastMessageAtForTest` to beforeEach.
+- `src/ui/state/conversation-store.test.ts` — 40+ test-shape retargets grouped → middle/rdpGroup; rewrote Test 2 (host-tree-order → middle-flat + insertion-order); Phase 25 role-clustering tests (7 tests) retargeted from middle to pinned tier (surviving sort site); added new Tests A/C/D/E/F/G/H for the Phase 42 comparator contract + rdpGroup null-when-zero + pinned-and-rdp stay-stable regressions; added `__resetLastMessageAtForTest` to beforeEach.
 - `src/ui/AppShell.persistence.test.tsx` — beforeEach + Test 4 updated: `snap.grouped` → `snap.middle` / `snap.rdpGroup`.
 - `src/ui/features/pretty-conversations/pretty-conversations.css` — deleted the entire `.pv-row.ambient*` selector block (L572-621); consolidated the `.pv-row.pv-row--desktop.ambient:not(:hover):not(:focus-within) .pv-hide-action` selector at L1075 to `.pv-row.pv-row--desktop:not(:hover):not(:focus-within) .pv-hide-action` (dropped the `.ambient` gate); updated the file's header comment to document the retirement.
 - `src/ui/features/pretty-conversations/PrettyConversationRow.tsx` — deleted `const isAmbient = !isRdp && !inActiveSet;` derivation; retired `isAmbient && "ambient"` from the className composition; updated 6 header/inline comments to reflect the retirement; `inActiveSet` prop + `.active-set` className toggle PRESERVED (still gate deactivate-action visibility + swipe machinery).
@@ -121,7 +121,7 @@ _Note: The plan called for per-task commits, but the two tasks are tightly coupl
 
 - **One commit instead of two per-task commits**: the store shape change (Task 1) forces the panel's `useConversations()` destructure to change (Task 2) — post-Task-1-alone, the panel destructures a now-undefined `grouped` field and crashes at runtime with `for (const group of grouped) → TypeError: grouped is not iterable`. Committing Task 1 in isolation would violate the fork rule "NEVER commit code while the suite is red". Both tasks are committed together with the message documenting both. The SUMMARY.md preserves the Task 1 / Task 2 distinction for future reference.
 - **Test-only injection map for `lastMessageAt`**: rather than adding wire-side plumbing that Plan 03 will supersede, staged an `__setLastMessageAtForTest(rowId, ts)` API in the store. Production callers never touch it; tests seed known timestamps to exercise the comparator's Rules 1/3/4. Plan 03 will replace the injection map with the fleet-status protocol extension without changing the comparator or the row constructors.
-- **Phase 25 role-clustering tests retargeted from middle to pinned tier**: Phase 25 established `compareByHostRoleLabel` at 5 sort sites (activeSet, pinned, two middle-tier sites, RDP). Phase 41 retired the two middle-tier sites; the contract survives on activeSet + pinned + RDP. The 7 role-clustering tests were retargeted from `snap.grouped[0].rows` assertions to `snap.pinned` assertions so the contract stays locked at its surviving sort sites.
+- **Phase 25 role-clustering tests retargeted from middle to pinned tier**: Phase 25 established `compareByHostRoleLabel` at 5 sort sites (activeSet, pinned, two middle-tier sites, RDP). Phase 42 retired the two middle-tier sites; the contract survives on activeSet + pinned + RDP. The 7 role-clustering tests were retargeted from `snap.grouped[0].rows` assertions to `snap.pinned` assertions so the contract stays locked at its surviving sort sites.
 - **Backwards-compat mock shim in the panel test**: rather than bulk-rewriting every panel test that seeds `setSnapshot({ ..., grouped: [...] })`, added a `grouped` shim to `setSnapshot` that auto-splits into `middle` + `rdpGroup`. Only tests that assert on the retired shape (per-host divider chips) were explicitly rewritten. This preserves ~60 pre-Phase-41 test bodies verbatim.
 - **`.pv-row.pv-row--desktop.ambient:not(:hover) .pv-hide-action` → `.pv-row.pv-row--desktop:not(:hover) .pv-hide-action`**: with `.ambient` retired, the hide-action hover-reveal that was previously scoped to ambient rows now applies to ALL desktop rows. Same behavioral contract for the user (hover-reveal on non-hovered rows); the CSS just no longer scopes it under the retired class.
 - **`.active-set` deactivate-action hover-reveal preserved verbatim**: Ashley lock #1 — the `.active-set` CSS selectors at `pretty-conversations.css:978/L982/L994` are load-bearing for the deactivate-button hover-reveal AND for the "safety net" desktop guard that hides the deactivate-action on non-active-set rows. Retiring the `.active-set` className toggle would have broken all three. Only the ambient VISUAL axis retired.
@@ -143,7 +143,7 @@ _Note: The plan called for per-task commits, but the two tasks are tightly coupl
 - **Issue:** The plan's `<behavior>` for Task 1 requires tests that exercise `compareByRecencyDesc` with specific `lastMessageAt` values. The store's `rowFromTab`/fleet-synthetic/RDP row constructors did not have any mechanism to inject those values. A test-first attempt to mutate `snap.middle[i].lastMessageAt` post-hoc failed because the snapshot cache is invalidated on any notify(), causing `computeSnapshot` to construct FRESH row objects that lose the patched values.
 - **Fix:** Added an OPTIONAL `lastMessageAt?: number | null` field to `ConversationRow`; added a module-scoped `lastMessageAtByRowId: Map<string, number|null>` injection map that `rowFromTab` + fleet-synthetic + RDP row builders consume via a `resolveLastMessageAt(rowId)` helper; exposed `__setLastMessageAtForTest` + `__resetLastMessageAtForTest` test-only API. This is strictly forward-compatible with Plan 03 (which will replace the map with a real wire-side signal).
 - **Files modified:** `src/ui/state/conversation-store.ts` (added the field + injection map + resolver + test-only setters), `src/ui/state/conversation-store.test.ts` (imported the setters, added to beforeEach)
-- **Verification:** Tests C/D/G/H (Phase 41 comparator contract) all pass; existing shape-lock test (Test 8) updated to filter `lastMessageAt` out of the exact-key-set assertion alongside `fleetOnly` + `rdpHostRow`.
+- **Verification:** Tests C/D/G/H (Phase 42 comparator contract) all pass; existing shape-lock test (Test 8) updated to filter `lastMessageAt` out of the exact-key-set assertion alongside `fleetOnly` + `rdpHostRow`.
 - **Committed in:** part of the atomic commit
 
 **3. [Rule 3 - Blocking] Retired unused `Server` icon import in PrettyConversationsPanel.tsx**
@@ -196,11 +196,11 @@ None — no external service configuration required. This plan is frontend-only 
 
 ## Next Phase Readiness
 
-- **Plan 41-02 (search + one-shot scroll-hide + filter)**: independent of Plan 41-01; can proceed in parallel or after. The three-zone shape from Plan 41-01 is what Plan 41-02's filter-flatten pass will collapse.
-- **Plan 41-03 (fleet-status protocol extension + recency signal wiring)**: waits on backend design. When it lands, replace the `__setLastMessageAtForTest` injection hook with the real fleet-status wire-side signal in `rowFromTab` + fleet-synthetic + RDP row builders. No changes to `compareByRecencyDesc` needed — the comparator is already Plan-03-ready.
+- **Plan 42-02 (search + one-shot scroll-hide + filter)**: independent of Plan 42-01; can proceed in parallel or after. The three-zone shape from Plan 42-01 is what Plan 42-02's filter-flatten pass will collapse.
+- **Plan 42-03 (fleet-status protocol extension + recency signal wiring)**: waits on backend design. When it lands, replace the `__setLastMessageAtForTest` injection hook with the real fleet-status wire-side signal in `rowFromTab` + fleet-synthetic + RDP row builders. No changes to `compareByRecencyDesc` needed — the comparator is already Plan-03-ready.
 
 ## Self-Check: PASSED
 
 ---
-*Phase: 41-conversation-list-flat-recency-sort-with-pins-zone-at-top-rd*
+*Phase: 42-conversation-list-flat-recency-sort-with-pins-zone-at-top-rd*
 *Completed: 2026-08-14*

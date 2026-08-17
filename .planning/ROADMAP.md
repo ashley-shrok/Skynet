@@ -1198,3 +1198,29 @@ Plans:
 - [x] 41-03-PLAN.md
 
 **UI hint:** no source-visible UI redesign — this is an architectural pane composition change; PrettyView and Terminal's own surfaces are byte-unchanged. Only the mount/unmount lifecycle around Terminal changes for identity panes.
+
+### Phase 42: Conversation list — flat recency sort with pins zone at top, RDP zone at bottom, always-hidden-on-load search input; retire ambient-recession visual
+
+**Goal:** Reshape the conversation list panel (`PrettyConversationsPanel.tsx`) so its middle section is flat and message-recency-sorted, moving away from the host-grouped strict-order model established in Phase 7. Pins remain the only stickiness mechanism and cluster at the top of the list using the existing stable per-row ordering. Remote-desktop sessions get their own section at the bottom, also using the existing stable ordering internally, and their section header hides entirely when zero RDP sessions are running. The ambient-recession visual (dimmed background rows) is retired — every row carries the same visual weight, and position + the ready-dot together carry the whole "where should I look next" story. A search input is always present at the very top of the list but scrolled out of view under the panel header on the app's first render of the list; scrolling up reveals it. Typing flattens the entire list to matches against visible row labels only (no message-body content search).
+
+**Requirements**: None assigned — LOCKED decisions in `42-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40/41 pattern).
+
+**Depends on:** Phase 7 (fleet-native conversation list data source), Phase 25 (existing stable `(host, role, label)` ordering that pins + RDP zone inherit), Phase 34 (fleet-status backend broadcast — extended in 42-03 for the recency signal)
+
+**Plans:** 3/3 plans complete
+
+Plans:
+- [x] 42-01-PLAN.md — Three-zone sort split + ambient-recession CSS retirement (frontend-only). Reshapes ConversationList to `{ activeSet, pinned, middle, rdpGroup }`, adds `compareByRecencyDesc` with no-history-to-top + insertion-order fallback until 42-03 lands real recency, retires the `.ambient` CSS block and row-className toggle, flattens the middle-zone renderer, regression-lock RDP-header-hides-on-zero and ready-dot-on-all-non-working-rows.
+- [x] 42-02-PLAN.md — Search input + one-shot scroll-hide + label-only filter (frontend-only). Always-in-DOM `<input type="search">` at top of `.pv-panel-scroll`, one-shot cold-load scroll-hide via `pv-conv-search-hidden-once` sessionStorage sentinel (with `only=1` opener guard), tap-to-focus on mobile (no auto-focus), filter flattens all three zones to a single label-only match list, hidden rows excluded from matches.
+- [x] 42-03-PLAN.md — Fleet-status WS protocol extension for per-message recency signal + wire middle-zone sort (full-stack). Extend `SessionStateSchema` with optional `lastMessageAt: number | null`, derive backend-side from message-bearing JSONL frames only (user + assistant messages; excludes tool_use, thinking, streaming ticks, lifecycle events), cache in `session-working-store`, stamp on `ConversationRow`, drive real DESC-by-recency sort in the middle zone. No wire-protocol version bump (additive + optional). No nginx changes (existing `/fleet-status/` route unchanged; payload extension only).
+
+**Wave 1**
+- [x] 42-01-PLAN.md
+
+**Wave 2** *(blocked on 42-01 — needs the `{middle, rdpGroup}` ConversationList shape + `compareByRecencyDesc` seam)*
+- [x] 42-02-PLAN.md
+- [x] 42-03-PLAN.md
+
+**UI hint:** yes, source-visible UI redesign. The conversation list on the left/side panel loses its per-host divider chips, adopts messaging-app recency sort in the middle, hides the ambient-row dimming, adds a search bar that reveals on scroll-up. Same three-zone rendering surface, new order and new search affordance. iOS PWA + desktop both.
+
+**History note:** Phase originally numbered 41 in this identity's tree (started 2026-08-14). Collided with Tanya's independent Phase 41 (`defer-terminal-view-mount`) — the sixth known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Renumbered to 42 during rescue-rebase 2026-08-17 after Tanya's Phase 41 shipped as patch #455; 5 code commits cherry-picked cleanly onto origin (Tanya #455 + Tiffany #456 base), planning artifacts renamed 41-* → 42-*, ROADMAP + STATE re-added under new number. Ashley 2026-08-17 verbatim on the renumber: *"Don't really care what you do with the phase number."* Original commit history preserved on backup branch `tina-phase41-backup` locally. Code state is byte-equivalent to what shipped under Phase 41's SUMMARY.md files (see 42-01-SUMMARY.md, 42-02-SUMMARY.md, 42-03-SUMMARY.md — internal references were bulk-updated 41-* → 42-* but content is otherwise verbatim).
