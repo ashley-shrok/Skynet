@@ -1188,27 +1188,27 @@
      coherent with the pretty-row density beneath. */
   .pv-panel-header .pv-pencil,
   .pv-panel-header .pv-filter {
-    width: 60px;
-    height: 60px;
-    border-radius: 14px;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
   }
   .pv-panel-header .pv-pencil svg,
   .pv-panel-header .pv-filter svg {
-    width: 32px;
-    height: 32px;
+    width: 24px;
+    height: 24px;
   }
   .pv-panel-header .pv-header-actions {
-    gap: 12px;
+    gap: 10px;
   }
   .pv-panel-header .pv-title {
     font-size: 18px;
   }
   .pv-panel-header .pv-header-logo {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
   }
   .pv-panel-header .pv-header-wordmark {
-    height: 22px;
+    height: 18px;
   }
 
   .pv-bounty-badge {
