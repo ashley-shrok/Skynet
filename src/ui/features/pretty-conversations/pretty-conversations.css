@@ -1186,6 +1186,14 @@
      everything below them. Sizes here target ~44px touch-target with a
      matching bump to the logo + title so the whole header row looks
      coherent with the pretty-row density beneath. */
+  /* Shrink outer header vertical padding on mobile to match the smaller
+     48px buttons + 32px logo (Ashley 2026-08-17 follow-up to #459: the
+     14px top/bottom read as too much empty space around the shrunken row).
+     Horizontal padding + border-bottom + gap-to-WeeklyUsageMeter unchanged. */
+  .pv-panel-header {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
   .pv-panel-header .pv-pencil,
   .pv-panel-header .pv-filter {
     width: 48px;
