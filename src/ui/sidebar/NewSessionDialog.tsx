@@ -1081,6 +1081,39 @@ export function NewSessionDialog({
                 />
               </div>
 
+              {/* Voice picker — reused from pretty-view/pickers (plan 03) */}
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="new-identity-voice"
+                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+                >
+                  Voice
+                </label>
+                <VoicePicker
+                  value={voice}
+                  onChange={(v) => !formDisabled && setVoice(v)}
+                  id="new-identity-voice"
+                  ariaLabel="Voice"
+                  disabled={formDisabled}
+                />
+              </div>
+
+              {/* Color picker — reused from pretty-view/pickers (plan 03) */}
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="new-identity-color"
+                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+                >
+                  Color
+                </label>
+                <ColorPicker
+                  value={colorHue}
+                  onChange={(v) => !formDisabled && setColorHue(v)}
+                  id="new-identity-color"
+                  disabled={formDisabled}
+                />
+              </div>
+
               {/* Avatar section */}
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
@@ -1190,39 +1223,6 @@ export function NewSessionDialog({
                     </button>
                   </div>
                 )}
-              </div>
-
-              {/* Voice picker — reused from pretty-view/pickers (plan 03) */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-identity-voice"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  Voice
-                </label>
-                <VoicePicker
-                  value={voice}
-                  onChange={(v) => !formDisabled && setVoice(v)}
-                  id="new-identity-voice"
-                  ariaLabel="Voice"
-                  disabled={formDisabled}
-                />
-              </div>
-
-              {/* Color picker — reused from pretty-view/pickers (plan 03) */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-identity-color"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  Color
-                </label>
-                <ColorPicker
-                  value={colorHue}
-                  onChange={(v) => !formDisabled && setColorHue(v)}
-                  id="new-identity-color"
-                  disabled={formDisabled}
-                />
               </div>
             </div>
           )}

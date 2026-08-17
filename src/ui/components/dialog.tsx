@@ -69,7 +69,7 @@ function DialogContent({
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[var(--radius-pv-card)] p-4 text-xs/relaxed",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[var(--radius-pv-card)] p-4 text-xs/relaxed overflow-x-hidden",
           "bg-[linear-gradient(180deg,rgba(28,30,40,0.90),rgba(18,20,28,0.94))]",
           "text-[color:var(--color-pv-fg)]",
           "border border-[color:var(--color-pv-border-quiet-strong)]",
