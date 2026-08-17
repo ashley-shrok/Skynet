@@ -56,7 +56,7 @@ import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
-import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Pin, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Search, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import { useTranslation } from "react-i18next";
 
@@ -367,14 +367,16 @@ export function PrettyConversationsPanel({
   // stays subscribed to `undefined` (short-circuit path). Dedup by composite
   // key protects the batch from a single identity appearing across multiple
   // panel sections (e.g. in both pinned AND active-set).
-  const activeSetRowsRef = useRef(activeSetRows);
+  // Phase 42 UAT amendment 2026-08-17: `activeSetRowsRef` retired alongside
+  // the Tier 1 active-set render tier — the store's snapshot.activeSet is now
+  // always an empty array, so the ref-and-iterate in the bounty-count poller
+  // getTargets closure below was a trivially-empty no-op.
   const pinnedRef = useRef(pinned);
   // Phase 41 Plan 01: refs for the new three-zone shape. `middleRef` replaces
   // `groupedRef`; `rdpGroupRef` is new. Both stay bumped on every render.
   const middleRef = useRef(middle);
   const rdpGroupRef = useRef(rdpGroup);
   const identitiesByKeyRef = useRef(identitiesByKey);
-  activeSetRowsRef.current = activeSetRows;
   pinnedRef.current = pinned;
   middleRef.current = middle;
   rdpGroupRef.current = rdpGroup;
@@ -396,7 +398,6 @@ export function PrettyConversationsPanel({
         idsSeen.add(composite);
         targets.push({ identityKey: ident.identityKey, hostId });
       };
-      for (const row of activeSetRowsRef.current) collect(row);
       for (const row of pinnedRef.current) collect(row);
       // Phase 41 Plan 01: walk `middle` (flat array) + `rdpGroup.rows` (via
       // the nullable rdpGroup) — replaces the retired grouped[].flatMap pass.
@@ -563,9 +564,11 @@ export function PrettyConversationsPanel({
   // stable across renders that don't change identitiesByKey, bountyCounts,
   // pinnedOnly, or needsDeskOnly.
   //
-  // Phase 26 D-06: symmetric active-set exemption — active-set tier is
-  // never passed through this filter (displayedActiveSetRows = activeSetRows
-  // below). The exemption is tier-scoped, not identity-scoped.
+  // Phase 26 D-06 (as amended by Phase 42 UAT amendment 2026-08-17): the
+  // symmetric active-set exemption was scoped to the retired Tier 1 render
+  // tier. With that tier gone, active-and-pinned rows now flow through the
+  // pinned filter and active-and-not-pinned rows flow through the middle
+  // filter — the exemption is moot.
   const matchesFilterForRow = useMemo(() => {
     return (row: ConversationRowShape): boolean => {
       const matchKey = sessionMatchKey(row.targetTmuxSession);
@@ -582,9 +585,9 @@ export function PrettyConversationsPanel({
     };
   }, [identitiesByKey, bountyCounts, pinnedOnly, needsDeskOnly]);
 
-  // Phase 26 D-02 (as amended by Phase 41 Plan 01): apply the AND-intersect
-  // filter to each render collection when EITHER toggle is on.
-  //   - `displayedActiveSetRows` = active-set tier UNCHANGED (D-06 exemption).
+  // Phase 26 D-02 (as amended by Phase 41 Plan 01, Phase 42 UAT amendment
+  // 2026-08-17): apply the AND-intersect filter to each render collection when
+  // EITHER toggle is on.
   //   - `displayedPinned` = pinned tier, filtered when a toggle is on.
   //   - `displayedMiddle` = FLAT middle zone, filtered when a toggle is on
   //     (was: `displayedGrouped: HostGroup[]` with per-group empty-drop; now
@@ -595,7 +598,9 @@ export function PrettyConversationsPanel({
   //     RDP rows never match the filter predicate anyway — no identity, no
   //     bounty counts). Pass through verbatim. When `rdpGroup === null` the
   //     downstream renderer skips the entire section (Ashley lock #7).
-  const displayedActiveSetRows = activeSetRows;
+  //   - The former `displayedActiveSetRows` (D-06 exemption) is retired
+  //     alongside the Tier 1 activeSet render tier; `activeSetRows` in the
+  //     destructure is now always an empty array from the store snapshot.
   const displayedPinned = anyFilterOn
     ? pinned.filter(matchesFilterForRow)
     : pinned;
@@ -1180,73 +1185,16 @@ export function PrettyConversationsPanel({
           </div>
         ) : (
           <>
-        {/* Patch #149 B+C: active-set rows overtake pinned per Ashley 2026-07-24.
-                Rows here get pinned={pinnedIds.has(row.id)} so a row that IS pinned
-                AND active still shows the pin glyph.
-                Patch #195 (Ashley 2026-07-29): sublabel switched to
-                subtitleMode="identityTitle" — active-set rows now match pinned
-                + host-grouped in reading identity.title (fallback identity.
-                displayName, terminal fallback hostname). Closes the scope gap
-                left by quick-260727-f9v + #184 that only switched pinned +
-                grouped and left the active-set default at "hostname". */}
-            {displayedActiveSetRows.length > 0 && (
-              <div className="pv-panel-group" data-active-set-group="true">
-                {displayedActiveSetRows.map((row) => (
-                  <PrettyConversationRowLive
-                    key={row.id}
-                    row={row}
-                    selected={row.id === selectedId}
-                    pinned={isRowPinned(row)}
-                    hidden={hiddenIds.has(row.id)}
-                    variant={variant}
-                    onSelect={() => handleRowSelect(row)}
-                    onTogglePin={() => handleTogglePin(row)}
-                    onDeactivate={() => handleRowDeactivate(row)}
-                    onToggleHide={() => handleToggleHide(row)}
-                    onClone={() => handleRowClone(row)}
-                    onKill={() => handleRowKill(row)}
-                    inActiveSet={activeSet.has(row.id)}
-                    sessionKey={sessionWorkingKey(row)}
-                    subtitleMode="identityTitle"
-                  />
-                ))}
-              </div>
-            )}
-            {/* Pinned rows. Patch #234: a "Pinned" divider chip renders
-                above the pinned tier when displayedPinned.length > 0,
-                mirroring the RDP divider chip pattern (Pin glyph + uppercase
-                muted label + gradient rule). Chip is gated on length so an
-                empty pinned tier stays visually absent (no lonely header).
-                Patch #137: live isWorking + inActiveSet wiring per row.
-                The panel-level activeSet subscription is hoisted once
-                (above); each row's isWorking is read inside
-                PrettyConversationRowLive so the store subscription happens
-                at a stable hook-call site. Same wiring repeats at the two
-                grouped render sites below. Patch #144 Fix (e): pinned rows
-                now share the same `pv-panel-group` wrapper as the grouped
-                sections so intra-group row gap (8px) is uniform with
-                between-group gap. */}
+            {/* Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): active-set
+                top zone retired — active-set rows now flow through to pinned
+                (if pinned) or middle (by recency). Pinned tier still renders
+                inside `.pv-panel-group[data-pinned-group="true"]` with per-row
+                inActiveSet={activeSet.has(row.id)} wiring preserved to gate the
+                `.active-set` CSS deactivate-action hover-reveal. The "Pinned"
+                divider chip previously rendered above this group is also
+                retired (Ashley verbatim: "the pinned header should go away
+                entirely"). */}
             <div className="pv-panel-group" data-pinned-group="true">
-              {displayedPinned.length > 0 && (
-                <div
-                  className={`flex items-center gap-2 px-4 pb-1.5 ${
-                    displayedActiveSetRows.length > 0 ? "pt-3" : "pt-0.5"
-                  }`}
-                  data-testid="pinned-divider"
-                >
-                  <Pin
-                    className="size-3 text-[#5c6070]/85 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
-                    Pinned
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
-                  />
-                </div>
-              )}
               {displayedPinned.map((row) => (
                 <PrettyConversationRowLive
                   key={row.id}

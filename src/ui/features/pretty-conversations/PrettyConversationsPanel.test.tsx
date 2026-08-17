@@ -479,46 +479,37 @@ describe("PrettyConversationsPanel: load-in-flight affordance", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 18 — active-set group renders ABOVE pinned group (Patch #149 B+C)
+// Test 18 — active-set top zone RETIRED (Phase 42 UAT amendment 2026-08-17)
 // ─────────────────────────────────────────────────────────────────────────────
+// Ashley verbatim: "sessions are still showing above the pinned area when they
+// are active in the current instance of the client. That shouldn't happen."
+// The panel no longer renders a `[data-active-set-group="true"]` wrapper
+// regardless of what the store snapshot's activeSet field reports. The
+// per-row `inActiveSet={activeSet.has(row.id)}` prop threading and .active-set
+// CSS gate for the deactivate-action hover-reveal are preserved on every
+// surviving render site (search-flat, pinned, middle, RDP).
 
-describe("PrettyConversationsPanel: active-set group above pinned (Patch #149 B+C)", () => {
-  it("Test 18: data-active-set-group=true renders above data-pinned-group=true in DOM order", () => {
+describe("PrettyConversationsPanel: active-set top zone RETIRED (Phase 42 UAT amendment 2026-08-17)", () => {
+  it("Test 18: no data-active-set-group=true wrapper renders when store's activeSet snapshot field is empty", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
-      activeSet: [
-        makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
-      ],
+      activeSet: [],
       pinned: [
         makeConversationRow({ id: "pinned-1", label: "pinned-session", host: hostA }),
       ],
-      grouped: [],
+      middle: [],
     });
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    const activeGroup = container.querySelector(
-      '[data-active-set-group="true"]',
-    ) as HTMLElement | null;
+    // Retired: no active-set wrapper renders.
+    expect(container.querySelector('[data-active-set-group="true"]')).toBeNull();
+
+    // Pinned row still renders inside `[data-pinned-group="true"]`.
     const pinnedGroup = container.querySelector(
       '[data-pinned-group="true"]',
     ) as HTMLElement | null;
-
-    expect(activeGroup).toBeTruthy();
     expect(pinnedGroup).toBeTruthy();
-
-    // active-set group must precede pinned group in DOM order
-    // Node.DOCUMENT_POSITION_FOLLOWING = 4
-    expect(activeGroup!.compareDocumentPosition(pinnedGroup!) & 4).toBe(4);
-
-    // active-1 renders inside the active-set group
-    const activeRow = container.querySelector(
-      '[data-conversation-id="active-1"]',
-    ) as HTMLElement | null;
-    expect(activeRow).toBeTruthy();
-    expect(activeGroup!.contains(activeRow!)).toBe(true);
-
-    // pinned-1 renders inside the pinned group
     const pinnedRow = container.querySelector(
       '[data-conversation-id="pinned-1"]',
     ) as HTMLElement | null;
@@ -526,20 +517,24 @@ describe("PrettyConversationsPanel: active-set group above pinned (Patch #149 B+
     expect(pinnedGroup!.contains(pinnedRow!)).toBe(true);
   });
 
-  it("Test 18b: active-set rows render when pinned+grouped are empty", () => {
+  it("Test 18b: no data-active-set-group=true wrapper renders even when the mock snapshot is seeded with activeSet rows (defensive — the render block was deleted)", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
+      // Defensively seed a non-empty activeSet — the panel does NOT render
+      // an active-set wrapper regardless of what the mock reports, since the
+      // render block was deleted in Phase 42 UAT amendment 2026-08-17.
       activeSet: [
         makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
       ],
       pinned: [],
-      grouped: [],
+      middle: [],
     });
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-    expect(
-      container.querySelector('[data-conversation-id="active-1"]'),
-    ).toBeTruthy();
+    expect(container.querySelector('[data-active-set-group="true"]')).toBeNull();
+    // Also: the (hypothetically) active-set row does NOT appear anywhere in the
+    // rendered DOM, because the tier that used to render it is gone.
+    expect(container.querySelector('[data-conversation-id="active-1"]')).toBeNull();
   });
 });
 
@@ -582,12 +577,12 @@ describe("PrettyConversationsPanel: pinned-first ordering", () => {
 // Test 3 — "Pinned" divider chip (patch #234); per-host divider chip
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: 'Pinned' divider chip (patch #234) — per-host chip RETIRED in Phase 41 Plan 01", () => {
-  it('Test 3 (updated Phase 41 Plan 01): renders a "Pinned" divider chip above pinned rows; per-host chip is GONE', () => {
-    // Patch #234: pinned tier gets a divider chip when pinned.length > 0.
-    // Phase 41 Plan 01: the per-host divider chip above the middle zone was
-    // RETIRED (Ashley 2026-08-14 — flat recency-sorted middle). Only the
-    // "Pinned" chip + the RDP chip survive.
+describe("PrettyConversationsPanel: 'Pinned' divider chip RETIRED (Phase 42 UAT amendment 2026-08-17)", () => {
+  // Ashley verbatim 2026-08-17: "Also the pinned header should go away entirely."
+  // The divider chip (Pin icon + uppercase "Pinned" label + gradient rule) that
+  // patch #234 introduced above the pinned tier is retired unconditionally.
+  // The pinned tier itself still renders inside `[data-pinned-group="true"]`.
+  it('Test 3 (updated 2026-08-17): NO "Pinned" divider chip renders even when the pinned tier has rows; per-host chip is still gone', () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       pinned: [makeConversationRow({ id: "a", label: "alpha", host: hostA })],
@@ -599,26 +594,29 @@ describe("PrettyConversationsPanel: 'Pinned' divider chip (patch #234) — per-h
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    // Patch #234: "Pinned" divider chip present, INSIDE the pinned wrapper.
+    // Phase 42 UAT amendment 2026-08-17: "Pinned" divider chip retired.
     const pinnedChip = container.querySelector(
       '[data-testid="pinned-divider"]',
     ) as HTMLElement | null;
-    expect(pinnedChip).toBeTruthy();
-    expect(pinnedChip!.textContent).toMatch(/Pinned/);
+    expect(pinnedChip).toBeNull();
+
+    // Pinned wrapper still renders and the pinned row lands inside it.
     const pinnedGroup = container.querySelector(
       '[data-pinned-group="true"]',
     ) as HTMLElement | null;
     expect(pinnedGroup).toBeTruthy();
-    expect(pinnedGroup!.contains(pinnedChip!)).toBe(true);
+    const pinnedRow = container.querySelector(
+      '[data-conversation-id="a"]',
+    ) as HTMLElement | null;
+    expect(pinnedRow).toBeTruthy();
+    expect(pinnedGroup!.contains(pinnedRow!)).toBe(true);
 
-    // Phase 41 Plan 01: the per-host divider chip is RETIRED. Assert none.
+    // Per-host divider chip stays retired.
     const hostChip = container.querySelector('[data-testid="host-divider"]');
     expect(hostChip).toBeNull();
   });
 
-  it('Test 3B (patch #234): does NOT render the "Pinned" divider chip when pinned is empty', () => {
-    // Gating rule per Ashley: the chip only shows when there are pins.
-    // An empty pinned tier stays visually absent — no lonely header.
+  it('Test 3B (updated 2026-08-17): does NOT render the "Pinned" divider chip when pinned is empty (assertion body unchanged; describe copy updated to reflect unconditional retirement)', () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       pinned: [],
@@ -693,7 +691,12 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
     expect(middleGroup!.querySelector('[data-conversation-id="c2"]')).toBeTruthy();
   });
 
-  it("Test 19B (rewritten): active-set + pinned + middle → NO host-divider chip renders anywhere in the panel", () => {
+  it("Test 19B (rewritten Phase 42 UAT amendment 2026-08-17): pinned + middle rows render without host-divider chips; no active-set wrapper renders", () => {
+    // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): active-set render
+    // tier retired — no `[data-active-set-group="true"]` wrapper renders
+    // regardless of what the mock's activeSet field reports. The pinned
+    // wrapper still renders and the middle row lands in the flat middle
+    // container.
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       activeSet: [
@@ -716,14 +719,13 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
     ) as HTMLElement[];
     expect(chips.length).toBe(0);
 
-    // Active-set + pinned wrappers exist as structural preconditions.
-    const activeGroup = container.querySelector(
-      '[data-active-set-group="true"]',
-    ) as HTMLElement | null;
+    // Retired: no active-set wrapper renders even when the mock seeds one.
+    expect(container.querySelector('[data-active-set-group="true"]')).toBeNull();
+
+    // Pinned wrapper still renders as a structural precondition.
     const pinnedGroup = container.querySelector(
       '[data-pinned-group="true"]',
     ) as HTMLElement | null;
-    expect(activeGroup).toBeTruthy();
     expect(pinnedGroup).toBeTruthy();
 
     // Middle row also renders (inside the flat middle container).
@@ -827,17 +829,20 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
 
 describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () => {
   it("Test 20A: desktop active-set non-RDP row → contextmenu opens portal menu carrying BOTH Pin and Deactivate items (post quick-260730-o2m: actions moved out of .pv-meta into the right-click menu; menu order is Pin then Deactivate per source items[].push order)", () => {
+    // Phase 42 UAT amendment 2026-08-17: the Tier 1 active-set render tier
+    // was retired — active-set rows now flow through to pinned (if pinned)
+    // or middle (by recency). The row is seeded into `middle` and marked
+    // active-in-set via `mockActiveSet` so the row's `inActiveSet` prop is
+    // true and the Deactivate menu item is eligible.
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
-      activeSet: [
+      activeSet: [],
+      pinned: [],
+      middle: [
         makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
       ],
-      pinned: [],
-      grouped: [],
     });
-    // The row is in the panel's `activeSetRows` (structural tier 1) AND the
-    // useActiveSet ReadonlySet (drives the row's inActiveSet prop) — both
-    // are required to hit the "Deactivate menu item eligible" branch.
+    // The row's inActiveSet prop is driven by useActiveSet (mockActiveSet).
     mockActiveSet = new Set<string>(["active-1"]);
 
     const { container } = render(
@@ -959,13 +964,15 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     //
     // The context menu's item-click handler calls e.stopPropagation(), so
     // the row-body onSelect path still never runs.
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
-      activeSet: [
+      activeSet: [],
+      pinned: [],
+      middle: [
         makeConversationRow({ id: "active-1", label: "active-session", host: hostA }),
       ],
-      pinned: [],
-      grouped: [],
     });
     mockActiveSet = new Set<string>(["active-1"]);
 
@@ -1019,9 +1026,13 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   // — otherwise the fleet id gets orphaned in state.activeSet and Tier 1
   // re-promotes the row on the next computeSnapshot.
   it("Test 20F: clicking the Deactivate menu item on a fleet-derived active-set row purges BOTH id shapes — removeFromActiveSet(row.id) AND removeFromActiveSet(fleet::hostId::sessionName)", () => {
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostThenasty = makeHost("3", "thenasty");
     setSnapshot({
-      activeSet: [
+      activeSet: [],
+      pinned: [],
+      middle: [
         makeConversationRow({
           id: "active-1",
           label: "shrok",
@@ -1029,8 +1040,6 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
           targetTmuxSession: "shrok",
         }),
       ],
-      pinned: [],
-      grouped: [],
     });
     mockActiveSet = new Set<string>(["active-1", "fleet::3::shrok"]);
 
@@ -1067,9 +1076,13 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   // targetTmuxSession=null exercises the same short-circuit branch of the
   // `if (row.host && row.targetTmuxSession)` guard.)
   it("Test 20G: clicking the Deactivate menu item on a row with no targetTmuxSession skips the fleet-id sibling purge — removeFromActiveSet called exactly once with row.id, no crash", () => {
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
-      activeSet: [
+      activeSet: [],
+      pinned: [],
+      middle: [
         makeConversationRow({
           id: "active-2",
           label: "orphan",
@@ -1077,8 +1090,6 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
           targetTmuxSession: null,
         }),
       ],
-      pinned: [],
-      grouped: [],
     });
     mockActiveSet = new Set<string>(["active-2"]);
 
@@ -1125,10 +1136,12 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
       host: hostA,
       targetTmuxSession: "ordering-session",
     });
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     setSnapshot({
-      activeSet: [activeRow],
+      activeSet: [],
       pinned: [],
-      grouped: [],
+      middle: [activeRow],
     });
     mockActiveSet = new Set<string>(["active-h", "fleet::7::ordering-session"]);
 
@@ -1174,6 +1187,8 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
 // active-set-tier render sites (active-set map + grouped host map).
 describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognition (quick-260807-e4s)", () => {
   it("Test E4S-01: active-set row whose pin lives under fleet::HOSTID::SESSIONNAME shows Unpin (not Pin) in the right-click context menu", () => {
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostA = makeHost("1", "hostA");
     const activeRow = makeConversationRow({
       id: "active-alpha",
@@ -1182,9 +1197,9 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
       targetTmuxSession: "alpha",
     });
     setSnapshot({
-      activeSet: [activeRow],
+      activeSet: [],
       pinned: [],
-      grouped: [],
+      middle: [activeRow],
       pinnedIds: new Set(["fleet::1::alpha"]),
     });
     mockActiveSet = new Set<string>(["active-alpha"]);
@@ -1216,6 +1231,8 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
   // togglePinConversation(openTabId) found openTabId NOT in pinnedIds and
   // added it, leaving the fleet-shadow pin in place forever).
   it("Test E4S-02: clicking Unpin on an active-set row whose pin lives under fleet::HOSTID::SESSIONNAME calls unpinConversation with the fleet id (not pinConversation with the openTab id)", async () => {
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostA = makeHost("1", "hostA");
     const activeRow = makeConversationRow({
       id: "active-alpha",
@@ -1224,9 +1241,9 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
       targetTmuxSession: "alpha",
     });
     setSnapshot({
-      activeSet: [activeRow],
+      activeSet: [],
       pinned: [],
-      grouped: [],
+      middle: [activeRow],
       pinnedIds: new Set(["fleet::1::alpha"]),
     });
     mockActiveSet = new Set<string>(["active-alpha"]);
@@ -1261,6 +1278,8 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
   // id must land the pin under the CANONICAL (fleet-synthetic) shape so the
   // pin survives openTab-id churn across URL-restores.
   it("Test E4S-03: clicking Pin on an unpinned active-set row with host+targetTmuxSession pins under the fleet-synthetic canonical id (not the openTab id)", async () => {
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     const hostA = makeHost("1", "hostA");
     const activeRow = makeConversationRow({
       id: "active-alpha",
@@ -1269,9 +1288,9 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
       targetTmuxSession: "alpha",
     });
     setSnapshot({
-      activeSet: [activeRow],
+      activeSet: [],
       pinned: [],
-      grouped: [],
+      middle: [activeRow],
       pinnedIds: new Set(),
     });
     mockActiveSet = new Set<string>(["active-alpha"]);
@@ -2155,11 +2174,19 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     expect(container.querySelectorAll('[data-testid="host-divider"]').length).toBe(0);
   });
 
-  it("Test 28: active-set tier is exempt from BOTH filter predicates when both toggles are on", () => {
-    // Phase 26 D-06 symmetric exemption: nelly in active-set (pinned=0, desk=0)
-    // must remain visible even when both toggles are on. nelly in pinned tier
-    // (same counts) gets filtered out — exemption is tier-scoped, not identity-scoped.
-    // tina in grouped (pinned=3, desk=1) also survives the AND filter.
+  it("Test 28 (rewritten Phase 42 UAT amendment 2026-08-17): D-06 active-set exemption RETIRED — active-set rows now flow through pinned/middle filters like any other row", () => {
+    // Phase 26 D-06 symmetric exemption was scoped to the retired Tier 1
+    // active-set render tier. With that tier gone (Phase 42 UAT amendment
+    // 2026-08-17, Ashley verbatim: "sessions are still showing above the
+    // pinned area when they are active in the current instance of the
+    // client. That shouldn't happen."), the exemption is moot — active-and-
+    // pinned rows flow through the pinned bounty-count filter and active-
+    // and-not-pinned rows flow through the middle bounty-count filter.
+    //
+    // Contract: seed a middle row (nelly-active — active in useActiveSet but
+    // not pinned) with counts (pinned=0, desk=0). With both bounty toggles
+    // ON, nelly-active is filtered out — no more exemption. tina-middle with
+    // (pinned=3, desk=1) survives the AND filter.
     const host1 = makeHost("1", "hostA");
     mockIdentitiesByKey = new Map([
       ["nelly-session", { identityKey: "nelly" }],
@@ -2170,22 +2197,17 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
       ["tina:1", { pinnedCount: 3, needsDeskCount: 1 }],
     ]);
     setSnapshot({
-      activeSet: [
+      activeSet: [],
+      pinned: [],
+      middle: [
         makeConversationRow({ id: "nelly-active", targetTmuxSession: "nelly-session", host: host1 }),
-      ],
-      pinned: [
-        makeConversationRow({ id: "nelly-pinned", targetTmuxSession: "nelly-session", host: host1 }),
-      ],
-      grouped: [
-        {
-          hostId: "1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "tina-grouped", targetTmuxSession: "tina-session", host: host1 }),
-          ],
-        },
+        makeConversationRow({ id: "tina-middle", targetTmuxSession: "tina-session", host: host1 }),
       ],
     });
+    // Mark nelly-active as in the useActiveSet — the row's inActiveSet prop
+    // is true, but that no longer confers exemption from bounty-count filters.
+    mockActiveSet = new Set<string>(["nelly-active"]);
+
     const { container, getByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
@@ -2193,12 +2215,12 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     fireEvent.click(getByTestId("pv-filter-toggles"));
     fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
     fireEvent.click(screen.getByTestId("pv-filter-toggle-needs-desk"));
-    // Active-set row shows despite nelly having (pinned=0, desk=0).
-    expect(container.querySelector('[data-conversation-id="nelly-active"]')).toBeTruthy();
-    // Pinned-tier row with (pinned=0, desk=0) is still filtered out — tier-scoped exemption.
-    expect(container.querySelector('[data-conversation-id="nelly-pinned"]')).toBeFalsy();
-    // Grouped row with (pinned=3, desk=1) survives AND filter.
-    expect(container.querySelector('[data-conversation-id="tina-grouped"]')).toBeTruthy();
+
+    // D-06 retired: nelly-active (in useActiveSet, but pinned=0/desk=0) is
+    // filtered out of the middle just like any other row.
+    expect(container.querySelector('[data-conversation-id="nelly-active"]')).toBeFalsy();
+    // tina-middle with (pinned=3, desk=1) survives the AND filter.
+    expect(container.querySelector('[data-conversation-id="tina-middle"]')).toBeTruthy();
   });
 
   it("Test 29: small dot disappears when both toggles are turned back off", () => {
@@ -2511,8 +2533,11 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
   // without an identity Clone is auto-hidden, so the order collapses to
   // Pin, Hide, Move to new window, Deactivate.
   it("Test (g): context menu on a non-hidden active-set row shows Pin/Hide/Move-to-new-window/Deactivate in order", async () => {
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     setSnapshot({
-      activeSet: [
+      activeSet: [],
+      middle: [
         makeConversationRow({ id: "active-row-g", label: "active-g", host: hostA }),
       ],
       hiddenIds: new Set(),
@@ -2602,8 +2627,11 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
 
   // (j) Clicking Hide from context menu on an active-set row triggers handleRowDeactivate FIRST then hideConversation
   it("Test (j): clicking Hide on an active-set row calls removeFromActiveSet BEFORE hideConversation (deactivate-first composition)", async () => {
+    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
+    // row into `middle` and mark active-in-set via `mockActiveSet`.
     setSnapshot({
-      activeSet: [
+      activeSet: [],
+      middle: [
         makeConversationRow({ id: "active-row-j", label: "active-j", host: hostA }),
       ],
       hiddenIds: new Set(),
@@ -3115,8 +3143,11 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
     sessionStorage.removeItem("pv-conv-search-hidden-once");
   });
 
-  it("Test F: empty query → three-zone view renders (pinned divider + rdp divider present)", () => {
+  it("Test F: empty query → three-zone view renders (pinned divider RETIRED per Phase 42 UAT amendment 2026-08-17; RDP divider still present)", () => {
     // Precondition: searchQuery starts as "" — three-zone view intact.
+    // Phase 42 UAT amendment 2026-08-17: the "Pinned" divider chip is
+    // retired unconditionally — absent both during filter and in the
+    // three-zone view. The RDP divider stays.
     const hostA = makeHost("h1", "hostA");
     const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
     setSnapshot({
@@ -3142,9 +3173,9 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Ashley lock: pinned divider visible, RDP divider visible, all rows
-    // in their respective zones.
-    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeTruthy();
+    // Pinned divider retired unconditionally; RDP divider still visible;
+    // all rows in their respective zones.
+    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
     expect(container.querySelector('[data-testid="rdp-divider"]')).toBeTruthy();
     expect(container.querySelector('[data-conversation-id="p1"]')).toBeTruthy();
     expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
@@ -3369,8 +3400,10 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
     expect(clearBtn).toBeTruthy();
     fireEvent.click(clearBtn);
 
-    // Dividers back.
-    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeTruthy();
+    // RDP divider back; pinned divider stays retired unconditionally
+    // (Phase 42 UAT amendment 2026-08-17 — absent during filter AND in the
+    // three-zone view).
+    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
     expect(container.querySelector('[data-testid="rdp-divider"]')).toBeTruthy();
     // All rows visible again.
     expect(container.querySelector('[data-conversation-id="p1"]')).toBeTruthy();

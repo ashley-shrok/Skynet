@@ -626,7 +626,7 @@ function computeSnapshot(): ConversationList {
   // "sessions are still showing above the pinned area when they are active
   //  in the current instance of the client. That shouldn't happen. Also the
   //  pinned header should go away entirely."
-  // The Tier 1 (activeSet) render tier is retired — active-and-pinned rows
+  // The former Tier-1 activeSet render tier is retired — active-and-pinned rows
   // stay in the pinned tier; active-and-not-pinned rows fall through to
   // middle by recency. The `activeSet` field in the returned snapshot shape
   // is kept as an always-empty ConversationRow[] to avoid destructure churn
