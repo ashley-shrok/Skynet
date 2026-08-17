@@ -828,14 +828,18 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
 //                  untouched regression guards
 // ─────────────────────────────────────────────────────────────────────────────
 // Direct regression guards for the strip: the always-visible desktop
-// PinAction + DeactivateAction icons in .pv-meta are gone; both actions live
-// ONLY in the right-click context menu (unconditional on desktop non-RDP) and
-// the mobile swipe strip (untouched). The four tests below lock this:
+// PinAction + DeactivateAction icons in .pv-meta are gone; Pin action lives
+// in the right-click context menu (unconditional on desktop non-RDP) and
+// the mobile swipe strip (untouched). Deactivate was removed from the
+// context menu 2026-08-17 (Ashley); swipe-LEFT remains the sole UI trigger.
+// The four tests below lock this:
 //   18c — no PinAction / no DeactivateAction in desktop .pv-meta
-//   18d — desktop contextmenu opens portal menu with Pin + Deactivate items
-//         when inActiveSet AND onDeactivate provided
-//   18e — desktop contextmenu opens portal menu with Pin only when
-//         !inActiveSet
+//   18d — desktop contextmenu opens portal menu with Pin but NEVER Deactivate
+//         (regardless of inActiveSet + onDeactivate)
+//   18e — desktop contextmenu opens portal menu with Pin only (Deactivate
+//         absent) when !inActiveSet — same invariant as 18d, kept as a
+//         redundant guard against a regression that only fires on the
+//         inActiveSet=false branch
 //   18f — mobile contextmenu is a no-op (no portal menu) AND mobile
 //         swipe-strip PinAction IS present
 
@@ -863,7 +867,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     ).toBeNull();
   });
 
-  it("Test 18d: desktop non-RDP row body has onContextMenu; contextmenu opens portal menu with Pin + Deactivate items when inActiveSet + onDeactivate provided", () => {
+  it("Test 18d: desktop non-RDP row body has onContextMenu; contextmenu opens portal menu with Pin — Deactivate is NEVER in the menu even with inActiveSet + onDeactivate provided (removed 2026-08-17)", () => {
     currentIdentity = makeIdentity(210, "nelly");
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -886,15 +890,15 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
     expect(
-      within(menu).getByRole("menuitem", { name: /deactivate/i }),
-    ).toBeTruthy();
+      within(menu).queryByRole("menuitem", { name: /deactivate/i }),
+    ).toBeNull();
   });
 
   it("Test 18e: desktop non-RDP row NOT in active-set opens the context menu with only `Pin` (no `Deactivate`)", () => {
-    // Predicate mirrors PrettyConversationRow.tsx:
-    //   if (inActiveSet && onDeactivate) items.push({ label: "Deactivate", … })
-    // → when inActiveSet is false, Deactivate is filtered out and only Pin
-    // remains.
+    // Ashley 2026-08-17 removed the Deactivate menu item entirely — it no
+    // longer renders regardless of inActiveSet. Kept as a redundant guard
+    // against a regression that only manifests on the inActiveSet=false
+    // branch (semantically identical to Test 18d now).
     currentIdentity = makeIdentity(210, "nelly");
     const { container } = render(
       <PrettyConversationRow

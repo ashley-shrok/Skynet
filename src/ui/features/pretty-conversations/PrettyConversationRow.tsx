@@ -1190,19 +1190,17 @@ export function PrettyConversationRow({
                 });
               }
             }
-            if (inActiveSet && onDeactivate) {
-              items.push({
-                label: "Deactivate",
-                onClick: onDeactivate,
-                danger: true,
-              });
-            }
+            // Deactivate menu item removed 2026-08-17 (Ashley). The swipe-LEFT
+            // gesture on mobile remains the sole UI trigger for deactivate;
+            // panel-level handleRowDeactivate composition (removeFromActiveSet
+            // + onDeactivateRow) is untouched. The `onDeactivate` prop still
+            // threads through so swipe-LEFT can call it.
             // quick-260810-n3a: Kill — hard-terminates the underlying tmux
             // session on the host via POST /host/:hostId/session/kill.
             // Gated: onKill provided AND !isRdp AND no identity resolved
             // AND row.targetTmuxSession is non-null. Identity rows have
             // real /id save state and must not be nuked from a context
-            // menu (intentional scope fence). Render AFTER Deactivate —
+            // menu (intentional scope fence). Rendered last in the menu —
             // destructive-most at the bottom per bounty spec.
             if (
               onKill &&
