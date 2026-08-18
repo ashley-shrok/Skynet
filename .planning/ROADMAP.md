@@ -1224,3 +1224,20 @@ Plans:
 **UI hint:** yes, source-visible UI redesign. The conversation list on the left/side panel loses its per-host divider chips, adopts messaging-app recency sort in the middle, hides the ambient-row dimming, adds a search bar that reveals on scroll-up. Same three-zone rendering surface, new order and new search affordance. iOS PWA + desktop both.
 
 **History note:** Phase originally numbered 41 in this identity's tree (started 2026-08-14). Collided with Tanya's independent Phase 41 (`defer-terminal-view-mount`) — the sixth known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Renumbered to 42 during rescue-rebase 2026-08-17 after Tanya's Phase 41 shipped as patch #455; 5 code commits cherry-picked cleanly onto origin (Tanya #455 + Tiffany #456 base), planning artifacts renamed 41-* → 42-*, ROADMAP + STATE re-added under new number. Ashley 2026-08-17 verbatim on the renumber: *"Don't really care what you do with the phase number."* Original commit history preserved on backup branch `tina-phase41-backup` locally. Code state is byte-equivalent to what shipped under Phase 41's SUMMARY.md files (see 42-01-SUMMARY.md, 42-02-SUMMARY.md, 42-03-SUMMARY.md — internal references were bulk-updated 41-* → 42-* but content is otherwise verbatim).
+
+### Phase 43: Replace PrettyView virtualization with plain-DOM windowed pagination (drop-oldest working set)
+
+**Goal:** Retire the Phase 27/28/32 TanStack Virtual message list in favor of a plain-DOM scroller backed by a bounded working-set window. Initial connect loads the last N messages (not the whole conversation), scrolling near the top triggers a fetch-and-prepend of the previous batch, and the working set is capped: when in-memory messages exceed the cap during a long live session, the oldest are dropped from the DOM and refetched on demand if the user scrolls back. The browser's built-in `overflow-anchor: auto` preserves visible content across prepends and image-load height changes. Auto-scroll collapses from three fighting actors (user scroll, virtualizer correction writes, follow-to-bottom logic) to one: user scroll — the follow-to-bottom rule becomes "if pinned when new message arrives, scroll to bottom." Backend WS gains a `historyWindow: N` handshake param bounding the initial `-n +1` replay and a new `fetch_older` request for range reads; the observation channel (layer1-detect, context-pct, plan-pending, backgroundedAgents/Shells, id-reset) still tails the whole file untouched.
+
+**Requirements**: None assigned — LOCKED decisions in `43-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40/41/42 pattern).
+
+**Depends on:** Phase 27 (virtualization introduction — being retired), Phase 28 (virt correctness cluster — being retired), Phase 32 (auto-scroll three-case hook — being simplified)
+
+**Plans:** to-be-planned
+
+Plans:
+- [ ] TBD
+
+**UI hint:** partial source-visible UI change. The PrettyView chat scroller behaves like a normal DOM scroller — no more virt-jitter, image-bubble grows cleanly, no jump-back on tall-bubble re-measure. A "load older" indicator may appear briefly near the top when scrolling back past the loaded window. Otherwise the render is byte-equivalent to current per-bubble output. iOS PWA + desktop both.
+
+**Bounty:** `replace-pv-virtualization-with-windowed-pagination` (created 2026-08-18) — Ashley 2026-08-18 verbatim: *"I really feel like a solution where we don't virtualize but instead load as the user scrolls up would be most of what we need because we don't have to care about heights then."* Retires the multi-attempt virt saga (Phase 27 landed, Phase 28 correctness cluster, patch #373 temp-disable, Phase 32 auto-scroll redesign, patch #437 tall-bubble RO split) with a categorically different architecture where the estimate-and-correct height problem simply does not exist.
