@@ -6,11 +6,8 @@ import { registerPane, type PaneSnapshot } from "@/lib/diag-registry";
 import { Button } from "@/components/button";
 import {
   openClaudeSessionSocket,
-  sendFetchOlder,
-  isFetchOlderBatchEvent,
   type ClaudeSessionServerEvent,
   type ConnectToPanePayload,
-  type FetchOlderPayload,
   type HarnessTask,
   type BackgroundedAgent,
   type BackgroundedShell,
@@ -91,26 +88,13 @@ const AUTO_ASIDE_ARM_ENABLED = false;
 // two files stay independent per bounty guidance (no shared helper invented).
 const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000;
 
-// ── Phase 43 Plan 43-07b — windowed-pagination constants ──────────────────
-// Planner-locked per 43-CONTEXT.md § "Working set" and § "Load-older UX".
-// Any changes to these values must go through a fresh Phase 43 planning
-// pass (drop-oldest and refetch pathways were sized against these).
-//
-// INITIAL_WINDOW   — how many messages the client asks for on connect
-//                    (backend caps tail -F to -n INITIAL_WINDOW).
-// WORKING_SET_CAP  — max messages in DOM at once; drop-oldest fires past this.
-// REFETCH_BATCH_SIZE — how many messages a fetch_older request asks for.
-// NEAR_TOP_TRIGGER_PX — scroll threshold from the top that fires fetch_older.
-// LOAD_OLDER_DEBOUNCE_MS — debounce window preventing parallel fetches on
-//                    flick-scrolls.
-// LOADING_HINT_THRESHOLD_MS — silent-when-fast threshold; hint only appears
-//                    if the fetch is slower than this.
-const INITIAL_WINDOW = 50;
+// ── Phase 45 — client-side working-set cap ────────────────────────────────
+// WORKING_SET_CAP — max messages in DOM at once; drop-oldest fires past this.
+// Server emits every JSONL line on connect (tail -F -n +1); client caps the
+// sustained message array to this size to bound memory on long sessions.
+// Loss of scroll-back-forever is explicit trade-off per Phase 45 UAT — see
+// .planning/phases/45-fix-forward-on-phase-43-restore-correct-architecture-for-win/45-CONTEXT.md § "Client architecture" for rationale.
 const WORKING_SET_CAP = 150;
-const REFETCH_BATCH_SIZE = 50;
-const NEAR_TOP_TRIGGER_PX = 500;
-const LOAD_OLDER_DEBOUNCE_MS = 250;
-const LOADING_HINT_THRESHOLD_MS = 150;
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
@@ -218,15 +202,12 @@ function appendDedup(
   return [...prev, next];
 }
 
-// Phase 43 Plan 43-07b — live-append with drop-oldest cap. Wraps appendDedup
-// with a bounded working-set cap so long-lived sessions don't grow the DOM
-// without bound. Drops from the OLDEST end (head) since the user is almost
-// certainly reading the newest tail; if they later scroll back, the
-// fetch_older path re-hydrates the previously-dropped range from the JSONL
-// file on disk. Original `appendDedup` retained above — it is still callable
-// wherever an unbounded append is appropriate (currently no such callers,
-// but the tiny helper is worth keeping alongside its capped companion so
-// the two live together as a documented pair).
+// Live-append with drop-oldest cap. Enforced during both initial hydration
+// (as the server drains its full-file emission the client drops-oldest as it
+// grows past CAP) AND live-tail (post-hydration frames continue to enforce
+// the same cap so long-lived sessions bound their memory). Original
+// `appendDedup` retained above as a documented pair per plan 43-07b
+// key-decisions; deleting it is out of scope for Phase 45.
 function appendDedupWithCap<T extends { eventId: string }>(
   prev: T[],
   next: T,
@@ -758,134 +739,6 @@ export function PrettyView({
   // force-on-send). See 32-CONTEXT.md § Decisions LOCKED.
   const { scrollRef, scrollToBottomAndFollow, isPinnedToBottom } = useAutoScroll(paneKey, messages.length);
 
-  // ── Phase 43 Plan 43-07b — windowed-pagination state ────────────────────
-  //
-  // Composed-ref pattern (LOCKED per plan-checker MED-3): useAutoScroll's
-  // return surface is frozen by 43-06 at exactly
-  //   { scrollRef, scrollToBottomAndFollow, isPinnedToBottom }.
-  // The fetch_older near-top-scroll trigger needs its OWN handle on the
-  // scroll element, so PrettyView composes locally: `composedScrollRef`
-  // forwards the element to useAutoScroll.scrollRef AND stores it in
-  // `scrollEl` state for a separate near-top-scroll listener effect.
-  // Attaching `composedScrollRef` on the outer scroll container (instead
-  // of `scrollRef` directly) is the ONLY change to the JSX ref binding.
-  //
-  // reachedBeginningRef — set to true when fetch_older_batch signals
-  //   reachedBeginning=true (i.e. we've loaded the file's first line);
-  //   subsequent near-top-scroll triggers short-circuit while it stays true.
-  // fetchInFlightRef — a fetch_older request is in-flight; blocks parallel
-  //   sends until the batch response lands (or clears via error path).
-  // loadingOlder — reactive mirror controlling the "loading older…" hint.
-  // loadingHintTimerRef — 150ms threshold timer (silent-when-fast pattern);
-  //   cleared on batch response OR send-failure.
-  // debounceTimerRef — 250ms flick-scroll debounce timer; cleared on new
-  //   scroll events landing within the same window.
-  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
-  const reachedBeginningRef = useRef<boolean>(false);
-  const fetchInFlightRef = useRef<boolean>(false);
-  const [loadingOlder, setLoadingOlder] = useState<boolean>(false);
-  const loadingHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Reset reachedBeginningRef on pane change — a fresh pane starts with the
-  // possibility of older messages regardless of the prior pane's state.
-  useEffect(() => {
-    reachedBeginningRef.current = false;
-    fetchInFlightRef.current = false;
-  }, [hostId, tmuxSession]);
-
-  const composedScrollRef = useCallback(
-    (el: HTMLElement | null) => {
-      scrollRef(el);
-      setScrollEl(el);
-    },
-    [scrollRef],
-  );
-
-  // Live-ref mirror of messages so fireFetchOlder can always read the
-  // freshest first-eventId without being re-created on every message
-  // append (which would re-attach the scroll listener and re-fire
-  // debounces on every frame). See scroll-listener effect below.
-  const messagesRef = useRef<StreamEvent[]>(messages);
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  const fireFetchOlder = useCallback((): void => {
-    if (fetchInFlightRef.current) return;
-    if (reachedBeginningRef.current) return;
-    const msgs = messagesRef.current;
-    if (msgs.length === 0) return;
-    const ws = wsRef.current;
-    if (!ws) return;
-    fetchInFlightRef.current = true;
-    // Silent-when-fast: only show the hint if the round-trip is slower
-    // than LOADING_HINT_THRESHOLD_MS. Timer is cleared inside the
-    // fetch_older_batch case (both success and error paths) so the hint
-    // never lingers past the response.
-    loadingHintTimerRef.current = setTimeout(() => {
-      loadingHintTimerRef.current = null;
-      setLoadingOlder(true);
-    }, LOADING_HINT_THRESHOLD_MS);
-    const payload: FetchOlderPayload = {
-      type: "fetch_older",
-      anchorEventId: msgs[0].eventId,
-      count: REFETCH_BATCH_SIZE,
-    };
-    const sent = sendFetchOlder(ws, payload);
-    if (!sent) {
-      // Socket wasn't open (CONNECTING/CLOSING/CLOSED) or send threw
-      // mid-close. Clear in-flight + loading state; NO retry per
-      // 43-CONTEXT.md § "Fetch failure handling" — the user can scroll
-      // back down and up again to re-trigger.
-      fetchInFlightRef.current = false;
-      if (loadingHintTimerRef.current !== null) {
-        clearTimeout(loadingHintTimerRef.current);
-        loadingHintTimerRef.current = null;
-      }
-      setLoadingOlder(false);
-    }
-  }, []);
-
-  // Near-top-scroll listener effect. Gated on scrollEl being bound so the
-  // listener only exists once the outer scroll container has mounted.
-  // Debounced by LOAD_OLDER_DEBOUNCE_MS so flick-scrolls don't fire
-  // parallel fetches — only the last scroll within the window triggers a
-  // send. All the "should we fetch?" gates (reachedBeginningRef,
-  // fetchInFlightRef, messages-empty) live inside `fireFetchOlder` itself
-  // so this listener can stay a thin trigger.
-  useEffect(() => {
-    if (!scrollEl) return;
-    const handleScroll = (): void => {
-      if (reachedBeginningRef.current) return;
-      if (fetchInFlightRef.current) return;
-      if (scrollEl.scrollTop > NEAR_TOP_TRIGGER_PX) return;
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      debounceTimerRef.current = setTimeout(() => {
-        debounceTimerRef.current = null;
-        fireFetchOlder();
-      }, LOAD_OLDER_DEBOUNCE_MS);
-    };
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollEl.removeEventListener("scroll", handleScroll);
-  }, [scrollEl, fireFetchOlder]);
-
-  // Component-unmount cleanup for the debounce + loading-hint timers so we
-  // never fire a stray setLoadingOlder(true) on an unmounted component.
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-      if (loadingHintTimerRef.current !== null) {
-        clearTimeout(loadingHintTimerRef.current);
-        loadingHintTimerRef.current = null;
-      }
-    };
-  }, []);
-
   const handleComposeSend = useCallback((text: string): boolean => {
     const trimmed = text.trim();
     if (trimmed.startsWith('/btw ') || trimmed === '/btw') {
@@ -1241,10 +1094,7 @@ export function PrettyView({
     // so the UI stays visible while the fresh WS is being opened.
 
     let cancelled = false;
-    // Phase 43 Plan 43-07b — pass INITIAL_WINDOW so the backend caps its
-    // initial `tail -F -n INITIAL_WINDOW` (43-04 wire contract). Missing/
-    // legacy calls still yield unbounded backfill via the API default.
-    const ws = openClaudeSessionSocket({ historyWindow: INITIAL_WINDOW });
+    const ws = openClaudeSessionSocket();
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -1391,53 +1241,6 @@ export function PrettyView({
           // compact placeholder so a dropped turn is visible instead of silent.
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
-          break;
-        }
-        case "fetch_older_batch": {
-          // Phase 43 Plan 43-07b — historical batch response from the server
-          // (see 43-04 backend handler + 43-05 runtime helpers). Frames are
-          // in oldest-first order and can be prepended directly (dedup by
-          // eventId against the existing messages[]). ClaudeSessionServerEvent
-          // does not yet include FetchOlderBatchEvent in its discriminated
-          // union (43-03 added the shape but not the union entry), so `parsed`
-          // narrows to `never` inside this case — the guard-based narrowing
-          // below both restores runtime safety and gives us the typed frame
-          // shape for the prepend.
-          const raw = parsed as unknown;
-          if (!isFetchOlderBatchEvent(raw)) break;
-          // Clear in-flight + loading state regardless of success/error so
-          // the loading hint can never linger after a batch response lands.
-          fetchInFlightRef.current = false;
-          setLoadingOlder(false);
-          if (loadingHintTimerRef.current !== null) {
-            clearTimeout(loadingHintTimerRef.current);
-            loadingHintTimerRef.current = null;
-          }
-          if (raw.error) {
-            // Per 43-CONTEXT.md § "Fetch failure handling": log via
-            // console.warn, clear loading state (done above), do NOT retry.
-            // The user can scroll back down and up again to re-trigger.
-            console.warn("[PrettyView] fetch_older_batch error:", raw.error);
-            break;
-          }
-          if (raw.reachedBeginning) {
-            reachedBeginningRef.current = true;
-          }
-          // Frames arrive as unknown[] on the wire; each item is a
-          // ParsedLine emission variant (MessageEvent | ImageEvent |
-          // RelayOutboundEvent | RelayInboundEvent | MalformedLineEvent),
-          // narrowed here by shape assumption (the backend guarantees
-          // eventId presence for every emitted frame). Dedup by eventId
-          // against the existing messages[] so a batch containing already-
-          // loaded ids is a no-op for those ids.
-          const fresh = (raw.frames as StreamEvent[]).filter(
-            (f) => f && typeof f === "object" && typeof f.eventId === "string",
-          );
-          setMessages((prev) => {
-            const existing = new Set(prev.map((m) => m.eventId));
-            const uniques = fresh.filter((f) => !existing.has(f.eventId));
-            return [...uniques, ...prev];
-          });
           break;
         }
         case "inactive": {
@@ -2427,14 +2230,8 @@ export function PrettyView({
         ((status === "connecting" || status === "error") && messages.length > 0) ||
         renderedState === "dormant") && (
         <div
-          // Phase 43 (plan 43-07b): composed ref — forwards the element to
-          // useAutoScroll's scrollRef AND stores it locally in `scrollEl`
-          // state for the near-top-scroll fetch_older trigger. This
-          // pattern is LOCKED per plan-checker MED-3: useAutoScroll's
-          // return surface is frozen at 3 fields (43-06 Test 8) and MUST
-          // NOT grow — the composed ref lives here at the callsite, not
-          // inside the hook.
-          ref={composedScrollRef}
+          // Outer scroll container. useAutoScroll's scrollRef drives pinned-follow behavior.
+          ref={scrollRef}
           // mobile-scroll-freeze-overscroll-behavior (2026-08-10): `overscroll-contain`
           // stops iOS Safari from routing rubber-band momentum to an ancestor scroller
           // on end-of-scroll. Without it, iOS locks the touch for 10-15s while its
@@ -2446,24 +2243,6 @@ export function PrettyView({
           // sole scroll-position authority through measurement changes.
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
         >
-          {/* Phase 43 (plan 43-07b): loading-hint element. Silent-when-fast
-              per 43-CONTEXT.md § "Load-older UX" — only mounts if the
-              fetch_older round-trip is slower than
-              LOADING_HINT_THRESHOLD_MS=150ms. Rendered at the TOP of the
-              scroll container (above the message-list .map) so it sits
-              exactly where the user is scrolled while looking for older
-              content. Warm-gray text, small, centered — aligns with
-              existing pretty-view visual language (matches the tone the
-              tail_error banner uses). */}
-          {loadingOlder && (
-            <div
-              data-testid="pv-loading-older"
-              role="status"
-              className="text-center text-xs text-[color:var(--color-pv-code-fg)] opacity-70 py-2"
-            >
-              loading older messages…
-            </div>
-          )}
           {/* Phase 43 (plan 43-07a): plain-DOM message rendering. Every entry
               in messages[] is a real in-flow child of the outer scroll
               container. No sized virtualizer wrapper, no absolute positioning,
@@ -2476,10 +2255,12 @@ export function PrettyView({
               inside the same outer scroll container — same structural layout
               invariant established by Phase 27 Plan 27-02 Step B. */}
           {messages.map((m) => (
+            // Phase 45 Bug #2 (Ashley UAT verbatim): 9px inter-bubble padding restored — technically padding but functionally margin per Ashley's clarification 2026-08-18.
             <div
               key={m.eventId}
               data-pv-bubble
               data-event-id={m.eventId}
+              style={{ paddingBottom: 9 }}
             >
               {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
                   normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
