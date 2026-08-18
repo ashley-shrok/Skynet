@@ -7,6 +7,8 @@ export interface RemoteTmuxSession {
   sessionName: string;
   created: number;
   role: string | null;
+  // Phase 44 — inline recency signal from /sessions/list route (Plan 44-01). Optional for compat with pre-Phase-43 backends; consumers treat undefined as null.
+  lastMessageAt?: number | null;
 }
 
 export async function getSessionList(): Promise<RemoteTmuxSession[]> {
