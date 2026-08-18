@@ -37,6 +37,15 @@ export function tailSessionFile(
   absolutePath: string,
   onLine: (line: string) => void,
   onError: (err: Error) => void,
+  // Phase 43: optional bounded-initial-slice. When set to a positive
+  // finite integer within [1, 1_000_000], the tail command switches from
+  // `-n +1` (start at file line 1, unbounded backfill) to `-n N` (start
+  // at last N lines from EOF, then follow). Missing / invalid values
+  // fall through to the current `-n +1` default byte-for-byte —
+  // backcompat mandated by .planning/phases/43-.../43-CONTEXT.md
+  // § "Backcompat / migration": *legacy callers get the current
+  // unbounded initial replay*.
+  initialLines?: number,
 ): TailHandle {
   let stopped = false;
   // The ssh2 ClientChannel type is not re-exported at this level; we retain
@@ -77,7 +86,24 @@ export function tailSessionFile(
     }
   };
 
-  const command = "tail -F -n +1 " + shellEscape(absolutePath);
+  // Phase 43: validate `initialLines` into `boundedN` — the source of truth
+  // for the command branch below. The 1_000_000 upper bound is a defensive
+  // cap so a runaway caller can't hand `tail` an absurd arg; anything
+  // outside the finite-positive-int-≤-cap window falls back to the legacy
+  // `-n +1` default. `Math.floor` normalizes fractional inputs to integer
+  // line counts before they hit the shell.
+  const boundedN: number | null =
+    typeof initialLines === "number" &&
+    Number.isFinite(initialLines) &&
+    initialLines > 0 &&
+    initialLines <= 1_000_000
+      ? Math.floor(initialLines)
+      : null;
+
+  const command =
+    boundedN !== null
+      ? "tail -F -n " + boundedN + " " + shellEscape(absolutePath)
+      : "tail -F -n +1 " + shellEscape(absolutePath);
 
   conn.exec(command, (err, s) => {
     if (err) {
