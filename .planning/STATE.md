@@ -13,12 +13,14 @@ progress:
   percent: 78
 last_updated: "2026-08-17T00:00:00.000Z"
 last_activity: 2026-08-17 -- Phase 42 rescue-rebase post Tanya #455 + Tiffany #456 (renumber Phase 41→42)
+last_updated: "2026-08-18T23:49:43.525Z"
+last_activity: 2026-08-18 -- Phase 44 planning complete
 progress:
-  total_phases: 42
-  completed_phases: 33
-  total_plans: 163
-  completed_plans: 161
-  percent: 79
+  total_phases: 44
+  completed_phases: 34
+  total_plans: 175
+  completed_plans: 170
+  percent: 77
 ---
 
 # Project State
@@ -46,9 +48,9 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 42 (Conversation list — flat recency sort with pins zone at top, RDP zone at bottom, always-hidden-on-load search input; retire ambient-recession visual) — CODE-COMPLETE, NOT DEPLOYED
 Plan: 3 of 3 (all plans code-complete: 42-01 three-zone + CSS retirement, 42-02 search + filter, 42-03 fleet-status recency signal)
-Status: Ready for ship greenlight (or optional gsd-verifier pass first)
+Status: Ready to execute
 
-Last activity: 2026-08-18 — Completed quick-260818-q73 (auto-deactivate idle convs). Ashley asked to free per-tab resources on convs she hasn't focused in a while; feature scoped and locked via `/open` → `shape-auto-deactivate-idle-convs.md`. Client-side idle sweep in `PrettyConversationsPanel.tsx` that silently invokes the existing `handleRowDeactivate(row)` for any active-set row un-selected > 5 minutes on each 30-second sweep tick. Currently-selected conv is a hard invariant exempt (dual guard: skip-in-sweep + delete-from-map on selection change). Pinned convs and convs with active agent output participate — user focus is the ONLY signal. Zero user-visible signal (no toast, no ARIA update, no console.log — identical to a manual red-X click). Threshold + cadence as module-scope `const` at panel file top (`IDLE_DEACTIVATE_THRESHOLD_MS = 300_000`, `IDLE_DEACTIVATE_SWEEP_MS = 30_000`) — no shared app config module exists on this project; colocated tunables per BACKPRESSURE_POLL_MS/STICK_ARM_MS convention. Ref-mirror pattern for `activeSet` + `selectedId` + `handleRowDeactivate` (handler is inline-defined without `useCallback`; mount-only setInterval would otherwise capture stale first-render closures — caught by the subtle-concern watchdog in the executor prompt). Three new tests (SWEEP-1 hard-invariant currently-selected-exempt, SWEEP-2 stale-fires-past-threshold, SWEEP-3 fresh-survives-tick) in `PrettyConversationsPanel.test.tsx` (~L3492) using `vi.useFakeTimers()` scoped to describe. Two atomic code commits on `feat/tab-title-from-tmux`: `65f1ea36` (Task 1: sweep implementation) + `64855a09` (Task 2: three tests). `npx tsc --noEmit` exit 0; target file 82/82; store 90/90 (untouched — `git diff` empty); full `npx vitest run` = **191 files / 2437 pass / 9 skip / 1 todo / 0 fail** (exit 0, 1268s under heavy cross-identity contention with a concurrent `skynet-tanya` vitest run; +3 delta exactly matches the 3 new tests, zero regressions). NO worktrees. NOT pushed / NOT built / NOT deployed at code-complete — deploy motion is orchestrator scope per fleet directive (Ashley 2026-08-08); awaits ship greenlight. Related bounty dropped in-session: `deactivating-pinned-conversation-jumps-to-host-then-back` invalidated by recent flat-recency-sort work (no more per-host grouping means no more jump behavior); Ashley confirmed drop. Prior activity:
+Last activity: 2026-08-18 -- Phase 44 planning complete
 
 Last activity: 2026-08-18 — Completed quick-260818-l8n (retire pin pruner from `updateOpenTabs`). Ashley bug report: conversation-list pins vanishing across deploys ("Pins are pins. Doesn't matter if they are open or anything else. Seems like the problem"). Root cause: pruner block in `updateOpenTabs` (L858-895 of `src/ui/state/conversation-store.ts`) dropped any `pinnedIds` not present in EITHER current `openTabs` OR current `fleetSessions`. On WS reconnect after container recreate, both lists fire with partial data before all managed hosts re-report — the pruner nukes legitimate pins in that transient window; Ashley's next pin/unpin action then writes the pruned Set to the server, making the loss durable. Fix: delete the pruner. The render side in `computeSnapshot`'s Tier 2 pinned iteration already skips orphan pin ids gracefully, so keeping the id in the Set is a no-op when the session is gone AND lets the pin re-materialize the moment the session returns. Preserved end-to-end: `fleetSessionsLoaded` machinery (state field + flag flip + hook + panel mount-effect gate — protects a separate initial-hydrate race unrelated to the pruner), selection coercion + deferred-select promotion in `updateOpenTabs`, `hydratePinnedIdsFromServer`, `pinConversation`/`unpinConversation`/`togglePinConversation`, `removeFleetSession`. Test damage rehomed to the new invariant (Test 5 assertions flipped from "gets pruned" to "sticks"; "pruner fleet-aware" test #2 replaced with a stickiness assertion; new `describe("orphan pinnedIds render gracefully")` added). Byte-verify: `grep -c 'fleetPinKeepSet\|prune pinned ids' src/ui/state/conversation-store.ts` = 0 witnesses. `npx tsc --noEmit` exit 0. Full `npx vitest run` = **191 files / 2434 pass / 9 skip / 1 todo / 0 fail** (exit 0). One atomic commit `36a983cf` on `feat/tab-title-from-tmux` (net −14 lines source). NO worktrees. NOT pushed / NOT built / NOT deployed at executor exit — awaits Ashley greenlight to ship. Prior activity:
 

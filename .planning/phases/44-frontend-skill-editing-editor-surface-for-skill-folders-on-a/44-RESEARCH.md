@@ -1021,28 +1021,28 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 | A6 | The Phase 23 test file structure (mock at API-module boundary, render component, assert on DOM) is the ONLY in-process testing pattern in the codebase | § Test Seam | LOW — verified by inspection. No sign of a fuller integration harness (no VMS ViewModelShell, no MSW). If a richer pattern exists elsewhere I missed, it can be adopted later without changing Phase 44's plan. |
 | A7 | Adding a second router at `/skills-editor` does not require touching CORS / rate-limit / security-middleware setup | § Mount instructions | LOW — Phase 23 mounted `/global-files` with only two `app.use()` lines in `database.ts` L1852+L1857 and shipped without middleware fiddling. Same posture expected. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Empty skill folder ("skill exists but has zero files") — how should the tab strip render?**
+1. **RESOLVED:** **Empty skill folder ("skill exists but has zero files") — how should the tab strip render?**
    - What we know: UI-SPEC L142 prescribes copy: heading "This skill has no files.", body 'Use "+ Add file" to create one.'
    - What's unclear: does the tab strip render as an empty flex row, or does the entire body of the modal show the empty-state message (mirroring the "empty state card" pattern from `GlobalFilesModal.tsx` L286-298)?
    - Recommendation: mirror Phase 23's empty state — replace the tab strip + editor pane with a centered card containing the copy. Matches UI-SPEC's copywriting alignment with GlobalFilesModal empty state (L142 explicitly parallels L134's `"No skills on this host."` shape).
 
-2. **"+ Add file" — allow subpath creation or restrict to skill root?**
+2. **RESOLVED:** **"+ Add file" — allow subpath creation or restrict to skill root?**
    - What we know: D-09 says "creates a new empty file at the skill's root." UI-SPEC L176 says "New file name (relative to skill root)" prompt copy.
    - What's unclear: if user types `tests/basic.py`, do we honor it (create parent dir) or reject?
    - Recommendation: honor it — `isSafeRelativePath` accepts subpaths, backend `mkdir -p` on parent dir before `touch`. Simpler and matches user expectation. "At the skill's root" in D-09 is best read as "relative to the skill root", not "flat in the skill root." UI-SPEC L176 prompt copy already says "relative to skill root" which supports this reading. **Escalate to Ashley if planner disagrees.**
 
-3. **Skill dropdown — how does it behave when the currently-selected skill disappears (e.g., someone deleted it in another tab)?**
+3. **RESOLVED:** **Skill dropdown — how does it behave when the currently-selected skill disappears (e.g., someone deleted it in another tab)?**
    - What we know: no explicit guidance in CONTEXT or UI-SPEC.
    - What's unclear: silent refetch on any focus event? Show "skill no longer exists" error? Just render empty tab strip?
    - Recommendation: no automatic refetch (matches Phase 7's snapshot-on-page-load pattern for fleet discovery). If the user hits Save and the skill has been rm'd, the backend returns 502 (SFTP fails) and the frontend shows the existing error branch. Simple, minimal magic. Refetch happens naturally on next skill-dropdown open cycle.
 
-4. **Deleted-file behavior when it was the active tab — which tab activates next?**
+4. **RESOLVED:** **Deleted-file behavior when it was the active tab — which tab activates next?**
    - What we know: UI-SPEC L196: "if it was the active tab, select the next tab to the right (or previous, or none if it was the last)".
    - Recommendation: implement exactly as UI-SPEC prescribes. Straightforward.
 
-5. **Skills-editor and global-files sharing a mtime-conflict error class — should we import/re-export or duplicate?**
+5. **RESOLVED:** **Skills-editor and global-files sharing a mtime-conflict error class — should we import/re-export or duplicate?**
    - What we know: UI-SPEC L260 says "planner's call" — either import + re-export or duplicate.
    - Recommendation: duplicate as `SkillFileMtimeConflictError`. The two features share zero runtime concern; import-coupling creates a false dependency. If the two ever diverge (e.g., skill-write starts including additional 409 fields), duplication has already paid its way. Phase 23 also duplicated `execWithTimeout` + `shellEscape` for the same reason.
 
