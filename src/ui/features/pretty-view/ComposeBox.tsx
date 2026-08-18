@@ -2416,10 +2416,10 @@ export function ComposeBox({
             className={cn(
               "absolute left-1 bottom-0.5",
               "p-2",
-              "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-              "disabled:text-[rgba(240,235,224,0.15)]",
+              "text-[#f0ebe0] opacity-30 hover:opacity-90",
+              "disabled:opacity-[0.15]",
               "disabled:cursor-not-allowed",
-              "transition-[color,transform] duration-120",
+              "transition-[color,opacity,transform] duration-120",
               "active:scale-95",
               "cursor-pointer",
             )}
@@ -2519,10 +2519,10 @@ export function ComposeBox({
                 // transition classes preserved.
                 asideActive
                   ? "text-[hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-id-hue),95%,82%,1)]"
-                  : "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-                "disabled:text-[rgba(240,235,224,0.15)]",
+                  : "text-[#f0ebe0] opacity-30 hover:opacity-90",
+                "disabled:opacity-[0.15]",
                 "disabled:cursor-not-allowed",
-                "transition-[color,transform] duration-120",
+                "transition-[color,opacity,transform] duration-120",
                 "active:scale-95",
                 "cursor-pointer",
               )}
@@ -2630,8 +2630,8 @@ export function ComposeBox({
                 className={cn(
                   "absolute right-21 bottom-0.5",
                   "p-2",
-                  "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-                  "transition-[color,transform] duration-120",
+                  "text-[#f0ebe0] opacity-30 hover:opacity-90",
+                  "transition-[color,opacity,transform] duration-120",
                   "active:scale-95",
                   "cursor-pointer",
                 )}
@@ -2888,8 +2888,8 @@ function QueuedRow(props: QueuedRowProps) {
           "absolute -top-2 -left-2 z-20",
           "p-1 rounded-full",
           "bg-[rgba(10,12,20,0.85)] border border-[rgba(220,225,245,0.12)]",
-          "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-          "transition-[color,transform] duration-120",
+          "text-[#f0ebe0] opacity-30 hover:opacity-90",
+          "transition-[color,opacity,transform] duration-120",
           "active:scale-95",
           "cursor-pointer",
         )}
@@ -3026,10 +3026,10 @@ function QueuedRow(props: QueuedRowProps) {
           className={cn(
             "absolute left-1 bottom-0.5",
             "p-2",
-            "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-            "disabled:text-[rgba(240,235,224,0.15)]",
+            "text-[#f0ebe0] opacity-30 hover:opacity-90",
+            "disabled:opacity-[0.15]",
             "disabled:cursor-not-allowed",
-            "transition-[color,transform] duration-120",
+            "transition-[color,opacity,transform] duration-120",
             "active:scale-95",
             "cursor-pointer",
           )}
@@ -3057,10 +3057,10 @@ function QueuedRow(props: QueuedRowProps) {
                 className={cn(
                   "absolute right-1 bottom-0.5",
                   "p-2",
-                  "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-                  "disabled:text-[rgba(240,235,224,0.15)]",
+                  "text-[#f0ebe0] opacity-30 hover:opacity-90",
+                  "disabled:opacity-[0.15]",
                   "disabled:cursor-not-allowed",
-                  "transition-[color,transform] duration-120",
+                  "transition-[color,opacity,transform] duration-120",
                   "active:scale-95",
                   "cursor-pointer",
                 )}
@@ -3132,8 +3132,8 @@ function QueuedRow(props: QueuedRowProps) {
                 className={cn(
                   "absolute right-21 bottom-0.5",
                   "p-2",
-                  "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-                  "transition-[color,transform] duration-120",
+                  "text-[#f0ebe0] opacity-30 hover:opacity-90",
+                  "transition-[color,opacity,transform] duration-120",
                   "active:scale-95",
                   "cursor-pointer",
                 )}

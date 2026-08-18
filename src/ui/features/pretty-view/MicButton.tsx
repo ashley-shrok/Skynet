@@ -105,10 +105,10 @@ export function MicButton({
         // which the useHoldToRecord hook correctly routes to voice.cancel()
         // — audibly cancelling Ashley's hold-to-record attempt.
         "[-webkit-touch-callout:none]",
-        "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
-        "disabled:text-[rgba(240,235,224,0.15)]",
+        "text-[#f0ebe0] opacity-30 hover:opacity-90",
+        "disabled:opacity-[0.15]",
         "disabled:cursor-not-allowed",
-        "transition-[color,transform] duration-120",
+        "transition-[color,opacity,transform] duration-120",
         "active:scale-95",
         "cursor-pointer",
       )}

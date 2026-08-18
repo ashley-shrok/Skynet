@@ -53,7 +53,7 @@ export function RecordingControls({
         onClick={onAppend}
         aria-label="Append transcript"
         title="Append transcript"
-        className="p-2 text-[rgba(240,235,224,0.6)] hover:text-[rgba(240,235,224,0.95)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
+        className="p-2 text-[#f0ebe0] opacity-60 hover:opacity-95 transition-[opacity,transform] duration-120 active:scale-95 cursor-pointer"
       >
         <ArrowDownToLine className="size-6" aria-hidden="true" />
       </button>
