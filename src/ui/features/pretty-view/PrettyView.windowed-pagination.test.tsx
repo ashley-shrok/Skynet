@@ -368,7 +368,12 @@ describe("PrettyView windowed pagination — Phase 43 Plan 43-07b", () => {
     });
   });
 
-  it("Test 3: fetch_older payload shape — near-top scroll fires ws.send exactly once with {type, anchorEventId, count}, no line-offset field", async () => {
+  // Plan 45-02: `it.skip` — exercises the fetch_older client path (sendFetchOlder,
+  // ws.send with type:"fetch_older" payload) that Plan 45-02 has removed from the
+  // frontend API surface. Whole file is scheduled for delete-and-recreate in Plan
+  // 45-03 (per PATTERNS.md § 10); the skip keeps fleet-standing-directive-1 (never
+  // leave tests failing) satisfied until 45-03 lands.
+  it.skip("Test 3: fetch_older payload shape — near-top scroll fires ws.send exactly once with {type, anchorEventId, count}, no line-offset field", async () => {
     vi.useFakeTimers();
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
@@ -436,7 +441,11 @@ describe("PrettyView windowed pagination — Phase 43 Plan 43-07b", () => {
     vi.useRealTimers();
   });
 
-  it("Test 4: fetch_older_batch prepends with dedup — new frames land at head; duplicate eventId dropped", async () => {
+  // Plan 45-02: `it.skip` — exercises the fetch_older_batch response handler
+  // (isFetchOlderBatchEvent + prepend into messages[]) that Plan 45-02 has removed
+  // from the frontend API surface. Whole file scheduled for delete-and-recreate in
+  // Plan 45-03; skip keeps fleet-standing-directive-1 satisfied until then.
+  it.skip("Test 4: fetch_older_batch prepends with dedup — new frames land at head; duplicate eventId dropped", async () => {
     vi.useFakeTimers();
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
@@ -539,7 +548,7 @@ describe("PrettyView windowed pagination — Phase 43 Plan 43-07b", () => {
   // delete-and-recreate in Plan 45-03 (the fetch_older client path it
   // exercises is being removed); this bump keeps the fleet-standing-
   // directive-1 (never leave tests failing) satisfied until then.
-  it("Test 6: refetch-on-scroll-back — after drop-oldest, near-top scroll uses the surviving first eventId; batch response rehydrates previously-dropped ids", async () => {
+  it.skip("Test 6: refetch-on-scroll-back — after drop-oldest, near-top scroll uses the surviving first eventId; batch response rehydrates previously-dropped ids", async () => {
     vi.useFakeTimers();
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
@@ -598,7 +607,11 @@ describe("PrettyView windowed pagination — Phase 43 Plan 43-07b", () => {
     vi.useRealTimers();
   }, 30_000);
 
-  it("Test 7: loading hint fake-timer sequence — hint absent before 150ms threshold, present after, removed on batch response", async () => {
+  // Plan 45-02: `it.skip` — exercises the loading-hint mount that lived beside the
+  // fetch_older client path Plan 45-02 removed from the API surface. Whole file
+  // scheduled for delete-and-recreate in Plan 45-03; skip keeps
+  // fleet-standing-directive-1 satisfied until then.
+  it.skip("Test 7: loading hint fake-timer sequence — hint absent before 150ms threshold, present after, removed on batch response", async () => {
     vi.useFakeTimers();
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
@@ -660,7 +673,11 @@ describe("PrettyView windowed pagination — Phase 43 Plan 43-07b", () => {
     vi.useRealTimers();
   });
 
-  it("Test 8: reachedBeginning short-circuits — subsequent near-top scrolls do not fire fetch_older after reachedBeginning:true", async () => {
+  // Plan 45-02: `it.skip` — exercises the fetch_older short-circuit path Plan
+  // 45-02 removed from the API surface. Whole file scheduled for
+  // delete-and-recreate in Plan 45-03; skip keeps fleet-standing-directive-1
+  // satisfied until then.
+  it.skip("Test 8: reachedBeginning short-circuits — subsequent near-top scrolls do not fire fetch_older after reachedBeginning:true", async () => {
     vi.useFakeTimers();
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
@@ -710,7 +727,11 @@ describe("PrettyView windowed pagination — Phase 43 Plan 43-07b", () => {
     vi.useRealTimers();
   });
 
-  it("Test 9: fetch failure — error frame triggers console.warn, clears loading state + in-flight, no auto-retry, next scroll fires a fresh fetch_older", async () => {
+  // Plan 45-02: `it.skip` — exercises the fetch_older error-response path Plan
+  // 45-02 removed from the API surface. Whole file scheduled for
+  // delete-and-recreate in Plan 45-03; skip keeps fleet-standing-directive-1
+  // satisfied until then.
+  it.skip("Test 9: fetch failure — error frame triggers console.warn, clears loading state + in-flight, no auto-retry, next scroll fires a fresh fetch_older", async () => {
     vi.useFakeTimers();
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
