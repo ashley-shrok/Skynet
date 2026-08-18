@@ -119,6 +119,34 @@ interface PidCacheEntry {
   // frame overwrites it. This is what makes the signal edge-triggered on
   // messages (not on lifecycle events / tool_use / thinking blocks).
   lastMessageAt: number | null;
+  // Phase 44 Plan 02 — cached JSONL path resolved via
+  // discoverIdentityJsonlPathViaChannel (identity /id-first-turn discovery).
+  // Populated on the first tick where tmuxSession resolves; reused across
+  // every subsequent tick so discovery only fires ONCE per PID lifetime in
+  // the happy path. Set back to null to trigger re-discovery on the next
+  // tick (see staleTailTickCount below — the only path that invalidates
+  // the cached path defensively). See 44-CONTEXT.md § ssh-poll-orchestrator.ts
+  // swap for the timing + rationale.
+  jsonlPath: string | null;
+  // Phase 44 Plan 02 — count of consecutive ticks where the cached
+  // `jsonlPath`'s `tail -n 200` scan failed to advance a NON-NULL cached
+  // `lastMessageAt`. Reset to 0 on any tick that advances lastMessageAt.
+  // On reaching STALE_TAIL_REDISCOVERY_THRESHOLD, invalidate `jsonlPath`
+  // so the next tick re-fires discovery — defense against Claude Code
+  // JSONL rotation mid-session (a resume/compaction event can rotate the
+  // active file, leaving the cached path pointing at a stale JSONL).
+  //
+  // IMPORTANT (tightened condition, revised from a prior draft):
+  // sessions with a NULL cached `lastMessageAt` (genuinely no message-
+  // bearing history yet) do NOT tick this counter — it stays at 0. The
+  // threshold is a ROTATION-DEFENSE for sessions that once had a signal
+  // and lost it, NOT a "kick discovery when we haven't seen a message
+  // yet" mechanism. Incrementing here would create permanent-cycle
+  // re-discovery churn for identities that legitimately have no message
+  // history (fresh session pre-first-turn; identity that never invokes
+  // /id; identity whose entire history is tool_use / thinking / lifecycle
+  // events). See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
+  staleTailTickCount: number;
 }
 
 interface PerHostState {
@@ -158,28 +186,34 @@ const MESSAGE_BEARING_KINDS = new Set([
 ]);
 
 /**
- * Construct the JSONL file path for a session on the remote box, following
- * Claude Code's `~/.claude/projects/<cwd-with-slashes-as-dashes>/<sessionId>.jsonl`
- * convention. See src/backend/claude-session/layer1-detect.ts:76-78 for the
- * canonical shape (`/home/ubuntu/skynet/tiffany` cwd → `-home-ubuntu-skynet-tiffany`
- * project slug directory). Uses single-quote shell escaping via the fact that
- * cwd is always an absolute Unix path — never contains a single quote in
- * practice — and sessionId is a UUID.
+ * Phase 44 Plan 02 — N consecutive ticks with a stale tail (against a
+ * NON-NULL cached lastMessageAt) before re-running discovery. At the
+ * default 2s poll cadence, this is ~10s of "cached path returned no
+ * fresher message-bearing frame" before we invalidate the cached
+ * discovery path and re-scan `~/.claude/projects/*​/`.
  *
- * Defense-in-depth: if the constructed path contains a single quote (unheard
- * of on any Unix box the fleet runs on), returns null and the orchestrator
- * treats the session as "no JSONL tail available" — lastMessageAt stays
- * whatever the cache last saw (or null).
+ * This is a defense against Claude Code JSONL rotation mid-session (a
+ * resume/compaction event can rotate the active file, leaving the cached
+ * path pointing at a stale JSONL that has stopped growing). See
+ * 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
+ *
+ * Sessions with NO cached lastMessageAt do NOT tick this counter — the
+ * threshold is a rotation-defense, not a no-history-kick. See the
+ * PidCacheEntry.staleTailTickCount docblock above for the full rationale.
  */
-function jsonlPathForSession(cwd: string, sessionId: string): string | null {
-  const projectSlug = cwd.replace(/\//g, "-");
-  const path = `~/.claude/projects/${projectSlug}/${sessionId}.jsonl`;
-  // Reject any quote character to keep the single-quote-wrapped shell literal
-  // safe. If we ever see this fire in production, we'll switch to a proper
-  // escaping helper.
-  if (path.includes("'") || path.includes("\n")) return null;
-  return path;
-}
+const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
+
+// Phase 44 Plan 02 — the former jsonlPathForSession helper (cwd + sessionId
+// → constructed path) has been removed. It built the JSONL path via
+// `~/.claude/projects/<slug>/<sessionId>.jsonl` from sessionJson fields;
+// that derivation was fragile against cwd drift and
+// Claude Code sessionId rotation on compaction/resume (a live session
+// could silently point at a stale JSONL that had stopped growing). The
+// orchestrator now derives the JSONL path via
+// `discoverIdentityJsonlPathViaChannel` (Phase 32 byte-pattern
+// mechanism) — mtime-newest JSONL under `~/.claude/projects/*​/` whose
+// first user-role line matches `/id <identityName>`. Stable across
+// compaction + resume. See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
 
 /**
  * Parse a JSONL blob (the raw stdout of a `tail -n N <jsonl-path>` exec)
@@ -402,8 +436,9 @@ export function createSshPollOrchestrator(
       hookPayloadPromise,
     ]);
 
-    // Parse session JSON — the sessionId + cwd from this file drive the
-    // Phase 41 Plan 03 JSONL-tail derivation below.
+    // Parse session JSON — the sessionId + procStart drive downstream state
+    // composition below. Phase 44 Plan 02: `cwd + sessionId` no longer drive
+    // the JSONL path derivation (see discovery block further down).
     if (sessionJsonRaw === null || sessionJsonRaw.trim() === "") {
       // File may be in mid-write; skip this PID for this tick
       return;
@@ -414,73 +449,13 @@ export function createSshPollOrchestrator(
       return;
     }
 
-    // Phase 41 Plan 03 — derive lastMessageAt from a bounded JSONL tail.
-    //
-    // Fires on EVERY poll tick per PID (kept in-band with the existing
-    // Promise.all pattern above; the plan's optimization to piggyback on
-    // the same round-trip when a lastOffset is cached is deferred — bounded
-    // `tail -n 200` per tick is < 5ms of parse work and one extra SSH exec
-    // per session per 2s tick). Fail-open: if the JSONL exec returns null
-    // or the tail is empty, keep whatever value the cache last saw
-    // (defaulting to null on cold-start) so a transient SSH hiccup does
-    // NOT wipe a valid recency signal.
-    //
-    // Path derivation lives in jsonlPathForSession — sessionJson.cwd +
-    // sessionJson.sessionId → the Claude Code convention path. If the
-    // path fails validation (unheard-of quote character), skip derivation
-    // for this tick — cached value stays.
-    const jsonlPath = jsonlPathForSession(
-      sessionJson.cwd,
-      sessionJson.sessionId,
-    );
-    let derivedLastMessageAt: number | null = cached?.lastMessageAt ?? null;
-    if (jsonlPath !== null) {
-      // `2>/dev/null || true` mirrors the hook-payload pattern: if the file
-      // does not exist yet (fresh session with no JSONL writes), the shell
-      // suppresses the ENOENT stderr and returns exit 0 with empty stdout —
-      // scanTailForNewestMessageAt returns null (no history), we keep the
-      // cached value (also null in this case).
-      const tailRaw = await channel.exec(
-        `tail -n 200 ${jsonlPath} 2>/dev/null || true`,
-      );
-      if (tailRaw !== null && tailRaw.trim() !== "") {
-        const scanned = scanTailForNewestMessageAt(tailRaw);
-        if (scanned !== null) {
-          // Advance the signal only when we see a NEWER message-bearing frame
-          // than the cache. A tail that returns the same 200 recent lines
-          // with no fresh message-bearing turn leaves the cache alone
-          // (edge-triggered contract).
-          if (
-            derivedLastMessageAt === null ||
-            scanned > derivedLastMessageAt
-          ) {
-            derivedLastMessageAt = scanned;
-          }
-        }
-      }
-    }
-
-    // Liveness check
-    const stale = isStaleFromStat(sessionJson.procStart, statContents);
-    if (stale) {
-      // Reap: publish session_gone and drop from liveness map
-      const entry = livenessMap.get(pid);
-      const tmuxSession = entry?.tmuxSession ?? null;
-      const sessionId = entry?.sessionId ?? sessionJson.sessionId;
-
-      systemLogger.info("Fleet-status: session stale — publishing gone", {
-        operation: "fleet_status_stale_reap",
-        fleetHostId: host.id,
-        pid,
-        sessionId,
-      });
-
-      deps.registry.publishSessionGone(host.id, tmuxSession, sessionId);
-      livenessMap.delete(pid);
-      return;
-    }
-
-    // Resolve tmux session for new PIDs
+    // Phase 44 Plan 02 — resolve tmuxSession EARLIER in the pipeline so it
+    // is available for the discovery call below. Discovery needs the
+    // identity name (== tmux session name on this fleet) to grep for the
+    // /id-first-turn record; the previous ordering (tmux resolution AFTER
+    // the tail-scan) can't feed that dependency without an extra tick of
+    // latency on cold-cache. The `needsTmuxResolution` gate is unchanged
+    // — cached-non-null tmuxSession skips the environ + tmux round-trips.
     let tmuxSession: string | null = cached?.tmuxSession ?? null;
     if (needsTmuxResolution) {
       tmuxSession = await resolvePidToTmuxSession(pid, {
@@ -493,6 +468,105 @@ export function createSshPollOrchestrator(
           );
         },
       });
+    }
+
+    // Phase 44 Plan 02 — replace jsonlPathForSession derivation with
+    // discoverIdentityJsonlPathViaChannel (Phase 32 mechanism + SshChannel
+    // adapter). The Phase 41 Plan 03 `cwd + sessionId` construction was
+    // fragile against cwd drift and Claude Code sessionId rotation on
+    // compaction/resume — a live session could silently point at a stale
+    // JSONL that had stopped growing. The Phase 32 byte-pattern discovery
+    // walks `~/.claude/projects/*​/` mtime-descending and returns the newest
+    // JSONL whose first user-role line matches `/id <tmuxSession>`, which
+    // is stable across compaction + resume events.
+    //
+    // Cache the resolved path in PidCacheEntry.jsonlPath so subsequent ticks
+    // skip discovery entirely — discovery fires ONCE per PID in the happy
+    // path. Rediscover on stale-tail threshold (against a NON-NULL cached
+    // lastMessageAt only — see 44-CONTEXT.md § ssh-poll-orchestrator.ts
+    // swap for the tightened stale-tick condition rationale). If
+    // tmuxSession is null (identity name unknown), skip discovery this
+    // tick and keep the cached-or-null path.
+    let jsonlPath: string | null = cached?.jsonlPath ?? null;
+    if (tmuxSession !== null && jsonlPath === null) {
+      jsonlPath = await discoverIdentityJsonlPathViaChannel(channel, tmuxSession);
+    }
+
+    // Fail-open on the tail-scan: if the JSONL exec returns null or the
+    // tail is empty, keep whatever value the cache last saw (defaulting to
+    // null on cold-start) so a transient SSH hiccup does NOT wipe a valid
+    // recency signal. `2>/dev/null || true` mirrors the hook-payload
+    // pattern: if the file does not exist yet (fresh session with no JSONL
+    // writes), the shell suppresses the ENOENT stderr and returns exit 0
+    // with empty stdout — scanTailForNewestMessageAt returns null (no
+    // history), we keep the cached value (also null in this case).
+    let derivedLastMessageAt: number | null = cached?.lastMessageAt ?? null;
+    let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
+    if (jsonlPath !== null) {
+      const tailRaw = await channel.exec(
+        `tail -n 200 ${jsonlPath} 2>/dev/null || true`,
+      );
+      let scanned: number | null = null;
+      if (tailRaw !== null && tailRaw.trim() !== "") {
+        scanned = scanTailForNewestMessageAt(tailRaw);
+      }
+      // Phase 44 Plan 02 — TIGHTENED stale-tick condition. Three mutually-
+      // exclusive branches, evaluated in order:
+      //   1. Advance branch (fresher signal): reset counter to 0.
+      //   2. No-history branch (derivedLastMessageAt === null): leave
+      //      counter at whatever cache had (0 in practice) — do NOT tick.
+      //      Rationale: the stale threshold defends against JSONL rotation
+      //      mid-session, not against sessions that never emitted a
+      //      message-bearing frame. See 44-CONTEXT.md and the
+      //      PidCacheEntry.staleTailTickCount docblock above.
+      //   3. Stale branch (HAD a signal, tail failed to advance): the ONLY
+      //      increment path. Fires when there WAS a cached lastMessageAt
+      //      AND the fresh tail failed to advance it — the exact condition
+      //      the rotation-defense rationale targets.
+      if (
+        scanned !== null &&
+        (derivedLastMessageAt === null || scanned > derivedLastMessageAt)
+      ) {
+        derivedLastMessageAt = scanned;
+        nextStaleTailTickCount = 0;
+      } else if (derivedLastMessageAt === null) {
+        // No-history session — do NOT tick, do NOT reset.
+        nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
+      } else {
+        // derivedLastMessageAt !== null AND
+        // (scanned === null || scanned <= derivedLastMessageAt) —
+        // HAD a signal, tail failed to advance.
+        nextStaleTailTickCount = (cached?.staleTailTickCount ?? 0) + 1;
+      }
+      // Threshold check (invalidate on trip): null the cached path so the
+      // next tick re-fires discovery. Do NOT wipe derivedLastMessageAt —
+      // the fingerprint gate still owns publish semantics; a re-discovery
+      // that lands on the same path (no rotation happened) leaves the
+      // cached signal intact.
+      if (nextStaleTailTickCount >= STALE_TAIL_REDISCOVERY_THRESHOLD) {
+        jsonlPath = null;
+        nextStaleTailTickCount = 0;
+      }
+    }
+
+    // Liveness check
+    const stale = isStaleFromStat(sessionJson.procStart, statContents);
+    if (stale) {
+      // Reap: publish session_gone and drop from liveness map
+      const entry = livenessMap.get(pid);
+      const entryTmuxSession = entry?.tmuxSession ?? tmuxSession;
+      const sessionId = entry?.sessionId ?? sessionJson.sessionId;
+
+      systemLogger.info("Fleet-status: session stale — publishing gone", {
+        operation: "fleet_status_stale_reap",
+        fleetHostId: host.id,
+        pid,
+        sessionId,
+      });
+
+      deps.registry.publishSessionGone(host.id, entryTmuxSession, sessionId);
+      livenessMap.delete(pid);
+      return;
     }
 
     // Parse hook payload — fail-open if absent/malformed/error
@@ -550,6 +624,8 @@ export function createSshPollOrchestrator(
         procStart: sessionJson.procStart,
         lastPublishedFingerprint: newFingerprint,
         lastMessageAt: derivedLastMessageAt,
+        jsonlPath,
+        staleTailTickCount: nextStaleTailTickCount,
       });
     } else {
       // Update procStart + tmux in case they changed without a state-change
@@ -559,6 +635,8 @@ export function createSshPollOrchestrator(
         tmuxSession,
         lastPublishedFingerprint: newFingerprint,
         lastMessageAt: derivedLastMessageAt,
+        jsonlPath,
+        staleTailTickCount: nextStaleTailTickCount,
       });
     }
   }
