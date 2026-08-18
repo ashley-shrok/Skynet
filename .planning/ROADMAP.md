@@ -1233,7 +1233,7 @@ Plans:
 
 **Depends on:** Phase 27 (virtualization introduction — being retired), Phase 28 (virt correctness cluster — being retired), Phase 32 (auto-scroll three-case hook — being simplified)
 
-**Plans:** 5/9 plans executed
+**Plans:** 7/9 plans executed
 
 Plans:
 
@@ -1248,7 +1248,7 @@ Plans:
 - [x] 43-05-PLAN.md — Frontend api runtime helpers: sendFetchOlder + isFetchOlderBatchEvent (depends on 43-03)
 
 **Wave 3 (sequential within wave; depends on Wave 2 + 43-06):**
-- [ ] 43-07a-PLAN.md — PrettyView plain-DOM conversion: delete virtualizer + plain-DOM scroller + remove `[overflow-anchor:none]` + aside-arm walk byte-verified via PHASE-43 anchor comments (depends on 43-04, 43-05, 43-06)
+- [x] 43-07a-PLAN.md — PrettyView plain-DOM conversion: delete virtualizer + plain-DOM scroller + remove `[overflow-anchor:none]` + aside-arm walk byte-verified via PHASE-43 anchor comments (depends on 43-04, 43-05, 43-06)
 - [ ] 43-07b-PLAN.md — Windowing + fetch_older client + drop-oldest cap + loading hint (150ms threshold) + reachedBeginning short-circuit + fetch-error warn-and-clear (depends on 43-07a)
 
 **Wave 4 (depends on Wave 3):**

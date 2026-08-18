@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-18T17:18:00.000Z"
+last_updated: "2026-08-18T18:39:40.133Z"
 last_activity: 2026-08-18
 progress:
   total_phases: 43
   completed_phases: 34
   total_plans: 178
-  completed_plans: 169
+  completed_plans: 170
   percent: 79
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 43 (replace-pv-virtualization-with-plain-dom-windowed-paginatio) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
 
 Last activity: 2026-08-18
@@ -158,7 +158,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 96%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -251,6 +251,7 @@ Progress: [██████████] 96%
 | Phase 43 P43-03 | 211 | 1 tasks | 1 files |
 | Phase 43 P06 | 22 | 2 tasks | 3 files |
 | Phase 43 P04 | 15min | 2 tasks | 3 files |
+| Phase 43 P07a | 3740 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -377,6 +378,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 43-04: FETCH_OLDER_MAX_COUNT=500 caps client fetch_older count (3× the client working-set-cap start of 150)
 - [Phase ?]: Phase 43-04: HISTORY_WINDOW_MAX=5000 caps handshake initial-replay window (emission-side ceiling below tailSessionFile's 1M defensive cap)
 - [Phase ?]: Phase 43-04: delimiter-anchored awk+diff pattern established for surgical-edit byte-preservation verification via PHASE-43 OBSERVATION CHANNEL START/END anchor comments (inert production markers)
+- [Phase ?]: Phase 43-07a: consumed useAutoScroll's scrollRef directly at outer scroll container (no composition) — with useVirtualizer removed, only one reader remained; 43-07b will compose locally if it needs a second reader
+- [Phase ?]: Phase 43-07a: aside-arm walk byte-preservation via PHASE-43 ASIDE-ARM WALK START/END anchor comments + delimiter-anchored awk+diff snapshot + content-based grep signature — survives ~140-line shifts from Region B/C/D deletions
 
 ### Pending Todos
 
@@ -588,7 +591,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-18T17:08:23.073Z
-Stopped at: None
+Last session: 2026-08-18T18:39:40.067Z
+Stopped at: Completed 43-07a-PLAN.md
 Resume file: 
 None
