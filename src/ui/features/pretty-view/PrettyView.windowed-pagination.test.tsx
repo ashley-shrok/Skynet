@@ -531,6 +531,14 @@ describe("PrettyView windowed pagination — Phase 43 Plan 43-07b", () => {
     expect(ids[ids.length - 1]).toBe("evt-154");
   });
 
+  // Test 6 runs a 155-message drop-oldest cycle + real React render passes
+  // + a fake-timer debounce advance. On slower CI/dev hardware the whole
+  // sequence takes ~3s of test-body time and ~5s of environment/import
+  // setup, pushing past vitest's default 5000ms testTimeout. Bump the
+  // per-test timeout to 30s. Note: this whole file is scheduled for
+  // delete-and-recreate in Plan 45-03 (the fetch_older client path it
+  // exercises is being removed); this bump keeps the fleet-standing-
+  // directive-1 (never leave tests failing) satisfied until then.
   it("Test 6: refetch-on-scroll-back — after drop-oldest, near-top scroll uses the surviving first eventId; batch response rehydrates previously-dropped ids", async () => {
     vi.useFakeTimers();
     const { container } = render(
@@ -588,7 +596,7 @@ describe("PrettyView windowed pagination — Phase 43 Plan 43-07b", () => {
     expect(idsAfter.slice(0, 5)).toEqual(["evt-0", "evt-1", "evt-2", "evt-3", "evt-4"]);
     expect(idsAfter[5]).toBe("evt-5");
     vi.useRealTimers();
-  });
+  }, 30_000);
 
   it("Test 7: loading hint fake-timer sequence — hint absent before 150ms threshold, present after, removed on batch response", async () => {
     vi.useFakeTimers();
