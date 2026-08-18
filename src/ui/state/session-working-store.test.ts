@@ -19,7 +19,7 @@
 // @testing-library/react's renderHook; module-scope state reset via a
 // __resetForTest() helper in beforeEach.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { readFileSync } from "fs";
 import { resolve } from "path";
@@ -30,6 +30,9 @@ import {
   useSessionIsWorking,
   useSessionIsWorkingRaw,
   getSessionWorkingSnapshot,
+  getSessionLastMessageAt,
+  seedSessionLastMessageAt,
+  subscribeSessionWorkingStore,
   __resetForTest,
 } from "./session-working-store.js";
 
@@ -402,5 +405,306 @@ describe("session-working-store: Test Q — session-gone → useSessionIsWorking
     rerender();
     // Key is deleted → null again (not false — truly absent)
     expect(result.current).toBe(null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 44 Plan 03 — Reconciliation chokepoint (max-wins) + seed API + single-
+// chokepoint routing (2 axes → 2 notifies on co-change frames).
+//
+// Test 1 (seed-only): seedSessionLastMessageAt writes + creates dormant record.
+// Test 2 (WS-only, no prior seed): publish writes lastMessageAt.
+// Test 3 (seed then WS newer): max-wins allows advance.
+// Test 4 (WS then seed newer): max-wins allows advance; isWorking preserved.
+// Test 5 (seed then WS older — no regression): max-wins holds; isWorking flips.
+// Test 6 (WS then seed older — no regression): max-wins holds.
+// Test 7 (seed null — no-op): no record created; cache stays empty.
+// Test 8 (WS null after cached advance — no regression): cached value preserved.
+// Test 9 (identical ts seed → no double-notify): notify count locked.
+// Test 10 (seed-only-created record isWorking:false — dormant default).
+// Test 11 (key-format contract for seedSessionLastMessageAt).
+// Test 12 (publishFleetStatusSessionGone still deletes with lastMessageAt cached).
+// Test 13 (single-chokepoint notify: WS Axis B only → +1).
+// Test 14 (single-chokepoint notify: WS Axis A only → +1; max-wins preserves cache).
+// Test 15 (single-chokepoint notify: co-change frame → +2 — LOAD-BEARING).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store (Phase 44 Plan 03): reconciliation chokepoint — max-wins + seed API + single-chokepoint routing", () => {
+  // Test 1 — seed-only writes cached value + creates dormant record
+  it("Test 1 (seed-only): seedSessionLastMessageAt(1, 'tina', 1000) → cache reads 1000; record isWorking:false", () => {
+    seedSessionLastMessageAt(1, "tina", 1000);
+    expect(getSessionLastMessageAt("1:tina")).toBe(1000);
+
+    const snap = getSessionWorkingSnapshot();
+    const record = snap.get("1:tina");
+    expect(record).toBeDefined();
+    expect(record?.isWorking).toBe(false);
+    expect(record?.lastMessageAt).toBe(1000);
+  });
+
+  // Test 2 — WS-only, no prior seed: publish writes lastMessageAt via Axis B
+  it("Test 2 (WS-only): publishFleetStatusSessionState with lastMessageAt:1000 → cache reads 1000", () => {
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+      }),
+    );
+    expect(getSessionLastMessageAt("1:tina")).toBe(1000);
+    const record = getSessionWorkingSnapshot().get("1:tina");
+    expect(record?.isWorking).toBe(false);
+  });
+
+  // Test 3 — seed then WS newer → advance
+  it("Test 3 (seed then WS newer): seed=1000, WS=2000 → cache reads 2000", () => {
+    seedSessionLastMessageAt(1, "tina", 1000);
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "busy",
+        backgroundTasks: [],
+        lastMessageAt: 2000,
+      }),
+    );
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+    // isWorking reflects the WS frame's derived value (main = busy → true)
+    expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
+  });
+
+  // Test 4 — WS then seed newer → advance; isWorking preserved from WS frame
+  it("Test 4 (WS then seed newer): WS=1000 busy, seed=2000 → cache reads 2000; isWorking preserved true", () => {
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "busy",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+      }),
+    );
+    seedSessionLastMessageAt(1, "tina", 2000);
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+    // Seed does NOT touch isWorking axis — preserved from WS frame
+    expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
+  });
+
+  // Test 5 — seed then WS older → max-wins holds (cache stays fresher)
+  it("Test 5 (seed then WS older — no regression): seed=2000, WS=1000 → cache stays 2000", () => {
+    seedSessionLastMessageAt(1, "tina", 2000);
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "busy",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+      }),
+    );
+    // max-wins preserved
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+    // isWorking axis is NOT subject to max-wins — reflects WS frame's derived value
+    expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
+  });
+
+  // Test 6 — WS then seed older → max-wins holds
+  it("Test 6 (WS then seed older — no regression): WS=2000, seed=1000 → cache stays 2000", () => {
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 2000,
+      }),
+    );
+    seedSessionLastMessageAt(1, "tina", 1000);
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+  });
+
+  // Test 7 — seed null on empty cache → no-op, no record created
+  it("Test 7 (seed null — no-op): seed(hostId, tmux, null) with empty cache → cache stays empty", () => {
+    seedSessionLastMessageAt(1, "tina", null);
+    expect(getSessionLastMessageAt("1:tina")).toBe(null);
+    expect(getSessionWorkingSnapshot().size).toBe(0);
+  });
+
+  // Test 8 — WS with null lastMessageAt after cached advance → no regression
+  it("Test 8 (WS null after cached advance — no regression): seed=2000, WS lastMessageAt:null → cache stays 2000", () => {
+    seedSessionLastMessageAt(1, "tina", 2000);
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        // lastMessageAt omitted → undefined → normalized to null in publish
+      }),
+    );
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+  });
+
+  // Test 9 — identical seed ts → no double-notify
+  it("Test 9 (identical ts seed → no double-notify): two seeds w/ ts=1000, listener fires once", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    seedSessionLastMessageAt(1, "tina", 1000);
+    seedSessionLastMessageAt(1, "tina", 1000);
+
+    // First seed writes + notifies; second is max-wins no-op + no-notify.
+    expect(cb).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  // Test 10 — seed-only-created record has isWorking:false (dormant default)
+  it("Test 10 (isWorking axis on seed-only-created record): new key via seed → record.isWorking === false", () => {
+    seedSessionLastMessageAt(42, "fresh", 1000);
+    const record = getSessionWorkingSnapshot().get("42:fresh");
+    expect(record).toBeDefined();
+    expect(record?.isWorking).toBe(false);
+  });
+
+  // Test 11 — key-format contract
+  it("Test 11 (seedSessionLastMessageAt key-format contract): hostId=42, tmux='my-session' → key '42:my-session'", () => {
+    seedSessionLastMessageAt(42, "my-session", 1000);
+    // Exact key format `${String(hostId)}:${tmuxSession}` matches getSessionLastMessageAt's consumer format
+    expect(getSessionLastMessageAt("42:my-session")).toBe(1000);
+    expect(getSessionWorkingSnapshot().has("42:my-session")).toBe(true);
+  });
+
+  // Test 12 — publishFleetStatusSessionGone still deletes even with lastMessageAt cached
+  it("Test 12 (gone-frame regression lock): seed=1000, then gone → record removed; getSessionLastMessageAt null", () => {
+    seedSessionLastMessageAt(1, "tina", 1000);
+    expect(getSessionLastMessageAt("1:tina")).toBe(1000);
+
+    publishFleetStatusSessionGone("1", "tina", "sess-1");
+
+    expect(getSessionLastMessageAt("1:tina")).toBe(null);
+    expect(getSessionWorkingSnapshot().has("1:tina")).toBe(false);
+  });
+
+  // Test 13 — single-chokepoint notify: Axis B only (isWorking unchanged, lastMessageAt advances)
+  it("Test 13 (Axis B only — WS unchanged isWorking + fresher lastMessageAt): notify count += 1", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // Pre-populate: idle + lastMessageAt=1000
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+      }),
+    );
+    const n0 = cb.mock.calls.length;
+
+    // Trigger under test: SAME isWorking (idle → false), FRESHER lastMessageAt
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 2000,
+      }),
+    );
+
+    // Axis A no-ops (isWorking unchanged); Axis B fires (advanceSessionLastMessageAt writes + notifies)
+    expect(cb.mock.calls.length).toBe(n0 + 1);
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+    dispose();
+  });
+
+  // Test 14 — single-chokepoint notify: Axis A only (isWorking changes, lastMessageAt stale)
+  it("Test 14 (Axis A only — WS changed isWorking + stale lastMessageAt): notify count += 1; cache preserved", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // Pre-populate: idle + lastMessageAt=2000
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 2000,
+      }),
+    );
+    const n0 = cb.mock.calls.length;
+
+    // Trigger under test: CHANGED isWorking (busy → true), STALE lastMessageAt
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "busy",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+      }),
+    );
+
+    // Axis A fires swap-and-notify (isWorking changed); Axis B no-ops (ts not fresher)
+    expect(cb.mock.calls.length).toBe(n0 + 1);
+    // max-wins preserved cached value
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+    // isWorking axis updated
+    expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
+    dispose();
+  });
+
+  // Test 15 — LOAD-BEARING single-chokepoint notify: both axes fire (2 notifies)
+  it("Test 15 (LOAD-BEARING: co-change frame — changed isWorking AND fresher lastMessageAt): notify count += 2", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // Pre-populate: idle + lastMessageAt=1000
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+      }),
+    );
+    const n0 = cb.mock.calls.length;
+
+    // Trigger under test: CHANGED isWorking (busy → true) AND FRESHER lastMessageAt
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "busy",
+        backgroundTasks: [],
+        lastMessageAt: 2000,
+      }),
+    );
+
+    // Axis A + Axis B both fire → 2 notifies. This is the correct observable contract of
+    // the single-chokepoint architecture (Phase 44 Plan 03 § single-chokepoint architecture);
+    // any future refactor that collapses the two axes into an atomic-swap-then-notify-once
+    // path — the pattern CONTEXT.md § Reconciliation helper prohibits — would fail this test.
+    expect(cb.mock.calls.length).toBe(n0 + 2);
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+    expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
+    dispose();
   });
 });
