@@ -118,6 +118,25 @@ import SkynetLogo from "./SkynetLogo";
 // so new-window opener flows start with a fresh cold-load hide.
 const SEARCH_HIDDEN_SENTINEL_KEY = "pv-conv-search-hidden-once";
 
+// quick-260818-q73 (shape: .planning/shapes/shape-auto-deactivate-idle-convs.md):
+// Per-tab idle-sweep tunables. `IDLE_DEACTIVATE_THRESHOLD_MS` = the wall-clock
+// window a conv can sit un-selected in this tab before the sweep fires the
+// existing `handleRowDeactivate(row)` against it. `IDLE_DEACTIVATE_SWEEP_MS` =
+// how often the sweep walks the active-set looking for stale rows.
+//
+// Colocated by convention — this project has no shared app config module;
+// other tunable UI constants live at their consumer's module top (see
+// BACKPRESSURE_POLL_MS in use-pretty-view-uploads.ts, STICK_ARM_MS in
+// use-auto-scroll.ts). Bumping the threshold = editing this constant.
+//
+// The whole feature is per-tab / in-memory only: no persistence, no server
+// value, no cross-tab coordination, no URL param, no settings UI. The
+// currently-selected conv is exempt from the sweep. Silent operation — no
+// toast, no ARIA update, no console entry — a swept row disappears from the
+// active-set exactly the way a manual click makes it disappear.
+const IDLE_DEACTIVATE_THRESHOLD_MS = 300_000; // 5 min — shape default
+const IDLE_DEACTIVATE_SWEEP_MS = 30_000;
+
 // Patch #137: derive the (hostId:tmuxSessionName) key used by the session-
 // working-store to look up the row's live isWorking state. Rows without a
 // host (fleet-only pre-resolution races) resolve to null → the store hook
@@ -843,6 +862,105 @@ export function PrettyConversationsPanel({
     }
     onDeactivateRow(row);
   };
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // quick-260818-q73: per-tab idle sweep
+  // ────────────────────────────────────────────────────────────────────────────
+  // Shape: .planning/shapes/shape-auto-deactivate-idle-convs.md
+  //
+  // Policy: any active-set row whose "last moment it stopped being the
+  // selected conv" is older than IDLE_DEACTIVATE_THRESHOLD_MS is fed to the
+  // existing `handleRowDeactivate(row)` above — the SAME function the manual
+  // red-X click passes to `onDeactivate` on each row. Zero new mechanism,
+  // zero visible signal, zero backend touch.
+  //
+  // Data:
+  //   - `lastUnfocusedAtRef` — per-tab, in-memory ONLY. Never persisted,
+  //     never sent to the server, never shared with other tabs/devices. Dies
+  //     on tab close. Values are `performance.now()` millisecond timestamps.
+  //     The currently-selected conv's clock is NOT running — it lives outside
+  //     this map (see selectedId tracker below).
+  //   - `previousSelectedIdRef` — one-slot memory of the last selectedId so
+  //     the tracker knows which id just became un-selected on a change.
+  //   - `activeSetRef` / `selectedIdRef` — mirror the two hook-subscribed
+  //     values so the mount-only sweep reads the LATEST snapshot every tick
+  //     instead of a stale closure over first-render values.
+  //   - `handleRowDeactivateRef` — mirror of `handleRowDeactivate` so the
+  //     mount-only sweep calls the current function reference rather than
+  //     the first-render capture. handleRowDeactivate is defined inline in
+  //     the component body (no useCallback), so its identity churns on every
+  //     render; the ref keeps the sweep pointed at the fresh copy.
+  const lastUnfocusedAtRef = useRef<Map<string, number>>(new Map());
+  const previousSelectedIdRef = useRef<string | null>(null);
+  const activeSetRef = useRef(activeSet);
+  const selectedIdRef = useRef(selectedId);
+  const handleRowDeactivateRef = useRef(handleRowDeactivate);
+
+  // Ref-sync: keep the sweep's view of activeSet + selectedId +
+  // handleRowDeactivate in sync with the current render values. Single-line
+  // ref writes — no work in the effect body beyond `.current = value`.
+  useEffect(() => {
+    activeSetRef.current = activeSet;
+  }, [activeSet]);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+  useEffect(() => {
+    handleRowDeactivateRef.current = handleRowDeactivate;
+  }, [handleRowDeactivate]);
+
+  // selectedId tracker: on every selectedId change:
+  //   1. If a conv was previously selected, it just became UN-selected — stamp
+  //      the map with now so the sweep starts counting from here.
+  //   2. If a new id is selected, DELETE its map entry — the currently-selected
+  //      conv's clock is not running while it is selected. Closes the
+  //      "select→sweep→reselect same conv immediately" edge case cleanly:
+  //      re-selecting resets the clock the same as first-time selecting.
+  //   3. Update the previous-id slot for the next transition.
+  useEffect(() => {
+    const prev = previousSelectedIdRef.current;
+    if (prev !== null) {
+      lastUnfocusedAtRef.current.set(prev, performance.now());
+    }
+    if (selectedId !== null) {
+      lastUnfocusedAtRef.current.delete(selectedId);
+    }
+    previousSelectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  // Mount-only sweep: fire every IDLE_DEACTIVATE_SWEEP_MS. Body reads all
+  // dependencies from refs so no stale-closure hazard exists. For each id in
+  // the current active-set that (a) is NOT the currently-selected id, (b)
+  // HAS a stamp in the map, and (c) whose stamp is older than the threshold,
+  // resolve the row via the existing `knownRowsRef` and call
+  // `handleRowDeactivate(row)` — verbatim, no wrapper, no re-implementation.
+  // Silent: no console log, no toast, no ARIA update.
+  useEffect(() => {
+    const sweep = () => {
+      const now = performance.now();
+      const currentSelected = selectedIdRef.current;
+      const currentActive = activeSetRef.current;
+      const handleRowDeactivate = handleRowDeactivateRef.current;
+      for (const id of currentActive) {
+        if (id === currentSelected) continue; // HARD INVARIANT: never sweep the selected conv
+        const stamp = lastUnfocusedAtRef.current.get(id);
+        if (stamp === undefined) continue; // never focused-then-unfocused in this tab
+        if (now - stamp < IDLE_DEACTIVATE_THRESHOLD_MS) continue;
+        const row = knownRowsRef.current.get(id);
+        if (!row) continue; // row unknown to the panel — silently skip
+        handleRowDeactivate(row);
+        // Delete after firing so a still-active-set entry (e.g. reactivate
+        // path re-adds later) doesn't re-fire on the very next tick against
+        // the same stale stamp.
+        lastUnfocusedAtRef.current.delete(id);
+      }
+    };
+    const handle = setInterval(sweep, IDLE_DEACTIVATE_SWEEP_MS);
+    return () => clearInterval(handle);
+  }, []);
+  // ────────────────────────────────────────────────────────────────────────────
+  // end quick-260818-q73 idle sweep
+  // ────────────────────────────────────────────────────────────────────────────
 
   // quick-260810-n3a: panel-level Kill handler. Shows a native confirm dialog
   // naming the tmux session + host before forwarding to onKillRow. The dialog
