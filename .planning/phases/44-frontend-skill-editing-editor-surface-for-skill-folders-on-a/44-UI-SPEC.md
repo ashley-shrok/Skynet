@@ -163,7 +163,7 @@ Where the editor pane would render, replace with a centered card containing:
 
 - **Icon:** `AlertTriangle` from lucide, size 20px, color `#a89a80` (muted)
 - **Heading:** `Not a text file` (14px semibold, `#e8e4d8`)
-- **Body:** `This file isn't text and can't be edited here.` (13px regular, `#a89a80`)
+- **Body:** `This file isn't text and can't be edited here.` (14px regular, `#a89a80`)
 - **Layout:** vertical flex, `gap-2`, centered both axes, fills the editor-pane rectangle so height matches a loaded text file (no layout jump when switching tabs)
 
 Tab-bar treatment for non-text file tabs: **identical to text files** — same FileText icon, same label, same selected-pill treatment. Do NOT visually mark them as non-editable in the tab bar (per D-08 "appear as tabs (not hidden)"; Ashley wants zero pre-flight ceremony; the "can't edit" reveal happens on click).
