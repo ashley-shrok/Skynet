@@ -21,7 +21,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 
-import { WeeklyUsageMeter } from "./WeeklyUsageMeter";
+import { WeeklyUsageMeter, formatDurationRemaining } from "./WeeklyUsageMeter";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -145,6 +145,87 @@ describe("WeeklyUsageMeter: elapsed% math", () => {
     const expected = ((FIVE_HOUR_WINDOW_S - 3600) / FIVE_HOUR_WINDOW_S) * 100;
     expect(leftPct).toBeGreaterThanOrEqual(expected - 1);
     expect(leftPct).toBeLessThanOrEqual(expected + 1);
+  });
+});
+
+// ─── Test D: hover tooltip on each bar shows "Resets in ..." (2026-08-18) ─────
+
+describe("WeeklyUsageMeter: hover tooltip", () => {
+  it("Test D1: 5h bar carries a title with resets-in duration derived from resets_at", async () => {
+    const nowS = Math.floor(Date.now() / 1000);
+    // 5h window resets in 2h 14m = 8040s
+    const mockData = makeMockResponse({
+      fiveHourUsed: 50,
+      fiveHourResetsAt: nowS + 8040,
+      sevenDayUsed: 20,
+      sevenDayResetsAt: nowS + 302400,
+    });
+
+    vi.stubGlobal("fetch", buildFetchMock(mockData));
+
+    const { container } = render(<WeeklyUsageMeter />);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".pv-usage-meter-row").length).toBe(2);
+    });
+
+    const bars = container.querySelectorAll(".pv-usage-meter-bar");
+    expect(bars.length).toBe(2);
+    // Small ±1m tolerance for clock drift between compute-and-render.
+    const fiveHourTitle = (bars[0] as HTMLElement).getAttribute("title") ?? "";
+    expect(fiveHourTitle).toMatch(/^Resets in 2h 1[34]m$/);
+  });
+
+  it("Test D2: Week bar title uses d + h units when > 1 day remains", async () => {
+    const nowS = Math.floor(Date.now() / 1000);
+    // Weekly window resets in 3d 12h 30m = 304200s
+    const mockData = makeMockResponse({
+      fiveHourUsed: 10,
+      fiveHourResetsAt: nowS + 9000,
+      sevenDayUsed: 20,
+      sevenDayResetsAt: nowS + 304200,
+    });
+
+    vi.stubGlobal("fetch", buildFetchMock(mockData));
+
+    const { container } = render(<WeeklyUsageMeter />);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".pv-usage-meter-row").length).toBe(2);
+    });
+
+    const bars = container.querySelectorAll(".pv-usage-meter-bar");
+    const weekTitle = (bars[1] as HTMLElement).getAttribute("title") ?? "";
+    // Expect "3d 12h 30m" ±1m
+    expect(weekTitle).toMatch(/^Resets in 3d 12h (29|30)m$/);
+  });
+});
+
+describe("formatDurationRemaining", () => {
+  it("returns 0m at or below zero seconds (window already reset — bar shouldn't be renderable in this state, but never returns empty)", () => {
+    expect(formatDurationRemaining(0)).toBe("0m");
+    expect(formatDurationRemaining(-5)).toBe("0m");
+  });
+
+  it("returns just minutes when under an hour", () => {
+    expect(formatDurationRemaining(60)).toBe("1m");
+    expect(formatDurationRemaining(59 * 60)).toBe("59m");
+  });
+
+  it("returns h + m when under a day, dropping leading zero units", () => {
+    expect(formatDurationRemaining(2 * 3600 + 14 * 60)).toBe("2h 14m");
+    expect(formatDurationRemaining(2 * 3600)).toBe("2h");
+  });
+
+  it("returns d + h + m when over a day, dropping trailing zero units", () => {
+    expect(formatDurationRemaining(3 * 86400 + 12 * 3600 + 30 * 60)).toBe("3d 12h 30m");
+    expect(formatDurationRemaining(3 * 86400 + 12 * 3600)).toBe("3d 12h");
+    expect(formatDurationRemaining(3 * 86400)).toBe("3d");
+  });
+
+  it("under-a-minute rounds down but still shows 0m (rather than empty)", () => {
+    expect(formatDurationRemaining(30)).toBe("0m");
+    expect(formatDurationRemaining(1)).toBe("0m");
   });
 });
 

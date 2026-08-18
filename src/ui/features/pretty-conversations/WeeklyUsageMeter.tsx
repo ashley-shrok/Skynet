@@ -71,6 +71,25 @@ function elapsedPct(resetsAt: number, windowS: number): number {
   return Math.max(0, Math.min(100, raw));
 }
 
+/**
+ * Format seconds as a compact `Xd Yh Zm` duration string, dropping
+ * leading zero units. Never returns empty — clamped to `0m` at/below 0.
+ * Used for the bar hover tooltip so Ashley can see exactly how much
+ * time is left in the window (the cyan tick indicates elapsed position
+ * visually; this puts a number on the remainder). 2026-08-18.
+ */
+export function formatDurationRemaining(seconds: number): string {
+  if (seconds <= 0) return "0m";
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+  return parts.join(" ");
+}
+
 export function WeeklyUsageMeter() {
   const [data, setData] = useState<UsageResponse | null>(null);
 
@@ -99,17 +118,21 @@ export function WeeklyUsageMeter() {
   const fiveHourElapsed = elapsedPct(data.five_hour.resets_at, FIVE_HOUR_WINDOW_S);
   const sevenDayElapsed = elapsedPct(data.seven_day.resets_at, SEVEN_DAY_WINDOW_S);
 
+  const nowS = Date.now() / 1000;
+
   return (
     <div className="pv-usage-meter">
       <MeterRow
         label="5h"
         usagePct={data.five_hour.used_percentage}
         elapsedPct={fiveHourElapsed}
+        secondsUntilReset={data.five_hour.resets_at - nowS}
       />
       <MeterRow
         label="Week"
         usagePct={data.seven_day.used_percentage}
         elapsedPct={sevenDayElapsed}
+        secondsUntilReset={data.seven_day.resets_at - nowS}
       />
     </div>
   );
@@ -123,16 +146,22 @@ function MeterRow({
   label,
   usagePct,
   elapsedPct,
+  secondsUntilReset,
 }: {
   label: string;
   usagePct: number;
   elapsedPct: number;
+  secondsUntilReset: number;
 }) {
   const bandStyle = BAND_FILL_STYLE[bandFor(usagePct)];
+  // Native title hover — pairs with the visual tick so Ashley can read the
+  // exact remaining time instead of eyeballing the gap. Refreshes each
+  // 15s poll, so displayed value is within 15s of real (fine at m-precision).
+  const title = `Resets in ${formatDurationRemaining(secondsUntilReset)}`;
   return (
     <div className="pv-usage-meter-row">
       <span className="pv-usage-meter-label">{label}</span>
-      <div className="pv-usage-meter-bar">
+      <div className="pv-usage-meter-bar" title={title}>
         <div
           className="pv-usage-meter-fill-usage"
           style={{ width: `${usagePct}%`, ...bandStyle }}
