@@ -949,6 +949,58 @@ export type FetchOlderBatchEvent = {
 };
 
 /**
+ * Send a `fetch_older` request on an ALREADY-OPEN pretty-view WS. Unlike
+ * `countIdentityBounties` (which opens its own one-shot socket), fetch_older
+ * is a subsequent request on the existing session-bound connection — the
+ * server correlates it to the session via the connection's own captured
+ * state (see Plan 43-04 backend handler).
+ *
+ * Guards on `ws.readyState !== WebSocket.OPEN` so callers can invoke it
+ * without pre-checking; returns `false` when the socket is not ready OR
+ * when `ws.send` throws (mid-close race). Returns `true` when the payload
+ * was handed to `ws.send`. Never throws — callers wire it into a debounced
+ * scroll handler where a throw would be inconvenient.
+ *
+ * Wave 3 (Plan 43-07b) is the sole consumer — it fires this from PrettyView's
+ * near-top-scroll handler when the oldest loaded eventId is not the JSONL's
+ * first line and no in-flight fetch_older is pending.
+ */
+export function sendFetchOlder(
+  ws: WebSocket,
+  payload: FetchOlderPayload,
+): boolean {
+  if (ws.readyState !== WebSocket.OPEN) return false;
+  try {
+    ws.send(JSON.stringify(payload));
+    return true;
+  } catch {
+    // Socket raced to CLOSING/CLOSED between the readyState check and send.
+    // Caller's debounce will re-fire naturally on the next scroll event.
+    return false;
+  }
+}
+
+/**
+ * Runtime type-guard for `FetchOlderBatchEvent`. Narrows `unknown` to the
+ * batch shape so PrettyView's onmessage switch (Wave 3 Plan 43-07b) can
+ * add a `case "fetch_older_batch":` branch that safely reads `evt.frames`,
+ * `evt.reachedBeginning`, and `evt.error`.
+ *
+ * Minimal shape check: `type === "fetch_older_batch"` AND `frames` is an
+ * array. The `reachedBeginning` and `error` fields are OPTIONAL and do NOT
+ * gate the guard — per Phase 43 CONTEXT.md § "Fetch failure handling" the
+ * server ALWAYS emits a batch event (error-shape included) so the client
+ * can clear its loading indicator; the empty-frames + error-populated shape
+ * MUST narrow true or PrettyView's handler cannot clear loading state on
+ * server-side failures.
+ */
+export function isFetchOlderBatchEvent(x: unknown): x is FetchOlderBatchEvent {
+  if (!x || typeof x !== "object") return false;
+  const o = x as Record<string, unknown>;
+  return o.type === "fetch_older_batch" && Array.isArray(o.frames);
+}
+
+/**
  * Fire a one-shot batched bounty count request. Opens its own WS, sends one
  * identity:count-bounties frame on open, resolves on the first matching
  * identity:bounty-counts response, then closes the socket. Follows the same
