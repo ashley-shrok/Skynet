@@ -44,6 +44,7 @@ function makeRelayOutbound(rawCommand: string): RelayOutboundEvent {
     type: "relay_outbound",
     room: "test-room",
     rawCommand,
+    body: null,
     eventId: "ro-1",
     ts: 1_000_000,
   };

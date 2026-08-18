@@ -2450,6 +2450,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               type: "relay_outbound",
               room: parsed.room,
               rawCommand: parsed.rawCommand,
+              body: parsed.body,     // bounty pretty-view-outgoing-relay-render
               eventId: parsed.eventId,
               ts: parsed.ts,
             }),

@@ -369,6 +369,7 @@ describe("PrettyView autoplay dispatch", () => {
     fireMessageFrame(ws, {
       type: "relay_outbound",
       rawCommand: "/send hello",
+      body: null,
       eventId: "evt-relay-out",
       ts: 2000,
     });

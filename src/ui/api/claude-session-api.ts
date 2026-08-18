@@ -148,10 +148,12 @@ export type SessionChangedEvent = {
 // RelayOutboundEvent: emitted when the backend parser detects a Bash tool_use
 // that is a real Matrix relay send (curl + -X PUT + rooms/X/send/m.room.message/Y
 // conjunction). Field notes:
-//   rawCommand:   IS the body (Option D, Ashley 2026-07-28) — rendered faithfully
-//                 as a scrollable mono block. Full Bash command; may contain curl
-//                 bearer tokens (accepted disclosure, same surface as tmux pane;
-//                 T-17-01-02). No body extraction, no extractError field.
+//   body:       extracted human message body via the 7-strategy shell/heredoc/inline-json
+//               extractor (bounty pretty-view-outgoing-relay-render, 2026-08-18) —
+//               null means the extractor found no known shape, consumer falls back
+//               to rendering rawCommand (~3.6% tail: cross-turn file refs, python heredocs).
+//   rawCommand: the full Bash command — always preserved as a faithful record even
+//               when body is non-null (may contain curl bearer tokens; T-17-01-02).
 //
 // RelayInboundEvent: emitted when a task-notification user turn matches
 // the recv.sh event-line format [room X] [@sender] (event $Y): BODY.
@@ -161,6 +163,11 @@ export type RelayOutboundEvent = {
   type: "relay_outbound";
   room: string | null;
   rawCommand: string;
+  /** Extracted message body from the outbound curl command via the 7-strategy
+   * shell-var/heredoc/inline-json extractor. null = fallback path (unextractable
+   * shape); consumer should render rawCommand as-is (bounty
+   * pretty-view-outgoing-relay-render, 2026-08-18). */
+  body: string | null;
   eventId: string;
   ts: number;
 };
