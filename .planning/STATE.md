@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-18T15:57:00.000Z"
+last_updated: "2026-08-18T16:04:00.000Z"
 last_activity: 2026-08-18
 progress:
   total_phases: 43
   completed_phases: 34
   total_plans: 178
-  completed_plans: 165
-  percent: 79
+  completed_plans: 166
+  percent: 80
 ---
 
 # Project State
@@ -25,10 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 43 (replace-pv-virtualization-with-plain-dom-windowed-paginatio) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Status: Ready to execute
 
 Last activity: 2026-08-18
+
+Last activity: 2026-08-18 — Completed Phase 43 Plan 03 (wire scaffolding: `openClaudeSessionSocket({historyWindow})` + `FetchOlderPayload` + `FetchOlderBatchEvent` wire types). Landed the tiny signature-compatible extension to `openClaudeSessionSocket` in `src/ui/api/claude-session-api.ts` — optional `opts?: { historyWindow?: number }` argument that, when supplied as a positive finite integer, appends `?historyWindow=N` to the connect URL; the backend consumer (Wave 2 43-04) will parameterize its `tail -F -n +1` to `tail -F -n N` accordingly. No-arg call at L945 (`countIdentityBounties`) is byte-equivalent to the pre-edit behavior — three-check positive-finite-integer gate (`typeof hw === "number" && Number.isFinite(hw) && hw > 0`) plus `Math.floor()` before URL construction rejects `NaN`, `Infinity`, non-positive, non-numeric, and undefined inputs, all falling through to an empty `qp` string. Two new wire types clustered adjacent to `IdentityCountBountiesPayload` + `IdentityBountyCountsEvent` (the plan-named analog for the Payload/Event convention): `FetchOlderPayload = { type: "fetch_older"; anchorEventId: string; count: number }` — LOCKED per Phase 43 CONTEXT.md `<decisions>` § "Backend contract additions": eventId anchor only, NO `anchorLine` field, NO optional secondary hint (client physically cannot populate a line offset because ParsedLine variants carry no line offset; server resolves via `resolveEventIdToLine` from Plan 43-02); and `FetchOlderBatchEvent = { type: "fetch_older_batch"; frames: unknown[]; reachedBeginning?: boolean; error?: string }` with `frames` typed `unknown[]` at scaffolding stage (plan-authorized deferred narrowing — Wave 3 43-07b narrows to the concrete `MessageEvent | ImageEvent | RelayOutboundEvent | RelayInboundEvent | MalformedLineEvent` union when it wires the PrettyView onmessage case). Zero consumers wired; zero runtime code added; zero changes to any other export. Verification: `grep -c "anchorLine" src/ui/api/claude-session-api.ts` returns EXACTLY 0 (locked acceptance criterion honored — one first-draft JSDoc reworded to "line-offset field" / "line offset" to keep grep clean); `grep -c "historyWindow"` returns 4; `grep -c "FetchOlderPayload"` returns 2; `grep -c "FetchOlderBatchEvent"` returns 3; `grep -c "fetch_older"` returns 9; pre-existing `openClaudeSessionSocket()` call at L945 verified unchanged; cross-file leakage check — `grep -rn "FetchOlderPayload\|FetchOlderBatchEvent" src/` returns 0 hits outside `claude-session-api.ts`. Builds green: `npm run build:backend` EXIT 0; `npm run build` EXIT 0 (~5.80s); `npx tsc --noEmit -p tsconfig.json` EXIT 0. One atomic commit `d6123dab` on `feat/tab-title-from-tmux` (`feat(43-03): add historyWindow connect option + fetch_older wire types`, +96/-2 lines in one file). No deviations from plan. NO worktrees (sequential execution honored per fleet rule + `workflow.use_worktrees=false`). NOT deployed. Wave 1 now 3/4 complete; 43-06 (use-auto-scroll rewrite) still available for parallel executor. Wave 2's 43-04 (backend `handleFetchOlder` + `historyWindow` handshake parse) and 43-05 (frontend `sendFetchOlder` + `isFetchOlderBatchEvent` runtime helpers) can now compile against a frozen eventId-only wire contract.
 
 Last activity: 2026-08-18 — Completed Phase 43 Plan 02 (`readSessionFileRange` + `resolveEventIdToLine` helpers). Landed the two atomic backend primitives Wave 2's `handleFetchOlder` WS handler will call in sequence to serve the client's `{anchorEventId, count}` fetch-older payload — a `sed -n 'M,Np'` range reader that parses each JSONL line via `parseSessionLine` and drops `kind:"skip"` results, plus a `grep -n '"uuid":"<id>"' … | head -1 | cut -d: -f1` eventId→line lookup. Both share `context-pct-from-jsonl.ts`'s discipline byte-for-byte: one-shot `execCommand` via `../ssh/tmux-helper.js`, `Promise.race` timeout at 3000ms, catch-and-return-null on any failure (SSH drop, timeout, tmux-helper nonzero-exit-with-empty-stdout contract), single-quote path wrap without embedded-quote sanitization (upstream-validated by `discoverClaudeSession`). `readSessionFileRange` validates range FIRST (start>0, end>=start, span<10000) — invalid inputs return null with zero exec calls. `resolveEventIdToLine` validates eventId FIRST (non-empty, no embedded `'`) — treats single-quote-embedded ids as unresolvable rather than attempting shell-escape (defense-in-depth). Non-null empty-array return from `readSessionFileRange` is semantically distinct from null: `[]` means "exec succeeded but every line was empty/skip" (Wave 2 uses this for `reachedBeginning: true`); null means "read failed" (Wave 2 uses for `error: "..."`). One file two exports (`session-file-range.ts`, 177 lines) — plan filename honored; both helpers land together because the Wave 2 caller invokes them in a bound sequence. Test file (`session-file-range.test.ts`, 336 lines) locks all 11 documented behaviors (6 for range read: command shape, parse+skip-filter, invalid-range no-exec, timeout→null via fake-timers, exec-error→null, single-quote path; 5 for eventId lookup: command shape, integer parse from "1234\n", not-found→null in both empty-stdout and nonzero-exit sub-cases, invalid-id no-exec incl `'`-embedded, timeout+error posture). TDD gate honored: RED commit `6777bd14` landed test-first, all 11 `it` blocks failed at module-resolution (`Cannot find module '/src/backend/claude-session/session-file-range.js'`); GREEN commit `fc022688` landed source, all 11 turned green in a single pass with zero test edits. Verification: target-file 11/11, regression-safety across target + 3 closest analogs (context-pct-from-jsonl, session-file-tail, session-file-parser) 61/61, `npm run build:backend` EXIT 0. Zero callers wired — `grep -rn "readSessionFileRange\|resolveEventIdToLine" src/backend/` hits only the two new files. Wave 2 plan 43-04 owns `handleFetchOlder` extraction, wire-frame emission, and the `case "fetch_older":` msg-switch dispatch. NO worktrees, NO deploy motion, NO nginx or observation-channel edits.
 
@@ -244,6 +246,7 @@ Progress: [█████████░] 94%
 | Phase 41 P41-03 | 30min | 1 tasks | 3 files |
 | Phase 43 P43-01 | 225 | 2 tasks | 2 files |
 | Phase 43 P43-02 | 240 | 2 tasks | 2 files |
+| Phase 43 P43-03 | 211 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
