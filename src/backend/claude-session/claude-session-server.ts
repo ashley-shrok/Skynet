@@ -12,6 +12,10 @@ import { discoverIdentitySessionFile } from "./discover-identity-session-file.js
 import { parseSessionLine, detectIdReset } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 import {
+  resolveEventIdToLine,
+  readSessionFileRange,
+} from "./session-file-range.js";
+import {
   applyLineToLayer1State,
   type Layer1State,
 } from "./layer1-detect.js";
@@ -714,6 +718,240 @@ export async function handleIdentityCountBounties(
 // than spinning up a WebSocketServer + ssh2 pair. Aliased to underscore so
 // production consumers stay clear of the internal handler.
 export const __handleIdentityCountBountiesForTests = handleIdentityCountBounties;
+
+// ─── Phase 43 Plan 43-04: fetch_older WS handler + historyWindow parse ───
+//
+// handleFetchOlder is the extracted module-scope handler for the client's
+// `{ type: "fetch_older", anchorEventId, count }` payload. Wire contract
+// LOCKED per Phase 43 CONTEXT.md § "Backend contract additions":
+// the client sends ONLY the anchorEventId (uuid); the server resolves it
+// to a line offset via `resolveEventIdToLine` from ./session-file-range.js,
+// then reads the [max(1, anchorLine-count), anchorLine-1] slice via
+// `readSessionFileRange` from the same module, then emits ONE
+// `fetch_older_batch` response frame back through ws.send.
+//
+// The response ALWAYS lands (success OR error paths) so the client's
+// loading indicator clears — never silently dropped. Error strings match
+// the frame shape declared in src/ui/api/claude-session-api.ts Phase 43
+// wire types (FetchOlderBatchEvent).
+//
+// Test seam mirrors __handleIdentityCountBountiesForTests above — vitest
+// drives the handler directly without a WSS + ssh2 bring-up.
+
+// Cap on client-requested count. Matches the client-side working-set-cap
+// starting-point of 150 (from CONTEXT.md § "Working set") with headroom.
+// Above this we reject to prevent unbounded shell reads; realistic client
+// usage stays under 100.
+const FETCH_OLDER_MAX_COUNT = 500;
+
+export async function handleFetchOlder(args: {
+  ws: WebSocket;
+  msg: unknown;
+  sshConn: SSHClientType | null;
+  currentSessionFile: string | null;
+}): Promise<void> {
+  const { ws, msg, sshConn, currentSessionFile } = args;
+
+  // (1) Coerce msg.
+  const m = (msg ?? {}) as { anchorEventId?: unknown; count?: unknown };
+  const anchorEventId = m.anchorEventId;
+  const count = m.count;
+
+  // (2) Validate anchorEventId (non-empty string) + count (positive int
+  //     within cap). On failure: emit invalid-args, return.
+  if (typeof anchorEventId !== "string" || anchorEventId.length === 0) {
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "fetch_older_batch",
+          frames: [],
+          error: "invalid-args",
+        }),
+      );
+    } catch {
+      /* ws may be mid-close */
+    }
+    return;
+  }
+  if (
+    typeof count !== "number" ||
+    !Number.isFinite(count) ||
+    !Number.isInteger(count) ||
+    count <= 0 ||
+    count > FETCH_OLDER_MAX_COUNT
+  ) {
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "fetch_older_batch",
+          frames: [],
+          error: "invalid-args",
+        }),
+      );
+    } catch {
+      /* ws may be mid-close */
+    }
+    return;
+  }
+
+  // (3) Precondition: sshConn + currentSessionFile must both be bound.
+  if (sshConn === null || currentSessionFile === null) {
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "fetch_older_batch",
+          frames: [],
+          error: "no-session",
+        }),
+      );
+    } catch {
+      /* ws may be mid-close */
+    }
+    return;
+  }
+
+  // (4-8) Wrap the range work in try/catch so handler-thrown errors surface
+  //       as a graceful error frame instead of bubbling out of the switch.
+  try {
+    // (5) Resolve anchorEventId → line number.
+    const anchorLine = await resolveEventIdToLine(
+      sshConn,
+      currentSessionFile,
+      anchorEventId,
+    );
+    if (anchorLine === null) {
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "fetch_older_batch",
+            frames: [],
+            error: "anchor-not-found",
+          }),
+        );
+      } catch {
+        /* ws may be mid-close */
+      }
+      return;
+    }
+
+    // (6) Compute [startLine, endLine] with startLine clamped at 1.
+    const startLine = Math.max(1, anchorLine - count);
+    const endLine = anchorLine - 1;
+
+    // Edge case: anchor is at line 1 → endLine (0) < startLine (1). Report
+    // reachedBeginning with empty frames — client marks the top as "done".
+    if (endLine < startLine) {
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "fetch_older_batch",
+            frames: [],
+            reachedBeginning: true,
+          }),
+        );
+      } catch {
+        /* ws may be mid-close */
+      }
+      return;
+    }
+
+    // (7) Read the slice.
+    const frames = await readSessionFileRange(
+      sshConn,
+      currentSessionFile,
+      startLine,
+      endLine,
+    );
+    if (frames === null) {
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "fetch_older_batch",
+            frames: [],
+            error: "read-failed",
+          }),
+        );
+      } catch {
+        /* ws may be mid-close */
+      }
+      return;
+    }
+
+    // (8) Success — emit the batch with reachedBeginning derived from
+    //     whether we hit the top of the file on this range.
+    const reachedBeginning = startLine === 1;
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "fetch_older_batch",
+          frames,
+          reachedBeginning,
+        }),
+      );
+    } catch {
+      /* ws may be mid-close */
+    }
+  } catch (err: unknown) {
+    sshLogger.error(
+      "fetch_older handler unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      {
+        operation: "fetch_older_error",
+        sessionFile: currentSessionFile,
+        anchorEventId,
+        count,
+      },
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "fetch_older_batch",
+          frames: [],
+          error: "handler-threw",
+        }),
+      );
+    } catch {
+      /* ws may be mid-close */
+    }
+  }
+}
+
+// Test seam. Same shape as __handleIdentityCountBountiesForTests above —
+// vitest drives the extracted handler directly with mocked session-file-range.
+export const __handleFetchOlderForTests = handleFetchOlder;
+
+// ─── historyWindow WS-handshake URL parse (Phase 43 Plan 43-04) ──────────
+//
+// Extracted so vitest can cover the parse without spinning up a WSS. The
+// helper accepts any req-shape carrying `url?: string | undefined` (the
+// wss.on("connection") req is a Node http.IncomingMessage — we only touch
+// its `url` field, same as the JWT-URL-fallback parse at L1618-1622).
+//
+// Returns a positive integer within [1, 5000] on valid input; undefined
+// on any missing / invalid / out-of-range input. Backcompat: undefined
+// means the caller passes NO initialLines override to tailSessionFile,
+// so the tail defaults to the pre-Phase-43 unbounded `-n +1` behavior.
+
+const HISTORY_WINDOW_MAX = 5000;
+
+export function parseHistoryWindow(req: { url?: string | undefined }): number | undefined {
+  const urlStr = req.url;
+  if (typeof urlStr !== "string" || urlStr.length === 0) return undefined;
+  let raw: string | null;
+  try {
+    const urlObj = new URL(urlStr, "http://localhost");
+    raw = urlObj.searchParams.get("historyWindow");
+  } catch {
+    return undefined;
+  }
+  if (raw === null || raw === "") return undefined;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0 || n > HISTORY_WINDOW_MAX) return undefined;
+  return n;
+}
+
+// Test seam.
+export const __parseHistoryWindowForTests = parseHistoryWindow;
 
 // ─── Phase 22 SRIC-06 / Plan 22-06: identity:get-role-file WS handler ──────────
 //
@@ -1668,6 +1906,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
     sessionId,
   });
 
+  // Phase 43 Plan 43-04: parse historyWindow off the WS handshake URL
+  // (mirrors the JWT-URL-fallback pattern at L1618-1622). When set to a
+  // positive integer in [1, 5000], threaded into tailSessionFile as the
+  // 5th `initialLines` arg — the tail command switches from `-n +1`
+  // (unbounded backfill) to `-n N` (bounded initial slice). Missing /
+  // invalid → undefined → tailSessionFile falls through to the legacy
+  // `-n +1` default byte-for-byte (backcompat for any caller that doesn't
+  // opt in, e.g. countIdentityBounties one-shot WS).
+  //
+  // The observation channel (onLine fan-out below, parseSessionLine
+  // emission switch) is UNAFFECTED — historyWindow only shapes the
+  // shell command's initial-slice size. Once the tail is running, every
+  // line the tail emits still reaches parseSessionLine + all observation
+  // derivations (layer1-detect, context-pct, plan-pending, backgrounded
+  // agents/shells, id-reset). This is the emission-vs-observation
+  // decoupling locked in Phase 43 CONTEXT.md § "Observation channel
+  // UNTOUCHED".
+  const historyWindowParsed = parseHistoryWindow(req);
+
   // Phase 14 Wave 2: initialize this WS's overlap-ignore state in the
   // module-scope asideState Map (per CONTEXT.md § Backend per-connection
   // state lock 2026-07-26). Cleaned up in ws.on("close") below.
@@ -2012,6 +2269,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // rather than duplicating them. Body is byte-for-byte preserved from the
   // pre-refactor code with ONE addition: the Layer 1 tail-state-derived
   // /id reset detector right after the ws-open guard (quick 260808-ohn).
+  // ── PHASE-43 OBSERVATION CHANNEL START — DO NOT EDIT BODY BELOW; extend switch cases in Region B only ──
   const onLine = (line: string) => {
     if (stopped || ws.readyState !== WebSocket.OPEN) return;
 
@@ -2508,6 +2766,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // empty_content, harness_wrapper, no_message, unknown-type)
     }
   };
+  // ── PHASE-43 OBSERVATION CHANNEL END ──
 
   // Tail's onError handler — byte-for-byte preserved from the pre-refactor
   // inline lambda apart from swapping the message-scoped `hostId` /
@@ -2823,12 +3082,19 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Restart the tail on the new file with the SAME onLine/onError
     // closures — do NOT create new lambdas; that would defeat the point
     // of extracting them.
+    //
+    // Phase 43 Plan 43-04: thread the connection-scoped `historyWindowParsed`
+    // as the 5th `initialLines` arg. The bound applies to the newly-
+    // rotated session's initial replay too (same emission-window discipline
+    // as the fresh-connect path below). undefined → tail defaults to
+    // `-n +1` byte-for-byte (backcompat).
     if (sshConn) {
       tailHandle = tailSessionFile(
         sshConn,
         newSessionFile,
         onLine,
         onError,
+        historyWindowParsed,
       );
     }
   };
@@ -4257,6 +4523,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
+    // Phase 43 Plan 43-04: fetch_older — client's request for a historical
+    // slice of the JSONL beyond the loaded window. Delegates to the extracted
+    // handleFetchOlder handler which resolves anchorEventId → line via
+    // resolveEventIdToLine, reads the [max(1, anchorLine-count), anchorLine-1]
+    // slice via readSessionFileRange, and emits ONE fetch_older_batch response
+    // frame (success OR error path — never silent) so the client's loading
+    // indicator always clears.
+    //
+    // Precondition validation (sshConn + currentSessionFile) happens INSIDE
+    // handleFetchOlder so the client always receives a graceful error frame
+    // rather than hanging.
+    if (msg.type === "fetch_older") {
+      await handleFetchOlder({ ws, msg, sshConn, currentSessionFile });
+      return;
+    }
+
     // Phase 14 Wave 2: aside_arm — the SOLE trigger source per CONTEXT.md
     // § Trigger lock (2026-07-26). Frontend PrettyView WS-sends this on
     // the `isIdle:false -> true` transition when `pvIdentity !== null`.
@@ -5282,7 +5564,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // body. Behavior byte-preserved for this steady-state site.
     startDiscoveryRepollTimer(activeTmuxSession);
 
-    tailHandle = tailSessionFile(sshConn!, sessionFile, onLine, onError);
+    // Phase 43 Plan 43-04: 5th arg = connection-scoped historyWindowParsed
+    // from the handshake URL. undefined → tail defaults to `-n +1`
+    // byte-for-byte (backcompat for callers that don't opt in).
+    tailHandle = tailSessionFile(
+      sshConn!,
+      sessionFile,
+      onLine,
+      onError,
+      historyWindowParsed,
+    );
     }; // end of startActiveSessionFlow
 
     const result = await discoverClaudeSession(conn, tmuxSession);
