@@ -305,6 +305,11 @@ function normalizeBounty(parsed: Record<string, unknown>, fallbackId: string): u
     // `status`; defaulted to false when absent from bounty.json so both
     // open and archive payloads always carry the flag to the frontend.
     pinned: typeof parsed.pinned === "boolean" ? parsed.pinned : false,
+    // This quick: independent user-reserved boolean (fleet schema addition
+    // 2026-08-06). Orthogonal to both `status` and `pinned`; defaulted to
+    // false when absent so pre-existing bounty.json files without the
+    // field still produce a valid Bounty on reads.
+    needs_desk: typeof parsed.needs_desk === "boolean" ? parsed.needs_desk : false,
     // Phase 18 / IDMEDIT-04: three new pass-through fields for the bounty
     // field editor (Plan 18-04/18-05). Safe defaults match the existing
     // pattern (keywords/todos above). Pre-existing bounty.json files that
@@ -1543,6 +1548,76 @@ export async function writeIdentityBountyPinned(
 }
 
 // ---------------------------------------------------------------------------
+// 8b'. writeIdentityBountyNeedsDesk — patch bounty.json's needs_desk field
+// ---------------------------------------------------------------------------
+//
+// This quick: byte-shape mirror of writeIdentityBountyPinned for the
+// `needs_desk` boolean field. Independent user-reserved flag orthogonal to
+// both lifecycle `status` and `pinned`. Writer flips the boolean, bumps
+// updated_at, and appends a "needs_desk set to <bool> via identity modal"
+// timeline line. Folder untouched (no rename/archive) — same resurrect-safe
+// pattern as pinned. Editable for ALL bounties including archived.
+
+export async function writeIdentityBountyNeedsDesk(
+  conn: SSHClientType | null,
+  identityKey: string,
+  bountySlug: string,
+  needsDesk: boolean,
+): Promise<void> {
+  if (typeof needsDesk !== "boolean") {
+    throw new Error("invalid needs_desk");
+  }
+
+  // Slug guard at the TOP — fires before the SSH round-trip so an invalid
+  // slug never triggers a real SSH connection (mirrors writeIdentityBountyPinned).
+  if (!IDENTITY_SLUG_RE.test(bountySlug)) {
+    throw new Error("invalid bounty slug");
+  }
+
+  const role = await resolveRoleForIdentity(conn, identityKey);
+  const nowIso = new Date().toISOString();
+  const timelineLine = `${nowIso} needs_desk set to ${needsDesk} via identity modal`;
+
+  if (conn === null) {
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, role, "bounties", bountySlug, "bounty.json");
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    parsed.needs_desk = needsDesk;
+    parsed.updated_at = nowIso;
+    const tl = Array.isArray(parsed.timeline) ? [...parsed.timeline] : [];
+    tl.push(timelineLine);
+    parsed.timeline = tl;
+    const next = JSON.stringify(parsed, null, 2) + "\n";
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, next, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  const script =
+    'import json,os,sys,datetime\n' +
+    'p=sys.argv[1]\n' +
+    'u=json.loads(sys.stdin.read())\n' +
+    'with open(p,"r") as f: d=json.load(f)\n' +
+    'd["needs_desk"]=u["needs_desk"]\n' +
+    'now=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")\n' +
+    'd["updated_at"]=now\n' +
+    'tl=d.get("timeline") or []\n' +
+    'if not isinstance(tl,list): tl=[]\n' +
+    'tl.append(now+" needs_desk set to "+str(u["needs_desk"]).lower()+" via identity modal")\n' +
+    'd["timeline"]=tl\n' +
+    'tmp=p+".tmp"\n' +
+    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    'os.rename(tmp,p)\n';
+  const payload = JSON.stringify({ needs_desk: needsDesk }).replace(/'/g, "'\\''");
+  const cmd =
+    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
+    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
+  await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
 // 8c. writeIdentityBountyFields — partial-JSON-patch write for bounty fields
 // ---------------------------------------------------------------------------
 //
@@ -1601,6 +1676,10 @@ export async function writeIdentityBountyFields(
   // --- Upfront guard: pinned is not writable via this handler ---
   if ("pinned" in patch) {
     throw new Error("pinned is not editable via update-bounty-fields; use update-bounty-pinned");
+  }
+  // --- Upfront guard: needs_desk is not writable via this handler ---
+  if ("needs_desk" in patch) {
+    throw new Error("needs_desk is not editable via update-bounty-fields; use update-bounty-needs-desk");
   }
 
   // --- Per-field type validation (BEFORE any file I/O) ---

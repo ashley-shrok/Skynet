@@ -385,6 +385,12 @@ export type Bounty = {
    *  normalizeBounty defaults to false when the field is absent from
    *  bounty.json. Flipped via identity:update-bounty-pinned WS write. */
   pinned: boolean;
+  /** Phase 26 / this quick: independent user-reserved boolean — true when
+   *  Ashley flagged the bounty as needing a desk (real browser/keyboard) to
+   *  work on next. Orthogonal to status and pinned. Backend normalizeBounty
+   *  defaults to false when absent. Flipped via identity:update-bounty-
+   *  needs-desk WS write. */
+  needs_desk: boolean;
   keywords: string[];
   requested_by: string | null;
   created_at: string;
@@ -691,6 +697,25 @@ export type IdentityUpdateBountyPinnedPayload = {
 };
 export type IdentityBountyPinnedUpdatedEvent = {
   type: "identity:bounty-pinned-updated";
+  bounties: Bounty[];
+  archivedBounties: Bounty[];
+  error?: string;
+};
+
+// This quick: byte-shape mirror of the pinned payload above for the parallel
+// `needs_desk` write surface. Independent user-reserved boolean orthogonal
+// to both `status` and `pinned`. Same one-shot request / fresh-list response
+// convention — server patches bounty.json in place (folder NOT moved) and
+// returns both bounty lists so the modal atomically re-renders.
+export type IdentityUpdateBountyNeedsDeskPayload = {
+  type: "identity:update-bounty-needs-desk";
+  identityKey: string;
+  hostId: number;
+  bountySlug: string;
+  needs_desk: boolean;
+};
+export type IdentityBountyNeedsDeskUpdatedEvent = {
+  type: "identity:bounty-needs-desk-updated";
   bounties: Bounty[];
   archivedBounties: Bounty[];
   error?: string;

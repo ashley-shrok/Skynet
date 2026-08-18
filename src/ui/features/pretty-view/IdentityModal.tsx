@@ -57,6 +57,8 @@ import {
   type IdentityBountyStatusUpdatedEvent,
   type IdentityUpdateBountyPinnedPayload,
   type IdentityBountyPinnedUpdatedEvent,
+  type IdentityUpdateBountyNeedsDeskPayload,
+  type IdentityBountyNeedsDeskUpdatedEvent,
   type IdentityArchiveBountyPayload,
   type IdentityBountyArchivedEvent,
   type IdentityDeleteBountyPayload,
@@ -788,6 +790,33 @@ export function IdentityModal({
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
+  // This quick: byte-shape mirror of updateBountyPinned for the parallel
+  // `needs_desk` write surface. Independent user-reserved boolean orthogonal
+  // to both `status` and `pinned`. Toggling deterministically changes the
+  // panel's cached needsDeskCount so invalidateBountyCount fires the same
+  // fire-and-forget as pinned.
+  async function updateBountyNeedsDesk(
+    bountySlug: string,
+    needsDesk: boolean,
+  ): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateBountyNeedsDeskPayload = {
+      type: "identity:update-bounty-needs-desk",
+      identityKey: identity.identityKey,
+      hostId,
+      bountySlug,
+      needs_desk: needsDesk,
+    };
+    const res = await sendIdentityMutation<
+      IdentityUpdateBountyNeedsDeskPayload,
+      IdentityBountyNeedsDeskUpdatedEvent
+    >(payload, "identity:bounty-needs-desk-updated");
+    if (res.error) throw new Error(res.error);
+    setBounties(res.bounties);
+    setArchivedBounties(res.archivedBounties);
+    void invalidateBountyCount(identity.identityKey, hostId);
+  }
+
   // Phase 18 / IDMEDIT-04 / Plan 05: byte-shape mirror of updateBountyPriority
   // for the bounty field editor write surface. Accepts a partial patch covering
   // any subset of the seven editable fields (title, premise, todos, keywords,
@@ -1404,6 +1433,11 @@ export function IdentityModal({
                             // done-in-place bounty is a legal resurrect
                             // signal on the pinned axis same as status.
                             onPinnedChange={(next) => updateBountyPinned(b.slug, next)}
+                            // This quick: needs_desk toggle threaded for ALL
+                            // FOUR partitions (mirrors pinned above). Flipping
+                            // needs_desk on a done/dropped bounty stays legal
+                            // — same user-reserved-flag semantics as pinned.
+                            onNeedsDeskChange={(next) => updateBountyNeedsDesk(b.slug, next)}
                             // Quick 260727-wd0: Archive button threaded for
                             // ALL THREE OPEN partitions (in_progress / rest
                             // / other) — a single addition here covers all
@@ -1462,6 +1496,11 @@ export function IdentityModal({
                               // re-pinning is the resurrect signal on the
                               // pinned axis (same rationale as onStatusChange).
                               onPinnedChange={(next) => updateBountyPinned(b.slug, next)}
+                              // This quick: needs_desk toggle threaded for
+                              // archived bounties too — flipping the flag on
+                              // an archived bounty stays legal, same rationale
+                              // as onPinnedChange above.
+                              onNeedsDeskChange={(next) => updateBountyNeedsDesk(b.slug, next)}
                               /* Quick 260727-wd0: NO onArchive here — cards
                                  under archive/ do not get an Archive button
                                  (unarchive is a separate follow-up).

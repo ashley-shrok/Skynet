@@ -57,6 +57,7 @@ import {
   writeIdentityBountyPriority,
   writeIdentityBountyStatus,
   writeIdentityBountyPinned,
+  writeIdentityBountyNeedsDesk,
   writeIdentityBountyFields,
   archiveIdentityBounty,
   deleteIdentityBounty,
@@ -3971,6 +3972,80 @@ wss.on("connection", async (ws: WebSocket, req) => {
         try {
           ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
         } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+      }
+      return;
+    }
+
+    // This quick: identity:update-bounty-needs-desk — byte-shape mirror of the
+    // pinned handler above for the parallel `needs_desk` boolean field. User-
+    // reserved flag independent of both `status` and `pinned`. Server patches
+    // bounty.json IN PLACE (folder NOT moved) and returns fresh bounty lists
+    // so the modal atomically re-renders. Editable for ALL bounties including
+    // archived.
+    if (msg.type === "identity:update-bounty-needs-desk") {
+      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown; needs_desk?: unknown };
+      const rawKey = raw.identityKey;
+      const rawSlug = raw.bountySlug;
+      const rawNeedsDesk = raw.needs_desk;
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      if (typeof rawNeedsDesk !== "boolean") {
+        try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: "invalid needs_desk" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      const identityKey = rawKey;
+      const bountySlug = rawSlug;
+      const needsDesk = rawNeedsDesk;
+      const rawHostId = raw.hostId;
+      const hostIdNum =
+        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+          ? rawHostId
+          : undefined;
+      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      try {
+        let bounties: unknown[];
+        let archivedBounties: unknown[];
+        if (useLocal) {
+          await writeIdentityBountyNeedsDesk(null, identityKey, bountySlug, needsDesk);
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          sshLogger.info("identity:update-bounty-needs-desk", {
+            operation: "identity_update_bounty_needs_desk",
+            userId, identityKey, bountySlug, needsDesk, hostId: hostIdNum, useLocal: true,
+          });
+        } else {
+          const resolved = await resolveHostById(hostIdNum!, userId!);
+          if (!resolved) {
+            try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+            return;
+          }
+          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+          try {
+            await writeIdentityBountyNeedsDesk(conn, identityKey, bountySlug, needsDesk);
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            sshLogger.info("identity:update-bounty-needs-desk", {
+              operation: "identity_update_bounty_needs_desk",
+              userId, identityKey, bountySlug, needsDesk, hostId: hostIdNum, useLocal: false,
+            });
+          } finally {
+            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+          }
+        }
+        try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+      } catch (err) {
+        sshLogger.error(
+          "identity:update-bounty-needs-desk unexpected error",
+          err instanceof Error ? err : new Error(String(err)),
+          { operation: "identity_update_bounty_needs_desk_error", userId, identityKey, bountySlug, hostId: hostIdNum },
+        );
+        try {
+          ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
+        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }

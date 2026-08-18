@@ -251,6 +251,11 @@ export function BountyCard({
    *  Supplied for ALL bounties including archived (unpin an archived pinned
    *  bounty stays legal, re-pin is the resurrect signal on the pinned axis). */
   onPinnedChange?: (pinned: boolean) => Promise<void>;
+  /** This quick: when supplied, expanded editor body renders a labeled
+   *  "Needs desk" toggle; flip fires this callback with the new boolean.
+   *  Supplied for ALL bounties including archived — user-reserved flag
+   *  orthogonal to lifecycle. */
+  onNeedsDeskChange?: (needsDesk: boolean) => Promise<void>;
   /** Quick 260727-wd0: when supplied, expanded body renders an Archive
    *  button below the Priority row. Only supplied for OPEN cards; archived
    *  cards do NOT get the button (unarchive is a follow-up quick). */
@@ -277,6 +282,8 @@ export function BountyCard({
   const [statusError, setStatusError] = useState<string | null>(null);
   const [savingPinned, setSavingPinned] = useState(false);
   const [pinnedError, setPinnedError] = useState<string | null>(null);
+  const [savingNeedsDesk, setSavingNeedsDesk] = useState(false);
+  const [needsDeskError, setNeedsDeskError] = useState<string | null>(null);
   const [savingArchive, setSavingArchive] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [savingDelete, setSavingDelete] = useState(false);
@@ -680,6 +687,21 @@ export function BountyCard({
     const next = sourceLinksDraft.filter((_, i) => i !== idx);
     setSourceLinksDraft(next);
     void saveSourceLinks(next);
+  }
+
+  // ── Needs-desk toggle handler (autosave on flip) ──────────────────────────
+
+  async function handleNeedsDeskChange(next: boolean) {
+    if (!onNeedsDeskChange) return;
+    setNeedsDeskError(null);
+    setSavingNeedsDesk(true);
+    try {
+      await onNeedsDeskChange(next);
+    } catch (err) {
+      setNeedsDeskError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingNeedsDesk(false);
+    }
   }
 
   // ── Deadline editor handler (autosave on change) ──────────────────────────
@@ -1400,6 +1422,30 @@ export function BountyCard({
               />
               {deadlineError && (
                 <div className="text-xs text-rose-300 mt-1">{deadlineError}</div>
+              )}
+            </div>
+          )}
+
+          {/* ── Needs desk toggle (this quick) ────────────────────────────
+              User-reserved boolean; flip is the whole write surface. Autosave
+              on change, saving indicator + error line mirror the deadline row
+              above. */}
+          {onNeedsDeskChange && (
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-sm text-[#e8e4d8]/90 cursor-pointer w-fit">
+                <Checkbox
+                  checked={bounty.needs_desk}
+                  onCheckedChange={(v) => void handleNeedsDeskChange(v === true)}
+                  disabled={savingNeedsDesk}
+                  aria-label={bounty.needs_desk ? "Unset needs desk" : "Set needs desk"}
+                />
+                <span>Needs desk</span>
+                {savingNeedsDesk && (
+                  <span className="text-[10px] text-[var(--color-pv-fg-dim)]">saving…</span>
+                )}
+              </label>
+              {needsDeskError && (
+                <div className="text-xs text-rose-300">{needsDeskError}</div>
               )}
             </div>
           )}
