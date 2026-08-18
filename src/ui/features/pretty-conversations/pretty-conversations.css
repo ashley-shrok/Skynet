@@ -371,6 +371,9 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--color-pv-border-quiet);
+  /* Ashley 2026-08-18: extra breathing room below the search box; combines with
+     .pv-panel-scroll's gap: 8px for 16px effective spacing to the next child. */
+  margin-bottom: 8px;
 }
 
 .pv-search-icon {
