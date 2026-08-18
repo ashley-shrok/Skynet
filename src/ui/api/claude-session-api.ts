@@ -11,33 +11,14 @@
  * incoming frames — no runtime discriminator helper is exported.
  */
 
-export function openClaudeSessionSocket(opts?: {
-  /**
-   * Phase 43: opt-in bound on the initial `-n +1` replay. When supplied as a
-   * positive finite integer, appended to the connect URL as
-   * `?historyWindow=N`; the backend parameterizes its `tail -F -n +1` to
-   * `tail -F -n N` so the emission channel only backfills the last N lines
-   * of the JSONL. Missing / undefined / invalid → no query string → backend
-   * retains its current unbounded initial-replay behavior (backcompat for
-   * `countIdentityBounties` at L851 and any other legacy caller). The
-   * observation channel (whole-file tail feeding layer1-detect, context-pct,
-   * plan-pending, backgroundedAgents/Shells, id-reset) is UNTOUCHED by this
-   * param — only the emission-channel initial replay is bounded.
-   */
-  historyWindow?: number;
-}): WebSocket {
+export function openClaudeSessionSocket(): WebSocket {
   const scheme =
     typeof window !== "undefined" && window.location.protocol === "https:"
       ? "wss:"
       : "ws:";
   const host =
     typeof window !== "undefined" ? window.location.host : "localhost";
-  const hw = opts?.historyWindow;
-  const qp =
-    typeof hw === "number" && Number.isFinite(hw) && hw > 0
-      ? `?historyWindow=${Math.floor(hw)}`
-      : "";
-  const url = `${scheme}//${host}/claude-session/websocket/${qp}`;
+  const url = `${scheme}//${host}/claude-session/websocket/`;
   return new WebSocket(url);
 }
 
@@ -872,133 +853,6 @@ export type IdentityBountyCountsEvent = {
   type: "identity:bounty-counts";
   counts: BountyCountResult[];
 };
-
-// ─── Phase 43: fetch_older WS wire types (scaffolding — no consumers here) ──
-//
-// The wire contract is LOCKED per Phase 43 CONTEXT.md §"Backend contract
-// additions": `anchorEventId` is the eventId (uuid) of the oldest currently-
-// loaded message on the client; the server resolves it to a JSONL line offset
-// on demand via `grep -n '"uuid":"<anchorEventId>"' <path>` (see
-// `src/backend/claude-session/session-file-range.ts::resolveEventIdToLine`
-// landed in Plan 43-02). The client physically cannot populate a line offset
-// because ParsedLine variants carry no line offset. This asymmetry (client
-// owns the eventId anchor, server owns the line-offset lookup) is what makes
-// fetch_older portable across the (currently-unused) file-rotation case. No
-// line-offset field lives on the wire — the anchor is eventId-only.
-//
-// One-shot request/response convention mirrors IdentityCountBountiesPayload +
-// IdentityBountyCountsEvent above: client sends the payload once on the
-// already-open pretty-view WS (NOT a fresh socket — this is a subsequent
-// request on an existing session-bound connection), server responds with one
-// batch event carrying oldest-first frames suitable for prepend into
-// `messages[]`.
-//
-// Wave 2 (Plan 43-04) wires the backend `case "fetch_older":` handler that
-// consumes FetchOlderPayload and emits FetchOlderBatchEvent. Wave 2 (Plan
-// 43-05) adds the frontend runtime helpers (`sendFetchOlder`,
-// `isFetchOlderBatchEvent`). Wave 3 (Plan 43-07b) wires the PrettyView
-// onmessage `case "fetch_older_batch":` branch that prepends
-// `event.frames` to messages[]. This plan (43-03) only adds the types.
-
-/**
- * Client → server. Sent on the already-open pretty-view WS when the user
- * scrolls near the top of the loaded window and the oldest loaded message
- * is not the JSONL file's first message.
- *
- * @field anchorEventId - eventId (uuid) of the oldest currently-loaded
- *   message. Server resolves this to a line offset via
- *   `resolveEventIdToLine` and responds with up to `count` messages
- *   STRICTLY OLDER than that anchor (i.e. the range read stops one line
- *   before the anchor's line).
- * @field count - Number of older messages the client wants prepended.
- *   Server may return fewer if the file begins within the requested range
- *   (in which case the response event's `reachedBeginning` is set).
- */
-export type FetchOlderPayload = {
-  type: "fetch_older";
-  anchorEventId: string;
-  count: number;
-};
-
-/**
- * Server → client. Batched response to a `fetch_older` request.
- *
- * @field frames - Historical ParsedLine emission variants in oldest-first
- *   order, suitable for prepend into `messages[]`. Each frame has the SAME
- *   shape as a live-tail frame (see MessageEvent / ImageEvent /
- *   RelayOutboundEvent / RelayInboundEvent / MalformedLineEvent above) so
- *   the client's prepend path can dedup by `eventId` against existing
- *   messages without special-casing. Typed as `unknown[]` at this
- *   scaffolding stage; Wave 3 (Plan 43-07b) narrows to the concrete union
- *   when it wires the `case "fetch_older_batch":` branch in PrettyView.
- * @field reachedBeginning - Set to true by the server when the resolved
- *   startLine was `<= 1`, i.e. the response includes the first line of the
- *   JSONL. Client should stop firing further `fetch_older` requests after
- *   receiving this signal.
- * @field error - Populated when the server could not resolve the anchor
- *   (eventId not found in the JSONL) or the range read failed (SSH drop,
- *   timeout, exec error). Per Phase 43 CONTEXT.md §"Fetch failure
- *   handling", the client clears its loading state and does NOT retry;
- *   the user can scroll back down and up again to re-trigger.
- */
-export type FetchOlderBatchEvent = {
-  type: "fetch_older_batch";
-  frames: unknown[];
-  reachedBeginning?: boolean;
-  error?: string;
-};
-
-/**
- * Send a `fetch_older` request on an ALREADY-OPEN pretty-view WS. Unlike
- * `countIdentityBounties` (which opens its own one-shot socket), fetch_older
- * is a subsequent request on the existing session-bound connection — the
- * server correlates it to the session via the connection's own captured
- * state (see Plan 43-04 backend handler).
- *
- * Guards on `ws.readyState !== WebSocket.OPEN` so callers can invoke it
- * without pre-checking; returns `false` when the socket is not ready OR
- * when `ws.send` throws (mid-close race). Returns `true` when the payload
- * was handed to `ws.send`. Never throws — callers wire it into a debounced
- * scroll handler where a throw would be inconvenient.
- *
- * Wave 3 (Plan 43-07b) is the sole consumer — it fires this from PrettyView's
- * near-top-scroll handler when the oldest loaded eventId is not the JSONL's
- * first line and no in-flight fetch_older is pending.
- */
-export function sendFetchOlder(
-  ws: WebSocket,
-  payload: FetchOlderPayload,
-): boolean {
-  if (ws.readyState !== WebSocket.OPEN) return false;
-  try {
-    ws.send(JSON.stringify(payload));
-    return true;
-  } catch {
-    // Socket raced to CLOSING/CLOSED between the readyState check and send.
-    // Caller's debounce will re-fire naturally on the next scroll event.
-    return false;
-  }
-}
-
-/**
- * Runtime type-guard for `FetchOlderBatchEvent`. Narrows `unknown` to the
- * batch shape so PrettyView's onmessage switch (Wave 3 Plan 43-07b) can
- * add a `case "fetch_older_batch":` branch that safely reads `evt.frames`,
- * `evt.reachedBeginning`, and `evt.error`.
- *
- * Minimal shape check: `type === "fetch_older_batch"` AND `frames` is an
- * array. The `reachedBeginning` and `error` fields are OPTIONAL and do NOT
- * gate the guard — per Phase 43 CONTEXT.md § "Fetch failure handling" the
- * server ALWAYS emits a batch event (error-shape included) so the client
- * can clear its loading indicator; the empty-frames + error-populated shape
- * MUST narrow true or PrettyView's handler cannot clear loading state on
- * server-side failures.
- */
-export function isFetchOlderBatchEvent(x: unknown): x is FetchOlderBatchEvent {
-  if (!x || typeof x !== "object") return false;
-  const o = x as Record<string, unknown>;
-  return o.type === "fetch_older_batch" && Array.isArray(o.frames);
-}
 
 /**
  * Fire a one-shot batched bounty count request. Opens its own WS, sends one
