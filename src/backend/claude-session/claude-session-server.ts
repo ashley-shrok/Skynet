@@ -15,6 +15,7 @@ import {
   applyLineToLayer1State,
   type Layer1State,
 } from "./layer1-detect.js";
+import { __applySentinelCheckForTests } from "./sentinel-detect.js";
 import {
   createPaneStateEmitter,
   type PaneStateEmitter,
@@ -896,12 +897,13 @@ export type __RepollStateForTests = {
   holdingTicks: number;
   // Follow-up to patch #356: the reason we entered holding. Used by the
   // real transitionFromHoldingToActiveSameFile helper to skip the same-file
-  // self-clear when the overlay was armed by a real /id reset (Layer 1).
+  // self-clear when the overlay was armed by a real /id reset (Layer 1)
+  // OR by a `.recycle-requested` sentinel probe (Layer 3, 2026-08-18).
   // The reducer __applyRepollResultForTests does NOT read this field —
   // it belongs to the helper's guard, not the reducer's dispatch. Kept on
   // the shared state box so tests that inline the real helper's shape
   // (see case (b) in claude-session-server.repoll.test.ts) can drive it.
-  holdingReason: "id_reset" | "discovery_diff" | null;
+  holdingReason: "id_reset" | "discovery_diff" | "sentinel" | null;
 };
 
 /** Helpers injected into the repoll tick logic. */
@@ -909,9 +911,10 @@ export type __RepollHelpersForTests = {
   // quick 260808-ohn: reason union renamed "exit_marker" → "id_reset" to
   // match the new Layer 1 tail-state detector. Layer 2 (this file) still
   // passes "discovery_diff"; Layer 1 (onLine, via layer1-detect.ts) now
-  // passes "id_reset". Both reasons flow into the same transitionToHolding
+  // passes "id_reset"; Layer 3 (sentinel-detect.ts, 2026-08-18) passes
+  // "sentinel". All three reasons flow into the same transitionToHolding
   // signature — no behavior change from Layer 2's perspective.
-  transitionToHolding: (reason: "id_reset" | "discovery_diff") => void;
+  transitionToHolding: (reason: "id_reset" | "discovery_diff" | "sentinel") => void;
   transitionToActiveNew: (newSessionFile: string) => void;
   transitionFromHoldingToActiveSameFile: () => void;
   transitionToDead: (reason: string) => void;
@@ -1701,6 +1704,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // pattern for lifecycle (cleared in teardownPane, guarded against pileups).
   let dormantPollTimer: NodeJS.Timeout | null = null;
   let dormantPollInFlight = false;
+  // 2026-08-18 Layer 3 (session-holding-overlay-arm-on-recycle-sentinel):
+  // per-tick in-flight guard for the `.recycle-requested` sentinel probe
+  // that piggybacks on the context-pct tick. Mirrors dormantInFlight —
+  // prevents slow-SSH pileups if a probe takes longer than the 3s tick.
+  let sentinelInFlight = false;
   // quick 260808-fgf — Nelly's .resume-complete freshness contract.
   // Set to Date.now() when the wake handler successfully SSH-execs rm -f .dormant.
   // Read by the dormant-poll seam via a getter accessor. Null means natural resume
@@ -1861,7 +1869,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // the NEW session file appears (transitionToActiveNew) — because Claude
   // is still running its /id save flow before the real recycle, and
   // Layer 2's same-file reading is stale.
-  let holdingReason: "id_reset" | "discovery_diff" | null = null;
+  let holdingReason: "id_reset" | "discovery_diff" | "sentinel" | null = null;
   let holdingTicks = 0; // # of 3s ticks in `holding`; timeout at HOLDING_TIMEOUT_TICKS
   let discoveryRepollInFlight = false; // guard against slow SSH pileups (mirrors contextPctInFlight)
   let discoveryRepollTimer: NodeJS.Timeout | null = null;
@@ -1889,6 +1897,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       dormantPollTimer = null;
     }
     dormantPollInFlight = false;
+    // 2026-08-18 Layer 3: reset sentinel probe in-flight flag on teardown so
+    // the next connect starts clean. No timer of its own — piggybacks on
+    // context-pct tick.
+    sentinelInFlight = false;
     if (harnessTasksTimer) {
       clearInterval(harnessTasksTimer);
       harnessTasksTimer = null;
@@ -2633,7 +2645,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // race where Layer 1 fires on the tail's onLine milliseconds before the
   // ticker's Layer 2 repoll notices the same recycle.
   const transitionToHolding = (
-    reason: "id_reset" | "discovery_diff",
+    reason: "id_reset" | "discovery_diff" | "sentinel",
   ): void => {
     if (changeoverState !== "active") return;
     changeoverState = "holding";
@@ -2693,11 +2705,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // typing /id reset even though the real recycle is still coming.
     // Skip the clear; wait for transitionToActiveNew when the new session
     // file appears (Layer 2's real-recycle path, unchanged).
-    if (holdingReason === "id_reset") {
+    //
+    // 2026-08-18: Same rule extended to `holdingReason === "sentinel"`.
+    // Layer 3 (sentinel-detect) arms when `.recycle-requested` is present
+    // on the target box, but the agent-supervisor's kill+respawn is
+    // asynchronous and typically lags the sentinel drop by seconds.
+    // Discovery may still see the OLD session file as active during that
+    // window — same "stale-active-reading" trap as id_reset, same fix:
+    // defer the clear to transitionToActiveNew.
+    if (holdingReason === "id_reset" || holdingReason === "sentinel") {
       sshLogger.debug(
-        "Layer 2 same-file-active during id_reset holding — deferring clear to transitionToActiveNew",
+        `Layer 2 same-file-active during ${holdingReason} holding — deferring clear to transitionToActiveNew`,
         {
-          operation: "claude_session_holding_same_file_id_reset_deferred",
+          operation: "claude_session_holding_same_file_deferred",
+          holdingReason,
           userId,
           sessionId,
           hostId: currentHostId,
@@ -4986,6 +5007,50 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 }
               } finally {
                 dormantInFlight = false;
+              }
+            })();
+          }
+
+          // 2026-08-18 Layer 3 — sentinel-present recycle detector.
+          // Piggybacks the same context-pct tick + connSnapshot the dormant
+          // block above uses: check whether `~/.claude/identities/<name>/
+          // .recycle-requested` exists on the pane's target box; if yes AND
+          // we're currently `active`, arm the SessionHoldingOverlay via
+          // transitionToHolding("sentinel"). Covers the window between the
+          // agent dropping the sentinel and the supervisor tearing down
+          // claude — Layer 1 (/id reset in JSONL) and Layer 2 (session-file
+          // swap) both miss that window because they need the recycle to
+          // have visibly progressed.
+          //
+          // Identity name = currentTmuxSession (fleet convention pairs tmux
+          // session name with identity name). If they don't match, the
+          // probe silently returns "no" (path doesn't exist) and no-ops —
+          // Layer 1 still covers the /id reset case regardless.
+          //
+          // See sentinel-detect.ts for the pure reducer + rationale.
+          if (
+            !sentinelInFlight &&
+            currentTmuxSession !== null &&
+            changeoverState === "active" &&
+            !stopped &&
+            ws.readyState === WebSocket.OPEN
+          ) {
+            sentinelInFlight = true;
+            const sentinelConnSnapshot = connSnapshot;
+            const sentinelIdentityName = currentTmuxSession;
+            (async () => {
+              try {
+                await __applySentinelCheckForTests(
+                  {
+                    connSnapshot: sentinelConnSnapshot,
+                    identityName: sentinelIdentityName,
+                    execCommand,
+                  },
+                  { changeoverState },
+                  { transitionToHolding },
+                );
+              } finally {
+                sentinelInFlight = false;
               }
             })();
           }
