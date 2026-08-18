@@ -1,28 +1,28 @@
-// ─── PrettyBountyCountBadge (Phase 26 Plan 03 — combined pin·desk pill) ───────
+// ─── PrettyBountyCountBadge — notification-badge style (V12, tiffany 2026-08-18) ──
 //
-// Stateless combined pin·desk pill inside .pv-meta. Accepts a {pinnedCount,
-// needsDeskCount} pair and renders per the 4-case rendering-rule table from
-// CONTEXT.md §decisions "Row-display format — LOCKED" (D-01):
+// Stateless {pinned, needs-desk} display inside .pv-meta. Renders zero, one,
+// or two icon-with-corner-count "wraps" per the count values. Replaces the
+// prior middle-dot pill (Phase 26 Plan 03) — Ashley picked V12 from the
+// pinned-desk-display-tasting bounty after seeing 20 variants + a live
+// A/B via console overlay.
 //
-//   case 1: both undefined (pre-fetch)           → null (no pill)
-//   case 2: both coerced to 0                    → null (no pill)
-//   case 3: pinnedCount>0, needsDeskCount===0    → "3·" (right side blank)
-//   case 4: pinnedCount===0, needsDeskCount>0    → "·1" (left side blank)
-//   case 5: both>0                               → "3·1"
+// Rendering rule (superset of the old 4-case table — each axis is independent):
+//   - pinnedCount    > 0 → render Pin-icon wrap with corner count
+//   - needsDeskCount > 0 → render Monitor-icon wrap with corner count
+//   - both 0 / both undefined → render nothing (null; absence IS the signal)
+//   - one undefined, other 0 → still null (unfetched pair)
 //
-// Middle-dot separator is U+00B7 `·` (not a hyphen or interpunct near-miss).
+// Corner count: bright cream pill (#f0ebe0) with dark text (#0a0b12) — the
+// only "shouty" element in the row; icon body sits quiet at 70% opacity in
+// warm off-white. No hue tinting on the badge itself (unlike the old pill's
+// hue-tinted chrome) — the row's ready-dot still carries the per-identity
+// hue signal in .pv-meta.
 //
-// The pill occupies the SAME .pv-meta slot as the previous single-count badge
-// (order left-to-right: [deactivate] [pin] [bounty-badge] [ready-dot]).
-// Both halves inherit --pv-hue from the .pv-row parent — no dual-hue
-// treatment. All hue tinting comes from the `.pv-row` parent's `--pv-hue`
-// custom property inheritance (palette-authority rule); the badge does not
-// redefine those custom properties.
-//
-// Coexists with (does not replace) the ready-for-attention dot in .pv-meta.
-// See PrettyConversationRow.tsx for the insertion site + coexistence contract.
+// Occupies the SAME .pv-meta slot as the previous pill (left-to-right order:
+// [deactivate] [pin] [bounty-badge] [ready-dot]).
 
 import React from "react";
+import { Pin, Monitor } from "lucide-react";
 
 export function PrettyBountyCountBadge({
   pinnedCount,
@@ -34,8 +34,6 @@ export function PrettyBountyCountBadge({
   const p = pinnedCount ?? 0;
   const d = needsDeskCount ?? 0;
 
-  // null cases: fully unpopulated pair (both undefined = pre-fetch) OR both
-  // coerced values are 0 (absence is the correct signal — no empty pill).
   if (
     (pinnedCount === undefined && needsDeskCount === undefined) ||
     (p === 0 && d === 0)
@@ -49,21 +47,24 @@ export function PrettyBountyCountBadge({
       data-testid="pv-bounty-badge"
       aria-label={`${p} pinned, ${d} needs desk`}
     >
-      <span
-        className="pv-bounty-badge-half pv-bounty-badge-half--pinned"
-        data-testid="pv-bounty-badge-pinned"
-      >
-        {p > 0 ? String(p) : ""}
-      </span>
-      <span className="pv-bounty-badge-sep" aria-hidden="true">
-        {"·"}
-      </span>
-      <span
-        className="pv-bounty-badge-half pv-bounty-badge-half--needs-desk"
-        data-testid="pv-bounty-badge-needs-desk"
-      >
-        {d > 0 ? String(d) : ""}
-      </span>
+      {p > 0 && (
+        <span
+          className="pv-bounty-badge-wrap"
+          data-testid="pv-bounty-badge-pinned"
+        >
+          <Pin className="pv-bounty-badge-icon" aria-hidden="true" />
+          <span className="pv-bounty-badge-num">{p}</span>
+        </span>
+      )}
+      {d > 0 && (
+        <span
+          className="pv-bounty-badge-wrap"
+          data-testid="pv-bounty-badge-needs-desk"
+        >
+          <Monitor className="pv-bounty-badge-icon" aria-hidden="true" />
+          <span className="pv-bounty-badge-num">{d}</span>
+        </span>
+      )}
     </span>
   );
 }

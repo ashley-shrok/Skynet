@@ -1135,45 +1135,48 @@
   color: rgba(255, 255, 255, 0.9);
 }
 
+/* V12 notification-badge style (tiffany 2026-08-18) — replaces the prior
+   Phase 26 Plan 03 middle-dot pill. Container is a flex row of 0-2 icon
+   wraps (Pin, Monitor); each wrap is a lucide icon with a bright cream
+   corner count. The container has no pill chrome — icons carry the visual
+   themselves. Row-hue tinting no longer applies at the badge (the ready-dot
+   in .pv-meta still carries per-identity hue). */
 .pv-bounty-badge {
-  min-width: 28px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 18px;
-  font-variant-numeric: tabular-nums slashed-zero;
-  color: var(--color-pv-fg);
-  background: hsla(var(--pv-hue), 45%, 30%, 0.6);
-  border: 1px solid hsla(var(--pv-hue), 55%, 55%, 0.35);
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+  line-height: 1;
   flex: 0 0 auto;
 }
 
-/* Phase 26 Plan 03: combined pin·desk pill inner half + separator layout.
-   Outer .pv-bounty-badge chrome (height, padding, border-radius, colors,
-   font) preserved; only min-width bumped (20px → 28px) to accommodate
-   two-half content at desktop scale. Both halves inherit --pv-hue from
-   the .pv-row parent — no per-half color treatment. */
-.pv-bounty-badge-half {
-  display: inline-block;
-  min-width: 8px;
-  text-align: center;
+.pv-bounty-badge-wrap {
+  position: relative;
+  display: inline-flex;
 }
-.pv-bounty-badge-half--pinned {
-  text-align: right;
-}
-.pv-bounty-badge-half--needs-desk {
-  text-align: left;
-}
-.pv-bounty-badge-sep {
-  display: inline-block;
-  margin: 0 1px;
+
+.pv-bounty-badge-icon {
+  width: 16px;
+  height: 16px;
   opacity: 0.7;
+  color: var(--color-pv-fg);
+  flex-shrink: 0;
+}
+
+.pv-bounty-badge-num {
+  position: absolute;
+  top: -4px;
+  right: -7px;
+  min-width: 12px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #f0ebe0;
+  color: #0a0b12;
+  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums slashed-zero;
+  text-align: center;
 }
 
 /* Patch #168 (Ashley's companion ask 2026-07-28): bump .pv-bounty-badge on
@@ -1223,11 +1226,19 @@
   }
 
   .pv-bounty-badge {
-    min-width: 44px;
-    height: 28px;
-    padding: 0 9px;
-    font-size: 19px;
-    line-height: 28px;
+    gap: 14px;
+  }
+  .pv-bounty-badge-icon {
+    width: 24px;
+    height: 24px;
+  }
+  .pv-bounty-badge-num {
+    top: -6px;
+    right: -10px;
+    min-width: 18px;
+    padding: 0 6px;
+    font-size: 13px;
+    line-height: 18px;
   }
 
   /* Patch #270 — bump 5h + weekly usage-meter bar height on mobile per Ashley

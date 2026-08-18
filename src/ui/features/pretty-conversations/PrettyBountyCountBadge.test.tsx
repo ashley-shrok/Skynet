@@ -1,18 +1,15 @@
-// ─── PrettyBountyCountBadge — Vitest coverage (Phase 26 Plan 03 Task 1) ──────
+// ─── PrettyBountyCountBadge — Vitest coverage (V12 notification-badge style) ──
 //
-// The badge is a stateless combined pin·desk pill inside .pv-meta. Accepts
-// {pinnedCount, needsDeskCount} pair; renders per the 4-case rendering-rule
-// table from CONTEXT.md §decisions "Row-display format — LOCKED" (D-01):
+// Rewritten 2026-08-18 (tiffany) alongside the V12 shape swap. Semantics:
+//   - pinnedCount    > 0 → render Pin-icon wrap with corner count
+//   - needsDeskCount > 0 → render Monitor-icon wrap with corner count
+//   - both 0 / both undefined → null (no badge)
+//   - one undefined, other 0 → null (unfetched pair)
 //
-//   case 1: both undefined (pre-fetch)        → null (no pill)
-//   case 2: both coerced to 0                 → null (no pill)
-//   case 3: pinnedCount>0, needsDeskCount===0 → "3·" (right side blank)
-//   case 4: pinnedCount===0, needsDeskCount>0 → "·1" (left side blank)
-//   case 5: both>0                            → "3·1"
-//
-// Middle-dot separator: U+00B7 `·`.
-// All CSS tinting comes from the `.pv-row` parent's `--pv-hue` inheritance
-// (per palette-authority rule); nothing hue-related is in the JSX.
+// data-testid semantics: `pv-bounty-badge-pinned` and `pv-bounty-badge-needs-desk`
+// now identify a whole icon+count wrap — they exist ONLY when their axis is
+// non-zero. The wrap's textContent is the count (icons are aria-hidden and
+// have no text content of their own).
 
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -20,7 +17,7 @@ import { render, screen } from "@testing-library/react";
 import { PrettyBountyCountBadge } from "./PrettyBountyCountBadge";
 
 describe("PrettyBountyCountBadge", () => {
-  it("Test 1a: renders null when BOTH counts are undefined (pre-fetch, no pair has landed)", () => {
+  it("renders null when BOTH counts are undefined (pre-fetch)", () => {
     const { container } = render(
       <PrettyBountyCountBadge pinnedCount={undefined} needsDeskCount={undefined} />,
     );
@@ -28,7 +25,7 @@ describe("PrettyBountyCountBadge", () => {
     expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
   });
 
-  it("Test 1b: renders null when BOTH counts are 0 (absence is the correct signal — no empty pill)", () => {
+  it("renders null when BOTH counts are 0 (absence is the correct signal)", () => {
     const { container } = render(
       <PrettyBountyCountBadge pinnedCount={0} needsDeskCount={0} />,
     );
@@ -36,10 +33,7 @@ describe("PrettyBountyCountBadge", () => {
     expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
   });
 
-  it("Test 1c: renders null when ONE side is undefined and the other is 0 (treat as pre-fetch / all-zero)", () => {
-    // Per plan spec: undefined = "not yet fetched". When pinnedCount is
-    // undefined and needsDeskCount is 0, the pill renders null because the
-    // pair hasn't fully landed AND the only real number coerces to 0.
+  it("renders null when one side is undefined and the other is 0 (unfetched pair)", () => {
     const { container } = render(
       <PrettyBountyCountBadge pinnedCount={undefined} needsDeskCount={0} />,
     );
@@ -47,51 +41,44 @@ describe("PrettyBountyCountBadge", () => {
     expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
   });
 
-  it("Test 2: both nonzero — pill textContent is '3·1', halves and separator present", () => {
+  it("both nonzero — renders BOTH wraps with their counts", () => {
     render(<PrettyBountyCountBadge pinnedCount={3} needsDeskCount={1} />);
     const badge = screen.getByTestId("pv-bounty-badge");
-    // Full concatenated pill text: left-half + sep + right-half
-    expect(badge.textContent).toBe("3·1");
-    // Per-half testids
-    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
-    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("1");
-    // Separator span carries the middle-dot character U+00B7
-    const sep = badge.querySelector(".pv-bounty-badge-sep");
-    expect(sep).not.toBeNull();
-    expect(sep!.textContent).toBe("·");
+    // Both axis wraps present
+    const pinWrap = screen.getByTestId("pv-bounty-badge-pinned");
+    const deskWrap = screen.getByTestId("pv-bounty-badge-needs-desk");
+    expect(pinWrap.textContent).toBe("3");
+    expect(deskWrap.textContent).toBe("1");
+    // aria-label carries both counts for screen readers
+    expect(badge.getAttribute("aria-label")).toBe("3 pinned, 1 needs desk");
+    // Icons live inside each wrap and are aria-hidden
+    expect(pinWrap.querySelector(".pv-bounty-badge-icon")).not.toBeNull();
+    expect(deskWrap.querySelector(".pv-bounty-badge-icon")).not.toBeNull();
   });
 
-  it("Test 3: pinned-only — pill textContent is '3·', needs-desk span present but empty", () => {
+  it("pinned-only — renders only the pin wrap; needs-desk wrap is absent", () => {
     render(<PrettyBountyCountBadge pinnedCount={3} needsDeskCount={0} />);
-    const badge = screen.getByTestId("pv-bounty-badge");
-    expect(badge.textContent).toBe("3·");
     expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
-    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("");
+    expect(screen.queryByTestId("pv-bounty-badge-needs-desk")).toBeNull();
   });
 
-  it("Test 4: needs-desk-only — pill textContent is '·1', pinned span present but empty", () => {
+  it("needs-desk-only — renders only the desk wrap; pin wrap is absent", () => {
     render(<PrettyBountyCountBadge pinnedCount={0} needsDeskCount={1} />);
-    const badge = screen.getByTestId("pv-bounty-badge");
-    expect(badge.textContent).toBe("·1");
-    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("");
+    expect(screen.queryByTestId("pv-bounty-badge-pinned")).toBeNull();
     expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("1");
   });
 
-  it("Test 5: large numbers do not truncate — '99·12'", () => {
+  it("large numbers do not truncate", () => {
     render(<PrettyBountyCountBadge pinnedCount={99} needsDeskCount={12} />);
-    const badge = screen.getByTestId("pv-bounty-badge");
-    expect(badge.textContent).toBe("99·12");
+    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("99");
+    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("12");
   });
 
-  it("Test 6: pinnedCount real + needsDeskCount undefined — renders '3·' (undefined treated as 0 for one-half edge case)", () => {
-    // The store always publishes both halves together so this is an edge case
-    // for callers who manually pass undefined for one side. Per plan spec:
-    // when at least one half is a real number, treat undefined-for-the-other
-    // half as 0 and still render the pill.
+  it("pinnedCount real + needsDeskCount undefined — renders only the pin wrap", () => {
+    // Store publishes both halves together; this covers callers that pass
+    // undefined for one axis. undefined coerces to 0 → that axis is not rendered.
     render(<PrettyBountyCountBadge pinnedCount={3} needsDeskCount={undefined} />);
-    const badge = screen.getByTestId("pv-bounty-badge");
-    expect(badge.textContent).toBe("3·");
     expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
-    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("");
+    expect(screen.queryByTestId("pv-bounty-badge-needs-desk")).toBeNull();
   });
 });

@@ -1695,7 +1695,7 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
 // (session match drives the useBountyCounts call site in the row).
 
 describe("PrettyConversationRow: bounty badge visibility — useBountyCounts pair (Phase 26 Plan 03)", () => {
-  it("Test A: identity row + pinnedCount=3, needsDeskCount=0 → badge textContent '3·'", () => {
+  it("Test A: identity row + pinnedCount=3, needsDeskCount=0 → only pin wrap renders with count 3", () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentBountyCounts = { pinnedCount: 3, needsDeskCount: 0 };
     render(
@@ -1709,11 +1709,11 @@ describe("PrettyConversationRow: bounty badge visibility — useBountyCounts pai
         inActiveSet={true}
       />,
     );
-    const badge = screen.getByTestId("pv-bounty-badge");
-    expect(badge.textContent).toBe("3·");
+    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
+    expect(screen.queryByTestId("pv-bounty-badge-needs-desk")).toBeNull();
   });
 
-  it("Test B: identity row + pinnedCount=0, needsDeskCount=1 → badge textContent '·1'", () => {
+  it("Test B: identity row + pinnedCount=0, needsDeskCount=1 → only desk wrap renders with count 1", () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentBountyCounts = { pinnedCount: 0, needsDeskCount: 1 };
     render(
@@ -1727,11 +1727,11 @@ describe("PrettyConversationRow: bounty badge visibility — useBountyCounts pai
         inActiveSet={true}
       />,
     );
-    const badge = screen.getByTestId("pv-bounty-badge");
-    expect(badge.textContent).toBe("·1");
+    expect(screen.queryByTestId("pv-bounty-badge-pinned")).toBeNull();
+    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("1");
   });
 
-  it("Test C: identity row + pinnedCount=3, needsDeskCount=1 → badge textContent '3·1'", () => {
+  it("Test C: identity row + pinnedCount=3, needsDeskCount=1 → both wraps render with their counts", () => {
     currentIdentity = makeIdentity(210, "nelly");
     currentBountyCounts = { pinnedCount: 3, needsDeskCount: 1 };
     render(
@@ -1745,8 +1745,8 @@ describe("PrettyConversationRow: bounty badge visibility — useBountyCounts pai
         inActiveSet={true}
       />,
     );
-    const badge = screen.getByTestId("pv-bounty-badge");
-    expect(badge.textContent).toBe("3·1");
+    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
+    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("1");
   });
 
   it("Test D: identity row + pinnedCount=0, needsDeskCount=0 → no badge (null)", () => {
