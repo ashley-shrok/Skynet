@@ -1018,16 +1018,68 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
     });
   }
 
-  // Helper: default channel wiring that includes a JSONL-tail response. The
-  // JSONL path the orchestrator constructs is
-  //   ~/.claude/projects/${cwd.replace(/\//g, "-")}/${sessionId}.jsonl
-  // For the fixture cwd `/home/ubuntu` and sessionId `test-session-id`, the
-  // path is `~/.claude/projects/-home-ubuntu/test-session-id.jsonl`. The
-  // channel matches SUBSTRINGS via `includes()`, so a broad `.jsonl` pattern
-  // covers whichever tail command form the orchestrator picks.
+  // Helper: build the RECORD_SEPARATOR-delimited stdout blob that
+  // parseDiscoveryStdout expects, containing exactly ONE record — a single
+  // `<mtime>\t<discoveredPath>\n<first-user-line>\n---GSDR-32---\n`. The
+  // first-user-line is shaped to match __matchesIdentityFirstTurnForTests
+  // for `identityName`: contains `"type":"user"`, does NOT contain
+  // `"tool_result"`, contains `<command-name>/id</command-name>`, and
+  // contains `<command-args>${identityName}</command-args>` (the closing
+  // `<` after the identity name satisfies the delimiter guard in
+  // src/backend/claude-session/discover-identity-session-file.ts
+  // DELIMITER_SET). RECORD_SEPARATOR value is `---GSDR-32---` per the
+  // discovery module (Phase 32).
+  //
+  // If `matchesIdentity` is false, emits a first-user-line that satisfies
+  // the outer-shape checks but uses a DIFFERENT `<command-args>` payload —
+  // used by Test I to simulate a discovery pass that returns records but
+  // NONE match the target identity → discoverIdentityJsonlPathViaChannel
+  // returns null.
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+    matchesIdentity = true,
+  ): string {
+    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
+    // Build a JSONL-shaped user-role line with `/id` command whose args
+    // payload EITHER matches the identity (default) or intentionally
+    // differs (Test I fallback). Using JSON.stringify guarantees the
+    // literal substrings `"type":"user"`, `<command-name>/id</command-name>`,
+    // and `<command-args>${argsPayload}</command-args>` all appear in the
+    // rendered string. The angle-bracket-close after argsPayload satisfies
+    // the DELIMITER_SET guard.
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  // Helper: default channel wiring for the discovery-based JSONL path
+  // derivation (Phase 44 Plan 02 swap). Two responses matter beyond the
+  // baseline PID + tmux fixtures:
+  //   1. `IDENTITY=` substring routes the discovery script (opens with
+  //      `IDENTITY=<escaped-identity>;`; see buildDiscoveryScript at
+  //      src/backend/claude-session/discover-identity-session-file.ts:170)
+  //      to `buildDiscoveryFixture("tina", "…/discovered.jsonl")`. The
+  //      fixture emits a valid record whose first-user-line matches
+  //      __matchesIdentityFirstTurnForTests for identity `tina` → discovery
+  //      returns `~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl`.
+  //   2. `discovered.jsonl` substring routes the tail command to the JSONL
+  //      fixture the caller passed in.
+  // The MockSshChannel iterates responses in insertion order and takes the
+  // first match; `IDENTITY=` and `discovered.jsonl` are mutually distinct
+  // substrings across the two command shapes, so ordering doesn't matter.
   function wireBaseResponses(
     channel: MockSshChannel,
     jsonlContents: string,
+    discoveryOverride?: string,
   ): void {
     channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse(
@@ -1041,10 +1093,21 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
       "fleet-status/last-stop-payload.json",
       makeValidPayload(),
     );
+    // Phase 44 Plan 02 — wire the discovery script response. Substring
+    // `IDENTITY=` uniquely identifies the discovery script (the opening
+    // shell statement `IDENTITY=<escaped>;`).
+    const discoveryStdout =
+      discoveryOverride ??
+      buildDiscoveryFixture(
+        "tina",
+        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      );
+    channel.setResponse("IDENTITY=", discoveryStdout);
     // Match on the JSONL filename fragment — the orchestrator will build a
-    // path ending in `test-session-id.jsonl` and either `tail -n 200` OR
-    // `tail -c +<N>` OR similar. All command shapes route to this same fixture.
-    channel.setResponse("test-session-id.jsonl", jsonlContents);
+    // path ending in `discovered.jsonl` (the mocked discovery result) and
+    // run `tail -n 200` against it. All tail command shapes route to the
+    // same fixture.
+    channel.setResponse("discovered.jsonl", jsonlContents);
   }
 
   // ---------------------------------------------------------------------------
@@ -1150,5 +1213,345 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
     // User-side send counts — Ashley 2026-08-14 verbatim:
     // "activity counts as me sending them a message, or them sending me a message."
     expect(published.state.lastMessageAt).toBe(3000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
+// rediscovery-on-stale + no-history-no-churn
+//
+// Contract (locked by 44-CONTEXT.md § ssh-poll-orchestrator.ts swap):
+//   - processPid derives its JSONL path via `discoverIdentityJsonlPathViaChannel`
+//     (Phase 32 mechanism) instead of the pre-Phase-44 `jsonlPathForSession(cwd,
+//     sessionId)` construction. The path is cached in `PidCacheEntry.jsonlPath`
+//     and reused across ticks — discovery fires ONCE per PID on the first
+//     tick where tmuxSession resolves.
+//   - Rediscovery fires when the cached path's tail returns no fresher
+//     signal for STALE_TAIL_REDISCOVERY_THRESHOLD (=5) consecutive ticks —
+//     defense against JSONL rotation mid-session. TIGHTENED condition:
+//     only sessions that HAD a cached lastMessageAt to go stale against
+//     tick the counter; no-history sessions (null cached lastMessageAt)
+//     do NOT tick and therefore never trigger re-discovery churn.
+//   - If discovery returns null OR tmuxSession is null, orchestrator
+//     keeps the cached-or-null lastMessageAt (no crash, no publish churn).
+// ---------------------------------------------------------------------------
+
+describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching + rediscovery-on-stale + no-history-no-churn", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Copy the JSONL message-line helper into scope for these tests (same
+  // shape as the Phase 41 Plan 03 helper above; kept local to this
+  // describe block for readability).
+  function jsonlMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+    });
+  }
+
+  // Copy of buildDiscoveryFixture from the Phase 41 Plan 03 describe block
+  // (both describes need the helper; declaring locally avoids cross-scope
+  // dependencies).
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+    matchesIdentity = true,
+  ): string {
+    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  // Local wireBaseResponses — same shape as the Phase 41 Plan 03 helper.
+  function wireBaseResponses(
+    channel: MockSshChannel,
+    jsonlContents: string,
+    discoveryOverride?: string,
+  ): void {
+    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    const discoveryStdout =
+      discoveryOverride ??
+      buildDiscoveryFixture(
+        "tina",
+        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlContents);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test G — cold-cache discovery + cache reuse: tick 1 fires discovery +
+  //           tail; tick 2 fires ONLY tail (no discovery). Verifies the
+  //           per-PID caching contract (44-CONTEXT.md § swap).
+  // ---------------------------------------------------------------------------
+
+  it("Test G: cold-cache discovery + cache reuse — discovery fires ONCE across 2 ticks", async () => {
+    const channel = new MockSshChannel();
+    const jsonl = jsonlMessageLine(2000, "assistant", "hi there") + "\n";
+    wireBaseResponses(channel, jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // fires tick 1 (immediate first poll)
+
+    // Drive tick 2 via the captured 2s poll fn.
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    // Discovery script fires ONCE across both ticks — tick 1 populates
+    // PidCacheEntry.jsonlPath; tick 2 reuses the cached path.
+    expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    // Tail fires on every tick.
+    expect(channel.countCallsMatching("tail -n 200")).toBe(2);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test H — rediscovery on stale-tail threshold. Session HAD a signal
+  //           (non-null cached lastMessageAt), tail keeps returning the same
+  //           max ts on subsequent ticks; on the tick AFTER the threshold
+  //           trip the orchestrator re-fires discovery.
+  //
+  // Threshold semantics per implementation:
+  //   - Tick 1 (cold): discovery call #1, count=0, lastMessageAt=1000.
+  //   - Tick 2: count 0→1
+  //   - Tick 3: count 1→2
+  //   - Tick 4: count 2→3
+  //   - Tick 5: count 3→4
+  //   - Tick 6: count 4→5, THRESHOLD HIT → jsonlPath=null, count=0
+  //   - Tick 7: cached.jsonlPath=null → discovery call #2 fires
+  // So 2 discovery calls at tick 7 (not tick 6 — invalidation on tick 6
+  // takes effect the FOLLOWING tick). Plan explicitly permits adjusting
+  // the tick count to match implementation semantics (see task 3, step 6).
+  // ---------------------------------------------------------------------------
+
+  it("Test H: rediscovery on stale-tail threshold — session HAD a signal, 7 ticks yields exactly 2 discovery calls", async () => {
+    const channel = new MockSshChannel();
+    // Same tail contents every tick — carries a real message-bearing frame
+    // (lastMessageAt=1000 stays sticky, never advances) so the stale
+    // branch (HAD a signal, tail failed to advance) ticks the counter.
+    const jsonl = jsonlMessageLine(1000, "assistant", "one and done") + "\n";
+    wireBaseResponses(channel, jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    // Drive ticks 2 through 7 (6 more polls; start already ran tick 1).
+    if (pollFn) {
+      for (let i = 0; i < 6; i++) {
+        await pollFn.fn();
+      }
+    }
+
+    // STALE_TAIL_REDISCOVERY_THRESHOLD=5. Ticks 2-6 increment counter 1→5;
+    // threshold trip on tick 6 nulls jsonlPath in cache; tick 7 re-fires
+    // discovery. Total = 2 discovery calls across 7 ticks.
+    expect(channel.countCallsMatching("IDENTITY=")).toBe(2);
+    // Tail fires every tick regardless.
+    expect(channel.countCallsMatching("tail -n 200")).toBe(7);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test I — discovery returns null (no records match identity) →
+  //           lastMessageAt stays cached (null on cold), tail is NEVER
+  //           called for this PID because jsonlPath is null.
+  // ---------------------------------------------------------------------------
+
+  it("Test I: discovery returns null (no matching first-user-line) → tail skipped, lastMessageAt is null", async () => {
+    const channel = new MockSshChannel();
+    // Discovery fixture emits a record, but the first-user-line has
+    // `<command-args>different-tina</command-args>` — does NOT match
+    // identity `tina` via __matchesIdentityFirstTurnForTests → helper
+    // returns null → orchestrator skips tail entirely.
+    const badDiscovery = buildDiscoveryFixture(
+      "tina",
+      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      false, // matchesIdentity=false
+    );
+    // The tail response is registered but should never fire.
+    wireBaseResponses(
+      channel,
+      jsonlMessageLine(2000, "assistant", "unreachable") + "\n",
+      badDiscovery,
+    );
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // Discovery yielded null → jsonlPath stays null → tail skipped →
+    // derivedLastMessageAt stays at cached-or-null (null on cold).
+    expect(published.state.lastMessageAt).toBeNull();
+    // Discovery fired once (cold cache), tail never fired for this PID.
+    expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    expect(channel.countCallsMatching("tail -n 200")).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test J — tmuxSession null → discovery is SKIPPED entirely (identity
+  //           name is unknown; nothing to grep for).
+  // ---------------------------------------------------------------------------
+
+  it("Test J: tmuxSession null → discovery skipped, lastMessageAt is null", async () => {
+    const channel = new MockSshChannel();
+    // resolvePidToTmuxSession returns null when either environ has no
+    // TMUX_PANE OR tmux display-message returns null/empty. Force the
+    // latter — override tmux display-message to null. Order matters:
+    // wireBaseResponses sets tmux display-message to "tina"; the
+    // OVERRIDE must be set AFTER wireBaseResponses so the null wins by
+    // being iterated first (Map iteration is insertion order — later
+    // insertions with the same key overwrite).
+    wireBaseResponses(channel, jsonlMessageLine(2000, "assistant", "hi") + "\n");
+    channel.setResponse("tmux display-message", null);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // tmuxSession null → discovery skipped → jsonlPath stays null →
+    // tail skipped → lastMessageAt stays null.
+    expect(published.state.lastMessageAt).toBeNull();
+    expect(channel.countCallsMatching("IDENTITY=")).toBe(0);
+    expect(channel.countCallsMatching("tail -n 200")).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test K — NO-HISTORY session does NOT churn re-discovery. This is the
+  //           load-bearing lock for the TIGHTENED stale-tick condition
+  //           per 44-CONTEXT.md § ssh-poll-orchestrator.ts swap:
+  //
+  //   The stale threshold is a ROTATION-DEFENSE for sessions that once
+  //   had a signal and lost it — NOT a "kick discovery when we haven't
+  //   seen a message yet" mechanism. A session whose tail consistently
+  //   returns no message-bearing frames (fresh session pre-first-turn;
+  //   identity that never invokes /id; identity whose entire history is
+  //   tool_use / thinking / lifecycle events) MUST have cached
+  //   lastMessageAt: null AND staleTailTickCount: 0 forever, so
+  //   re-discovery NEVER fires past the initial cold-cache invocation.
+  //
+  //   Under the pre-revision draft condition (`jsonlPath !== null &&
+  //   tailRaw !== null` alone, no-history sessions incrementing), this
+  //   test would fail: ticks 2-6 would tick the counter 1→5 → invalidate
+  //   → tick 7 rediscovery → total discovery calls = 2 (or more if the
+  //   pattern repeats). Under the tightened condition (increment ONLY
+  //   when derivedLastMessageAt !== null), total = 1 across arbitrarily
+  //   many ticks.
+  // ---------------------------------------------------------------------------
+
+  it("Test K: NO-HISTORY session does NOT churn — 10 ticks with empty tail yield EXACTLY 1 discovery call (locks tightened stale-tick condition per 44-CONTEXT.md)", async () => {
+    const channel = new MockSshChannel();
+    // Discovery succeeds and returns a valid discovered.jsonl path (via
+    // wireBaseResponses default). The tail response is INTENTIONALLY
+    // EMPTY — scanTailForNewestMessageAt returns null every tick →
+    // derivedLastMessageAt stays null → no-history branch of the
+    // stale-tick logic fires → counter stays at 0 → threshold NEVER hit
+    // → discovery never re-fires past the cold-cache invocation.
+    wireBaseResponses(channel, "");
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    // Drive ticks 2 through 10 (9 more polls; start already ran tick 1).
+    if (pollFn) {
+      for (let i = 0; i < 9; i++) {
+        await pollFn.fn();
+      }
+    }
+
+    // LOAD-BEARING ASSERTION: discovery fires ONLY at cold cache. Across
+    // 10 ticks with a persistently empty tail (no message-bearing frames
+    // ever, so derivedLastMessageAt stays null), the no-history branch
+    // keeps staleTailTickCount at 0 → threshold never trips → jsonlPath
+    // never invalidated → discovery never re-fires.
+    expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    // Tail fires every tick (that behavior is UNCHANGED by the tightened
+    // condition — only the counter-increment logic changed).
+    expect(channel.countCallsMatching("tail -n 200")).toBe(10);
+    // No message-bearing frames ever → published state's lastMessageAt
+    // is null throughout.
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.lastMessageAt).toBeNull();
+    }
   });
 });
