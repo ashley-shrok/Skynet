@@ -230,6 +230,7 @@ export function BountyCard({
   onPriorityChange,
   onStatusChange,
   onPinnedChange,
+  onNeedsDeskChange,
   onArchive,
   onDelete,
   onFieldsChange,
