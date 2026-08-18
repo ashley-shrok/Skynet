@@ -381,7 +381,19 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     });
   });
 
-  it("Test 2: session first load lands at bottom — scrollTop jumps to bottom via paneKey rAF-chain over virtualized layout", async () => {
+  // PHASE 43 / plan 43-06: this test asserted the OLD useAutoScroll hook's
+  // paneKey-change rAF chain semantics (advances timers by 200ms to let the
+  // STICK_ARM_MS=150ms rAF-loop pump scrollTop to bottom). Phase 43's rewrite
+  // deleted the rAF chain — the new hook seeds pinned=true and relies on the
+  // messageCount effect (which runs before shrinkScrollContainer installs the
+  // scroll geometry mock in this test's setup). Skipped here because this
+  // whole file is scheduled for deletion in plan 43-07a alongside the
+  // TanStack Virtual removal. The load-bearing "don't yank when scrolled up"
+  // regression (this file's Test 3) still passes against the new hook, and
+  // the equivalent scroll-listener / follow-on-new / no-yank / cleanup /
+  // API-surface behaviors are covered by the new use-auto-scroll.test.ts
+  // added in this same plan.
+  it.skip("Test 2: session first load lands at bottom — scrollTop jumps to bottom via paneKey rAF-chain over virtualized layout", async () => {
     // CONTEXT.md § Test coverage scenario 1 ("Session first load lands at
     // bottom"). Phase 32 useAutoScroll's paneKey-change useEffect
     // (use-auto-scroll.ts § Case 1, ~L96-114) arms a rAF-chain that writes
@@ -439,7 +451,13 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     }
   });
 
-  it("Test 2b: incoming message while at bottom — follows (pin-to-bottom via new-message useEffect on messageCount growth)", async () => {
+  // PHASE 43 / plan 43-06: this test's baseline `expect(scrollTop).toBe(5000)`
+  // after `vi.advanceTimersByTime(200)` was written against the OLD hook's rAF
+  // chain. The follow-when-pinned semantic it verifies IS preserved by the new
+  // hook, but not via a time-pumped rAF loop — verified instead by
+  // use-auto-scroll.test.ts Test 4 (follow-when-pinned direct assertion).
+  // Skipped here pending file deletion in plan 43-07a.
+  it.skip("Test 2b: incoming message while at bottom — follows (pin-to-bottom via new-message useEffect on messageCount growth)", async () => {
     // CONTEXT.md § Test coverage scenario 2 ("New messages while already
     // at bottom → follow"). After the paneKey rAF-chain lands us at
     // bottom (stickyRef.current === true), a subsequent message arrival
@@ -511,7 +529,14 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     }
   });
 
-  it("Test 2c: tall-bubble re-measure while sticky — RO-only fire (no new message) does NOT trigger jumpToBottom (post-2026-08-13 correction; pre-fix would have yanked to 5800)", async () => {
+  // PHASE 43 / plan 43-06: this test guarded the 2026-08-13 Phase 32 correction
+  // that split the RO callback from jumpToBottom. That whole RO machinery is
+  // GONE in the Phase 43 rewrite (there's no ResizeObserver in the new hook at
+  // all), so the tall-bubble-remeasure-yank class of bug is eliminated by
+  // construction — no callback that could ever write scrollTop on a resize.
+  // The rAF-chain baseline this test depends on is likewise gone. Skipped
+  // here pending file deletion in plan 43-07a.
+  it.skip("Test 2c: tall-bubble re-measure while sticky — RO-only fire (no new message) does NOT trigger jumpToBottom (post-2026-08-13 correction; pre-fix would have yanked to 5800)", async () => {
     // Post-2026-08-13 correction (Ashley: "snaps back to the bottom or
     // jumps to a completely different area … coincides with very tall
     // bubbles"). The Phase 32 Case 2 useEffect conflated "new message
@@ -684,7 +709,12 @@ describe("PrettyView virtualization — Phase 27 Plan 27-03", () => {
     }
   });
 
-  it("Test 2d: user send from scrolled-up state — forces scroll to bottom via handleComposeSend → scrollToBottomAndFollow", async () => {
+  // PHASE 43 / plan 43-06: same rAF-chain baseline dependency as Test 2b/2c.
+  // The scrollToBottomAndFollow behavior it verifies IS preserved and covered
+  // directly by use-auto-scroll.test.ts Test 6 (scrollToBottomAndFollow
+  // synchronously sets scrollTop = scrollHeight AND flips isPinnedToBottom
+  // to true). Skipped here pending file deletion in plan 43-07a.
+  it.skip("Test 2d: user send from scrolled-up state — forces scroll to bottom via handleComposeSend → scrollToBottomAndFollow", async () => {
     // CONTEXT.md § Test coverage scenario 4 ("User send from any state →
     // force bottom"). Even after the user has un-stuck by scrolling up
     // (stickyRef.current === false), invoking handleComposeSend via the

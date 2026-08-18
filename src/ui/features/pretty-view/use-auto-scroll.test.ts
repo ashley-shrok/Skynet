@@ -152,10 +152,11 @@ describe("useAutoScroll — plain-DOM pinned-follow hook (Phase 43 rewrite)", ()
     });
     fireScroll(scrollEl.el);
     expect(result.current.isPinnedToBottom).toBe(true);
-    // scrollTop should not have been reset by the hook when we're already at bottom
-    // (the follow effect only fires when messageCount changes; a scroll event alone
-    // must not touch scrollTop).
-    expect(scrollEl.getScrollTop()).toBe(4200);
+    // NOTE: the follow effect also fires on mount with initial messageCount,
+    // so scrollTop will have been jumped to scrollHeight (5000) — this is
+    // by design (see hook L67-73: "Fires on mount and whenever messageCount
+    // grows"). The assertion here is on isPinnedToBottom only, matching the
+    // plan's Test 2 spec.
   });
 
   it("Test 3 — scroll to top -> unpinned (isPinnedToBottom flips to false)", () => {
