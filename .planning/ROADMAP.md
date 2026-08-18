@@ -1266,20 +1266,20 @@ Plans:
 
 **Depends on:** Phase 42 (fleet-status wire lastMessageAt field + comparator seam + no-history-to-top lock this phase revisits), Phase 32 (`discoverIdentitySessionFile` byte-pattern mechanism consumed as-is), Phase 7 (fleet-native /sessions/list route being extended)
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 - [x] 44-01-PLAN.md — /sessions/list route extended with per-session `lastMessageAt` derivation (discovery + tail scan, per-session Promise.all mirroring resolveRoleForIdentity, per-session failure isolation) *(2026-08-18: shipped — 10/10 route tests pass, full suite 2440 pass)*
 - [x] 44-02-PLAN.md — ssh-poll-orchestrator swap: `jsonlPathForSession(cwd, sessionId)` → `discoverIdentityJsonlPathViaChannel(channel, tmuxSession)` with cached `jsonlPath` in PidCacheEntry + rediscovery-on-stale threshold (defense against JSONL rotation mid-session)
-- [ ] 44-03-PLAN.md — Working-store reconciliation chokepoint: `advanceSessionLastMessageAt` (max-wins), `seedSessionLastMessageAt` (public seed API), refactored `publishFleetStatusSessionState` to funnel through it + wire-type extension for RemoteTmuxSession
+- [x] 44-03-PLAN.md — Working-store reconciliation chokepoint: `advanceSessionLastMessageAt` (max-wins), `seedSessionLastMessageAt` (public seed API), refactored `publishFleetStatusSessionState` to funnel through it + wire-type extension for RemoteTmuxSession *(2026-08-18: shipped — 32/32 session-working-store tests pass incl 15 new reconciliation-contract tests; full suite 2529 pass; both builds exit 0)*
 - [ ] 44-04-PLAN.md — AppShell wires seedSessionLastMessageAt per /sessions/list row (cached + fresh) + FleetSession type extension with cache-key bump to v2 + compareByRecencyDesc Rule 1 flip from null-to-top to null-to-bottom (retires Ashley's 2026-08-14 lock)
 
 **Wave 1** *(parallel — no file overlap)*
 - [x] 44-01-PLAN.md — /sessions/list route extension *(2026-08-18)*
-- [ ] 44-02-PLAN.md — ssh-poll-orchestrator JSONL derivation swap
+- [x] 44-02-PLAN.md — ssh-poll-orchestrator JSONL derivation swap
 
 **Wave 2** *(blocked on 44-01 completion for wire-type shape)*
-- [ ] 44-03-PLAN.md — session-working-store reconciliation chokepoint + sessions-api.ts RemoteTmuxSession extension
+- [x] 44-03-PLAN.md — session-working-store reconciliation chokepoint + sessions-api.ts RemoteTmuxSession extension *(2026-08-18)*
 
 **Wave 3** *(blocked on 44-01 + 44-02 + 44-03 — coordinated wire-consumer + type + comparator flip on files that must land together)*
 - [ ] 44-04-PLAN.md — AppShell seed wiring + FleetSession type + comparator Rule 1 flip
