@@ -11,6 +11,8 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveRoleForIdentity } from "../../claude-session/identity-artifact-reader.js";
+import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
+import { parseSessionLine } from "../../claude-session/session-file-parser.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -18,12 +20,54 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 const PER_HOST_TIMEOUT_MS = 3000;
 
+// ---------------------------------------------------------------------------
+// Phase 43 Plan 01 — dormant-side lastMessageAt derivation
+// ---------------------------------------------------------------------------
+//
+// The canonical MESSAGE_BEARING_KINDS set lives in
+// `src/backend/fleet-status/ssh-poll-orchestrator.ts:146-151` — re-declared
+// here (not cross-imported) per 43-CONTEXT.md "reuse Phase 32 mechanism"
+// scope decision. The fleet-status module owns the constant for the live-poll
+// path; sessions.ts owns the identical local copy for the dormant /sessions/list
+// path. If either set ever needs to change, update BOTH sites — a cross-cutting
+// shared module was explicitly out of scope for Phase 43.
+//
+// The four kinds match session-file-parser.ts return-type discriminants and
+// carry a numeric `ts` field (unix millis) that this scan consumes.
+const MESSAGE_BEARING_KINDS = new Set(["message", "image", "relay_outbound", "relay_inbound"]);
+
+/**
+ * Scan the raw stdout of a `tail -n N <jsonl-path>` for the newest
+ * message-bearing `ts` (unix millis) across all parseable lines. Returns null
+ * if zero message-bearing lines are found (or the tail is empty).
+ *
+ * Mirrors the semantics of `scanTailForNewestMessageAt` in
+ * `ssh-poll-orchestrator.ts:190-206`. Empty and malformed lines are silently
+ * skipped — this is best-effort sampling, not a validation pass.
+ */
+function scanTailForNewestMessageAt(tailContents: string): number | null {
+  let newest: number | null = null;
+  const lines = tailContents.split("\n");
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    const parsed = parseSessionLine(line);
+    if (!MESSAGE_BEARING_KINDS.has(parsed.kind)) continue;
+    const ts = (parsed as { ts: number }).ts;
+    if (typeof ts !== "number" || !Number.isFinite(ts)) continue;
+    if (newest === null || ts > newest) {
+      newest = ts;
+    }
+  }
+  return newest;
+}
+
 interface TmuxSessionRow {
   hostId: number;
   hostName: string;
   sessionName: string;
   created: number;
   role: string | null;
+  lastMessageAt: number | null;
 }
 
 /**
@@ -99,34 +143,101 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                   sessionName: name,
                   created: parseInt(created, 10) || 0,
                   role: null as string | null,
+                  lastMessageAt: null as number | null,
                 };
               });
 
-            // Resolve role for each session on the SAME already-open conn, in parallel.
-            // Each per-identity call is wrapped in its own Promise.race(PER_HOST_TIMEOUT_MS)
-            // + try/catch — one hung/failed frontmatter read must not kill the whole host.
+            // Resolve role AND derive lastMessageAt for each session on the SAME
+            // already-open conn, in parallel. Both per-session blocks are dispatched
+            // concurrently so a slow discovery doesn't extend the wall-clock beyond
+            // max(roleResolve, lastMessageAtDerive) for that session.
+            //
+            // Each per-session block wraps its work in Promise.race(PER_HOST_TIMEOUT_MS)
+            // + try/catch — one hung/failed frontmatter read OR JSONL discovery must
+            // NOT kill the whole host (Phase 43 Plan 01 <behavior> Test 3 lock).
             await Promise.all(
               rows.map(async (row) => {
-                try {
-                  row.role = await Promise.race([
-                    resolveRoleForIdentity(conn, row.sessionName),
-                    new Promise<string>((_, reject) =>
-                      setTimeout(
-                        () => reject(new Error("per-identity role resolve timeout")),
-                        PER_HOST_TIMEOUT_MS,
+                // Per-session role resolve (unchanged behavior).
+                const roleResolveBlock = (async () => {
+                  try {
+                    row.role = await Promise.race([
+                      resolveRoleForIdentity(conn, row.sessionName),
+                      new Promise<string>((_, reject) =>
+                        setTimeout(
+                          () => reject(new Error("per-identity role resolve timeout")),
+                          PER_HOST_TIMEOUT_MS,
+                        ),
                       ),
-                    ),
-                  ]);
-                } catch (e) {
-                  sshLogger.debug("sessions/list: role resolve skipped for session", {
-                    operation: "sessions_list_role_resolve_skip",
-                    hostId,
-                    hostName,
-                    sessionName: row.sessionName,
-                    error: e instanceof Error ? e.message : "unknown",
-                  });
-                  row.role = null;
-                }
+                    ]);
+                  } catch (e) {
+                    sshLogger.debug("sessions/list: role resolve skipped for session", {
+                      operation: "sessions_list_role_resolve_skip",
+                      hostId,
+                      hostName,
+                      sessionName: row.sessionName,
+                      error: e instanceof Error ? e.message : "unknown",
+                    });
+                    row.role = null;
+                  }
+                })();
+
+                // Per-session lastMessageAt derivation (Phase 43 Plan 01).
+                // Step 1: discoverIdentitySessionFile(conn, row.sessionName) locates
+                //         the mtime-newest /id-first-turn JSONL for this identity.
+                // Step 2: tail -n 200 of that JSONL, filter by MESSAGE_BEARING_KINDS,
+                //         take the newest `ts`.
+                // On any failure (discovery null, tail empty, timeout, throw): row's
+                // lastMessageAt stays null and siblings are unaffected.
+                const lastMessageAtBlock = (async () => {
+                  try {
+                    const resolved = await Promise.race([
+                      (async (): Promise<number | null> => {
+                        const jsonlPath = await discoverIdentitySessionFile(
+                          conn,
+                          row.sessionName,
+                        );
+                        if (jsonlPath === null) return null;
+                        // jsonlPath is an absolute path shape returned by the
+                        // discovery module (~/.claude/projects/<slug>/<uuid>.jsonl).
+                        // Single-quote-wrap defensively (mirrors ssh-poll-orchestrator's
+                        // fail-open path validation) even though the discovery module's
+                        // output has no shell-special chars by construction.
+                        const tailRaw = await execCommand(
+                          conn,
+                          `tail -n 200 '${jsonlPath}' 2>/dev/null || true`,
+                        );
+                        if (!tailRaw || tailRaw.trim() === "") return null;
+                        return scanTailForNewestMessageAt(tailRaw);
+                      })(),
+                      new Promise<number | null>((_, reject) =>
+                        setTimeout(
+                          () =>
+                            reject(
+                              new Error(
+                                "per-session lastMessageAt discovery timeout",
+                              ),
+                            ),
+                          PER_HOST_TIMEOUT_MS,
+                        ),
+                      ),
+                    ]);
+                    row.lastMessageAt = resolved;
+                  } catch (e) {
+                    sshLogger.debug(
+                      "sessions/list: lastMessageAt derivation skipped for session",
+                      {
+                        operation: "sessions_list_last_message_at_skip",
+                        hostId,
+                        hostName,
+                        sessionName: row.sessionName,
+                        error: e instanceof Error ? e.message : "unknown",
+                      },
+                    );
+                    row.lastMessageAt = null;
+                  }
+                })();
+
+                await Promise.all([roleResolveBlock, lastMessageAtBlock]);
               }),
             );
 
