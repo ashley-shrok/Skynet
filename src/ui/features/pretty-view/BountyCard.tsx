@@ -1432,18 +1432,18 @@ export function BountyCard({
               above. */}
           {onNeedsDeskChange && (
             <div className="flex flex-col gap-1">
-              <label className="flex items-center gap-2 text-sm text-[#e8e4d8]/90 cursor-pointer w-fit">
+              <div className="flex items-center gap-2 text-sm text-[#e8e4d8]/90 w-fit">
                 <Checkbox
-                  checked={bounty.needs_desk}
+                  checked={bounty.needs_desk ?? false}
                   onCheckedChange={(v) => void handleNeedsDeskChange(v === true)}
                   disabled={savingNeedsDesk}
-                  aria-label={bounty.needs_desk ? "Unset needs desk" : "Set needs desk"}
+                  aria-label={(bounty.needs_desk ?? false) ? "Unset needs desk" : "Set needs desk"}
                 />
                 <span>Needs desk</span>
                 {savingNeedsDesk && (
                   <span className="text-[10px] text-[var(--color-pv-fg-dim)]">saving…</span>
                 )}
-              </label>
+              </div>
               {needsDeskError && (
                 <div className="text-xs text-rose-300">{needsDeskError}</div>
               )}
