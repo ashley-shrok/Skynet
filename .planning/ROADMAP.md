@@ -1287,3 +1287,13 @@ Plans:
 **UI hint:** no source-visible UI redesign. Zero changes to `PrettyConversationsPanel.tsx` or `pretty-conversations.css`. The middle-zone ordering fix ships purely by giving the existing comparator + snapshot pipeline correct inputs. Scope fence in 44-CONTEXT.md `<scope_fence>` enumerates hard-blocked files.
 
 **History note:** Phase originally numbered 43 in this identity's tree (started 2026-08-18). Collided with tina's independent Phase 43 (`replace-pv-virtualization-with-plain-dom-windowed-pagination`) — the seventh known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). tina was mid-ship (34 commits pushed at 58de67ac, holding at deploy for Ashley greenlight) → she kept the Phase 43 slot per the auto-resolve tiebreak; I renumbered mine to Phase 44 (rescue-rebase per role-file directive + bounty's `rescue-rebase-runbook.md`). Fully autonomous — no Ashley check-in required (Ashley 2026-08-18 verbatim: *"I don't care what phases have what number, so all I do is avoid the collision"*). Planning artifacts renamed 43-* → 44-*, ROADMAP + STATE re-added under new number.
+
+### Phase 45: Fix-forward on Phase 43 — restore correct architecture for windowed PrettyView pagination + reship as patch #466. Phase 43 (=#465) shipped and UAT-failed with 3 bugs: (1) backend tail -F -n 50 starves the observation channel — architecture-locked fix is to revert backend to -n +1 (full-file emission) and move historyWindow to a purely client-side cap on the messages[] array during initial hydration (drop-oldest as they arrive). Wipes Phase 43 backend Plans 43-01, 43-02, 43-04 rewiring and rewrites plan 43-07b's client hook. (2) 9px inter-bubble padding lost during 43-07a plain-DOM conversion — 1-line restore of style={{ paddingBottom: 9 }} on the bubble wrapper at PrettyView.tsx:2481. (3) TypeError: Cannot read properties of undefined (reading 'replace') at bi in AppShell-BjR3_4Qj.js:1:33664 on send — needs repro to pin down, will add undefined guard on the confirmed site once identified. Bounty: replace-pv-virtualization-with-windowed-pagination + closes parent pretty-view-message-list-virtualization at ship. Ships as patch #466 (collision-check at ship time).
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 44
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 45 to break down)
