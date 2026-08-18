@@ -24,7 +24,9 @@ import {
   type FleetSession,
 } from "./conversation-store";
 
-const CACHE_KEY = "skynet:convo-fleet-cache:v1";
+// Phase 44 Plan 04: cache key bumped v1 → v2 (FleetSession gained
+// optional lastMessageAt; see conversation-store.ts FLEET_CACHE_KEY comment).
+const CACHE_KEY = "skynet:convo-fleet-cache:v2";
 
 const SAMPLE_A: FleetSession = {
   hostId: 1,
@@ -32,6 +34,10 @@ const SAMPLE_A: FleetSession = {
   sessionName: "tina",
   created: 1_700_000_000,
   role: "box-maintainer",
+  // Phase 44 Plan 04: cache round-trip preserves lastMessageAt. `null` is the
+  // "no history yet" wire value; the reader coerces undefined to null on
+  // round-trip so consumers always see either null or a number.
+  lastMessageAt: null,
 };
 
 const SAMPLE_B: FleetSession = {
@@ -40,6 +46,7 @@ const SAMPLE_B: FleetSession = {
   sessionName: "nelly",
   created: 1_700_000_100,
   role: null,
+  lastMessageAt: 1_700_000_200,
 };
 
 describe("FleetSession localStorage cache (quick-260805-tub)", () => {
@@ -92,10 +99,12 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw as string) as Record<string, unknown>[];
     expect(parsed).toHaveLength(1);
+    // Phase 44 Plan 04: canonical field set is now 6 (added lastMessageAt).
     expect(Object.keys(parsed[0]).sort()).toEqual([
       "created",
       "hostId",
       "hostName",
+      "lastMessageAt",
       "role",
       "sessionName",
     ]);

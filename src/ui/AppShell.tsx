@@ -83,6 +83,9 @@ import { createFleetStatusClient } from "@/api/fleet-status-client";
 import {
   publishFleetStatusSessionState,
   publishFleetStatusSessionGone,
+  // Phase 44 Plan 04 — seed the max-wins reconciliation chokepoint from the
+  // /sessions/list payload (both cached rehydrate and fresh fetch paths).
+  seedSessionLastMessageAt,
 } from "@/state/session-working-store";
 import { publishFleetStatusWaitingFor } from "@/state/session-waiting-store";
 import {
@@ -594,6 +597,14 @@ export function AppShell({
     const cached = readFleetSessionsCache();
     if (cached.length > 0) {
       updateFleetSessions(cached);
+      // Phase 44 Plan 04 — feed cached rows into the working-store max-wins
+      // reconciliation. If the fresh fetch below returns fresher values, they
+      // overwrite; if it returns stale or null, cache values persist. Also
+      // paints the correct middle-zone order immediately on cold-start (via
+      // the flipped null-to-bottom Rule 1), before the fresh fetch resolves.
+      for (const s of cached) {
+        seedSessionLastMessageAt(s.hostId, s.sessionName, s.lastMessageAt ?? null);
+      }
     }
 
     let cancelled = false;
@@ -603,6 +614,12 @@ export function AppShell({
         if (cancelled) return;
         const fresh = Array.isArray(sessions) ? sessions : [];
         updateFleetSessions(fresh);
+        // Phase 44 Plan 04 — seed working-store from the fresh /sessions/list
+        // snapshot. Max-wins reconciliation in the working-store handles
+        // ordering vs. WS-live updates (which may arrive before or after this).
+        for (const s of fresh) {
+          seedSessionLastMessageAt(s.hostId, s.sessionName, s.lastMessageAt ?? null);
+        }
         // quick-260805-tub: persist the fresh snapshot for the next refresh.
         // Silent on write failure (see writeFleetSessionsCache).
         writeFleetSessionsCache(fresh);
