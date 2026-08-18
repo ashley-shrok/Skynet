@@ -11,14 +11,33 @@
  * incoming frames — no runtime discriminator helper is exported.
  */
 
-export function openClaudeSessionSocket(): WebSocket {
+export function openClaudeSessionSocket(opts?: {
+  /**
+   * Phase 43: opt-in bound on the initial `-n +1` replay. When supplied as a
+   * positive finite integer, appended to the connect URL as
+   * `?historyWindow=N`; the backend parameterizes its `tail -F -n +1` to
+   * `tail -F -n N` so the emission channel only backfills the last N lines
+   * of the JSONL. Missing / undefined / invalid → no query string → backend
+   * retains its current unbounded initial-replay behavior (backcompat for
+   * `countIdentityBounties` at L851 and any other legacy caller). The
+   * observation channel (whole-file tail feeding layer1-detect, context-pct,
+   * plan-pending, backgroundedAgents/Shells, id-reset) is UNTOUCHED by this
+   * param — only the emission-channel initial replay is bounded.
+   */
+  historyWindow?: number;
+}): WebSocket {
   const scheme =
     typeof window !== "undefined" && window.location.protocol === "https:"
       ? "wss:"
       : "ws:";
   const host =
     typeof window !== "undefined" ? window.location.host : "localhost";
-  const url = `${scheme}//${host}/claude-session/websocket/`;
+  const hw = opts?.historyWindow;
+  const qp =
+    typeof hw === "number" && Number.isFinite(hw) && hw > 0
+      ? `?historyWindow=${Math.floor(hw)}`
+      : "";
+  const url = `${scheme}//${host}/claude-session/websocket/${qp}`;
   return new WebSocket(url);
 }
 
@@ -852,6 +871,81 @@ export type BountyCountResult = {
 export type IdentityBountyCountsEvent = {
   type: "identity:bounty-counts";
   counts: BountyCountResult[];
+};
+
+// ─── Phase 43: fetch_older WS wire types (scaffolding — no consumers here) ──
+//
+// The wire contract is LOCKED per Phase 43 CONTEXT.md §"Backend contract
+// additions": `anchorEventId` is the eventId (uuid) of the oldest currently-
+// loaded message on the client; the server resolves it to a JSONL line offset
+// on demand via `grep -n '"uuid":"<anchorEventId>"' <path>` (see
+// `src/backend/claude-session/session-file-range.ts::resolveEventIdToLine`
+// landed in Plan 43-02). The client physically cannot populate a line offset
+// because ParsedLine variants carry no line offset. This asymmetry (client
+// owns the eventId anchor, server owns the line-offset lookup) is what makes
+// fetch_older portable across the (currently-unused) file-rotation case. No
+// line-offset field lives on the wire — the anchor is eventId-only.
+//
+// One-shot request/response convention mirrors IdentityCountBountiesPayload +
+// IdentityBountyCountsEvent above: client sends the payload once on the
+// already-open pretty-view WS (NOT a fresh socket — this is a subsequent
+// request on an existing session-bound connection), server responds with one
+// batch event carrying oldest-first frames suitable for prepend into
+// `messages[]`.
+//
+// Wave 2 (Plan 43-04) wires the backend `case "fetch_older":` handler that
+// consumes FetchOlderPayload and emits FetchOlderBatchEvent. Wave 2 (Plan
+// 43-05) adds the frontend runtime helpers (`sendFetchOlder`,
+// `isFetchOlderBatchEvent`). Wave 3 (Plan 43-07b) wires the PrettyView
+// onmessage `case "fetch_older_batch":` branch that prepends
+// `event.frames` to messages[]. This plan (43-03) only adds the types.
+
+/**
+ * Client → server. Sent on the already-open pretty-view WS when the user
+ * scrolls near the top of the loaded window and the oldest loaded message
+ * is not the JSONL file's first message.
+ *
+ * @field anchorEventId - eventId (uuid) of the oldest currently-loaded
+ *   message. Server resolves this to a line offset via
+ *   `resolveEventIdToLine` and responds with up to `count` messages
+ *   STRICTLY OLDER than that anchor (i.e. the range read stops one line
+ *   before the anchor's line).
+ * @field count - Number of older messages the client wants prepended.
+ *   Server may return fewer if the file begins within the requested range
+ *   (in which case the response event's `reachedBeginning` is set).
+ */
+export type FetchOlderPayload = {
+  type: "fetch_older";
+  anchorEventId: string;
+  count: number;
+};
+
+/**
+ * Server → client. Batched response to a `fetch_older` request.
+ *
+ * @field frames - Historical ParsedLine emission variants in oldest-first
+ *   order, suitable for prepend into `messages[]`. Each frame has the SAME
+ *   shape as a live-tail frame (see MessageEvent / ImageEvent /
+ *   RelayOutboundEvent / RelayInboundEvent / MalformedLineEvent above) so
+ *   the client's prepend path can dedup by `eventId` against existing
+ *   messages without special-casing. Typed as `unknown[]` at this
+ *   scaffolding stage; Wave 3 (Plan 43-07b) narrows to the concrete union
+ *   when it wires the `case "fetch_older_batch":` branch in PrettyView.
+ * @field reachedBeginning - Set to true by the server when the resolved
+ *   startLine was `<= 1`, i.e. the response includes the first line of the
+ *   JSONL. Client should stop firing further `fetch_older` requests after
+ *   receiving this signal.
+ * @field error - Populated when the server could not resolve the anchor
+ *   (eventId not found in the JSONL) or the range read failed (SSH drop,
+ *   timeout, exec error). Per Phase 43 CONTEXT.md §"Fetch failure
+ *   handling", the client clears its loading state and does NOT retry;
+ *   the user can scroll back down and up again to re-trigger.
+ */
+export type FetchOlderBatchEvent = {
+  type: "fetch_older_batch";
+  frames: unknown[];
+  reachedBeginning?: boolean;
+  error?: string;
 };
 
 /**
