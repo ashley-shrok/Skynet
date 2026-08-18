@@ -5,21 +5,24 @@ import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "./relay-mxid-resolve";
 import { detectFilePointer } from "./relay-pointer-detect";
 
-// Phase 17 Plan 03 — RelayInboundBubble (patch #200: alignment + color parity with ChatMessage)
+// Phase 17 Plan 03 — RelayInboundBubble
 //
 // Presentational component for a relay_inbound WS frame: renders a
-// right-aligned blue-gray gradient bubble in PrettyView when the backend
-// detects a task-notification user turn that matches the recv.sh line format
-// ([room X] [@sender] (event $Y): BODY — plan 17-01 detection).
+// left-aligned bubble tinted with the SENDER's identity colorHue in
+// PrettyView when the backend detects a task-notification user turn that
+// matches the recv.sh line format ([room X] [@sender] (event $Y): BODY —
+// plan 17-01 detection).
 //
-// Colors mirror ChatMessage.tsx's user (Ashley) styling so relay-inbound
-// reads as "someone speaking TO the agent from outside" — same blue-gray
-// gradient as her regular pretty-view compose-box messages, keeping the
-// avatar-dot + name·room header and via-recv.sh footer to preserve the
-// "this arrived through the Matrix relay" semantic.
+// Coloring uses the standard pretty-view hue-tinted bubble recipe (same
+// gradient/border/shadow shape as ChatMessage assistant bubbles,
+// PlanPendingBubble, ImageBubble, DormancyOverlay) — but driven by the
+// SENDER's resolved colorHue rather than the pane's --pv-id-hue, so each
+// inbound bubble reads as "identity X speaking as themselves" instead of
+// being mistakable for the pane's own agent. Multi-user chat convention:
+// "not you" shows up on the left; the pane's own agent + Ashley take
+// right-alignment elsewhere.
 //
-// RELAYBUB-02: inbound bubble right-aligned (flex justify-end wrapper) —
-// matches user-side of pretty-view chat convention (patch #200).
+// RELAYBUB-02: inbound bubble left-aligned (flex justify-start wrapper).
 // RELAYBUB-03: mxid resolved via useIdentities().byKey + resolveMxidToIdentity.
 // RELAYBUB-06: does NOT import IdentityBadge, ChatMessage, ComposeBox (locked).
 //
@@ -78,6 +81,18 @@ export function RelayInboundBubble({
   const avatarColor =
     colorHue !== null ? `hsl(${Number(colorHue)}, 80%, 60%)` : NEUTRAL_GREY;
 
+  // Bubble hue for V1 assistant-parity recipe. Unresolved sender → hue 210
+  // (Ashley 2026-08-18: "don't really care about the fallback"); the
+  // full-saturation recipe against 210 lands as a cool blue-tinted bubble,
+  // visually distinct from resolved senders' hues without needing a
+  // separate branch.
+  const bubbleHue = colorHue !== null ? Number(colorHue) : 210;
+  const bubbleStyle = {
+    background: `linear-gradient(160deg, hsla(${bubbleHue},50%,38%,0.55), hsla(${bubbleHue},45%,24%,0.6))`,
+    borderColor: `hsla(${bubbleHue},65%,55%,0.32)`,
+    boxShadow: `0 8px 24px rgba(0,0,0,0.5), 0 1px 0 rgba(255,220,170,0.18) inset, 0 0 0 0.5px hsla(${bubbleHue},70%,55%,0.2), 0 0 32px hsla(${bubbleHue},70%,52%,0.18)`,
+  } as const;
+
   // File-pointer detection.
   const pointer = detectFilePointer(body);
 
@@ -111,9 +126,12 @@ export function RelayInboundBubble({
   }, [pointer?.pointerPath, hostId]);
 
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-start" data-testid="relay-inbound-wrap">
       <div
         title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
+        data-testid="relay-inbound-bubble"
+        data-bubble-hue={bubbleHue}
+        style={bubbleStyle}
         className={cn(
           // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
@@ -122,21 +140,17 @@ export function RelayInboundBubble({
           // ChatMessage's shadow-based bubble while colour-matching it).
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // Blue-gray gradient background — mirrors ChatMessage user
-          // (Ashley) styling so the relay-inbound reads as "her speaking
-          // through Matrix". Uniform across all pretty-view identities.
-          "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
-          // Rim border — matches ChatMessage user strength.
-          "border border-[rgba(120,140,180,0.2)]",
-          // Text colour — cool off-white matching ChatMessage user.
-          "text-[#dfe3ee]",
+          // border-width only; color comes from inline style (sender hue).
+          "border",
+          // Text colour — warm off-white matching ChatMessage assistant.
+          "text-[#e8e4d8]",
         )}
       >
         {/* Header: avatar-dot + resolved displayName + room */}
         <div
           className={cn(
             "flex items-center gap-1 text-xs mb-1",
-            "text-[rgba(220,_225,_245,_0.6)]",
+            "text-[rgba(232,_228,_216,_0.6)]",
             "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
           )}
         >
@@ -158,11 +172,11 @@ export function RelayInboundBubble({
         {pointer ? (
           <>
             {/* Pointer-line preview — always shown as small header above fetched body */}
-            <div className="text-[10px] text-[rgba(220,_225,_245,_0.45)] mb-1">
+            <div className="text-[10px] text-[rgba(232,_228,_216,_0.45)] mb-1">
               📄 {pointer.pointerLine}
             </div>
             {fetchState.kind === "loading" && (
-              <div className="text-xs text-[rgba(220,_225,_245,_0.5)] italic">
+              <div className="text-xs text-[rgba(232,_228,_216,_0.5)] italic">
                 loading…
               </div>
             )}
@@ -184,7 +198,7 @@ export function RelayInboundBubble({
         <div
           className={cn(
             "text-[10px] text-right mt-1",
-            "text-[rgba(220,_225,_245,_0.35)]",
+            "text-[rgba(232,_228,_216,_0.35)]",
           )}
         >
           via recv.sh

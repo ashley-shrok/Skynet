@@ -190,6 +190,61 @@ describe("RelayInboundBubble", () => {
     expect(avatarColor).toBe("hsl(210, 8%, 50%)");
   });
 
+  it("Test 6b: wrapper uses justify-start (left-aligned — multi-user chat convention, 2026-08-18)", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="hello"
+        hostId={1}
+      />,
+    );
+    const wrap = document.querySelector("[data-testid='relay-inbound-wrap']");
+    expect(wrap).not.toBeNull();
+    expect((wrap as HTMLElement).className).toContain("justify-start");
+    expect((wrap as HTMLElement).className).not.toContain("justify-end");
+  });
+
+  it("Test 6c: bubble background/border/shadow tinted with sender's resolved colorHue", () => {
+    const tina = makeIdentity("tina", "Tina", 45);
+    mockedUseIdentities.mockReturnValue({
+      identities: [tina],
+      byKey: new Map([["tina", tina]]),
+      loaded: true,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="hello from tina"
+        hostId={1}
+      />,
+    );
+
+    const bubble = document.querySelector("[data-testid='relay-inbound-bubble']");
+    expect(bubble).not.toBeNull();
+    // data-bubble-hue carries the raw numeric hue so tests can assert without
+    // relying on jsdom's inline-style parsing (which strips gradients).
+    expect((bubble as HTMLElement).getAttribute("data-bubble-hue")).toBe("45");
+  });
+
+  it("Test 6d: unresolved sender → bubble falls back to hue 210 (Ashley 2026-08-18: don't care about fallback)", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@unknown:matrix.example.com"
+        body="hello"
+        hostId={1}
+      />,
+    );
+
+    const bubble = document.querySelector("[data-testid='relay-inbound-bubble']");
+    expect(bubble).not.toBeNull();
+    expect((bubble as HTMLElement).getAttribute("data-bubble-hue")).toBe("210");
+  });
+
   it("Test 6: detectFilePointer matches recv.sh preview line format with em-dash boundaries", () => {
     // The exact reproducer string from Ashley's UAT (2026-07-28).
     // recv.sh preview line format: "[long message, N chars — full text at <path> — Read it] «...»"

@@ -1231,7 +1231,7 @@ export function PrettyView({
           break;
         }
         case "relay_inbound": {
-          // RELAYBUB-02: inbound relay frame → RelayInboundBubble (blue-gray, right-aligned per patch #200).
+          // RELAYBUB-02: inbound relay frame → RelayInboundBubble (sender-hue tinted, left-aligned — multi-user chat convention).
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
           break;
