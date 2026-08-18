@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isIosPwa } from "@/lib/is-ios-pwa";
@@ -195,41 +194,11 @@ function appendDedup(
   return [...prev, next];
 }
 
-// quick 260810-ia4 Fix 1: type-aware initial height estimate for the
-// TanStack Virtual estimateSize callback. Returns a value that is ~90%
-// correct instead of the prior constant 80, shrinking the re-measure
-// correction deltas that displaced visible content under Ashley's scroll
-// gesture. measureElement still corrects per-item once real DOM heights
-// are known — this only reduces the first-estimate error.
-//
-// Rules:
-//   image            → 400  (tall by default; overshooting is fine — corrects downward)
-//   code-block text  → Math.max(120, lineCount * 22 + 40)
-//   plain text       → Math.max(80, Math.min(400, textLength * 0.4))
-//   no-text fallback → 80   (MalformedLineEvent + other non-text events)
-//
-// Module-local helper getMessageText is deliberately unexported — the
-// test constructs StreamEvent literals and calls estimatePvBubbleSize
-// directly; no need to expose the inner helper.
-function getMessageText(m: StreamEvent): string {
-  if (m.type === "image") return "";
-  if (m.type === "message") return m.content;
-  if (m.type === "relay_outbound") return m.rawCommand;
-  if (m.type === "relay_inbound") return m.body;
-  // malformed_line has no usable text field
-  return "";
-}
-
-export function estimatePvBubbleSize(m: StreamEvent): number {
-  if (m.type === "image") return 400;
-  const text = getMessageText(m);
-  if (/```/.test(text)) {
-    const lineCount = (text.match(/\n/g)?.length ?? 0) + 1;
-    return Math.max(120, lineCount * 22 + 40);
-  }
-  const textLength = text.length;
-  return Math.max(80, Math.min(400, textLength * 0.4));
-}
+// Phase 43 (plan 43-07a): estimatePvBubbleSize + getMessageText helpers
+// deleted — dead code after TanStack Virtual removal (estimateSize was
+// the virtualizer callback consumer). The estimateSize test file
+// (PrettyView.estimateSize.test.tsx) breaks as a result and is scheduled
+// for deletion in plan 43-08 per 43-CONTEXT.md § Deletion scope.
 
 // Phase 14 followup + UAT amendment E41 (Ashley 2026-07-27): recognize both
 // invocation forms of the /id command. (a) SSH-typed raw form: literal
@@ -922,131 +891,16 @@ export function PrettyView({
   // The former stub block (TEMP-disabled auto-scroll from bounty pv-disable-auto-scroll-temp)
   // was deleted here — the phase 32 hook above is now the sole reader.
 
-  // Phase 27 virtualization (Plan 27-02): construct the virtualizer AFTER
-  // useAutoScroll so any CapturingResizeObserver polyfill in tests captures
-  // useAutoScroll's RO first (see 27-PATTERNS.md SURPRISE #3). The virtualizer
-  // shares the outer scroll container with useAutoScroll via a composed
-  // callback ref (composeScrollRefs below).
-  const scrollElRef = useRef<HTMLDivElement | null>(null);
-  const rowVirtualizer = useVirtualizer({
-    count: messages.length,
-    getScrollElement: () => scrollElRef.current,
-    // quick 260810-ia4 Fix 1: type-aware estimate (image / code-block /
-    // plain-text) via estimatePvBubbleSize — was a constant 80. measureElement
-    // still corrects per-item once real DOM heights are known; this helper
-    // reduces the first-estimate error so re-measure correction deltas are
-    // smaller and displace visible content less under Ashley's scroll gesture.
-    estimateSize: (i) => estimatePvBubbleSize(messages[i]),
-    overscan: 5,
-    // Phase 28 (M1): matches the outer scroll container's py-3 (= 12px)
-    // top padding — the sized virtualizer container starts at scrollTop
-    // offset 12, not 0. TanStack Virtual computes the visible slice via
-    // `scrollTop - scrollMargin`, so without this the slice is off-by-12
-    // (absorbed by overscan today, but scrollToIndex would land 12px too
-    // high). Source-of-truth for the 12: the "px-4 py-3" className on the
-    // composeScrollRefs div at PrettyView.tsx :1816 — UPDATE both if the
-    // padding class changes.
-    scrollMargin: 12,
-    // Phase 28 (M4): diagnostic fallback. The review's M4 finding argued
-    // the "race" the previous `?? i` fallback protected against is not
-    // real (count and messages come from the same render). If TanStack
-    // Virtual ever calls getItemKey with i >= messages.length, that
-    // indicates a genuine bug — surface it via console.warn AND avoid the
-    // eventId-collision hazard of returning `i` directly (a real integer
-    // eventId "5" would collide with fallback 5, invalidating the
-    // measurement cache). The __oob_${i} string prefix is loud enough to
-    // spot in DOM inspection AND safe from collision. If the warn never
-    // fires in ~1 week of production traffic, convert to a bare throw or
-    // drop the fallback per the review's Option (a).
-    getItemKey: (i) => {
-      const evt = messages[i]?.eventId;
-      if (evt !== undefined) return evt;
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[pv-virtual] getItemKey out-of-range i=${i} messages.length=${messages.length}`,
-      );
-      return `__oob_${i}`;
-    },
-    // Fallback viewport rect used until the first ResizeObserver callback
-    // fires on the scroll container. In real browsers this is transient
-    // (RO fires within a frame). In JSDOM (test env), ResizeObserver is a
-    // no-op stub that never fires, so this becomes the permanent rect.
-    // Phase 28 (M2): height reduced 4096→600 so the first paint mounts
-    // ~5-10 real bubble subtrees (600/80 + 10 overscan ≈ 17) instead of
-    // ~60 (4096/80 + 10 ≈ 61) — preserving the phase's bounded-DOM goal
-    // through the transient pre-RO window on every mount / paneKey change /
-    // reconnect. Width stays 1024 (only height affects virtualization
-    // slicing per review L5).
-    initialRect: { width: 1024, height: 600 },
-    // Override the default observeElementRect (which reads offsetWidth /
-    // offsetHeight) with one that falls back to a sensible rect whenever
-    // the element reports zero-sized offsets. This matters in two cases:
-    //   1. JSDOM (tests): offset{Width,Height} are always 0 → without this
-    //      fallback the virtualizer computes an empty visible range and
-    //      renders nothing, breaking any content-presence assertion.
-    //   2. Hydration / first-paint-before-layout: transient zero-size read
-    //      before browser layout resolves. With this fallback, the first
-    //      paint uses a sensible slice rather than a blank box.
-    // Once the real ResizeObserver fires with a non-zero rect (the browser
-    // case), that value takes over as normal. Phase 28 (M2): the fallback
-    // matches initialRect (see below) so the synchronous install-time
-    // read() call does not silently balloon the visible slice past the
-    // initialRect budget.
-    observeElementRect: (instance, cb) => {
-      // H3 fix: every early-return branch MUST return a () => void cleanup
-      // (not bare undefined). TanStack Virtual stores the return value as
-      // the cleanup and calls it on rebind (e.g., scrollElement flips from
-      // null → element on first mount, or on status re-mount cycles). A
-      // bare `return;` stored undefined would throw
-      // `TypeError: undefined is not a function` when TanStack later
-      // invokes cleanup — currently only masked by a defensive typeof
-      // guard in the library. Do not rely on that.
-      const bindEl = instance.scrollElement as HTMLElement | null;
-      if (!bindEl) return () => {};
-      const win = instance.targetWindow;
-      if (!win) return () => {};
-      // H4 fix: re-derive from instance.scrollElement on every fire so a
-      // stale RO on the old scroll container reports current dimensions
-      // (not the captured-at-bind stale one). If instance.scrollElement
-      // is transiently null when the callback fires (mid-remount), bail
-      // WITHOUT calling cb(...) so a spurious zero rect doesn't propagate.
-      //
-      // Phase 28 (M2 alignment): the offsetHeight fallback is 600 —
-      // matching initialRect.height (see M2 comment below). Both fallbacks
-      // MUST agree: the JSDOM/first-paint zero-offset path here must not
-      // exceed the initialRect budget, or observeElementRect's synchronous
-      // install-time read() would override initialRect with 4096, defeating
-      // M2's bounded-DOM goal in the JSDOM test window. If you change
-      // initialRect.height, update this literal too — they are the same
-      // physical concept (transient viewport size before a real layout
-      // measurement is available).
-      const read = () => {
-        const cur = instance.scrollElement as HTMLElement | null;
-        if (!cur) return;
-        const w = cur.offsetWidth || 1024;
-        const h = cur.offsetHeight || 600;
-        cb({ width: w, height: h });
-      };
-      read();
-      if (!win.ResizeObserver) return () => {};
-      const ro = new win.ResizeObserver(() => read());
-      // Observe the element captured at bind-time so the OLD element
-      // continues to be watched for its own resizes; the CALLBACK still
-      // reports whichever element is current at fire-time (via read()).
-      ro.observe(bindEl);
-      return () => ro.disconnect();
-    },
-  });
-
-  // Compose useAutoScroll's scrollRef and our own scrollElRef onto the same
-  // outer scroll container DOM node so BOTH readers see the same element.
-  const composeScrollRefs = useCallback(
-    (el: HTMLDivElement | null) => {
-      scrollElRef.current = el;
-      scrollRef(el);
-    },
-    [scrollRef],
-  );
+  // Phase 43 (plan 43-07a): TanStack Virtual removed. The message list
+  // is now plain-DOM — every entry in messages[] renders as an in-flow
+  // child of the outer scroll container. The browser's default
+  // overflow-anchor:auto handles size-change re-anchoring natively (no
+  // more virtualizer-vs-user-scroll authority conflict). Every construct
+  // previously living here — scrollElRef, rowVirtualizer, observeElementRect,
+  // getItemKey, estimateSize, initialRect, scrollMargin — is deleted.
+  // composeScrollRefs collapsed: the outer scroll container now binds
+  // directly to useAutoScroll's scrollRef (43-06's frozen API surface).
+  // Plan 43-07b will compose a local ref if it needs a second reader.
 
   // Patch #108: IdentityModal anchors its Radix Portal to this DOM element
   // (the chat-region wrapper below). Callback ref → state so the Portal
@@ -2053,6 +1907,7 @@ export function PrettyView({
       // UAT amendment E41 (Ashley 2026-07-27): isIdCommand also matches
       // the harness slash-UI XML-wrapper form (<command-name>/id</command-name>)
       // — Ashley's PRIMARY /id invocation path from pretty-view slash-UI.
+      // ── PHASE-43 ASIDE-ARM WALK START — DO NOT EDIT; byte-preserved per 43-CONTEXT.md aside-arm suppression walk decision ──
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];
         if (m.type === "message" && m.role === "user") {
@@ -2060,6 +1915,7 @@ export function PrettyView({
           break;
         }
       }
+      // ── PHASE-43 ASIDE-ARM WALK END ──
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
@@ -2345,119 +2201,88 @@ export function PrettyView({
         ((status === "connecting" || status === "error") && messages.length > 0) ||
         renderedState === "dormant") && (
         <div
-          ref={composeScrollRefs}
+          ref={scrollRef}
           // mobile-scroll-freeze-overscroll-behavior (2026-08-10): `overscroll-contain`
           // stops iOS Safari from routing rubber-band momentum to an ancestor scroller
           // on end-of-scroll. Without it, iOS locks the touch for 10-15s while its
           // arbitrator hunts for a scroll owner (AppShell's outer chain is all
           // overflow-hidden), and the surface becomes unresponsive to swipes.
-          // quick 260810-ia4 Fix 3: `[overflow-anchor:none]` — browser native
-          // scroll-anchoring competes with TanStack Virtual's re-measure adjustments
-          // for scroll-position authority; the virtualizer should be the sole
-          // authority through measurement changes.
-          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 [overflow-anchor:none]"
+          // Phase 43 (plan 43-07a): [overflow-anchor:none] REMOVED — browser default
+          // overflow-anchor:auto is load-bearing for prepend/growth preservation.
+          // With TanStack Virtual gone, the browser's native scroll-anchoring is the
+          // sole scroll-position authority through measurement changes.
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
         >
-          {/* Phase 27 virtualization (Plan 27-02, Step A): sized virtualizer
-              container. Phase 32: useAutoScroll's ResizeObserver now watches
-              the OUTER composeScrollRefs scroll container ONLY — see
-              32-CONTEXT.md § ResizeObserver LOCK. Accessories (WipBubble /
-              PlanPendingBubble / AsideBubble) are in-flow siblings of this
-              sized container inside the outer scroll container, so growth
-              from those mounts is caught by the outer RO too. `position:
-              relative` lets the absolute-positioned virtualized items
-              resolve their translateY() against this box. */}
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              position: "relative",
-              width: "100%",
-            }}
-          >
-            {/* Phase 27: virtualized message rendering. Only the viewport
-                slice (+ overscan) mounts real bubble subtrees. `getItemKey`
-                is bound to `messages[i].eventId` so measurement cache stays
-                stable across dedup / reorder / prepend paths. `data-pv-bubble`
-                is the empirical DOM-count hook (Wave 3 tests + post-ship
-                diag). `data-event-id` is the getItemKey identity witness.
-                `data-index` is the row-index witness. */}
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const m = messages[virtualRow.index];
-              if (!m) return null;
-              return (
-                <div
-                  key={virtualRow.key}
-                  data-pv-bubble
-                  data-index={virtualRow.index}
-                  data-event-id={m.eventId}
-                  ref={rowVirtualizer.measureElement}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualRow.start}px)`,
-                    // Was the flex column's vertical rhythm; flexbox does
-                    // nothing on absolutely-positioned children, so the
-                    // rhythm is baked into the item box now.
-                    paddingBottom: 9,
-                  }}
-                >
-                  {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
-                      normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
-                      hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
-                      which pane's remote host to query. */}
-                  {m.type === "image" ? (
-                    <ImageBubble
-                      role={m.role}
-                      images={m.images}
-                      text={m.text}
-                      eventId={m.eventId}
-                      ts={m.ts}
-                    />
-                  ) : m.type === "relay_outbound" ? (
-                    <RelayOutboundBubble
-                      room={m.room}
-                      rawCommand={m.rawCommand}
-                      body={m.body}
-                      ts={m.ts}
-                    />
-                  ) : m.type === "relay_inbound" ? (
-                    <RelayInboundBubble
-                      room={m.room}
-                      sender={m.sender}
-                      body={m.body}
-                      ts={m.ts}
-                      hostId={hostId}
-                    />
-                  ) : m.type === "malformed_line" ? (
-                    <MalformedBubble bytes={m.bytes} ts={m.ts} />
-                  ) : (
-                    <ChatMessage
-                      role={m.role}
-                      content={m.content}
-                      identityVoice={pvIdentity?.voice ?? null}
-                      ts={m.ts}
-                      eventId={m.eventId}
-                      autoplayArmed={autoplayArmed}
-                      autoplayTargetEventId={autoplayTargetEventId}
-                      onLongPressSpeak={handleLongPressSpeak}
-                      onOpenEditor={handleOpenEditor}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {/* Phase 27 Plan 27-02 Step B: below-list accessories moved OUT
-              of the sized virtualizer container into this in-flow sibling
-              block. They remain INSIDE the outer composeScrollRefs-bound
-              scroll container so useAutoScroll's ResizeObserver still sees
-              their contribution to scrollHeight (pin-to-bottom keeps
-              working uniformly across virtualized items + accessories).
-              In-flow (no position: sticky, no position: absolute, no
-              overlay) per ASIDE-05. Since they follow the sized container
-              in normal document flow, they layer naturally below the last
-              virtualized item at the visual bottom of the message column. */}
+          {/* Phase 43 (plan 43-07a): plain-DOM message rendering. Every entry
+              in messages[] is a real in-flow child of the outer scroll
+              container. No sized virtualizer wrapper, no absolute positioning,
+              no measurement observer. `data-pv-bubble` is the empirical DOM-count
+              hook (post-ship diag). `data-event-id` carries the same per-message
+              identity witness so downstream diagnostics can still correlate
+              DOM nodes with their source frames. Accessory siblings
+              (WipBubble / WaitingBubble / PlanPendingBubble / DormancyOverlay /
+              AsideBubble) remain immediately below the .map output, in-flow
+              inside the same outer scroll container — same structural layout
+              invariant established by Phase 27 Plan 27-02 Step B. */}
+          {messages.map((m) => (
+            <div
+              key={m.eventId}
+              data-pv-bubble
+              data-event-id={m.eventId}
+            >
+              {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
+                  normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
+                  hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
+                  which pane's remote host to query. */}
+              {m.type === "image" ? (
+                <ImageBubble
+                  role={m.role}
+                  images={m.images}
+                  text={m.text}
+                  eventId={m.eventId}
+                  ts={m.ts}
+                />
+              ) : m.type === "relay_outbound" ? (
+                <RelayOutboundBubble
+                  room={m.room}
+                  rawCommand={m.rawCommand}
+                  body={m.body}
+                  ts={m.ts}
+                />
+              ) : m.type === "relay_inbound" ? (
+                <RelayInboundBubble
+                  room={m.room}
+                  sender={m.sender}
+                  body={m.body}
+                  ts={m.ts}
+                  hostId={hostId}
+                />
+              ) : m.type === "malformed_line" ? (
+                <MalformedBubble bytes={m.bytes} ts={m.ts} />
+              ) : (
+                <ChatMessage
+                  role={m.role}
+                  content={m.content}
+                  identityVoice={pvIdentity?.voice ?? null}
+                  ts={m.ts}
+                  eventId={m.eventId}
+                  autoplayArmed={autoplayArmed}
+                  autoplayTargetEventId={autoplayTargetEventId}
+                  onLongPressSpeak={handleLongPressSpeak}
+                  onOpenEditor={handleOpenEditor}
+                />
+              )}
+            </div>
+          ))}
+          {/* Phase 43 (plan 43-07a): accessory siblings kept immediately below
+              the message-list .map output — in-flow inside the outer scroll
+              container per the same layout invariant Phase 27 Plan 27-02 Step B
+              established. With virt gone, the "post-virtualizer sized wrapper"
+              framing collapses: accessories are simply in-flow siblings of the
+              per-message [data-pv-bubble] children. No position:sticky, no
+              position:absolute, no overlay — per ASIDE-05. Order matches the
+              pre-Phase-43 rendering (WipBubble → WaitingBubble → PlanPendingBubble
+              → DormancyOverlay → AsideBubble → jump-to-bottom pill). */}
           {isWorking && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
