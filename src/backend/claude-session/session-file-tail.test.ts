@@ -1,16 +1,14 @@
 // Vitest coverage for tailSessionFile — the primary ssh2-exec `tail -F`
 // helper the WS emission channel uses to stream JSONL frames as they land.
 //
-// Phase 43 introduces an optional `initialLines` parameter so callers can
-// opt into a bounded-initial-slice (`tail -F -n N`) while every existing
-// caller that does NOT opt in continues to get the current unbounded
-// `tail -F -n +1` behavior byte-for-byte (backcompat mandated by
-// .planning/phases/43-.../43-CONTEXT.md § "Backcompat / migration").
+// The tail command shape is fixed at `tail -F -n +1 <escaped-path>` for
+// every caller — no parameterization, no bounded-initial-slice branch.
+// These tests lock:
+//   1. The exact shell command string handed to `conn.exec` (byte-for-byte).
+//   2. Path escaping via the local `shellEscape` helper (single-quote path).
 //
-// These tests exercise the SHELL COMMAND STRING handed to `conn.exec` — not
-// stdout delivery — because the tail semantic (start-at-line-1 vs
-// start-at-last-N) is entirely encoded in that command's `-n` argument.
-// Stream/stdout behavior is unchanged by Phase 43 and is not re-covered
+// Stream/stdout delivery behavior is exercised by the higher-level
+// claude-session-server tests; only the command-string shape is asserted
 // here.
 
 import { describe, it, expect, vi } from "vitest";
@@ -59,11 +57,9 @@ function makeConnStub(): {
 
 describe("tailSessionFile — command shape", () => {
   // ── Test 1 (BACKCOMPAT) ──────────────────────────────────────────────
-  // Legacy 4-arg call site (no initialLines override) MUST continue to
-  // invoke `tail -F -n +1 <escaped-path>` byte-for-byte. CONTEXT.md
-  // `<decisions>` § "Backcompat / migration": legacy callers get the
-  // current unbounded initial replay.
-  it("Test 1: backcompat — no initialLines override emits `tail -F -n +1 <path>`", () => {
+  // The 4-arg call MUST invoke `tail -F -n +1 <escaped-path>` byte-for-byte.
+  // Every caller passes exactly these 4 args; there is no override.
+  it("Test 1: emits `tail -F -n +1 <path>` for a simple path", () => {
     const { conn, execSpy } = makeConnStub();
     const onLine = vi.fn();
     const onError = vi.fn();
@@ -76,102 +72,20 @@ describe("tailSessionFile — command shape", () => {
     );
   });
 
-  // ── Test 2 (OVERRIDE HAPPY PATH) ─────────────────────────────────────
-  // Opt-in override — planner picks 50 as the canonical mid-range value
-  // (initial window `N` from CONTEXT.md is planner-picked ≥ ~50). The
-  // command MUST use `-n 50` (no `+`, no other chars) so tail treats it
-  // as "last 50 lines from end of file, then follow" instead of
-  // "start at file line 50, then follow".
-  it("Test 2: override — initialLines=50 emits `tail -F -n 50 <path>` (no `+`)", () => {
-    const { conn, execSpy } = makeConnStub();
-    const onLine = vi.fn();
-    const onError = vi.fn();
-
-    // Cast to `any` because Task 1 (RED) intentionally calls a signature
-    // that does not yet exist on the source. Task 2 (GREEN) adds the
-    // 5th optional parameter and the cast becomes redundant but harmless.
-    (
-      tailSessionFile as unknown as (
-        c: Client,
-        p: string,
-        l: (s: string) => void,
-        e: (err: Error) => void,
-        n: number,
-      ) => void
-    )(conn, "/tmp/session.jsonl", onLine, onError, 50);
-
-    expect(execSpy).toHaveBeenCalledTimes(1);
-    expect(execSpy.mock.calls[0][0]).toBe(
-      "tail -F -n 50 '/tmp/session.jsonl'",
-    );
-  });
-
-  // ── Test 3 (INVALID OVERRIDE COERCES TO DEFAULT) ─────────────────────
-  // 0, negative, NaN, and absurdly-huge values MUST fall back to the
-  // backcompat `-n +1` shape rather than passing a nonsense shell arg.
-  // This mirrors the defense-in-depth already in place at the
-  // parseInt/Number.isFinite validation for `historyWindow` documented in
-  // 43-PATTERNS.md § 2 (backend WS handshake validator).
-  it("Test 3: invalid initialLines (0, negative, NaN, huge) falls back to `-n +1`", () => {
-    const invalidCases: Array<number> = [0, -5, Number.NaN, 1e12];
-
-    for (const invalid of invalidCases) {
-      const { conn, execSpy } = makeConnStub();
-      const onLine = vi.fn();
-      const onError = vi.fn();
-
-      (
-        tailSessionFile as unknown as (
-          c: Client,
-          p: string,
-          l: (s: string) => void,
-          e: (err: Error) => void,
-          n: number,
-        ) => void
-      )(conn, "/tmp/session.jsonl", onLine, onError, invalid);
-
-      expect(
-        execSpy.mock.calls[0][0],
-        `initialLines=${String(invalid)} should coerce to -n +1 default`,
-      ).toBe("tail -F -n +1 '/tmp/session.jsonl'");
-    }
-  });
-
-  // ── Test 4 (PATH ESCAPING PRESERVED) ─────────────────────────────────
-  // Single-quote in path must be escaped identically in both the default
-  // and override branches (via the same local `shellEscape` helper). The
-  // Phase 43 parameterization must not regress escaping — asserting the
-  // exact byte-for-byte command locks the shape.
-  it("Test 4: path escaping preserved for paths containing a single quote", () => {
+  // ── Test 2 (PATH ESCAPING) ───────────────────────────────────────────
+  // Single-quote in path must be escaped via the local `shellEscape` helper.
+  // The exact byte-for-byte assertion locks both the command shape AND the
+  // escape sequence.
+  it("Test 2: path escaping preserved for paths containing a single quote", () => {
     const trickyPath = "/tmp/sess'ion.jsonl";
     // POSIX shellEscape: 'sess'\''ion.jsonl' pattern — every `'` becomes
     // `'\''`. See session-file-tail.ts:27-29.
     const expectedEscaped = "'/tmp/sess'\\''ion.jsonl'";
 
-    // Default branch (no override) — must escape.
-    {
-      const { conn, execSpy } = makeConnStub();
-      tailSessionFile(conn, trickyPath, vi.fn(), vi.fn());
-      expect(execSpy.mock.calls[0][0]).toBe(
-        `tail -F -n +1 ${expectedEscaped}`,
-      );
-    }
-
-    // Override branch (initialLines=50) — must use IDENTICAL escaped path.
-    {
-      const { conn, execSpy } = makeConnStub();
-      (
-        tailSessionFile as unknown as (
-          c: Client,
-          p: string,
-          l: (s: string) => void,
-          e: (err: Error) => void,
-          n: number,
-        ) => void
-      )(conn, trickyPath, vi.fn(), vi.fn(), 50);
-      expect(execSpy.mock.calls[0][0]).toBe(
-        `tail -F -n 50 ${expectedEscaped}`,
-      );
-    }
+    const { conn, execSpy } = makeConnStub();
+    tailSessionFile(conn, trickyPath, vi.fn(), vi.fn());
+    expect(execSpy.mock.calls[0][0]).toBe(
+      `tail -F -n +1 ${expectedEscaped}`,
+    );
   });
 });
