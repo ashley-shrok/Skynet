@@ -37,6 +37,12 @@
 // Storage layer: NONE. In-memory Map only. A page refresh resets the store;
 // the fleet-status WS snapshot on re-connect repopulates all keys.
 //
+// Phase 44 (Plan 03): the store now consolidates lastMessageAt writes from
+// both feeds (fleet-status WS + /sessions/list seed) through a single
+// max-wins chokepoint (advanceSessionLastMessageAt). The WS publish path
+// calls the chokepoint after the isWorking swap; the seed path calls it
+// directly. See 43-CONTEXT.md § Reconciliation helper.
+//
 // Store pattern mirrors src/ui/state/conversation-store.ts: module-scoped
 // `state` object + Map + Set<() => void> listener registry + snapshotVersion
 // counter; notify() bumps + iterates; subscribe() returns disposer.
@@ -126,45 +132,49 @@ export function publishFleetStatusSessionState(
   const main = state_arg.status === "busy";
   const bg = state_arg.backgroundTasks.length > 0;
   const isWorking = main || bg;
-  // Phase 41 Plan 03 — normalize `undefined` (pre-Phase-41 watcher) and
-  // explicit `null` (Phase-41 watcher that has looked and found no history)
-  // to a single null value in the cache. Both downstream branches treat
-  // null identically per the no-history-to-top rule.
-  const lastMessageAt = state_arg.lastMessageAt ?? null;
 
   const existing = state.map.get(key);
-  // Phase 41 Plan 03: the no-op notify guard now checks BOTH axes — isWorking
-  // AND lastMessageAt. A pure isWorking-unchanged frame that ALSO carries a
-  // fresher lastMessageAt (e.g., an assistant turn completes with status:idle
-  // + new message) MUST publish so the conversation-store re-orders the
-  // middle zone.
-  if (
-    existing !== undefined &&
-    existing.isWorking === isWorking &&
-    existing.lastMessageAt === lastMessageAt
-  ) {
-    // No-op: neither working nor recency changed — skip notify to prevent
-    // spurious re-renders. Log at trace level only.
-    return;
+
+  // Phase 44 (Plan 03) — single-chokepoint architecture per 43-CONTEXT.md §
+  // Reconciliation helper. isWorking axis handled inline; lastMessageAt axis
+  // routes through advanceSessionLastMessageAt so BOTH the WS-publish path
+  // and the /sessions/list-seed path funnel through the same reconciliation
+  // predicate. Two notify events on frames that co-change both axes is the
+  // correct observable contract.
+
+  // ── Axis A — isWorking swap-and-notify block ──
+  // Fire only when isWorking actually changed OR the key is brand-new.
+  // The lastMessageAt value written into the record here is the
+  // CURRENTLY-CACHED value (preserved unchanged); Axis B below handles
+  // any lastMessageAt update via advanceSessionLastMessageAt.
+  if (existing === undefined || existing.isWorking !== isWorking) {
+    console.info({
+      operation: "fleet_status_working_state_change",
+      hostId,
+      tmuxSession: state_arg.tmuxSession,
+      sessionId: state_arg.sessionId,
+      status: state_arg.status,
+      backgroundTaskCount: state_arg.backgroundTasks.length,
+      isWorking,
+      lastMessageAt: existing?.lastMessageAt ?? null,
+      previous: existing?.isWorking ?? null,
+      previousLastMessageAt: existing?.lastMessageAt ?? null,
+    });
+
+    const nextMap = new Map(state.map);
+    nextMap.set(key, {
+      isWorking,
+      lastMessageAt: existing?.lastMessageAt ?? null,
+    });
+    state = { map: nextMap };
+    notify();
   }
 
-  console.info({
-    operation: "fleet_status_working_state_change",
-    hostId,
-    tmuxSession: state_arg.tmuxSession,
-    sessionId: state_arg.sessionId,
-    status: state_arg.status,
-    backgroundTaskCount: state_arg.backgroundTasks.length,
-    isWorking,
-    lastMessageAt,
-    previous: existing?.isWorking ?? null,
-    previousLastMessageAt: existing?.lastMessageAt ?? null,
-  });
-
-  const nextMap = new Map(state.map);
-  nextMap.set(key, { isWorking, lastMessageAt });
-  state = { map: nextMap };
-  notify();
+  // ── Axis B — lastMessageAt reconciliation via the chokepoint ──
+  // Unconditional call; the helper's own predicate handles null/stale/fresher.
+  // If Axis A just wrote, this sees the fresh isWorking with the OLD
+  // lastMessageAt so the max-wins compare works correctly.
+  advanceSessionLastMessageAt(key, state_arg.lastMessageAt ?? null);
 }
 
 /**
@@ -194,6 +204,82 @@ export function publishFleetStatusSessionGone(
   nextMap.delete(key);
   state = { map: nextMap };
   notify();
+}
+
+/**
+ * Phase 44 (Plan 03) — the ONLY writer of WorkingRecord.lastMessageAt.
+ *
+ * Max-wins contract (per 43-CONTEXT.md § Reconciliation helper):
+ *   - If `ts === null`: no-op + no-notify (never regresses cache to null).
+ *   - If no record exists for `key`: create `{ isWorking: false, lastMessageAt: ts }`, notify.
+ *   - If record exists AND record.lastMessageAt is null: write ts, notify.
+ *   - If record exists AND ts > record.lastMessageAt: write ts, notify.
+ *   - If record exists AND ts <= record.lastMessageAt: no-op + no-notify.
+ *
+ * The `isWorking` axis is preserved verbatim on existing records — never
+ * mutated by this helper. New-record writes default `isWorking: false`
+ * (dormant sessions never touch the isWorking axis).
+ *
+ * Called from BOTH the WS publish path (via publishFleetStatusSessionState's
+ * Axis B block) AND the /sessions/list seed path (via
+ * seedSessionLastMessageAt). Single reconciliation chokepoint — any future
+ * contract tweak (e.g., accepting `null` as "clear the value") is a
+ * one-place change.
+ */
+function advanceSessionLastMessageAt(key: string, ts: number | null): void {
+  if (ts === null) return;
+
+  const existing = state.map.get(key);
+  if (
+    existing !== undefined &&
+    existing.lastMessageAt !== null &&
+    ts <= existing.lastMessageAt
+  ) {
+    // Cache already at or beyond ts — max-wins no-op + no-notify.
+    return;
+  }
+
+  const nextRecord: WorkingRecord = {
+    isWorking: existing?.isWorking ?? false,
+    lastMessageAt: ts,
+  };
+
+  console.info({
+    operation: "session_last_message_at_advance",
+    key,
+    ts,
+    previous: existing?.lastMessageAt ?? null,
+  });
+
+  const nextMap = new Map(state.map);
+  nextMap.set(key, nextRecord);
+  state = { map: nextMap };
+  notify();
+}
+
+/**
+ * Phase 44 (Plan 03) — public seed API for the /sessions/list payload.
+ *
+ * Wrapper around advanceSessionLastMessageAt that computes the working-store
+ * key format `${String(hostId)}:${tmuxSession}` (matching the existing
+ * convention documented at the store header — hostId numeric here per the
+ * fleet-session type, so stringified explicitly).
+ *
+ * `tmuxSession` is a required string (not nullable): Plan 44-01's route
+ * always emits a non-null sessionName; the CONTEXT.md decision explicitly
+ * locks "identity name === tmux session name === /id target" so this seed
+ * path never fires for null tmuxSession. If no WorkingRecord exists yet for
+ * the key, advanceSessionLastMessageAt creates one with `isWorking: false`
+ * (dormant sessions have no isWorking signal). See 43-CONTEXT.md §
+ * Reconciliation helper.
+ */
+export function seedSessionLastMessageAt(
+  hostId: number,
+  tmuxSession: string,
+  ts: number | null,
+): void {
+  const key = `${String(hostId)}:${tmuxSession}`;
+  advanceSessionLastMessageAt(key, ts);
 }
 
 /**
