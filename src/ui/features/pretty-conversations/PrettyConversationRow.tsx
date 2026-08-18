@@ -1179,7 +1179,11 @@ export function PrettyConversationRow({
               const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
               if (spec !== null) {
                 items.push({
-                  label: inActiveSet ? "Move to new window" : "Open in new window",
+                  // Label unified 2026-08-18 (Ashley): always "Open in new
+                  // window" regardless of active-set membership. The
+                  // deactivate side-effect on success still fires when
+                  // inActiveSet — behavior unchanged, only the label.
+                  label: "Open in new window",
                   onClick: () => {
                     const payload = encodeWorkspaceSpec({ tabs: [spec], activeIndex: 0, only: true });
                     const w = window.open("#" + payload, "_blank");

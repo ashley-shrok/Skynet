@@ -927,7 +927,7 @@ export function AppShell({
 
         // Hoisted for patch #34: consume the pending URL workspace BEFORE
         // the restore branch so the `only` flag can suppress rehydrate for
-        // "Move to new window" origin URLs. Reused below in the URL-driven
+        // "Open in new window" origin URLs. Reused below in the URL-driven
         // open block. Idempotent: consumePendingWorkspace clears
         // sessionStorage on first call; a second call would return null.
         // Patch #35: pending is now a WorkspaceSpec (list of tabs + optional

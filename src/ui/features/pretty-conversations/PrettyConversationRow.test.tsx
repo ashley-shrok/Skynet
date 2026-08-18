@@ -1362,23 +1362,27 @@ describe("PrettyConversationRow: mobile long-press context menu (quick-260802-pq
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UO1-UO6 — Open/Move-in-new-window context-menu item (quick-260804-uo4)
+// UO1-UO6 — Open-in-new-window context-menu item (quick-260804-uo4;
+//           label unified 2026-08-18 — was "Move to new window" when
+//           inActiveSet, "Open in new window" otherwise; now always "Open in
+//           new window". onDeactivate side-effect on success still distinguishes
+//           the two cases.)
 // ─────────────────────────────────────────────────────────────────────────────
-// Six tests covering the new context-menu item introduced in quick-260804-uo4:
-//   UO1 — desktop, inActiveSet, non-RDP → "Move to new window" + window.open
+// Six tests:
+//   UO1 — desktop, inActiveSet, non-RDP → "Open in new window" + window.open
 //          + onDeactivate called (window handle non-null)
 //   UO2 — desktop, !inActiveSet, non-RDP → "Open in new window" + window.open
 //          + onDeactivate NOT called
-//   UO3 — desktop, RDP row, inActiveSet → menu opens (gate relaxed) + "Move to
+//   UO3 — desktop, RDP row, inActiveSet → menu opens (gate relaxed) + "Open in
 //          new window" + window.open + onDeactivate called
 //   UO4 — desktop, inActiveSet, window.open returns null → onDeactivate NOT
 //          called (popup-blocker safety)
-//   UO5 — mobile long-press → menu opens but "Open/Move in new window" items
-//          NOT present (desktop-only guard)
+//   UO5 — mobile long-press → menu opens but "Open in new window" item NOT
+//          present (desktop-only guard)
 //   UO6 — mobile RDP long-press → menu opens (touch gate relaxed); no new-
 //          window item (mobile-only suppression); Pin item present
 
-describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quick-260804-uo4)", () => {
+describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260804-uo4)", () => {
   let originalOpen: typeof window.open;
 
   beforeEach(() => {
@@ -1390,7 +1394,7 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     vi.restoreAllMocks();
   });
 
-  it("UO1: desktop, inActiveSet=true, non-RDP → menu item labeled 'Move to new window'; click calls window.open with workspace URL + calls onDeactivate once", () => {
+  it("UO1: desktop, inActiveSet=true, non-RDP → menu item labeled 'Open in new window'; click calls window.open with workspace URL + calls onDeactivate once", () => {
     // Stub window.open to return a non-null Window handle (popup not blocked).
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
@@ -1412,8 +1416,10 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
     const menu = screen.getByRole("menu");
-    const item = within(menu).getByRole("menuitem", { name: /move to new window/i });
+    const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
     expect(item).toBeTruthy();
+    // Regression guard: legacy "Move to new window" label must never appear again.
+    expect(within(menu).queryByRole("menuitem", { name: /move to new window/i })).toBeNull();
     fireEvent.click(item);
 
     // window.open must have been called exactly once.
@@ -1459,10 +1465,10 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
     const menu = screen.getByRole("menu");
-    // inActiveSet=false → label is "Open in new window" (not "Move").
+    // Label is unified "Open in new window" regardless of active-set (2026-08-18).
     const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
     expect(item).toBeTruthy();
-    // "Move to new window" label must NOT appear.
+    // Legacy "Move to new window" label must NOT appear.
     expect(within(menu).queryByRole("menuitem", { name: /move to new window/i })).toBeNull();
     fireEvent.click(item);
 
@@ -1472,7 +1478,7 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     expect(onDeactivate).not.toHaveBeenCalled();
   });
 
-  it("UO3: desktop, RDP row, inActiveSet=true → menu opens (gate relaxed); 'Move to new window' present; click calls window.open + onDeactivate", () => {
+  it("UO3: desktop, RDP row, inActiveSet=true → menu opens (gate relaxed); 'Open in new window' present; click calls window.open + onDeactivate", () => {
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -1496,7 +1502,7 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     const menu = screen.getByRole("menu");
     expect(menu).toBeTruthy();
 
-    const item = within(menu).getByRole("menuitem", { name: /move to new window/i });
+    const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
     expect(item).toBeTruthy();
     fireEvent.click(item);
 
@@ -1540,7 +1546,7 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
     const menu = screen.getByRole("menu");
-    const item = within(menu).getByRole("menuitem", { name: /move to new window/i });
+    const item = within(menu).getByRole("menuitem", { name: /open in new window/i });
     fireEvent.click(item);
 
     // window.open was attempted.
@@ -1550,7 +1556,7 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     expect(onDeactivate).not.toHaveBeenCalled();
   });
 
-  it("UO4b: window.open features arg must NOT include 'noopener' (regression guard, 2026-08-05 fix) — per spec, window.open with noopener always returns null, which would defeat the popup-blocker null-check and stop Move-to-new-window from ever deactivating the origin tab", () => {
+  it("UO4b: window.open features arg must NOT include 'noopener' (regression guard, 2026-08-05 fix) — per spec, window.open with noopener always returns null, which would defeat the popup-blocker null-check and stop Open-in-new-window from ever deactivating the origin tab when inActiveSet", () => {
     window.open = vi.fn(() => ({} as Window));
     const onDeactivate = vi.fn();
     const { container } = render(
@@ -1572,14 +1578,14 @@ describe("PrettyConversationRow: Open/Move-in-new-window context-menu item (quic
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
     const menu = screen.getByRole("menu");
     const item = within(menu).getByRole("menuitem", {
-      name: /move to new window/i,
+      name: /open in new window/i,
     });
     fireEvent.click(item);
 
     expect(window.open).toHaveBeenCalledTimes(1);
     const call = (window.open as ReturnType<typeof vi.fn>).mock.calls[0];
     // features arg (index 2). Must be absent or a string that does NOT contain
-    // "noopener" — anything else and every real-browser Move-to-new-window
+    // "noopener" — anything else and every real-browser Open-in-new-window
     // click leaves the origin tab active regardless of the null-check logic.
     const features = call[2] as string | undefined;
     if (features !== undefined) {

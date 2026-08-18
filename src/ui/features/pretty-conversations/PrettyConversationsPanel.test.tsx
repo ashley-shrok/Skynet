@@ -2310,15 +2310,17 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
   const hostA = makeHost("h1", "hostA");
 
   // (g) Context menu on a non-hidden row shows Hide between Pin/Unpin and
-  // Move/Open-in-new-window, with Deactivate at the tail. quick-260804-uo4
-  // inserted "Move to new window" between Clone and Deactivate; for a row
+  // Open-in-new-window, with Deactivate at the tail. quick-260804-uo4
+  // inserted the new-window item between Clone and Deactivate; for a row
   // without an identity Clone is auto-hidden, so the order collapses to
-  // Pin, Hide, Move to new window, Deactivate.
-  it("Test (g): context menu on a non-hidden active-set row shows Pin/Hide/Move-to-new-window in order (Deactivate removed 2026-08-17)", async () => {
+  // Pin, Hide, Open in new window, Deactivate. (Label was "Move to new
+  // window" when inActiveSet before 2026-08-18; now always "Open in new
+  // window" regardless of active-set membership.)
+  it("Test (g): context menu on a non-hidden active-set row shows Pin/Hide/Open-in-new-window in order (Deactivate removed 2026-08-17)", async () => {
     // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
     // row into `middle` and mark active-in-set via `mockActiveSet`.
     // Ashley 2026-08-17 follow-up: Deactivate menu item removed entirely;
-    // menu order is now Pin, Hide, Move-to-new-window (Clone hidden — row
+    // menu order is now Pin, Hide, Open-in-new-window (Clone hidden — row
     // has no identity).
     setSnapshot({
       activeSet: [],
@@ -2344,12 +2346,14 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     const menu = screen.getByRole("menu");
     const items = within(menu).getAllByRole("menuitem");
     const labels = items.map((el) => el.textContent ?? "");
-    // Expected order (post 2026-08-17): Pin, Hide, Move to new window.
+    // Expected order (post 2026-08-18): Pin, Hide, Open in new window.
     expect(labels[0]).toMatch(/pin/i);
     expect(labels[1]).toMatch(/hide/i);
-    expect(labels[2]).toMatch(/move to new window/i);
+    expect(labels[2]).toMatch(/open in new window/i);
     // Deactivate is no longer in the menu regardless of inActiveSet.
     expect(labels.some((l) => /deactivate/i.test(l))).toBe(false);
+    // Regression guard: legacy "Move to new window" label must never appear again.
+    expect(labels.some((l) => /move to new window/i.test(l))).toBe(false);
   });
 
   // (h) Context menu on a hidden row shows Unhide in the same slot
