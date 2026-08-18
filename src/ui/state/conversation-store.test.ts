@@ -288,10 +288,10 @@ describe("conversation-store: pin per-session", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 5: session-end vanishes row + clears pin + coerces selection
+// Test 5: session-end vanishes row + coerces selection (pins are sticky)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store: session-end lifecycle", () => {
-  it("removing a tab from openTabs clears its pin AND (if selected) coerces selection to null", () => {
+describe("conversation-store: session-end lifecycle (pins are sticky)", () => {
+  it("removing a tab from openTabs coerces stale selection to null but leaves the pin id in state.pinnedIds", () => {
     const hostA = makeHost("hA", "alpha");
     const tabT1 = makeTab("t1", "terminal", hostA);
     const tabT2 = makeTab("t2", "terminal", hostA);
@@ -314,24 +314,30 @@ describe("conversation-store: session-end lifecycle", () => {
     snap = __getSnapshotForTest();
     // T-06-01-01 defense: stale selection coerced to null
     expect(snap.selectedId).toBeNull();
-    // Pin cleared alongside the row
-    expect(snap.pinnedIds.has("t2")).toBe(false);
-    expect(snap.pinned).toEqual([]);
+    // Pin id SURVIVES (retire-pruner quick-260818-l8n) — no matching row
+    // source, so nothing renders in the pinned tier, but the id stays in
+    // state.pinnedIds for when the session returns.
+    expect(snap.pinnedIds.has("t2")).toBe(true);
+    expect(snap.pinned.map((r) => r.id)).toEqual([]);
     // Phase 41 Plan 01: row is gone from the flat middle.
     expect(snap.middle.map((r) => r.id)).toEqual(["t1"]);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tests 5b/5c (Patch #150 A): pruner fleet-aware — updateOpenTabs must keep
-// pinnedIds that are legitimate fleet-derived ids (from state.fleetSessions),
-// not just openTabs-derived ids. Pre-#150 A the pruner dropped any pinnedId
-// not in nextIds (openTab id set), which nuked Ashley's 4-5 pinned fleet rows
-// the instant she clicked ANY row to activate its session. Regression guard
-// pair: (5b) fleet pins survive an openTabs mutation; (5c) stale openTab pins
-// (not fleet, not in openTabs) are STILL pruned as they were pre-#150.
+// Tests 5b/5c (retire-pruner quick-260818-l8n): pins are sticky across
+// updateOpenTabs. Ashley: "Pins are pins. Doesn't matter if they are open or
+// anything else." Pre-retire, updateOpenTabs scrubbed any pinnedId not in
+// nextIds ∪ a fleet-derived keep-set — which on WS reconnect (updateOpenTabs
+// fires with a partial/empty tabs list before every managed host re-reports)
+// nuked legitimate pins. Ashley's next pin/unpin then wrote the pruned Set to
+// the server via putPinnedIds, making the loss durable. Post-retire, update
+// OpenTabs never touches pinnedIds — the render-side skip in computeSnapshot
+// Tier 2 handles orphan pin ids gracefully. Regression guard pair:
+// (5b) fleet pins survive an openTabs mutation; (5c) openTab pins ALSO
+// survive an openTabs mutation that drops their tab.
 // ─────────────────────────────────────────────────────────────────────────────
-describe("conversation-store: pruner fleet-aware (patch #150 A)", () => {
+describe("conversation-store: pins are sticky across updateOpenTabs (quick-260818-l8n)", () => {
   it("clicking a pinned fleet row does NOT unpin OTHER pinned fleet rows", () => {
     // Two-host layout with 4 fleet-only sessions (all synthetic fleet::N::S ids).
     const hostA = makeHost("1", "hostA");
@@ -370,8 +376,12 @@ describe("conversation-store: pruner fleet-aware (patch #150 A)", () => {
     // The new openTab does NOT reference any of the fleet ids above.
     act(() => updateOpenTabs([makeTab("t1", "terminal", hostA)]));
 
-    // Post-#150 A: all four fleet pins survive.
-    // Pre-#150 A (regression this test guards): pinnedIds.size would be 0.
+    // Pre-retire-pruner (quick-260818-l8n) — the pruner would have kept
+    // these via a fleet-aware keep-set built from state.fleetSessions;
+    // post-retire the pruner is gone, so this passes for free. Any
+    // regression that re-introduces openTabs → pinnedIds scrubbing (in
+    // any form — openTab-only keep-set, fleet-aware keep-set, whatever)
+    // trips this assertion on the deploy-race scenario Ashley hit.
     snap = __getSnapshotForTest();
     expect(snap.pinnedIds.size).toBe(4);
     expect(snap.pinnedIds.has("fleet::1::work")).toBe(true);
@@ -380,11 +390,15 @@ describe("conversation-store: pruner fleet-aware (patch #150 A)", () => {
     expect(snap.pinnedIds.has("fleet::2::dev")).toBe(true);
   });
 
-  it("clicking an openTab row still prunes stale openTab pins as before (regression guard)", () => {
-    // fleetSessions is empty per beforeEach — this test proves the pre-#150
-    // pruner behavior for non-fleet ids is preserved. If the fix accidentally
-    // stopped pruning stale openTab pins (e.g. by keeping every pinnedId
-    // regardless of both openTabs AND fleet membership), this test would fail.
+  it("updateOpenTabs does NOT drop stale openTab pins when their tab leaves the tabs list (retire-pruner quick-260818-l8n)", () => {
+    // fleetSessions is empty per beforeEach — this test locks the retire-
+    // pruner invariant for pure openTab-format pins (no fleet component).
+    // Ashley's deploy-race: on WS reconnect, updateOpenTabs fires with an
+    // empty (or transiently partial) tabs list before setTabs re-emits the
+    // real list; any pruner keyed on nextIds would nuke every openTab pin
+    // in that window. Ashley's next pin/unpin write via putPinnedIds would
+    // then persist the loss server-side. The retire-pruner guarantee: both
+    // pin ids survive updateOpenTabs regardless of the passed tabs list.
     const hostA = makeHost("hA", "alpha");
     const tabT1 = makeTab("t1", "terminal", hostA);
     const tabT2 = makeTab("t2", "terminal", hostA);
@@ -401,13 +415,42 @@ describe("conversation-store: pruner fleet-aware (patch #150 A)", () => {
     expect(snap.pinnedIds.has("t1")).toBe(true);
     expect(snap.pinnedIds.has("t2")).toBe(true);
 
-    // Exercise: t1 vanishes from openTabs (session-end simulation).
-    // t1 is NOT a fleet id (fleetSessions is empty), so the pruner MUST drop it.
+    // Exercise: t1 vanishes from openTabs (session-end / WS-reconnect
+    // simulation). The pin id must NOT be scrubbed from state.pinnedIds.
     act(() => updateOpenTabs([tabT2]));
 
     snap = __getSnapshotForTest();
-    expect(snap.pinnedIds.has("t1")).toBe(false);
+    expect(snap.pinnedIds.has("t1")).toBe(true);
     expect(snap.pinnedIds.has("t2")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260818-l8n: orphan pinnedIds render gracefully. A pin id with no
+// matching openTab and no matching fleetSession renders zero pinned tiles
+// (computeSnapshot Tier 2 iterates both conversationTabs and
+// fleetSyntheticRows; neither produces a matching row for the orphan id) —
+// AND the id itself SURVIVES in state.pinnedIds so the pin re-materializes
+// the instant its session (or a re-opened tab) reappears. This is the
+// render-side counterpart to the retire-pruner change that makes the
+// updateOpenTabs pruner unnecessary in the first place.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: orphan pinnedIds render gracefully (retire-pruner quick-260818-l8n)", () => {
+  it("a pin id with no matching openTab and no matching fleetSession survives in pinnedIds but renders zero pinned tiles", () => {
+    // Post-retire-pruner, updateOpenTabs no longer scrubs orphan pin
+    // ids. The render side (computeSnapshot Tier 2) skips them because
+    // neither conversationTabs nor fleetSyntheticRows produce a matching
+    // row. The id stays in state.pinnedIds so the pin re-materializes
+    // the moment the session (or a re-opened tab) reappears.
+    act(() => {
+      updateHostTree(null);
+      updateFleetSessions([]);
+      updateOpenTabs([]);
+      hydratePinnedIdsFromServer(["fleet::99::ghost"]);
+    });
+    const snap = __getSnapshotForTest();
+    expect(snap.pinnedIds.has("fleet::99::ghost")).toBe(true);
+    expect(snap.pinned).toEqual([]);
   });
 });
 
@@ -1954,9 +1997,10 @@ describe("conversation-store (patch #230 A): URL-driven multi-tab restore glows 
 // `pinnedIds.has(tab.id)` — dynamic id doesn't match fleet-format pin →
 // pin has nowhere to render. Fix: also check the openTab's fleet-shadow
 // id `fleetRowId(parseInt(tab.host.id), tab.targetTmuxSession)` against
-// pinnedIds. The pin id itself SURVIVES in state.pinnedIds (the pruner's
-// fleetPinKeepSet is built from state.fleetSessions, which still holds
-// the session); this bug is render-side only.
+// pinnedIds. Post-quick-260818-l8n, pinnedIds are never pruned by
+// updateOpenTabs at all, so the pin id trivially survives in state.
+// pinnedIds regardless of openTabs / fleetSessions churn; this bug is
+// render-side only.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (patch #230 B): pinned tier surfaces fleet-shadow pins on URL-restored openTabs", () => {
   it("openTab with dynamic id + fleet-format pin renders in pinned tier via fleet-shadow-id check", () => {
@@ -2326,18 +2370,22 @@ describe("fleetSessionsLoaded flag + useFleetSessionsLoaded hook (quick-260727-k
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-260727-kbw: regression — fleet pin survives updateOpenTabs pruner
-// when hydrated after fleet load
+// quick-260727-kbw: regression — fleet pin survives updateOpenTabs when
+// hydrated after fleet load
 // ─────────────────────────────────────────────────────────────────────────────
-// Pre-fix, if hydrate happened before updateFleetSessions, the updateOpenTabs
-// pruner would nuke the pin because fleetPinKeepSet would have been empty.
-// Post-fix, once the panel gates on fleetSessionsLoaded, hydrate ALWAYS runs
-// after fleet load — this test locks the store-level invariant that IF the
-// ordering is correct (fleet first, then hydrate), the pin survives an
-// empty-tabs re-emission.
-describe("regression: fleet pin survives updateOpenTabs pruner when hydrated after fleet load (quick-260727-kbw)", () => {
+// Historical context: pre-quick-260818-l8n, updateOpenTabs ran a pin
+// scrubber keyed on `nextIds ∪ fleet-keep-set`. If hydrate happened before
+// updateFleetSessions, the fleet keep-set would have been empty and the
+// scrubber would have nuked the just-hydrated fleet pin. quick-260727-kbw
+// added the fleetSessionsLoaded gate on the panel so hydrate ALWAYS ran
+// after fleet load. quick-260818-l8n retired the scrubber outright — the
+// pin survives updateOpenTabs([]) because updateOpenTabs no longer touches
+// pinnedIds at all. This test is retained as an invariant guard: any
+// regression that re-introduces openTabs-driven pin scrubbing (in ANY
+// form) trips this assertion.
+describe("regression: fleet pin survives updateOpenTabs when hydrated after fleet load (quick-260727-kbw)", () => {
   it("fleet::7::aqua survives updateOpenTabs([]) when hydrated after updateFleetSessions", () => {
-    // Step 1: fleet loads first (mirrors the fixed panel ordering)
+    // Step 1: fleet loads first (mirrors the fixed panel ordering).
     act(() =>
       updateFleetSessions([
         { hostId: 7, hostName: "hostA", sessionName: "aqua", created: 100 },
@@ -2351,9 +2399,11 @@ describe("regression: fleet pin survives updateOpenTabs pruner when hydrated aft
     let snap = __getSnapshotForTest();
     expect(snap.pinnedIds.has("fleet::7::aqua")).toBe(true);
 
-    // Step 3: routine empty tab-list re-emission (the pruner branch under
-    // pinnedIds.size > 0 fires, builds fleetPinKeepSet from state.fleetSessions,
-    // and MUST keep fleet::7::aqua because it's in the fleet keep-set)
+    // Step 3: routine empty tab-list re-emission. Pre-retire-pruner this
+    // path built a fleet-aware keep-set from state.fleetSessions and kept
+    // fleet::7::aqua via that set; post-retire (quick-260818-l8n) the path
+    // is a no-op on pinnedIds — the pin survives because updateOpenTabs
+    // never touches pinnedIds at all.
     act(() => updateOpenTabs([]));
 
     // The load-bearing assertion: fleet::7::aqua is STILL pinned.

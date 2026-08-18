@@ -270,10 +270,13 @@ type State = {
   // session? Starts false; flips true on the first call (empty [] counts as
   // loaded). Consumed by PrettyConversationsPanel's mount-effect gate for the
   // getPinnedIds fetch — see PrettyConversationsPanel.tsx §Phase 15 (Wave 3)
-  // mount effect §(d). Closes the load-order race where hydratePinnedIds-
-  // FromServer landed a fleet pin BEFORE updateFleetSessions populated
-  // state.fleetSessions, causing the next updateOpenTabs to nuke the pin
-  // via an empty fleetPinKeepSet.
+  // mount effect §(d). Gates the *initial* hydratePinnedIdsFromServer fetch
+  // until state.fleetSessions has populated at least once, avoiding a same-
+  // tick race against updateFleetSessions and unnecessary re-hydration
+  // ordering fragility on WS reconnect. (quick-260818-l8n retired the
+  // updateOpenTabs pin scrubbing — pinnedIds are never touched by
+  // openTabs/fleetSessions membership anymore — so this flag now survives
+  // purely as the initial-fetch-ordering gate.)
   fleetSessionsLoaded: boolean;
   // Plan 07-01 (TG-14): flat hostId → Host lookup so the click-a-detached-row
   // handler can resolve a fleet row (identified by numeric hostId +
@@ -648,9 +651,11 @@ function computeSnapshot(): ConversationList {
     // openTab's fleet-shadow id here — else the pin has nowhere to
     // render (fleet row gone, openTab id doesn't match pinnedIds) and
     // silently disappears from the pinned tier despite surviving in
-    // state.pinnedIds. The store-mutation pruner already keeps such
-    // pins alive via fleetPinKeepSet built from state.fleetSessions
-    // (see updateOpenTabs L552-557); this is the render-side counterpart.
+    // state.pinnedIds. Post-quick-260818-l8n (retire pin pruner),
+    // state.pinnedIds is never pruned by openTabs/fleetSessions
+    // changes, so a pin whose id is the fleet form is always available
+    // for the shadow-id match here — this render-side pass is the sole
+    // gate that decides whether the pin surfaces as a tile.
     const shadowFleetId =
       tab.host && tab.targetTmuxSession
         ? fleetRowId(parseInt(tab.host.id), tab.targetTmuxSession)
@@ -855,44 +860,23 @@ export function updateOpenTabs(tabs: Tab[]): void {
   const nextIds = new Set<string>();
   for (const t of tabs) nextIds.add(t.id);
 
-  // Patch #150 A: prune pinned ids that are neither open tabs NOR fleet-derived.
-  // Post-#149 A (cf624a4) `pinConversation` accepts any id, including fleet
-  // synthetic ids from `fleetRowId(hostId, sessionName)` — so `pinnedIds` now
-  // legitimately holds a union of openTab ids and fleet ids. The pre-#150
-  // pruner only considered openTabs membership, which silently nuked every
-  // pinned fleet row the instant `updateOpenTabs` fired (Ashley's followup-1:
-  // "pin 4-5 fleet rows → single click destroys all pins"). The keep-set is
-  // now the union `nextIds ∪ fleetPinKeepSet`; ids belonging to neither
-  // (stale openTab pin after session-end, or fleet id after the session left
-  // fleetSessions) are still dropped as they were pre-#150. Regression tests:
-  //   - "clicking a pinned fleet row does NOT unpin OTHER pinned fleet rows"
-  //   - "clicking an openTab row still prunes stale openTab pins as before"
-  // (both in the "pruner fleet-aware (patch #150 A)" describe block).
+  // quick-260818-l8n (retire pin pruner): updateOpenTabs no longer touches
+  // state.pinnedIds. Pins are sticky across openTabs / fleetSessions churn.
   //
-  // Micro-guard: only pay the O(fleetSessions) fleetPinKeepSet build cost on
-  // the uncommon pinnedIds-non-empty path — the empty-pinned hot path (fresh
-  // page load, every tab reconciliation before Ashley pins anything) stays
-  // exactly as fast as pre-#150.
-  let fleetPinKeepSet: Set<string> | null = null;
-  if (state.pinnedIds.size > 0) {
-    fleetPinKeepSet = new Set<string>();
-    for (const session of state.fleetSessions) {
-      fleetPinKeepSet.add(fleetRowId(session.hostId, session.sessionName));
-    }
-  }
-
-  // Prune pinned ids that no longer correspond to any open tab OR fleet session
-  let nextPinnedIds = state.pinnedIds;
-  let pinnedChanged = false;
-  for (const id of state.pinnedIds) {
-    if (!nextIds.has(id) && !(fleetPinKeepSet && fleetPinKeepSet.has(id))) {
-      if (!pinnedChanged) {
-        nextPinnedIds = new Set(state.pinnedIds);
-        pinnedChanged = true;
-      }
-      nextPinnedIds.delete(id);
-    }
-  }
+  // Ashley: "Pins are pins. Doesn't matter if they are open or anything
+  // else." — deploy-race scenario: on WebSocket reconnect, updateOpenTabs
+  // and updateFleetSessions fire with partial/empty payloads before every
+  // managed host re-reports. Any pruner running in that transient window
+  // nuked legitimate pins from the in-memory Set; Ashley's next pin/unpin
+  // action then wrote the pruned Set to the server via putPinnedIds and
+  // the loss went durable. The render-side skip in computeSnapshot Tier 2
+  // (see L636-675) already drops orphan pin ids gracefully — an id with
+  // no matching openTab and no matching fleet session yields zero pinned
+  // tiles at render time, and the id itself SURVIVES in state.pinnedIds
+  // so the pin re-materializes the moment the session returns. Pruning
+  // is therefore redundant and harmful; the entire pruner block was
+  // removed. See `conversation-store: pins are sticky across
+  // updateOpenTabs (quick-260818-l8n)` describe for the invariant guards.
 
   // Coerce selection if it points at a tab that no longer exists
   let nextSelectedId = state.selectedId;
@@ -926,18 +910,13 @@ export function updateOpenTabs(tabs: Tab[]): void {
     }
   }
 
-  if (
-    !tabsChanged &&
-    !pinnedChanged &&
-    nextSelectedId === state.selectedId
-  ) {
+  if (!tabsChanged && nextSelectedId === state.selectedId) {
     return; // full no-op — do not bump snapshotVersion
   }
 
   state = {
     ...state,
     openTabs: tabs,
-    pinnedIds: nextPinnedIds,
     selectedId: nextSelectedId,
   };
   notify();
@@ -1302,8 +1281,10 @@ export function togglePinConversation(id: string): void {
 
 // quick-260731-tgg: hide/unhide/toggle mutators. Fire-and-forget server write,
 // same pattern as pin/unpin above. hiddenIds are intentionally sticky across
-// openTab churn (unlike pinnedIds which get pruned in updateOpenTabs) — Ashley
-// may want to keep a stale hidden id so it re-hides if the session reappears.
+// openTab churn — Ashley may want to keep a stale hidden id so it re-hides if
+// the session reappears. quick-260818-l8n: pinnedIds are now equally sticky —
+// the updateOpenTabs pruner was retired, so both hidden and pinned survive
+// openTab / fleetSessions churn identically.
 export function hideConversation(id: string): void {
   if (state.hiddenIds.has(id)) return; // already hidden — no-op
   const nextHiddenIds = new Set(state.hiddenIds);
@@ -1423,15 +1404,20 @@ export function useHiddenIds(): ReadonlySet<string> {
 }
 
 // quick-260727-kbw: fleet-loaded gate for the panel's mount-effect
-// getPinnedIds fetch. The panel MUST NOT hydrate pinnedIds until
-// state.fleetSessions has been populated at least once — otherwise the
-// next background updateOpenTabs fires the pinnedIds pruner with an empty
-// fleetPinKeepSet (built from state.fleetSessions inside updateOpenTabs)
-// and nukes freshly-hydrated fleet pins. Primitive boolean is Object.is-
-// safe; no memoization needed. Panel subscribes via useSyncExternalStore
-// so the false→true flip triggers a re-render → mount effect body runs
-// → hydration fetch begins. See PrettyConversationsPanel.tsx §(d) for
-// the mirrored comment on the panel side.
+// getPinnedIds fetch. The panel MUST NOT fire the *initial* hydratePinned
+// IdsFromServer fetch until state.fleetSessions has been populated at
+// least once — the gate prevents a same-tick race between hydrate and
+// updateFleetSessions on WS (re)connect, keeping the hydrate → fleet
+// ordering deterministic and avoiding an unnecessary re-hydration on the
+// next fleet update. quick-260818-l8n: the gate is NO LONGER protecting
+// against any pin scrubbing — updateOpenTabs no longer touches pinnedIds,
+// so the whole "hydrated-fleet-pin gets nuked by a follow-up openTabs
+// mutation" failure mode is dead. The gate stays purely as the initial-
+// fetch-ordering gate. Primitive boolean is Object.is-safe; no memoization
+// needed. Panel subscribes via useSyncExternalStore so the false→true
+// flip triggers a re-render → mount effect body runs → hydration fetch
+// begins. See PrettyConversationsPanel.tsx §(d) for the mirrored comment
+// on the panel side.
 function getFleetSessionsLoadedSnapshot(): boolean {
   return state.fleetSessionsLoaded;
 }
