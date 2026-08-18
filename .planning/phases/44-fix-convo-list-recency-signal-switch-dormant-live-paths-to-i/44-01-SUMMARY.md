@@ -1,5 +1,5 @@
 ---
-phase: 43-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i
+phase: 44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i
 plan: 01
 subsystem: backend/database/routes + backend/claude-session (consumer)
 tags: [fleet-status, recency, sessions-list, dormant-identity, jsonl-discovery]
@@ -34,7 +34,7 @@ metrics:
   completed: 2026-08-18
 ---
 
-# Phase 43 Plan 01: /sessions/list route extended with per-session lastMessageAt derivation — Summary
+# Phase 44 Plan 01: /sessions/list route extended with per-session lastMessageAt derivation — Summary
 
 Dormant identities now carry an inline `lastMessageAt: number | null` on every `/sessions/list` row, derived per-session on the same already-open per-host SSH conn via `discoverIdentitySessionFile(conn, sessionName)` + `tail -n 200` + MESSAGE_BEARING_KINDS filter — closing the dormant-side data gap that made Rule 1 hoist supervisor-killed identity rows to the top of the middle zone.
 
@@ -99,8 +99,8 @@ Dormant identities now carry an inline `lastMessageAt: number | null` on every `
 
 | Task | Hash | Message |
 |---|---|---|
-| 1 | `bb50407d` | `feat(43-01): extend /sessions/list route with per-session lastMessageAt derivation` |
-| 2 | `369f06ce` | `test(43-01): cover lastMessageAt derivation on /sessions/list route` |
+| 1 | `bb50407d` | `feat(44-01): extend /sessions/list route with per-session lastMessageAt derivation` |
+| 2 | `369f06ce` | `test(44-01): cover lastMessageAt derivation on /sessions/list route` |
 | 3 | *(no code change — verification only)* | build:backend + build both exit 0; no `as any`/`@ts-expect-error` added |
 
 ## Known Stubs
@@ -109,11 +109,11 @@ None. `lastMessageAt` is fully wired end-to-end at the route layer — it either
 
 ## Downstream Blockers Unblocked
 
-Wave 2 Plan 43-03 (session-working-store reconciliation chokepoint) can now consume `lastMessageAt` from the `/sessions/list` payload via the seed API it will introduce — the wire-side shape is stable and additive-optional per 43-CONTEXT.md.
+Wave 2 Plan 44-03 (session-working-store reconciliation chokepoint) can now consume `lastMessageAt` from the `/sessions/list` payload via the seed API it will introduce — the wire-side shape is stable and additive-optional per 43-CONTEXT.md.
 
 ## Self-Check: PASSED
 
-- Files present: `src/backend/database/routes/sessions.ts` (modified, present), `src/backend/database/routes/sessions.test.ts` (modified, present), `.planning/phases/43-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i/43-01-SUMMARY.md` (created, present).
+- Files present: `src/backend/database/routes/sessions.ts` (modified, present), `src/backend/database/routes/sessions.test.ts` (modified, present), `.planning/phases/44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i/44-01-SUMMARY.md` (created, present).
 - Commits present in git log: `bb50407d`, `369f06ce`.
 - Full-suite green: `npx vitest run` → 2440 pass / 0 fail / exit 0.
 - Backend build green: `npm run build:backend && npm run build` → both exit 0.

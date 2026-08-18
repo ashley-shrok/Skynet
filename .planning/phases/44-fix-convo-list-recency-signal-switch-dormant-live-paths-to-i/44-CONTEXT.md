@@ -1,4 +1,4 @@
-# Phase 43: Fix convo-list recency signal — switch dormant + live paths to /id-first-turn JSONL discovery, retire no-history-to-top
+# Phase 44: Fix convo-list recency signal — switch dormant + live paths to /id-first-turn JSONL discovery, retire no-history-to-top
 
 **Gathered:** 2026-08-18
 **Status:** Ready for planning
@@ -206,5 +206,5 @@ Test file `conversation-store.test.ts` around L2789+ has the existing Rule 1 tes
 
 ---
 
-*Phase: 43-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i*
+*Phase: 44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i*
 *Context authored: 2026-08-18 from operator ↔ Ashley conversation (no discuss-phase run — decisions locked inline).*

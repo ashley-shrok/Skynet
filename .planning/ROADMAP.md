@@ -1225,30 +1225,65 @@ Plans:
 
 **History note:** Phase originally numbered 41 in this identity's tree (started 2026-08-14). Collided with Tanya's independent Phase 41 (`defer-terminal-view-mount`) — the sixth known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Renumbered to 42 during rescue-rebase 2026-08-17 after Tanya's Phase 41 shipped as patch #455; 5 code commits cherry-picked cleanly onto origin (Tanya #455 + Tiffany #456 base), planning artifacts renamed 41-* → 42-*, ROADMAP + STATE re-added under new number. Ashley 2026-08-17 verbatim on the renumber: *"Don't really care what you do with the phase number."* Original commit history preserved on backup branch `tina-phase41-backup` locally. Code state is byte-equivalent to what shipped under Phase 41's SUMMARY.md files (see 42-01-SUMMARY.md, 42-02-SUMMARY.md, 42-03-SUMMARY.md — internal references were bulk-updated 41-* → 42-* but content is otherwise verbatim).
 
-### Phase 43: Fix convo-list recency signal — switch dormant + live paths to /id-first-turn JSONL discovery, retire no-history-to-top
+### Phase 43: Replace PrettyView virtualization with plain-DOM windowed pagination (drop-oldest working set)
 
-**Goal:** The conversation-list middle zone renders freshest-message rows at the top and no-history rows at the bottom, sourced from the /id-first-turn JSONL discovery mechanism for both dormant identities (via a per-session extension of the /sessions/list route) and live identities (via a swap of the ssh-poll-orchestrator's JSONL path derivation), reconciled through a max-wins working-store chokepoint, with the pre-Phase-43 no-history-to-top rule retired.
+**Goal:** Retire the Phase 27/28/32 TanStack Virtual message list in favor of a plain-DOM scroller backed by a bounded working-set window. Initial connect loads the last N messages (not the whole conversation), scrolling near the top triggers a fetch-and-prepend of the previous batch, and the working set is capped: when in-memory messages exceed the cap during a long live session, the oldest are dropped from the DOM and refetched on demand if the user scrolls back. The browser's built-in `overflow-anchor: auto` preserves visible content across prepends and image-load height changes. Auto-scroll collapses from three fighting actors (user scroll, virtualizer correction writes, follow-to-bottom logic) to one: user scroll — the follow-to-bottom rule becomes "if pinned when new message arrives, scroll to bottom." Backend WS gains a `historyWindow: N` handshake param bounding the initial `-n +1` replay and a new `fetch_older` request for range reads; the observation channel (layer1-detect, context-pct, plan-pending, backgroundedAgents/Shells, id-reset) still tails the whole file untouched.
 
 **Requirements**: None assigned — LOCKED decisions in `43-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40/41/42 pattern).
+
+**Depends on:** Phase 27 (virtualization introduction — being retired), Phase 28 (virt correctness cluster — being retired), Phase 32 (auto-scroll three-case hook — being simplified)
+
+**Plans:** 9/9 plans complete
+
+Plans:
+
+**Wave 1 (parallel, no deps):**
+- [x] 43-01-PLAN.md — Parameterize session-file-tail.ts to accept an initial-lines override (backcompat preserved)
+- [x] 43-02-PLAN.md — New readSessionFileRange + resolveEventIdToLine helpers (one-shot SSH exec + sed range read + grep eventId→line lookup)
+- [x] 43-03-PLAN.md — Wire scaffolding: openClaudeSessionSocket({historyWindow}) + FetchOlderPayload (locked to `{anchorEventId, count}` — NO anchorLine field) + FetchOlderBatchEvent types
+- [x] 43-06-PLAN.md — Rewrite use-auto-scroll.ts from 245 lines to ~50 (plain-DOM pinned-follow + no-yank-when-scrolled-up); hook return API frozen
+
+**Wave 2 (depends on Wave 1):**
+- [x] 43-04-PLAN.md — Backend: handleFetchOlder extracted handler (eventId→line lookup then range read) + historyWindow handshake parse + thread into tailSessionFile; observation channel byte-verified unchanged via PHASE-43 anchor comments (depends on 43-01, 43-02, 43-03)
+- [x] 43-05-PLAN.md — Frontend api runtime helpers: sendFetchOlder + isFetchOlderBatchEvent (depends on 43-03)
+
+**Wave 3 (sequential within wave; depends on Wave 2 + 43-06):**
+- [x] 43-07a-PLAN.md — PrettyView plain-DOM conversion: delete virtualizer + plain-DOM scroller + remove `[overflow-anchor:none]` + aside-arm walk byte-verified via PHASE-43 anchor comments (depends on 43-04, 43-05, 43-06)
+- [x] 43-07b-PLAN.md — Windowing + fetch_older client + drop-oldest cap + loading hint (150ms threshold) + reachedBeginning short-circuit + fetch-error warn-and-clear (depends on 43-07a)
+
+**Wave 4 (depends on Wave 3):**
+- [x] 43-08-PLAN.md — Cleanup: delete virt-specific test files + npm uninstall @tanstack/react-virtual + three separate residual-reference checks (jq package.json + grep -c package-lock.json + grep -r src/) + explicit nginx-unchanged verify + human UAT checkpoint
+
+**UI hint:** partial source-visible UI change. The PrettyView chat scroller behaves like a normal DOM scroller — no more virt-jitter, image-bubble grows cleanly, no jump-back on tall-bubble re-measure. A "load older" indicator may appear briefly near the top when scrolling back past the loaded window. Otherwise the render is byte-equivalent to current per-bubble output. iOS PWA + desktop both.
+
+**Bounty:** `replace-pv-virtualization-with-windowed-pagination` (created 2026-08-18) — Ashley 2026-08-18 verbatim: *"I really feel like a solution where we don't virtualize but instead load as the user scrolls up would be most of what we need because we don't have to care about heights then."* Retires the multi-attempt virt saga (Phase 27 landed, Phase 28 correctness cluster, patch #373 temp-disable, Phase 32 auto-scroll redesign, patch #437 tall-bubble RO split) with a categorically different architecture where the estimate-and-correct height problem simply does not exist.
+
+### Phase 44: Fix convo-list recency signal — switch dormant + live paths to /id-first-turn JSONL discovery, retire no-history-to-top
+
+**Goal:** The conversation-list middle zone renders freshest-message rows at the top and no-history rows at the bottom, sourced from the /id-first-turn JSONL discovery mechanism for both dormant identities (via a per-session extension of the /sessions/list route) and live identities (via a swap of the ssh-poll-orchestrator's JSONL path derivation), reconciled through a max-wins working-store chokepoint, with the pre-Phase-44 no-history-to-top rule retired.
+
+**Requirements**: None assigned — LOCKED decisions in `44-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40/41/42 pattern).
 
 **Depends on:** Phase 42 (fleet-status wire lastMessageAt field + comparator seam + no-history-to-top lock this phase revisits), Phase 32 (`discoverIdentitySessionFile` byte-pattern mechanism consumed as-is), Phase 7 (fleet-native /sessions/list route being extended)
 
 **Plans:** 4 plans
 
 Plans:
-- [x] 43-01-PLAN.md — /sessions/list route extended with per-session `lastMessageAt` derivation (discovery + tail scan, per-session Promise.all mirroring resolveRoleForIdentity, per-session failure isolation) *(2026-08-18: shipped — 10/10 route tests pass, full suite 2440 pass)*
-- [ ] 43-02-PLAN.md — ssh-poll-orchestrator swap: `jsonlPathForSession(cwd, sessionId)` → `discoverIdentityJsonlPathViaChannel(channel, tmuxSession)` with cached `jsonlPath` in PidCacheEntry + rediscovery-on-stale threshold (defense against JSONL rotation mid-session)
-- [ ] 43-03-PLAN.md — Working-store reconciliation chokepoint: `advanceSessionLastMessageAt` (max-wins), `seedSessionLastMessageAt` (public seed API), refactored `publishFleetStatusSessionState` to funnel through it + wire-type extension for RemoteTmuxSession
-- [ ] 43-04-PLAN.md — AppShell wires seedSessionLastMessageAt per /sessions/list row (cached + fresh) + FleetSession type extension with cache-key bump to v2 + compareByRecencyDesc Rule 1 flip from null-to-top to null-to-bottom (retires Ashley's 2026-08-14 lock)
+- [x] 44-01-PLAN.md — /sessions/list route extended with per-session `lastMessageAt` derivation (discovery + tail scan, per-session Promise.all mirroring resolveRoleForIdentity, per-session failure isolation) *(2026-08-18: shipped — 10/10 route tests pass, full suite 2440 pass)*
+- [ ] 44-02-PLAN.md — ssh-poll-orchestrator swap: `jsonlPathForSession(cwd, sessionId)` → `discoverIdentityJsonlPathViaChannel(channel, tmuxSession)` with cached `jsonlPath` in PidCacheEntry + rediscovery-on-stale threshold (defense against JSONL rotation mid-session)
+- [ ] 44-03-PLAN.md — Working-store reconciliation chokepoint: `advanceSessionLastMessageAt` (max-wins), `seedSessionLastMessageAt` (public seed API), refactored `publishFleetStatusSessionState` to funnel through it + wire-type extension for RemoteTmuxSession
+- [ ] 44-04-PLAN.md — AppShell wires seedSessionLastMessageAt per /sessions/list row (cached + fresh) + FleetSession type extension with cache-key bump to v2 + compareByRecencyDesc Rule 1 flip from null-to-top to null-to-bottom (retires Ashley's 2026-08-14 lock)
 
 **Wave 1** *(parallel — no file overlap)*
-- [x] 43-01-PLAN.md — /sessions/list route extension *(2026-08-18)*
-- [ ] 43-02-PLAN.md — ssh-poll-orchestrator JSONL derivation swap
+- [x] 44-01-PLAN.md — /sessions/list route extension *(2026-08-18)*
+- [ ] 44-02-PLAN.md — ssh-poll-orchestrator JSONL derivation swap
 
-**Wave 2** *(blocked on 43-01 completion for wire-type shape)*
-- [ ] 43-03-PLAN.md — session-working-store reconciliation chokepoint + sessions-api.ts RemoteTmuxSession extension
+**Wave 2** *(blocked on 44-01 completion for wire-type shape)*
+- [ ] 44-03-PLAN.md — session-working-store reconciliation chokepoint + sessions-api.ts RemoteTmuxSession extension
 
-**Wave 3** *(blocked on 43-01 + 43-02 + 43-03 — coordinated wire-consumer + type + comparator flip on files that must land together)*
-- [ ] 43-04-PLAN.md — AppShell seed wiring + FleetSession type + comparator Rule 1 flip
+**Wave 3** *(blocked on 44-01 + 44-02 + 44-03 — coordinated wire-consumer + type + comparator flip on files that must land together)*
+- [ ] 44-04-PLAN.md — AppShell seed wiring + FleetSession type + comparator Rule 1 flip
 
-**UI hint:** no source-visible UI redesign. Zero changes to `PrettyConversationsPanel.tsx` or `pretty-conversations.css`. The middle-zone ordering fix ships purely by giving the existing comparator + snapshot pipeline correct inputs. Scope fence in 43-CONTEXT.md `<scope_fence>` enumerates hard-blocked files.
+**UI hint:** no source-visible UI redesign. Zero changes to `PrettyConversationsPanel.tsx` or `pretty-conversations.css`. The middle-zone ordering fix ships purely by giving the existing comparator + snapshot pipeline correct inputs. Scope fence in 44-CONTEXT.md `<scope_fence>` enumerates hard-blocked files.
+
+**History note:** Phase originally numbered 43 in this identity's tree (started 2026-08-18). Collided with tina's independent Phase 43 (`replace-pv-virtualization-with-plain-dom-windowed-pagination`) — the seventh known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). tina was mid-ship (34 commits pushed at 58de67ac, holding at deploy for Ashley greenlight) → she kept the Phase 43 slot per the auto-resolve tiebreak; I renumbered mine to Phase 44 (rescue-rebase per role-file directive + bounty's `rescue-rebase-runbook.md`). Fully autonomous — no Ashley check-in required (Ashley 2026-08-18 verbatim: *"I don't care what phases have what number, so all I do is avoid the collision"*). Planning artifacts renamed 43-* → 44-*, ROADMAP + STATE re-added under new number.
