@@ -3273,3 +3273,211 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
     expect(matches.length).toBe(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PrettyConversationsPanel (quick-260818-q73): idle sweep
+// ─────────────────────────────────────────────────────────────────────────────
+// Shape: .planning/shapes/shape-auto-deactivate-idle-convs.md
+//
+// Three tests covering the panel-level per-tab idle sweep:
+//   (a) HARD INVARIANT — the currently-selected conv is exempt from the sweep
+//       even if its stamp is stale from an earlier unfocus. This is the "you
+//       never deactivate the one you're on" guarantee from the shape.
+//   (b) A stale unfocused conv IS deactivated on the next sweep tick — the
+//       sweep flows through the same handleRowDeactivate the manual click uses
+//       (verified via removeFromActiveSet + onDeactivateRow spies).
+//   (c) A fresh (< threshold) unfocused conv is NOT deactivated on a sweep tick.
+//
+// Uses vi.useFakeTimers() scoped to the describe block (mirrors the swipe-
+// snap-back test at ~L2694 discipline). Drives selectedId changes by mutating
+// the shared `snapshot` object + rerender() — same rerender pattern as Test 22
+// at ~L1909. removeFromActiveSet is already spy-able (removeFromActiveSetSpy
+// declared at the top of the file, ~L195).
+
+describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
+  // Extracted so all three tests use the identical values the panel's module
+  // constants define. Any future bump of IDLE_DEACTIVATE_THRESHOLD_MS or
+  // IDLE_DEACTIVATE_SWEEP_MS in the panel MUST re-verify these tests still
+  // exercise "before/after threshold" boundaries correctly.
+  const IDLE_DEACTIVATE_THRESHOLD_MS = 300_000;
+  const IDLE_DEACTIVATE_SWEEP_MS = 30_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Test SWEEP-1 (HARD INVARIANT): currently-selected conv is exempt from the sweep — even a stale timestamp cannot deactivate the id that is currently selectedId", () => {
+    const hostA = makeHost("h1", "hostA");
+    const t1 = makeConversationRow({ id: "t1", label: "sess-t1", host: hostA, targetTmuxSession: "s1" });
+    const t2 = makeConversationRow({ id: "t2", label: "sess-t2", host: hostA, targetTmuxSession: "s2" });
+
+    // Both rows in the active-set. Start with t1 selected.
+    setSnapshot({
+      middle: [t1, t2],
+      selectedId: "t1",
+    });
+    mockActiveSet = new Set<string>(["t1", "t2"]);
+
+    const onDeactivateRow = vi.fn();
+    const { rerender } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+
+    // Clear mount-time spy calls — we care only about sweep-driven calls.
+    removeFromActiveSetSpy.mockClear();
+    onDeactivateRow.mockClear();
+
+    // Transition selectedId t1 → t2 (t1 becomes UN-selected, stamp lands).
+    setSnapshot({
+      middle: [t1, t2],
+      selectedId: "t2",
+    });
+    mockActiveSet = new Set<string>(["t1", "t2"]);
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+
+    // Advance past the threshold PLUS a sweep tick so a sweep would fire and
+    // observe t1's stamp as stale. But NOT yet — we're about to select t1 back.
+    act(() => {
+      vi.advanceTimersByTime(IDLE_DEACTIVATE_THRESHOLD_MS + IDLE_DEACTIVATE_SWEEP_MS + 1_000);
+    });
+
+    // Now switch selectedId BACK to t1 (t1 becomes the currently-selected;
+    // t2 becomes unfocused). Even though t1's stamp was stale a moment ago,
+    // the selectedId tracker DELETES t1's map entry the moment t1 is re-
+    // selected — AND the sweep's hard-invariant check would skip t1 anyway
+    // because it is now === selectedId.
+    setSnapshot({
+      middle: [t1, t2],
+      selectedId: "t1",
+    });
+    mockActiveSet = new Set<string>(["t1", "t2"]);
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+
+    // Clear any calls that landed during the pre-switch-back window (e.g.,
+    // if a sweep fired between the two rerenders — t1 could have been swept
+    // BEFORE the switch-back landed). We want to prove that the switch-back
+    // itself, PLUS subsequent sweep ticks, do NOT touch t1.
+    removeFromActiveSetSpy.mockClear();
+    onDeactivateRow.mockClear();
+
+    // Advance one sweep tick with t1 selected. This sweep MUST NOT fire
+    // handleRowDeactivate for t1 — that's the HARD INVARIANT.
+    act(() => {
+      vi.advanceTimersByTime(IDLE_DEACTIVATE_SWEEP_MS + 1_000);
+    });
+
+    // Assert: no deactivate call for t1 after the switch-back.
+    const t1Calls = removeFromActiveSetSpy.mock.calls.filter(([id]) => id === "t1");
+    expect(t1Calls).toEqual([]);
+    const t1OnDeactivate = onDeactivateRow.mock.calls.filter(([row]) => row?.id === "t1");
+    expect(t1OnDeactivate).toEqual([]);
+  });
+
+  it("Test SWEEP-2: stale unfocused conv IS deactivated on the next sweep tick — sweep routes through the same handleRowDeactivate the manual click uses", () => {
+    const hostA = makeHost("h1", "hostA");
+    // t1 has no targetTmuxSession so handleRowDeactivate's fleet-id purge
+    // branch is skipped — removeFromActiveSet is called exactly ONCE with
+    // t1.id (mirrors Test 20E's assertion pattern).
+    const t1 = makeConversationRow({ id: "t1", label: "sess-t1", host: hostA, targetTmuxSession: null });
+    const t2 = makeConversationRow({ id: "t2", label: "sess-t2", host: hostA, targetTmuxSession: null });
+
+    // Both in the active set. Start with t1 selected.
+    setSnapshot({
+      middle: [t1, t2],
+      selectedId: "t1",
+    });
+    mockActiveSet = new Set<string>(["t1", "t2"]);
+
+    const onDeactivateRow = vi.fn();
+    const { rerender } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+
+    // Clear mount-time spy calls.
+    removeFromActiveSetSpy.mockClear();
+    onDeactivateRow.mockClear();
+
+    // Switch selectedId to t2 → t1 becomes UN-selected at "T0". Stamp lands
+    // in lastUnfocusedAtRef.
+    setSnapshot({
+      middle: [t1, t2],
+      selectedId: "t2",
+    });
+    mockActiveSet = new Set<string>(["t1", "t2"]);
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+
+    // Advance past threshold + one sweep tick — the sweep MUST fire and MUST
+    // observe t1 as stale (currently-unfocused, stamp older than threshold).
+    act(() => {
+      vi.advanceTimersByTime(IDLE_DEACTIVATE_THRESHOLD_MS + IDLE_DEACTIVATE_SWEEP_MS);
+    });
+
+    // Sweep fired handleRowDeactivate(t1). Panel-level composition:
+    // removeFromActiveSet(t1.id) + onDeactivateRow(t1). t1 has no
+    // targetTmuxSession so the fleet-id purge branch is skipped.
+    const t1Removes = removeFromActiveSetSpy.mock.calls.filter(([id]) => id === "t1");
+    expect(t1Removes.length).toBeGreaterThanOrEqual(1);
+    expect(t1Removes[0]).toEqual(["t1"]);
+    const t1Deactivates = onDeactivateRow.mock.calls.filter(([row]) => row?.id === "t1");
+    expect(t1Deactivates.length).toBeGreaterThanOrEqual(1);
+    expect(t1Deactivates[0][0].id).toBe("t1");
+
+    // t2 (currently selected) MUST NOT be touched.
+    const t2Removes = removeFromActiveSetSpy.mock.calls.filter(([id]) => id === "t2");
+    expect(t2Removes).toEqual([]);
+    const t2Deactivates = onDeactivateRow.mock.calls.filter(([row]) => row?.id === "t2");
+    expect(t2Deactivates).toEqual([]);
+  });
+
+  it("Test SWEEP-3: fresh (< threshold) unfocused conv is NOT deactivated on the next sweep tick", () => {
+    const hostA = makeHost("h1", "hostA");
+    const t1 = makeConversationRow({ id: "t1", label: "sess-t1", host: hostA, targetTmuxSession: null });
+    const t2 = makeConversationRow({ id: "t2", label: "sess-t2", host: hostA, targetTmuxSession: null });
+
+    setSnapshot({
+      middle: [t1, t2],
+      selectedId: "t1",
+    });
+    mockActiveSet = new Set<string>(["t1", "t2"]);
+
+    const onDeactivateRow = vi.fn();
+    const { rerender } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+
+    removeFromActiveSetSpy.mockClear();
+    onDeactivateRow.mockClear();
+
+    // Switch t1 → t2 (t1 becomes UN-selected at T0). Stamp lands.
+    setSnapshot({
+      middle: [t1, t2],
+      selectedId: "t2",
+    });
+    mockActiveSet = new Set<string>(["t1", "t2"]);
+    rerender(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+    );
+
+    // Advance ONE sweep tick — well below the threshold. Sweep runs but
+    // finds t1's stamp is fresh → skips.
+    act(() => {
+      vi.advanceTimersByTime(IDLE_DEACTIVATE_SWEEP_MS + 1_000);
+    });
+
+    // Neither t1 nor t2 was deactivated. (t2 exempted as currently-selected;
+    // t1 exempted because its stamp is fresher than threshold.)
+    const t1Removes = removeFromActiveSetSpy.mock.calls.filter(([id]) => id === "t1");
+    expect(t1Removes).toEqual([]);
+    const t1Deactivates = onDeactivateRow.mock.calls.filter(([row]) => row?.id === "t1");
+    expect(t1Deactivates).toEqual([]);
+  });
+});
