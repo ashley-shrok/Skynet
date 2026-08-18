@@ -74,15 +74,14 @@ export type ImageMessage = {
 // matrixEventId = the $EVENT_ID from the recv.sh line (distinct field to
 // avoid collision with the JSONL uuid above).
 //
-// Option D (Ashley 2026-07-28): body extraction deleted from outbound detection.
-// rawCommand IS the body — rendered faithfully as a mono block (scrollable).
-// Fleet-standard sends use `curl -d "$(jq -n --arg b "$MSG" ...)"` forms that
-// literal-JSON extraction cannot succeed on; faithful record of what happened
-// beats a guessed body. No body/extractError fields on the wire type.
-//
-// Follow-up bounty (out of scope for this fix, 2026-07-28): opportunistic
-// body-var grep (MSG=/BODY=/TEXT= shell variable extraction) could provide a
-// "nice-to-have preview above command" — deferred per Ashley's explicit decision.
+// Update (2026-08-18, bounty pretty-view-outgoing-relay-render):
+// The July "extraction unreliable" premise was disproved by a 530-record
+// survey — see PATTERNS.md in the bounty folder. 7 named regex strategies
+// now cover 96.4% of real fleet sends. `extractOutboundBody(cmd)` below
+// runs after the 3-way classifier gate confirms the turn is a real outbound
+// send, and returns `body: string | null` (null = fallback to rawCommand
+// mono block, unchanged from the July behavior — 3.6% cross-turn +
+// python-heredoc tail).
 //
 // Security note (T-17-01-02, accepted): rawCommand contains the full Bash
 // command including any curl args (may include bearer tokens if the agent
@@ -93,6 +92,7 @@ export type RelayOutboundMessage = {
   kind: "relay_outbound";
   room: string | null;
   rawCommand: string;
+  body: string | null;
   eventId: string;
   ts: number;
 };
@@ -156,21 +156,19 @@ function extractText(content: unknown): string {
  * prototype (2026-07-28, 6/6 acceptance). Loosening to any single-condition
  * variant was explicitly rejected (false-positive grep + heredoc cases).
  *
- * Option D (Ashley 2026-07-28): body extraction removed entirely.
- * rawCommand is the faithful record of what the agent did — the bubble
- * renders it as a scrollable mono block. Fleet-standard sends use
- * `curl -d "$(jq -n --arg b "$MSG" ...)"` forms that literal-JSON
- * extraction cannot succeed on; faithful record > guessed body.
- *
- * Follow-up bounty (out of scope): opportunistic body-var grep
- * (MSG=/BODY=/TEXT= shell variable extraction) as "nice-to-have preview
- * above command" — deferred per Ashley's explicit decision 2026-07-28.
+ * Body extraction (2026-08-18, bounty pretty-view-outgoing-relay-render):
+ * `extractOutboundBody(cmd)` runs on the confirmed-outbound command and
+ * returns `body: string | null`. Extraction is opportunistic (7 named
+ * strategies, 96.4% corpus coverage) — null falls back to rawCommand-only
+ * render in the bubble, preserving July "faithful record" semantics for
+ * the 3.6% tail (cross-turn file refs, python-scripted sends).
  */
 export function detectRelayOutbound(
   obj: Record<string, unknown>,
 ): {
   room: string | null;
   rawCommand: string;
+  body: string | null;
 } | null {
   if (obj.type !== "assistant") return null;
   const msg = obj.message;
@@ -194,8 +192,204 @@ export function detectRelayOutbound(
     // Room extraction
     const roomMatch = cmd.match(/rooms\/([^/\s'"]+)\/send\/m\.room\.message/);
     const room = roomMatch ? roomMatch[1] : null;
-    return { room, rawCommand: cmd };
+    const body = extractOutboundBody(cmd);
+    return { room, rawCommand: cmd, body };
   }
+  return null;
+}
+
+/**
+ * Opportunistically extract the human message body from a confirmed Matrix
+ * relay outbound send command.
+ *
+ * Implements 9 strategies in FIRST-MATCH-WINS priority order. Strategy name
+ * is logged at DEBUG for diagnostics; never exposed on the wire type.
+ *
+ * Coverage on 530-record real-corpus survey (bounty pretty-view-outgoing-relay-render,
+ * 2026-08-18): 96.4% (511/530). Failures are cross-turn file refs and
+ * python-scripted sends — see PATTERNS.md in the bounty folder.
+ *
+ * Strategy priority (first match wins):
+ *  1. BODY-sq  — BODY='...' shell-var assign (single-quoted, '\'' decoded)
+ *  2. BODY-dq  — BODY="..." shell-var assign (double-quoted, backslash decoded)
+ *  3. MSG-sq   — MSG='...'  (same as BODY-sq, different var name)
+ *  4. MSG-dq   — MSG="..."  (same as BODY-dq, different var name)
+ *  5. TEXT/MESSAGE variants — symmetric sq/dq forms for TEXT= and MESSAGE=
+ *  6. jq-arg-inline-dq — --arg <word> "literal" '{msgtype:...' inline jq filter
+ *  7. jq-arg-inline-sq — --arg <word> 'literal' '{msgtype:...' inline jq filter
+ *  8. heredoc-to-file  — cat > <path> <<'EOF' ... EOF (canonical agent-relay skill shape)
+ *  9. heredoc-inline   — cat <<'EOF' ... EOF (without file redirection)
+ * 10. inline-json      — -d '{"msgtype":"m.text","body":"..."}' literal JSON
+ */
+export function extractOutboundBody(cmd: string): string | null {
+  // ---------------------------------------------------------------------------
+  // Strategy 1: BODY-sq — BODY='...' with optional '\'' shell-escape
+  // ---------------------------------------------------------------------------
+  const bodySqMatch = cmd.match(/(?:^|\s)BODY='((?:'\\'\'|[^'])*)'/);
+  if (bodySqMatch) {
+    const body = bodySqMatch[1].replace(/'\\''/g, "'");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=BODY-sq bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 2: BODY-dq — BODY="..." with backslash decoding
+  // ---------------------------------------------------------------------------
+  const bodyDqMatch = cmd.match(/(?:^|\s)BODY="((?:\\.|[^"\\])*)"/);
+  if (bodyDqMatch) {
+    const body = bodyDqMatch[1].replace(/\\(.)/g, "$1");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=BODY-dq bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 3: MSG-sq — MSG='...' with optional '\'' shell-escape
+  // ---------------------------------------------------------------------------
+  const msgSqMatch = cmd.match(/(?:^|\s)MSG='((?:'\\'\'|[^'])*)'/);
+  if (msgSqMatch) {
+    const body = msgSqMatch[1].replace(/'\\''/g, "'");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=MSG-sq bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 4: MSG-dq — MSG="..." with backslash decoding
+  // ---------------------------------------------------------------------------
+  const msgDqMatch = cmd.match(/(?:^|\s)MSG="((?:\\.|[^"\\])*)"/);
+  if (msgDqMatch) {
+    const body = msgDqMatch[1].replace(/\\(.)/g, "$1");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=MSG-dq bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 5: TEXT/MESSAGE variants — sq and dq, same handling as BODY/MSG
+  // ---------------------------------------------------------------------------
+  const textSqMatch = cmd.match(/(?:^|\s)(?:TEXT|MESSAGE)='((?:'\\'\'|[^'])*)'/);
+  if (textSqMatch) {
+    const body = textSqMatch[1].replace(/'\\''/g, "'");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=TEXT/MESSAGE-sq bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+  const textDqMatch = cmd.match(/(?:^|\s)(?:TEXT|MESSAGE)="((?:\\.|[^"\\])*)"/);
+  if (textDqMatch) {
+    const body = textDqMatch[1].replace(/\\(.)/g, "$1");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=TEXT/MESSAGE-dq bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 6: jq-arg-inline-dq
+  // --arg <word> "literal" '{msgtype: ... (trailing '{msgtype:' disambiguates
+  // from unrelated jq --arg u "$USER" uses)
+  // ---------------------------------------------------------------------------
+  const jqArgDqMatch = cmd.match(
+    /--arg\s+\w+\s+"((?:\\.|[^"\\])*)"\s+'\{msgtype:/,
+  );
+  if (jqArgDqMatch) {
+    const body = jqArgDqMatch[1].replace(/\\(.)/g, "$1");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=jq-arg-inline-dq bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 7: jq-arg-inline-sq
+  // --arg <word> 'literal' '{msgtype: ... (symmetric single-quote variant)
+  // ---------------------------------------------------------------------------
+  const jqArgSqMatch = cmd.match(
+    /--arg\s+\w+\s+'((?:'\\'\'|[^'])*)'\s+'\{msgtype:/,
+  );
+  if (jqArgSqMatch) {
+    const body = jqArgSqMatch[1].replace(/'\\''/g, "'");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=jq-arg-inline-sq bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 8: heredoc-to-file
+  // cat > <path> <<'EOF' (or <<EOF) ... \nEOF — captures body between markers.
+  // Body is verbatim (no shell-escape decoding: single-quoted heredoc is literal).
+  // More specific than heredoc-inline (has the '>' redirection), so wins first.
+  // ---------------------------------------------------------------------------
+  const heredocToFileMatch = cmd.match(
+    /cat\s*>\s*(?:"[^"]*"|'[^']*'|\S+)\s*<<\s*'?EOF'?\s*\n([\s\S]*?)\n\s*EOF\b/,
+  );
+  if (heredocToFileMatch) {
+    const body = heredocToFileMatch[1];
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=heredoc-to-file bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 9: heredoc-inline
+  // cat <<'EOF' (or <<EOF) ... \nEOF — WITHOUT file redirection.
+  // Priority AFTER heredoc-to-file so the more specific pattern wins first.
+  // Note: BODY=$(cat <<'EOF' ... EOF) is also matched here because the regex
+  // anchors on 'cat <<' regardless of what surrounds it.
+  // ---------------------------------------------------------------------------
+  const heredocInlineMatch = cmd.match(
+    /cat\s*<<\s*'?EOF'?\s*\n([\s\S]*?)\n\s*EOF\b/,
+  );
+  if (heredocInlineMatch) {
+    const body = heredocInlineMatch[1];
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=heredoc-inline bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return body;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 10: inline-json
+  // -d '{"msgtype":"m.text","body":"..."}' literal JSON object.
+  // Parse body via JSON.parse; on failure return null (do not throw).
+  // ---------------------------------------------------------------------------
+  const inlineJsonMatch = cmd.match(
+    /-d\s+'(\{"msgtype":"m\.text","body":"(?:\\.|[^"\\])*"\})'/,
+  );
+  if (inlineJsonMatch) {
+    try {
+      const parsed = JSON.parse(inlineJsonMatch[1]) as { body?: unknown };
+      if (typeof parsed.body === "string") {
+        const body = parsed.body;
+        sessionParserLogger.debug(
+          `[session-parser] extract result=outbound_body strategy=inline-json bodyLen=${body.length}`,
+          { operation: "session_extract" },
+        );
+        return body;
+      }
+    } catch {
+      // JSON parse failure → fall through to null
+    }
+  }
+
   return null;
 }
 
@@ -578,6 +772,7 @@ export function parseSessionLine(line: string): ParsedLine {
         kind: "relay_outbound",
         room: outbound.room,
         rawCommand: outbound.rawCommand,
+        body: outbound.body,
         eventId: eventIdO,
         ts: tsO,
       };
