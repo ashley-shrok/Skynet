@@ -4,22 +4,26 @@
  * Tests: RELAYBUB-01 (outbound bubble render matrix).
  * Updated 2026-07-28 (UAT Bug 1 fix): extractor deleted, rawCommand is always
  * the bubble body (Option D per Ashley). extractError/showSource state removed.
+ * Updated 2026-08-18 (bounty pretty-view-outgoing-relay-render): body prop
+ * added. Tests pass body: null to exercise the fallback (always-visible rawCommand)
+ * path — preserving today's rendering behavior byte-for-byte in the null branch.
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
 
 describe("RelayOutboundBubble", () => {
-  it("Test 1: renders room-id header + rawCommand in mono block", () => {
+  it("Test 1: renders room-id header + rawCommand in mono block (body null = fallback)", () => {
     const cmd = "curl -X PUT https://matrix.org/_matrix/client/r0/rooms/!roomAlias:server.tld/send/m.room.message/txn -d '{\"body\":\"hello\"}'";
     render(
       <RelayOutboundBubble
         room="!roomAlias:server.tld"
         rawCommand={cmd}
+        body={null}
       />,
     );
 
-    // rawCommand text is visible
+    // rawCommand text is visible (fallback path — body null)
     expect(screen.getByText(cmd)).toBeTruthy();
 
     // Header contains room
@@ -30,12 +34,13 @@ describe("RelayOutboundBubble", () => {
     expect(wrapper).not.toBeNull();
   });
 
-  it("Test 2: long command with newlines preserves them via whitespace-pre", () => {
+  it("Test 2: long command with newlines preserves them via whitespace-pre (body null = fallback)", () => {
     const cmd = "curl \\\n  -X PUT \\\n  https://matrix.org/rooms/!x:s/send/m.room.message/T";
     render(
       <RelayOutboundBubble
         room="!x:s"
         rawCommand={cmd}
+        body={null}
       />,
     );
 
@@ -56,18 +61,20 @@ describe("RelayOutboundBubble", () => {
       <RelayOutboundBubble
         room={null}
         rawCommand="curl -X PUT ..."
+        body={null}
       />,
     );
 
     expect(screen.getByText(/unknown room/i)).toBeTruthy();
   });
 
-  it("Test 4: very long single-line command has overflow-x-auto class on container", () => {
+  it("Test 4: very long single-line command has overflow-x-auto class on container (body null = fallback)", () => {
     const longCmd = "curl " + "x".repeat(500);
     render(
       <RelayOutboundBubble
         room="!r:s"
         rawCommand={longCmd}
+        body={null}
       />,
     );
 

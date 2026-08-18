@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { RelayOutboundEvent } from "@/api/claude-session-api";
 
@@ -17,17 +18,20 @@ import type { RelayOutboundEvent } from "@/api/claude-session-api";
 // matches assistant-side of pretty-view chat convention (patch #200).
 // RELAYBUB-06: does NOT import IdentityBadge, ChatMessage, ComposeBox (locked).
 //
-// Option D (Ashley 2026-07-28): rawCommand IS the body. The bubble always
-// renders rawCommand as a scrollable mono block — no extraction failure path,
-// no ⚠ fallback, no showSource toggle. Faithful record of what happened.
+// Update (2026-08-18, bounty pretty-view-outgoing-relay-render):
+// Body extraction reinstated per PATTERNS.md survey (96.4% coverage of real
+// fleet sends across 7 named shell/heredoc/inline-json shapes). When body is
+// non-null, we render it as a pretty text block above a COLLAPSED-by-default
+// expand-to-see-raw toggle wrapping the mono rawCommand block. When body is
+// null (3.6% tail: cross-turn refs, python heredocs), we fall back to the
+// July behavior: rawCommand always-visible mono block, no toggle.
 //
-// Security (T-17-03-01): rawCommand rendered via React children
-// ({rawCommand} in JSX), NOT dangerouslySetInnerHTML. React auto-escapes all
-// HTML/JS so command content is treated as literal text.
+// Security (T-17-03-01) UNCHANGED: both {body} and {rawCommand} are React
+// text children — never dangerouslySetInnerHTML.
 
 export type RelayOutboundBubbleProps = Pick<
   RelayOutboundEvent,
-  "room" | "rawCommand"
+  "room" | "rawCommand" | "body"
 > & {
   /** ms-epoch timestamp of the outbound event; when present, rendered as a
    * hover `title` on the bubble so desktop users can see when the send
@@ -39,8 +43,13 @@ export type RelayOutboundBubbleProps = Pick<
 export function RelayOutboundBubble({
   room,
   rawCommand,
+  body,
   ts,
 }: RelayOutboundBubbleProps) {
+  // Toggle state for expand-to-see-raw — default collapsed when body is present.
+  // Ignored (raw always shown) in the body === null fallback branch.
+  const [rawExpanded, setRawExpanded] = useState(false);
+
   return (
     <div className="flex justify-start">
       <div
@@ -75,17 +84,51 @@ export function RelayOutboundBubble({
           ▸ relay send → {room ?? "unknown room"}
         </div>
 
-        {/* rawCommand as always-visible scrollable mono block */}
-        {/* Security: rendered as React children (never dangerouslySetInnerHTML) — T-17-03-01 */}
-        <pre
-          className={cn(
-            "whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
-            "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-            "bg-black/40 rounded p-2 text-xs",
-          )}
-        >
-          {rawCommand}
-        </pre>
+        {body !== null ? (
+          <>
+            {/* Pretty body preview — mirrors RelayInboundBubble.tsx:180 inline body render */}
+            {/* Security (T-17-03-01): {body} is a React text child, NEVER dangerouslySetInnerHTML */}
+            <div className="whitespace-pre-wrap">{body}</div>
+
+            {/* Expand-to-see-raw toggle — default collapsed */}
+            <button
+              type="button"
+              onClick={() => setRawExpanded((v) => !v)}
+              className={cn(
+                "mt-2 text-[10px]",
+                "text-[rgba(220,_225,_245,_0.5)] hover:text-[rgba(220,_225,_245,_0.8)]",
+                "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+                "cursor-pointer bg-transparent border-0 p-0",
+              )}
+            >
+              {rawExpanded ? "▾ raw command" : "▸ raw command"}
+            </button>
+
+            {rawExpanded && (
+              <pre
+                className={cn(
+                  "mt-1 whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
+                  "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+                  "bg-black/40 rounded p-2 text-xs",
+                )}
+              >
+                {rawCommand}
+              </pre>
+            )}
+          </>
+        ) : (
+          /* Fallback: body extraction returned null — render rawCommand always-visible as today.
+             Security (T-17-03-01): {rawCommand} is a React text child, NEVER dangerouslySetInnerHTML */
+          <pre
+            className={cn(
+              "whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
+              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+              "bg-black/40 rounded p-2 text-xs",
+            )}
+          >
+            {rawCommand}
+          </pre>
+        )}
 
         {/* Footer — "via curl" attribution matching prototype byte-shape */}
         <div
