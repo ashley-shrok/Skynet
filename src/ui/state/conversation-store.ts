@@ -1,15 +1,17 @@
 // ─── Conversation store ──────────────────────────────────────────────────────
 // Module-scoped store for the Telegram-style conversation list.
 //
-// Contract (per Phase 41 Plan 01, CONTEXT.md §Sort model — middle section):
+// Contract (per Phase 41 Plan 01, CONTEXT.md §Sort model — middle section;
+// amended Phase 44 Plan 04 to flip Rule 1 to null-to-bottom):
 //   - Three-zone conversation list: pinned (top, stable), middle (flat, recency-
-//     desc with no-history-to-top), rdpGroup (bottom, stable).
+//     desc with null-to-bottom), rdpGroup (bottom, stable).
 //   - Pinned zone + activeSet + RDP zone use `compareByHostRoleLabel`
 //     — (host outer, role middle, label inner), case-insensitive, null-role
 //     sorts last. Pre-Phase-41 the middle also used this comparator; Phase 41
 //     flipped the middle to `compareByRecencyDesc` (freshest activity first;
-//     rows with `lastMessageAt == null` sort to the TOP; ties + no-history rows
-//     fall back to insertion-order key for deterministic stability).
+//     rows with `lastMessageAt == null` sort to the BOTTOM per Phase 44 Plan 04;
+//     ties + no-history rows fall back to insertion-order key for deterministic
+//     stability).
 //   - Middle is FLAT: no host bucketing, no per-host separators, no hostTree
 //     walk. All non-pinned / non-active-set / non-RDP identity-tmux + fleet-
 //     synthetic rows land in a single `middle: ConversationRow[]` array.
@@ -93,14 +95,15 @@ export type ConversationRow = {
   // `fleetOnly` and `rdpHostRow`. `undefined` and `null` both sort last in
   // compareByHostRoleLabel via the `a.role ?? null` normalization.
   role?: string | null;
-  // Phase 41 (Plan 01): the "message either direction" activity timestamp used
-  // by `compareByRecencyDesc` to order the flat middle zone. Set to `null` when
-  // no history exists (row sorts to the TOP of the middle per Ashley's
-  // no-history-to-top exception). Plan 03 will populate this via a fleet-status
-  // protocol extension; until then, EVERY row carries `lastMessageAt: null`
-  // and the middle degrades to insertion-order fallback. Deliberately OPTIONAL
-  // so existing row constructors (which don't yet set it) still typecheck; the
-  // comparator normalizes `undefined` → `null` for consistent no-history sort.
+  // Phase 41 (Plan 01) — amended Phase 44 Plan 04: the "message either
+  // direction" activity timestamp used by `compareByRecencyDesc` to order the
+  // flat middle zone. Set to `null` when no history exists (row sorts to the
+  // BOTTOM of the middle per the Phase 44 Plan 04 null-to-bottom flip; the
+  // pre-Phase-44 null-to-top lock was retired per 44-CONTEXT.md § Comparator
+  // change). Plan 03 populates this via a fleet-status protocol extension +
+  // Plan 44-03 max-wins reconciliation chokepoint at the working-store.
+  // Deliberately OPTIONAL so existing row constructors (which don't yet set
+  // it) still typecheck; the comparator normalizes `undefined` → `null`.
   lastMessageAt?: number | null;
 };
 
@@ -117,10 +120,12 @@ export type HostGroup = {
 //     Structurally UNCHANGED from Phase 25.
 //   - `middle`: FLAT list of remaining identity-tmux + fleet-synthetic rows
 //     (non-pinned, non-active-set, non-RDP). Sorted by `compareByRecencyDesc`
-//     — no-history rows (lastMessageAt == null) sort to the TOP; rows with
-//     timestamps sort DESC (freshest first); ties + no-history rows fall back
-//     to insertion-order key for deterministic stability. Replaces the
-//     pre-Phase-41 `grouped: HostGroup[]` for the middle tier.
+//     — rows with timestamps sort DESC (freshest first); no-history rows
+//     (lastMessageAt == null) sort to the BOTTOM (Phase 44 Plan 04 null-to-
+//     bottom flip; the pre-Phase-44 null-to-top lock was retired); ties +
+//     no-history rows fall back to insertion-order key for deterministic
+//     stability. Replaces the pre-Phase-41 `grouped: HostGroup[]` for the
+//     middle tier.
 //   - `rdpGroup`: sentinel HostGroup (`hostId: "__rdp__"`) containing all
 //     RDP-eligible rows, OR `null` when zero hosts have `enableRdp === true`.
 //     No empty header renders in the panel when null (Ashley lock).
@@ -515,12 +520,16 @@ const compareByHostRoleLabel = (a: ConversationRow, b: ConversationRow): number 
   return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
 };
 
-// Phase 41 (Plan 01) — middle-zone recency comparator.
+// Phase 44 Plan 04 — flipped Rule 1 from null-to-top to null-to-bottom. Retires
+// Ashley's 2026-08-14 no-history-to-top lock per 44-CONTEXT.md § Comparator
+// change — retire no-history-to-top. Middle-zone recency comparator.
 //
-// Ordering contract (§Sort model — middle section, Ashley lock 2026-08-14):
-//   (1) Rows with `lastMessageAt == null` (no history) sort BEFORE rows with
-//       any real timestamp (Ashley: "if there is no history of messages going
-//       back and forth then it should show up at the top").
+// Ordering contract (§Sort model — middle section, Phase 44 lock 2026-08-18):
+//   (1) Rows with `lastMessageAt == null` (no history) sort AFTER rows with
+//       any real timestamp — null-to-bottom. Freshest known activity floats to
+//       the top; genuinely-no-history rows (fresh session pre-first-message;
+//       discovery failed; identity never invoked /id as first turn) sink to the
+//       bottom of the middle zone.
 //   (2) Among no-history rows: fall back to `middleInsertionOrder` (a WeakMap
 //       populated during computeSnapshot's middle-build pass — see the flat
 //       middleRows push loop below) so ordering is deterministic across
@@ -529,10 +538,10 @@ const compareByHostRoleLabel = (a: ConversationRow, b: ConversationRow): number 
 //   (4) When two rows have identical `lastMessageAt`: fall back to
 //       `middleInsertionOrder` for stability.
 //
-// Since Plan 03 has NOT yet landed the `lastMessageAt` signal, EVERY row
-// currently carries `lastMessageAt: null` — the middle degrades entirely to
-// insertion-order (branch 1 + 2). Plan 03 will land the real signal without
-// changing this comparator.
+// The lastMessageAt signal is populated end-to-end as of Phase 44 (Plan 44-01
+// dormant path via /sessions/list; Plan 44-02 live path via ssh-poll-orchestrator
+// JSONL discovery; Plan 44-03 max-wins reconciliation chokepoint at the
+// working-store; Plan 44-04 wire-consumer at AppShell + this comparator flip).
 //
 // The insertion-order map is passed in as a parameter (not read from
 // module-scope) so the comparator stays pure and the sort is deterministic
@@ -543,10 +552,10 @@ const compareByRecencyDesc = (
 ) => (a: ConversationRow, b: ConversationRow): number => {
   const aTs = a.lastMessageAt ?? null;
   const bTs = b.lastMessageAt ?? null;
-  // Rule (1): no-history-to-top. Rows with null sort BEFORE rows with a
-  // timestamp (return < 0 when a is null and b is not).
-  if (aTs === null && bTs !== null) return -1;
-  if (aTs !== null && bTs === null) return 1;
+  // Rule (1): null-to-bottom (Phase 44 Plan 04 flip). Rows with null sort
+  // AFTER rows with a timestamp (return > 0 when a is null and b is not).
+  if (aTs === null && bTs !== null) return 1;
+  if (aTs !== null && bTs === null) return -1;
   // Rule (3): both have timestamps → DESC by lastMessageAt.
   if (aTs !== null && bTs !== null && aTs !== bTs) {
     return bTs - aTs; // b - a for DESC

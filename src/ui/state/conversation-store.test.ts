@@ -2684,8 +2684,10 @@ describe("conversation-store (Phase 25 retargeted Phase 41 Plan 01): role-cluste
 // comparator assertions is functionally equivalent to Plan 03's wire signal.
 
 describe("conversation-store (Phase 41 Plan 01): compareByRecencyDesc — middle-zone recency contract", () => {
-  // Test C — no-history-to-top rule.
-  it("Test C: no-history row (lastMessageAt=null) sorts BEFORE a row with any timestamp", () => {
+  // Test C — Phase 44 Plan 04 FLIP: null-to-bottom rule (was null-to-top).
+  // Retires Ashley's 2026-08-14 no-history-to-top lock per 44-CONTEXT.md
+  // § Comparator change — retire no-history-to-top.
+  it("Test C: no-history row (lastMessageAt=null) sorts AFTER a row with any timestamp (Phase 44 Plan 04 flip)", () => {
     const hostA = makeHost("hA", "alpha");
     // Two rows: R1 has lastMessageAt = 1000 (has history), R2 = null (fresh).
     const tabR1 = makeTab("r1", "terminal", hostA, "r1-sess", "r1");
@@ -2695,16 +2697,15 @@ describe("conversation-store (Phase 41 Plan 01): compareByRecencyDesc — middle
       updateOpenTabs([tabR1, tabR2]);
     });
     let snap = __getSnapshotForTest();
-    // Pre-patch: insertion-order fallback [r1, r2] (both lastMessageAt = null).
+    // Baseline: insertion-order fallback [r1, r2] (both lastMessageAt = null).
     expect(snap.middle.map((r) => r.id)).toEqual(["r1", "r2"]);
     // Inject via the Phase 41 test-only API: r1 gets a real timestamp;
     // r2 stays null (no-history).
     act(() => __setLastMessageAtForTest("r1", 1000));
     snap = __getSnapshotForTest();
-    // r2 (null) sorts BEFORE r1 (1000) per Rule 1 (no-history-to-top).
-    // This is the load-bearing behavioral gate for Ashley's
-    // "no history → top" lock.
-    expect(snap.middle.map((r) => r.id)).toEqual(["r2", "r1"]);
+    // Phase 44 Plan 04: r1 (1000, real) sorts BEFORE r2 (null) — null-to-bottom.
+    // This is the load-bearing behavioral gate for the flip.
+    expect(snap.middle.map((r) => r.id)).toEqual(["r1", "r2"]);
   });
 
   // Test D — recency DESC.
@@ -2864,11 +2865,12 @@ describe("conversation-store (Phase 41 Plan 03): real fleet-status wire-side sig
   });
 
   // ---------------------------------------------------------------------------
-  // Test J: mix of published + un-published rows — un-published (lastMessageAt=null
-  //          in the working-store cache OR key absent entirely) sort to the TOP
-  //          (no-history-to-top rule from Plan 01 still holds).
+  // Test J: mix of published + un-published rows — Phase 44 Plan 04 flip. The
+  //          real-timestamp row now sorts to the TOP; the no-wire-side-signal
+  //          row (null lastMessageAt) sinks to the BOTTOM (null-to-bottom).
+  //          Retires the pre-Phase-44 assertion that expected null-to-top.
   // ---------------------------------------------------------------------------
-  it("Test J: middle zone — row with real lastMessageAt vs. row with no wire-side signal → no-history row floats to top", () => {
+  it("Test J: middle zone — row with real lastMessageAt vs. row with no wire-side signal → real-timestamp row sorts to top, no-history row sinks (Phase 44 Plan 04 flip)", () => {
     const hostA = makeHost("1", "hostA");
     const tab1 = makeTab("t1", "terminal", hostA, "sess-1", "row-1");
     const tab2 = makeTab("t2", "terminal", hostA, "sess-2", "row-2");
@@ -2879,7 +2881,7 @@ describe("conversation-store (Phase 41 Plan 03): real fleet-status wire-side sig
     // Only sess-1 has a wire-side lastMessageAt; sess-2's key is never
     // published → the working-store cache has no entry for it → conversation-
     // store's row derivation stamps `lastMessageAt: null` on that row →
-    // Plan 01's no-history-to-top rule floats it above the row with real
+    // Phase 44 Plan 04's null-to-bottom rule sinks it below the row with real
     // history.
     act(() => {
       publishFleetStatusSessionState(
@@ -2888,8 +2890,9 @@ describe("conversation-store (Phase 41 Plan 03): real fleet-status wire-side sig
       );
     });
     const snap = __getSnapshotForTest();
-    // sess-2 (null) sorts BEFORE sess-1 (1000) per no-history-to-top.
-    expect(snap.middle.map((r) => r.id)).toEqual(["t2", "t1"]);
+    // Phase 44 Plan 04: sess-1 (1000, real) sorts BEFORE sess-2 (null) —
+    // null-to-bottom via the real fleet-status wire path.
+    expect(snap.middle.map((r) => r.id)).toEqual(["t1", "t2"]);
   });
 
   // ---------------------------------------------------------------------------
