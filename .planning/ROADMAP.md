@@ -1233,10 +1233,26 @@ Plans:
 
 **Depends on:** Phase 27 (virtualization introduction — being retired), Phase 28 (virt correctness cluster — being retired), Phase 32 (auto-scroll three-case hook — being simplified)
 
-**Plans:** to-be-planned
+**Plans:** 9 plans in 4 waves
 
 Plans:
-- [ ] TBD
+
+**Wave 1 (parallel, no deps):**
+- [ ] 43-01-PLAN.md — Parameterize session-file-tail.ts to accept an initial-lines override (backcompat preserved)
+- [ ] 43-02-PLAN.md — New readSessionFileRange + resolveEventIdToLine helpers (one-shot SSH exec + sed range read + grep eventId→line lookup)
+- [ ] 43-03-PLAN.md — Wire scaffolding: openClaudeSessionSocket({historyWindow}) + FetchOlderPayload (locked to `{anchorEventId, count}` — NO anchorLine field) + FetchOlderBatchEvent types
+- [ ] 43-06-PLAN.md — Rewrite use-auto-scroll.ts from 245 lines to ~50 (plain-DOM pinned-follow + no-yank-when-scrolled-up); hook return API frozen
+
+**Wave 2 (depends on Wave 1):**
+- [ ] 43-04-PLAN.md — Backend: handleFetchOlder extracted handler (eventId→line lookup then range read) + historyWindow handshake parse + thread into tailSessionFile; observation channel byte-verified unchanged via PHASE-43 anchor comments (depends on 43-01, 43-02, 43-03)
+- [ ] 43-05-PLAN.md — Frontend api runtime helpers: sendFetchOlder + isFetchOlderBatchEvent (depends on 43-03)
+
+**Wave 3 (sequential within wave; depends on Wave 2 + 43-06):**
+- [ ] 43-07a-PLAN.md — PrettyView plain-DOM conversion: delete virtualizer + plain-DOM scroller + remove `[overflow-anchor:none]` + aside-arm walk byte-verified via PHASE-43 anchor comments (depends on 43-04, 43-05, 43-06)
+- [ ] 43-07b-PLAN.md — Windowing + fetch_older client + drop-oldest cap + loading hint (150ms threshold) + reachedBeginning short-circuit + fetch-error warn-and-clear (depends on 43-07a)
+
+**Wave 4 (depends on Wave 3):**
+- [ ] 43-08-PLAN.md — Cleanup: delete virt-specific test files + npm uninstall @tanstack/react-virtual + three separate residual-reference checks (jq package.json + grep -c package-lock.json + grep -r src/) + explicit nginx-unchanged verify + human UAT checkpoint
 
 **UI hint:** partial source-visible UI change. The PrettyView chat scroller behaves like a normal DOM scroller — no more virt-jitter, image-bubble grows cleanly, no jump-back on tall-bubble re-measure. A "load older" indicator may appear briefly near the top when scrolling back past the loaded window. Otherwise the render is byte-equivalent to current per-bubble output. iOS PWA + desktop both.
 
