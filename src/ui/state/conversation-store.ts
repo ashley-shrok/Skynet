@@ -143,6 +143,13 @@ export type FleetSession = {
   sessionName: string;
   created: number;
   role: string | null;
+  // Phase 44 Plan 04 — inline recency signal carried from /sessions/list (Plan
+  // 44-01). Consumed by AppShell to feed seedSessionLastMessageAt (Plan 44-03
+  // chokepoint); NOT stamped on rows (that path stays via working-store
+  // max-wins). Optional so pre-Phase-44 backend responses (or a v1 cache
+  // rehydrate that predates this field) deserialize into a FleetSession object
+  // that simply omits the field — seed loop then calls with `?? null`.
+  lastMessageAt?: number | null;
 };
 
 type SnapshotForTest = ConversationList & {
@@ -1018,18 +1025,41 @@ export function removeFleetSession(hostId: number, sessionName: string): void {
 //
 // Versioned key so a shape change to FleetSession can invalidate every
 // client's cache in one deploy just by bumping the suffix.
-const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v1";
+//
+// Phase 44 Plan 04 — bumped v1 → v2 because FleetSession gained
+// `lastMessageAt?: number | null`. While isFleetSession accepts the field's
+// ABSENCE (optional), rehydrating a v1 cache on Phase 44 first-load would seed
+// the frontend with objects whose lastMessageAt is undefined → resolveLastMessageAt
+// falls through to the working-store getter (which is empty on cold boot) →
+// null → the flipped Rule 1 (null-to-bottom) sorts them to the BOTTOM instead
+// of respecting whatever /sessions/list is about to return. Bumping to v2
+// forces one clean cold-start after deploy; small acceptable UX cost, and
+// avoids a transient wrong-order paint under the flipped comparator.
+const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v2";
 
 function isFleetSession(x: unknown): x is FleetSession {
   if (!x || typeof x !== "object") return false;
   const r = x as Record<string, unknown>;
-  return (
-    typeof r.hostId === "number" &&
-    typeof r.hostName === "string" &&
-    typeof r.sessionName === "string" &&
-    typeof r.created === "number" &&
-    (r.role === null || typeof r.role === "string")
-  );
+  if (
+    typeof r.hostId !== "number" ||
+    typeof r.hostName !== "string" ||
+    typeof r.sessionName !== "string" ||
+    typeof r.created !== "number" ||
+    !(r.role === null || typeof r.role === "string")
+  ) {
+    return false;
+  }
+  // Phase 44 Plan 04: accept undefined, null, or number for lastMessageAt.
+  // Reject other types defensively so a corrupt cache entry never seeds the
+  // working-store with a non-numeric ts (which would poison max-wins).
+  if (
+    r.lastMessageAt !== undefined &&
+    r.lastMessageAt !== null &&
+    typeof r.lastMessageAt !== "number"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -1054,12 +1084,16 @@ export function readFleetSessionsCache(): FleetSession[] {
       if (isFleetSession(item)) {
         // Defensive filter: only the canonical fields make it back into
         // memory even if a future writer accidentally serialized more.
+        // Phase 44 Plan 04 — carry lastMessageAt through the round-trip;
+        // undefined → null so downstream (AppShell seed loop) has a
+        // consistent shape.
         valid.push({
           hostId: item.hostId,
           hostName: item.hostName,
           sessionName: item.sessionName,
           created: item.created,
           role: item.role,
+          lastMessageAt: item.lastMessageAt ?? null,
         });
       }
     }
@@ -1080,12 +1114,16 @@ export function readFleetSessionsCache(): FleetSession[] {
 export function writeFleetSessionsCache(sessions: FleetSession[]): void {
   try {
     if (typeof localStorage === "undefined") return;
+    // Phase 44 Plan 04 — persist lastMessageAt in the cache. A stale-but-close-
+    // enough value on cold-start paint is better than null (which the flipped
+    // Rule 1 sinks to the bottom); the fresh fetch overwrites within ~200ms.
     const canonical = sessions.map((s) => ({
       hostId: s.hostId,
       hostName: s.hostName,
       sessionName: s.sessionName,
       created: s.created,
       role: s.role,
+      lastMessageAt: s.lastMessageAt ?? null,
     }));
     localStorage.setItem(FLEET_CACHE_KEY, JSON.stringify(canonical));
   } catch {

@@ -41,6 +41,9 @@ import {
   // Phase 41 Plan 01: test-only injection API for row.lastMessageAt.
   __setLastMessageAtForTest,
   __resetLastMessageAtForTest,
+  // Phase 44 Plan 04: cache round-trip tests exercise the public readers.
+  readFleetSessionsCache,
+  writeFleetSessionsCache,
   type FleetSession,
 } from "./conversation-store.js";
 import * as UserPreferencesApi from "@/api/user-preferences-api";
@@ -1005,7 +1008,9 @@ describe("conversation-store (Plan 07-01): updateFleetSessions no-op guards", ()
 // quick-260810-oig: removeFleetSession R1-R4
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (quick-260810-oig): removeFleetSession", () => {
-  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v1";
+  // Phase 44 Plan 04: cache key bumped v1 → v2 (see conversation-store.ts
+  // FLEET_CACHE_KEY comment for rationale).
+  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v2";
 
   it("R1: removes present (hostId, sessionName) tuple, fires notify, trims cache", () => {
     const sessions: FleetSession[] = [
@@ -2959,5 +2964,176 @@ describe("conversation-store (Phase 41 Plan 03): real fleet-status wire-side sig
       "alpha-label",
       "zebra-label",
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 44 Plan 04 — FleetSession lastMessageAt field + cache round-trip
+//
+// Task 1 coverage: FleetSession type gains optional lastMessageAt; isFleetSession
+// predicate accepts undefined/null/number for lastMessageAt (rejects other types);
+// readFleetSessionsCache preserves the field (coerces undefined → null);
+// writeFleetSessionsCache persists it. Cache key bumped v1 → v2.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cache round-trip", () => {
+  const FLEET_CACHE_KEY_V2 = "skynet:convo-fleet-cache:v2";
+
+  beforeEach(() => {
+    try {
+      localStorage.removeItem(FLEET_CACHE_KEY_V2);
+      // Also clear any lingering v1 entry so a v1 cache from a previous test
+      // run does NOT leak into the v2 read (which would correctly return [] —
+      // this beforeEach is defense in depth).
+      localStorage.removeItem("skynet:convo-fleet-cache:v1");
+    } catch {
+      /* jsdom localStorage always available */
+    }
+  });
+
+  it("Task 1 – Test A: writeFleetSessionsCache persists lastMessageAt (number + null both survive round-trip via read)", () => {
+    const sessions: FleetSession[] = [
+      { hostId: 1, hostName: "hA", sessionName: "s-real", created: 100, role: null, lastMessageAt: 12345 },
+      { hostId: 2, hostName: "hB", sessionName: "s-null", created: 200, role: "sre", lastMessageAt: null },
+    ];
+    writeFleetSessionsCache(sessions);
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(2);
+    expect(read[0].lastMessageAt).toBe(12345);
+    expect(read[1].lastMessageAt).toBeNull();
+  });
+
+  it("Task 1 – Test B: writeFleetSessionsCache normalizes undefined lastMessageAt to null on the wire (read yields null, not undefined)", () => {
+    // Session object with lastMessageAt OMITTED (undefined at the property
+    // level). writeFleetSessionsCache should coerce to null on serialize; the
+    // read path returns null.
+    const sessions: FleetSession[] = [
+      { hostId: 3, hostName: "hC", sessionName: "s-undef", created: 300, role: null },
+    ];
+    writeFleetSessionsCache(sessions);
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(1);
+    // `null` (not undefined) — the round-trip goes through JSON where
+    // undefined is not representable. The write path's `?? null` coerces.
+    expect(read[0].lastMessageAt).toBeNull();
+  });
+
+  it("Task 1 – Test C: readFleetSessionsCache accepts pre-Phase-44 v2 entries missing lastMessageAt (coerces to null)", () => {
+    // Simulate a v2 cache entry that predates the lastMessageAt field being
+    // populated by the writer — the isFleetSession predicate accepts the
+    // absence (optional), and the reader defensively coerces to null so
+    // downstream consumers (AppShell seed loop) have a consistent shape.
+    const legacy = [
+      { hostId: 4, hostName: "hD", sessionName: "s-legacy", created: 400, role: null },
+    ];
+    localStorage.setItem(FLEET_CACHE_KEY_V2, JSON.stringify(legacy));
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(1);
+    expect(read[0].sessionName).toBe("s-legacy");
+    expect(read[0].lastMessageAt).toBeNull();
+  });
+
+  it("Task 1 – Test D: readFleetSessionsCache rejects entries whose lastMessageAt is neither undefined, null, nor number", () => {
+    // A malformed cache entry with lastMessageAt = "not a number" must not
+    // pass the isFleetSession predicate — else max-wins could seed on a
+    // non-numeric ts. The reader filters the bad entry silently; the
+    // sibling with a numeric ts survives.
+    const mixed = [
+      { hostId: 5, hostName: "hE", sessionName: "s-bad", created: 500, role: null, lastMessageAt: "not-a-number" },
+      { hostId: 6, hostName: "hF", sessionName: "s-good", created: 600, role: null, lastMessageAt: 6000 },
+    ];
+    localStorage.setItem(FLEET_CACHE_KEY_V2, JSON.stringify(mixed));
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(1);
+    expect(read[0].sessionName).toBe("s-good");
+    expect(read[0].lastMessageAt).toBe(6000);
+  });
+
+  it("Task 1 – Test E: writeFleetSessionsCache writes to the v2 cache key (v1 not written)", () => {
+    const sessions: FleetSession[] = [
+      { hostId: 7, hostName: "hG", sessionName: "s-key-test", created: 700, role: null, lastMessageAt: 700 },
+    ];
+    writeFleetSessionsCache(sessions);
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v2")).not.toBeNull();
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v1")).toBeNull();
+  });
+
+  it("Task 1 – Test F: readFleetSessionsCache returns [] when only a v1 (pre-bump) cache entry exists", () => {
+    // A leftover v1 cache from a pre-Phase-44 client must be ignored — the
+    // reader reads FROM v2, so the v1 entry contributes nothing. Forces a
+    // clean fresh-fetch on first Phase 44 load.
+    const v1data = [
+      { hostId: 8, hostName: "hH", sessionName: "s-v1-leftover", created: 800, role: null },
+    ];
+    localStorage.setItem("skynet:convo-fleet-cache:v1", JSON.stringify(v1data));
+    const read = readFleetSessionsCache();
+    expect(read).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 44 Plan 04 — compareByRecencyDesc Rule 1 flip (null-to-bottom)
+//
+// Task 2 coverage: retires Ashley's 2026-08-14 no-history-to-top lock. Rule 1
+// now sorts null-lastMessageAt rows AFTER rows with a real timestamp. Rule 2
+// (insertion-order fallback among null rows) preserved. Rules 3 (real DESC)
+// and 4 (identical-ts fallback) unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store (Phase 44 Plan 04): compareByRecencyDesc — null-to-bottom flip", () => {
+  it("Task 2 – Test L: null-cluster insertion-order stability under the flip", () => {
+    // Three rows, all with lastMessageAt=null after the flip → still fall back
+    // to insertion-order key (Rule 2 preserved). Locks that the flip retired
+    // ONLY Rule 1's direction, not Rule 2's tie-break mechanic.
+    const hostA = makeHost("hA", "alpha");
+    const tabFirst = makeTab("r-first", "terminal", hostA, "s-first", "row-first");
+    const tabSecond = makeTab("r-second", "terminal", hostA, "s-second", "row-second");
+    const tabThird = makeTab("r-third", "terminal", hostA, "s-third", "row-third");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabFirst, tabSecond, tabThird]);
+    });
+    // All three carry lastMessageAt=null (default) — insertion order applies.
+    const snap = __getSnapshotForTest();
+    expect(snap.middle.map((r) => r.id)).toEqual(["r-first", "r-second", "r-third"]);
+  });
+
+  it("Task 2 – Test M: mixed real + null — real timestamps DESC first, then null rows in insertion order", () => {
+    // Four rows inserted in order [r1@1000, r2@null, r3@2000, r4@null].
+    // Post-flip: real timestamps first DESC (r3=2000, r1=1000), then null
+    // rows in insertion order (r2, r4).
+    const hostA = makeHost("hA", "alpha");
+    const tab1 = makeTab("r1", "terminal", hostA, "s1", "row-1");
+    const tab2 = makeTab("r2", "terminal", hostA, "s2", "row-2");
+    const tab3 = makeTab("r3", "terminal", hostA, "s3", "row-3");
+    const tab4 = makeTab("r4", "terminal", hostA, "s4", "row-4");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tab1, tab2, tab3, tab4]);
+    });
+    act(() => {
+      __setLastMessageAtForTest("r1", 1000);
+      __setLastMessageAtForTest("r3", 2000);
+      // r2 and r4 stay null.
+    });
+    const snap = __getSnapshotForTest();
+    expect(snap.middle.map((r) => r.id)).toEqual(["r3", "r1", "r2", "r4"]);
+  });
+
+  it("Task 2 – Test N: single-real-vs-single-null — real timestamp sorts before null (mirror of the flipped Test C contract)", () => {
+    // Behavior-level lock: with two rows R_real=1000 and R_null=null, the
+    // real-ts row lands at position 0 and the null row at position 1. This is
+    // the direct semantic inverse of pre-Phase-44 Test C which asserted
+    // ["r2","r1"] (null first).
+    const hostA = makeHost("hA", "alpha");
+    const tabReal = makeTab("r-real", "terminal", hostA, "s-real", "row-real");
+    const tabNull = makeTab("r-null", "terminal", hostA, "s-null", "row-null");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([tabReal, tabNull]);
+    });
+    act(() => __setLastMessageAtForTest("r-real", 1000));
+    const snap = __getSnapshotForTest();
+    expect(snap.middle.map((r) => r.id)).toEqual(["r-real", "r-null"]);
   });
 });
