@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-17T00:00:00.000Z"
-last_activity: 2026-08-17 -- Phase 42 rescue-rebase post Tanya #455 + Tiffany #456 (renumber Phase 41→42)
+last_updated: "2026-08-18T15:50:56.401Z"
+last_activity: 2026-08-18
 progress:
   total_phases: 43
-  completed_phases: 33
-  total_plans: 163
-  completed_plans: 161
+  completed_phases: 34
+  total_plans: 178
+  completed_plans: 164
   percent: 79
 ---
 
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 42 — Conversation list flat recency sort (renumbered from 41 during rescue-rebase after Tanya's independent Phase 41 shipped as #455)
+**Current focus:** Phase 43 — replace-pv-virtualization-with-plain-dom-windowed-paginatio
 
 ## Current Position
 
-Phase: 42 (Conversation list — flat recency sort with pins zone at top, RDP zone at bottom, always-hidden-on-load search input; retire ambient-recession visual) — CODE-COMPLETE, NOT DEPLOYED
-Plan: 3 of 3 (all plans code-complete: 42-01 three-zone + CSS retirement, 42-02 search + filter, 42-03 fleet-status recency signal)
-Status: Ready for ship greenlight (or optional gsd-verifier pass first)
+Phase: 43 (replace-pv-virtualization-with-plain-dom-windowed-paginatio) — EXECUTING
+Plan: 2 of 9
+Status: Ready to execute
 
-Last activity: 2026-08-18 — Completed quick-260818-idu (`PrettyView: extract outbound relay body and render preview`) as the deferred July 2026-07-28 follow-up bounty `pretty-view-outgoing-relay-render` explicitly named at `src/backend/claude-session/session-file-parser.ts:77-85`. Ashley (2026-08-17) verbatim: *"outgoing ones don't [render nicely] cause they're just commands that are being detected as outgoing relay sends and so they hard to parse and I think they vary in format because it's whatever command that a given agent decides to run to send a message."* Survey pass first on this box's ~/.claude/projects/*.jsonl (530 real outbound Matrix sends across tina + tanya + tiffany identities) disproved the July "extraction unreliable" premise: 96.4% extractable using 7 named regex strategies. Findings written to bounty's PATTERNS.md. Ashley greenlit `/gsd:quick` for the code phase. Three atomic executor commits on `feat/tab-title-from-tmux` after Tina's uncommitted-at-recycle `b766140a` (deactivate-menu removal from context menu — still unpushed pending batch ship): `2b331f39` (RED: 15 real-corpus fixtures + 1 priority-regression synthetic + 1 python UNEXTRACTABLE for the fallback path assertion, pulled verbatim from `/tmp/relay-outbound-raw.jsonl`) → `8628b72c` (GREEN: `extractOutboundBody(cmd): string | null` with 9-strategy FIRST-MATCH-WINS priority — BODY-sq → BODY-dq → MSG-sq → MSG-dq → TEXT/MESSAGE variants → jq-arg-inline-dq/sq → heredoc-to-file → heredoc-inline → inline-json; extended `RelayOutboundMessage` wire type with `body: string | null`; extended `detectRelayOutbound` return + `parseSessionLine` relay_outbound case to forward body; updated July "Option D" comment blocks at L77-85 + L146-168 with reversal note citing bounty slug; `sessionParserLogger` debug log records matched strategy for future diagnostics — never exposed on wire type) → `7daf5a32` (WS wire: `claude-session-server.ts` relay_outbound WS emit forwards `body: parsed.body` on the frame; frontend `RelayOutboundEvent` type extended with `body: string | null` + doc comment reversal at claude-session-api.ts) → `d1022c30` (`RelayOutboundBubble.tsx` extended props with `body` prop via `Pick<RelayOutboundEvent, "room" | "rawCommand" | "body">`; when body non-null renders pretty text `<div className="whitespace-pre-wrap">{body}</div>` above a default-collapsed `▸ raw command` expand toggle wrapping the existing scrollable mono block; when body null renders exactly as today — always-visible mono block, no toggle; `▸ relay send → {room}` header + `via curl` footer preserved in both branches; security posture preserved — both `{body}` and `{rawCommand}` render as React text children, no `dangerouslySetInnerHTML`). Load-bearing invariant UNTOUCHED: the 3-way classifier gate in `detectRelayOutbound` (curl + -X PUT + `send/m.room.message` URL conjunction, 6/6 acceptance from the July prototype) — extraction is strictly ADDITIVE after the gate confirms outbound. Full acceptance bar green: `npx vitest run` = 192 files / 2444 pass / 9 skip / 0 fail (exit 0); `npm run build:backend` exit 0; `npm run build` exit 0. NO worktrees (fleet rule Ashley 2026-07-31). NOT pushed / NOT built / NOT deployed at executor+orchestrator exit — deploy motion is post-greenlight orchestrator scope per fleet directive (Ashley 2026-07-27 "Deploy pre-work (push + build) is NOT authorized by a code-work ask"). Deploy batch pending: this commit series `2b331f39 → d1022c30` PLUS Tina's earlier `b766140a` (deactivate-menu removal). Awaits Ashley ship greenlight for patch #462 (or higher depending on fleet collisions at ship time). Bounty `pretty-view-outgoing-relay-render` status will flip to `done` + archive at ship-time patch entry. Prior activity: 2026-08-17 — Shipped quick-260817-qfg (Phase 42 UAT amendment) as patch #461: retired the active-set top zone from the pretty-conversations list + killed the "Pinned" divider chip. Ashley UAT after Phase 42 (patch #457) verbatim: *"sessions are still showing above the pinned area when they are active in the current instance of the client. That shouldn't happen. Also the pinned header should go away entirely."* Two atomic code commits (`42864cf2` store + test damage; `3e7198fc` panel + test damage + drop unused Pin import); full `npx vitest run` = 191 files / 2433 pass / 9 skip / 1 todo / 0 fail; both builds exit 0. Load-bearing preserved: `state.activeSet: Set<string>` + per-row `inActiveSet` prop + `.active-set` CSS classname on rows (deactivate-hover-action reveal + swipe machinery + context-menu Deactivate gating — regression-critical per 2026-07-23 lock). Only sort position stops depending on activeSet. Snapshot's `activeSet: ConversationRow[]` field kept as always-empty `[]` for backward-compat with panel destructuring. Deploy: fast-path `docker cp` → byte-verify (pinned-divider testid 0, data-active-set-group 0, `inActiveSet:` 8x still passed) → canonicalizing `docker build` EXIT 0 (image `5ff77fa3b6ee`) → `docker compose up -d --force-recreate skynet` container healthy T+8s → HTTPS 200 in 50ms. Coord-room BEFORE `$s59EDVCI8Ac6Q5xT6GzkaVdiLa2LdLbdqW_Q6z1Wf9w` + AFTER `$usdz-LSxQ9pa26y_SSVswJHDJwwgITIhHG3muL24yZ0`. HEAD `3e7198fc` pushed to origin. Patch #461 entry appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. Prior activity:
+Last activity: 2026-08-18
 
 Last activity: 2026-08-17 — Rescue-rebase after Phase 41 collision. My 15 local Phase 41 commits (started 2026-08-14, code-complete 2026-08-15) sat unpushed while Tanya independently used the Phase 41 slot for `defer-terminal-view-mount` and shipped as patch #455 today, then Tiffany shipped quick-260814-u0w as #456. Ashley 2026-08-17 verbatim on the renumber: *"Don't really care what you do with the phase number."* Approach: (a) snapshot old branch as `tina-phase41-backup` locally for safety; (b) `git reset --hard origin/feat/tab-title-from-tmux` (Tiffany's #456 base); (c) cherry-pick 5 code commits (`plan(41-01)`, `plan(41-02)` x2, `plan(41-03)` x2) — landed clean, one auto-merge on session-working-store.ts, no conflicts; (d) copy planning artifacts (CONTEXT, RESEARCH, UI-SPEC, plan files, remaining SUMMARY.md files) from /tmp snapshot; (e) `mv` planning directory `41-conversation-list-...` → `42-conversation-list-...`; (f) rename all `41-*.md` → `42-*.md` inside; (g) sed all internal refs (`41-01` → `42-01`, `Phase 41` → `Phase 42`, `phase-41` → `phase-42`, etc.) across all planning docs + shape file; (h) add fresh `### Phase 42:` entry to ROADMAP.md below Tanya's Phase 41; (i) add Phase 42 Roadmap Evolution entry to STATE.md. Cherry-picked code commit messages preserved as `plan(41-XX)` (git history reflects what the executor did at the time). All 3 plans' code + tests + SUMMARY files intact — byte-equivalent to what Phase 41 SUMMARY.md files documented. Sixth known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Verification pending: full `npx vitest run` (should be green — no code changed since Phase 41 executor's final green run at 2400 pass, only planning-doc renames since). NOT pushed, NOT built, NOT deployed. Awaiting Ashley ship greenlight for patch #457.
 
@@ -152,7 +152,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 100%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -240,6 +240,7 @@ Progress: [██████████] 100%
 | Phase 41 P1 | 35 | 2 tasks | 7 files |
 | Phase 41 P2 | 90 | 2 tasks | 8 files |
 | Phase 41 P41-03 | 30min | 1 tasks | 3 files |
+| Phase 43 P43-01 | 225 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -359,6 +360,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 39-04: Guarded starter.ts boot IIFE with if (process.env.VITEST !== 'true') so exported helpers can be imported for isolated vitest coverage without triggering real backend init. Rule 3 auto-fix; production behavior unchanged.
 - [Phase ?]: Plan 40-04 wired Wave 3: ChatMessage <a>-override renders EditableFileAffordance sibling on eligible URLs; PrettyView mounts EditableFileModal alongside IdentityModal with onStageEditedFile deposit into uploads.stageAttachments('primary')
 - [Phase ?]: Phase 41 Plan 03: docs-only deploy prep, Task 2 UAT gate held open
+- [Phase ?]: 43-01: parameterize tailSessionFile with optional 5th positional initialLines param (source-compatible, unblocks Wave 2 handshake wiring)
 
 ### Pending Todos
 
@@ -570,6 +572,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T22:37:15.928Z
+Last session: 2026-08-18T15:50:51.389Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Resume file: None
