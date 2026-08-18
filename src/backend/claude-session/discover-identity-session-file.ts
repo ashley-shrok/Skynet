@@ -84,7 +84,7 @@ export const DISCOVERY_EXEC_TIMEOUT_MS = 3000;
  * JSONL line's first-user-role content (starts with three dashes, contains
  * `GSDR-32` — plan 32-01 discovery marker).
  */
-const RECORD_SEPARATOR = "---GSDR-32---";
+export const RECORD_SEPARATOR = "---GSDR-32---";
 
 /**
  * The four delimiter characters that MAY appear immediately after the
@@ -167,7 +167,7 @@ export function __matchesIdentityFirstTurnForTests(
  * defense-in-depth) even though it is NEVER used in a shell-side grep
  * pattern — the byte-pattern match happens in JS after parsing stdout.
  */
-function buildDiscoveryScript(escapedIdentityName: string): string {
+export function buildDiscoveryScript(escapedIdentityName: string): string {
   // Note on escapedIdentityName: single-quote wrapping is applied at the
   // call site (identity name is validated to a safe subset upstream at the
   // WS-attach layer; this is defense-in-depth per T-32-01). The name is
@@ -210,7 +210,7 @@ function buildDiscoveryScript(escapedIdentityName: string): string {
  * The identity name is already validated to a safe subset upstream at the
  * WS-attach layer; this is defense-in-depth per T-32-01.
  */
-function shellSingleQuote(s: string): string {
+export function shellSingleQuote(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'";
 }
 
@@ -224,13 +224,13 @@ function shellSingleQuote(s: string): string {
  * throwing (fail-safe: better to miss one candidate than to crash the
  * dormant branch).
  */
-type DiscoveryRecord = {
+export type DiscoveryRecord = {
   mtime: number;
   path: string;
   firstUserLine: string;
 };
 
-function parseDiscoveryStdout(stdout: string): DiscoveryRecord[] {
+export function parseDiscoveryStdout(stdout: string): DiscoveryRecord[] {
   const records: DiscoveryRecord[] = [];
   if (stdout.length === 0) return records;
   // Split on the record separator; each chunk is:

@@ -42,6 +42,13 @@ import { isStaleFromStat } from "./liveness-check.js";
 import { resolvePidToTmuxSession } from "./pid-to-tmux.js";
 import { filterAmbientTasks } from "./ambient-filter.js";
 import { parseSessionLine } from "../claude-session/session-file-parser.js";
+import {
+  buildDiscoveryScript,
+  shellSingleQuote,
+  parseDiscoveryStdout,
+  __matchesIdentityFirstTurnForTests,
+  DISCOVERY_EXEC_TIMEOUT_MS,
+} from "../claude-session/discover-identity-session-file.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
@@ -203,6 +210,74 @@ function scanTailForNewestMessageAt(tailContents: string): number | null {
     }
   }
   return newest;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 44 Plan 02 — SshChannel-adapter for discoverIdentitySessionFile
+// ---------------------------------------------------------------------------
+
+/**
+ * Adapter that runs the Phase 32 identity-first-turn discovery script against
+ * the orchestrator's `SshChannel.exec` abstraction. The primary Phase 32
+ * function `discoverIdentitySessionFile(conn, identityName)` in
+ * `../claude-session/discover-identity-session-file.ts` consumes an ssh2
+ * `Client` via `execCommand(conn, script)`; the orchestrator only holds an
+ * injected `SshChannel` (returns null on SSH error rather than throwing), so
+ * we build a thin sibling here that reuses the SAME shell script
+ * (`buildDiscoveryScript` + `shellSingleQuote`), the SAME stdout parser
+ * (`parseDiscoveryStdout`), and the SAME first-turn predicate
+ * (`__matchesIdentityFirstTurnForTests`) — no logic duplication of the
+ * byte-pattern classifier, only a call-shape wrapper.
+ *
+ * Fail-safe contract (matches Phase 32 invariant 1 / D-05):
+ *   - `channel.exec` returns null (SSH error) → return null.
+ *   - `Promise.race` timeout exceeds DISCOVERY_EXEC_TIMEOUT_MS → return null.
+ *   - `parseDiscoveryStdout` yields zero records → return null.
+ *   - No record's first-user-line matches `<command-name>/id</command-name>
+ *     <command-args><identityName><delim>` → return null.
+ *
+ * Zero log lines emitted from here (matches Phase 32 invariant 5 / T-32-02);
+ * the CALLER (orchestrator processPid) owns structured logging on the
+ * null-return path.
+ *
+ * See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap for the caching + stale-
+ * threshold contract that consumes this helper.
+ */
+async function discoverIdentityJsonlPathViaChannel(
+  channel: SshChannel,
+  identityName: string,
+): Promise<string | null> {
+  const script = buildDiscoveryScript(shellSingleQuote(identityName));
+  let stdout: string | null;
+  try {
+    stdout = await Promise.race([
+      channel.exec(script),
+      new Promise<string | null>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `discoverIdentityJsonlPathViaChannel timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`,
+              ),
+            ),
+          DISCOVERY_EXEC_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+  } catch {
+    return null;
+  }
+  if (stdout === null || stdout.length === 0) return null;
+  const records = parseDiscoveryStdout(stdout);
+  // Records already mtime-desc from the shell's `sort -rn`; belt-and-suspenders
+  // resort in case shell locale ever deviates from strict numeric-descending.
+  records.sort((a, b) => b.mtime - a.mtime);
+  for (const rec of records) {
+    if (__matchesIdentityFirstTurnForTests(rec.firstUserLine, identityName)) {
+      return rec.path;
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
