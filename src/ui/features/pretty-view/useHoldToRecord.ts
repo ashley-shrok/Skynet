@@ -310,14 +310,29 @@ export function useHoldToRecord(
       // (L69). Simplifies slide-off tracking by ensuring the same element
       // receives pointerup regardless of where the pointer lands. jsdom does
       // not implement setPointerCapture, so wrap in try/catch for test safety.
+      let captured = false;
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
+        captured = true;
       } catch {
         // jsdom or older browsers without pointer capture — bounds check in
         // pointerup still works via outOfBoundsRef + getBoundingClientRect.
       }
+
+      // Forensic log: pair with pointerup/pointercancel logs by pointerId to
+      // diagnose the intermittent stuck-glow / no-RecordingControls bug where
+      // pointerdown fires but neither pointerup nor pointercancel does
+      // (suspected iOS Safari swallowing pointerup on a button that flips to
+      // disabled={voice.state !== "idle"} mid-gesture).
+      console.info(
+        "[hold-to-record] pointerdown started" +
+          " pointerType=" + e.pointerType +
+          " pointerId=" + e.pointerId +
+          " captured=" + captured +
+          " keepRecordingOnShortTap=" + (keepRecordingOnShortTap === true),
+      );
     },
-    [asideActive, disabled, voice, effectiveThreshold],
+    [asideActive, disabled, voice, effectiveThreshold, keepRecordingOnShortTap],
   );
 
   const onPointerUp = useCallback(
