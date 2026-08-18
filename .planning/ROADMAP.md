@@ -1233,7 +1233,7 @@ Plans:
 
 **Depends on:** Phase 27 (virtualization introduction — being retired), Phase 28 (virt correctness cluster — being retired), Phase 32 (auto-scroll three-case hook — being simplified)
 
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 
 Plans:
 
@@ -1252,7 +1252,7 @@ Plans:
 - [x] 43-07b-PLAN.md — Windowing + fetch_older client + drop-oldest cap + loading hint (150ms threshold) + reachedBeginning short-circuit + fetch-error warn-and-clear (depends on 43-07a)
 
 **Wave 4 (depends on Wave 3):**
-- [ ] 43-08-PLAN.md — Cleanup: delete virt-specific test files + npm uninstall @tanstack/react-virtual + three separate residual-reference checks (jq package.json + grep -c package-lock.json + grep -r src/) + explicit nginx-unchanged verify + human UAT checkpoint
+- [x] 43-08-PLAN.md — Cleanup: delete virt-specific test files + npm uninstall @tanstack/react-virtual + three separate residual-reference checks (jq package.json + grep -c package-lock.json + grep -r src/) + explicit nginx-unchanged verify + human UAT checkpoint
 
 **UI hint:** partial source-visible UI change. The PrettyView chat scroller behaves like a normal DOM scroller — no more virt-jitter, image-bubble grows cleanly, no jump-back on tall-bubble re-measure. A "load older" indicator may appear briefly near the top when scrolling back past the loaded window. Otherwise the render is byte-equivalent to current per-bubble output. iOS PWA + desktop both.
 

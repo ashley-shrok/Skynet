@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-08-18T19:39:06.670Z"
+status: verifying
+last_updated: "2026-08-18T20:18:20.484Z"
 last_activity: 2026-08-18
 progress:
   total_phases: 43
-  completed_phases: 34
+  completed_phases: 35
   total_plans: 178
-  completed_plans: 171
-  percent: 79
+  completed_plans: 172
+  percent: 81
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 43 (replace-pv-virtualization-with-plain-dom-windowed-paginatio) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 
 Last activity: 2026-08-18
 
@@ -253,6 +253,7 @@ Progress: [██████████] 98%
 | Phase 43 P04 | 15min | 2 tasks | 3 files |
 | Phase 43 P07a | 3740 | 2 tasks | 2 files |
 | Phase 43 P07b | 55min | 2 tasks | 2 files |
+| Phase 43 P08 | 25 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -384,6 +385,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Composed ref pattern LOCKED (plan-checker MED-3): composedScrollRef in PrettyView forwards to useAutoScroll's scrollRef AND stores element locally via setScrollEl; useAutoScroll's 3-field return API preserved (43-06 Test 8 still passes)
 - [Phase ?]: messagesRef live-mirror pattern for fireFetchOlder: avoids re-creating the useCallback on every message append (which would tear down the scroll-listener effect and drop scroll events); same pattern as isVisibleRef, dormantRef, paneStateRef in the same file
 - [Phase ?]: parsed as unknown + isFetchOlderBatchEvent runtime guard (NOT extending ClaudeSessionServerEvent union) — honors plan's do-not-touch directive for claude-session-api.ts
+- [Phase ?]: Phase 43 Plan 08: @tanstack/react-virtual evicted end-to-end via THREE independent executable checks (jq of package.json, grep -c of package-lock.json, grep -r of src/) per plan-checker HIGH #4; nginx byte-unchanged proven via git diff canary — replaces prose claim per HIGH #4; deletion-then-uninstall ordering isolates regression signal
 
 ### Pending Todos
 
@@ -595,7 +597,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-18T19:39:06.341Z
+Last session: 2026-08-18T20:18:09.449Z
 Stopped at: Completed 43-07b-PLAN.md
 Resume file: 
 None
