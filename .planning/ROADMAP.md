@@ -1266,13 +1266,13 @@ Plans:
 
 **Depends on:** Phase 42 (fleet-status wire lastMessageAt field + comparator seam + no-history-to-top lock this phase revisits), Phase 32 (`discoverIdentitySessionFile` byte-pattern mechanism consumed as-is), Phase 7 (fleet-native /sessions/list route being extended)
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed — code work complete; verification + shipping orchestrator-scope
 
 Plans:
 - [x] 44-01-PLAN.md — /sessions/list route extended with per-session `lastMessageAt` derivation (discovery + tail scan, per-session Promise.all mirroring resolveRoleForIdentity, per-session failure isolation) *(2026-08-18: shipped — 10/10 route tests pass, full suite 2440 pass)*
 - [x] 44-02-PLAN.md — ssh-poll-orchestrator swap: `jsonlPathForSession(cwd, sessionId)` → `discoverIdentityJsonlPathViaChannel(channel, tmuxSession)` with cached `jsonlPath` in PidCacheEntry + rediscovery-on-stale threshold (defense against JSONL rotation mid-session)
 - [x] 44-03-PLAN.md — Working-store reconciliation chokepoint: `advanceSessionLastMessageAt` (max-wins), `seedSessionLastMessageAt` (public seed API), refactored `publishFleetStatusSessionState` to funnel through it + wire-type extension for RemoteTmuxSession *(2026-08-18: shipped — 32/32 session-working-store tests pass incl 15 new reconciliation-contract tests; full suite 2529 pass; both builds exit 0)*
-- [ ] 44-04-PLAN.md — AppShell wires seedSessionLastMessageAt per /sessions/list row (cached + fresh) + FleetSession type extension with cache-key bump to v2 + compareByRecencyDesc Rule 1 flip from null-to-top to null-to-bottom (retires Ashley's 2026-08-14 lock)
+- [x] 44-04-PLAN.md — AppShell wires seedSessionLastMessageAt per /sessions/list row (cached + fresh) + FleetSession type extension with cache-key bump to v2 + compareByRecencyDesc Rule 1 flip from null-to-top to null-to-bottom (retires Ashley's 2026-08-14 lock) *(2026-08-18: shipped — 99/99 conversation-store tests pass incl 9 new Phase 44 Plan 04 tests; full suite 2538 pass; both builds exit 0)*
 
 **Wave 1** *(parallel — no file overlap)*
 - [x] 44-01-PLAN.md — /sessions/list route extension *(2026-08-18)*
@@ -1282,7 +1282,7 @@ Plans:
 - [x] 44-03-PLAN.md — session-working-store reconciliation chokepoint + sessions-api.ts RemoteTmuxSession extension *(2026-08-18)*
 
 **Wave 3** *(blocked on 44-01 + 44-02 + 44-03 — coordinated wire-consumer + type + comparator flip on files that must land together)*
-- [ ] 44-04-PLAN.md — AppShell seed wiring + FleetSession type + comparator Rule 1 flip
+- [x] 44-04-PLAN.md — AppShell seed wiring + FleetSession type + comparator Rule 1 flip *(2026-08-18: shipped)*
 
 **UI hint:** no source-visible UI redesign. Zero changes to `PrettyConversationsPanel.tsx` or `pretty-conversations.css`. The middle-zone ordering fix ships purely by giving the existing comparator + snapshot pipeline correct inputs. Scope fence in 44-CONTEXT.md `<scope_fence>` enumerates hard-blocked files.
 
