@@ -227,7 +227,17 @@ export interface CloneIdentityInput {
 
 export async function cloneIdentity(input: CloneIdentityInput): Promise<Identity> {
   try {
-    const response = await authApi.post("/identities/clone", input);
+    // Per-call timeout override. Default authApi timeout is 30s but the
+    // clone backend deliberately blocks ~25s in startHarnessOnIdentity
+    // (STEP_3_SLEEP_MS 2s + 6 × ENTER_TRAIN_SPACING_MS 3s = 20s of sleeps
+    // + ~15 SSH exec RTTs on the target host). On any SSH jitter it
+    // crosses 30s; frontend times out but backend runs to completion,
+    // leaving a "zombie" identity the user thinks failed. 120s gives
+    // ~90s headroom over observed backend wall time. Same shape as
+    // postGenerateAvatarBatch above and voice-transcribe (patch #456).
+    const response = await authApi.post("/identities/clone", input, {
+      timeout: 120_000,
+    });
     return response.data as Identity;
   } catch (error) {
     const err = error as { response?: { status?: number } };
