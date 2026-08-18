@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-18T16:04:00.000Z"
+last_updated: "2026-08-18T16:44:35.056Z"
 last_activity: 2026-08-18
 progress:
   total_phases: 43
   completed_phases: 34
   total_plans: 178
-  completed_plans: 166
-  percent: 80
+  completed_plans: 167
+  percent: 79
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 43 (replace-pv-virtualization-with-plain-dom-windowed-paginatio) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 
 Last activity: 2026-08-18
@@ -156,7 +156,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [█████████░] 94%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -247,6 +247,7 @@ Progress: [█████████░] 94%
 | Phase 43 P43-01 | 225 | 2 tasks | 2 files |
 | Phase 43 P43-02 | 240 | 2 tasks | 2 files |
 | Phase 43 P43-03 | 211 | 1 tasks | 1 files |
+| Phase 43 P06 | 22 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -368,6 +369,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 41 Plan 03: docs-only deploy prep, Task 2 UAT gate held open
 - [Phase ?]: 43-01: parameterize tailSessionFile with optional 5th positional initialLines param (source-compatible, unblocks Wave 2 handshake wiring)
 - 2026-08-18 (43-02): One file, two exports — `readSessionFileRange` + `resolveEventIdToLine` land together in `session-file-range.ts` because the Wave 2 caller invokes them in a bound sequence (eventId→line, then read that slice). Duplicated `EXEC_TIMEOUT_MS = 3000` inline rather than importing from `context-pct-from-jsonl.ts` — keeps this file self-sufficient across two independent SSH tasks that share only the same conn. `MAX_RANGE_SPAN = 10000` guardrail rejects garbage before it hits `sed`; typical batch is ~50. EventId embedded-single-quote → return null (no shell-escape) — same posture as the path escape rule, one layer down: treat unsafe ids as unresolvable rather than either throwing or attempting escape-and-substitute. Non-null empty array is semantically distinct from null (`[]` = "exec succeeded but every line was empty/skip" — Wave 2 keys `reachedBeginning: true` off this; `null` = "read failed" — Wave 2 keys `error: "..."` off this).
+- [Phase ?]: Phase 43 P43-06: rewrote useAutoScroll from 245 lines to 86 (43 non-comment/non-blank). Preserved 2-arg signature + frozen 3-field return API { scrollRef, scrollToBottomAndFollow, isPinnedToBottom } — no scrollEl exposure, no 4th field, Test 8 Object.keys locks the shape. BOTTOM_EPSILON=100px byte-equivalent to Phase 32 BOTTOM_THRESHOLD. Deleted every construct in 43-CONTEXT § Deletion scope: programmaticRef, MEASUREMENT_DELTA_IGNORE_PX (<20px delta heuristic), stickyRef, rAF chain over STICK_ARM_MS=150ms, ResizeObserver+MutationObserver per-child machinery, tall-bubble jump-protection block.
+- [Phase ?]: Phase 43 P43-06: Skipped 4 tests in PrettyView.virtualization.test.tsx (Test 2 / 2b / 2c / 2d) rather than deleting them — full file deletion is plan 43-07a's job per 43-CONTEXT § Deletion scope. .skip + explanatory comment pointing to 43-07a preserves the historical record for one plan-cycle while keeping the suite green (642 passed / 13 skipped / 0 failed). Test 3 (don't-yank-when-scrolled-up regression) still passes against the new hook. All behaviors of the skipped tests are covered directly by new use-auto-scroll.test.ts Tests 4/5/6.
 
 ### Pending Todos
 
@@ -579,6 +582,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-18T15:50:51.389Z
-Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
-Resume file: None
+Last session: 2026-08-18T16:44:34.773Z
+Stopped at: None
+Resume file: 

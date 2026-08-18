@@ -1233,7 +1233,7 @@ Plans:
 
 **Depends on:** Phase 27 (virtualization introduction — being retired), Phase 28 (virt correctness cluster — being retired), Phase 32 (auto-scroll three-case hook — being simplified)
 
-**Plans:** 3/9 plans executed
+**Plans:** 4/9 plans executed
 
 Plans:
 
@@ -1241,7 +1241,7 @@ Plans:
 - [x] 43-01-PLAN.md — Parameterize session-file-tail.ts to accept an initial-lines override (backcompat preserved)
 - [x] 43-02-PLAN.md — New readSessionFileRange + resolveEventIdToLine helpers (one-shot SSH exec + sed range read + grep eventId→line lookup)
 - [x] 43-03-PLAN.md — Wire scaffolding: openClaudeSessionSocket({historyWindow}) + FetchOlderPayload (locked to `{anchorEventId, count}` — NO anchorLine field) + FetchOlderBatchEvent types
-- [ ] 43-06-PLAN.md — Rewrite use-auto-scroll.ts from 245 lines to ~50 (plain-DOM pinned-follow + no-yank-when-scrolled-up); hook return API frozen
+- [x] 43-06-PLAN.md — Rewrite use-auto-scroll.ts from 245 lines to ~50 (plain-DOM pinned-follow + no-yank-when-scrolled-up); hook return API frozen
 
 **Wave 2 (depends on Wave 1):**
 - [ ] 43-04-PLAN.md — Backend: handleFetchOlder extracted handler (eventId→line lookup then range read) + historyWindow handshake parse + thread into tailSessionFile; observation channel byte-verified unchanged via PHASE-43 anchor comments (depends on 43-01, 43-02, 43-03)
