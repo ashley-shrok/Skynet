@@ -1236,13 +1236,13 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 43-01-PLAN.md — /sessions/list route extended with per-session `lastMessageAt` derivation (discovery + tail scan, per-session Promise.all mirroring resolveRoleForIdentity, per-session failure isolation)
+- [x] 43-01-PLAN.md — /sessions/list route extended with per-session `lastMessageAt` derivation (discovery + tail scan, per-session Promise.all mirroring resolveRoleForIdentity, per-session failure isolation) *(2026-08-18: shipped — 10/10 route tests pass, full suite 2440 pass)*
 - [ ] 43-02-PLAN.md — ssh-poll-orchestrator swap: `jsonlPathForSession(cwd, sessionId)` → `discoverIdentityJsonlPathViaChannel(channel, tmuxSession)` with cached `jsonlPath` in PidCacheEntry + rediscovery-on-stale threshold (defense against JSONL rotation mid-session)
 - [ ] 43-03-PLAN.md — Working-store reconciliation chokepoint: `advanceSessionLastMessageAt` (max-wins), `seedSessionLastMessageAt` (public seed API), refactored `publishFleetStatusSessionState` to funnel through it + wire-type extension for RemoteTmuxSession
 - [ ] 43-04-PLAN.md — AppShell wires seedSessionLastMessageAt per /sessions/list row (cached + fresh) + FleetSession type extension with cache-key bump to v2 + compareByRecencyDesc Rule 1 flip from null-to-top to null-to-bottom (retires Ashley's 2026-08-14 lock)
 
 **Wave 1** *(parallel — no file overlap)*
-- [ ] 43-01-PLAN.md — /sessions/list route extension
+- [x] 43-01-PLAN.md — /sessions/list route extension *(2026-08-18)*
 - [ ] 43-02-PLAN.md — ssh-poll-orchestrator JSONL derivation swap
 
 **Wave 2** *(blocked on 43-01 completion for wire-type shape)*
