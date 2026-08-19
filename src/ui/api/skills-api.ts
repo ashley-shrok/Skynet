@@ -139,10 +139,17 @@ export async function writeSkillFile(
     const err = error as {
       response?: {
         status?: number;
-        data?: { currentMtime?: number; currentContent?: string };
+        data?: { error?: string; currentMtime?: number; currentContent?: string };
       };
     };
-    if (err?.response?.status === 409) {
+    // Only recognize the specific mtime-mismatch 409 shape. If the backend
+    // ever adds a different 409 semantic (e.g. "concurrent write in progress")
+    // we do NOT want to misinterpret it as a stale-mtime conflict — that
+    // would trigger the wrong reload prompt at the user.
+    if (
+      err?.response?.status === 409 &&
+      err.response.data?.error === "mtime mismatch"
+    ) {
       throw new SkillFileMtimeConflictError(
         err.response.data?.currentMtime ?? 0,
         err.response.data?.currentContent ?? "",
@@ -172,8 +179,16 @@ export async function createSkillFile(
     });
     return response.data as { path: string; mtime: number };
   } catch (error) {
-    const err = error as { response?: { status?: number } };
-    if (err?.response?.status === 409) {
+    const err = error as {
+      response?: { status?: number; data?: { error?: string } };
+    };
+    // Only recognize the specific file-exists 409 shape (same defense as
+    // writeSkillFile — a future 409 semantic on this endpoint shouldn't
+    // misfire as an already-exists dialog).
+    if (
+      err?.response?.status === 409 &&
+      err.response.data?.error === "file exists"
+    ) {
       throw new SkillFileAlreadyExistsError();
     }
     handleApiError(error, "create skill file");

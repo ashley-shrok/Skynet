@@ -198,6 +198,10 @@ function defaultExecImpl(cmd: string): Promise<string> {
   if (cmd.includes("stat -c '%Y'")) return Promise.resolve("1700000042");
   if (cmd.includes("stat -c '%s'")) return Promise.resolve("11");
   if (cmd.startsWith("test -e")) return Promise.resolve("ok");
+  // Default: any `test -d ${skillRoot}` check assumes the skill folder
+  // exists (create-endpoint skill-existence gate — post-fix for the
+  // reviewer's Concern #2 about implicit skill creation).
+  if (cmd.startsWith("test -d ")) return Promise.resolve("exists");
   if (cmd.startsWith("mkdir -p")) return Promise.resolve("");
   if (cmd.startsWith("touch ")) return Promise.resolve("");
   if (cmd.startsWith("rm ")) return Promise.resolve("");
@@ -608,6 +612,32 @@ describe("POST /skills-editor/create", () => {
       body: JSON.stringify({ hostId: 1, skill: "bad name", path: "x.md" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("404 with { error: 'skill not found' } when the skill folder is missing (no implicit scaffolding)", async () => {
+    // Reviewer's Concern #2: without the skill-existence gate, `mkdir -p`
+    // silently creates the whole skill folder from thin air, violating the
+    // shape's "Creating a brand-new skill from scratch is out of scope" OUT.
+    // This test proves the gate refuses and no touch/mkdir on the skill root fires.
+    (execCommand as Mock).mockImplementation(
+      async (_conn: unknown, cmd: string) => {
+        if (cmd === "echo $HOME") return "/home/testuser\n";
+        // Skill folder does NOT exist.
+        if (cmd.startsWith("test -d ")) return "missing";
+        return defaultExecImpl(cmd);
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/create",
+      body: JSON.stringify({ hostId: 1, skill: "novel-skill", path: "hi.md" }),
+    });
+    expect(res.status).toBe(404);
+    expect((res.body as { error: string }).error).toBe("skill not found");
+    // Critical: no mkdir or touch fired after the 404 — no skill materialized.
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    expect(calls.find(([, c]) => c.startsWith("mkdir -p"))).toBeUndefined();
+    expect(calls.find(([, c]) => c.startsWith("touch "))).toBeUndefined();
   });
 });
 

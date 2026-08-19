@@ -76,11 +76,14 @@ export default function SkillsEditorModal({
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [tabData, setTabData] = useState<Map<string, TabState<SkillFileTabData>>>(new Map());
 
-  // Delete confirmation state (two dialogs — one for file, one for skill).
+  // Delete confirmation state — per-dialog so a stale error / in-flight flag
+  // from one dialog can't bleed into the other.
   const [deleteFileConfirm, setDeleteFileConfirm] = useState<{ path: string } | null>(null);
+  const [deleteFileInFlight, setDeleteFileInFlight] = useState<boolean>(false);
+  const [deleteFileError, setDeleteFileError] = useState<string | null>(null);
   const [deleteSkillConfirm, setDeleteSkillConfirm] = useState<boolean>(false);
-  const [deleteInFlight, setDeleteInFlight] = useState<boolean>(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSkillInFlight, setDeleteSkillInFlight] = useState<boolean>(false);
+  const [deleteSkillError, setDeleteSkillError] = useState<string | null>(null);
 
   // Pitfall 7: RDP-only hosts don't have SSH — filter them out. Verbatim from
   // GlobalFilesModal.tsx L68 — this filter is load-bearing.
@@ -99,9 +102,11 @@ export default function SkillsEditorModal({
       setActiveTab(null);
       setTabData(new Map());
       setDeleteFileConfirm(null);
+      setDeleteFileInFlight(false);
+      setDeleteFileError(null);
       setDeleteSkillConfirm(false);
-      setDeleteInFlight(false);
-      setDeleteError(null);
+      setDeleteSkillInFlight(false);
+      setDeleteSkillError(null);
       return;
     }
     // Prefer defaultHostId if it's in the fleet
@@ -279,17 +284,18 @@ export default function SkillsEditorModal({
       setFiles({ status: "ready", data: entries });
       setActiveTab(relPath);
     } catch (err) {
-      if (err instanceof SkillFileAlreadyExistsError) {
-        setFiles({
-          status: "error",
-          error: "A file with that name already exists in this skill.",
-        });
-        return;
-      }
-      setFiles({
-        status: "error",
-        error: err instanceof Error ? err.message : "Failed to create file",
-      });
+      // Surface as a transient prompt-style alert. Do NOT clobber `files`
+      // state — that would hide every existing tab and lose unsaved drafts
+      // until the user closes+reopens the modal (the exact "friction on the
+      // fast path" the shape flagged as the sole failure mode). Consistent
+      // with the existing window.prompt UX for the filename input.
+      const msg =
+        err instanceof SkillFileAlreadyExistsError
+          ? `A file named "${relPath}" already exists in this skill.`
+          : err instanceof Error
+          ? `Couldn't create "${relPath}": ${err.message}`
+          : `Couldn't create "${relPath}".`;
+      window.alert(msg);
     }
   }, [selectedHostId, selectedSkillName]);
 
@@ -297,8 +303,8 @@ export default function SkillsEditorModal({
   const handleDeleteFile = useCallback(async (): Promise<void> => {
     if (selectedHostId == null || selectedSkillName == null || deleteFileConfirm == null) return;
     const doomedPath = deleteFileConfirm.path;
-    setDeleteInFlight(true);
-    setDeleteError(null);
+    setDeleteFileInFlight(true);
+    setDeleteFileError(null);
     try {
       await deleteSkillFile(selectedHostId, selectedSkillName, doomedPath);
       // Refetch file list.
@@ -323,19 +329,19 @@ export default function SkillsEditorModal({
       setDeleteFileConfirm(null);
     } catch (err) {
       // Dialog stays open per UI-SPEC L195; error surfaces below the body.
-      setDeleteError(
+      setDeleteFileError(
         err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete",
       );
     } finally {
-      setDeleteInFlight(false);
+      setDeleteFileInFlight(false);
     }
   }, [selectedHostId, selectedSkillName, deleteFileConfirm, activeTab]);
 
   // Delete-skill confirm handler.
   const handleDeleteSkill = useCallback(async (): Promise<void> => {
     if (selectedHostId == null || selectedSkillName == null) return;
-    setDeleteInFlight(true);
-    setDeleteError(null);
+    setDeleteSkillInFlight(true);
+    setDeleteSkillError(null);
     try {
       await deleteSkill(selectedHostId, selectedSkillName);
       // Refetch skills list, clear skill selection + tab list.
@@ -347,11 +353,11 @@ export default function SkillsEditorModal({
       setTabData(new Map());
       setDeleteSkillConfirm(false);
     } catch (err) {
-      setDeleteError(
+      setDeleteSkillError(
         err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete",
       );
     } finally {
-      setDeleteInFlight(false);
+      setDeleteSkillInFlight(false);
     }
   }, [selectedHostId, selectedSkillName]);
 
@@ -480,7 +486,7 @@ export default function SkillsEditorModal({
                 type="button"
                 title="Delete this skill"
                 onClick={() => {
-                  setDeleteError(null);
+                  setDeleteSkillError(null);
                   setDeleteSkillConfirm(true);
                 }}
                 className="size-6 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
@@ -578,7 +584,7 @@ export default function SkillsEditorModal({
                       handleSave(file.path, content, expectedMtime)
                     }
                     onRequestDelete={() => {
-                      setDeleteError(null);
+                      setDeleteFileError(null);
                       setDeleteFileConfirm({ path: file.path });
                     }}
                   />
@@ -646,7 +652,7 @@ export default function SkillsEditorModal({
           onOpenChange={(o) => {
             if (!o) {
               setDeleteFileConfirm(null);
-              setDeleteError(null);
+              setDeleteFileError(null);
             }
           }}
           heading="Delete file?"
@@ -662,8 +668,8 @@ export default function SkillsEditorModal({
           }
           primaryLabel="Delete"
           onConfirm={() => { void handleDeleteFile(); }}
-          inFlight={deleteInFlight}
-          error={deleteError}
+          inFlight={deleteFileInFlight}
+          error={deleteFileError}
           container={container ?? undefined}
         />
 
@@ -673,7 +679,7 @@ export default function SkillsEditorModal({
           onOpenChange={(o) => {
             if (!o) {
               setDeleteSkillConfirm(false);
-              setDeleteError(null);
+              setDeleteSkillError(null);
             }
           }}
           heading="Delete skill?"
@@ -691,8 +697,8 @@ export default function SkillsEditorModal({
           }
           primaryLabel="Delete skill"
           onConfirm={() => { void handleDeleteSkill(); }}
-          inFlight={deleteInFlight}
-          error={deleteError}
+          inFlight={deleteSkillInFlight}
+          error={deleteSkillError}
           container={container ?? undefined}
         />
       </DialogPrimitive.Portal>

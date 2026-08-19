@@ -458,8 +458,13 @@ router.get(
  */
 router.post(
   "/read",
-  express.json({ limit: "32kb" }), // hostId + skill + path only
+  // Auth BEFORE the body parser — unauthenticated attackers shouldn't get to
+  // parse an arbitrary-shaped JSON body before we reject them (cheap DoS
+  // amplification vector). authenticateJWT reads only from cookie/header,
+  // so it works fine with an unread body; Express drains the socket after
+  // sending the 401.
   authenticateJWT,
+  express.json({ limit: "32kb" }), // hostId + skill + path only
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
 
@@ -604,8 +609,8 @@ router.post(
  */
 router.put(
   "/write",
+  authenticateJWT, // BEFORE body parser — see /read for rationale (unauth attackers shouldn't get to send 4MB bodies before we reject them)
   express.json({ limit: "4mb" }), // matches nginx client_max_body_size
-  authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
 
@@ -795,8 +800,8 @@ router.put(
  */
 router.post(
   "/create",
+  authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
-  authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
 
@@ -868,10 +873,27 @@ router.post(
         res.status(400).json({ error: "path escape detected" });
         return;
       }
-      const { absPath } = paths;
+      const { skillRoot, absPath } = paths;
       const escapedPath = shellEscape(absPath);
+      const escapedSkillRoot = shellEscape(skillRoot);
 
-      // 3. Existence check — 409 if target already exists (idempotent-create
+      // 3. Skill-existence gate — the shape says "Creating a brand-new skill
+      //    from scratch is out of scope for this cut." Without this guard,
+      //    the mkdir -p below silently creates the skill folder for any
+      //    novel skill name a caller supplies via the API, violating the
+      //    scope contract. Bail 404 if the skill doesn't exist yet.
+      const skillDirCheck = (
+        await execWithTimeout(
+          conn,
+          `test -d ${escapedSkillRoot} && echo exists || echo missing`,
+        )
+      ).trim();
+      if (skillDirCheck !== "exists") {
+        res.status(404).json({ error: "skill not found" });
+        return;
+      }
+
+      // 4. Existence check — 409 if target already exists (idempotent-create
       //    is a bug; user would be confused if their "new file" was actually
       //    an unexpected overwrite of an existing one).
       const existsCheck = (
@@ -885,14 +907,16 @@ router.post(
         return;
       }
 
-      // 4. Ensure parent dir exists (subpath creation — mkdir -p is idempotent).
+      // 5. Ensure parent dir exists inside the skill (mkdir -p is idempotent,
+      //    and the skill-existence gate above guarantees we never create the
+      //    skill folder itself here — this only handles subpath dirs).
       const parentDir = absPath.slice(0, absPath.lastIndexOf("/"));
       await execWithTimeout(conn, `mkdir -p ${shellEscape(parentDir)}`);
 
-      // 5. Touch the file.
+      // 6. Touch the file.
       await execWithTimeout(conn, `touch ${escapedPath}`);
 
-      // 6. Stat for authoritative mtime.
+      // 7. Stat for authoritative mtime.
       const mtimeStr = (
         await execWithTimeout(
           conn,
@@ -934,8 +958,8 @@ router.post(
  */
 router.delete(
   "/file",
+  authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
-  authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
 
@@ -1057,8 +1081,8 @@ router.delete(
  */
 router.delete(
   "/skill",
+  authenticateJWT, // BEFORE body parser — see /read for rationale (extra important on the rm -rf endpoint)
   express.json({ limit: "32kb" }),
-  authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
 
