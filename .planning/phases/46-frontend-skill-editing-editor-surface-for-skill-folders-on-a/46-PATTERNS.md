@@ -1,10 +1,10 @@
-# Phase 44: Frontend skill editing — Pattern Map
+# Phase 46: Frontend skill editing — Pattern Map
 
 **Mapped:** 2026-08-18
 **Files analyzed:** 10 (7 new + 3 modified)
 **Analogs found:** 10 / 10 (all exact or role-match — this phase is a full mirror-and-fork of Phase 23)
 
-**Discipline for the planner:** every new file has a byte-shape precedent in the Phase 23 global-files cluster. The pattern excerpts below are the exact code the executor should copy, then s/global-files/skills-editor/g and thread the skill dimension. Where Phase 44 genuinely diverges (path-safety gate, recursive enumeration, isText detection, modal-in-modal confirmations, delete-skill), the divergence is called out per file with its own excerpt or callout.
+**Discipline for the planner:** every new file has a byte-shape precedent in the Phase 23 global-files cluster. The pattern excerpts below are the exact code the executor should copy, then s/global-files/skills-editor/g and thread the skill dimension. Where Phase 46 genuinely diverges (path-safety gate, recursive enumeration, isText detection, modal-in-modal confirmations, delete-skill), the divergence is called out per file with its own excerpt or callout.
 
 ---
 
@@ -59,7 +59,7 @@ const SSH_CONNECT_TIMEOUT_MS = 5000;
 const SSH_EXEC_TIMEOUT_MS = 5000;
 const MAX_PATH_LENGTH = 512;
 const MAX_CONTENT_BYTES = 2_000_000;
-// NEW for Phase 44:
+// NEW for Phase 46:
 const SKILL_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
 ```
 
@@ -90,7 +90,7 @@ function shellEscape(s: string): string {
 }
 ```
 
-**PATTERNS trap #3 reminder** (from `global-files-read-write.ts` L98-108 comment): the regex gate is the AUTH gate; `shellEscape` is the INJECTION gate; **both are required**. In Phase 44 the AUTH gate shifts from a JSON whitelist to `isValidSkillName` + `isSafeRelativePath` + prefix assertion, but the same two-gate discipline applies.
+**PATTERNS trap #3 reminder** (from `global-files-read-write.ts` L98-108 comment): the regex gate is the AUTH gate; `shellEscape` is the INJECTION gate; **both are required**. In Phase 46 the AUTH gate shifts from a JSON whitelist to `isValidSkillName` + `isSafeRelativePath` + prefix assertion, but the same two-gate discipline applies.
 
 #### Endpoint skeleton (validate → resolveHost → connect → exec → cleanup)
 
@@ -228,7 +228,7 @@ const deleteCommand = isDirectory
   : `rm -f '${escapedPath}'`;
 ```
 
-**For Phase 44 use `shellEscape` (not the inline replace) for consistency with the rest of the router.** Two endpoints:
+**For Phase 46 use `shellEscape` (not the inline replace) for consistency with the rest of the router.** Two endpoints:
 
 - `DELETE /skills-editor/file` → `rm -f ${shellEscape(absPath)}` (idempotent — `-f` swallows missing).
 - `DELETE /skills-editor/skill` → `rm -rf ${shellEscape(skillRoot)}` — **the path-safety gate MUST fire first**. A skill name that escapes validation and resolves to `~/` would `rm -rf ~/`. See § Shared Patterns → Path Safety Gate.
@@ -296,7 +296,7 @@ vi.mock("../../utils/auth-manager.js", () => {
 
 **Source:** `global-files-read-write.test.ts` L68-120 (verbatim). Copy `vi.mock("../../ssh/ssh-one-shot.js", ...)`, `vi.mock("../../ssh/tmux-helper.js", ...)`, `vi.mock("../../ssh/host-resolver.js", ...)`, `vi.mock("../../claude-session/identity-artifact-reader.js", ...)`, and `vi.mock("../../utils/logger.js", ...)`. Then `const { default: router } = await import("./skills-editor.js");` AFTER the mocks (L197 pattern).
 
-**Drop** the `vi.mock("./global-files-config-loader.js", ...)` block — no whitelist config in Phase 44.
+**Drop** the `vi.mock("./global-files-config-loader.js", ...)` block — no whitelist config in Phase 46.
 
 #### HTTP request helper (verbatim)
 
@@ -310,7 +310,7 @@ vi.mock("../../utils/auth-manager.js", () => {
 
 **Source:** `global-files-read-write.test.ts` L237-533 has 8 named tests (B1-B4 read, W1-W4 write) — the shape to mirror.
 
-**Phase 44 additional coverage (critical — see RESEARCH.md § Pitfall 1):**
+**Phase 46 additional coverage (critical — see RESEARCH.md § Pitfall 1):**
 
 ```typescript
 // Path-escape rejection — 400 responses for every attack input:
@@ -424,7 +424,7 @@ Full expected file shape is spelled out in RESEARCH.md § Frontend API helper (L
 ```typescript
 // GlobalFilesModal.tsx L1-16 (imports pattern; add Trash2, AlertTriangle to lucide-react):
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, X, Trash2, AlertTriangle } from "lucide-react";  // +Trash2 +AlertTriangle for Phase 44
+import { FileText, X, Trash2, AlertTriangle } from "lucide-react";  // +Trash2 +AlertTriangle for Phase 46
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
 import { Tabs, TabsContent } from "@/components/tabs";
@@ -458,7 +458,7 @@ const [files, setFiles] = useState<TabState<GlobalFileEntry[]>>({ status: "loadi
 const [activeTab, setActiveTab] = useState<string | null>(null);
 const [tabData, setTabData] = useState<Map<string, TabState<GlobalFileTabData>>>(new Map());
 
-// Phase 44 additions:
+// Phase 46 additions:
 // const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
 // const [skills, setSkills] = useState<TabState<SkillEntry[]>>({ status: "loading" });
 
@@ -512,9 +512,9 @@ useEffect(() => {
 }, [selectedHostId, activeTab]);
 ```
 
-**Phase 44 change:** deps become `[selectedHostId, selectedSkillName, activeTab]` and `readGlobalFile(hostId, path)` becomes `readSkillFile(hostId, skill, path)`. The response type gains an `isText` field; store `{ content, mtime, isText }` in the tab data map. Everything else — including the comment and eslint-disable — is preserved.
+**Phase 46 change:** deps become `[selectedHostId, selectedSkillName, activeTab]` and `readGlobalFile(hostId, path)` becomes `readSkillFile(hostId, skill, path)`. The response type gains an `isText` field; store `{ content, mtime, isText }` in the tab data map. Everything else — including the comment and eslint-disable — is preserved.
 
-**Phase 44 addition — non-text branch:** in the SkillFileTab render, switch on `state.data.isText` to render either the textarea (verbatim `GlobalFileTab`) or the `AlertTriangle` placeholder card.
+**Phase 46 addition — non-text branch:** in the SkillFileTab render, switch on `state.data.isText` to render either the textarea (verbatim `GlobalFileTab`) or the `AlertTriangle` placeholder card.
 
 #### The mtime-conflict save handler
 
@@ -611,7 +611,7 @@ const handleSave = useCallback(
   ))}
 </select>
 
-// Phase 44 additions AFTER the host <select>:
+// Phase 46 additions AFTER the host <select>:
 // - Skill <select> with SAME className. Placeholder: "Pick a host first…" (disabled) or "Pick a skill…" (enabled).
 // - "+ Add file" button — same width/height/border-radius; accent hover (hsla(220,80%,60%,0.20/0.30)); disabled when no skill or file list loading.
 // - Trash2 icon-button (size-6 rounded-md hover:bg-white/[0.06]; text color #a89a80 → hover #f87171).
@@ -647,14 +647,14 @@ const handleSave = useCallback(
 )}
 ```
 
-**Phase 44 branches (per UI-SPEC copy):**
+**Phase 46 branches (per UI-SPEC copy):**
 - No host: "Pick a host to load its skills."
 - Host picked, skills loading: "Loading skills…"
 - Skills error: `Couldn't load skills: {err.message}`
 - No skills: heading "No skills on this host." body "Skills live in `~/.claude/skills/` on the host. Nothing to edit here yet."
 - Skill picked, files loading/error/empty (parallel copy per UI-SPEC L136-142).
 
-#### Bottom tab strip (horizontal-scroll wrapper is the Phase 44 divergence)
+#### Bottom tab strip (horizontal-scroll wrapper is the Phase 46 divergence)
 
 **Source:** `GlobalFilesModal.tsx` L321-370 (verbatim pattern with one addition):
 
@@ -662,7 +662,7 @@ const handleSave = useCallback(
 // GlobalFilesModal.tsx L322-331 — tab-strip outer wrapper (glass surround):
 <div
   className="shrink-0 flex items-stretch justify-around px-2 py-1 border-t"
-  // Phase 44 addition per UI-SPEC L257 + D-06:
+  // Phase 46 addition per UI-SPEC L257 + D-06:
   //   className="shrink-0 flex items-stretch px-2 py-1 border-t overflow-x-auto"
   //   style={{ ...existing, WebkitOverflowScrolling: "touch" }}
   //   (drop justify-around because horizontal-scroll wants natural flex start alignment)
@@ -707,9 +707,9 @@ const handleSave = useCallback(
 </div>
 ```
 
-**Phase 44 label:** `<span>{file.path}</span>` (whole relative path per D-05 — e.g. `tests/basic.py`), not `.split("/").pop()`.
+**Phase 46 label:** `<span>{file.path}</span>` (whole relative path per D-05 — e.g. `tests/basic.py`), not `.split("/").pop()`.
 
-**Phase 44 flex change:** drop `flex-1` and `justify-around`; instead let tabs be intrinsic-width and let the wrapper's `overflow-x-auto` scroll them.
+**Phase 46 flex change:** drop `flex-1` and `justify-around`; instead let tabs be intrinsic-width and let the wrapper's `overflow-x-auto` scroll them.
 
 ---
 
@@ -740,7 +740,7 @@ vi.mock("@/api/global-files-api", async (importOriginal) => {
 });
 ```
 
-**Phase 44 mock target:** `@/api/skills-api` with `listSkills`, `enumerateSkillFiles`, `readSkillFile`, `writeSkillFile`, `createSkillFile`, `deleteSkillFile`, `deleteSkill`.
+**Phase 46 mock target:** `@/api/skills-api` with `listSkills`, `enumerateSkillFiles`, `readSkillFile`, `writeSkillFile`, `createSkillFile`, `deleteSkillFile`, `deleteSkill`.
 
 #### Host tree fixture (verbatim)
 
@@ -748,7 +748,7 @@ vi.mock("@/api/global-files-api", async (importOriginal) => {
 
 #### Race regression test
 
-**Source:** `GlobalFilesModal.test.tsx` L78-108 — the whole test body is a copy-paste target. Phase 44 version drives host+skill selection before asserting the textarea appears with mocked content.
+**Source:** `GlobalFilesModal.test.tsx` L78-108 — the whole test body is a copy-paste target. Phase 46 version drives host+skill selection before asserting the textarea appears with mocked content.
 
 ```typescript
 // GlobalFilesModal.test.tsx L87-108 — regression assertion pattern:
@@ -771,7 +771,7 @@ it("renders the READY textarea after an asynchronous readGlobalFile resolves (re
 });
 ```
 
-**Phase 44 additional coverage (RESEARCH.md § Test Seam):** (a) skill dropdown populated after host pick, (b) file list refetched after skill pick, (c) non-text branch renders AlertTriangle placeholder, (d) "+ Add file" prompt round-trip creates + refetches, (e) delete-file confirm modal-in-modal appears + DELETE fires + tab list updates.
+**Phase 46 additional coverage (RESEARCH.md § Test Seam):** (a) skill dropdown populated after host pick, (b) file list refetched after skill pick, (c) non-text branch renders AlertTriangle placeholder, (d) "+ Add file" prompt round-trip creates + refetches, (e) delete-file confirm modal-in-modal appears + DELETE fires + tab list updates.
 
 ---
 
@@ -795,7 +795,7 @@ import { Skeleton } from "@/components/skeleton";
 import type { TabState } from "./IdentityFileTab";
 
 export type GlobalFileTabData = { content: string; mtime: number };
-// Phase 44 additions:
+// Phase 46 additions:
 // export type SkillFileTabData = { content: string; mtime: number; isText: boolean };
 ```
 
@@ -891,12 +891,12 @@ return (
 );
 ```
 
-**Phase 44 additions to this branch:**
+**Phase 46 additions to this branch:**
 
 1. **Guard: non-text file → placeholder instead of textarea.** Before rendering the textarea, check `state.data.isText`. If `false`, render:
 
 ```typescript
-// UI-SPEC L162-167 — non-text placeholder (Phase 44 new branch):
+// UI-SPEC L162-167 — non-text placeholder (Phase 46 new branch):
 return (
   <div className="flex flex-col items-center justify-center gap-2 h-full min-h-[400px]">
     <AlertTriangle size={20} className="text-[#a89a80]" />
@@ -937,7 +937,7 @@ return (
 Copy the test structure verbatim. Add:
 
 ```typescript
-// Phase 44 test 8: isText false → placeholder, no textarea
+// Phase 46 test 8: isText false → placeholder, no textarea
 it("non-text file → renders AlertTriangle placeholder, no textarea", () => {
   render(
     <SkillFileTab
@@ -950,7 +950,7 @@ it("non-text file → renders AlertTriangle placeholder, no textarea", () => {
   expect(screen.getByText(/isn't text and can't be edited/i)).toBeTruthy();
 });
 
-// Phase 44 test 9: Trash2 click fires onRequestDelete
+// Phase 46 test 9: Trash2 click fires onRequestDelete
 it("delete-file trigger fires onRequestDelete", () => {
   const onRequestDelete = vi.fn();
   render(
@@ -1042,7 +1042,7 @@ it("delete-file trigger fires onRequestDelete", () => {
 
 ```typescript
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
-// Phase 44 addition:
+// Phase 46 addition:
 // import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 ```
 
@@ -1053,7 +1053,7 @@ import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 ```typescript
 // Phase 23 (GEFM-05): GlobalFilesModal open/closed toggle (opened from menu item).
 const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
-// Phase 44 addition:
+// Phase 46 addition:
 // const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false);
 ```
 
@@ -1073,7 +1073,7 @@ const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
   hostTree={hostTree ?? null}
   defaultHostId={null}
 />
-// Phase 44 addition — parallel sibling:
+// Phase 46 addition — parallel sibling:
 // <SkillsEditorModal
 //   open={skillsEditorModalOpen}
 //   onOpenChange={setSkillsEditorModalOpen}
@@ -1092,7 +1092,7 @@ const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
   { label: "New agent", onClick: () => setNewSessionDialogOpen(true) },
   { label: "New role", onClick: () => setCreateRoleDialogOpen(true) },
   { label: "Edit global files…", onClick: () => setGlobalFilesModalOpen(true) },
-  // Phase 44 addition — position AFTER "Edit global files…" per UI-SPEC L112:
+  // Phase 46 addition — position AFTER "Edit global files…" per UI-SPEC L112:
   // { label: "Edit skills…", onClick: () => setSkillsEditorModalOpen(true) },
 ].map((item) => ( /* button rendering — verbatim */ ))}
 ```
@@ -1110,7 +1110,7 @@ const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
 ```typescript
 import globalFilesListRoutes from "./routes/global-files.js";
 import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
-// Phase 44 addition:
+// Phase 46 addition:
 // import skillsEditorRoutes from "./routes/skills-editor.js";
 ```
 
@@ -1121,7 +1121,7 @@ import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 app.use("/global-files", globalFilesListRoutes);
 // Phase 23 GEFM-04: POST /global-files/read + PUT /global-files/write ...
 app.use("/global-files", globalFilesReadWriteRoutes);
-// Phase 44 addition:
+// Phase 46 addition:
 // app.use("/skills-editor", skillsEditorRoutes);
 ```
 
@@ -1157,10 +1157,10 @@ location ~ ^/global-files(/.*)?$ {
 }
 ```
 
-**Phase 44 block to add (RESEARCH.md § Pattern 2):**
+**Phase 46 block to add (RESEARCH.md § Pattern 2):**
 
 ```nginx
-# Phase 44 SKILLED-01: /skills-editor regex block — method-agnostic so it covers
+# Phase 46 SKILLED-01: /skills-editor regex block — method-agnostic so it covers
 # GET (skills, files) + POST (read, create) + PUT (write) + DELETE (file, skill).
 # Backing router is app.use("/skills-editor", skillsEditorRoutes) in database.ts.
 # proxy_read_timeout 15s bounds the SSH round-trip (matches /global-files).
@@ -1234,9 +1234,9 @@ if (!host) {
 }
 ```
 
-### Path safety gate (NEW for Phase 44 — not present in Phase 23)
+### Path safety gate (NEW for Phase 46 — not present in Phase 23)
 
-**Source:** RESEARCH.md § Pattern 3 (§Common Pitfalls → Pitfall 1). Phase 23 could rely on a static whitelist; Phase 44 has no whitelist because the whitelist IS the skill folder.
+**Source:** RESEARCH.md § Pattern 3 (§Common Pitfalls → Pitfall 1). Phase 23 could rely on a static whitelist; Phase 46 has no whitelist because the whitelist IS the skill folder.
 
 **Applied to:** Every endpoint in `skills-editor.ts` that accepts a `skill` or `path` argument, BEFORE any SSH or SFTP call.
 
@@ -1298,7 +1298,7 @@ if (path.startsWith("~/")) {
 }
 ```
 
-**For Phase 44:** ALL endpoints construct paths from `~/.claude/skills/<skill>/...`, so ALL endpoints run the two-step. Cache-across-requests is a bug (RESEARCH.md § Anti-Patterns) — always re-run `echo $HOME` per request.
+**For Phase 46:** ALL endpoints construct paths from `~/.claude/skills/<skill>/...`, so ALL endpoints run the two-step. Cache-across-requests is a bug (RESEARCH.md § Anti-Patterns) — always re-run `echo $HOME` per request.
 
 ### SSH connect + cleanup lifecycle
 
@@ -1458,4 +1458,4 @@ function detectIsText(buf: Buffer): boolean {
 3. Every modal uses the same Radix Dialog primitive stack + `absolute inset-4` + `z-[110]`/`z-[120]` + glass gradient (hardcoded `hue 220` for modal-ambient blue).
 4. Every backend route needs BOTH nginx configs updated (patch #446 layer-enumeration reflex).
 5. The lazy-load useEffect's `[selectedHostId, activeTab]` deps array (excluding `tabData`) plus the eslint-disable + comment is the quick-260805-7rq race fix — non-negotiable, copy verbatim.
-6. Phase 44's ONE novel pattern is the path-safety gate (regex + prefix assertion + shellEscape defense-in-depth), replacing Phase 23's JSON whitelist AUTH gate.
+6. Phase 46's ONE novel pattern is the path-safety gate (regex + prefix assertion + shellEscape defense-in-depth), replacing Phase 23's JSON whitelist AUTH gate.

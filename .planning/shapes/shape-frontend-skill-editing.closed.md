@@ -78,7 +78,7 @@ Handoff notes for the implementing agent:
 ## Close-Out
 
 **Closed:** 2026-08-19
-**Vehicle used:** GSD phase (Phase 44 — 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a)
+**Vehicle used:** GSD phase (Phase 46 — 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a)
 **Overall verdict:** closed-hit
 
 ### Shape features (conformance)
@@ -132,7 +132,7 @@ Feature is byte-shape mirrored from the existing global-files modal / tab pair �
 ## Close-Out (pass 2 — post code-review fixes)
 
 **Closed:** 2026-08-19
-**Vehicle used:** GSD phase (Phase 44 — 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a)
+**Vehicle used:** GSD phase (Phase 46 — 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a)
 **Overall verdict:** closed-hit
 
 Re-close after applying the unbiased general-purpose code-review pass (1 blocker + 4 concerns fixed inline; 6 concerns filed as followup bounties for a mirror-wide pass). The B1 fix changed create-failure error UX from a state-clobber to a transient prompt-style alert, which moves the built code toward — not away from — the shape's "edits not saving cleanly" failure-mode commitment. Re-close per the build skill's rule ("if a fix is substantive enough that it changes the built behavior, re-run /close").

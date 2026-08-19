@@ -1,6 +1,6 @@
-# Phase 44 UAT Checklist — Frontend Skill Editing
+# Phase 46 UAT Checklist — Frontend Skill Editing
 
-**Coverage:** D-01 through D-16 (every decision in `44-CONTEXT.md`).
+**Coverage:** D-01 through D-16 (every decision in `46-CONTEXT.md`).
 **Audience:** Ashley, iPhone-primary PWA + desktop browser.
 **Ship-target URLs:** `https://gigaashley.click` (primary) and `https://skynet-ec2.ashleycook.com` (secondary).
 
@@ -203,7 +203,7 @@ Verify on the host afterward that `~/.claude/skills/uat-scratch-260819/` is gone
 
 **Action:** Open the ⋮ menu, tap `Edit global files…` (not `Edit skills…`). Pick a host. Confirm files load, at least one file opens in the editor, save works. Close the modal.
 
-**Expected:** Global-files editor behaves exactly like it did before Phase 44 shipped. No visual change, no behavioral regression, no accidental cross-wiring where "Edit global files…" opens the skill editor or vice versa.
+**Expected:** Global-files editor behaves exactly like it did before Phase 46 shipped. No visual change, no behavioral regression, no accidental cross-wiring where "Edit global files…" opens the skill editor or vice versa.
 
 **Pass/Fail:** ☐ Pass ☐ Fail — Notes:
 
@@ -211,7 +211,7 @@ Verify on the host afterward that `~/.claude/skills/uat-scratch-260819/` is gone
 
 ## Step 13: Path-safety gate rejects crafted attack requests (browser DevTools check)
 
-**D-16 / T-44-02 defense verification.** This is a maintainer-assisted check — Ashley doesn't have to type curl.
+**D-16 / T-46-02 defense verification.** This is a maintainer-assisted check — Ashley doesn't have to type curl.
 
 **Action:** Open your browser's DevTools → Network tab. Open the skill editor, pick a host + skill. Open a text file (Step 6) — you should see an XHR/fetch call to `/skills-editor/read` succeeding with a 200 response. In DevTools console, run:
 
@@ -255,6 +255,6 @@ If any of these returns anything other than `400`, STOP the UAT and page the mai
 
 ---
 
-*Phase: 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a*
+*Phase: 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a*
 *Checklist authored: 2026-08-19*
-*Ships alongside: 44-PATCH-DRAFT.md (maintainer pastes into skynet-patches.md at PIN time)*
+*Ships alongside: 46-PATCH-DRAFT.md (maintainer pastes into skynet-patches.md at PIN time)*

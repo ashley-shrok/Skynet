@@ -1,5 +1,5 @@
 ---
-phase: 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a
+phase: 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a
 plan: 02
 subsystem: frontend
 tags:
@@ -25,7 +25,7 @@ provides:
   - "Race-fix preservation: lazy-load useEffect deps = [selectedHostId, selectedSkillName, activeTab] (still no tabData) + eslint-disable + Phase 23 comment byte-verbatim"
   - "Component-test coverage: 10 tests in SkillFileTab.test.tsx + 8 tests in SkillsEditorModal.test.tsx (all green)"
 affects:
-  - "44-03 (Wave 3 mount at PrettyConversationsPanel.tsx menu — will import SkillsEditorModal + wire skillsEditorModalOpen state + add 'Edit skills…' menu item)"
+  - "46-03 (Wave 3 mount at PrettyConversationsPanel.tsx menu — will import SkillsEditorModal + wire skillsEditorModalOpen state + add 'Edit skills…' menu item)"
 
 # Tech tracking
 tech-stack:
@@ -42,7 +42,7 @@ key-files:
     - "src/ui/features/pretty-view/SkillFileTab.tsx (149 lines — GlobalFileTab byte-shape + 2 new branches)"
     - "src/ui/features/pretty-view/SkillFileTab.test.tsx (204 lines / 10 tests)"
     - "src/ui/features/pretty-view/DeleteConfirmDialog.tsx (95 lines — generic destructive-confirm modal)"
-    - "src/ui/features/pretty-view/SkillsEditorModal.tsx (701 lines — largest file in Phase 44)"
+    - "src/ui/features/pretty-view/SkillsEditorModal.tsx (701 lines — largest file in Phase 46)"
     - "src/ui/features/pretty-view/SkillsEditorModal.test.tsx (372 lines / 8 tests)"
   modified: []  # Task 2 is 100% additive — no existing files modified
 
@@ -64,9 +64,9 @@ duration: 26 min
 completed: 2026-08-19
 ---
 
-# Phase 44 Plan 02: Frontend skill-editing surface — Summary
+# Phase 46 Plan 02: Frontend skill-editing surface — Summary
 
-**Shipped the entire frontend surface for Phase 44 skill editing — SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api — as a byte-shape mirror of Phase 23 with the skill dimension threaded through every effect and three new affordances (non-text placeholder, add-file, delete-file/skill confirms). Race-fix preserved verbatim; 18 component tests all pass.**
+**Shipped the entire frontend surface for Phase 46 skill editing — SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api — as a byte-shape mirror of Phase 23 with the skill dimension threaded through every effect and three new affordances (non-text placeholder, add-file, delete-file/skill confirms). Race-fix preserved verbatim; 18 component tests all pass.**
 
 ## Performance
 
@@ -97,8 +97,8 @@ Each task was committed atomically on `feat/tab-title-from-tmux`:
 ### Created
 
 - **`src/ui/api/skills-api.ts`** (NEW, 223 lines) — 7 authApi helpers (`listSkills`, `enumerateSkillFiles`, `readSkillFile`, `writeSkillFile`, `createSkillFile`, `deleteSkillFile`, `deleteSkill`) + `SkillFileMtimeConflictError` (409 mtime-conflict) + `SkillFileAlreadyExistsError` (409 file-exists) + typed request/response contracts (`SkillEntry`, `SkillFileEntry`, `SkillFileReadResult`, `SkillFileWriteInput`, `SkillFileWriteResult`). Every function wraps in `try { authApi.XXX } catch { handleApiError; throw }` mirroring `global-files-api.ts` byte-shape. DELETE endpoints use `{ data: {...} }` axios payload shape for DELETE-with-body.
-- **`src/ui/features/pretty-view/SkillFileTab.tsx`** (NEW, 149 lines) — Mirror of `GlobalFileTab.tsx` (128 lines) with two Phase 44 branches: (a) non-text placeholder rendering `AlertTriangle` + heading + body per UI-SPEC L162-167 when `state.data.isText === false`; (b) `Trash2` delete-file trigger placed LEFT of Save button per UI-SPEC L188 firing `onRequestDelete?.()` up to the parent modal. Draft-seed useEffect + handleSave callback + loading/error branches copied verbatim from `GlobalFileTab.tsx` L45-93.
-- **`src/ui/features/pretty-view/SkillFileTab.test.tsx`** (NEW, 204 lines) — 10 tests: loading/error/ready-text/ready-empty (dropped-early-return regression gate)/dead-end-copy-gone/save-disabled/save-enabled/**non-text-placeholder**/**delete-trigger-fires-onRequestDelete**/**mtime-reseed-replaces-draft**. Bold = Phase 44 additions beyond the 5 GlobalFileTab branches.
+- **`src/ui/features/pretty-view/SkillFileTab.tsx`** (NEW, 149 lines) — Mirror of `GlobalFileTab.tsx` (128 lines) with two Phase 46 branches: (a) non-text placeholder rendering `AlertTriangle` + heading + body per UI-SPEC L162-167 when `state.data.isText === false`; (b) `Trash2` delete-file trigger placed LEFT of Save button per UI-SPEC L188 firing `onRequestDelete?.()` up to the parent modal. Draft-seed useEffect + handleSave callback + loading/error branches copied verbatim from `GlobalFileTab.tsx` L45-93.
+- **`src/ui/features/pretty-view/SkillFileTab.test.tsx`** (NEW, 204 lines) — 10 tests: loading/error/ready-text/ready-empty (dropped-early-return regression gate)/dead-end-copy-gone/save-disabled/save-enabled/**non-text-placeholder**/**delete-trigger-fires-onRequestDelete**/**mtime-reseed-replaces-draft**. Bold = Phase 46 additions beyond the 5 GlobalFileTab branches.
 - **`src/ui/features/pretty-view/DeleteConfirmDialog.tsx`** (NEW, 95 lines) — Generic destructive-confirm modal-in-modal. Radix Dialog primitive stack synthesized from `GlobalFilesModal.tsx` L186-217 chrome with UI-SPEC L212-220 specifics: `absolute inset-4` overlay (dims parent modal only, not the full app) + `z-[125]` above parent's `z-[120]`; centered `max-w-[400px] w-[85%]` content with slightly-darker glass gradient (`hsla(220, 45%, 20%, 0.92) → hsla(220, 40%, 12%, 0.94)`) so the layer stack reads as "raised further" + `z-[130]`. Props: `open`, `onOpenChange`, `heading`, `body` (React node — includes monospace `<code>` inline for the file path or skill name), `primaryLabel`, `onConfirm`, `inFlight`, `error?`, `container?`. Primary destructive button `autoFocus`es; `inFlight` shows `Deleting…`; error string renders red-400 inline below body and dialog stays open on failure per UI-SPEC L195.
 - **`src/ui/features/pretty-view/SkillsEditorModal.tsx`** (NEW, 701 lines — largest file in the phase) — Byte-shape mirror of `GlobalFilesModal.tsx` (377 lines). Additions:
   - Second `<select>` for skill picker between host `<select>` and header actions (D-03). Four-branch skill-select rendering: no-host → disabled "Pick a host first…"; loading → disabled "Loading skills…"; error → disabled "Couldn't load skills"; ready → placeholder + options.
@@ -118,7 +118,7 @@ Each task was committed atomically on `feat/tab-title-from-tmux`:
 
 ### Modified
 
-None. Task 2 is 100% additive. Wave 3 (plan 44-03) will modify `PrettyConversationsPanel.tsx` to import + mount `SkillsEditorModal` and add the "Edit skills…" menu item.
+None. Task 2 is 100% additive. Wave 3 (plan 46-03) will modify `PrettyConversationsPanel.tsx` to import + mount `SkillsEditorModal` and add the "Edit skills…" menu item.
 
 ## Component Tree
 
@@ -179,7 +179,7 @@ Regression guard: `SkillsEditorModal.test.tsx` test #1 mocks `readSkillFile` wit
 1. **Duplicate error classes rather than import** — `SkillFileMtimeConflictError` and `SkillFileAlreadyExistsError` live in `skills-api.ts` as their own classes rather than importing `GlobalFileMtimeConflictError` and re-exporting. Rationale per RESEARCH.md § Open Question 5: the two features share zero runtime concern, and Phase 23 also duplicated `execWithTimeout` + `shellEscape` for the same reason. If the two ever diverge (e.g., skill-write adds extra 409 fields), duplication has already paid its way.
 2. **Preserve isText through save round-trip** — the write response returns only `{ mtime }`, so on save I look up the previous tab entry to preserve `isText` when constructing the new ready-state. Prevents text files from silently flipping to `isText: false` after a save. Handled the same way in the 409-conflict reload branch.
 3. **Simplify delete-file next-tab heuristic** — plan asked for "next-right / previous / none if last", which requires caching the pre-delete file list to find the position. I picked `entries[0] ?? null` from the refetched list (first-remaining-or-null). Rationale: Ashley's fast-path bias says any-remaining-tab is acceptable, and this matches the initial skill-load auto-select-first behavior. If UAT surfaces a need for precise position preservation, the fix is localized to `handleDeleteFile`.
-4. **Wave 3 handles the mount** — 44-02 is 100% additive (no files modified). Wave 3 (44-03) is the sole owner of `PrettyConversationsPanel.tsx` edits (state + modal mount + menu item). Keeps the diff scoped per plan intent.
+4. **Wave 3 handles the mount** — 46-02 is 100% additive (no files modified). Wave 3 (46-03) is the sole owner of `PrettyConversationsPanel.tsx` edits (state + modal mount + menu item). Keeps the diff scoped per plan intent.
 5. **Skill dropdown gains an error branch** — plan spelled out three states for the skill `<select>` (no-host, loading, ready). I added a fourth: `skills.status === "error"` → disabled option "Couldn't load skills". Redundant with the body-branch error, but keeps the header row from rendering an active-looking placeholder when the fetch failed. Zero test-cost, matches the body-branch shape.
 
 ## Deviations from Plan
@@ -195,7 +195,7 @@ None. Both tasks executed cleanly:
 - Task 2: 2 net-new files, TS clean, vitest 8/8 pass on first run.
 - Full-suite regression check: 2592/2602 pass, 0 failures (cleaner than Wave 1's 4-failure baseline; cross-identity contention didn't repeat this run).
 
-## Deferred Issues (out of Phase 44 Plan 02 scope)
+## Deferred Issues (out of Phase 46 Plan 02 scope)
 
 None triggered during this plan. Prior Wave 1 SUMMARY documented DEF-1 (PrettyView.windowed-pagination.test.tsx RED-phase 43-07b spec) and DEF-2 (cross-identity vitest contention flakes); neither surfaced during this run — the full-suite `npx vitest run` was 100% green.
 
@@ -283,7 +283,7 @@ All acceptance criteria pass.
 
 ## Next Phase Readiness
 
-Wave 3 (`44-03-PLAN.md`) is unblocked. It needs to:
+Wave 3 (`46-03-PLAN.md`) is unblocked. It needs to:
 
 1. Import `SkillsEditorModal` from `@/features/pretty-view/SkillsEditorModal` into `PrettyConversationsPanel.tsx` L60 (alongside `GlobalFilesModal` import).
 2. Add `const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false)` after L485.
@@ -302,7 +302,7 @@ Every prop shape SkillsEditorModal expects (`open`, `onOpenChange`, `hostTree: H
 - ✓ `src/ui/features/pretty-view/SkillsEditorModal.test.tsx` exists (372 lines)
 - ✓ Commit `e0677bfb` exists in git log (Task 1)
 - ✓ Commit `93cafb1e` exists in git log (Task 2)
-- ✓ `.planning/phases/44-.../44-02-SUMMARY.md` exists (this file)
+- ✓ `.planning/phases/44-.../46-02-SUMMARY.md` exists (this file)
 - ✓ Load-bearing eslint-disable comment referring to `react-hooks/exhaustive-deps` present in SkillsEditorModal.tsx
 - ✓ Lazy-load useEffect deps = `[selectedHostId, selectedSkillName, activeTab]` — no `tabData`
 - ✓ `.filter((h) => h.enableRdp !== true)` present exactly once in the flatHosts memo (Pitfall 7)
@@ -319,6 +319,6 @@ Every prop shape SkillsEditorModal expects (`open`, `onOpenChange`, `hostTree: H
 - ✓ D-12 truth honored: every visible file has a delete trigger (Trash2 in SkillFileTab action row), every visible skill has a delete trigger (Trash2 in header row when skill picked), zero allowlist/blocklist/per-file protection logic added
 
 ---
-*Phase: 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a*
+*Phase: 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a*
 *Plan: 02*
 *Completed: 2026-08-19*

@@ -1,4 +1,4 @@
-# Phase 44: Frontend skill editing — Research
+# Phase 46: Frontend skill editing — Research
 
 **Researched:** 2026-08-18
 **Domain:** Skynet fork frontend + Express backend + SSH exec/SFTP fanout to a managed host's `~/.claude/skills/` folder tree
@@ -56,21 +56,21 @@
 - Pushing edits back to a source-of-truth host for distributed skills (any distribution/self-update awareness).
 - Better nav UI for skills with many nested files, beyond horizontal scroll.
 
-**NOTE:** UI-SPEC (`44-UI-SPEC.md`) has already resolved several of the Claude's-Discretion items above (menu-order after "Edit global files…", copywriting for loading/error/empty branches, modal-in-modal confirmation shape, "+ Add file" button placement in the header row, keyboard/focus order). Planner MUST honor the UI-SPEC prescriptions — they are authoritative wherever they narrow a Claude's Discretion item.
+**NOTE:** UI-SPEC (`46-UI-SPEC.md`) has already resolved several of the Claude's-Discretion items above (menu-order after "Edit global files…", copywriting for loading/error/empty branches, modal-in-modal confirmation shape, "+ Add file" button placement in the header row, keyboard/focus order). Planner MUST honor the UI-SPEC prescriptions — they are authoritative wherever they narrow a Claude's Discretion item.
 </user_constraints>
 
 ## Summary
 
-Phase 44 is a **mirror-and-fork** of Phase 23 (Global Files Editor). Every architectural decision is pre-answered by a shipped, tested, in-production precedent — the executor's job is to duplicate five files under `src/ui/features/pretty-view/` and `src/ui/api/`, add ~5 new endpoints to a new `src/backend/database/routes/skills-editor.ts` router (or two, if we split list/mutate the way Phase 23 split `global-files.ts` + `global-files-read-write.ts`), and wire a fifth menu item into `PrettyConversationsPanel.tsx` at line 1616. The Phase 23 surface *including its very-recent race-fix* (quick task `260805-7rq`) supplies every hook order, effect gating, and 409-conflict pattern.
+Phase 46 is a **mirror-and-fork** of Phase 23 (Global Files Editor). Every architectural decision is pre-answered by a shipped, tested, in-production precedent — the executor's job is to duplicate five files under `src/ui/features/pretty-view/` and `src/ui/api/`, add ~5 new endpoints to a new `src/backend/database/routes/skills-editor.ts` router (or two, if we split list/mutate the way Phase 23 split `global-files.ts` + `global-files-read-write.ts`), and wire a fifth menu item into `PrettyConversationsPanel.tsx` at line 1616. The Phase 23 surface *including its very-recent race-fix* (quick task `260805-7rq`) supplies every hook order, effect gating, and 409-conflict pattern.
 
 Two dimensions are genuinely new versus Phase 23:
 
 1. **A skill selector between host and files** — a second `<select>` in the header + a new "list skills" endpoint. Straightforward.
-2. **Recursive file enumeration on a per-skill scope** — Phase 23 read from a fixed operator-authored whitelist (`/app/data/global-files.json`); Phase 44 has no such whitelist because the "whitelist" IS the skill folder. The AUTH gate shifts from "path in JSON" to "path is inside the resolved-absolute skill root and does not escape via `..`". This is a security-critical difference — the path-safety story needs its own audit (see `## Common Pitfalls` → Path Escape / SFTP Realpath).
+2. **Recursive file enumeration on a per-skill scope** — Phase 23 read from a fixed operator-authored whitelist (`/app/data/global-files.json`); Phase 46 has no such whitelist because the "whitelist" IS the skill folder. The AUTH gate shifts from "path in JSON" to "path is inside the resolved-absolute skill root and does not escape via `..`". This is a security-critical difference — the path-safety story needs its own audit (see `## Common Pitfalls` → Path Escape / SFTP Realpath).
 
 The other five mutations (create empty file, delete file, delete skill) each have direct in-repo precedents (SFTP write via `writeMarkdownFileAtomic`, `rm -rf` via `execWithTimeout` with `shellEscape`).
 
-**Primary recommendation:** Duplicate the Phase 23 file cluster verbatim, thread a `skill` layer into every request/response shape, and add a `computeSafeAbsolutePath(skillRoot, relPath)` helper that resolves to an absolute path and asserts it starts with `skillRoot + "/"` — call it on every path before ANY SSH or SFTP touches it. All other novelty is UX-scoped (skill dropdown, "+ Add file" prompt, delete-file/delete-skill confirmations) and is fully prescribed in `44-UI-SPEC.md`.
+**Primary recommendation:** Duplicate the Phase 23 file cluster verbatim, thread a `skill` layer into every request/response shape, and add a `computeSafeAbsolutePath(skillRoot, relPath)` helper that resolves to an absolute path and asserts it starts with `skillRoot + "/"` — call it on every path before ANY SSH or SFTP touches it. All other novelty is UX-scoped (skill dropdown, "+ Add file" prompt, delete-file/delete-skill confirmations) and is fully prescribed in `46-UI-SPEC.md`.
 
 ## Architectural Responsibility Map
 
@@ -95,7 +95,7 @@ The other five mutations (create empty file, delete file, delete skill) each hav
 |---------|-------------------------------------|---------|--------------|
 | `react` | 19.2.0 [VERIFIED: package.json + already loaded] | Modal shell + hooks | Skynet's core UI stack — do not introduce a competing framework. |
 | `radix-ui` | already installed (used by `GlobalFilesModal.tsx` L3) [VERIFIED: import site] | `Dialog.Root`, `Dialog.Portal`, `Dialog.Overlay`, `Dialog.Content`, `Tabs` primitives | Already the modal primitive across pretty-view (`IdentityModal`, `GlobalFilesModal`, `NewSessionDialog`, `CreateRoleDialog`). Do not introduce shadcn `Dialog` wrapper as a peer — mirror the Phase 23 pattern exactly. |
-| `lucide-react` | `^1.28.0` (per `44-UI-SPEC.md` § Registry Safety) [CITED: 44-UI-SPEC.md] | Icons: `FileText`, `X`, `Trash2`, `AlertTriangle` | Already in use — no new install. `Plus` icon not needed if we use the literal `+` character per UI-SPEC. |
+| `lucide-react` | `^1.28.0` (per `46-UI-SPEC.md` § Registry Safety) [CITED: 46-UI-SPEC.md] | Icons: `FileText`, `X`, `Trash2`, `AlertTriangle` | Already in use — no new install. `Plus` icon not needed if we use the literal `+` character per UI-SPEC. |
 | `ssh2` | already installed (used by `ssh-one-shot.ts`, `tmux-helper.ts`) [VERIFIED: import site] | SSH exec + SFTP channels to managed hosts | Skynet's ONLY SSH client. Do not introduce `node-ssh` or `simple-ssh` as a peer. |
 | `express` | already installed [VERIFIED: import site] | Backend HTTP router | Existing routes use it exclusively. |
 | `axios` (via `@/main-axios`) | already installed [VERIFIED: import site] | Frontend HTTP client with JWT interceptor | `authApi` instance auto-attaches `Authorization: Bearer ...`; `handleApiError` centralizes 401/network-drop toast handling. Do NOT `fetch()` — you lose auth. Exception: Phase 19 TTS streaming route uses `fetch()` because axios can't stream response bodies; that's the only in-repo exception and it does NOT apply here. |
@@ -107,7 +107,7 @@ The other five mutations (create empty file, delete file, delete skill) each hav
 |--------|------|---------|-----------|
 | `connectOneShot(host, timeoutMs)` | `src/backend/ssh/ssh-one-shot.ts` | Fresh short-lived SSH client for one-shot queries | Reuse. `timeoutMs = 5000` matches Phase 23. |
 | `execCommand(conn, command)` | `src/backend/ssh/tmux-helper.ts` | Promise-wrapped exec channel returning stdout | Reuse. |
-| `execWithTimeout(conn, command, timeoutMs)` | Local to `global-files-read-write.ts` L82-96 (duplicate the 15-line helper) | Bounds a hung remote | Duplicate the helper verbatim into the new router — Phase 23 also duplicated it from `roles-create.ts`/`roles-list-for-host.ts` (module-header comment L80-81). Extracting to a shared module is a Post-Planning-Gaps item, not a Phase 44 task. |
+| `execWithTimeout(conn, command, timeoutMs)` | Local to `global-files-read-write.ts` L82-96 (duplicate the 15-line helper) | Bounds a hung remote | Duplicate the helper verbatim into the new router — Phase 23 also duplicated it from `roles-create.ts`/`roles-list-for-host.ts` (module-header comment L80-81). Extracting to a shared module is a Post-Planning-Gaps item, not a Phase 46 task. |
 | `shellEscape(s)` | Local to `global-files-read-write.ts` L106-108 (duplicate the 3-line helper) | Single-quote escape for shell interpolation | Duplicate. Same pattern as Phase 23. |
 | `resolveHostById(hostId, userId)` | `src/backend/ssh/host-resolver.ts` | Fetch host + resolved credentials with per-user isolation; returns `null` for cross-user/unknown | Reuse. Returns 404 upstream. |
 | `AuthManager.getInstance().createAuthMiddleware()` | `src/backend/utils/auth-manager.js` | JWT gate | Reuse — every endpoint mounts this. |
@@ -246,7 +246,7 @@ src/backend/database/database.ts              # MODIFIED — 2 lines: import + `
 
 ### Pattern 1: The Phase 23 mirror-and-fork discipline
 
-**What:** Every file in the Phase 44 file cluster has a direct precedent in the Phase 23 cluster. Byte-shape mirroring — copy the file, s/global-files/skills-editor/g, add the skill dimension, preserve every idiom (imports, error posture, hook order, JSX tree structure).
+**What:** Every file in the Phase 46 file cluster has a direct precedent in the Phase 23 cluster. Byte-shape mirroring — copy the file, s/global-files/skills-editor/g, add the skill dimension, preserve every idiom (imports, error posture, hook order, JSX tree structure).
 
 **When to use:** Every new file. The Phase 23 code is production-tested (in image `bb99f307bcb4` per STATE.md quick-260805-7rq) and its race conditions have already been debugged.
 
@@ -304,7 +304,7 @@ useEffect(() => {
 **Example** (from `docker/nginx.conf` L286-306 — the Phase 23 exemplar):
 
 ```nginx
-# Phase 44 SKILLED-01: /skills-editor regex block — method-agnostic so it covers
+# Phase 46 SKILLED-01: /skills-editor regex block — method-agnostic so it covers
 # GET (list-skills, list-files) + POST (read, create) + PUT (write) + DELETE
 # (file, skill). Backing router is app.use("/skills-editor", ...) in database.ts.
 # proxy_read_timeout 15s bounds the SSH round-trip (matches /global-files).
@@ -328,7 +328,7 @@ Add the identical block at the corresponding position in `docker/nginx-https.con
 
 ### Pattern 3: Path-safety gate (NEW — not present in Phase 23)
 
-**What:** Phase 23 could rely on a static whitelist (`/app/data/global-files.json`); every user-supplied path had to appear verbatim in the operator-authored config, so `..` escapes were impossible. Phase 44 has no whitelist — the AUTH gate is instead "path is inside the resolved-absolute skill folder". This shifts responsibility from a JSON lookup to a robust path-normalization step.
+**What:** Phase 23 could rely on a static whitelist (`/app/data/global-files.json`); every user-supplied path had to appear verbatim in the operator-authored config, so `..` escapes were impossible. Phase 46 has no whitelist — the AUTH gate is instead "path is inside the resolved-absolute skill folder". This shifts responsibility from a JSON lookup to a robust path-normalization step.
 
 **When to use:** On EVERY endpoint that accepts a `skill` or `path` argument, before ANY SSH exec or SFTP call.
 
@@ -382,11 +382,11 @@ function buildAbsSkillFilePath(remoteHome: string, skill: string, relPath: strin
 **Why this works vs. why alternatives fail:**
 - **`path.resolve()`** — TEMPTING but wrong: `path` uses the *server's* OS conventions, not the target host's. On a Linux server calling into a Linux fleet this happens to work, but the invariant is coincidence. Prefer manual string composition + regex gate for auditability.
 - **Passing raw user input to shell** — MUST be single-quote-escaped via `shellEscape()` even after the regex gate passes (defense-in-depth per Phase 23's AUTH-gate/INJECTION-gate split at `global-files-read-write.ts` L98-108).
-- **SFTP `realpath()` check** — could ask the server to resolve symlinks and verify the result is inside the skill root. Adds one round-trip per operation. **Recommended follow-up** if any skill legitimately contains symlinks; for Phase 44 v1, the string-prefix assertion suffices.
+- **SFTP `realpath()` check** — could ask the server to resolve symlinks and verify the result is inside the skill root. Adds one round-trip per operation. **Recommended follow-up** if any skill legitimately contains symlinks; for Phase 46 v1, the string-prefix assertion suffices.
 
 ### Pattern 4: SFTP for writes, SSH exec for everything else
 
-**What:** Phase 23 established the two-channel pattern: SSH exec for read/mtime/directory-list queries (`cat`, `stat`, `find`, `ls`), SFTP for writes (`writeMarkdownFileAtomic` for atomic tmp+rename). Phase 44 inherits this.
+**What:** Phase 23 established the two-channel pattern: SSH exec for read/mtime/directory-list queries (`cat`, `stat`, `find`, `ls`), SFTP for writes (`writeMarkdownFileAtomic` for atomic tmp+rename). Phase 46 inherits this.
 
 **When to use:**
 - **List skills:** exec `find ~/.claude/skills -mindepth 1 -maxdepth 1 -type d -printf '%f\n'`
@@ -401,13 +401,13 @@ function buildAbsSkillFilePath(remoteHome: string, skill: string, relPath: strin
 
 - **Introducing a new SSH helper module.** Reuse `connectOneShot` + `execCommand`. Duplicate `execWithTimeout` + `shellEscape` inline per Phase 23's precedent.
 - **Storing skill list in Skynet DB.** Filesystem IS the source of truth. Do not add a `skills` table.
-- **Caching `remoteHome` across requests.** Phase 23 re-runs `echo $HOME` per request (`global-files-read-write.ts` L200-216, L395-411) — Phase 44 must do the same. A cached HOME survives a host user change and produces a subtle write-to-wrong-user bug.
+- **Caching `remoteHome` across requests.** Phase 23 re-runs `echo $HOME` per request (`global-files-read-write.ts` L200-216, L395-411) — Phase 46 must do the same. A cached HOME survives a host user change and produces a subtle write-to-wrong-user bug.
 - **Optimistic UI updates on delete.** The tab strip / skill dropdown must refetch from the backend after any mutation succeeds — do NOT locally splice the deleted item. Mirrors Phase 23's server-echo-authoritative pattern for mtime.
 - **Reusing `global-files.json` as the "skills whitelist."** There is no whitelist for skills. The whitelist IS the skill folder; the path-safety gate IS the AUTH gate.
 - **Using `fetch()` for API calls.** Use `authApi` from `@/main-axios` for JWT auto-attach.
 - **Using shadcn `<Select>` for the skill picker.** UI-SPEC L237 locks native `<select>`.
 - **Missing the second nginx config block.** Patch #446 arc lesson.
-- **Extracting `execWithTimeout` / `shellEscape` / `collectAllHosts` into a shared module as part of Phase 44.** This is Post-Planning-Gaps material — Phase 23 explicitly deferred it ("Third instance intentional — keeps plan 23-03 diff scoped to net-new files"). Fourth instance stays the same posture.
+- **Extracting `execWithTimeout` / `shellEscape` / `collectAllHosts` into a shared module as part of Phase 46.** This is Post-Planning-Gaps material — Phase 23 explicitly deferred it ("Third instance intentional — keeps plan 23-03 diff scoped to net-new files"). Fourth instance stays the same posture.
 
 ## Don't Hand-Roll
 
@@ -430,7 +430,7 @@ function buildAbsSkillFilePath(remoteHome: string, skill: string, relPath: strin
 
 The following is the recommended endpoint surface. Names/paths are Claude's Discretion per CONTEXT — planner may adjust, but these mirror the Phase 23 shape and are the least-surprise choice.
 
-### Router: `src/backend/database/routes/skills-editor.ts` (single file — Phase 23 split into two because the list route was landed a wave earlier; Phase 44 doesn't need to)
+### Router: `src/backend/database/routes/skills-editor.ts` (single file — Phase 23 split into two because the list route was landed a wave earlier; Phase 46 doesn't need to)
 
 Alternate: split into `skills-editor-list.ts` + `skills-editor-mutate.ts` if the planner prefers wave-parallel builds. Express chains routers on the same base path (Phase 23 precedent — `database.ts` L1852+L1857).
 
@@ -579,7 +579,7 @@ function detectIsText(buf: Buffer): boolean {
 - **Backend read endpoint** — run on the `cat` output before wrapping in the response. Return `{ content, mtime, size, isText }`. The frontend does zero sniffing; it just renders the placeholder when `!isText`.
 - **Content field for non-text:** Return the content string anyway (from `cat`, which produces mostly-valid UTF-8 with lots of replacement chars) — but the frontend renders the placeholder, so the content is not shown. Alternative: return `content: ""` for `isText: false` to save bandwidth. **Recommendation:** return empty content for non-text — reduces payload + prevents accidental display bugs.
 
-**Global-files precedent for text detection:** Global-files did NOT solve this problem because its whitelist was operator-authored to only include known-text files (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`). Phase 44's "any file in the skill" scope introduces this need.
+**Global-files precedent for text detection:** Global-files did NOT solve this problem because its whitelist was operator-authored to only include known-text files (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`). Phase 46's "any file in the skill" scope introduces this need.
 
 ## The Menu Mount Site
 
@@ -607,7 +607,7 @@ function detectIsText(buf: Buffer): boolean {
 - `src/ui/features/pretty-view/GlobalFilesModal.test.tsx` — component-level in-process test that mocks `@/api/global-files-api` at the module boundary. Renders `GlobalFilesModal` with a fabricated `HostFolder`. Asserts on rendered DOM (textbox contents, spinner, error text). The exact pattern to mirror.
 - `src/backend/database/routes/global-files-read-write.test.ts` — backend route tests that mock SSH and assert on response bodies + status codes.
 
-**Recommended Phase 44 tests:**
+**Recommended Phase 46 tests:**
 
 | Test file | Mirrors | What it covers |
 |-----------|---------|----------------|
@@ -617,13 +617,13 @@ function detectIsText(buf: Buffer): boolean {
 
 **In-process integration testing:** Skynet does NOT currently have a full-stack in-process harness (there is no VMS ViewModelShell equivalent). Test discipline is: (1) frontend component tests mock the API layer, (2) backend route tests mock the SSH layer. E2E is manual via Ashley UAT after deploy.
 
-**Recommendation for Phase 44:** Match Phase 23's test posture exactly. Do NOT introduce a new integration harness — that would be a phase of its own. Component tests + route tests give sufficient coverage; the Ashley UAT after deploy validates end-to-end.
+**Recommendation for Phase 46:** Match Phase 23's test posture exactly. Do NOT introduce a new integration harness — that would be a phase of its own. Component tests + route tests give sufficient coverage; the Ashley UAT after deploy validates end-to-end.
 
 **Wave 0 note:** No fixture files, framework setup, or shared harness are needed — everything is in place. First test in each new test file inherits the mocking pattern from its mirror source.
 
 ## Runtime State Inventory
 
-Phase 44 is a **greenfield feature addition** — it introduces new state (skill dropdown selection, per-skill tab data cache) rather than renaming or refactoring existing state. Therefore the runtime state inventory is minimal, but audited for completeness:
+Phase 46 is a **greenfield feature addition** — it introduces new state (skill dropdown selection, per-skill tab data cache) rather than renaming or refactoring existing state. Therefore the runtime state inventory is minimal, but audited for completeness:
 
 | Category | Items Found | Action Required |
 |----------|-------------|------------------|
@@ -639,7 +639,7 @@ Phase 44 is a **greenfield feature addition** — it introduces new state (skill
 
 **What goes wrong:** A skill named `../etc` or a file path of `../../../etc/passwd` slips through validation, `rm -rf` obliterates the wrong tree, or `cat` reads a secret file.
 
-**Why it happens:** Phase 23 could rely on a static whitelist — every path had to match a JSON entry verbatim. Phase 44 has no whitelist because the "whitelist" IS the skill folder. First time this codebase has a route where user input directly composes a filesystem path.
+**Why it happens:** Phase 23 could rely on a static whitelist — every path had to match a JSON entry verbatim. Phase 46 has no whitelist because the "whitelist" IS the skill folder. First time this codebase has a route where user input directly composes a filesystem path.
 
 **How to avoid:**
 - Regex gate for skill name: `/^[a-zA-Z0-9._-]{1,128}$/` + explicit reject of `.` and `..`.
@@ -672,7 +672,7 @@ Phase 44 is a **greenfield feature addition** — it introduces new state (skill
 
 **How to avoid:** Use `writeMarkdownFileAtomic` (which uses `ext_openssh_rename` under the hood) for every write. See `identity-artifact-reader.ts` L1039-1063 prologue for the full 25-line explanation. Do NOT invoke `sftp.rename` directly. Do NOT introduce a competing write helper.
 
-**Warning signs:** Any `sftp.rename(` in Phase 44 code. Any bare "Error: Failure" surfacing from a save.
+**Warning signs:** Any `sftp.rename(` in Phase 46 code. Any bare "Error: Failure" surfacing from a save.
 
 ### Pitfall 4: React useEffect race — lazy-load spinner-forever (quick-260805-7rq)
 
@@ -680,7 +680,7 @@ Phase 44 is a **greenfield feature addition** — it introduces new state (skill
 
 **Why it happens:** If `tabData` is in the useEffect deps array, the effect re-runs after `setTabData({loading})`, whose cleanup sets `cancelled = true` on the still-in-flight `readSkillFile`. The result never lands.
 
-**How to avoid:** COPY the Phase 23 useEffect verbatim including the `eslint-disable-next-line react-hooks/exhaustive-deps` and the multi-line comment explaining why. Deps array is `[selectedHostId, activeTab]` (Phase 44 adds `[selectedHostId, selectedSkillName, activeTab]` — still no `tabData`).
+**How to avoid:** COPY the Phase 23 useEffect verbatim including the `eslint-disable-next-line react-hooks/exhaustive-deps` and the multi-line comment explaining why. Deps array is `[selectedHostId, activeTab]` (Phase 46 adds `[selectedHostId, selectedSkillName, activeTab]` — still no `tabData`).
 
 **Warning signs:** Any tuning of the deps array. Any "help I made it stricter" moment.
 
@@ -998,11 +998,11 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
-| SFTP `rename()` for atomic file writes | `ext_openssh_rename` (posix-rename@openssh.com) via `writeMarkdownFileAtomic` | Quick 260802-qrw (Phase 22 arc, 2026-08-02) | Fixes silent "Error: Failure" on overwriting existing files. Load-bearing for Phase 44 saves. |
-| Static operator-authored whitelist for editable paths (`global-files.json`) | Per-user path-safety gate (regex + resolved-path assertion) | Phase 44 (this phase) | Enables Ashley to edit ANY file in ANY skill without operator involvement. Introduces new attack surface (path escape) — mitigated by the regex gates in § Pattern 3. |
-| Extension-based text/binary detection | Byte-sniffing (NUL byte + control-char scan + UTF-8 decode) | Phase 44 (this phase) | Robust detection without shell dependency. |
-| `useEffect` with `tabData` in deps | `useEffect` with intentional exhaustive-deps violation + comment | Quick 260805-7rq (Phase 23 arc, 2026-08-05) | Fixes 700ms-race infinite-spinner bug. MUST be preserved in Phase 44 mirror. |
-| `window.confirm` for destructive user actions | Modal-in-modal `Dialog` confirmation | Phase 44 UI-SPEC | Better UX; still uses `window.confirm` for INHERITED mtime-conflict flow (system-triggered clarification, not user-initiated destruction). |
+| SFTP `rename()` for atomic file writes | `ext_openssh_rename` (posix-rename@openssh.com) via `writeMarkdownFileAtomic` | Quick 260802-qrw (Phase 22 arc, 2026-08-02) | Fixes silent "Error: Failure" on overwriting existing files. Load-bearing for Phase 46 saves. |
+| Static operator-authored whitelist for editable paths (`global-files.json`) | Per-user path-safety gate (regex + resolved-path assertion) | Phase 46 (this phase) | Enables Ashley to edit ANY file in ANY skill without operator involvement. Introduces new attack surface (path escape) — mitigated by the regex gates in § Pattern 3. |
+| Extension-based text/binary detection | Byte-sniffing (NUL byte + control-char scan + UTF-8 decode) | Phase 46 (this phase) | Robust detection without shell dependency. |
+| `useEffect` with `tabData` in deps | `useEffect` with intentional exhaustive-deps violation + comment | Quick 260805-7rq (Phase 23 arc, 2026-08-05) | Fixes 700ms-race infinite-spinner bug. MUST be preserved in Phase 46 mirror. |
+| `window.confirm` for destructive user actions | Modal-in-modal `Dialog` confirmation | Phase 46 UI-SPEC | Better UX; still uses `window.confirm` for INHERITED mtime-conflict flow (system-triggered clarification, not user-initiated destruction). |
 
 **Deprecated/outdated (do not use):**
 - `sftp.rename()` — deprecated in favor of `sftp.ext_openssh_rename()` in this codebase.
@@ -1018,7 +1018,7 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 | A3 | `find ~/.claude/skills -mindepth 1 -maxdepth 1 -type d` runs in a non-quoted shell context that tilde-expands | § Backend Endpoint 1 | MEDIUM — needs a smoke test. If tilde does not expand, use the `echo $HOME` two-step (same as endpoints 3+). Cheap to defensively adopt the two-step everywhere. |
 | A4 | The isText byte-sniff heuristic correctly classifies typical skill files (`.py`, `.md`, `.sh`, `.json`) as text | § Text Detection | LOW — the heuristic is a well-known industry pattern (git uses similar logic). Skill files are overwhelmingly text; the binary case is `__pycache__/*.pyc` or an accidentally-committed image. Worst-case a text file mis-detected as binary shows a placeholder — user just re-tries or reports. |
 | A5 | `resolveHostById` returns a host with a valid SSH credential for every host in `hostTree` (post the `.enableRdp !== true` filter) | § Endpoint auth flow | LOW — Phase 23 relies on the same assumption and hasn't produced credential-drift bugs since ship. If credentials go stale, the SSH connect fails and returns 502 gracefully. |
-| A6 | The Phase 23 test file structure (mock at API-module boundary, render component, assert on DOM) is the ONLY in-process testing pattern in the codebase | § Test Seam | LOW — verified by inspection. No sign of a fuller integration harness (no VMS ViewModelShell, no MSW). If a richer pattern exists elsewhere I missed, it can be adopted later without changing Phase 44's plan. |
+| A6 | The Phase 23 test file structure (mock at API-module boundary, render component, assert on DOM) is the ONLY in-process testing pattern in the codebase | § Test Seam | LOW — verified by inspection. No sign of a fuller integration harness (no VMS ViewModelShell, no MSW). If a richer pattern exists elsewhere I missed, it can be adopted later without changing Phase 46's plan. |
 | A7 | Adding a second router at `/skills-editor` does not require touching CORS / rate-limit / security-middleware setup | § Mount instructions | LOW — Phase 23 mounted `/global-files` with only two `app.use()` lines in `database.ts` L1852+L1857 and shipped without middleware fiddling. Same posture expected. |
 
 ## Open Questions (RESOLVED)
@@ -1117,8 +1117,8 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 - `src/ui/features/pretty-view/GlobalFilesModal.test.tsx` — test pattern with race-regression coverage
 - `.planning/config.json` — workflow config (nyquist_validation: false, security_enforcement: true)
 - `.planning/STATE.md` — patch #446 layer-enumeration reflex; quick-260805-7rq useEffect race; quick-260805-70q tilde-expand bug
-- `.planning/phases/44-.../44-CONTEXT.md` — locked decisions D-01..D-16
-- `.planning/phases/44-.../44-UI-SPEC.md` — UX contract (menu-order, copywriting, modal-in-modal, "+ Add file" placement, focus order)
+- `.planning/phases/44-.../46-CONTEXT.md` — locked decisions D-01..D-16
+- `.planning/phases/44-.../46-UI-SPEC.md` — UX contract (menu-order, copywriting, modal-in-modal, "+ Add file" placement, focus order)
 - `.planning/shapes/shape-frontend-skill-editing.md` — the /open product shape
 
 ### Secondary (MEDIUM confidence)

@@ -1,5 +1,5 @@
 ---
-phase: 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a
+phase: 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a
 verified: 2026-08-19T04:57:00Z
 status: human_needed
 score: 16/16 code-verifiable D-XX decisions verified; UAT walk deferred to Ashley post-deploy
@@ -33,11 +33,11 @@ human_verification:
     expected: "Pressing Esc closes the modal (Dialog default); clicking outside the modal does NOT close (patch #111f — onInteractOutside preventDefault inherited from GlobalFilesModal)"
     why_human: "Keyboard/pointer interaction verifiable only in a live browser"
   - test: "Existing Edit global files… still works (Phase 23 regression guard)"
-    expected: "Clicking Edit global files… continues to open the GlobalFilesModal with no regression — Phase 23 fully unaffected by Phase 44 wiring"
+    expected: "Clicking Edit global files… continues to open the GlobalFilesModal with no regression — Phase 23 fully unaffected by Phase 46 wiring"
     why_human: "Adjacent-feature regression is best surfaced by human walk; code-side test suite passes but real browser behavior confirms"
 ---
 
-# Phase 44: Frontend skill editing — editor surface for skill folders on a host, sibling to the existing global-files editor — Verification Report
+# Phase 46: Frontend skill editing — editor surface for skill folders on a host, sibling to the existing global-files editor — Verification Report
 
 **Phase Goal:** A user picks a host from the same menu the global-files editor lives in, then picks a skill from a new dropdown, then works on the files inside that skill in the same modal chrome — editing text files, viewing non-text files with a placeholder, adding new files, deleting files (with confirm), and deleting the whole skill (with confirm) — as a plain-editor over `~/.claude/skills/<skill>/` on the target host, unaware of skill distribution or self-update.
 
@@ -47,26 +47,26 @@ human_verification:
 
 ## Goal Achievement
 
-Because Phase 44 has **no formal REQ-IDs** (per ROADMAP.md: "Requirements: None (phase derives from CONTEXT.md decisions D-01..D-16, not REQ-IDs)") and no `success_criteria` array in ROADMAP.md, the truth-set is the 16 D-XX locked decisions from `44-CONTEXT.md`. Each decision is cross-referenced against the shipped code below.
+Because Phase 46 has **no formal REQ-IDs** (per ROADMAP.md: "Requirements: None (phase derives from CONTEXT.md decisions D-01..D-16, not REQ-IDs)") and no `success_criteria` array in ROADMAP.md, the truth-set is the 16 D-XX locked decisions from `46-CONTEXT.md`. Each decision is cross-referenced against the shipped code below.
 
 ### Observable Truths (D-01..D-16)
 
 | # | Decision | Truth | Status | Evidence |
 | --- | --- | --- | --- | --- |
 | D-01 | Entry point: sibling menu entry, NOT new top-level surface | The Edit skills… menu item is at position 4 of the same 4-item MoreVertical menu in `PrettyConversationsPanel.tsx` that houses Edit global files… | ✓ VERIFIED | `PrettyConversationsPanel.tsx:1632` — `{ label: "Edit skills…", onClick: () => setSkillsEditorModalOpen(true) },` immediately AFTER L1631 `Edit global files…`. Menu-item ordering guarded by `KEEP ORDER: New agent → New role → Edit global files… → Edit skills…` comment at L1627. |
-| D-02 | Reuse global-files modal chrome (same chrome, host dropdown, tab bar, editor pane) | SkillsEditorModal.tsx mirrors GlobalFilesModal.tsx byte-shape (Portal, `absolute inset-4`, `rounded-[24px]`, `hsla(220,45%,25%,0.82)→hsla(220,40%,15%,0.88)` glass gradient, z-index 110/120 ladder, `modal={false}`, `onInteractOutside` preventDefault) | ✓ VERIFIED | `SkillsEditorModal.tsx:383` `background: "linear-gradient(160deg, hsla(220, 45%, 25%, 0.82), hsla(220, 40%, 15%, 0.88))"` matches GlobalFilesModal exactly; 7 `hsla(220` occurrences confirm inherited hue. Modal chrome L305-343 copied verbatim per 44-02-SUMMARY.md. |
+| D-02 | Reuse global-files modal chrome (same chrome, host dropdown, tab bar, editor pane) | SkillsEditorModal.tsx mirrors GlobalFilesModal.tsx byte-shape (Portal, `absolute inset-4`, `rounded-[24px]`, `hsla(220,45%,25%,0.82)→hsla(220,40%,15%,0.88)` glass gradient, z-index 110/120 ladder, `modal={false}`, `onInteractOutside` preventDefault) | ✓ VERIFIED | `SkillsEditorModal.tsx:383` `background: "linear-gradient(160deg, hsla(220, 45%, 25%, 0.82), hsla(220, 40%, 15%, 0.88))"` matches GlobalFilesModal exactly; 7 `hsla(220` occurrences confirm inherited hue. Modal chrome L305-343 copied verbatim per 46-02-SUMMARY.md. |
 | D-03 | New skill dropdown alongside host dropdown, populated per-host | Second `<select>` renders after host `<select>` in the header row; four-state rendering (no-host → disabled, loading → disabled, error → disabled, ready → options) | ✓ VERIFIED | `SkillsEditorModal.tsx:409,428,455` — `Pick a host…` / `Pick a host first…` / `Pick a skill…` placeholder options in header-row skill dropdown; `listSkills(hostId)` effect at L172 triggers on host change and populates dropdown. |
 | D-04 | Once skill picked, tab bar shows files inside that skill | `enumerateSkillFiles(hostId, skill)` effect populates `files` TabState; bottom tab strip maps `files.data` → per-file tabs | ✓ VERIFIED | `SkillsEditorModal.tsx:571-577` — `files.data.map((file) => ...)` renders per-file tabs with `key={file.path}` and `value={file.path}`. Effect triggering `enumerateSkillFiles` at L172 with deps `[selectedHostId, selectedSkillName]`. |
 | D-05 | Subfolder files flat with path-relative labels (e.g. `tests/basic.py`) | Tab label uses `file.path` verbatim, NOT `.split("/").pop()` | ✓ VERIFIED | `SkillsEditorModal.tsx:633` — `{file.path}` rendered verbatim as tab label; backend `enumerateSkillFiles` (`skills-editor.ts` GET /files route L350) uses `find ... -type f -printf '%P\n'` returning paths relative to skill root (e.g. `tests/basic.py`). |
-| D-06 | Horizontal-scroll fallback when tab bar overflows | Bottom tab strip wraps in `overflow-x-auto` + `WebkitOverflowScrolling: touch`; tabs are `shrink-0` intrinsic-width (no `flex-1`, no `justify-around`) | ✓ VERIFIED | `SkillsEditorModal.tsx:592` — `className="shrink-0 flex items-stretch px-2 py-1 border-t overflow-x-auto"`. 2 `overflow-x-auto` occurrences confirm D-06. Per-tab pill dropped `flex-1` per plan spec (44-02-SUMMARY.md L107). |
+| D-06 | Horizontal-scroll fallback when tab bar overflows | Bottom tab strip wraps in `overflow-x-auto` + `WebkitOverflowScrolling: touch`; tabs are `shrink-0` intrinsic-width (no `flex-1`, no `justify-around`) | ✓ VERIFIED | `SkillsEditorModal.tsx:592` — `className="shrink-0 flex items-stretch px-2 py-1 border-t overflow-x-auto"`. 2 `overflow-x-auto` occurrences confirm D-06. Per-tab pill dropped `flex-1` per plan spec (46-02-SUMMARY.md L107). |
 | D-07 | Text files: same editor pane as global-files; fully editable; same save mechanics | SkillFileTab.tsx text branch renders GlobalFileTab-shape textarea + Save button + inline error slot; handleSave calls writeSkillFile with expectedMtime for 409-conflict flow | ✓ VERIFIED | `SkillFileTab.tsx:118-148` — monospace textarea + Save button + saveError slot mirrored verbatim from GlobalFileTab L104-126. `SkillsEditorModal.tsx:242` — `window.confirm("The file changed on disk since you started editing. Reload from disk and lose your local edits?")` copied byte-verbatim from Phase 23. `SkillsEditorModal.tsx:217-260` handleSave catches `SkillFileMtimeConflictError` and prompts. |
 | D-08 | Non-text files: tab visible + editor replaced with placeholder ("isn't text and can't be edited") | SkillFileTab.tsx renders AlertTriangle + heading "Not a text file" + body when `state.data.isText === false`; height matches text-file (min-h-[400px]) to prevent layout jump | ✓ VERIFIED | `SkillFileTab.tsx:100-112` — `if (!state.data.isText) return <AlertTriangle .../> "Not a text file" "This file isn't text and can't be edited here."`; Backend detectIsText heuristic at `skills-editor.ts:202` (NUL/control-char/UTF-8 decode with fatal:true) drives isText flag; `SkillFileTab.test.tsx` test 8 confirms no textbox rendered. |
 | D-09 | Add new file to currently-open skill (empty file at skill root) | handleAddFile fires `window.prompt`, calls createSkillFile, refetches file list + auto-selects new tab; 409 duplicate rejection surfaced via files error branch | ✓ VERIFIED | `SkillsEditorModal.tsx:268-273` `window.prompt("New file name (relative to skill root):", "")`; `SkillsEditorModal.tsx:467-474` `+ Add file` button with proper disabled state; backend `POST /skills-editor/create` at `skills-editor.ts:796` with 409 file-exists branch (`skills-editor.ts:884`). SkillsEditorModal.test.tsx test #5 covers create+refetch. |
 | D-10 | Delete file inside skill with confirmation | Trash2 trigger left of Save in SkillFileTab fires onRequestDelete; SkillsEditorModal opens DeleteConfirmDialog with heading `Delete file?`, body `{skill}/{path}` in monospace + `This can't be undone.`; on confirm calls deleteSkillFile | ✓ VERIFIED | `SkillFileTab.tsx:132-136` Trash2 button with `title="Delete this file"`; `SkillsEditorModal.tsx:582` `setDeleteFileConfirm({ path: file.path })`; `SkillsEditorModal.tsx:645-664` DeleteConfirmDialog mount with `Delete file?` heading, `{selectedSkillName}/{deleteFileConfirm?.path}` body, `Delete` primary. Backend `DELETE /skills-editor/file` at `skills-editor.ts:938` executes `rm -f`. |
 | D-11 | Delete entire skill (folder + everything under it) with confirmation | Trash2 in header row (only when skill picked) opens DeleteConfirmDialog with heading `Delete skill?`, body `{skill}` in monospace + `This removes the skill folder...`; on confirm calls deleteSkill | ✓ VERIFIED | `SkillsEditorModal.tsx:479-494` header Trash2 button (conditionally rendered on `selectedSkillName`); `SkillsEditorModal.tsx:672-693` second DeleteConfirmDialog mount with `Delete skill?` heading + `Delete skill` primary. Backend `DELETE /skills-editor/skill` at `skills-editor.ts:1061` executes `rm -rf ${escapedSkillRoot}` (L1136) with life-critical path-safety gate. |
-| D-12 | No other guards — every visible file/skill deletable; user is trusted | Zero allowlist/blocklist/per-file protection logic added — every visible tab has Trash2, every visible skill has Trash2 in header | ✓ VERIFIED | `grep -inE "allowlist\|blocklist\|blacklist\|protected.?file\|readonly.?file"` on Phase 44 code returns 0 hits (single "whitelist" mention in `skills-editor.ts:6` is a JSDoc explaining the Phase 23 whitelist that was intentionally REPLACED with the path-safety gate). No per-file skip logic in SkillsEditorModal or SkillFileTab. |
+| D-12 | No other guards — every visible file/skill deletable; user is trusted | Zero allowlist/blocklist/per-file protection logic added — every visible tab has Trash2, every visible skill has Trash2 in header | ✓ VERIFIED | `grep -inE "allowlist\|blocklist\|blacklist\|protected.?file\|readonly.?file"` on Phase 46 code returns 0 hits (single "whitelist" mention in `skills-editor.ts:6` is a JSDoc explaining the Phase 23 whitelist that was intentionally REPLACED with the path-safety gate). No per-file skip logic in SkillsEditorModal or SkillFileTab. |
 | D-13 | Creating a brand-new skill from scratch is out-of-scope | No new-skill scaffolding UI; only per-file `+ Add file` inside an existing skill | ✓ VERIFIED | No `createSkill` (as opposed to `createSkillFile`) in skills-api.ts; no "New skill" button in SkillsEditorModal.tsx (`grep -n "New skill\|createSkill(" /home/ubuntu/skynet-tiffany/src/ui/**/*.tsx` finds nothing). skills-api.ts exports only `createSkillFile` — per-file creation only. |
-| D-14 | Editor deliberately unaware of skill distribution/self-update | Zero references to self-update/distribution/cross-host sync/central-server-fetch in any Phase 44 file | ✓ VERIFIED | `grep -inE "self-update\|selfupdate\|distribution\|distributed\|cross-host sync\|remote.?sync\|fetch.?from.?central"` across skills-editor.ts + SkillsEditorModal.tsx + SkillFileTab.tsx + skills-api.ts + DeleteConfirmDialog.tsx returns 0 hits. Backend is a plain file editor on the disk. |
+| D-14 | Editor deliberately unaware of skill distribution/self-update | Zero references to self-update/distribution/cross-host sync/central-server-fetch in any Phase 46 file | ✓ VERIFIED | `grep -inE "self-update\|selfupdate\|distribution\|distributed\|cross-host sync\|remote.?sync\|fetch.?from.?central"` across skills-editor.ts + SkillsEditorModal.tsx + SkillFileTab.tsx + skills-api.ts + DeleteConfirmDialog.tsx returns 0 hits. Backend is a plain file editor on the disk. |
 | D-15 | Editor is NOT a general file manager; scope is "pick a skill, work on its files" | No filesystem browse, no rename, no move-between-skills; skill root is hardcoded to `.claude/skills` (SKILL_ROOT_REL) | ✓ VERIFIED | `skills-editor.ts:130` (approx via SKILL_ROOT_REL declaration) — path composition is fixed at `${remoteHome}/${SKILL_ROOT_REL}/${skill}/${relPath}`; no arbitrary-directory listing endpoint, no rename endpoint, no move endpoint. All 7 endpoints operate strictly inside the skill root. |
 | D-16 | Backend surface: list skills, list files, read, write, create, delete file, delete skill — all per-host over SSH | 7 endpoints implemented in `skills-editor.ts` gated by JWT + resolveHostById; all per-host (SSH into host to read/write) | ✓ VERIFIED | `router.get/post/put/delete` at `skills-editor.ts:248,350,459,605,796,935,1058` = 7 endpoints; all use `authenticateJWT` (9 grep hits: 1 declaration + 1 doc-string + 7 endpoint mounts) + `resolveHostById(hostId, userId)` for per-user host isolation. Every endpoint opens fresh SSH via `connectOneShot` — no cached sessions. |
 
@@ -117,27 +117,27 @@ All artifacts render real data through the wired API surface.
 | Frontend SkillFileTab tests | `npx vitest run src/ui/features/pretty-view/SkillFileTab.test.tsx` | 10 tests passed | ✓ PASS (see combined command) |
 | Frontend SkillsEditorModal tests | `npx vitest run src/ui/features/pretty-view/SkillsEditorModal.test.tsx` | 8 tests passed (includes race regression, non-text branch, add-file prompt, delete flows, RDP filter) | ✓ PASS (see combined command) |
 | Frontend combined | `npx vitest run src/ui/features/pretty-view/SkillFileTab.test.tsx src/ui/features/pretty-view/SkillsEditorModal.test.tsx` | 2 test files / 18 tests passed / 6.81s | ✓ PASS |
-| TypeScript check for Phase 44 files | `npx tsc --noEmit -p tsconfig.json 2>&1 \| grep -E "skills-editor\|SkillsEditor\|SkillFileTab\|DeleteConfirmDialog\|skills-api\|error TS"` | Empty output (0 errors) | ✓ PASS |
+| TypeScript check for Phase 46 files | `npx tsc --noEmit -p tsconfig.json 2>&1 \| grep -E "skills-editor\|SkillsEditor\|SkillFileTab\|DeleteConfirmDialog\|skills-api\|error TS"` | Empty output (0 errors) | ✓ PASS |
 | Git log commits present | `git log --oneline -20` | All 7 phase 44 commits present: `07c71e14`, `05ef8206`, `a385a7a9`, `89e51bee`, `93cafb1e`, `e0677bfb`, `31e1bb30`, `564afb09`, `c916386f`, `a502a9dc`, `4da6938f` | ✓ PASS |
 
 ### Probe Execution
 
-Not applicable — Phase 44 is a feature phase, not a migration/tooling phase. Success criteria expressed as Vitest coverage (39 backend tests + 18 frontend tests), which ran green.
+Not applicable — Phase 46 is a feature phase, not a migration/tooling phase. Success criteria expressed as Vitest coverage (39 backend tests + 18 frontend tests), which ran green.
 
 ### Requirements Coverage
 
-**N/A for formal REQ-IDs.** Per ROADMAP.md Phase 44 explicitly states `Requirements: None (phase derives from CONTEXT.md decisions D-01..D-16, not REQ-IDs)`. See D-XX table above for decision-level coverage.
+**N/A for formal REQ-IDs.** Per ROADMAP.md Phase 46 explicitly states `Requirements: None (phase derives from CONTEXT.md decisions D-01..D-16, not REQ-IDs)`. See D-XX table above for decision-level coverage.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 | --- | --- | --- | --- | --- |
 
-None. Scan of all Phase 44 files for `TODO|FIXME|XXX|TBD|HACK|PLACEHOLDER` returns only 5 hits, all of which are references to the intentional non-text-file **placeholder branch** (D-08), NOT debt markers. No unresolved stubs, no coming-soon copy, no empty implementations, no `console.log` orphans, no `return null` dead-ends, no hardcoded empty data flowing to rendering.
+None. Scan of all Phase 46 files for `TODO|FIXME|XXX|TBD|HACK|PLACEHOLDER` returns only 5 hits, all of which are references to the intentional non-text-file **placeholder branch** (D-08), NOT debt markers. No unresolved stubs, no coming-soon copy, no empty implementations, no `console.log` orphans, no `return null` dead-ends, no hardcoded empty data flowing to rendering.
 
 ### Human Verification Required
 
-The 10 items below all require human verification post-deploy. Ashley's UAT walk (already captured in `44-UAT-CHECKLIST.md`, 14 Steps × Action/Expected/Pass-Fail) covers every one of them. Executor's remit ends at code + commit + tests-green per phase discipline; deploy + UAT is orchestrator + Ashley territory.
+The 10 items below all require human verification post-deploy. Ashley's UAT walk (already captured in `46-UAT-CHECKLIST.md`, 14 Steps × Action/Expected/Pass-Fail) covers every one of them. Executor's remit ends at code + commit + tests-green per phase discipline; deploy + UAT is orchestrator + Ashley territory.
 
 #### 1. Menu ordering + label rendering in the running app
 
@@ -201,9 +201,9 @@ The 10 items below all require human verification post-deploy. Ashley's UAT walk
 
 ### Gaps Summary
 
-**No code-level gaps.** All 16 CONTEXT.md D-XX locked decisions are verified in shipped code. The load-bearing byte-shape preservations (Phase 23 race-fix, twin nginx blocks, 4-layer path-safety gate, D-12 no-guards, D-14 plain-editor discipline) are all confirmed. Full Vitest suite passes (39 backend + 18 frontend = 57 Phase 44 tests, all green). TypeScript clean.
+**No code-level gaps.** All 16 CONTEXT.md D-XX locked decisions are verified in shipped code. The load-bearing byte-shape preservations (Phase 23 race-fix, twin nginx blocks, 4-layer path-safety gate, D-12 no-guards, D-14 plain-editor discipline) are all confirmed. Full Vitest suite passes (39 backend + 18 frontend = 57 Phase 46 tests, all green). TypeScript clean.
 
-**The 10 human-verification items above are Ashley's UAT walk** — already captured in `44-UAT-CHECKLIST.md` per Wave 3's handoff artifact convention. They represent the deploy + user-observable side of the phase that lives outside the executor's remit per phase discipline. This is the intended handoff shape, NOT a shortfall of the code.
+**The 10 human-verification items above are Ashley's UAT walk** — already captured in `46-UAT-CHECKLIST.md` per Wave 3's handoff artifact convention. They represent the deploy + user-observable side of the phase that lives outside the executor's remit per phase discipline. This is the intended handoff shape, NOT a shortfall of the code.
 
 ---
 

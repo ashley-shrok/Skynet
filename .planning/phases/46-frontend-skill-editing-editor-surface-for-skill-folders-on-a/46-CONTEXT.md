@@ -1,4 +1,4 @@
-# Phase 44: Frontend skill editing — editor surface for skill folders on a host, sibling to the existing global-files editor - Context
+# Phase 46: Frontend skill editing — editor surface for skill folders on a host, sibling to the existing global-files editor - Context
 
 **Gathered:** 2026-08-18
 **Status:** Ready for planning
@@ -94,5 +94,5 @@ Out-of-scope for this phase: creating a brand-new skill from scratch (no scaffol
 
 ---
 
-*Phase: 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a*
+*Phase: 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a*
 *Context gathered: 2026-08-18 from /open shape file (equivalent to PRD express path)*

@@ -7,7 +7,7 @@ preset: radix-lyra
 created: 2026-08-18
 ---
 
-# Phase 44 — UI Design Contract
+# Phase 46 — UI Design Contract
 
 > Visual and interaction contract for the skill editor surface — a **sibling of `GlobalFilesModal`** reached from the same header menu on `PrettyConversationsPanel`. **This spec is written as "same as global-files editor except X, Y, Z"** because the shape file (`.planning/shapes/shape-frontend-skill-editing.md`) and CONTEXT D-02 mandate reuse of that modal's chrome, host dropdown, tab-bar pattern, and editor pane. Fresh visual work is intentionally minimized.
 

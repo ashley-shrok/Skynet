@@ -1,4 +1,4 @@
-# Patch #TBD — Phase 44: Frontend skill editing (editor surface for skill folders on a host)
+# Patch #TBD — Phase 46: Frontend skill editing (editor surface for skill folders on a host)
 
 **Date drafted:** 2026-08-19 (planning date — maintainer adjusts to ship date at PIN time)
 **Branch:** `feat/tab-title-from-tmux`
@@ -108,11 +108,11 @@ Every user-supplied path or skill name runs a four-layer defense before any I/O:
 
 ## Related
 
-- **Phase 23 (`/global-files` editor)** — the direct byte-shape precedent for the entire cluster (backend router + frontend modal + tab pane + nginx block pattern). Phase 44 is a mirror-and-fork of Phase 23 with the skill dimension threaded through.
-- **patch #446 (layer-enumeration reflex)** — every new backend route needs matching `location` blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`, else it 200s with `index.html` and crashes the frontend on `.map`. Both twin blocks verified for Phase 44.
+- **Phase 23 (`/global-files` editor)** — the direct byte-shape precedent for the entire cluster (backend router + frontend modal + tab pane + nginx block pattern). Phase 46 is a mirror-and-fork of Phase 23 with the skill dimension threaded through.
+- **patch #446 (layer-enumeration reflex)** — every new backend route needs matching `location` blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`, else it 200s with `index.html` and crashes the frontend on `.map`. Both twin blocks verified for Phase 46.
 - **quick-260805-7rq (lazy-load useEffect race)** — the `SkillsEditorModal.tsx` `useEffect` at L173-217 has deps `[selectedHostId, selectedSkillName, activeTab]` (NO `tabData`) with the `eslint-disable-next-line react-hooks/exhaustive-deps` comment preserved byte-verbatim from `GlobalFilesModal.tsx` L143-149. The 700ms lazy-load infinite-spinner regression is guarded by `SkillsEditorModal.test.tsx` test #1.
 - **patch #1503c40c (composebox opacity-30 fix)** — pre-existing test drift in `ComposeBox.test.tsx` was Rule-3 auto-fixed during Wave 1 to unblock the full-suite gate; regex swap from `rgba(240,235,224,0.3)` to `opacity-30` per the intent of that fix commit.
 
 ## Bounty tracker
 
-Reference the box-maintainer's bounty tree at `~/.claude/roles/box-maintainer/bounties/frontend-skill-editing/` (maintainer's local path — orchestrator confirms and closes the bounty at PIN time). Bounty ships when Ashley signs off on the UAT checklist (`.planning/phases/44-.../44-UAT-CHECKLIST.md`).
+Reference the box-maintainer's bounty tree at `~/.claude/roles/box-maintainer/bounties/frontend-skill-editing/` (maintainer's local path — orchestrator confirms and closes the bounty at PIN time). Bounty ships when Ashley signs off on the UAT checklist (`.planning/phases/44-.../46-UAT-CHECKLIST.md`).

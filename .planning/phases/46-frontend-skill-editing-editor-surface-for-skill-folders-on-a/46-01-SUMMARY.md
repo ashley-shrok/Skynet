@@ -1,5 +1,5 @@
 ---
-phase: 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a
+phase: 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a
 plan: 01
 subsystem: backend
 tags:
@@ -25,8 +25,8 @@ provides:
   - "detectIsText byte-sniff heuristic (NUL / control-char / UTF-8 decode) on POST /read — Node-side; no shell dependency"
   - "Backend surface ready for Wave 2 frontend (skills-api.ts, SkillsEditorModal.tsx, SkillFileTab.tsx, DeleteConfirmDialog.tsx)"
 affects:
-  - "44-02 (Wave 2 frontend — SkillsEditorModal + SkillFileTab + skills-api.ts consume this router)"
-  - "44-03 (Wave 3 mount at PrettyConversationsPanel.tsx menu)"
+  - "46-02 (Wave 2 frontend — SkillsEditorModal + SkillFileTab + skills-api.ts consume this router)"
+  - "46-03 (Wave 3 mount at PrettyConversationsPanel.tsx menu)"
 
 # Tech tracking
 tech-stack:
@@ -40,7 +40,7 @@ key-files:
   created:
     - "src/backend/database/routes/skills-editor.ts (1178 lines / 40.6 KB — 7 endpoints + 5 helpers + fallback error handler)"
     - "src/backend/database/routes/skills-editor.test.ts (816 lines / 27.4 KB — 39 tests, all pass)"
-    - ".planning/phases/44-.../44-01-SUMMARY.md (this file)"
+    - ".planning/phases/44-.../46-01-SUMMARY.md (this file)"
   modified:
     - "src/backend/database/database.ts (+7 lines — import + app.use mount)"
     - "docker/nginx.conf (+21 lines — /skills-editor location block parallel to /global-files)"
@@ -67,9 +67,9 @@ duration: 2h 8m
 completed: 2026-08-19
 ---
 
-# Phase 44 Plan 01: Backend router + path-safety gate + nginx blocks — Summary
+# Phase 46 Plan 01: Backend router + path-safety gate + nginx blocks — Summary
 
-**Shipped the full 7-endpoint backend + twin nginx blocks for Phase 44 skill editing as a byte-shape mirror of Phase 23 with the JSON whitelist replaced by a two-layer path-safety gate. All 39 scoped tests pass; typecheck clean.**
+**Shipped the full 7-endpoint backend + twin nginx blocks for Phase 46 skill editing as a byte-shape mirror of Phase 23 with the JSON whitelist replaced by a two-layer path-safety gate. All 39 scoped tests pass; typecheck clean.**
 
 ## Performance
 
@@ -104,7 +104,7 @@ Plus one Rule-3 auto-fix commit for a pre-existing test drift blocking the full-
 - **`src/backend/database/routes/skills-editor.ts`** (NEW, 1178 lines) — 7-endpoint router with `SKILL_NAME_RE`, `isValidSkillName`, `isSafeRelativePath`, `detectIsText`, `shellEscape`, `execWithTimeout`, `buildAbsSkillFilePath` helpers. `export default router` at bottom. Every endpoint: JWT gate → body validation (400 before I/O) → `resolveHostById` (404) → SSH connect (502) → `echo $HOME` two-step → compose absPath + prefix assertion → shellEscape → exec/SFTP → `finally { conn?.end() }`. Fallback 500 handler for uncaught errors.
 - **`src/backend/database/routes/skills-editor.test.ts`** (NEW, 816 lines) — 39 vitest cases across 7 endpoint describe blocks + a dedicated `describe("path-safety gate")` block with 8 SEC-labeled attack-input tests. Bare Express + `node:http` request helper mirrors Phase 23 pattern (no supertest). SSH primitives + auth + logger + writeMarkdownFileAtomic all mocked at module boundary. NUL-byte SEC-6 test carries a real `\0` in its string literal (the test file itself is byte-tagged as `data` by `file(1)` because of it).
 - **`src/backend/database/database.ts`** (MODIFIED, +7 lines) — Added `import skillsEditorRoutes from "./routes/skills-editor.js";` at L34-35 (after global-files pair, with a JSDoc explaining the path-safety gate replaces the whitelist) + `app.use("/skills-editor", skillsEditorRoutes);` at ~L1864-1868 (with a JSDoc referencing the twin nginx blocks).
-- **`docker/nginx.conf`** (MODIFIED, +21 lines) — `location ~ ^/skills-editor(/.*)?$` block added at ~L308 (immediately after `/global-files` block at L297-306). Same directive body as `/global-files`: `proxy_pass http://127.0.0.1:30001`, `proxy_read_timeout 15s`, `client_max_body_size 4M`, standard `X-Forwarded-*` headers. 6-line Phase 44 SKILLED-01 comment header calling out patch #446 arc.
+- **`docker/nginx.conf`** (MODIFIED, +21 lines) — `location ~ ^/skills-editor(/.*)?$` block added at ~L308 (immediately after `/global-files` block at L297-306). Same directive body as `/global-files`: `proxy_pass http://127.0.0.1:30001`, `proxy_read_timeout 15s`, `client_max_body_size 4M`, standard `X-Forwarded-*` headers. 6-line Phase 46 SKILLED-01 comment header calling out patch #446 arc.
 - **`docker/nginx-https.conf`** (MODIFIED, +21 lines) — Identical block at ~L325 (parallel position to HTTP conf; parity is load-bearing).
 - **`src/ui/features/pretty-view/ComposeBox.test.tsx`** (MODIFIED, +4 -1 lines) — Rule-3 deviation fix. See Deviations below.
 
@@ -159,14 +159,14 @@ Every SEC-N test asserts one of:
 
 Both blocks are byte-identical (proxy_pass 127.0.0.1:30001, proxy_http_version 1.1, standard X-Forwarded-* headers, proxy_read_timeout 15s, client_max_body_size 4M):
 
-- **`docker/nginx.conf`** — new `location ~ ^/skills-editor(/.*)?$` block at ~L308 (immediately after `/global-files` regex block that lives at L297-306). Preceded by a 9-line Phase 44 SKILLED-01 comment header calling out the patch #446 layer-enumeration reflex.
+- **`docker/nginx.conf`** — new `location ~ ^/skills-editor(/.*)?$` block at ~L308 (immediately after `/global-files` regex block that lives at L297-306). Preceded by a 9-line Phase 46 SKILLED-01 comment header calling out the patch #446 layer-enumeration reflex.
 - **`docker/nginx-https.conf`** — identical block at ~L325 (immediately after `/global-files` block at L314-323). Same 9-line comment header. Parity is load-bearing — missing block in HTTPS conf → `/skills-editor/*` returns `index.html` and crashes the frontend on `.map` parsing (that was the entire arc lesson of patch #446).
 
 Verification: `grep -c "location.*skills-editor" docker/nginx.conf docker/nginx-https.conf` returns `1` for each file. Directive body verification: `grep -A 10 "location.*skills-editor" docker/nginx.conf` shows both `proxy_read_timeout 15s` and `client_max_body_size 4M`.
 
 ## Decisions Made
 
-1. **Duplicate helpers rather than extract to shared module** — `execWithTimeout` + `shellEscape` are duplicated verbatim from Phase 23 (fourth intentional instance in the codebase — the first three are `roles-create.ts`, `roles-list-for-host.ts`, `global-files-read-write.ts`). RESEARCH.md § Standard Stack explicitly notes this posture: "extracting to a shared module is a Post-Planning-Gaps item, not a Phase 44 task."
+1. **Duplicate helpers rather than extract to shared module** — `execWithTimeout` + `shellEscape` are duplicated verbatim from Phase 23 (fourth intentional instance in the codebase — the first three are `roles-create.ts`, `roles-list-for-host.ts`, `global-files-read-write.ts`). RESEARCH.md § Standard Stack explicitly notes this posture: "extracting to a shared module is a Post-Planning-Gaps item, not a Phase 46 task."
 2. **`buildAbsSkillFilePath` helper isolates the compose+assertion in one place** — the plan asked for inline `if (!absPath.startsWith(skillRoot + "/"))` at each call site; I hoisted the check into a helper that returns `null` on violation. Semantically identical, one audit surface. Callers still respond 400 on `null`. Verified 3 call sites (read, write, create, delete-file — all 4 mutation-adjacent paths use it; delete-skill has its own inline check because it doesn't have a relPath dimension).
 3. **DELETE /skill has its own explicit prefix assertion post-compose** — even though `SKILL_NAME_RE` makes it unreachable, the assertion runs anyway (`if (!skillRoot.startsWith(skillsPrefix))`). Defense-in-depth for the one endpoint where a bypass would mean `rm -rf ~/`. Backed by SEC-8 test.
 4. **isText false → content empty, not raw bytes** — RESEARCH.md § Text Detection explicitly recommended this; frontend renders a placeholder anyway so the payload is never displayed. Saves bandwidth on any accidental binary read.
@@ -179,7 +179,7 @@ Verification: `grep -c "location.*skills-editor" docker/nginx.conf docker/nginx-
 **D1. [Rule 3 - Blocking issue] Pre-existing test drift in ComposeBox.test.tsx blocked full-suite green precondition**
 
 - **Found during:** Task 3 verify (full `npx vitest run`)
-- **Issue:** Test QB-1 at `src/ui/features/pretty-view/ComposeBox.test.tsx:860` asserted `paperclip.className` matched `/rgba\(240,235,224,0\.3\)/`. Fix commit `1503c40c` (`fix(pretty-view): kill overlap-doubling on composebox icons`, 2026-08-18 19:55 UTC — ~6 hours before Phase 44 execution) intentionally switched from the semi-transparent rgba stroke to the Tailwind `opacity-30` utility to avoid additive alpha compositing on overlapping lucide SVG paths. Test assertion was not updated in that patch. Test was drifting green→red between STATE.md 2026-08-18 evening (Ashley's 2434 pass green baseline) and Phase 44 execution.
+- **Issue:** Test QB-1 at `src/ui/features/pretty-view/ComposeBox.test.tsx:860` asserted `paperclip.className` matched `/rgba\(240,235,224,0\.3\)/`. Fix commit `1503c40c` (`fix(pretty-view): kill overlap-doubling on composebox icons`, 2026-08-18 19:55 UTC — ~6 hours before Phase 46 execution) intentionally switched from the semi-transparent rgba stroke to the Tailwind `opacity-30` utility to avoid additive alpha compositing on overlapping lucide SVG paths. Test assertion was not updated in that patch. Test was drifting green→red between STATE.md 2026-08-18 evening (Ashley's 2434 pass green baseline) and Phase 46 execution.
 - **Fix:** Change the QB-1 regex from `/rgba\(240,235,224,0\.3\)/` to `/\bopacity-30\b/`. Added inline comment explaining the post-1503c40c rationale.
 - **Files modified:** `src/ui/features/pretty-view/ComposeBox.test.tsx` (+4 -1 lines)
 - **Verification:** `npx vitest run src/ui/features/pretty-view/ComposeBox.test.tsx -t "QB-1"` → 6/6 pass (pattern matches multiple QB* tests). Zero source changes; assertion realigned only.
@@ -187,17 +187,17 @@ Verification: `grep -c "location.*skills-editor" docker/nginx.conf docker/nginx-
 
 Rationale for auto-fix vs. deferred: this was a **test-only** drift, not a source bug. The plan's `<verify>` block for Task 3 explicitly requires `npx vitest run` to exit 0. The alternative (defer) would violate the plan's stated verification gate. One-line regex swap; no risk of introducing new behavior.
 
-## Deferred Issues (out of Phase 44 scope)
+## Deferred Issues (out of Phase 46 scope)
 
 **DEF-1. PrettyView.windowed-pagination.test.tsx has 4 failing tests (Tests 3, 4, 5, 6)**
 
-- **Root cause (not mine):** This test file was intentionally committed as RED-phase specs in commit `ce646684` (`test(43-07b): add failing PrettyView windowed-pagination spec`, 2026-08-18 18:47 UTC — before Phase 44). The commit message explicitly says: "Runtime: 8/11 fail (Tests 1, 3-9 need windowed-pagination surgery in Task 2). Tests 2, 10, 11 pass because they cover behavior already implemented … Failing-tests count satisfies the RED gate per plan's verify block."
+- **Root cause (not mine):** This test file was intentionally committed as RED-phase specs in commit `ce646684` (`test(43-07b): add failing PrettyView windowed-pagination spec`, 2026-08-18 18:47 UTC — before Phase 46). The commit message explicitly says: "Runtime: 8/11 fail (Tests 1, 3-9 need windowed-pagination surgery in Task 2). Tests 2, 10, 11 pass because they cover behavior already implemented … Failing-tests count satisfies the RED gate per plan's verify block."
 - **Current state:** 4/11 fail (Tests 3, 4, 5, 6) — Wave 3's task 2 has partially landed since the RED commit but is not yet complete.
-- **Action taken:** None. This is 43-07b's responsibility, not Phase 44's. Confirmed via `git log --oneline -- src/ui/features/pretty-view/PrettyView.windowed-pagination.test.tsx` showing only the single RED-phase commit.
+- **Action taken:** None. This is 43-07b's responsibility, not Phase 46's. Confirmed via `git log --oneline -- src/ui/features/pretty-view/PrettyView.windowed-pagination.test.tsx` showing only the single RED-phase commit.
 
 **DEF-2. Cross-identity vitest contention flakes**
 
-- **Symptom:** During the Phase 44 full-suite run, 2 unrelated test files timed out at 5000ms (`PrettyConversationsPanel.clone-dialog.test.tsx` Tests 16 + 16b; `IdentityModal.voice.test.tsx` Test 6). Both pass 100% in isolation when the box is quiet.
+- **Symptom:** During the Phase 46 full-suite run, 2 unrelated test files timed out at 5000ms (`PrettyConversationsPanel.clone-dialog.test.tsx` Tests 16 + 16b; `IdentityModal.voice.test.tsx` Test 6). Both pass 100% in isolation when the box is quiet.
 - **Root cause (not mine):** Concurrent vitest runs from sibling identities (`skynet-tabitha`, `skynet`) at the same time saturated the box. STATE.md 2026-08-14 explicitly documents this exact pattern: "box under cross-identity contention (Tanya running vitest full-suite + specific-file run concurrently … waitFor default 5s timeout unreliable under load; earlier 'regression' theory disproved by bisect showing bare-HEAD tests pass 5/5 in isolation)."
 - **Verification of non-regression:**
   - `npx vitest run src/ui/features/pretty-conversations/PrettyConversationsPanel.clone-dialog.test.tsx` → 2/2 pass in isolation
@@ -232,7 +232,7 @@ npx vitest run  # full suite
 # Test Files  3 failed | 197 passed (200)
 # Tests  4 failed | 2570 passed | 9 skipped | 1 todo (2584)
 # 4 failures: 3 pre-existing (RED-phase 43-07b tests) + 2 cross-identity contention flakes
-# All 4 confirmed NOT caused by Phase 44 (isolated re-runs green + git log shows pre-existing)
+# All 4 confirmed NOT caused by Phase 46 (isolated re-runs green + git log shows pre-existing)
 ```
 
 ## Self-Check: PASSED
@@ -243,7 +243,7 @@ npx vitest run  # full suite
 - ✓ Commit `a502a9dc` exists in git log (Task 2)
 - ✓ Commit `c916386f` exists in git log (Task 3)
 - ✓ Commit `564afb09` exists in git log (D1 test-drift fix)
-- ✓ `.planning/phases/44-.../44-01-SUMMARY.md` exists (this file)
+- ✓ `.planning/phases/44-.../46-01-SUMMARY.md` exists (this file)
 - ✓ `grep -c "location.*skills-editor" docker/nginx.conf docker/nginx-https.conf` returns 1 for each
 - ✓ `grep -c "skillsEditorRoutes" src/backend/database/database.ts` returns 2
 - ✓ `npx tsc --noEmit` exits 0
