@@ -31,6 +31,13 @@ import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import rolesCreateRoutes from "./routes/roles-create.js";
 import globalFilesListRoutes from "./routes/global-files.js";
 import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
+// Phase 44 SKILLED-01: /skills-editor router — 7 endpoints
+// (list-skills / list-files / read / write / create / delete-file /
+// delete-skill) for editing skill folders on managed hosts. Mount + nginx
+// block sit alongside the /global-files pair; router owns its own
+// path-safety gate (SKILL_NAME_RE + isSafeRelativePath + prefix
+// assertion + shellEscape) — no operator whitelist.
+import skillsEditorRoutes from "./routes/skills-editor.js";
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook (Plan 40-02)
 // and editor open path (Plan 40-03) both consume this. Threat model
@@ -1855,6 +1862,12 @@ app.use("/global-files", globalFilesListRoutes);
 // router; Express chains routers so GET falls through to the list router
 // and POST/PUT fall through to this read/write router.
 app.use("/global-files", globalFilesReadWriteRoutes);
+// Phase 44 SKILLED-01: /skills-editor router — 7 endpoints
+// (list-skills / list-files / read / write / create / delete-file /
+// delete-skill) mounted alongside /global-files. Matching nginx
+// `location ~ ^/skills-editor(/.*)?$` blocks in BOTH docker/nginx.conf
+// AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
+app.use("/skills-editor", skillsEditorRoutes);
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook + editor
 // open path both consume this. Threat model T-40-01/T-40-02 mitigations
