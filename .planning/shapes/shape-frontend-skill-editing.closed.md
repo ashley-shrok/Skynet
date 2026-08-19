@@ -126,3 +126,59 @@ None.
 ### Notes
 
 Feature is byte-shape mirrored from the existing global-files modal / tab pair — same chrome, same z-index ladder, same 409 reload UX, same lazy per-tab load with the exhaustive-deps quirk preserved. The only genuinely new pieces are the skill dropdown, the tab-strip horizontal scroll, the isText placeholder branch, and the +Add/Delete affordances with a shared confirmation dialog. Backend path-safety posture is stronger than global-files (two-layer regex gate + belt-and-suspenders prefix assertion before the life-critical `rm -rf` on delete-skill), which is a reasonable hardening for the destructive endpoints and not out of shape scope. Not deployed to a running instance — conformance is judged from source only, as the review contract requires.
+
+---
+
+## Close-Out (pass 2 — post code-review fixes)
+
+**Closed:** 2026-08-19
+**Vehicle used:** GSD phase (Phase 44 — 44-frontend-skill-editing-editor-surface-for-skill-folders-on-a)
+**Overall verdict:** closed-hit
+
+Re-close after applying the unbiased general-purpose code-review pass (1 blocker + 4 concerns fixed inline; 6 concerns filed as followup bounties for a mirror-wide pass). The B1 fix changed create-failure error UX from a state-clobber to a transient prompt-style alert, which moves the built code toward — not away from — the shape's "edits not saving cleanly" failure-mode commitment. Re-close per the build skill's rule ("if a fix is substantive enough that it changes the built behavior, re-run /close").
+
+### Shape features (conformance)
+
+- **What this is** — present · Editor surface for skill files reached from the same panel menu as the global-files editor — sibling "Edit skills…" entry opens a modal with host + skill selectors and a per-file tab strip below.
+- **Shape: host dropdown + new skill dropdown at the top of the modal** — present · Host select then skill select in the header; skill select disabled/placeholder until a host is picked and skills load.
+- **Shape: same bottom-tab pattern as global-files, one tab per file inside the picked skill** — present · Bottom icon-bar structurally mirrors the mirror; selection styled with the same hue-tinted glassy pill.
+- **Shape: files flat, subfolder files show as tabs whose label is the path relative to skill root** — present · Backend uses `find -printf '%P'`; tab label uses the full relative path, not the basename.
+- **Shape: many-tabs fallback is a horizontally-scrollable tab bar** — present · `overflow-x-auto` on the strip + intrinsic-width `shrink-0` buttons (no `flex-1`/`justify-around`) so tabs overflow-and-scroll instead of squishing.
+- **Shape: each tab opens into the same editor pane as global files; text files editable** — present · Monospace textarea styled verbatim from the mirror; save button gated on draft-diverges-from-loaded-content; 409 mtime-conflict reload flow reused.
+- **Shape: non-text files still appear as tabs; editor pane replaced by placeholder** — present · Every file appears in the tab bar; when isText=false, tab body renders AlertTriangle + "Not a text file" + "This file isn't text and can't be edited here" instead of the textarea.
+- **Shape: way to add a new file to the currently-open skill** — present · "+ Add file" button in the header opens a prompt for the relative filename, then create endpoint, then refetch + auto-activate the new tab.
+- **Shape: way to delete a file with a confirmation prompt** — present · Trash2 icon in the file tab body opens the shared confirmation dialog naming the skill/path.
+- **Shape: way to delete the currently-open skill** — present · Header-row Trash2 (only rendered when a skill is picked) opens confirmation dialog naming the skill and warning it removes the folder + every file.
+- **Philosophy: plain file editor; no awareness of distribution/self-update** — present · Backend endpoints operate directly on the skills folder on the host via SSH exec + SFTP atomic write; no sync, no distribution hook.
+- **Philosophy: not a file manager; scoped to "pick a skill, work on its files"** — present · No filesystem browsing outside the picked skill; no rename, no move-between-skills; skill selector is the only navigation dimension.
+- **Philosophy: no protected files, no per-item deletion guards** — present · Deletion has no allow-list or block-list; any listed file is deletable, any listed skill is deletable — only gate is the shared confirm dialog.
+- **Prior context: reuse global-files modal chrome + editor pane; skill dropdown is the one new top-level selector** — present · Overlay/content/gradient/close-button copied verbatim; textarea + save controls copied verbatim; skill select and "Edit skills" title are the only header-chrome additions.
+- **What would make it wrong: modal takes a long time to enumerate skills on a host** — present · Single `find -mindepth 1 -maxdepth 1 -type d` call with a 5s exec timeout; "Loading skills…" UI state so latency doesn't strand the user.
+- **What would make it wrong: file list not opening promptly after picking a skill** — present · Skill-change effect immediately fires file-enumerate with "Loading files…" body; first file auto-activates on load.
+- **What would make it wrong: edits not saving cleanly** — present · Atomic tmp+rename via `ext_openssh_rename`; optimistic-concurrency mtime check with 409 reload flow; server-authoritative mtime echo prevents spurious next-save conflicts. **Improved this pass:** create-failure error UX no longer clobbers the files state (B1 fix — a subtle "unsaved edits vanished when the user hit + Add file with a duplicate name" bug that had slipped past the first close pass).
+- **Scope edge (IN): pick host → pick skill → see files as tabs** — present · Full path present exactly as described.
+- **Scope edge (IN): edit any text file inside the skill** — present · Ready+text branch renders the always-editable monospace textarea.
+- **Scope edge (IN): view any non-text file with a placeholder in place of the editor pane** — present · Non-text branch handled explicitly.
+- **Scope edge (IN): add a new file to the currently-open skill** — present · "+ Add file" + prompt + create endpoint; Ashley endorsed sub-path creation as intended.
+- **Scope edge (IN): delete a file with a confirmation prompt** — present · Trash2 in tab body → shared confirmation dialog → delete-file endpoint.
+- **Scope edge (IN): delete the currently-open skill** — present · Header Trash2 → shared confirmation dialog → delete-skill endpoint.
+- **Scope edge (IN): subfolder files show as flat tabs with path-relative labels** — present · Backend uses `find -type f -printf '%P'`; tab label renders `file.path` (not basename).
+- **Scope edge (IN): horizontal-scroll fallback for many-tabs case** — present · `overflow-x-auto` on tab strip + `shrink-0` intrinsic-width buttons.
+- **Scope edge (OUT): creating a brand-new skill from scratch** — present · No such affordance in UI; create endpoint has an explicit skill-existence gate that 404s if the skill folder doesn't yet exist. **Strengthened this pass:** C2 fix added the explicit `test -d skillRoot` gate on the backend so the API surface can no longer implicitly scaffold a skill folder via `mkdir -p`.
+- **Scope edge (OUT): renaming skills or files** — present · No rename affordance or endpoint anywhere.
+- **Scope edge (OUT): moving files between skills** — present · No move affordance or endpoint anywhere.
+- **Scope edge (OUT): any behavior tied to skill distribution or self-update** — present · Feature operates on files at rest; no sync trigger, no distribution notion.
+- **Scope edge (OUT): tree view / drill-down / richer intra-skill navigation** — present · Only intra-skill navigation is the flat tab bar.
+- **Scope edge (OUT): guards on specific files (no "you can't delete this one" logic)** — present · Delete handlers have no per-file allow-list.
+
+### Additions (in the result, not in the shape)
+
+- Adding a new file into a not-yet-existing subfolder inside the skill works — typing a nested path into the "+ Add file" prompt creates the intermediate folder on the fly. The shape describes the file surface as flat but doesn't say whether creation into a new subfolder was in scope. **Ashley endorsed this pass 2 as intended.** — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Second close pass reconfirmed clean conformance after applying the code-review fix batch (B1 create-error state fix, C2 skill-existence gate, C7 strict 409 shape checks, C8 per-dialog delete state, C9 auth-before-body-parser). Two of the fixes (B1, C2) actually strengthened commitments the first pass had already marked "present" — B1 hardens the "edits not saving cleanly" failure-mode commitment; C2 hardens the OUT-scope "no new skill from scratch" commitment. Six other reviewer concerns that touch the shared global-files mirror layer (execCommand .trim() data-mutation, detectIsText re-encoding, find newline-split, echo \$HOME per-request, parentDir extraction, per-exec timeout budget) were deferred to two followup bounties in the box-maintainer's shared bounty pool for a mirror-wide pass. No unsanctioned additions; nothing missing. Ready for deploy.
