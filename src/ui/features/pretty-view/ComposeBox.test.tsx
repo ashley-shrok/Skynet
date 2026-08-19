@@ -857,7 +857,10 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
     expect(paperclip.className).toMatch(/\bleft-1\b/);
     expect(paperclip.className).toMatch(/\bbottom-0\.5\b/);
     // 30% opacity treatment — matches the main-composebox paperclip.
-    expect(paperclip.className).toMatch(/rgba\(240,235,224,0\.3\)/);
+    // Post-1503c40c the icon uses the Tailwind `opacity-30` utility instead
+    // of the semi-transparent rgba stroke (rgba composited additively on
+    // overlapping SVG paths, producing visible seams — see commit message).
+    expect(paperclip.className).toMatch(/\bopacity-30\b/);
   });
 
   it("QB-2: paperclip click on queued slot routes file-picker output to onAttachFilesForTarget(`queued:${slotId}`, files) — NOT primary", async () => {
