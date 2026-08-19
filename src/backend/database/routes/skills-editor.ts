@@ -590,6 +590,573 @@ router.post(
   },
 );
 
+// ---------------------------------------------------------------------------
+// PUT /skills-editor/write
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a file inside a skill with optimistic-concurrency mtime check.
+ * On mtime drift returns 409 with byte-identical shape to Phase 23:
+ *   { error: "mtime mismatch", currentMtime, currentContent }
+ * Atomic write goes through writeMarkdownFileAtomic (posix-rename via
+ * ext_openssh_rename — do NOT use the plain SFTP rename call directly; see the prologue
+ * at identity-artifact-reader.ts L1039-1063 for the EEXIST trap).
+ */
+router.put(
+  "/write",
+  express.json({ limit: "4mb" }), // matches nginx client_max_body_size
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    // 1. Body validation — 400 BEFORE any I/O.
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawHostId = body.hostId;
+    const rawSkill = body.skill;
+    const rawPath = body.path;
+    const rawContent = body.content;
+    const rawExpectedMtime = body.expectedMtime;
+
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (!isSafeRelativePath(rawPath)) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    if (typeof rawContent !== "string") {
+      res.status(400).json({ error: "content must be a string" });
+      return;
+    }
+    if (Buffer.byteLength(rawContent, "utf-8") > MAX_CONTENT_BYTES) {
+      res.status(400).json({
+        error: `content must be ≤${MAX_CONTENT_BYTES} bytes`,
+      });
+      return;
+    }
+    if (rawExpectedMtime !== undefined) {
+      if (
+        typeof rawExpectedMtime !== "number" ||
+        !Number.isFinite(rawExpectedMtime) ||
+        !Number.isInteger(rawExpectedMtime) ||
+        rawExpectedMtime < 0
+      ) {
+        res.status(400).json({
+          error: "expectedMtime must be a non-negative integer when provided",
+        });
+        return;
+      }
+    }
+
+    const hostId = rawHostId;
+    const skill = rawSkill;
+    const relPath = rawPath;
+    const content = rawContent;
+    const expectedMtime =
+      rawExpectedMtime !== undefined
+        ? (rawExpectedMtime as number)
+        : undefined;
+
+    // 2. Per-user host isolation.
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("skills-editor write: SSH connect failed", {
+          operation: "skills_editor_write_connect",
+          hostId,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      const remoteHome = (
+        await execWithTimeout(conn, "echo $HOME")
+      ).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        sshLogger.warn("skills-editor write: could not resolve remote HOME", {
+          operation: "skills_editor_write_home",
+          hostId,
+          remoteHome,
+        });
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      const paths = buildAbsSkillFilePath(remoteHome, skill, relPath);
+      if (!paths) {
+        res.status(400).json({ error: "path escape detected" });
+        return;
+      }
+      const { absPath } = paths;
+      const escapedPath = shellEscape(absPath);
+
+      // 3. Optimistic-concurrency check (only when expectedMtime provided).
+      //    409 shape locked byte-identical to Phase 23 so frontend can share
+      //    the error class (or duplicate — same behavior).
+      if (typeof expectedMtime === "number") {
+        const currentMtimeStr = (
+          await execWithTimeout(
+            conn,
+            `stat -c '%Y' ${escapedPath} 2>/dev/null || echo 0`,
+          )
+        ).trim();
+        const currentMtime = parseInt(currentMtimeStr, 10) || 0;
+
+        if (currentMtime !== expectedMtime) {
+          const currentContent = await execWithTimeout(
+            conn,
+            `cat ${escapedPath} 2>/dev/null || true`,
+          );
+          res.status(409).json({
+            error: "mtime mismatch",
+            currentMtime,
+            currentContent,
+          });
+          return;
+        }
+      }
+
+      // 4. SFTP atomic write — reuse writeMarkdownFileAtomic (do NOT re-impl).
+      try {
+        await writeMarkdownFileAtomic(conn, absPath, content);
+      } catch (err) {
+        sshLogger.error("skills-editor write: SFTP write failed", {
+          operation: "skills_editor_write_sftp",
+          hostId,
+          absPath,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      // 5. Re-stat for server-authoritative new mtime.
+      const newMtimeStr = (
+        await execWithTimeout(
+          conn,
+          `stat -c '%Y' ${escapedPath} 2>/dev/null || echo 0`,
+        )
+      ).trim();
+      const newMtime = parseInt(newMtimeStr, 10) || 0;
+
+      res.json({ mtime: newMtime });
+    } catch (err) {
+      sshLogger.error("skills-editor write: unexpected error", {
+        operation: "skills_editor_write_error",
+        hostId,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /skills-editor/create
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new empty file inside a skill. Rejects duplicates with 409.
+ * Subpaths honored per RESEARCH.md § Open Question 2 — mkdir -p on the
+ * parent dir before touch, so `tests/basic.py` creates the `tests/` dir
+ * if needed. D-09 "at the skill's root" is read as "relative to the
+ * skill root", not "flat in the skill root."
+ */
+router.post(
+  "/create",
+  express.json({ limit: "32kb" }),
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    // 1. Body validation.
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawHostId = body.hostId;
+    const rawSkill = body.skill;
+    const rawPath = body.path;
+
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (!isSafeRelativePath(rawPath)) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    const hostId = rawHostId;
+    const skill = rawSkill;
+    const relPath = rawPath;
+
+    // 2. Per-user host isolation.
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("skills-editor create: SSH connect failed", {
+          operation: "skills_editor_create_connect",
+          hostId,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      const remoteHome = (
+        await execWithTimeout(conn, "echo $HOME")
+      ).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        sshLogger.warn("skills-editor create: could not resolve remote HOME", {
+          operation: "skills_editor_create_home",
+          hostId,
+          remoteHome,
+        });
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      const paths = buildAbsSkillFilePath(remoteHome, skill, relPath);
+      if (!paths) {
+        res.status(400).json({ error: "path escape detected" });
+        return;
+      }
+      const { absPath } = paths;
+      const escapedPath = shellEscape(absPath);
+
+      // 3. Existence check — 409 if target already exists (idempotent-create
+      //    is a bug; user would be confused if their "new file" was actually
+      //    an unexpected overwrite of an existing one).
+      const existsCheck = (
+        await execWithTimeout(
+          conn,
+          `test -e ${escapedPath} && echo exists || echo ok`,
+        )
+      ).trim();
+      if (existsCheck === "exists") {
+        res.status(409).json({ error: "file exists" });
+        return;
+      }
+
+      // 4. Ensure parent dir exists (subpath creation — mkdir -p is idempotent).
+      const parentDir = absPath.slice(0, absPath.lastIndexOf("/"));
+      await execWithTimeout(conn, `mkdir -p ${shellEscape(parentDir)}`);
+
+      // 5. Touch the file.
+      await execWithTimeout(conn, `touch ${escapedPath}`);
+
+      // 6. Stat for authoritative mtime.
+      const mtimeStr = (
+        await execWithTimeout(
+          conn,
+          `stat -c '%Y' ${escapedPath} 2>/dev/null || echo 0`,
+        )
+      ).trim();
+      const mtime = parseInt(mtimeStr, 10) || 0;
+
+      // Echo the request's relPath (not absPath — frontend passed it in).
+      res.json({ path: relPath, mtime });
+    } catch (err) {
+      sshLogger.error("skills-editor create: unexpected error", {
+        operation: "skills_editor_create_error",
+        hostId,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// DELETE /skills-editor/file
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete a single file inside a skill. Idempotent — rm -f swallows the
+ * missing-file case, so double-deletes and races both return 200.
+ */
+router.delete(
+  "/file",
+  express.json({ limit: "32kb" }),
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    // 1. Body validation.
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawHostId = body.hostId;
+    const rawSkill = body.skill;
+    const rawPath = body.path;
+
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (!isSafeRelativePath(rawPath)) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    const hostId = rawHostId;
+    const skill = rawSkill;
+    const relPath = rawPath;
+
+    // 2. Per-user host isolation.
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("skills-editor delete-file: SSH connect failed", {
+          operation: "skills_editor_delete_file_connect",
+          hostId,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      const remoteHome = (
+        await execWithTimeout(conn, "echo $HOME")
+      ).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        sshLogger.warn(
+          "skills-editor delete-file: could not resolve remote HOME",
+          {
+            operation: "skills_editor_delete_file_home",
+            hostId,
+            remoteHome,
+          },
+        );
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      const paths = buildAbsSkillFilePath(remoteHome, skill, relPath);
+      if (!paths) {
+        res.status(400).json({ error: "path escape detected" });
+        return;
+      }
+      const { absPath } = paths;
+      const escapedPath = shellEscape(absPath);
+
+      // rm -f is idempotent — missing target is not an error.
+      await execWithTimeout(conn, `rm -f ${escapedPath}`);
+
+      res.json({ ok: true });
+    } catch (err) {
+      sshLogger.error("skills-editor delete-file: unexpected error", {
+        operation: "skills_editor_delete_file_error",
+        hostId,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// DELETE /skills-editor/skill
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete an entire skill (folder + all contents).
+ *
+ * LIFE-CRITICAL: `rm -rf` on the composed skillRoot. The path-safety gate
+ * MUST fire before the shell command runs. Two-layer defense:
+ *   1. SKILL_NAME_RE regex rejects any name containing `/`, `..`, or shell
+ *      metachars — so no user-supplied value can escape the composed root.
+ *   2. Post-compose prefix assertion that skillRoot starts with
+ *      `${remoteHome}/${SKILL_ROOT_REL}/`. Regex should make this
+ *      unreachable, but assert anyway (defense in depth).
+ *   3. shellEscape single-quote wraps the value one more time before
+ *      interpolation into `rm -rf`.
+ */
+router.delete(
+  "/skill",
+  express.json({ limit: "32kb" }),
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    // 1. Body validation — skill only.
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawHostId = body.hostId;
+    const rawSkill = body.skill;
+
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    const hostId = rawHostId;
+    const skill = rawSkill;
+
+    // 2. Per-user host isolation.
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("skills-editor delete-skill: SSH connect failed", {
+          operation: "skills_editor_delete_skill_connect",
+          hostId,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      const remoteHome = (
+        await execWithTimeout(conn, "echo $HOME")
+      ).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        sshLogger.warn(
+          "skills-editor delete-skill: could not resolve remote HOME",
+          {
+            operation: "skills_editor_delete_skill_home",
+            hostId,
+            remoteHome,
+          },
+        );
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      // 3. Compose skillRoot + belt-and-suspenders prefix assertion.
+      //    SKILL_NAME_RE should have made this unreachable, but the rm -rf
+      //    is life-critical — assert the invariant regardless.
+      const skillsPrefix = `${remoteHome}/${SKILL_ROOT_REL}/`;
+      const skillRoot = `${skillsPrefix}${skill}`;
+      if (!skillRoot.startsWith(skillsPrefix)) {
+        res.status(400).json({ error: "path escape detected" });
+        return;
+      }
+
+      const escapedSkillRoot = shellEscape(skillRoot);
+      await execWithTimeout(conn, `rm -rf ${escapedSkillRoot}`);
+
+      res.json({ ok: true });
+    } catch (err) {
+      sshLogger.error("skills-editor delete-skill: unexpected error", {
+        operation: "skills_editor_delete_skill_error",
+        hostId,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
 // Generic 500 fallback error handler — sanitizes upstream detail so we
 // never leak stderr / remote paths / credential fragments in the response.
 // Mirrors global-files-read-write.ts L503-518.
