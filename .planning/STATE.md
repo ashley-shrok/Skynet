@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-18T20:30:00.000Z"
-last_activity: 2026-08-18 -- Completed Plan 43-01 (dormant-side /sessions/list lastMessageAt derivation)
+last_updated: "2026-08-19T00:17:58.797Z"
+last_activity: 2026-08-19
 progress:
-  total_phases: 43
-  completed_phases: 33
-  total_plans: 167
-  completed_plans: 162
-  percent: 77
+  total_phases: 45
+  completed_phases: 34
+  total_plans: 181
+  completed_plans: 174
+  percent: 76
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 44 (fix-convo-list-recency-signal-switch-dormant-live-paths-to-i) — EXECUTING
-Plan: 2 of 4
-Status: Executing Phase 44 (44-01 shipped as commit 3cca6034/5fc40b29/c2a3679a pre-renumber; resuming with 44-02)
+Plan: 3 of 4
+Status: Ready to execute
 
-Last activity: 2026-08-18 -- Completed Plan 44-01 (dormant-side /sessions/list lastMessageAt derivation) — was Plan 43-01 pre-renumber; content unchanged
+Last activity: 2026-08-19
 
 Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bounty editor). Ashley: *"Can we quickly add something to be able to toggle on and off the needs desk field of bounties in the identity modal where I can edit bounties?"* Byte-shape mirror of pinned wire endpoint for the parallel `needs_desk` boolean (already read/counted by Phase 26's `identity:count-bounties` but no write path existed). 5 files touched: `Bounty` wire type + `normalizeBounty` carry `needs_desk` (default false); new `writeIdentityBountyNeedsDesk` writer in `identity-artifact-reader.ts` (byte-shape mirror of `writeIdentityBountyPinned` — same slug guard, same local fs + remote python3 branches, same timeline line format); new `identity:update-bounty-needs-desk` WS handler in `claude-session-server.ts`; `updateBountyNeedsDesk` wrapper in `IdentityModal.tsx` + `onNeedsDeskChange` threaded to `BountyCard` for both open + archived partitions; new labeled Checkbox toggle in BountyCard expanded editor body next to Deadline (autosave-on-flip pattern matching deadline row). `writeIdentityBountyFields` rejects `needs_desk` in patch (parity with pinned's rejection). Inline vehicle per Ashley redirect off `/gsd:quick` recommendation: *"Whatever you think is best, can we just do inline and get it up quick?"* Full `npx vitest run` = 2399 pass / 9 skip / 1 todo (pre-rebase); backend + frontend typecheck green. One atomic commit `2cc5e670` → post-rebase `ed1e901b` past tina's #457/#458/#459/#460/#461. Deployed as patch #462: `docker build` EXIT 0 (image `1ddf9eab4a4f`), `docker compose up -d --force-recreate skynet` (container `1bb769e09991` healthy T+14s), HTTPS 200 in 98ms. Byte-verify: `identity:update-bounty-needs-desk` 1x in AppShell chunk, `writeIdentityBountyNeedsDesk` / "needs_desk set to" 5x in reader.js, `identity:update-bounty-needs-desk` / `identity_update_bounty_needs_desk` 7x in server.js. Coord-room BEFORE `$7T4P-D7OYGwjW8NB9Z0t2jJ_LGHRx0F1gNeq1yLls_M` + AFTER `$ZxhURIWoWMixq25d8RRVJY-PZj0apbNlvqWpmzafEm0`. HEAD `ed1e901b` pushed to origin. Patch #462 entry appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. Prior activity:
 
@@ -156,7 +156,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 100%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -246,6 +246,7 @@ Progress: [██████████] 100%
 | Phase 41 P41-03 | 30min | 1 tasks | 3 files |
 | Phase 43 P43-01 | 35min | 3 tasks | 2 files |
 | Phase 44 P44-01 | 35min | 3 tasks | 2 files |
+| Phase 45 P03 | ~40m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -365,6 +366,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 39-04: Guarded starter.ts boot IIFE with if (process.env.VITEST !== 'true') so exported helpers can be imported for isolated vitest coverage without triggering real backend init. Rule 3 auto-fix; production behavior unchanged.
 - [Phase ?]: Plan 40-04 wired Wave 3: ChatMessage <a>-override renders EditableFileAffordance sibling on eligible URLs; PrettyView mounts EditableFileModal alongside IdentityModal with onStageEditedFile deposit into uploads.stageAttachments('primary')
 - [Phase ?]: Phase 41 Plan 03: docs-only deploy prep, Task 2 UAT gate held open
+- [Phase ?]: Bottom-up edit ordering (edits 8 to 0) preserved line-number stability across successive Edit calls in a single 2808-line file
+- [Phase ?]: Delete-and-recreate over surgical spec removal for the Phase-43-born PrettyView.windowed-pagination.test.tsx (cleaner git log; 6 pre-.skipped tests from Plan 45-02 Deviation 1 disappeared with the file)
+- [Phase ?]: Preserved appendDedupWithCap + WORKING_SET_CAP + 5 live-append call sites byte-for-byte (Ashley UAT-locked pattern; the Phase 43 mistake was pairing the client-side cap with a server-side cap that starved observations)
 
 ### Pending Todos
 
@@ -578,6 +582,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-18T20:30:00.000Z
+Last session: 2026-08-19T00:17:22.196Z
 Stopped at: Completed 43-01-PLAN.md (dormant-side /sessions/list lastMessageAt derivation — Wave 1 partial; 43-02 orchestrator swap next)
 Resume file: None
