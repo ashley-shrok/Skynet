@@ -3,18 +3,18 @@ import type { ImageBlock } from "@/api/claude-session-api";
 
 // Patch #86: pretty-view image bubble.
 //
-// Renders one image WebSocket event (`{type:"image", ...}`) as a
-// left-aligned Glass bubble carrying one or more `<img>` elements with
-// inline base64 data-URI srcs.
-//
-// Aesthetic contract (Ashley 2026-07-19 design read): ALWAYS use the
-// assistant identity-hue treatment regardless of `role`. Semantically the
-// Read that produced the image was invoked by the assistant, so the image
-// visually lives on the assistant side of the conversation. This matches
-// ChatMessage's assistant branch byte-for-byte (gradient / border /
-// shadow tokens) — the only difference is padding (12px here vs.
-// 18px/14px in ChatMessage) because images want tighter breathing room
-// around their edges than prose does.
+// Renders one image WebSocket event (`{type:"image", ...}`) as a Glass
+// bubble carrying one or more `<img>` elements with inline base64 data-URI
+// srcs. Alignment + palette follow role, mirroring ChatMessage: user turns
+// (composebox / iOS photo picker) render RIGHT + blue-gray user gradient;
+// assistant / tool_result turns render LEFT + identity-hue. Padding stays
+// 12px on both sides (tighter than ChatMessage's 18/14) so image edges get
+// less breathing room than prose. (Ashley 2026-08-19 clarified after
+// spotting her own image turn rendered as assistant in Wendy's session:
+// "just because i send a message with or without an image shouldn't
+// change the way the bubble looks other than the fact the image is
+// included." Supersedes the 2026-07-19 always-assistant contract, which
+// silently latent-broke user-attached images since patch #86.)
 //
 // Non-obvious behaviors:
 //
@@ -52,8 +52,9 @@ export function ImageBubble({
   const shortEventId = eventId.slice(0, 8);
   const timeLabel = new Date(ts).toLocaleTimeString();
   const hasText = text.trim() !== "";
+  const isUser = role === "user";
   return (
-    <div className="flex justify-start">
+    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
         title={new Date(ts).toLocaleString()}
         className={cn(
@@ -64,14 +65,26 @@ export function ImageBubble({
           // Glass.
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // Assistant identity-hue treatment (byte-identical to
-          // ChatMessage assistant branch — gradient / border / shadow).
-          "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
-          "text-[#fbf5e8]",
-          "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
           // Font override matches ChatMessage.
           "font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]",
+          isUser
+            ? cn(
+                // User branch — byte-identical to ChatMessage.tsx:422-425 user
+                // gradient / text / border / shadow so an image-carrying user
+                // turn reads visually the same as a plain user text turn.
+                "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
+                "text-[#dfe3ee]",
+                "border border-[rgba(120,140,180,0.2)]",
+                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.1)_inset,_0_0_0_0.5px_rgba(120,140,180,0.15)]",
+              )
+            : cn(
+                // Assistant / tool_result — identity-hue treatment
+                // (byte-identical to ChatMessage.tsx:434-437 assistant branch).
+                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
+                "text-[#fbf5e8]",
+                "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
+                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
+              ),
         )}
       >
         <div className="text-xs font-mono opacity-70">{caption}</div>
