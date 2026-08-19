@@ -58,6 +58,7 @@ import { createPortal } from "react-dom";
 // input mounted at the top of the pv-panel-scroll region.
 import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Search, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
+import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -483,6 +484,8 @@ export function PrettyConversationsPanel({
   const menuRef = useRef<HTMLDivElement | null>(null);
   // Phase 23 (GEFM-05): GlobalFilesModal open/closed toggle (opened from menu item).
   const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
+  // Phase 44 SKILLED-01: SkillsEditorModal open/closed toggle (opened from menu item, sibling of GlobalFilesModal).
+  const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false);
 
   // quick-260731-tgg: collapsed by default on every mount per Ashley's design lock.
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
@@ -1586,6 +1589,17 @@ export function PrettyConversationsPanel({
         hostTree={hostTree ?? null}
         defaultHostId={null}
       />
+      {/* Phase 44 SKILLED-01: SkillsEditorModal — portal-mounted sibling of
+          GlobalFilesModal. Opened via the header menu's "Edit skills…" item.
+          defaultHostId={null} deliberate — the panel-header trigger has no
+          active-conversation context, so the modal falls through to its own
+          host picker. */}
+      <SkillsEditorModal
+        open={skillsEditorModalOpen}
+        onOpenChange={setSkillsEditorModalOpen}
+        hostTree={hostTree ?? null}
+        defaultHostId={null}
+      />
       {/* Phase 23 (GEFM-01): glass portal menu — keyboard-Escape + click-outside
           dismiss. Portal-mounted to document.body to escape overflow clipping
           from .pv-panel-header. Chrome mirrors PrettyConversationContextMenu.tsx
@@ -1610,10 +1624,12 @@ export function PrettyConversationsPanel({
             color: "#e8e4d8",
           }}
         >
+          {/* KEEP ORDER: New agent → New role → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle). */}
           {[
             { label: "New agent", onClick: () => setNewSessionDialogOpen(true) },
             { label: "New role", onClick: () => setCreateRoleDialogOpen(true) },
             { label: "Edit global files…", onClick: () => setGlobalFilesModalOpen(true) },
+            { label: "Edit skills…", onClick: () => setSkillsEditorModalOpen(true) },
           ].map((item) => (
             <button
               key={item.label}
