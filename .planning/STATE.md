@@ -17,13 +17,15 @@ last_updated: "2026-08-18T23:49:43.525Z"
 last_activity: 2026-08-18 -- Phase 44 planning complete
 last_updated: "2026-08-19T03:54:13.219Z"
 last_updated: "2026-08-19T04:32:15.446Z"
+status: verifying
+last_updated: "2026-08-19T04:50:14.002Z"
 last_activity: 2026-08-19
 progress:
   total_phases: 44
-  completed_phases: 34
+  completed_phases: 35
   total_plans: 175
-  completed_plans: 172
-  percent: 77
+  completed_plans: 173
+  percent: 80
 ---
 
 # Project State
@@ -52,7 +54,7 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 44 (frontend-skill-editing-editor-surface-for-skill-folders-on-a) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 
 Last activity: 2026-08-19
 
@@ -279,6 +281,7 @@ Progress: [██████████] 100%
 | Phase 45 P05 | 175m | 4 tasks | 3 files |
 | Phase 44 P44-01 | 128 | 3 tasks | 6 files |
 | Phase 44 P02 | 26min | 2 tasks | 6 files |
+| Phase 44 P03 | 13m 19s | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -407,6 +410,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 44-01 backend: DELETE /skill life-critical rm -rf guarded by three layers (regex + assertion + shellEscape) with dedicated SEC-8 test proving rm -rf NEVER dispatches when skill='..'
 - [Phase 44]: Phase 44 Plan 02: duplicate SkillFileMtimeConflictError + SkillFileAlreadyExistsError rather than import Phase 23 GlobalFileMtimeConflictError (four-instance duplication pattern; extraction to shared module is Post-Planning-Gaps)
 - [Phase 44]: Phase 44 Plan 02: preserve Phase 23 quick-260805-7rq race-fix byte-verbatim — lazy-load useEffect deps [selectedHostId, selectedSkillName, activeTab] with eslint-disable + Phase 23 comment intact; regression guarded by SkillsEditorModal.test.tsx #1 (700ms readSkillFile delay still renders textarea with MOCKED SKILL FILE CONTENT)
+- [Phase ?]: Phase 44 Plan 03: mount SkillsEditorModal as immediate JSX sibling of GlobalFilesModal in PrettyConversationsPanel — parallel-sibling wiring pattern (three landmark positions + one menu item + KEEP ORDER guard)
+- [Phase ?]: Phase 44 handoff artifact pair: UAT-CHECKLIST.md (Ashley-facing, iPhone-primary PWA framed) + PATCH-DRAFT.md (maintainer-facing skynet-patches.md entry ready for orchestrator PIN)
 
 ### Pending Todos
 
@@ -629,5 +634,6 @@ Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all g
 Last session: 2026-08-19T03:53:37.643Z
 Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 39/39 scoped tests green
 Last session: 2026-08-19T04:32:15.375Z
+Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
 Resume file: None
