@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { CircleHelp, ListPlus, Loader2, Paperclip, RefreshCw, RotateCcw, RotateCwFadingClock, Square, ThumbsUp, X } from "lucide-react";
+import { CircleHelp, ListPlus, Paperclip, RefreshCw, RotateCcw, RotateCwFadingClock, Square, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -2541,11 +2541,27 @@ export function ComposeBox({
                     line. Do NOT swap for lucide's SendHorizontal — that's a
                     different icon (patch #130 write-up).
                     Quick 260730-lur: when showTranscribingSend === true a
-                    Loader2 spinner replaces the paper-plane for the STT
-                    round-trip duration (in-button feedback that Send-transcript
-                    registered). Idle branch keeps the paper-plane byte-for-byte. */
+                    spinner replaces the paper-plane for the STT round-trip
+                    duration (in-button feedback that Send-transcript
+                    registered). Idle branch keeps the paper-plane byte-for-byte.
+                    Spinner is a twin-90°-arc pair 180° apart — rotationally
+                    symmetric so the visual centroid stays put during the spin
+                    (lucide's Loader2 has a lopsided ~300° arc whose centroid
+                    orbits, reading as wobble). */
                 showTranscribingSend ? (
-                  <Loader2 className="size-6 animate-spin" aria-hidden="true" />
+                  <svg
+                    className="size-6 animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 12 A9 9 0 0 0 12 3" />
+                    <path d="M3 12 A9 9 0 0 0 12 21" />
+                  </svg>
                 ) : (
                   <svg
                     className="size-6"
@@ -3050,7 +3066,19 @@ function QueuedRow(props: QueuedRowProps) {
                 )}
               >
                 {showSlotTranscribingSend ? (
-                  <Loader2 className="size-6 animate-spin" aria-hidden="true" />
+                  <svg
+                    className="size-6 animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 12 A9 9 0 0 0 12 3" />
+                    <path d="M3 12 A9 9 0 0 0 12 21" />
+                  </svg>
                 ) : (
                   <svg
                     width="24"
