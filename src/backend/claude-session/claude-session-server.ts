@@ -2451,7 +2451,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               type: "relay_outbound",
               room: parsed.room,
               rawCommand: parsed.rawCommand,
-              body: parsed.body,     // bounty pretty-view-outgoing-relay-render
+              body: parsed.body ?? null, // bounty pretty-view-outgoing-relay-render — null explicit so JSON.stringify emits it (undefined would be dropped and the frontend's `body !== null` check would take the pretty branch on an empty body → invisible bubble)
               eventId: parsed.eventId,
               ts: parsed.ts,
             }),
