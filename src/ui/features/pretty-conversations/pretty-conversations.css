@@ -495,6 +495,20 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .pv-avatar {
+  /* Phase 48 Plan 05: `position: relative` + `overflow: visible` so the
+     avatar can host both the working-spinner ring (`::before` pseudo,
+     which extends outward via `inset: -3px`) and the two absolute-
+     positioned bounty-count badge wraps (Pin bottom-left, Monitor
+     bottom-right) that extend beyond the circle bounds via
+     `bottom: -4px; left|right: -8px`. Pre-Phase-48 this was `overflow:
+     hidden` (needed to clip the avatar image inside the circle bounds).
+     The image is still clipped by its own `border-radius: 999px` + inline
+     `border-radius: 999px` on the img element (see .pv-avatar-img
+     rendering), so switching the avatar container to `overflow: visible`
+     does NOT let the image bleed outside the disc — only the spinner
+     ring + badge wraps do. */
+  position: relative;
+  overflow: visible;
   width: 40px;
   height: 40px;
   border-radius: 999px;
@@ -514,7 +528,93 @@
   font-weight: 700;
   letter-spacing: -0.01em;
   flex-shrink: 0;
-  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHASE 48 PLAN 05 — WORKING SPINNER RING (avatar `::before` pseudo)
+   ═══════════════════════════════════════════════════════════════════════════
+   Slow dashed spinner ring painted around the avatar disc, keyed on the
+   `.spinner-on` class emitted by PrettyConversationRow.tsx from the JS-
+   computed 4-input Ashley-verbatim boolean:
+
+     showSpinnerOn = !(inActiveSet && isWorking === false &&
+                       !isRecycling && !hasQueuePending)
+
+   All 4 inputs live in JS; CSS keys off the single resulting className. DO
+   NOT add `:is(.working, .recycling)` narrowing or `.active-set` scoping —
+   those would drop 2 of the 4 inputs (`hasQueuePending` and the polarity on
+   `inActiveSet`) and violate 48-CONTEXT.md § Working indicator INVERSION.
+   Ashley 2026-08-19 verbatim: "make the spinner work on the same logic as
+   the idle indicator, except you invert it as the final step of logic
+   there." See PrettyConversationRow.tsx showSpinnerOn computation +
+   48-CONTEXT.md § Canonical Refs § Working-indicator gate source (the CSS-
+   only draft in v14-console-snippet.js was proof-of-look, not the spec).
+
+   Visual: 18 dashes spanning 10° each with 10° gaps between (36-slot conic-
+   gradient), masked to a thin outer ring via radial-gradient mask, rotating
+   360deg over 3s linear. Copied verbatim from ring-patterns.html .av.p05
+   with only the hue-variable name rewritten (--hue → --pv-hue). */
+.pv-row.spinner-on .pv-avatar::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 0 10deg, transparent 10deg 30deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 30deg 40deg, transparent 40deg 60deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 60deg 70deg, transparent 70deg 90deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 90deg 100deg, transparent 100deg 120deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 120deg 130deg, transparent 130deg 150deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 150deg 160deg, transparent 160deg 180deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 180deg 190deg, transparent 190deg 210deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 210deg 220deg, transparent 220deg 240deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 240deg 250deg, transparent 250deg 270deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 270deg 280deg, transparent 280deg 300deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 300deg 310deg, transparent 310deg 330deg,
+    hsla(var(--pv-hue, 210), 70%, 65%, 1) 330deg 340deg, transparent 340deg 360deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 60%, #000 62%, #000 100%);
+          mask: radial-gradient(circle, transparent 60%, #000 62%, #000 100%);
+  animation: pv-spinner-spin 3s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes pv-spinner-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHASE 48 PLAN 05 — AVATAR-CORNER BOUNTY BADGE POSITIONING
+   ═══════════════════════════════════════════════════════════════════════════
+   The V12 notification-badge style (patch #468) is REUSED VERBATIM per
+   48-CONTEXT.md § Badge relocation V12 style reuse — see the
+   `.pv-bounty-badge-wrap` / `.pv-bounty-badge-icon` / `.pv-bounty-badge-num`
+   block later in this file (~L1200) for the icon size, count-pill styling,
+   colors, etc. Those rules are UNCHANGED. This block only re-hosts the two
+   wraps at absolute-positioned avatar corners:
+     Pin count wrap    → bottom-left  (bottom: -4px; left: -8px)
+     Monitor count wrap → bottom-right (bottom: -4px; right: -8px)
+   PrettyConversationRow.tsx duplicates the wrap JSX shape inline inside
+   `.pv-avatar` so each wrap is a direct child of the avatar (independent
+   absolute-positioning); the badge component's own `.pv-bounty-badge` flex
+   container is not rendered here (the component itself remains untouched
+   and available for any future consumer). z-index: 2 stacks the wraps above
+   the spinner ring pseudo (z-index: 1) so the badges remain readable when
+   the row is in the working state. */
+.pv-avatar .pv-bounty-badge-wrap {
+  position: absolute;
+  bottom: -4px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.pv-avatar .pv-bounty-badge-wrap[data-testid="pv-bounty-badge-pinned"] {
+  left: -8px;
+}
+
+.pv-avatar .pv-bounty-badge-wrap[data-testid="pv-bounty-badge-needs-desk"] {
+  right: -8px;
 }
 
 /* Patch #142 Fix 3 — RDP Monitor icon size in avatar.
@@ -546,103 +646,100 @@
   line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  /* Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19): fade-truncation
+     via mask-image right-edge fade INSTEAD of the pre-Phase-48 ellipsis
+     hard-cut. Long identity+hostname combos taper into transparency over
+     the last 22px instead of terminating in "…", matching the v14 taste
+     Ashley signed off on (see ~/.claude/roles/box-maintainer/bounties/
+     convo-list-current-work-hint/v14-console-snippet.js lines 80-84). */
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+          mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-.pv-body .pv-host {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: rgba(255, 235, 190, 0.65);
+/* Phase 48 Plan 05 — hostname parens suffix on the title line. Content
+   pattern: identityName + " (" + row.host.name + ")". Same font-size and
+   font-weight as .pv-label (inherits both); alpha 0.85 to read as subtly
+   parenthetical without dropping into a distinct visual weight. Per
+   48-CONTEXT.md § Title line. */
+.pv-body .pv-label .pv-hostname-suffix {
+  font-size: inherit;
+  font-weight: inherit;
+  color: rgba(232, 228, 216, 0.85);
+}
+
+/* Phase 48 Plan 05 — subtitle line: the row's aiTitle (or a muted italic
+   ellipsis placeholder when null). Replaces the pre-Phase-48 `.pv-host`
+   sublabel entirely — hostname is now on the title line, so the Server
+   glyph render path is retired (no `svg` rule on this element). Styling
+   pulled verbatim from v14-console-snippet.js lines 86-92 (Ashley's
+   locked taste): bright cream (#f0ece0), 13.5px, weight 500, text-shadow
+   for contrast on hue-tinted rows, same right-edge mask fade as .pv-label. */
+.pv-body .pv-ai-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #f0ece0;
   line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+          mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   margin-top: 1px;
 }
 
-.pv-body .pv-host svg {
-  flex-shrink: 0;
-  opacity: 0.65;
+/* Phase 48 Plan 05 — placeholder variant of the subtitle line, rendered
+   when aiTitle is null (fresh session; RDP row; not-yet-published). Muted
+   italic ellipsis anchors the row's vertical rhythm so a row without an
+   ai-title reads the same height as one with. Per 48-CONTEXT.md § Fallback:
+   no ai-title yet + v14-console-snippet.js line 94. */
+.pv-body .pv-ai-title--placeholder {
+  opacity: 0.55;
+  font-style: italic;
 }
 
+/* Phase 48 Plan 05 — `.pv-body .pv-host` block (was the hostname + Server-
+   icon sublabel) DELETED. Hostname migrated to the title line as
+   `.pv-hostname-suffix`; the subtitle line is now the aiTitle string. If a
+   downstream renderer still emits a `.pv-host` element, it will fall
+   through to the browser's default inline behavior — no residual sublabel
+   CSS. */
+
+/* Phase 48 Plan 05 — `.pv-meta` right-column wrapper RETIRED entirely.
+   Its two former contents:
+     - PrettyBountyCountBadge invocation → RELOCATED as inline JSX inside
+       `.pv-avatar` at absolute-positioned bottom corners (see the
+       `.pv-avatar .pv-bounty-badge-wrap` rules above).
+     - `.pv-ready-dot` span + its `display: none` / `display: block` toggle
+       under `.pv-row:not(.working):not(.recycling)` → REPLACED by the
+       CSS-painted spinner ring on `.pv-avatar::before` (see the
+       `.pv-row.spinner-on .pv-avatar::before` rule above). The single class
+       match is driven by the JS-computed `showSpinnerOn` boolean in
+       PrettyConversationRow.tsx (Ashley 2026-08-19 full 4-input verbatim
+       gate; 48-CONTEXT.md § Working indicator INVERSION).
+   Defensive `.pv-meta { display: none; }` rule below in case any stray
+   render path still emits the element — it will not paint anything, and
+   PrettyConversationRow.tsx does not emit one anyway. */
 .pv-meta {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: none;
 }
 
-.pv-meta .pv-pin {
-  color: hsla(var(--pv-hue), 80%, 70%, 0.95);
-  filter: drop-shadow(0 0 4px hsla(var(--pv-hue), 80%, 60%, 0.55));
-}
-
-/* .pv-row.pinned: no visual override at the row level; the pinned state
-   is signalled by the pin glyph inside .pv-meta (its display is gated on
-   the `.pinned` class via the `:not(.pinned)` rule below). The empty
-   selector reserves the hook for Wave 3 plans to extend without needing
-   to touch the mock recipe. */
+/* .pv-row.pinned: no visual override at the row level. Empty selector
+   reserves the hook for Wave 3 plans to extend without needing to touch
+   the mock recipe. */
 .pv-row.pinned {
-  /* Reserved for downstream extension — mock v4 has no dedicated pinned
-     row-level treatment. */
+  /* Reserved for downstream extension. */
 }
 
-.pv-row:not(.pinned) .pv-meta .pv-pin {
-  display: none;
-}
-
-/* Ready-for-attention indicator (Ashley 2026-07-23 lock; harder-signal pick
-   2026-07-29 — B variant, bigger static disc, no motion).
-   ONE meaning: this row is in the active set AND its agent is idle, so it's
-   ready for the next instruction. Absent = working, or ambient (not-in-set),
-   or both.
-
-   Chosen from the 2026-07-29 tuner (A–F: current-dual-ping / big-static-disc
-   / diamond / chevron / bell / held-throb) after patch #182's dual radar-ping
-   still read as SOFT — Ashley wanted a signal that reads as ready-for-attention
-   the instant her eye lands on the list. B swaps motion for size + contrast:
-   14px hue-cream radial-gradient disc, brighter core, strong hue glow, zero
-   animation. Static loudness wins on glance-perception where a pulse's off-
-   phase read as ambient. Also cheaper (no keyframes running per idle row). */
-.pv-ready-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background:
-    radial-gradient(
-      circle at 35% 30%,
-      hsla(var(--pv-hue), 90%, 95%, 1) 0%,
-      hsla(var(--pv-hue), 70%, 82%, 1) 55%,
-      hsla(var(--pv-hue), 60%, 70%, 1) 100%
-    );
-  box-shadow:
-    0 0 0 1px hsla(var(--pv-hue), 80%, 65%, 0.55),
-    0 0 12px 1px hsla(var(--pv-hue), 80%, 60%, 0.75),
-    0 0 22px 3px hsla(var(--pv-hue), 75%, 55%, 0.35),
-    inset 0 1px 0 rgba(255, 245, 220, 0.7);
-  display: none;
-  position: relative;
-}
-
-/* Shown on any row that is NOT currently working AND NOT currently recycling.
-   Was scoped to `.active-set` pre-2026-08-14; dropped that conjunct after the
-   Phase 34 Plan 06 fleet-status cutover made isWorking backend-authoritative
-   for every session (ambient rows included), so the dot now surfaces "ready
-   for attention" on ambient/recessed rows too. Reverses the 2026-07-23 lock. */
-.pv-row:not(.working):not(.recycling) .pv-ready-dot {
-  display: block;
-}
-
-/* .pv-row.working: no visual override at the row level; the working state
-   is signalled by the ABSENCE of the ready-dot (the `:not(.working)`
-   selector above suppresses it when working). Empty selector reserves the
-   hook for downstream extension. */
+/* .pv-row.working: no visual override at the row level. Phase 48 Plan 05
+   moved the working affordance to `.pv-row.spinner-on .pv-avatar::before`
+   (the spinner ring), keyed on the JS-computed `showSpinnerOn` boolean
+   from the full 4-input Ashley-verbatim gate — NOT on the narrower
+   `.working` class alone. See the spinner block near L525. */
 .pv-row.working {
-  /* Reserved for downstream extension — mock v4 has no dedicated working
-     row-level treatment; presence of `.working` gates dot visibility above. */
+  /* Reserved for downstream extension. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1252,23 +1349,14 @@
     height: 16px;
   }
 
-  /* Patch #251 — 2x the ready-dot on mobile per Ashley 2026-08-01 verbatim:
-     "we should make the idle indicator on the conversation list on mobile
-     twice as tall and twice as wide." Disc goes 14px → 28px; glow layers
-     scale proportionally (12→24, 22→44 blur radii; 1→2, 3→6 spreads) so
-     the halo stays in proportion to the disc — a 2x disc with the same
-     absolute glow reads as a big nucleus with a shrunk halo. Hairline
-     border-stroke and inset highlight left at 1px (rim details read
-     consistently at any scale). Desktop untouched. */
-  .pv-ready-dot {
-    width: 28px;
-    height: 28px;
-    box-shadow:
-      0 0 0 1px hsla(var(--pv-hue), 80%, 65%, 0.55),
-      0 0 24px 2px hsla(var(--pv-hue), 80%, 60%, 0.75),
-      0 0 44px 6px hsla(var(--pv-hue), 75%, 55%, 0.35),
-      inset 0 1px 0 rgba(255, 245, 220, 0.7);
-  }
+  /* Phase 48 Plan 05: Patch #251's mobile-bump ready-dot rule DELETED — the
+     idle-dot itself is retired and the working affordance now lives on the
+     avatar's `::before` spinner ring, whose sizing tracks the avatar disc's
+     own em-scaled dimensions (`.pv-row--mobile .pv-avatar` — the ring's
+     `inset: -3px` scales with the disc since the pseudo is positioned
+     absolutely inside the avatar). If mobile-specific spinner tweaks emerge
+     from UAT, add them here as `.pv-row--mobile.spinner-on .pv-avatar
+     ::before { ... }`. */
 
   /* Patch #261 — half-a-row bottom padding on the conversation list so the
      last row(s) aren't clipped by browser bottom chrome / iOS home indicator.
