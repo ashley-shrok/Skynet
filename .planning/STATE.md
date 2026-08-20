@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-20T04:11:32.993Z"
+last_updated: "2026-08-20T04:18:47.162Z"
 last_activity: 2026-08-20
 progress:
   total_phases: 47
@@ -269,6 +269,7 @@ Progress: [██████████] 100%
 | Phase 44 P03 | 13m 19s | 2 tasks | 4 files |
 | Phase 47 P01 | 10min | 2 tasks | 2 files |
 | Phase 47 P03 | 95min | 2 tasks | 2 files |
+| Phase 47 P04 | 100min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -405,6 +406,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 47-03: Line-cursor semantic (beforeLine) eliminates cursor-search entirely — handler does ONE bounded readSessionFileRange call per request.
 - [Phase ?]: 47-03: v1 skip-frame policy LOCKED — filter-out + allow-partial-batch + no-refill (Test 8 asserts).
 - [Phase ?]: 47-03: Shared reshape helper (streaming + range-fetch call SAME function) eliminates wire-shape drift by construction.
+- [Phase ?]: Phase 47 Plan 04: synchronous loadOlderInFlightRef guard beyond Plan 02 HTML disabled — React setState lag bypasses HTML disabled in same-tick double-clicks
+- [Phase ?]: Phase 47 Plan 04: message-derived cursor reconciliation useEffect — oldestLoadedLine re-derived from min(m.line for m in messages), skipped when capOff=true; prevents cap-dropped frames from leaking stale cursor
+- [Phase ?]: Phase 47 Plan 04: visibility gate LOCKED as hasOlderMessages = sessionTotalLines != null && sessionHasMore && sessionTotalLines > messages.length (7-row truth table)
+- [Phase ?]: Phase 47 Plan 04: T-47-24 mitigation — case fetch_older_range_batch gates setOldestLoadedLine + setSessionHasMore on !parsed.error; error frames preserve prior cursor + hasMore so retry-click sends the same beforeLine
 
 ### Pending Todos
 
@@ -622,8 +627,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T04:10:49.226Z
-Stopped at: Completed 47-01-PLAN.md
+Last session: 2026-08-20T04:18:46.895Z
+Stopped at: Completed 47-04-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
