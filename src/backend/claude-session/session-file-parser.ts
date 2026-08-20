@@ -28,6 +28,7 @@
  * scope is narrower than what the library does.
  */
 
+import { createHash } from "node:crypto";
 import { databaseLogger as sessionParserLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
@@ -646,7 +647,7 @@ function fallbackEventId(): string {
   return String(Date.now()) + "-" + Math.random().toString(36).slice(2, 8);
 }
 
-export function parseSessionLine(line: string): ParsedLine {
+export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
   const trimmed = line.trim();
   if (trimmed === "") return { kind: "skip", why: "empty" };
 
@@ -712,6 +713,90 @@ export function parseSessionLine(line: string): ParsedLine {
           }
         }
       }
+    }
+  }
+
+  // Phase 50 Plan 01 Task 1 (D-09, D-10, D-11) — treat normal-content
+  // queue-operation enqueue entries as first-class user messages.
+  //
+  // The Claude Code harness writes a `type:"queue-operation"` +
+  // `operation:"enqueue"` entry the instant it slots an incoming user
+  // message into its own queue (busy-turn path — Claude was still
+  // processing something else). This entry lands ~111ms after send
+  // (empirical, see 50-CONTEXT.md § Empirical evidence) and is currently
+  // silently ignored by the message-emission path (only the patch #66
+  // task-notification branch in claude-session-server.ts reads
+  // queue-operation entries at all, and only for background-agent
+  // completion detection). Extending here means a queued user turn
+  // renders as a bubble at enqueue-time rather than waiting for the
+  // eventual dequeue that can arrive minutes later — the load-bearing
+  // signal that lets the frontend clear its optimistic spinner honestly.
+  //
+  // Guards:
+  //   - operation MUST be "enqueue" (dequeue / other operations skip).
+  //   - content MUST be a string with non-empty trimmed body.
+  //   - content MUST NOT start with "<task-notification>" — the
+  //     patch #66 completion-detection branch owns that path (unchanged
+  //     for shapes 1/2/3 in claude-session-server.ts L2582-2623).
+  //   - content MUST NOT start with "<system-reminder>" — same rationale
+  //     as the isUser wrapper-strip below.
+  //
+  // Two-hash contract (see 50-01-PLAN.md § objective "Hash-derivation
+  // contract" — LOAD-BEARING across Plans 50-01, 50-02, 50-04):
+  //   (a) eventId = sha256(`${sessionId}\n${timestamp}\n${content}`).slice(0, 32)
+  //       — used ONLY by the frontend per-eventId dedup Set (Plan 50-03).
+  //       Includes sessionId + timestamp because it is line-scoped.
+  //   (b) contentHash = sha256(content).slice(0, 32) — content-only.
+  //       Used by BOTH the parser's per-session dedup Map key (Task 2 in
+  //       claude-session-server.ts) AND the watchdog's arm-time key
+  //       (Plan 50-02). Content-only because the enqueue timestamp
+  //       (~T+0) and the later dequeue timestamp (~T+2min) differ, so
+  //       any timestamp-inclusive key would fail to match across the
+  //       enqueue → dequeue span.
+  //
+  // sessionId is optional here purely for back-compat with existing
+  // test callers that don't thread a sessionId through; production
+  // callers in claude-session-server.ts pass `sessionIdFromFile` from
+  // the tail-watcher closure. Absent sessionId → fall back to
+  // fallbackEventId() (random) — this only affects the frontend dedup
+  // Set behavior for the test seam, not any production path.
+  if (
+    type === "queue-operation" &&
+    obj.operation === "enqueue" &&
+    typeof obj.content === "string"
+  ) {
+    const qopContent = obj.content;
+    if (qopContent.trim().length > 0
+        && !qopContent.startsWith("<task-notification>")
+        && !qopContent.startsWith("<system-reminder>")) {
+      const rawTs = obj.timestamp;
+      let ts = Date.now();
+      let tsStrForHash = "";
+      if (typeof rawTs === "string") {
+        tsStrForHash = rawTs;
+        const parsed = Date.parse(rawTs);
+        if (Number.isFinite(parsed)) ts = parsed;
+      }
+      // Deterministic eventId per (sessionId, timestamp, content) — see the
+      // hash-derivation contract in the block comment above.
+      const eventId =
+        typeof sessionId === "string" && sessionId.length > 0
+          ? createHash("sha256")
+              .update(`${sessionId}\n${tsStrForHash}\n${qopContent}`)
+              .digest("hex")
+              .slice(0, 32)
+          : fallbackEventId();
+      sessionParserLogger.info(
+        `[session-parser] classify result=queue_enqueue_message contentLen=${qopContent.length} eventId=${eventId}`,
+        { operation: "session_classify" },
+      );
+      return {
+        kind: "message",
+        role: "user",
+        content: qopContent,
+        eventId,
+        ts,
+      };
     }
   }
 
