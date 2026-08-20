@@ -1240,6 +1240,7 @@ export function PrettyView({
 
     ws.onopen = () => {
       if (cancelled) return;
+      console.info(`[ctx-pct-diag] WS open sessionId=${tmuxSession ?? 'null'} hostId=${hostId} paneKey=${paneKey}`);
       const payload: ConnectToPanePayload = {
         type: "connectToPane",
         hostId,
@@ -1526,6 +1527,7 @@ export function PrettyView({
           break;
         }
         case "context_pct": {
+          console.info(`[ctx-pct-diag] received pct=${parsed.pct} sessionId=${tmuxSession ?? 'null'}`);
           setContextPct(parsed.pct);
           break;
         }
