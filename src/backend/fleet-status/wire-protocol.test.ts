@@ -160,4 +160,58 @@ describe("wire-protocol", () => {
     // rationale (Phase 41 Plan 03 is deliberately non-breaking).
     expect(FRAME_SCHEMA_VERSION).toBe(1);
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 47 Plan 01 — aiTitle is an optional, back-compat field on
+  // SessionState carrying the harness-produced ai-title string
+  // (`{"type":"ai-title","aiTitle":"…","sessionId":"…"}`) from the session
+  // JSONL tail. Additive-only wire extension; FRAME_SCHEMA_VERSION stays at 1.
+  // ---------------------------------------------------------------------------
+
+  it("Test P47-01 A (Phase 47 Plan 01 schema forward): SessionState parses when aiTitle is a string — the string value is preserved", () => {
+    const withTitle = { ...validSessionState, aiTitle: "Fix bug X" };
+    const result = SessionStateSchema.safeParse(withTitle);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.aiTitle).toBe("Fix bug X");
+    }
+  });
+
+  it("Test P47-01 B (Phase 47 Plan 01 schema null): SessionState parses when aiTitle is explicitly null — the null value is preserved (no-title-yet convention)", () => {
+    const withNull = { ...validSessionState, aiTitle: null };
+    const result = SessionStateSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.aiTitle).toBeNull();
+    }
+  });
+
+  it("Test P47-01 C (Phase 47 Plan 01 schema back-compat): SessionState parses when aiTitle is OMITTED — field is optional, pre-Phase-47 watcher remains compatible", () => {
+    // validSessionState fixture at top-of-file does NOT carry aiTitle —
+    // parse must succeed; the parsed result has aiTitle === undefined
+    // (optional field, no default). Frontend consumer treats undefined
+    // and null identically (both → working-store cache holds null → row
+    // renders the fallback ellipsis).
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.aiTitle).toBeUndefined();
+    }
+  });
+
+  it("Test P47-01 D (Phase 47 Plan 01 schema type-enforcement): SessionState rejects aiTitle of wrong type (number) — z.string() enforces the type when the field IS present", () => {
+    const withBadType = { ...validSessionState, aiTitle: 42 };
+    const result = SessionStateSchema.safeParse(withBadType);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("aiTitle"))).toBe(true);
+    }
+  });
+
+  it("Test P47-01 A-guard (Phase 47 Plan 01): FRAME_SCHEMA_VERSION is NOT bumped by the additive+optional aiTitle extension — stays at 1", () => {
+    // Same rationale as Phase 41 Plan 03: additive+optional fields never
+    // require a version bump. Guard against inadvertent bumps.
+    expect(FRAME_SCHEMA_VERSION).toBe(1);
+  });
 });

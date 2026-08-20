@@ -99,6 +99,31 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // THAT change bumps the version.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase 47 Plan 01 (2026-08-20): added `aiTitle` as an OPTIONAL, NULLABLE
+// string field carrying the harness-produced current-work hint for a session.
+// Source: the LAST JSONL line matching `{"type":"ai-title","aiTitle":"…",
+// "sessionId":"…"}` in the session's `.claude/projects/<hash>/<uuid>.jsonl`,
+// discovered via the same Phase 32 `discoverIdentitySessionFile` flow the
+// lastMessageAt scan uses (see Phase 47 CONTEXT.md § domain). Semantics:
+//   - string  → the current ai-title from the session harness (evolves
+//               across turns — the LAST line wins).
+//   - null    → session has no ai-title yet (fresh session pre-harness-write,
+//               or empty JSONL, or malformed line).
+//   - undefined → emitting watcher pre-dates Phase 47 Plan 01; the frontend
+//               consumer treats undefined and null identically (both flow
+//               into the working-store as null → row subtitle renders the
+//               fallback ellipsis per the LOCKED v14 design).
+// Reconciliation rule at the working-store is LAST-WINS (not max-wins like
+// lastMessageAt) — ai-titles evolve as the topic drifts (CONTEXT.md § working-
+// store third axis). This schema is purely the wire; reconciliation lives
+// downstream in Plan 47-03.
+// Because the field is `.optional().nullable()`, FRAME_SCHEMA_VERSION is
+// deliberately HELD AT 1 — additive+optional extensions never require a
+// version bump (same T-41-03-05 mitigation invariant that Phase 41 Plan 03
+// established for lastMessageAt).
+// ---------------------------------------------------------------------------
+
 export const SessionStateSchema = z.object({
   hostId: z.string(),
   tmuxSession: z.string().nullable(),
@@ -110,6 +135,8 @@ export const SessionStateSchema = z.object({
   updatedAt: z.number(),
   // Phase 41 Plan 03 — recency signal (see block comment above).
   lastMessageAt: z.number().nullable().optional(),
+  // Phase 47 Plan 01 — inline current-work hint (see block comment above).
+  aiTitle: z.string().nullable().optional(),
 });
 
 export type SessionState = z.infer<typeof SessionStateSchema>;

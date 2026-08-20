@@ -104,6 +104,18 @@ export interface SessionState {
   // both cause the row's compareByRecencyDesc branch to sort no-history-to-top
   // per Ashley's lock. MUST stay in lockstep with the backend schema.
   lastMessageAt?: number | null;
+  // Phase 47 Plan 01 (2026-08-20): the inline current-work hint carried
+  // from the harness-produced ai-title JSONL line
+  // (`{"type":"ai-title","aiTitle":"…","sessionId":"…"}` — see Phase 47
+  // CONTEXT.md § domain). Mirrors the backend `SessionStateSchema.aiTitle`
+  // field (wire-protocol.ts) — carries the LAST-emitted ai-title string
+  // for this session. `null` = session has no ai-title yet (fresh session,
+  // or empty/malformed JSONL); `undefined` = emitting watcher pre-dates
+  // Phase 47 Plan 01. The frontend consumer treats undefined and null
+  // IDENTICALLY (both → working-store cache holds null → row subtitle
+  // renders the fallback ellipsis per the LOCKED v14 design). MUST stay
+  // in lockstep with the backend schema.
+  aiTitle?: string | null;
 }
 
 // ---------------------------------------------------------------------------

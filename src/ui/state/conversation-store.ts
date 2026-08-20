@@ -155,6 +155,14 @@ export type FleetSession = {
   // rehydrate that predates this field) deserialize into a FleetSession object
   // that simply omits the field — seed loop then calls with `?? null`.
   lastMessageAt?: number | null;
+  // Phase 47 Plan 01 — inline current-work hint carried from /sessions/list.
+  // Consumed by AppShell to feed seedSessionAiTitle (Plan 47-03 chokepoint);
+  // NOT stamped on ConversationRow directly (that path stays via working-store
+  // useSessionAiTitle hook — last-wins reconciliation, not row-derived).
+  // Optional so pre-Phase-47 backend responses (or a v2 cache rehydrate that
+  // predates this field) deserialize into a FleetSession object that simply
+  // omits the field — seed loop then calls with `?? null`.
+  aiTitle?: string | null;
 };
 
 type SnapshotForTest = ConversationList & {
@@ -1068,6 +1076,18 @@ function isFleetSession(x: unknown): x is FleetSession {
   ) {
     return false;
   }
+  // Phase 47 Plan 01: accept undefined, null, or string for aiTitle. Reject
+  // other types defensively so a corrupt cache entry never seeds the working-
+  // store with a non-string aiTitle. Reconciliation at the working-store is
+  // LAST-WINS (not max-wins), so a bogus value would poison the store with
+  // garbage until the next legitimate write — hence the defensive filter.
+  if (
+    r.aiTitle !== undefined &&
+    r.aiTitle !== null &&
+    typeof r.aiTitle !== "string"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -1096,6 +1116,8 @@ export function readFleetSessionsCache(): FleetSession[] {
         // Phase 44 Plan 04 — carry lastMessageAt through the round-trip;
         // undefined → null so downstream (AppShell seed loop) has a
         // consistent shape.
+        // Phase 47 Plan 01 — same coerce-undefined-to-null treatment for
+        // aiTitle; downstream (AppShell seed loop) always sees null or string.
         valid.push({
           hostId: item.hostId,
           hostName: item.hostName,
@@ -1103,6 +1125,7 @@ export function readFleetSessionsCache(): FleetSession[] {
           created: item.created,
           role: item.role,
           lastMessageAt: item.lastMessageAt ?? null,
+          aiTitle: item.aiTitle ?? null,
         });
       }
     }
@@ -1126,6 +1149,10 @@ export function writeFleetSessionsCache(sessions: FleetSession[]): void {
     // Phase 44 Plan 04 — persist lastMessageAt in the cache. A stale-but-close-
     // enough value on cold-start paint is better than null (which the flipped
     // Rule 1 sinks to the bottom); the fresh fetch overwrites within ~200ms.
+    // Phase 47 Plan 01 — persist aiTitle in the cache alongside lastMessageAt.
+    // Same rationale: a stale-but-close-enough ai-title on cold-start paint is
+    // better than null (which renders the fallback ellipsis); the fresh fetch
+    // overwrites within ~200ms.
     const canonical = sessions.map((s) => ({
       hostId: s.hostId,
       hostName: s.hostName,
@@ -1133,6 +1160,7 @@ export function writeFleetSessionsCache(sessions: FleetSession[]): void {
       created: s.created,
       role: s.role,
       lastMessageAt: s.lastMessageAt ?? null,
+      aiTitle: s.aiTitle ?? null,
     }));
     localStorage.setItem(FLEET_CACHE_KEY, JSON.stringify(canonical));
   } catch {
