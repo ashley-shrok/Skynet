@@ -59,6 +59,7 @@ export function ChatMessage({
   autoplayTargetEventId = null,
   onLongPressSpeak,
   onOpenEditor,
+  pendingState = null,
 }: {
   role: "user" | "assistant";
   content: string;
@@ -76,6 +77,13 @@ export function ChatMessage({
     url: string;
     filename: string;
   }) => void;
+  // Phase 50 D-01/D-03/D-06/D-19: optimistic-send bubble state. Only
+  // meaningful for user bubbles (assistant bubbles ignore it — pending
+  // state is a send-path concept). 'sending' renders a small trailing-edge
+  // Loader2 spinner; 'failed' applies a muted-red border/tint via
+  // data-pv-bubble-failed. null | undefined = no rendering change
+  // (back-compat with every existing mount site).
+  pendingState?: "sending" | "failed" | null;
 }) {
   const isUser = role === "user";
   // D-01: hook fires for both roles; user messages never carry tailnet URLs
@@ -378,12 +386,33 @@ export function ChatMessage({
       <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
     ),
   }), [eventId, onOpenEditor, eligibleUrls]);
+  // Phase 50 Plan 03 Task 1 (D-01/D-03/D-06/D-19): user-only pending-state
+  // gate. Assistant bubbles ignore the prop; failed supersedes sending
+  // (mutually exclusive per Test 6). Muted-red palette per D-06 Discretion:
+  // no new theme token — inline hsla values match the "not-a-saturated-
+  // alarm-red" posture.
+  const showSendingSpinner = isUser && pendingState === "sending";
+  const showFailedBubble = isUser && pendingState === "failed";
+  // Base "position: relative" preserved; failed state layers the muted-red
+  // border/tint over the existing bubble styling. borderColor overrides the
+  // user-bubble border class; backgroundColor tints WITHOUT replacing the
+  // gradient (composited over it via the layered `linear-gradient(..)` on
+  // the base class — which we cannot override via inline style — so use a
+  // subtle inline bg-color that most closely reads as "failed" per D-06).
+  const bubbleInlineStyle: React.CSSProperties = showFailedBubble
+    ? {
+        position: "relative",
+        borderColor: "hsla(0, 60%, 55%, 0.4)",
+        backgroundColor: "hsla(0, 40%, 50%, 0.08)",
+      }
+    : { position: "relative" };
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
         ref={containerRef}
         title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
-        style={{ position: "relative" }}
+        style={bubbleInlineStyle}
+        {...(showFailedBubble ? { "data-pv-bubble-failed": "true" } : {})}
         // pv-bubble: hover-target class for descendants like
         // EditableFileAffordance. Do NOT rename without updating
         // [.pv-bubble:hover_&] selectors in child components.
@@ -479,6 +508,20 @@ export function ChatMessage({
           >
             {processedContent}
           </ReactMarkdown>
+        )}
+        {showSendingSpinner && (
+          // Phase 50 D-01/D-06: small trailing-edge Loader2 spinner. Sits
+          // INSIDE the bubble root at the trailing edge (after content) so
+          // it visually reads as "attached to the message". Mutually
+          // exclusive with the failed state (Test 6) — gate at declaration
+          // (showFailedBubble ? no spinner : maybe spinner) ensures no
+          // failed bubble ever renders the spinner even for a same-tick
+          // 'sending'→'failed' transition.
+          <Loader2
+            aria-hidden
+            data-pv-bubble-spinner
+            className="ml-1 inline-block h-3 w-3 animate-spin opacity-70"
+          />
         )}
         {!isUser && (
           <button
