@@ -9,6 +9,7 @@ import { eq, and } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
+import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -164,6 +165,16 @@ router.post(
         .from(identities)
         .where(eq(identities.id, id))
         .all()[0];
+      try {
+        await DatabaseSaveTrigger.forceSave("identity_created");
+      } catch (saveErr) {
+        databaseLogger.warn("Force-save after identity create failed", {
+          operation: "identity_create_save_failed",
+          userId,
+          identityKey,
+          error: saveErr instanceof Error ? saveErr.message : "Unknown error",
+        });
+      }
       return res.status(201).json(publicIdentity(row));
     } catch (e) {
       databaseLogger.error("Failed to create identity", e, {
@@ -250,6 +261,16 @@ router.put(
         .from(identities)
         .where(eq(identities.id, id))
         .all()[0];
+      try {
+        await DatabaseSaveTrigger.forceSave("identity_updated");
+      } catch (saveErr) {
+        databaseLogger.warn("Force-save after identity update failed", {
+          operation: "identity_update_save_failed",
+          userId,
+          id,
+          error: saveErr instanceof Error ? saveErr.message : "Unknown error",
+        });
+      }
       return res.json(publicIdentity(row));
     } catch (e) {
       databaseLogger.error("Failed to update identity", e, {
@@ -272,6 +293,16 @@ router.delete("/:id", authenticateJWT, async (req: Request, res: Response) => {
       .run();
     if (result.changes === 0) {
       return res.status(404).json({ error: "Identity not found" });
+    }
+    try {
+      await DatabaseSaveTrigger.forceSave("identity_deleted");
+    } catch (saveErr) {
+      databaseLogger.warn("Force-save after identity delete failed", {
+        operation: "identity_delete_save_failed",
+        userId,
+        id,
+        error: saveErr instanceof Error ? saveErr.message : "Unknown error",
+      });
     }
     return res.status(204).send();
   } catch (e) {

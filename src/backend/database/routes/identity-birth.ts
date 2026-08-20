@@ -24,6 +24,7 @@ import { identities } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
+import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import {
@@ -90,6 +91,17 @@ async function createIdentityRecord(
       updatedAt: now,
     })
     .run();
+
+  try {
+    await DatabaseSaveTrigger.forceSave("identity_birth");
+  } catch (saveErr) {
+    databaseLogger.warn("Force-save after identity birth failed", {
+      operation: "identity_birth_save_failed",
+      userId,
+      identityKey: meta.identityKey,
+      error: saveErr instanceof Error ? saveErr.message : "Unknown error",
+    });
+  }
 
   return { id, colorHue: meta.colorHue, voice: meta.voice, avatarEtag: etag };
 }
