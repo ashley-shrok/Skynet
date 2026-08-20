@@ -2,7 +2,7 @@
 phase: 49-prettyview-relay-outbound-extractor-sanitize-pass-bash-sq-es
 plan: 01
 completed: 2026-08-20
-commit: TBD
+commit: e82e1849
 tests: pass_count=2545 fail=0 skipped=9 todo=1
 ---
 
