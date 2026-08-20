@@ -16,7 +16,15 @@ import {
   type RelayOutboundEvent,
   type RelayInboundEvent,
   type MalformedLineEvent,
+  // Phase 47 (load-more button) — send-side wire type for the click handler
+  // (Plan 04 handleLoadOlder). Response type FetchOlderRangeBatchEvent is
+  // consumed via ClaudeSessionServerEvent's discriminated union (Plan 01
+  // widened the union) — no separate import needed.
+  type FetchOlderRangePayload,
 } from "@/api/claude-session-api";
+// Phase 47 (load-more button) — presentational component (Plan 02 output).
+// Mounted at the top of the message-list scroll container by Task 2b.
+import { LoadMoreOlderButton } from "./LoadMoreOlderButton";
 import { ChatMessage } from "./ChatMessage";
 import EditableFileModal from "./EditableFileModal";
 import { ImageBubble } from "./ImageBubble";
@@ -310,6 +318,49 @@ export function PrettyView({
   onUnregisterSendInterrupt,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<StreamEvent[]>([]);
+  // ── Phase 47 (load-more button) — per-pane state slots ────────────────
+  // capOff: once flipped true (via handleLoadOlder — first click), cap
+  //   enforcement in the ws.onmessage switch stops for this pane's
+  //   lifetime. Reset to false in the fresh-pane reset block at L1054-1092
+  //   (transient-across-pane-lifetimes per CONTEXT.md § Philosophy).
+  // loadOlderState: three-state discriminator wired to LoadMoreOlderButton's
+  //   `status` prop. "idle" = clickable; "in-flight" = disabled + spinner;
+  //   "error" = clickable (retry) + error aria-label.
+  // loadOlderError: error string surfaced into LoadMoreOlderButton's aria-
+  //   label when loadOlderState === "error"; null otherwise.
+  // sessionTotalLines: total JSONL line-count captured from the widened
+  //   `session` frame (Plan 01 SessionMetaEvent.totalLines?). Drives the
+  //   button visibility gate: hasOlderMessages = sessionTotalLines != null
+  //   && sessionHasMore && sessionTotalLines > messages.length.
+  // sessionHasMore: server-reported "there are still older lines behind
+  //   this batch" — flipped false when a successful response carries
+  //   hasMore: false; hides the button per Test 9 acceptance.
+  // oldestLoadedLine: cursor for the next click's beforeLine. Seeded from
+  //   the min `line?: number` across initial hydration frames (Plan 01
+  //   widened per-turn frames with optional line?). Advanced to
+  //   parsed.oldestLine on every SUCCESSFUL fetch_older_range_batch
+  //   response (gated on !parsed.error per T-47-24 mitigation — advancing
+  //   on error would cause retry to send beforeLine: 0 which the backend
+  //   rejects). null until the first hydration frame carrying `line`
+  //   lands; the click handler's runtime null-check + the visibility gate
+  //   both defend against null.
+  const [capOff, setCapOff] = useState<boolean>(false);
+  const [loadOlderState, setLoadOlderState] = useState<
+    "idle" | "in-flight" | "error"
+  >("idle");
+  const [loadOlderError, setLoadOlderError] = useState<string | null>(null);
+  const [sessionTotalLines, setSessionTotalLines] = useState<number | null>(
+    null,
+  );
+  const [sessionHasMore, setSessionHasMore] = useState<boolean>(true);
+  const [oldestLoadedLine, setOldestLoadedLine] = useState<number | null>(
+    null,
+  );
+  // capOffRef: stale-closure-safe mirror of capOff for reads inside the WS
+  // onmessage handler (which captures its React closure once per WS-setup
+  // effect run — the same rationale as autoplayArmedRef at L487). The
+  // useEffect mirror below keeps it synchronized with state.
+  const capOffRef = useRef<boolean>(false);
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1084,6 +1135,22 @@ export function PrettyView({
       setAutoplayArmed(false);
       setAutoplayTargetEventId(null);
       autoplayArmedRef.current = false;
+      // Phase 47 (load-more button): transient-across-pane-lifetimes reset
+      // per CONTEXT.md § Philosophy — close/reopen returns the pane to the
+      // default cap-enforced state. Reset all 6 new state slots (capOff,
+      // loadOlderState, loadOlderError, sessionTotalLines, sessionHasMore,
+      // oldestLoadedLine) + defensive ref sync of capOffRef. Without this
+      // block, a re-opened pane would inherit the previous pane's cap-off
+      // flag AND its oldestLoadedLine cursor — the next click would send
+      // a beforeLine pointing into the OLD session file, contradicting
+      // CONTEXT.md § Philosophy "Transient across pane lifetimes".
+      setCapOff(false);
+      setLoadOlderState("idle");
+      setLoadOlderError(null);
+      setSessionTotalLines(null);
+      setSessionHasMore(true);
+      setOldestLoadedLine(null);
+      capOffRef.current = false;
       reconnectAttemptsRef.current = 0;
       // phase-29: mirror into state so wsState derivation re-runs on cold-mount
       // reconnect-counter reset.
@@ -1197,11 +1264,31 @@ export function PrettyView({
         case "session": {
           // Session-info frame — flip to streaming; not rendered.
           setStatus("streaming");
+          // Phase 47 (load-more button): capture the widened `totalLines`
+          // field (Plan 01 SessionMetaEvent.totalLines?). Drives the button
+          // visibility gate via hasOlderMessages = sessionTotalLines != null
+          // && sessionHasMore && sessionTotalLines > messages.length.
+          // Optional in the wire type for backward-compat with pre-Phase-47
+          // backend builds; we only set state when a numeric value arrives
+          // so the null default (fresh pane) is preserved for old backends.
+          if (typeof parsed.totalLines === "number") {
+            setSessionTotalLines(parsed.totalLines);
+          }
           break;
         }
         case "message": {
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          // Phase 47 (load-more button) — seed oldestLoadedLine from the min
+          // `line?: number` across all incoming per-turn frames (Plan 01
+          // additive optional widening). The cursor is the smallest line
+          // seen so far; the next click's beforeLine reads this. Optional
+          // field so old backends omitting `line` are tolerated silently.
+          setOldestLoadedLine((prev) => {
+            if (typeof parsed.line !== "number") return prev;
+            if (prev === null || parsed.line < prev) return parsed.line;
+            return prev;
+          });
           // Quick 260811-8we: autoplay dispatch. Fire only when:
           //   (a) autoplay is armed (ref is stale-closure-safe — mirrors state)
           //   (b) the pane is currently visible (ref matches established pattern)
@@ -1222,18 +1309,36 @@ export function PrettyView({
           // render branch below discriminates on `m.type`.
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
+          setOldestLoadedLine((prev) => {
+            if (typeof parsed.line !== "number") return prev;
+            if (prev === null || parsed.line < prev) return parsed.line;
+            return prev;
+          });
           break;
         }
         case "relay_outbound": {
           // RELAYBUB-01: outbound relay frame → RelayOutboundBubble (identity-hue, left-aligned per patch #200).
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
+          setOldestLoadedLine((prev) => {
+            if (typeof parsed.line !== "number") return prev;
+            if (prev === null || parsed.line < prev) return parsed.line;
+            return prev;
+          });
           break;
         }
         case "relay_inbound": {
           // RELAYBUB-02: inbound relay frame → RelayInboundBubble (sender-hue tinted, left-aligned — multi-user chat convention).
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
+          setOldestLoadedLine((prev) => {
+            if (typeof parsed.line !== "number") return prev;
+            if (prev === null || parsed.line < prev) return parsed.line;
+            return prev;
+          });
           break;
         }
         case "malformed_line": {
@@ -1241,6 +1346,12 @@ export function PrettyView({
           // compact placeholder so a dropped turn is visible instead of silent.
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
+          setOldestLoadedLine((prev) => {
+            if (typeof parsed.line !== "number") return prev;
+            if (prev === null || parsed.line < prev) return parsed.line;
+            return prev;
+          });
           break;
         }
         case "inactive": {
@@ -1630,6 +1741,15 @@ export function PrettyView({
   useEffect(() => {
     autoplayArmedRef.current = autoplayArmed;
   }, [autoplayArmed]);
+
+  // Phase 47 (load-more button): capOffRef mirror — keeps capOffRef.current
+  // in sync with the `capOff` state so the WS onmessage handler at the 5
+  // appendDedup sites (L1204/1224/1230/1236/1243, ternary'd in Task 2b) can
+  // read the cap-off flag without stale-closure issues. Pattern mirrors
+  // autoplayArmedRef mirror above.
+  useEffect(() => {
+    capOffRef.current = capOff;
+  }, [capOff]);
 
   // quick 260808-cd6: dormantRef mirror — keeps dormantRef.current in sync
   // with the `dormant` state so the WS onmessage auto-dismiss hook can read
