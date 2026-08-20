@@ -13,8 +13,8 @@
  *
  * Uses vi.useFakeTimers()+vi.advanceTimersByTimeAsync() because the
  * full-resend step involves awaited execCommand calls (three sequential
- * `await`s inside setTimeout). See terminal-pv-watchdog.test.ts (the
- * OLD file — deleted in Task 3) for the fake-timer pattern reference.
+ * `await`s inside setTimeout). See the OLD terminal-layer watchdog test file
+ * (deleted in Task 3) via git-log for the fake-timer pattern reference.
  *
  * Test surface:
  *   T-1  happy path (matched at T+100ms) → no retry, no failure

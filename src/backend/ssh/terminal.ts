@@ -23,7 +23,8 @@ import type { ProxyNode } from "../../types/index.js";
 import { SSHHostKeyVerifier } from "./host-key-verifier.js";
 import { createJumpHostChain } from "./terminal-jump-hosts.js";
 import { sessionManager } from "./terminal-session-manager.js";
-import { armPvSubmitWatchdog } from "./terminal-pv-watchdog.js";
+// Phase 50 D-12 — armPvSubmitWatchdog import REMOVED. See breadcrumb at
+// the former call site (~L780) for the replacement pointer.
 import {
   detectTmux,
   attachOrCreateTmuxSession,
@@ -774,35 +775,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 );
               }
 
-              // Patch (quick 260803-1xw / bounty pv-paste-to-terminal-
-              // lands-as-unsent-bracket-paste): arm the post-send idle
-              // watchdog pair. If the send-keys Enter doesn't produce
-              // any PTY activity within 2.5s, the watchdog fires a retry
-              // Enter; on a second stagnation window (T+5.0s total), it
-              // emits `paste_send_failed` on the attached WS. Only arms
-              // along the tmux send-keys path — the non-tmux fallback
-              // above (`!submitConn || !tmuxTarget`) has its own CR-in-
-              // PTY behavior and Ashley's reproducer is tmux-only. The
-              // `submitConn && tmuxTarget` guard is redundant with this
-              // code path but explicit for readability.
-              const watchdogSession = currentSessionId
-                ? sessionManager.getSession(currentSessionId)
-                : null;
-              if (
-                watchdogSession &&
-                submitConn &&
-                tmuxTarget &&
-                currentSessionId
-              ) {
-                armPvSubmitWatchdog({
-                  session: watchdogSession,
-                  submitConn,
-                  tmuxTarget,
-                  mqid: mqid as string,
-                  userId,
-                  sessionId: currentSessionId,
-                });
-              }
+              // Patch quick 260803-1xw REMOVED in phase 50 — the old PTY-activity-proxy watchdog is superseded by the signal-driven watchdog in src/backend/claude-session/pv-send-watchdog.ts (armed from the claude-session WS input handler; keys off the same JSONL emission that clears the frontend optimistic bubble). See .planning/phases/50-optimistic-message-bubbles/50-CONTEXT.md D-12.
             }, 250);
           } else {
             try {

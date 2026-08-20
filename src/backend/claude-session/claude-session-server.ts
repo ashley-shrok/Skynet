@@ -12,8 +12,8 @@ import { discoverIdentitySessionFile } from "./discover-identity-session-file.js
 import { parseSessionLine, detectIdReset } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 // Phase 50 Plan 02 — signal-driven send-path watchdog. Replaces the OLD
-// PTY-activity-proxy watchdog at src/backend/ssh/terminal-pv-watchdog.ts
-// (patch quick 260803-1xw). See pv-send-watchdog.ts file header for the
+// PTY-activity-proxy watchdog formerly at src/backend/ssh/ (patch quick
+// 260803-1xw, deleted in Phase 50 Plan 02 Task 3). See pv-send-watchdog.ts file header for the
 // three-stage timing chain + hash-derivation contract.
 import {
   armPvSendWatchdog,

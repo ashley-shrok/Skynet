@@ -51,17 +51,10 @@ export interface TerminalSession {
   initialStateEmitted: boolean;
   idleCheckTimer: NodeJS.Timeout | null;
   idleCheckInFlight: boolean;
-
-  // Patch (quick 260803-1xw / bounty pv-paste-to-terminal-lands-as-unsent-
-  // bracket-paste): per-PV-submit post-send idle-watchdog handles. Each
-  // isPrettyViewSubmit `tmux send-keys ... Enter` dispatch arms a pair of
-  // setTimeout(...)s (2.5s + 2.5s) that fire a retry Enter and, on second
-  // stagnation, emit a `paste_send_failed` WS event. Handles are tracked
-  // here so `destroySession` and `detachWs` can cancel them before they
-  // fire against a torn-down session or a WS the user has already
-  // navigated away from. Set semantics (cheap delete on per-timer
-  // cancellation from inside its own callback).
-  pvSubmitWatchdogs: Set<NodeJS.Timeout>;
+  // Phase 50 D-12: pvSubmitWatchdogs field REMOVED — the old PTY-activity-
+  // proxy watchdog is superseded by src/backend/claude-session/pv-send-
+  // watchdog.ts (per-connection Set at ws-connection outer scope + WS-close
+  // cleanup, not per-terminal-session).
 }
 
 class TerminalSessionManager {
@@ -163,7 +156,6 @@ class TerminalSessionManager {
       initialStateEmitted: false,
       idleCheckTimer: null,
       idleCheckInFlight: false,
-      pvSubmitWatchdogs: new Set(),
     };
     this.sessions.set(id, session);
 
@@ -326,16 +318,11 @@ class TerminalSessionManager {
       session.detachTimeout = null;
     }
 
-    // Cancel PV-submit watchdogs on detach: a detached WS means the
-    // second-watchdog `attachedWs.send(paste_send_failed)` would no-op
-    // anyway (there's nobody to notify), and firing the retry Enter
-    // would land in a pane the user has already navigated away from.
-    if (session.pvSubmitWatchdogs.size > 0) {
-      for (const handle of session.pvSubmitWatchdogs) {
-        clearTimeout(handle);
-      }
-      session.pvSubmitWatchdogs.clear();
-    }
+    // Phase 50 D-12: pvSubmitWatchdogs detach cleanup REMOVED — the OLD
+    // PTY-activity-proxy watchdog is retired. The new signal-driven
+    // watchdog lives on the claude-session WS (not the terminal-tab WS)
+    // and manages its own per-connection cleanup via pendingMqidsForThisConnection
+    // in claude-session-server.ts's ws.on("close") handler.
 
     session.attachedWs = null;
     session.lastDetachedAt = Date.now();
@@ -373,16 +360,9 @@ class TerminalSessionManager {
       session.idleCheckTimer = null;
     }
 
-    // Cancel any pending PV-submit watchdogs before we tear down the
-    // SSH stream/conn — otherwise a delayed retry-Enter would fire
-    // against a closed sshConn (and the second-watchdog escalation
-    // would attempt to WS-send against a null attachedWs).
-    if (session.pvSubmitWatchdogs.size > 0) {
-      for (const handle of session.pvSubmitWatchdogs) {
-        clearTimeout(handle);
-      }
-      session.pvSubmitWatchdogs.clear();
-    }
+    // Phase 50 D-12: pvSubmitWatchdogs destroy cleanup REMOVED — see the
+    // matching detachWs edit above and pv-send-watchdog.ts for the
+    // replacement (per-connection cleanup on the claude-session WS).
 
     if (session.sshStream) {
       try {

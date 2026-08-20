@@ -2,8 +2,8 @@ import { sshLogger } from "../utils/logger.js";
 
 // ─── Phase 50 Plan 02 Task 1 — signal-driven send-path watchdog ─────────────
 //
-// Replaces the PTY-activity-proxy watchdog at src/backend/ssh/terminal-pv-
-// watchdog.ts (patch quick 260803-1xw). The old watchdog snapshot
+// Replaces the PTY-activity-proxy watchdog formerly at src/backend/ssh/
+// (patch quick 260803-1xw, deleted in Phase 50 Plan 02 Task 3). The old watchdog snapshot
 // `session.lastActivityAt` at arm time and used pane byte-activity as a
 // PROXY for "the Enter landed" — a noisy signal that mis-fires on unrelated
 // pane output. This new watchdog fires only on the ABSENCE of the specific
@@ -24,7 +24,7 @@ import { sshLogger } from "../utils/logger.js";
 //   • T+20000ms → emit `{type:'paste_send_failed', mqid, reason}` on the
 //                claude-session WS. Frontend consumers see the same wire
 //                shape as the OLD watchdog for backward compatibility
-//                (matches terminal-pv-watchdog.ts:232-238).
+//                (matches the OLD terminal-layer watchdog wire shape).
 //
 // Invariants (checker-enforced):
 //   • Retry Enter fires AT MOST ONCE per pending send (Fleet directive +
@@ -64,8 +64,8 @@ export const GIVE_UP_MS = 20_000;
 /**
  * Wrap a string in single quotes and escape embedded single quotes via the
  * shell-standard `'\''` sequence. Byte-identical to the shellQuote helper in
- * src/backend/ssh/terminal.ts L123 and src/backend/ssh/terminal-pv-watchdog.ts
- * L43 (the OLD module, being deleted in Task 3). Defense-in-depth against a
+ * src/backend/ssh/terminal.ts L123 and the OLD terminal-layer watchdog module
+ * (deleted in Phase 50 Plan 02 Task 3). Defense-in-depth against a
  * regression in the client-side SESSION_NAME_PATTERN — T-50-02-01 mitigation.
  */
 const shellQuote = (s: string): string =>
@@ -280,7 +280,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
   }, FULL_RESEND_MS);
 
   // Stage 3 — T+20000ms give-up + emit paste_send_failed. Same wire shape as
-  // the OLD terminal-pv-watchdog.ts:232-238 for frontend backward compat.
+  // the OLD terminal-layer watchdog (deleted in Task 3) for frontend backward compat.
   entry.giveUpTimer = setTimeout(() => {
     entry.giveUpTimer = null;
     if (!pending.has(mqid)) return;

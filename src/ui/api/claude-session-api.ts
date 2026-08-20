@@ -276,7 +276,7 @@ export type TailErrorEvent = {
 //
 // Wire shape PRESERVED from the OLD terminal-layer watchdog (removed in
 // Phase 50 Plan 02 Task 3) for frontend backward compatibility — matches
-// what terminal-pv-watchdog.ts:232-238 used to emit.
+// what the OLD terminal-layer watchdog used to emit (deleted in Phase 50 Plan 02 Task 3).
 export type PasteSendFailedEvent = {
   type: "paste_send_failed";
   mqid: string | null;
