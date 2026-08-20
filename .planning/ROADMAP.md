@@ -1373,3 +1373,30 @@ Plans:
 **Verification:** `49-VERIFICATION.md` (2026-08-20, status **passed**) — 10/10 must-haves verified against shipped code; full vitest 2545/9 skip/1 todo/0 fail. Independent verifier confirmed all 4 regex simplifications, all 4 dropped .replace calls, NELLY-SHAPE fixture, SELF-REFERENTIAL known-limitation test documenting deferred bug, PRIORITY-REGRESSION preserved byte-for-byte.
 
 **History note:** Phase originally numbered 47 in this identity's tree (2026-08-20). Pre-emptively rescue-rebased to Phase 49 at add-time on detection of tina's Phase 47 (load-more) + tanya's Phase 48 (ai-title) announcements in the coord room — neither on origin at the moment my `gsd-sdk phase.add` fired. The 10th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous per role-file rule + `rescue-rebase-runbook.md` — zero source overlap, zero-cost rename since no plans had been authored yet at rescue-rebase time.
+
+### Phase 50: Optimistic message bubbles
+
+**Goal:** PrettyView's chat surface feels responsive on send — pressing Enter renders the outgoing user bubble immediately (small trailing-edge spinner) and clears the spinner the instant the JSONL session-file confirms the message was accepted (either as a normal user turn OR as a queue-operation enqueue). A 20s outer bound flips the bubble to muted red-failure and repopulates the composebox for edit-and-resend. Bundled fix: replace the noisy PTY-activity-proxy PV submit watchdog with a signal-driven watchdog keyed off the same JSONL emission so the retry-Enter + full-resend path fires on the specific "message not accepted" signal (never on false positives). Deliberately reverses the COMPOSE-04 HARD LOCK.
+**Requirements**: None — Phase 50 has no formal REQ-ID mapping in REQUIREMENTS.md; coverage is against 50-CONTEXT.md decisions D-01..D-23 (all 23 addressed across the 4 plans).
+**Depends on:** Phase 44
+**Plans:** 4 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 50-01-PLAN.md — Backend parser extension: emit kind:'message' for normal-content queue-operation enqueue lines + per-session dedup Set for the queued-then-consumed double-write (D-09, D-10, D-11)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 50-02-PLAN.md — Backend send-path watchdog replacement: new pv-send-watchdog module (signal-driven, three-stage escalation) + rip out the old terminal-layer PTY-activity-proxy watchdog + new send_keys_error wire frame on execCommand throw (D-06/D-07 discretion, D-12, D-13, D-14, D-15, D-16, D-17, D-21)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 50-03-PLAN.md — Frontend optimistic-bubble state machine: remove COMPOSE-04 HARD LOCK, add ChatMessage pendingState prop (spinner + muted-red), add PrettyView pendingSends FIFO queue with 20s timer + WS-frame red-flip + latest-only rendering + composebox repopulate (D-01 through D-08, D-15, D-18, D-19, D-20, D-21)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 50-04-PLAN.md — In-process end-to-end integration tests covering all 7 D-22 scenarios (happy path / queued path / failure path / retry-Enter path / full-resend path / latest-only referenced from PrettyView test / dedup) + D-23 adapt-not-delete audit (D-22, D-23)
+
+**History note:** Phase originally numbered 45 in this identity's tree (started 2026-08-19). Collided on rebase with FIVE origin-side phases that had shipped between my planning-commit time and my next work session: tina P45 (fix-forward on P43, shipped as #466), tiffany P46 (frontend-skill-editing, shipped as #469), tina P47 (load-more button, in tanya's bundled ship #472), tanya P48 (convo-list ai-title, shipped in bundled #472), tabitha P49 (relay-outbound sanitize, shipped as #473). Fully autonomous rescue-rebase per role-file directive + `rescue-rebase-runbook.md` — the 11th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). No source overlap with any of the five (theirs = various pretty-view surfaces + skills-editor router + extractor sanitize; mine = ComposeBox HARD LOCK removal + ChatMessage pending state + parser queue-operation-enqueue emission + terminal.ts watchdog swap + IdentitySessionPane mqid thread). Planning artifacts renamed 45-* → 50-*, ROADMAP + STATE re-added under new number. Zero-cost rescue in the sense that no plans had shipped yet — only planning commits were on the local branch, none pushed.
