@@ -1335,3 +1335,27 @@ Plans:
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 47 to break down)
+
+### Phase 48: Convo-list per-row current-work hint from ai-title — extends FleetSession with aiTitle (mirror Phase 44 lastMessageAt shape), backend JSONL scraper for latest ai-title per session, WS publish, cache-key v2→v3, PrettyConversationRow.tsx redesign per v14 locked shape: identity name + hostname parens on title line, ai-title as fading-truncation subtitle, working spinner = JS-computed 4-input inverted idle-dot boolean `!(inActiveSet && isWorking === false && !isRecycling && !hasQueuePending)` emitted as `spinner-on` className (Ashley 2026-08-19 verbatim: "make the spinner work on the same logic as the idle indicator, except you invert it as the final step of logic there"), V12-style Pin/Monitor badge wraps repositioned to avatar bottom-left/bottom-right corners
+
+**Goal:** Every convo-list row that has an aiTitle displays it as a fade-truncated subtitle line; hostname migrates into parens on the title line next to the identity name; working state is signaled by a slow dashed spinner ring around the avatar (inverted-boolean of the ready-dot's 4-input gate — same inputs, final boolean flipped); the ready-dot retires; V12-style Pin and Monitor badge wraps relocate from the retired .pv-meta right column to absolute-positioned avatar corners (Pin bottom-left, Monitor bottom-right); both text lines fade-truncate via mask-image; entire wire-through mirrors the Phase 44 lastMessageAt extension architecturally (backend JSONL scraper + working-store third axis + AppShell seed + FleetSession type + cache-key bump v2→v3), differing only in reconciliation rule (last-wins instead of max-wins).
+**Requirements**: N/A (design-driven phase, not requirement-driven — every design decision is locked verbatim in 48-CONTEXT.md § Decisions § Locked design after Ashley's 2026-08-19 tasting session)
+**Depends on:** Phase 46 (also naturally bundles with Phase 44's held-ship per CONTEXT.md § Bundle with Phase 44 ship — same file family, same architectural shape, one deploy carries both)
+**Plans:** 5/5 plans complete
+
+**Wave 1**
+
+- [x] 48-01-PLAN.md — Wire-type surface: SessionStateSchema + SessionState + RemoteTmuxSession + FleetSession all gain optional aiTitle; FLEET_CACHE_KEY v2 → v3; isFleetSession defensive-rejects non-string aiTitle; cache round-trip preserves aiTitle
+
+**Wave 2** *(parallel — no file overlap; both depend only on 48-01)*
+
+- [x] 48-02-PLAN.md — Backend scraper: /sessions/list route + ssh-poll-orchestrator both derive aiTitle from a bounded tail-read (`tail -c 262144`) of the discovered JSONL, filter for `{"type":"ai-title",...}` lines, take the LAST; per-row failure isolation preserved; computeFingerprint extended with aiTitle axis so topic-drift-only changes still publish
+- [x] 48-03-PLAN.md — Working-store third axis: WorkingRecord grows aiTitle field; advanceSessionAiTitle chokepoint applies LAST-WINS reconciliation (null does not overwrite string, Object.is guard on identical strings); seedSessionAiTitle exported API; useSessionAiTitle hook + getSessionAiTitle getter; publishFleetStatusSessionState grows Axis C block; three-axis co-change frame emits 3 notifies (n0+3 load-bearing lock)
+
+**Wave 3** *(blocked on 48-01 + 48-03)*
+
+- [x] 48-04-PLAN.md — AppShell seed wire + PrettyConversationRowLive hook subscription + prop threading: seedSessionAiTitle called per row in BOTH cached + fresh /sessions/list paths; PrettyConversationRowLive subscribes to useSessionAiTitle(sessionKey) and threads aiTitle explicitly through to PrettyConversationRow; PrettyConversationRow accepts new prop with null default (no visual consumption yet — pure plumbing)
+
+**Wave 4** *(blocked on 48-04)*
+
+- [x] 48-05-PLAN.md — Row markup + CSS + tests v14 shape: title-line `(hostname)` suffix, aiTitle subtitle with placeholder-ellipsis fallback, `.pv-avatar::before` slow-dashed spinner (p05 pattern, 3s per revolution) painted under `.pv-row.spinner-on .pv-avatar::before` (single-class match; the `spinner-on` class is JS-computed from Ashley's full 4-input inversion `!(inActiveSet && isWorking === false && !isRecycling && !hasQueuePending)` — same 4 inputs as the ready-dot's render gate, evaluated the same way, final boolean flipped; CSS is the paint layer only, no CSS-side narrowing to `:is(.working, .recycling)` and no `.active-set` scoping — those would drop 2 of the 4 inputs and violate the Ashley-verbatim rule); PrettyBountyCountBadge V12 style preserved verbatim, wraps relocated to absolute avatar corners; `.pv-ready-dot` + `.pv-meta` blocks deleted; grid-template shrunk to 2-col; fade-truncation via mask-image on title + subtitle
