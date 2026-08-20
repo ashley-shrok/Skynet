@@ -642,26 +642,21 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 17 — [2026-08-14 reversal] !inActiveSet + isWorking===false renders
-//           the ready-dot (was: renders NO ready-dot pre-2026-08-14 lock).
-//           inActiveSet was dropped from the JS gate after Phase 34 Plan 06
-//           fleet-status cutover made isWorking backend-authoritative for
-//           every session, so ambient rows now surface "ready for attention"
-//           too.
+// Test 17 — Ambient (!inActiveSet) idle row never spins. Ashley 2026-08-20
+//           UAT tightening scoped the spinner to active-set-only, so ambient
+//           idle rows have neither the retired ready-dot nor the spinner-on
+//           class. (Prior 2026-08-19 full-inversion shape briefly lit every
+//           ambient row and Ashley reported it as inverted.)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: Phase 48 Plan 05 non-active-set spinner-on (was 2026-08-14 ambient ready-dot render)", () => {
-  it("Test 17 (Phase 48 Plan 05 rewrite): !inActiveSet+isWorking===false has NO ready-dot AND HAS `spinner-on` class (non-active-set is NOT the READY branch)", () => {
-    // Pre-Phase-48 this asserted the ready-dot rendered on non-active-set
-    // rows (2026-08-14 reversal that surfaced "ready for attention" on
-    // ambient rows too). Phase 48 Plan 05 fully retires the ready-dot;
-    // Ashley's 4-input gate `!(inActiveSet && isWorking===false &&
-    // !isRecycling && !hasQueuePending)` evaluates to `!(false && ...)` =
-    // `!false` = `true` for this input combination (inActiveSet=false
-    // short-circuits the inner AND) → `spinner-on` class IS applied. This
-    // locks the "non-active-set idle row DOES spin" branch of Ashley's
-    // literal 4-input rule — see also P47-15 for the same invariant with
-    // isWorking=true.
+describe("PrettyConversationRow: ambient rows never spin (post-2026-08-20 UAT tightening)", () => {
+  it("Test 17: !inActiveSet+isWorking===false has NO ready-dot AND NO `spinner-on` class (ambient rows are silent for both indicators)", () => {
+    // Under the active-set-scoped gate `inActiveSet && (isWorking===true ||
+    // isRecycling || hasQueuePending)`, inActiveSet=false short-circuits the
+    // whole expression to `false` → no spinner-on. Combined with the retired
+    // ready-dot, ambient idle rows carry NEITHER indicator — they are fully
+    // silent. See also P47-15 for the same invariant with isWorking=true
+    // (ambient working rows also don't spin).
     currentIdentity = makeIdentity(210);
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -681,7 +676,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 non-active-set spinner-on (was
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    expect(body.className).toContain("spinner-on");
+    expect(body.className).not.toContain("spinner-on");
   });
 });
 
@@ -832,19 +827,21 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
     }
   });
 
-  // Phase 48 Plan 05 (rewrite): the pre-Phase-48 uniformity test asserted the
-  // ready-dot rendered on both inActiveSet=true and =false when isWorking
-  // ===false. Under Ashley's 4-input inversion gate those two branches are
-  // NOT the same anymore:
-  //   inActiveSet=true  + isWorking===false → READY branch → no spinner-on.
-  //   inActiveSet=false + isWorking===false → non-READY → spinner-on IS
-  //                                            applied (short-circuits on
-  //                                            the leading `inActiveSet`
-  //                                            conjunct in the negation).
-  // This test locks the two-branch asymmetry so a future regression that
-  // widens the gate back to the pre-Phase-48 uniform shape (or narrows the
-  // spinner-on emission to only `.working`/`.recycling` rows) would fail.
-  it("Test SPINNER-INVERSION-01 (Phase 48 Plan 05 rewrite of READY-DOT-UNIFORM-01): isWorking===false yields DIFFERENT spinner-on state on inActiveSet=true vs =false — ready-dot fully absent in both cases", () => {
+  // isWorking===false on BOTH inActiveSet=true and =false yields NO spinner-on
+  // under the active-set-scoped gate (Ashley 2026-08-20 UAT tightening):
+  //   inActiveSet=true  + isWorking===false → active-set-idle → no spinner-on
+  //                                            (the ready-dot's exclusive
+  //                                            branch).
+  //   inActiveSet=false + isWorking===false → ambient rows silent → no
+  //                                            spinner-on (short-circuits on
+  //                                            the outer `inActiveSet`
+  //                                            conjunct).
+  // The two branches WERE briefly asymmetric under the 2026-08-19 full-
+  // inversion shape, and Ashley reported that as "idle rows have spinners" on
+  // first UAT — this test now locks the tightened symmetry so a regression
+  // back to the full-inversion shape would fail. The ready-dot is fully
+  // retired in both branches (that part was unchanged by the tightening).
+  it("Test SPINNER-INVERSION-01: isWorking===false yields NO spinner-on on either inActiveSet=true or =false — ready-dot also fully absent in both cases (ambient-scope tightening)", () => {
     for (const inActiveSet of [true, false]) {
       currentIdentity = makeIdentity(210);
       const { container, queryByLabelText, unmount } = render(
@@ -865,22 +862,14 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
         container.querySelector(".pv-ready-dot"),
         `inActiveSet=${inActiveSet}`,
       ).toBeNull();
-      // spinner-on emission tracks Ashley's inversion:
-      //   inActiveSet=true → READY branch → no spinner-on.
-      //   inActiveSet=false → non-READY → spinner-on present.
+      // Active-set-scoped spinner: neither branch spins when isWorking=false.
       const wrapper = container.querySelector(
         '[data-conversation-id="conv-1"]',
       ) as HTMLElement;
       const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-      if (inActiveSet) {
-        expect(body.className, `inActiveSet=${inActiveSet}`).not.toContain(
-          "spinner-on",
-        );
-      } else {
-        expect(body.className, `inActiveSet=${inActiveSet}`).toContain(
-          "spinner-on",
-        );
-      }
+      expect(body.className, `inActiveSet=${inActiveSet}`).not.toContain(
+        "spinner-on",
+      );
       unmount();
     }
   });
@@ -2839,15 +2828,19 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
 // suffix; subtitle line = aiTitle (or muted italic ellipsis placeholder
 // when null); Server icon fully retired; ready-dot fully retired; .pv-meta
 // wrapper fully retired; bounty badges relocated to avatar corners; spinner-
-// on className emitted per Ashley's FULL 4-input verbatim inversion gate:
+// on className emitted per the active-set-scoped 4-input boolean (Ashley
+// 2026-08-20 UAT tightening of 2026-08-19 verbatim):
 //
-//   showSpinnerOn = !(inActiveSet && isWorking===false && !isRecycling
-//                     && !hasQueuePending)
+//   showSpinnerOn = inActiveSet
+//                && (isWorking===true || isRecycling || hasQueuePending)
 //
-// P47-14 and P47-15 are LOAD-BEARING regression guards against a hypothetical
-// regression back to the pre-revision CSS-only gate `.pv-row.active-set:is(
-// .working, .recycling)` which dropped 2 of the 4 inputs (hasQueuePending +
-// polarity on inActiveSet). Do NOT weaken or delete either.
+// P47-14 and P47-15 are LOAD-BEARING regression guards. P47-14 locks
+// hasQueuePending as a first-class input within the active-set scope. P47-15
+// locks the ambient-scope short-circuit — non-active-set rows never spin.
+// Together they guard against BOTH the pre-Phase-48 CSS-only gate `.pv-row
+// .active-set:is(.working, .recycling)` (which dropped hasQueuePending) AND
+// the 2026-08-19 full-inversion shape (which lit every ambient idle row).
+// Do NOT weaken or delete either.
 describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   it("Test P48-01: title line renders identityName + ' (hostname)' suffix (parens contain hostname, single space between name and parens)", () => {
     currentIdentity = { ...makeIdentity(210, "Tanya") };
@@ -3196,13 +3189,16 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(body.className).not.toContain("recycling");
   });
 
-  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row HAS `spinner-on` class (non-active-set working row still spins per literal 4-input inversion)", () => {
-    // Ashley's 4-input gate: `!(false && ...)` = `!false` = `true` →
-    // spinner-on. Under the pre-revision CSS-only gate `.pv-row.active-
-    // set:is(.working, .recycling)`, this row would have failed (missing
-    // `.active-set` class would have suppressed the spinner even though
-    // the row is genuinely working). This test locks Ashley's literal
-    // 4-input inversion — non-active-set working rows also spin.
+  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row does NOT have `spinner-on` class (ambient rows never spin, Ashley 2026-08-20 UAT tightening)", () => {
+    // Active-set-scoped gate: `inActiveSet && (isWorking===true ||
+    // isRecycling || hasQueuePending)` short-circuits to `false` when
+    // inActiveSet=false, regardless of the inner three predicates. Ambient
+    // rows are silent for BOTH the retired ready-dot and the spinner.
+    // This test locks the ambient-scope tightening — if a future change
+    // widened the gate back to the 2026-08-19 full-inversion shape (where
+    // ambient working AND ambient idle rows both spun), this test would
+    // fail. Paired with P47-14 which locks queue-pending as a first-class
+    // input within the active-set scope.
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -3222,11 +3218,10 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    expect(body.className).toContain("spinner-on");
-    // The row DOES carry `.working` (isWorking===true), but does NOT
-    // carry `.active-set` — the pre-revision CSS-only gate `.pv-row
-    // .active-set:is(.working, .recycling)` would have suppressed the
-    // spinner ring on this row. The JS-driven `.spinner-on` fires anyway.
+    expect(body.className).not.toContain("spinner-on");
+    // The row DOES carry `.working` (isWorking===true) but does NOT carry
+    // `.active-set` — under the active-set-scoped gate, `.working` alone
+    // without `.active-set` is not enough to trip the spinner.
     expect(body.className).toContain("working");
     expect(body.className).not.toContain("active-set");
   });

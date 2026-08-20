@@ -531,24 +531,26 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PHASE 48 PLAN 05 — WORKING SPINNER RING (avatar `::before` pseudo)
+   WORKING SPINNER RING (avatar `::before` pseudo)
    ═══════════════════════════════════════════════════════════════════════════
    Slow dashed spinner ring painted around the avatar disc, keyed on the
    `.spinner-on` class emitted by PrettyConversationRow.tsx from the JS-
-   computed 4-input Ashley-verbatim boolean:
+   computed 4-input active-set-scoped boolean:
 
-     showSpinnerOn = !(inActiveSet && isWorking === false &&
-                       !isRecycling && !hasQueuePending)
+     showSpinnerOn = inActiveSet
+                  && (isWorking === true || isRecycling || hasQueuePending)
+
+   Same 4 inputs as the pre-Phase-48 ready-dot gate, `inActiveSet` preserved
+   as the outer scope, three inner predicates flipped to positive-work
+   polarity. Ready-dot fires on `inActiveSet && idle`; spinner fires on
+   `inActiveSet && !idle`; ambient rows silent for both. Ashley 2026-08-20
+   UAT tightening of the 2026-08-19 verbatim rule after the full-inversion
+   shape lit every ambient idle row.
 
    All 4 inputs live in JS; CSS keys off the single resulting className. DO
-   NOT add `:is(.working, .recycling)` narrowing or `.active-set` scoping —
-   those would drop 2 of the 4 inputs (`hasQueuePending` and the polarity on
-   `inActiveSet`) and violate 48-CONTEXT.md § Working indicator INVERSION.
-   Ashley 2026-08-19 verbatim: "make the spinner work on the same logic as
-   the idle indicator, except you invert it as the final step of logic
-   there." See PrettyConversationRow.tsx showSpinnerOn computation +
-   48-CONTEXT.md § Canonical Refs § Working-indicator gate source (the CSS-
-   only draft in v14-console-snippet.js was proof-of-look, not the spec).
+   NOT add `:is(.working, .recycling)` narrowing on the CSS side — that would
+   drop `hasQueuePending` from the input set. See PrettyConversationRow.tsx
+   showSpinnerOn computation for the authoritative comment.
 
    Visual: 18 dashes spanning 10° each with 10° gaps between (36-slot conic-
    gradient), masked to a thin outer ring via radial-gradient mask, rotating

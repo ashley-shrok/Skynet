@@ -31,18 +31,22 @@
 //     two-wrap shape (chosen over the component-call route so each wrap can be
 //     absolute-positioned independently). PrettyBountyCountBadge.tsx itself is
 //     UNTOUCHED per 48-CONTEXT.md § Badge relocation V12 style reuse.
-//   * `showSpinnerOn` JS-computed boolean: Ashley 2026-08-19 verbatim rule
-//     "make the spinner work on the same logic as the idle indicator, except
-//     you invert it as the final step of logic there." Concretely:
-//     `showSpinnerOn = !(inActiveSet && isWorking === false && !isRecycling
-//       && !hasQueuePending)` — the SAME 4 inputs the pre-Phase-48 ready-dot
-//     JS render gate used, evaluated the same way, with the final boolean
-//     inverted. Emitted as the `spinner-on` className on `.pv-row` (see
-//     className composition below). CSS keys off `.pv-row.spinner-on
-//     .pv-avatar::before` — single class match; all 4 inputs live in JS, CSS
-//     is the paint layer only. Do NOT widen (drop inputs) or narrow (add
-//     `:is(.working, .recycling)` on the CSS side) — that would violate
-//     48-CONTEXT.md § Working indicator INVERSION and Ashley's verbatim rule.
+//   * `showSpinnerOn` JS-computed boolean (Ashley 2026-08-20 post-UAT
+//     tightening of 2026-08-19 verbatim): the spinner mirrors the ready-dot
+//     scope — it is a SCOPED-TO-ACTIVE-SET signal, ON when the row is in
+//     the active set AND the agent is doing something (working, recycling,
+//     or has a queued send pending). Ambient (not-in-active-set) rows never
+//     spin, regardless of their working state. Concretely:
+//     `showSpinnerOn = inActiveSet && (isWorking === true || isRecycling
+//       || hasQueuePending)` — the SAME 4 inputs the pre-Phase-48 ready-dot
+//     gate used, with `inActiveSet` preserved as the outer scope and the
+//     inner three predicates flipped to their positive-work polarity. The
+//     ready-dot lit for `inActiveSet && idle`; the spinner lights for
+//     `inActiveSet && !idle` — same universe, mutually exclusive triggers,
+//     ambient rows silent for both. Emitted as the `spinner-on` className
+//     on `.pv-row` (see className composition below). CSS keys off
+//     `.pv-row.spinner-on .pv-avatar::before` — single class match; all 4
+//     inputs live in JS, CSS is the paint layer only.
 //
 // Phase 13 Plan 01 (Ashley 2026-07-23 lift-from-mock v4) — as amended by
 // Phase 41 Plan 01 (Ashley 2026-08-14 ambient-retirement): the row renders the
@@ -60,13 +64,15 @@
 //
 // This component keeps only the surviving JS-only concerns:
 //
-//   - Working-spinner INVERSION gate (Phase 48 Plan 05, Ashley 2026-08-19):
-//     JS computes `showSpinnerOn = !(inActiveSet && isWorkingFalse &&
-//     !isRecycling && !hasQueuePending)` — the DIRECT LOGICAL INVERSE of
-//     the pre-Phase-48 ready-dot render gate. Emitted as the `spinner-on`
-//     className on `.pv-row`; CSS at `.pv-row.spinner-on .pv-avatar::before`
-//     paints the slow dashed spinner ring. All 4 inputs live in JS; CSS is
-//     the paint layer only. See 48-CONTEXT.md § Working indicator INVERSION.
+//   - Working-spinner active-set-scoped gate (Ashley 2026-08-20 UAT):
+//     JS computes `showSpinnerOn = inActiveSet && (isWorking === true ||
+//     isRecycling || hasQueuePending)` — the pre-Phase-48 ready-dot 4-input
+//     universe scoped to the active set, with the three "doing-work"
+//     predicates in their positive polarity. Ready-dot on active-set-idle,
+//     spinner on active-set-not-idle, both silent on ambient rows. Emitted
+//     as the `spinner-on` className on `.pv-row`; CSS at `.pv-row.spinner-on
+//     .pv-avatar::before` paints the slow dashed spinner ring. All 4 inputs
+//     live in JS; CSS is the paint layer only.
 //   - Avatar image src selection (identity.avatarUrl vs initial letter vs
 //     tabIcon fallback).
 //   - Click / keyboard / touch handlers, aria-labels, `--pv-hue` custom
@@ -939,31 +945,33 @@ export function PrettyConversationRow({
     dxLive < 0 &&
     swipeRawDx <= -swipeThreshold;
 
-  // Phase 48 Plan 05 — working-spinner INVERSION gate (Ashley 2026-08-19
-  // verbatim: "make the spinner work on the same logic as the idle indicator,
-  // except you invert it as the final step of logic there.") The pre-Phase-48
-  // ready-dot JS render gate was the 4-input boolean at the old L1109 that
-  // used the (isWorkingFalse + notRecycling + noQueuePending) conjuncts under
-  // an `inActiveSet` scope at the render site. This is the DIRECT LOGICAL
-  // INVERSE — SAME 4 inputs, SAME evaluation shape, final boolean inverted —
-  // so a row that satisfies "ready-for-attention" (active set + idle + not
-  // recycling + no queued send) yields `false`, and every other combination
-  // yields `true`. Emitted as the `spinner-on` className on `.pv-row`; CSS
-  // matches on that single class alone at `.pv-row.spinner-on .pv-avatar
-  // ::before` — no CSS-side narrowing to `:is(.working, .recycling)`, no
-  // `.active-set` scoping. All 4 inputs live in JS; CSS is the paint layer
-  // only. See 48-CONTEXT.md § Working indicator INVERSION and 48-CONTEXT.md
-  // § Canonical Refs § Working-indicator gate source (the pre-plan draft that
-  // used a CSS-only `.pv-row.active-set:is(.working, .recycling)` shape
-  // dropped 2 of the 4 inputs — `hasQueuePending` and the polarity on
-  // `inActiveSet` — and was rejected). Tests P47-14 and P47-15 lock the
-  // full 4-input boolean against regression back to the CSS-only shape.
-  const showSpinnerOn = !(
-    inActiveSet &&
-    isWorking === false &&
-    !isRecycling &&
-    !hasQueuePending
-  );
+  // Working-spinner active-set-scoped gate (Ashley 2026-08-20 UAT tightening
+  // of the 2026-08-19 verbatim rule). Ashley on the first-look UAT of the
+  // full-inversion shape: the ambient rows all lit up because the outer
+  // `inActiveSet` was included in the inversion, which reads as "idle rows
+  // have spinners." The intended shape is a SCOPED mirror of the ready-dot,
+  // not a full universe inversion: the ready-dot lights on
+  // `inActiveSet && idle`, the spinner lights on `inActiveSet && !idle`, and
+  // ambient rows are silent for both. Same 4 inputs, same JS-store source,
+  // `inActiveSet` preserved as the outer scope, the three inner predicates
+  // flipped to positive-work polarity:
+  //
+  //   showSpinnerOn = inActiveSet
+  //                && (isWorking === true || isRecycling || hasQueuePending)
+  //
+  // Emitted as the `spinner-on` className on `.pv-row`; CSS matches on that
+  // single class alone at `.pv-row.spinner-on .pv-avatar::before` — no
+  // CSS-side narrowing to `:is(.working, .recycling)`, no `.active-set`
+  // scoping. All 4 inputs live in JS; CSS is the paint layer only. Tests
+  // P47-14 (`inActiveSet + hasQueuePending → spinner ON` — queue-pending is
+  // a first-class input, not a bystander) and P47-15 (`!inActiveSet +
+  // isWorking=true → spinner OFF` — ambient rows never spin) lock the
+  // full 4-input scoped boolean against regression to either a CSS-only
+  // 2-input `.pv-row:is(.working, .recycling)` shape (which would drop
+  // `hasQueuePending` and `.active-set` scoping) or the pre-UAT full
+  // inversion (which would light every ambient idle row).
+  const showSpinnerOn =
+    inActiveSet && (isWorking === true || isRecycling || hasQueuePending);
 
   const rowClassName = cn(
     "pv-row",
@@ -1170,10 +1178,12 @@ export function PrettyConversationRow({
                 hack) plus the 4-input `isWorkingFalse + notRecycling +
                 noQueuePending` JSX render gate → replaced by the CSS-painted
                 spinner ring on `.pv-avatar::before` (see pretty-conversations
-                .css). The 4-input JS boolean that drove the ready-dot render
-                now drives the INVERTED `showSpinnerOn` className computed at
-                the rowClassName composition above (Ashley 2026-08-19 verbatim
-                rule; 48-CONTEXT.md § Working indicator INVERSION). */}
+                .css). The same 4 inputs now drive the active-set-scoped
+                `showSpinnerOn` className computed at the rowClassName
+                composition above (Ashley 2026-08-20 UAT tightening: the
+                ready-dot's `inActiveSet` scope is PRESERVED so ambient rows
+                never spin; only the three inner "doing-work" predicates
+                flip to positive polarity). */}
       </div>
       {/* Right-click menu portal. Items filter by row eligibility: Pin
           renders for any row; Hide/Show only when onToggleHide is provided;
