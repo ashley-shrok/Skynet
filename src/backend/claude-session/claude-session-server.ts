@@ -1081,6 +1081,13 @@ export async function handleFetchOlderRange(
     sshConn: SSHClientType | null;
     currentSessionFile: string | null;
     currentHostId: number | null;
+    // Phase 50 Plan 01 Task 2: thread the JSONL session UUID so the
+    // parser's queue-operation branch produces the same deterministic
+    // eventId shape that the streaming-tail dispatch produces (the
+    // frontend's per-eventId dedup Set is keyed line-scoped by eventId).
+    // Optional — legacy callers/tests can omit; parser falls back to
+    // fallbackEventId() for the queue-op branch only.
+    sessionIdFromFile?: string | null;
   },
 ): Promise<void> {
   // Inline helper: DRY the error-emit sites. Every error path emits the
@@ -1193,7 +1200,13 @@ export async function handleFetchOlderRange(
   for (let i = 0; i < readResult.lines.length; i++) {
     const lineNumber = startLine + i;
     const rawLine = readResult.lines[i];
-    const parsed = parseSessionLine(rawLine);
+    // Phase 50 Plan 01 Task 2: sessionId threaded from connection scope
+    // so the parser's queue-operation branch (Task 1) derives a
+    // deterministic eventId matching the streaming-tail dispatch's shape.
+    // Note: dedup is NOT applied here — the range-fetch path emits older
+    // history whose enqueue → dequeue pairs already surfaced live; the
+    // frontend's per-eventId dedup Set handles collapse on the client.
+    const parsed = parseSessionLine(rawLine, deps.sessionIdFromFile ?? undefined);
     const frame = reshapeParsedLineToWireFrame(parsed, rawLine, lineNumber);
     if (frame !== null) {
       messages.push(frame);
@@ -1520,6 +1533,180 @@ export async function __applyInputMessageForTests(deps: {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+// ─── Phase 50 Plan 01 Task 2 — per-session queue-enqueue dedup ────────────────
+//
+// A queued user message appears in the JSONL TWICE: first as a
+// `type:"queue-operation", operation:"enqueue"` entry at enqueue time
+// (~T+0, ~111ms post-send), and again as a regular `type:"user"` turn at
+// dequeue time (up to ~2 MINUTES later per 50-CONTEXT.md § Empirical
+// evidence). Task 1's parser change means the first entry now emits as
+// kind:"message"; without dedup, the second would also emit and the
+// bubble would render twice.
+//
+// Dedup strategy (D-11 revised, see 50-01-PLAN.md § objective
+// "Hash-derivation contract"):
+//   • Key = contentHash = sha256(content).slice(0, 32) — content-only,
+//     NO sessionId, NO timestamp. Content-only because the enqueue and
+//     dequeue timestamps differ by minutes; any timestamp-inclusive key
+//     would fail to match across the enqueue → dequeue span. Per-session
+//     scope comes from the Map living on the per-connection tail-watcher
+//     closure — NOT from the key.
+//   • Value = wall-clock ms epoch of insertion; used for lazy TTL
+//     eviction (10 minutes per D-11 Discretion) and for the "unexpired"
+//     lookup check.
+//   • Capacity capped at 100 entries; on insert, oldest-first eviction
+//     (Map preserves insertion order in JS).
+//   • Single-shot: a successful suppress DELETES the matched entry so
+//     it can't accidentally suppress a genuine third occurrence of the
+//     same body later.
+//   • Task-notification enqueues skip upstream at the parser (Task 1
+//     guard) and thus never reach this seam; even if they did, the
+//     rawObj.type === "queue-operation" gate here plus a defense-in-depth
+//     check on the parsed content would prevent them from populating the
+//     Map. Patch #66's separate task-notification handler in onLine
+//     stays entirely intact.
+//
+// The seam is a pure function so tests can drive it without spinning up
+// the tail watcher or a WS server. Production onLine calls it BEFORE
+// `ws.send(JSON.stringify(frame))` for kind:"message" frames on user
+// role; when `suppress: true` the frame is dropped silently.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** TTL for a dedup Map entry — 10 minutes, per D-11 Discretion. */
+export const __QUEUE_DEDUP_TTL_MS = 10 * 60 * 1000;
+/** Cap on Map size — bounds memory at ~100 * (~48B key + 8B value) ≈ 5.6KB/session. */
+export const __QUEUE_DEDUP_CAP = 100;
+
+/** Task-notification / system-reminder wrapper guards (mirrors parser Task 1). */
+function isWrapperContent(content: string): boolean {
+  return (
+    content.startsWith("<task-notification>") ||
+    content.startsWith("<system-reminder>")
+  );
+}
+
+/**
+ * Prune dedup Map entries older than the TTL. Walks from Map-insertion
+ * head; stops at the first non-expired entry because insertion order is
+ * monotonic (values are wall-clock ms epochs at insertion time and now
+ * is monotonic-ish for our purposes — the tail-watcher lifetime is at
+ * most a WS-connection lifetime, hours not months).
+ */
+function pruneExpiredQueueDedupEntries(
+  dedupMap: Map<string, number>,
+  now: number,
+): void {
+  for (const [key, insertedAt] of dedupMap) {
+    if (now - insertedAt > __QUEUE_DEDUP_TTL_MS) {
+      dedupMap.delete(key);
+    } else {
+      // Insertion order is monotonic — first non-expired means the rest
+      // are also non-expired. Break to avoid scanning the full 100-entry Map.
+      break;
+    }
+  }
+}
+
+/**
+ * Enforce the capacity cap on the dedup Map. Called AFTER prune (so we
+ * only evict live entries when we're genuinely at capacity, not just
+ * because we haven't pruned in a while). Oldest-first eviction — Map
+ * preserves insertion order in JS, so `.keys().next().value` is the
+ * oldest.
+ */
+function enforceQueueDedupCap(dedupMap: Map<string, number>): void {
+  while (dedupMap.size >= __QUEUE_DEDUP_CAP) {
+    const oldest = dedupMap.keys().next();
+    if (oldest.done) break;
+    dedupMap.delete(oldest.value);
+  }
+}
+
+/**
+ * Apply the queue-enqueue dedup logic for a single parsed frame.
+ *
+ * Test seam mirroring the __applyInputMessageForTests convention. Called
+ * from the production tail-watcher onLine right before ws.send for
+ * kind:"message" frames.
+ *
+ * @param deps.parsedFrame - the ParsedLine returned by parseSessionLine
+ * @param deps.rawObj      - the JSON.parse'd raw JSONL object (must expose
+ *                           `.type` and `.operation`; other fields ignored)
+ * @param deps.dedupMap    - per-session Map<contentHash, insertedAt-ms>
+ * @param deps.now         - injectable wall-clock epoch (Date.now() in prod)
+ *
+ * @returns `{ suppress, dedupMap }`. `suppress:true` means the caller
+ *          MUST NOT emit the WS frame (the frame was already emitted
+ *          from an earlier enqueue entry). `dedupMap` is the same Map
+ *          reference passed in — returned for test ergonomics.
+ */
+export function __applyQueueDedupForTests(deps: {
+  parsedFrame: import("./session-file-parser.js").ParsedLine;
+  rawObj: Record<string, unknown>;
+  dedupMap: Map<string, number>;
+  now: number;
+}): { suppress: boolean; dedupMap: Map<string, number> } {
+  const { parsedFrame, rawObj, dedupMap, now } = deps;
+
+  // Only user-role message frames participate. Assistant turns, images,
+  // relay frames, skips, malformed lines all pass through unchanged.
+  if (parsedFrame.kind !== "message") return { suppress: false, dedupMap };
+  if (parsedFrame.role !== "user") return { suppress: false, dedupMap };
+  if (typeof parsedFrame.content !== "string" || parsedFrame.content.length === 0) {
+    return { suppress: false, dedupMap };
+  }
+
+  // Defensive: task-notification / system-reminder content should have
+  // been skipped upstream at the parser; if it somehow reaches here (e.g.
+  // a future parser change), still don't touch the Map.
+  if (isWrapperContent(parsedFrame.content)) {
+    return { suppress: false, dedupMap };
+  }
+
+  // contentHash = sha256(content).slice(0, 32) — content-only, matches
+  // the derivation Plan 50-02's watchdog uses for arm-time + notifyMatched
+  // keys (see 50-01-PLAN.md § objective "Hash-derivation contract").
+  const contentHash = createHash("sha256")
+    .update(parsedFrame.content)
+    .digest("hex")
+    .slice(0, 32);
+
+  const rawType = rawObj.type;
+  const rawOperation = rawObj.operation;
+
+  if (rawType === "queue-operation" && rawOperation === "enqueue") {
+    // Populate branch: parser confirmed this is a normal-content enqueue
+    // and the frame is emitting. Insert into dedup Map so a later
+    // dequeue-time user turn with matching content can be suppressed.
+    // Lazy TTL prune + cap enforcement before insert.
+    pruneExpiredQueueDedupEntries(dedupMap, now);
+    enforceQueueDedupCap(dedupMap);
+    dedupMap.set(contentHash, now);
+    return { suppress: false, dedupMap };
+  }
+
+  if (rawType === "user") {
+    // Lookup branch: matching enqueue entry within TTL suppresses the
+    // frame (dequeue-time double-write). Single-shot — matched entry
+    // is consumed so a later genuine third occurrence still emits.
+    const insertedAt = dedupMap.get(contentHash);
+    if (insertedAt !== undefined) {
+      if (now - insertedAt <= __QUEUE_DEDUP_TTL_MS) {
+        dedupMap.delete(contentHash);
+        return { suppress: true, dedupMap };
+      }
+      // Expired entry — clean up and continue to emit.
+      dedupMap.delete(contentHash);
+    }
+    return { suppress: false, dedupMap };
+  }
+
+  // Any other rawType (attachment/queued_command, relay_inbound wrappers
+  // that surfaced as user turns via a different path, etc.) is out of
+  // scope for this dedup path.
+  return { suppress: false, dedupMap };
 }
 
 /**
@@ -2169,6 +2356,24 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
   >();
   let backgroundedShellsLastSerialized = "[]";
+  // Phase 50 Plan 01 Task 2 — per-session queue-enqueue dedup. Populated
+  // when the parser (Task 1) surfaces a normal-content queue-operation
+  // enqueue entry as kind:"message"; consumed when the same content
+  // reappears as a normal type:"user" turn (harness dequeue → normal
+  // user-turn write path, up to ~2 MINUTES later per 50-CONTEXT.md §
+  // Empirical evidence).
+  //
+  // D-11 revised: KEY = contentHash ONLY (sha256(content).slice(0,32));
+  // dropped the ±2-second-bucket sketch after empirical evidence showed
+  // enqueue→dequeue can span ~2 minutes (see 50-CONTEXT.md § Empirical
+  // evidence). Per-session scope via closure; wall-clock TTL via the
+  // number value.
+  //
+  // See __applyQueueDedupForTests (~L1560) for the dedup logic + hash
+  // derivation contract. Lifetime is the tail-watcher closure — the Map
+  // is destroyed on WS disconnect / pane teardown along with every
+  // other per-connection state slot in this scope.
+  const queueEnqueueDedup = new Map<string, number>();
   // Plan-pending tracking (patch #63): parent-JSONL scan for
   // ExitPlanMode tool_use blocks (Claude asking Ashley to accept /
   // keep-planning in Plan Mode), paired against subsequent
@@ -2819,7 +3024,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // used by session-file-range-reader.ts.
     lineNum += 1;
 
-    const parsed = parseSessionLine(line);
+    // Phase 50 Plan 01 Task 2: thread sessionIdFromFile so the parser's
+    // queue-operation branch derives a deterministic eventId per
+    // (sessionId, timestamp, content) — see 50-01-PLAN.md § objective
+    // "Hash-derivation contract". Non-queue-operation branches ignore
+    // the sessionId argument (unchanged uuid/messageId chain).
+    const parsed = parseSessionLine(line, sessionIdFromFile ?? undefined);
     // Discriminator switch on parsed.kind — RENDER-01 hard-lock enforcement.
     // kind:"skip" and kind:"malformed" are silently dropped. Each emitting
     // branch sends exactly one WS frame per parsed turn; the switch guarantees
@@ -2833,11 +3043,38 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // are tempted to add a new per-kind case, extend the shared helper
     // instead — do NOT reintroduce a switch here.
     const frame = reshapeParsedLineToWireFrame(parsed, line, lineNum);
+    // Phase 50 Plan 01 Task 2: per-session queue-enqueue dedup applied
+    // BEFORE ws.send. Suppresses the dequeue-time normal-user-turn
+    // duplicate emission when the same content was already emitted
+    // from an enqueue entry within the 10-minute TTL window. Requires a
+    // fresh JSON.parse of the raw line so we can inspect rawObj.type +
+    // rawObj.operation without re-widening reshapeParsedLineToWireFrame's
+    // contract. Cost is one small JSON.parse per line on kind:"message"
+    // frames only — negligible on live tail volumes and consistent with
+    // the existing parallel-scan pattern above.
     if (frame !== null) {
-      try {
-        ws.send(JSON.stringify(frame));
-      } catch {
-        /* ws may be mid-close; drop */
+      let suppress = false;
+      if (frame.type === "message" && frame.role === "user") {
+        try {
+          const rawObj = JSON.parse(line) as Record<string, unknown>;
+          const result = __applyQueueDedupForTests({
+            parsedFrame: parsed,
+            rawObj,
+            dedupMap: queueEnqueueDedup,
+            now: Date.now(),
+          });
+          suppress = result.suppress;
+        } catch {
+          /* malformed line — already surfaced by parseSessionLine as kind:"malformed"
+             which is never a message frame, so we shouldn't hit this path. */
+        }
+      }
+      if (!suppress) {
+        try {
+          ws.send(JSON.stringify(frame));
+        } catch {
+          /* ws may be mid-close; drop */
+        }
       }
     }
     // kind:"skip" returns null and is silently dropped (RENDER-01 lock;
@@ -4734,6 +4971,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
         sshConn,
         currentSessionFile,
         currentHostId,
+        // Phase 50 Plan 01 Task 2 — thread the JSONL session UUID so
+        // the parser's queue-operation branch derives the same
+        // deterministic eventId shape as the streaming-tail dispatch.
+        sessionIdFromFile,
       });
       return;
     }
