@@ -61,6 +61,51 @@ function scanTailForNewestMessageAt(tailContents: string): number | null {
   return newest;
 }
 
+// ---------------------------------------------------------------------------
+// Phase 47 Plan 02 — dormant-side aiTitle derivation
+// ---------------------------------------------------------------------------
+//
+// Harness ai-title source per Phase 47 CONTEXT.md § Backend scraper mechanics:
+// Claude Code appends `{"type":"ai-title","aiTitle":"…","sessionId":"…"}` lines
+// to the session JSONL as the topic drifts. Multiple such lines can exist in a
+// single JSONL — the LAST one in file order is the current title (last-wins
+// semantics, distinct from Phase 44's max-wins lastMessageAt).
+//
+// This helper takes the same tail buffer that scanTailForNewestMessageAt
+// consumes (see recencySignalsBlock below — OPTION A per 47-02-PLAN.md Task 1:
+// one `tail -c 262144` exec feeds BOTH signals to avoid a duplicate discovery
+// + tail round-trip per row). Filtering strategy: cheap `line.includes(...)`
+// substring pre-filter, then in-process JSON.parse (matches the parseSessionLine
+// in-process pattern the Phase 44 Plan 01 scanner uses — no jq subprocess).
+//
+// Failure model matches scanTailForNewestMessageAt: empty tail, malformed JSON,
+// missing aiTitle field, wrong-type aiTitle value → return null (best-effort
+// sampling, not validation).
+function scanTailForLatestAiTitle(tailContents: string): string | null {
+  let latest: string | null = null;
+  const lines = tailContents.split("\n");
+  for (const line of lines) {
+    // Cheap substring pre-filter — avoids JSON.parse on every message line.
+    if (!line.includes('"type":"ai-title"')) continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        typeof (parsed as { aiTitle?: unknown }).aiTitle === "string"
+      ) {
+        // Last-wins: update sticky `latest` on every valid match. File order
+        // is the definitive last-wins order (topic drift moves forward).
+        latest = (parsed as { aiTitle: string }).aiTitle;
+      }
+    } catch {
+      // Malformed JSON — skip silently.
+      continue;
+    }
+  }
+  return latest;
+}
+
 interface TmuxSessionRow {
   hostId: number;
   hostName: string;
@@ -68,6 +113,12 @@ interface TmuxSessionRow {
   created: number;
   role: string | null;
   lastMessageAt: number | null;
+  // Phase 47 Plan 02 — required-on-server-but-null-when-unknown, matching
+  // Phase 44 Plan 01's invariant for lastMessageAt. The route always emits
+  // this key; the value is either the harness's latest ai-title string OR
+  // null on any failure path (no discovery, empty tail, malformed line,
+  // timeout, throw). See scanTailForLatestAiTitle helper docblock above.
+  aiTitle: string | null;
 }
 
 /**
@@ -144,17 +195,22 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                   created: parseInt(created, 10) || 0,
                   role: null as string | null,
                   lastMessageAt: null as number | null,
+                  // Phase 47 Plan 02 — aiTitle third axis. Row-init null; the
+                  // recencySignalsBlock below will populate on discovery hit.
+                  aiTitle: null as string | null,
                 };
               });
 
-            // Resolve role AND derive lastMessageAt for each session on the SAME
-            // already-open conn, in parallel. Both per-session blocks are dispatched
-            // concurrently so a slow discovery doesn't extend the wall-clock beyond
-            // max(roleResolve, lastMessageAtDerive) for that session.
+            // Resolve role AND derive recency-signals (lastMessageAt + aiTitle)
+            // for each session on the SAME already-open conn, in parallel. Both
+            // per-session blocks are dispatched concurrently so a slow discovery
+            // doesn't extend the wall-clock beyond max(roleResolve,
+            // recencySignals) for that session.
             //
             // Each per-session block wraps its work in Promise.race(PER_HOST_TIMEOUT_MS)
             // + try/catch — one hung/failed frontmatter read OR JSONL discovery must
-            // NOT kill the whole host (Phase 43 Plan 01 <behavior> Test 3 lock).
+            // NOT kill the whole host (Phase 43 Plan 01 <behavior> Test 3 lock;
+            // Phase 47 Plan 02 <behavior> Test 6 lock for the aiTitle axis).
             await Promise.all(
               rows.map(async (row) => {
                 // Per-session role resolve (unchanged behavior).
@@ -181,52 +237,84 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                   }
                 })();
 
-                // Per-session lastMessageAt derivation (Phase 43 Plan 01).
-                // Step 1: discoverIdentitySessionFile(conn, row.sessionName) locates
-                //         the mtime-newest /id-first-turn JSONL for this identity.
-                // Step 2: tail -n 200 of that JSONL, filter by MESSAGE_BEARING_KINDS,
-                //         take the newest `ts`.
-                // On any failure (discovery null, tail empty, timeout, throw): row's
-                // lastMessageAt stays null and siblings are unaffected.
-                const lastMessageAtBlock = (async () => {
+                // Per-session recency-signals derivation.
+                // Consolidates Phase 43 Plan 01 (lastMessageAt) + Phase 47 Plan
+                // 02 (aiTitle) into ONE discovery + ONE tail read. OPTION A per
+                // 47-02-PLAN.md Task 1 <action> + Phase 47 CONTEXT.md § Backend
+                // scraper mechanics: "the ai-title tail-read can share the
+                // same discovery lookup result to avoid a duplicate
+                // discoverIdentitySessionFile call per row." Tail width bumped
+                // from `tail -n 200` (line-count) to `tail -c 262144` (256KB
+                // byte-count) so an ai-title line older than the last 200
+                // message-bearing lines is still captured.
+                //
+                // Step 1: discoverIdentitySessionFile(conn, row.sessionName)
+                //         locates the mtime-newest /id-first-turn JSONL.
+                // Step 2: tail -c 262144 of that JSONL — ONE exec.
+                // Step 3: run BOTH scanTailForNewestMessageAt AND
+                //         scanTailForLatestAiTitle over the same buffer.
+                // On any failure (discovery null, tail empty, timeout, throw):
+                // BOTH row.lastMessageAt AND row.aiTitle stay null and
+                // siblings are unaffected. Single catch block wipes both
+                // signals (rename `sessions_list_last_message_at_skip` →
+                // `sessions_list_recency_signals_skip` to reflect the
+                // consolidated scope).
+                const recencySignalsBlock = (async () => {
                   try {
                     const resolved = await Promise.race([
-                      (async (): Promise<number | null> => {
+                      (async (): Promise<{
+                        lastMessageAt: number | null;
+                        aiTitle: string | null;
+                      }> => {
                         const jsonlPath = await discoverIdentitySessionFile(
                           conn,
                           row.sessionName,
                         );
-                        if (jsonlPath === null) return null;
+                        if (jsonlPath === null) {
+                          return { lastMessageAt: null, aiTitle: null };
+                        }
                         // jsonlPath is an absolute path shape returned by the
                         // discovery module (~/.claude/projects/<slug>/<uuid>.jsonl).
                         // Single-quote-wrap defensively (mirrors ssh-poll-orchestrator's
                         // fail-open path validation) even though the discovery module's
                         // output has no shell-special chars by construction.
+                        // Tail width: 262144 bytes = 256KB per Phase 47
+                        // CONTEXT.md § Backend scraper mechanics.
                         const tailRaw = await execCommand(
                           conn,
-                          `tail -n 200 '${jsonlPath}' 2>/dev/null || true`,
+                          `tail -c 262144 '${jsonlPath}' 2>/dev/null || true`,
                         );
-                        if (!tailRaw || tailRaw.trim() === "") return null;
-                        return scanTailForNewestMessageAt(tailRaw);
+                        if (!tailRaw || tailRaw.trim() === "") {
+                          return { lastMessageAt: null, aiTitle: null };
+                        }
+                        // ONE buffer, TWO scans.
+                        return {
+                          lastMessageAt: scanTailForNewestMessageAt(tailRaw),
+                          aiTitle: scanTailForLatestAiTitle(tailRaw),
+                        };
                       })(),
-                      new Promise<number | null>((_, reject) =>
+                      new Promise<{
+                        lastMessageAt: number | null;
+                        aiTitle: string | null;
+                      }>((_, reject) =>
                         setTimeout(
                           () =>
                             reject(
                               new Error(
-                                "per-session lastMessageAt discovery timeout",
+                                "per-session recency-signals discovery timeout",
                               ),
                             ),
                           PER_HOST_TIMEOUT_MS,
                         ),
                       ),
                     ]);
-                    row.lastMessageAt = resolved;
+                    row.lastMessageAt = resolved.lastMessageAt;
+                    row.aiTitle = resolved.aiTitle;
                   } catch (e) {
                     sshLogger.debug(
-                      "sessions/list: lastMessageAt derivation skipped for session",
+                      "sessions/list: recency-signals derivation skipped for session",
                       {
-                        operation: "sessions_list_last_message_at_skip",
+                        operation: "sessions_list_recency_signals_skip",
                         hostId,
                         hostName,
                         sessionName: row.sessionName,
@@ -234,10 +322,11 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                       },
                     );
                     row.lastMessageAt = null;
+                    row.aiTitle = null;
                   }
                 })();
 
-                await Promise.all([roleResolveBlock, lastMessageAtBlock]);
+                await Promise.all([roleResolveBlock, recencySignalsBlock]);
               }),
             );
 

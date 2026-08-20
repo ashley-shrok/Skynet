@@ -227,6 +227,19 @@ function jsonlBackgroundTaskLine(tsMillis: number): string {
   });
 }
 
+// Phase 47 Plan 02 fixture — emit the harness `{"type":"ai-title","aiTitle":"…",
+// "sessionId":"…"}` line shape (see 47-CONTEXT.md § Backend scraper mechanics).
+// scanTailForLatestAiTitle in sessions.ts filters lines whose substring
+// includes `"type":"ai-title"` then in-process JSON.parses to extract the
+// aiTitle field.
+function jsonlAiTitleLine(sessionId: string, aiTitle: string): string {
+  return JSON.stringify({
+    type: "ai-title",
+    aiTitle,
+    sessionId,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Import router under test
 // ---------------------------------------------------------------------------
@@ -296,6 +309,7 @@ describe("GET /sessions/list — role resolution", () => {
       sessionName: string;
       role: string | null;
       lastMessageAt: number | null;
+      aiTitle: string | null;
     }>;
     expect(rows).toHaveLength(2);
 
@@ -310,6 +324,12 @@ describe("GET /sessions/list — role resolution", () => {
     // lastMessageAt: null (matches Test 2's semantics in the new derivation describe).
     expect(poppy?.lastMessageAt).toBeNull();
     expect(patricia?.lastMessageAt).toBeNull();
+
+    // Phase 47 Plan 02 — server always emits aiTitle on every row. Default
+    // mockedDiscover returns null → aiTitle field carries null (same contract
+    // as lastMessageAt).
+    expect(poppy?.aiTitle).toBeNull();
+    expect(patricia?.aiTitle).toBeNull();
 
     // Both list-sessions AND per-identity cat were called on the SAME conn instance
     expect(execCommand).toHaveBeenCalledWith(fakeConn, expect.stringContaining("tmux list-sessions"));
@@ -345,6 +365,7 @@ describe("GET /sessions/list — role resolution", () => {
       sessionName: string;
       role: string | null;
       lastMessageAt: number | null;
+      aiTitle: string | null;
     }>;
     expect(rows).toHaveLength(2);
 
@@ -359,6 +380,10 @@ describe("GET /sessions/list — role resolution", () => {
     // Phase 43 Plan 01 — server always emits lastMessageAt on every row.
     expect(poppy?.lastMessageAt).toBeNull();
     expect(ephemeral?.lastMessageAt).toBeNull();
+
+    // Phase 47 Plan 02 — server always emits aiTitle on every row.
+    expect(poppy?.aiTitle).toBeNull();
+    expect(ephemeral?.aiTitle).toBeNull();
   });
 
   it("Test 3 (per-identity timeout): hung cat → role:null, good row keeps role, response bounded", async () => {
@@ -391,6 +416,7 @@ describe("GET /sessions/list — role resolution", () => {
       sessionName: string;
       role: string | null;
       lastMessageAt: number | null;
+      aiTitle: string | null;
     }>;
     expect(rows).toHaveLength(2);
 
@@ -403,6 +429,10 @@ describe("GET /sessions/list — role resolution", () => {
     // Phase 43 Plan 01 — server always emits lastMessageAt on every row.
     expect(poppy?.lastMessageAt).toBeNull();
     expect(patricia?.lastMessageAt).toBeNull();
+
+    // Phase 47 Plan 02 — server always emits aiTitle on every row.
+    expect(poppy?.aiTitle).toBeNull();
+    expect(patricia?.aiTitle).toBeNull();
 
     // Should complete well within 2x PER_HOST_TIMEOUT_MS (3000ms), not hang indefinitely
     expect(elapsedMs).toBeLessThan(8000);
@@ -421,6 +451,8 @@ describe("GET /sessions/list — role resolution", () => {
     // Phase 43 Plan 01: with an empty rows array there are no lastMessageAt
     // fields to assert — the "server always emits lastMessageAt on every row"
     // contract is satisfied vacuously (zero rows in the response).
+    // Phase 47 Plan 02: same vacuous satisfaction for the aiTitle contract —
+    // zero rows means zero aiTitle fields to check.
     expect(res.body).toEqual([]);
     expect(execCommand).not.toHaveBeenCalled();
   });
@@ -483,6 +515,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     const rows = res.body as Array<{
       sessionName: string;
       lastMessageAt: number | null;
+      aiTitle: string | null;
     }>;
     expect(rows).toHaveLength(2);
 
@@ -491,6 +524,11 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
 
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
     expect(tiffany?.lastMessageAt).toBe(7000);
+
+    // Phase 47 Plan 02 — server always emits aiTitle. Tail here has no
+    // ai-title lines, so aiTitle is null on both rows.
+    expect(tanya?.aiTitle).toBeNull();
+    expect(tiffany?.aiTitle).toBeNull();
 
     // Discovery called on the SAME conn for each identity.
     expect(mockedDiscover).toHaveBeenCalledWith(fakeConn, "tanya");
@@ -529,6 +567,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     const rows = res.body as Array<{
       sessionName: string;
       lastMessageAt: number | null;
+      aiTitle: string | null;
     }>;
     expect(rows).toHaveLength(2);
 
@@ -537,6 +576,11 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
 
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
     expect(tiffany?.lastMessageAt).toBeNull();
+
+    // Phase 47 Plan 02 — no ai-title lines in either tail (tanya's tail has
+    // only the message line; tiffany's discovery is null so tail never runs).
+    expect(tanya?.aiTitle).toBeNull();
+    expect(tiffany?.aiTitle).toBeNull();
   });
 
   it("Test 3 (discovery throws/hangs): rejected/timed-out discovery → lastMessageAt:null, siblings unaffected", async () => {
@@ -576,6 +620,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     const rows = res.body as Array<{
       sessionName: string;
       lastMessageAt: number | null;
+      aiTitle: string | null;
     }>;
     expect(rows).toHaveLength(2);
 
@@ -584,6 +629,11 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
 
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
     expect(tiffany?.lastMessageAt).toBe(4200); // sibling unaffected
+
+    // Phase 47 Plan 02 — timeout on discovery cascades to aiTitle:null (same
+    // catch block); sibling tail carries no ai-title lines so tiffany is null too.
+    expect(tanya?.aiTitle).toBeNull();
+    expect(tiffany?.aiTitle).toBeNull();
 
     // Bounded by PER_HOST_TIMEOUT_MS (3000ms).
     expect(elapsedMs).toBeLessThan(8000);
@@ -622,11 +672,14 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     const rows = res.body as Array<{
       sessionName: string;
       lastMessageAt: number | null;
+      aiTitle: string | null;
     }>;
     expect(rows).toHaveLength(1);
 
     const tanya = rows.find((r) => r.sessionName === "tanya");
     expect(tanya?.lastMessageAt).toBeNull();
+    // Phase 47 Plan 02 — tool_use-only tail has no ai-title lines.
+    expect(tanya?.aiTitle).toBeNull();
   });
 
   it("Test 5 (message-bearing filter): user + tool_use + assistant + bg-task → lastMessageAt = newest MESSAGE ts (tool_use + bg-task excluded)", async () => {
@@ -670,11 +723,14 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     const rows = res.body as Array<{
       sessionName: string;
       lastMessageAt: number | null;
+      aiTitle: string | null;
     }>;
     expect(rows).toHaveLength(1);
 
     const tanya = rows.find((r) => r.sessionName === "tanya");
     expect(tanya?.lastMessageAt).toBe(2000);
+    // Phase 47 Plan 02 — mixed tail with no ai-title lines → aiTitle:null.
+    expect(tanya?.aiTitle).toBeNull();
   });
 
   it("Test 6 (route always emits lastMessageAt): even when discovery yields null, every row has the field defined (not undefined)", async () => {
@@ -705,6 +761,340 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     for (const row of rows) {
       expect("lastMessageAt" in row).toBe(true);
       expect(row.lastMessageAt).toBeNull();
+      // Phase 47 Plan 02 — same "always emits, null-when-unknown" contract
+      // for aiTitle. Discovery-null cascades to aiTitle:null (same catch
+      // block wipes both signals).
+      expect("aiTitle" in row).toBe(true);
+      expect(row.aiTitle).toBeNull();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 47 Plan 02 — /sessions/list aiTitle derivation coverage
+//
+// Mirrors the 7 test cases enumerated in 47-02-PLAN.md Task 1 <behavior>.
+// discoverIdentitySessionFile is MOCKED here so these tests exercise the
+// route's dispatch + per-session failure isolation for the new ai-title
+// axis. scanTailForLatestAiTitle in sessions.ts filters lines containing
+// the substring `"type":"ai-title"`, in-process JSON.parses each match,
+// and returns the LAST match's aiTitle string (last-wins per CONTEXT.md).
+//
+// The tail buffer is shared between scanTailForNewestMessageAt and
+// scanTailForLatestAiTitle — one `tail -c 262144` exec per session-row
+// feeds BOTH signals (OPTION A per 47-02-PLAN.md Task 1 <action>).
+// ---------------------------------------------------------------------------
+
+describe("GET /sessions/list — aiTitle derivation (Phase 47 Plan 02)", () => {
+  const TANYA_JSONL = "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/abc.jsonl";
+  const TIFFANY_JSONL = "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tiffany/def.jsonl";
+
+  it("Test 1 (happy path): single ai-title line in tail → row.aiTitle equals the string", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") return TANYA_JSONL;
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000");
+      }
+      if (cmd.includes("identities/tanya/tanya.md")) {
+        return Promise.resolve("---\nrole: box-maintainer\n---\n# Tanya\n");
+      }
+      if (cmd.includes(TANYA_JSONL)) {
+        return Promise.resolve(
+          jsonlMessageLine(4000, "assistant", "hi") +
+            "\n" +
+            jsonlAiTitleLine("sess-tanya", "Fix bug X") +
+            "\n",
+        );
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      aiTitle: string | null;
+    }>;
+    expect(rows).toHaveLength(1);
+
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    expect(tanya?.aiTitle).toBe("Fix bug X");
+  });
+
+  it("Test 2 (last-wins on multiple ai-title lines): three ai-title lines → row.aiTitle equals the LAST one in file order", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") return TANYA_JSONL;
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      if (cmd.includes(TANYA_JSONL)) {
+        // Three ai-title lines — LAST one wins per CONTEXT.md § working-store
+        // third axis (topic drifts across a session; last-wins reflects the
+        // freshest topic).
+        return Promise.resolve(
+          jsonlAiTitleLine("sess-tanya", "Investigating segfault") +
+            "\n" +
+            jsonlMessageLine(1500, "user", "actually let's rebuild") +
+            "\n" +
+            jsonlAiTitleLine("sess-tanya", "Rebuilding parser") +
+            "\n" +
+            jsonlMessageLine(2500, "assistant", "done") +
+            "\n" +
+            jsonlAiTitleLine("sess-tanya", "Reviewing test coverage") +
+            "\n",
+        );
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      aiTitle: string | null;
+    }>;
+    expect(rows).toHaveLength(1);
+
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    expect(tanya?.aiTitle).toBe("Reviewing test coverage");
+  });
+
+  it("Test 3 (discovery-null cascade): one row has discovery success + ai-title, sibling has discovery null → sibling aiTitle:null, first row keeps string", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") return TANYA_JSONL;
+      if (identityName === "tiffany") return null; // dormant
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000\ntiffany|2000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      if (cmd.includes(TANYA_JSONL)) {
+        return Promise.resolve(
+          jsonlAiTitleLine("sess-tanya", "Migrating auth flow") + "\n",
+        );
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      aiTitle: string | null;
+    }>;
+    expect(rows).toHaveLength(2);
+
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    expect(tanya?.aiTitle).toBe("Migrating auth flow");
+
+    const tiffany = rows.find((r) => r.sessionName === "tiffany");
+    expect(tiffany?.aiTitle).toBeNull(); // discovery-null → no scan → null
+  });
+
+  it("Test 4 (no ai-title lines in tail): discovery succeeds, tail has messages + tool_use only → aiTitle:null", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") return TANYA_JSONL;
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      if (cmd.includes(TANYA_JSONL)) {
+        // Real messages + tool_use — NO ai-title lines.
+        return Promise.resolve(
+          jsonlMessageLine(1000, "user", "let's start") +
+            "\n" +
+            jsonlToolUseLine(1500) +
+            "\n" +
+            jsonlMessageLine(2000, "assistant", "on it") +
+            "\n",
+        );
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      aiTitle: string | null;
+    }>;
+    expect(rows).toHaveLength(1);
+
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    expect(tanya?.aiTitle).toBeNull();
+  });
+
+  it("Test 5 (malformed ai-title JSON): line matches substring but JSON.parse fails / missing aiTitle field → aiTitle:null, no throw", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") return TANYA_JSONL;
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      if (cmd.includes(TANYA_JSONL)) {
+        // Line 1: substring matches `"type":"ai-title"` but is not valid JSON
+        //         (trailing garbage after the closing brace) — JSON.parse throws.
+        // Line 2: valid JSON, matches `"type":"ai-title"` substring, but has
+        //         no `aiTitle` field — filtered by the typeof check.
+        // Line 3: valid JSON, matches, but aiTitle is a number (wrong type)
+        //         — filtered by the typeof check.
+        // Overall: zero valid ai-title lines → scanTailForLatestAiTitle
+        // returns null → row.aiTitle = null.
+        return Promise.resolve(
+          `{"type":"ai-title","aiTitle":"malformed}} garbage\n` +
+            JSON.stringify({ type: "ai-title", sessionId: "sess-tanya" }) +
+            "\n" +
+            JSON.stringify({ type: "ai-title", aiTitle: 42, sessionId: "sess-tanya" }) +
+            "\n",
+        );
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      aiTitle: string | null;
+    }>;
+    expect(rows).toHaveLength(1);
+
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    // No throw — malformed lines are silently skipped (matches Phase 44's
+    // scanTailForNewestMessageAt best-effort semantics).
+    expect(tanya?.aiTitle).toBeNull();
+  });
+
+  it("Test 6 (timeout): discovery hangs → Promise.race trips → aiTitle:null, sibling unaffected, response bounded", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") {
+        // Hang forever — PER_HOST_TIMEOUT_MS trip on the recency-signal race.
+        return new Promise<string | null>(() => undefined);
+      }
+      if (identityName === "tiffany") return TIFFANY_JSONL;
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000\ntiffany|2000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      if (cmd.includes(TIFFANY_JSONL)) {
+        return Promise.resolve(
+          jsonlAiTitleLine("sess-tiffany", "Debugging websocket") + "\n",
+        );
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const startMs = Date.now();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+    const elapsedMs = Date.now() - startMs;
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      aiTitle: string | null;
+    }>;
+    expect(rows).toHaveLength(2);
+
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    expect(tanya?.aiTitle).toBeNull(); // hung → race timed out → null
+
+    const tiffany = rows.find((r) => r.sessionName === "tiffany");
+    expect(tiffany?.aiTitle).toBe("Debugging websocket"); // sibling unaffected
+
+    // Bounded by PER_HOST_TIMEOUT_MS (3000ms).
+    expect(elapsedMs).toBeLessThan(8000);
+  }, 10000);
+
+  it("Test 7 (contract lock): every row has aiTitle key present (server-always-emits, null-when-unknown)", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    // Default beforeEach: mockedDiscover.mockResolvedValue(null) — no override.
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000\ntiffany|2000\npatricia|3000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(3);
+
+    // Phase 47 Plan 02 — aiTitle contract: present-on-every-row, null-when-unknown.
+    for (const row of rows) {
+      expect("aiTitle" in row).toBe(true);
+      expect(row.aiTitle).toBeNull();
     }
   });
 });
