@@ -1379,7 +1379,7 @@ Plans:
 **Goal:** PrettyView's chat surface feels responsive on send — pressing Enter renders the outgoing user bubble immediately (small trailing-edge spinner) and clears the spinner the instant the JSONL session-file confirms the message was accepted (either as a normal user turn OR as a queue-operation enqueue). A 20s outer bound flips the bubble to muted red-failure and repopulates the composebox for edit-and-resend. Bundled fix: replace the noisy PTY-activity-proxy PV submit watchdog with a signal-driven watchdog keyed off the same JSONL emission so the retry-Enter + full-resend path fires on the specific "message not accepted" signal (never on false positives). Deliberately reverses the COMPOSE-04 HARD LOCK.
 **Requirements**: None — Phase 50 has no formal REQ-ID mapping in REQUIREMENTS.md; coverage is against 50-CONTEXT.md decisions D-01..D-23 (all 23 addressed across the 4 plans).
 **Depends on:** Phase 44
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 
@@ -1393,10 +1393,10 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [x] 50-03-PLAN.md — Frontend optimistic-bubble state machine: remove COMPOSE-04 HARD LOCK, add ChatMessage pendingState prop (spinner + muted-red), add PrettyView pendingSends FIFO queue with 20s timer + WS-frame red-flip + latest-only rendering + composebox repopulate (D-01 through D-08, D-15, D-18, D-19, D-20, D-21)
+- [x] 50-03-PLAN.md — Frontend optimistic-bubble state machine: remove COMPOSE-04 HARD LOCK, add ChatMessage pendingState prop (spinner + muted-red), add PrettyView pendingSends FIFO queue with 20s timer + WS-frame red-flip + latest-only rendering + composebox repopulate (D-01 through D-08, D-15, D-18, D-19, D-20, D-21) — 50-03-SUMMARY.md
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 50-04-PLAN.md — In-process end-to-end integration tests covering all 7 D-22 scenarios (happy path / queued path / failure path / retry-Enter path / full-resend path / latest-only referenced from PrettyView test / dedup) + D-23 adapt-not-delete audit (D-22, D-23)
+- [x] 50-04-PLAN.md — In-process end-to-end integration tests covering all 7 D-22 scenarios (happy path / queued path / failure path / retry-Enter path / full-resend path / latest-only referenced from PrettyView test / dedup) + D-23 adapt-not-delete audit (D-22, D-23) — 50-04-SUMMARY.md
 
 **History note:** Phase originally numbered 45 in this identity's tree (started 2026-08-19). Collided on rebase with FIVE origin-side phases that had shipped between my planning-commit time and my next work session: tina P45 (fix-forward on P43, shipped as #466), tiffany P46 (frontend-skill-editing, shipped as #469), tina P47 (load-more button, in tanya's bundled ship #472), tanya P48 (convo-list ai-title, shipped in bundled #472), tabitha P49 (relay-outbound sanitize, shipped as #473). Fully autonomous rescue-rebase per role-file directive + `rescue-rebase-runbook.md` — the 11th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). No source overlap with any of the five (theirs = various pretty-view surfaces + skills-editor router + extractor sanitize; mine = ComposeBox HARD LOCK removal + ChatMessage pending state + parser queue-operation-enqueue emission + terminal.ts watchdog swap + IdentitySessionPane mqid thread). Planning artifacts renamed 45-* → 50-*, ROADMAP + STATE re-added under new number. Zero-cost rescue in the sense that no plans had shipped yet — only planning commits were on the local branch, none pushed.
