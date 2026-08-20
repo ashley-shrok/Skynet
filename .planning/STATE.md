@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-08-20T04:18:47.162Z"
-last_activity: 2026-08-20
+status: executing
+last_updated: "2026-08-20T13:49:32.442Z"
+last_activity: 2026-08-20 -- Phase 50 planning complete
 progress:
-  total_phases: 47
-  completed_phases: 36
-  total_plans: 188
-  completed_plans: 182
-  percent: 77
+  total_phases: 50
+  completed_phases: 39
+  total_plans: 199
+  completed_plans: 192
+  percent: 78
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 44 (fix-convo-list-recency-signal-switch-dormant-live-paths-to-i) — EXECUTING
 Plan: 4 of 4
-Status: Phase complete — ready for verification
+Status: Ready to execute
 
-Last activity: 2026-08-20
+Last activity: 2026-08-20 -- Phase 50 planning complete
 
 Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bounty editor). Ashley: *"Can we quickly add something to be able to toggle on and off the needs desk field of bounties in the identity modal where I can edit bounties?"* Byte-shape mirror of pinned wire endpoint for the parallel `needs_desk` boolean (already read/counted by Phase 26's `identity:count-bounties` but no write path existed). 5 files touched: `Bounty` wire type + `normalizeBounty` carry `needs_desk` (default false); new `writeIdentityBountyNeedsDesk` writer in `identity-artifact-reader.ts` (byte-shape mirror of `writeIdentityBountyPinned` — same slug guard, same local fs + remote python3 branches, same timeline line format); new `identity:update-bounty-needs-desk` WS handler in `claude-session-server.ts`; `updateBountyNeedsDesk` wrapper in `IdentityModal.tsx` + `onNeedsDeskChange` threaded to `BountyCard` for both open + archived partitions; new labeled Checkbox toggle in BountyCard expanded editor body next to Deadline (autosave-on-flip pattern matching deadline row). `writeIdentityBountyFields` rejects `needs_desk` in patch (parity with pinned's rejection). Inline vehicle per Ashley redirect off `/gsd:quick` recommendation: *"Whatever you think is best, can we just do inline and get it up quick?"* Full `npx vitest run` = 2399 pass / 9 skip / 1 todo (pre-rebase); backend + frontend typecheck green. One atomic commit `2cc5e670` → post-rebase `ed1e901b` past tina's #457/#458/#459/#460/#461. Deployed as patch #462: `docker build` EXIT 0 (image `1ddf9eab4a4f`), `docker compose up -d --force-recreate skynet` (container `1bb769e09991` healthy T+14s), HTTPS 200 in 98ms. Byte-verify: `identity:update-bounty-needs-desk` 1x in AppShell chunk, `writeIdentityBountyNeedsDesk` / "needs_desk set to" 5x in reader.js, `identity:update-bounty-needs-desk` / `identity_update_bounty_needs_desk` 7x in server.js. Coord-room BEFORE `$7T4P-D7OYGwjW8NB9Z0t2jJ_LGHRx0F1gNeq1yLls_M` + AFTER `$ZxhURIWoWMixq25d8RRVJY-PZj0apbNlvqWpmzafEm0`. HEAD `ed1e901b` pushed to origin. Patch #462 entry appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. Prior activity:
 
