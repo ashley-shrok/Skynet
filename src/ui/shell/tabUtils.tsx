@@ -174,7 +174,6 @@ function TerminalOrIdentitySessionPane({
     ? sessionMatchKey(tab.targetTmuxSession)
     : null;
   const isIdentityPane = identityKey != null && identitiesByKey.has(identityKey);
-  console.info(`[ctx-pct-diag] identity-route decide isIdentityPane=${isIdentityPane} identityKey=${identityKey ?? 'null'} hasInStore=${identityKey != null ? identitiesByKey.has(identityKey) : 'n/a'}`);
 
   if (isIdentityPane) {
     return (
