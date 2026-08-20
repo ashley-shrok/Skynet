@@ -1,4 +1,4 @@
-# Phase 47: Convo-list per-row current-work hint from ai-title
+# Phase 48: Convo-list per-row current-work hint from ai-title
 
 **Gathered:** 2026-08-19
 **Status:** Ready for planning
@@ -135,7 +135,7 @@
 - `~/.claude/roles/box-maintainer/bounties/convo-list-current-work-hint/v14-console-snippet.js` — live-app v14 taste (last state has the final agreed styling: bottom-left counts, hostname parens same-size, fade truncation, working spinner via `.pv-row.active-set:is(.working,.recycling)` — note this snippet uses the CSS-level classes but the real implementation should use the JS store-based gate for the full 4-input boolean).
 
 ### Architecture mirror source
-- `.planning/phases/44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i/44-CONTEXT.md` — Phase 44 design decisions, especially the max-wins reconciliation chokepoint, wire-type extension shape, seed-wire consumer pattern. Phase 47 mirrors this architecturally.
+- `.planning/phases/44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i/44-CONTEXT.md` — Phase 44 design decisions, especially the max-wins reconciliation chokepoint, wire-type extension shape, seed-wire consumer pattern. Phase 48 mirrors this architecturally.
 - `.planning/phases/44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i/44-01-SUMMARY.md` — Phase 44 Plan 01 shipped `/sessions/list` extension for `lastMessageAt`; extend the same route for `aiTitle`.
 - `.planning/phases/44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i/44-02-SUMMARY.md` — Phase 44 Plan 02 landed the orchestrator swap to `discoverIdentitySessionFile` + JSONL path caching. That cache is the pattern to extend for shared discovery between `lastMessageAt` and `aiTitle` reads.
 - `.planning/phases/44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i/44-03-SUMMARY.md` — Phase 44 Plan 03 landed `advanceSessionLastMessageAt` + `seedSessionLastMessageAt` in the working-store. Mirror shape for `advanceSessionAiTitle` + `seedSessionAiTitle`.
