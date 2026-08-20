@@ -1406,10 +1406,10 @@ Bounty: `claude-code-2-1-214-pretty-view-compat` (Bug 1 only; Bug 2 plan-pending
 
 **History note:** Phase originally numbered 50 in this identity's tree (2026-08-20). Rescue-rebased 50 → 51 at add-time on detection of taylor's in-flight Phase 50 (`optimistic-message-bubbles`, mid-fix-pass executor with 10+ unpushed commits). 12th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous per role-file rule + `rescue-rebase-runbook.md` — zero source overlap, zero-cost rename since no plans had been authored yet at rescue-rebase time.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** BG-agents panel admits Claude Code v2.1.150+ async `Agent` invocations (whose `tool_use` no longer carries `input.run_in_background === true` — the async signal moved to the `tool_result` launch-ack `toolUseResult.isAsync === true`) via a scratch-map + late-admission path in the `backgrounded_agents` correlator, while preserving the legacy admission path and leaving the Bash branch untouched.
+**Requirements**: BG-AGENTS-51-ADMIT-ASYNC-ACK, BG-AGENTS-51-PRESERVE-LEGACY-COMPAT, BG-AGENTS-51-NO-BASH-REGRESSION
 **Depends on:** nothing new (independent parser fix)
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 51 to break down)
+- [ ] 51-01-PLAN.md — Parser admission via async-launch-ack + fixtures (scratch map, dual-path admission, four fixture tests)
