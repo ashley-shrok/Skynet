@@ -791,10 +791,43 @@ export function createSshPollOrchestrator(
     if (pollTickCount % hostRefreshEveryNTicks === 0) {
       try {
         const freshHosts = await deps.listIdentityHostingHosts();
+        // Add-branch: acquire channels for hosts that appeared in the fresh
+        // list but aren't tracked yet.
         for (const host of freshHosts) {
           if (!perHostState.has(host.id)) {
             await tryAcquireHostChannel(host);
           }
+        }
+        // Evict-branch (quick-260820-tm0): hosts in perHostState but absent
+        // from freshHosts (e.g. admin-disabled `enable_ssh=false`) must be
+        // pruned — close the SSH channel via deps.releaseSshChannel, drop
+        // the entry, and clean up the paired inFlight/skipCount entries
+        // added by Task 1's per-host in-flight guard. Eviction runs INSIDE
+        // the same try that wraps listIdentityHostingHosts() — a rejected
+        // refresh preserves perHostState intact (a transient DB blip must
+        // NOT wipe the poll rotation).
+        const freshIds = new Set(freshHosts.map((h) => h.id));
+        for (const [hostId, hostState] of perHostState.entries()) {
+          if (freshIds.has(hostId)) continue;
+          systemLogger.info(
+            "Fleet-status: evicting host no longer in identity-host list",
+            {
+              operation: "fleet_status_host_evicted",
+              fleetHostId: hostState.host.id,
+              hostName: hostState.host.name,
+              reason: "no longer in identity-host list",
+            },
+          );
+          try {
+            deps.releaseSshChannel(hostState.host, hostState.channel);
+          } catch {
+            // best-effort release, mirrors the stop() defensive pattern
+          }
+          perHostState.delete(hostId);
+          // Paired cleanup for Task 1's in-flight guard structures. If this
+          // host is re-added later, skipCount must not carry a stale count.
+          inFlight.delete(hostId);
+          skipCount.delete(hostId);
         }
       } catch (err) {
         systemLogger.warn("Fleet-status: identity-host list refresh failed", {

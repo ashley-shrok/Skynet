@@ -437,10 +437,37 @@ if (process.env.VITEST !== "true") {
         host: { id: string },
         _channel: unknown,
       ): void {
-        // Long-lived channels are NOT released after each use — they persist for
-        // the life of the orchestrator. releaseSshChannel is a no-op in this wiring.
-        // The connection is cleaned up on stop() or on SSH disconnect event.
-        void host;
+        // quick-260820-tm0 — eviction path: called by the orchestrator when a
+        // host is pruned from the identity-host list (e.g. admin-disabled
+        // `enable_ssh=false`). Closes the underlying ssh2 Client and removes
+        // it from hostClients so the connection is actually reclaimed —
+        // previously this was a no-op, which meant an admin-disabled host
+        // leaked its long-lived Client indefinitely (the 2026-08-20 wilma
+        // incident secondary bug).
+        //
+        // `_channel` is unused by design: the orchestrator's SshChannel
+        // abstraction is a thin exec wrapper with no independent lifecycle;
+        // the real handle is the ssh2 Client stored in hostClients.
+        //
+        // Also clear hookInstallAttempted so a subsequent re-enable of the
+        // same host re-attempts installStopHook on the fresh acquire
+        // (matches the hookInstallAttempted.clear() on onLastUnsubscriber).
+        //
+        // The `.on("end") | .on("close") | .on("error")` handlers registered
+        // in acquireSshChannel will also fire on client.end() and delete the
+        // hostClients entry; the explicit delete here is belt-and-suspenders
+        // in case a synchronous eviction races the event-loop-async 'end'.
+        // Map.delete on a missing key is a no-op, so double-delete is safe.
+        const client = hostClients.get(host.id);
+        if (client) {
+          try {
+            client.end();
+          } catch {
+            // best-effort — client may already be dead
+          }
+          hostClients.delete(host.id);
+          hookInstallAttempted.delete(host.id);
+        }
       }
 
       const orchestrator = createSshPollOrchestrator({

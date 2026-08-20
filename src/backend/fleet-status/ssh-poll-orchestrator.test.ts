@@ -2337,3 +2337,379 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
     expect(countSkipsForHost("host-1")).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// quick-260820-tm0 — perHostState pruning on identity-host-list refresh
+//
+// Fixes the second half of the wilma incident: previously the refresh block
+// only ADDED hosts from listIdentityHostingHosts; it never removed hosts
+// that disappeared from the fresh list (e.g. admin-disabled `enable_ssh=
+// false`), so stale hosts lingered in the poll rotation until container
+// restart. Pruning eviction closes the SSH channel (via
+// deps.releaseSshChannel) and cleans up the paired inFlight/skipCount
+// entries added by Task 1.
+// ---------------------------------------------------------------------------
+
+describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Helper: build a per-host MockSshChannel wired for the standard PID.
+  function buildHostChannel(pid: number, sessionId: string): MockSshChannel {
+    const channel = new MockSshChannel();
+    channel.setResponse(
+      "ls -1",
+      `/home/ubuntu/.claude/sessions/${pid}.json\n`,
+    );
+    channel.setResponse(
+      `cat ~/.claude/sessions/${pid}.json`,
+      makeSessionJson({ pid, sessionId }),
+    );
+    channel.setResponse(`cat /proc/${pid}/stat`, makeStatContents("12345"));
+    channel.setResponse(`cat /proc/${pid}/environ`, "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    return channel;
+  }
+
+  // Helper: count fleet_status_host_evicted info-log invocations for a host.
+  function countEvictionsForHost(hostId: string): number {
+    const infoCalls = (systemLogger.info as unknown as MockInstance).mock.calls;
+    return infoCalls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "fleet_status_host_evicted" &&
+        (c[1] as Record<string, unknown>).fleetHostId === hostId,
+    ).length;
+  }
+
+  // -------------------------------------------------------------------------
+  // Test PR1 — host absent from fresh list → evict + releaseSshChannel + log.
+  // -------------------------------------------------------------------------
+
+  it("Test PR1: host absent from fresh list → evict from perHostState, releaseSshChannel called, eviction log fires", async () => {
+    const channelA = buildHostChannel(11111, "sess-A");
+    const channelB = buildHostChannel(22222, "sess-B");
+
+    const hostA: HostRecord = { id: "host-A", name: "host-A-name" };
+    const hostB: HostRecord = { id: "host-B", name: "host-B-name" };
+    const initialHosts: HostRecord[] = [hostA, hostB];
+
+    const listMock = vi.fn().mockResolvedValue(initialHosts);
+    const releaseMock = vi.fn();
+    const setIntervalFns: Array<{ fn: () => Promise<void> | void; ms: number }> = [];
+
+    const deps = buildDeps({
+      listIdentityHostingHosts: listMock,
+      acquireSshChannel: vi.fn(async (host: HostRecord) => {
+        if (host.id === "host-A") return channelA;
+        return channelB;
+      }),
+      releaseSshChannel: releaseMock,
+      setInterval: vi.fn((fn: () => Promise<void> | void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // initial poll — both hosts acquired
+
+    // Baseline: neither host evicted, release not yet called.
+    expect(releaseMock).toHaveBeenCalledTimes(0);
+    expect(countEvictionsForHost("host-B")).toBe(0);
+
+    // Refresh cadence: staleSweepIntervalMs / pollIntervalMs = 30000 / 2000
+    // = 15. Start fires tick 1; we invoke pollFn 14 more times to reach
+    // tick 15 which is where pollTickCount % 15 === 0 triggers refresh.
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (!pollFn) throw new Error("no 2s pollFn captured");
+
+    // Ticks 2..14 with both hosts still in the fresh list.
+    for (let i = 0; i < 13; i++) {
+      await pollFn.fn();
+    }
+
+    // Between tick 14 and tick 15, swap the fresh list to drop host-B.
+    listMock.mockResolvedValue([hostA]);
+
+    // Tick 15 — refresh runs; host-B should be evicted.
+    await pollFn.fn();
+
+    // deps.releaseSshChannel was called exactly once with (host-B, channelB).
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+    const [releasedHost, releasedChannel] = releaseMock.mock.calls[0];
+    expect(releasedHost).toEqual(hostB);
+    expect(releasedChannel).toBe(channelB);
+
+    // fleet_status_host_evicted INFO log fired for host-B.
+    expect(countEvictionsForHost("host-B")).toBe(1);
+    const infoCalls = (systemLogger.info as unknown as MockInstance).mock.calls;
+    const evictionLog = infoCalls.find(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "fleet_status_host_evicted" &&
+        (c[1] as Record<string, unknown>).fleetHostId === "host-B",
+    );
+    expect(evictionLog).toBeDefined();
+    const payload = evictionLog?.[1] as Record<string, unknown>;
+    expect(payload.hostName).toBe("host-B-name");
+    expect(payload.reason).toBe("no longer in identity-host list");
+
+    // host-A NOT evicted.
+    expect(countEvictionsForHost("host-A")).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test PR2 — after eviction, host-B's channel receives zero further SSH.
+  // -------------------------------------------------------------------------
+
+  it("Test PR2: after eviction, host-B's channel receives zero further SSH commands; host-A continues polling", async () => {
+    const channelA = buildHostChannel(11111, "sess-A");
+    const channelB = buildHostChannel(22222, "sess-B");
+
+    const hostA: HostRecord = { id: "host-A", name: "host-A-name" };
+    const hostB: HostRecord = { id: "host-B", name: "host-B-name" };
+    const initialHosts: HostRecord[] = [hostA, hostB];
+
+    const listMock = vi.fn().mockResolvedValue(initialHosts);
+    const setIntervalFns: Array<{ fn: () => Promise<void> | void; ms: number }> = [];
+
+    const deps = buildDeps({
+      listIdentityHostingHosts: listMock,
+      acquireSshChannel: vi.fn(async (host: HostRecord) => {
+        if (host.id === "host-A") return channelA;
+        return channelB;
+      }),
+      setInterval: vi.fn((fn: () => Promise<void> | void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    if (!pollFn) throw new Error("no 2s pollFn captured");
+
+    // Drive to tick 15 (refresh).
+    for (let i = 0; i < 13; i++) {
+      await pollFn.fn();
+    }
+    listMock.mockResolvedValue([hostA]);
+    await pollFn.fn(); // eviction tick
+
+    const channelALsBaseline = channelA.countCallsMatching("ls -1");
+    const channelBLsBaseline = channelB.countCallsMatching("ls -1");
+
+    // Two more ticks — host-A should still poll, host-B must not.
+    await pollFn.fn();
+    await pollFn.fn();
+
+    expect(channelA.countCallsMatching("ls -1")).toBeGreaterThan(
+      channelALsBaseline,
+    );
+    expect(channelB.countCallsMatching("ls -1")).toBe(channelBLsBaseline);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test PR3 — DB refresh throws → NO eviction (defensive against DB blip).
+  // -------------------------------------------------------------------------
+
+  it("Test PR3: DB refresh throws → NO eviction happens (transient DB blip must not wipe the poll rotation)", async () => {
+    const channelA = buildHostChannel(11111, "sess-A");
+    const channelB = buildHostChannel(22222, "sess-B");
+
+    const hostA: HostRecord = { id: "host-A", name: "host-A-name" };
+    const hostB: HostRecord = { id: "host-B", name: "host-B-name" };
+    const initialHosts: HostRecord[] = [hostA, hostB];
+
+    const listMock = vi.fn().mockResolvedValue(initialHosts);
+    const releaseMock = vi.fn();
+    const setIntervalFns: Array<{ fn: () => Promise<void> | void; ms: number }> = [];
+
+    const deps = buildDeps({
+      listIdentityHostingHosts: listMock,
+      acquireSshChannel: vi.fn(async (host: HostRecord) => {
+        if (host.id === "host-A") return channelA;
+        return channelB;
+      }),
+      releaseSshChannel: releaseMock,
+      setInterval: vi.fn((fn: () => Promise<void> | void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    if (!pollFn) throw new Error("no 2s pollFn captured");
+
+    // Drive to tick 15 (refresh).
+    for (let i = 0; i < 13; i++) {
+      await pollFn.fn();
+    }
+    listMock.mockRejectedValueOnce(new Error("db blip"));
+    await pollFn.fn(); // refresh tick — DB throws
+
+    // No eviction happened.
+    expect(releaseMock).toHaveBeenCalledTimes(0);
+    expect(countEvictionsForHost("host-A")).toBe(0);
+    expect(countEvictionsForHost("host-B")).toBe(0);
+
+    // Existing refresh-fail warn fired.
+    const warnCalls = (systemLogger.warn as unknown as MockInstance).mock.calls;
+    const refreshFailCount = warnCalls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "fleet_status_host_list_refresh_failed",
+    ).length;
+    expect(refreshFailCount).toBeGreaterThan(0);
+
+    // Both hosts continue polling on subsequent ticks.
+    const channelALsBaseline = channelA.countCallsMatching("ls -1");
+    const channelBLsBaseline = channelB.countCallsMatching("ls -1");
+    await pollFn.fn();
+    expect(channelA.countCallsMatching("ls -1")).toBeGreaterThan(
+      channelALsBaseline,
+    );
+    expect(channelB.countCallsMatching("ls -1")).toBeGreaterThan(
+      channelBLsBaseline,
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Test PR4 — eviction cleans up inFlight and skipCount entries too.
+  // -------------------------------------------------------------------------
+
+  it("Test PR4: eviction cleans up inFlight + skipCount entries (no stale skipCount if host is re-added later)", async () => {
+    // host-C's SECOND ls -1 hangs via a deferred so host-C becomes in-flight
+    // on the tick 2 poll. Initial start() poll completes normally so the
+    // pollFn is captured. Then we drive ticks 2..15 (skips accumulate),
+    // swap fresh list to [] just before tick 15, and assert eviction
+    // cleans up inFlight + skipCount.
+    let lsCallCount = 0;
+    const lsDeferred: {
+      promise: Promise<string | null>;
+      resolve: (v: string | null) => void;
+    } = (() => {
+      let resolve!: (v: string | null) => void;
+      const promise = new Promise<string | null>((res) => {
+        resolve = res;
+      });
+      return { promise, resolve };
+    })();
+
+    const channelC: SshChannel = {
+      async exec(command: string): Promise<string | null> {
+        if (command.includes("ls -1")) {
+          lsCallCount++;
+          if (lsCallCount === 2) {
+            // Hang forever until the test resolves.
+            return await lsDeferred.promise;
+          }
+          return "/home/ubuntu/.claude/sessions/33333.json\n";
+        }
+        if (command.includes("cat ~/.claude/sessions/33333.json")) {
+          return makeSessionJson({ pid: 33333, sessionId: "sess-C" });
+        }
+        if (command.includes("cat /proc/33333/stat")) {
+          return makeStatContents("12345");
+        }
+        if (command.includes("cat /proc/33333/environ")) {
+          return "TMUX_PANE=%2\0";
+        }
+        if (command.includes("tmux display-message")) {
+          return "tina";
+        }
+        if (command.includes("fleet-status/last-stop-payload.json")) {
+          return makeValidPayload();
+        }
+        return null;
+      },
+    };
+
+    const hostC: HostRecord = { id: "host-C", name: "host-C-name" };
+    const initialHosts: HostRecord[] = [hostC];
+
+    const listMock = vi.fn().mockResolvedValue(initialHosts);
+    const releaseMock = vi.fn();
+    const setIntervalFns: Array<{ fn: () => Promise<void> | void; ms: number }> = [];
+
+    const deps = buildDeps({
+      listIdentityHostingHosts: listMock,
+      acquireSshChannel: vi.fn().mockResolvedValue(channelC),
+      releaseSshChannel: releaseMock,
+      setInterval: vi.fn((fn: () => Promise<void> | void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // initial poll completes (ls #1)
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    if (!pollFn) throw new Error("no 2s pollFn captured");
+
+    // Trigger tick 2: hangs on ls #2, host-C enters inFlight. Fire-and-forget.
+    const hungTickPromise = pollFn.fn();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(lsCallCount).toBe(2);
+
+    // Drive ticks 3..14 (host-C is skipped each time — in-flight guard).
+    for (let i = 0; i < 12; i++) {
+      await pollFn.fn();
+    }
+
+    // Between tick 14 and refresh tick 15, drop host-C from fresh list.
+    listMock.mockResolvedValue([]);
+    await pollFn.fn(); // refresh + eviction tick
+
+    // Eviction fired.
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+    expect(releaseMock.mock.calls[0][0]).toEqual(hostC);
+
+    // Now resolve the still-outstanding pollOneHost so it can complete its
+    // pipeline cleanly (avoid dangling promise).
+    lsDeferred.resolve("/home/ubuntu/.claude/sessions/33333.json\n");
+    await hungTickPromise;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Clear log call history so we can assert on subsequent tick behavior.
+    (systemLogger.info as unknown as MockInstance).mockClear();
+
+    // Trigger another tick. Because host-C is evicted:
+    //   - no pollOneHost fires for host-C (no new ls -1 call)
+    //   - no fleet_status_poll_skipped_inflight log fires (skipCount cleaned)
+    const lsCountBeforeExtraTick = lsCallCount;
+    await pollFn.fn();
+    expect(lsCallCount).toBe(lsCountBeforeExtraTick);
+
+    const infoCalls = (systemLogger.info as unknown as MockInstance).mock.calls;
+    const skipsForHostCPostEvict = infoCalls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "fleet_status_poll_skipped_inflight" &&
+        (c[1] as Record<string, unknown>).fleetHostId === "host-C",
+    ).length;
+    expect(skipsForHostCPostEvict).toBe(0);
+  });
+});
