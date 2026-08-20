@@ -2,30 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-08-19T04:15:42.659Z"
-last_activity: 2026-08-19
-progress:
-  total_phases: 45
-  completed_phases: 35
-  total_plans: 181
-  completed_plans: 176
-  percent: 78
-last_updated: "2026-08-17T00:00:00.000Z"
-last_activity: 2026-08-17 -- Phase 42 rescue-rebase post Tanya #455 + Tiffany #456 (renumber Phase 41→42)
-last_updated: "2026-08-18T23:49:43.525Z"
-last_activity: 2026-08-18 -- Phase 44 planning complete
-last_updated: "2026-08-19T03:54:13.219Z"
-last_updated: "2026-08-19T04:32:15.446Z"
 status: verifying
-last_updated: "2026-08-19T04:50:14.002Z"
-last_activity: 2026-08-19
+last_updated: "2026-08-20T02:26:14.166Z"
+last_activity: 2026-08-20
 progress:
-  total_phases: 44
-  completed_phases: 35
-  total_plans: 175
-  completed_plans: 173
-  percent: 80
+  total_phases: 47
+  completed_phases: 36
+  total_plans: 188
+  completed_plans: 180
+  percent: 77
 ---
 
 # Project State
@@ -41,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 44 (fix-convo-list-recency-signal-switch-dormant-live-paths-to-i) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 
-Last activity: 2026-08-19
+Last activity: 2026-08-20
 
 Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bounty editor). Ashley: *"Can we quickly add something to be able to toggle on and off the needs desk field of bounties in the identity modal where I can edit bounties?"* Byte-shape mirror of pinned wire endpoint for the parallel `needs_desk` boolean (already read/counted by Phase 26's `identity:count-bounties` but no write path existed). 5 files touched: `Bounty` wire type + `normalizeBounty` carry `needs_desk` (default false); new `writeIdentityBountyNeedsDesk` writer in `identity-artifact-reader.ts` (byte-shape mirror of `writeIdentityBountyPinned` — same slug guard, same local fs + remote python3 branches, same timeline line format); new `identity:update-bounty-needs-desk` WS handler in `claude-session-server.ts`; `updateBountyNeedsDesk` wrapper in `IdentityModal.tsx` + `onNeedsDeskChange` threaded to `BountyCard` for both open + archived partitions; new labeled Checkbox toggle in BountyCard expanded editor body next to Deadline (autosave-on-flip pattern matching deadline row). `writeIdentityBountyFields` rejects `needs_desk` in patch (parity with pinned's rejection). Inline vehicle per Ashley redirect off `/gsd:quick` recommendation: *"Whatever you think is best, can we just do inline and get it up quick?"* Full `npx vitest run` = 2399 pass / 9 skip / 1 todo (pre-rebase); backend + frontend typecheck green. One atomic commit `2cc5e670` → post-rebase `ed1e901b` past tina's #457/#458/#459/#460/#461. Deployed as patch #462: `docker build` EXIT 0 (image `1ddf9eab4a4f`), `docker compose up -d --force-recreate skynet` (container `1bb769e09991` healthy T+14s), HTTPS 200 in 98ms. Byte-verify: `identity:update-bounty-needs-desk` 1x in AppShell chunk, `writeIdentityBountyNeedsDesk` / "needs_desk set to" 5x in reader.js, `identity:update-bounty-needs-desk` / `identity_update_bounty_needs_desk` 7x in server.js. Coord-room BEFORE `$7T4P-D7OYGwjW8NB9Z0t2jJ_LGHRx0F1gNeq1yLls_M` + AFTER `$ZxhURIWoWMixq25d8RRVJY-PZj0apbNlvqWpmzafEm0`. HEAD `ed1e901b` pushed to origin. Patch #462 entry appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. Prior activity:
 
@@ -186,7 +171,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 97%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -282,6 +267,7 @@ Progress: [██████████] 100%
 | Phase 44 P44-01 | 128 | 3 tasks | 6 files |
 | Phase 44 P02 | 26min | 2 tasks | 6 files |
 | Phase 44 P03 | 13m 19s | 2 tasks | 4 files |
+| Phase 47 P01 | 10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -412,6 +398,9 @@ Recent decisions affecting current work:
 - [Phase 44]: Phase 44 Plan 02: preserve Phase 23 quick-260805-7rq race-fix byte-verbatim — lazy-load useEffect deps [selectedHostId, selectedSkillName, activeTab] with eslint-disable + Phase 23 comment intact; regression guarded by SkillsEditorModal.test.tsx #1 (700ms readSkillFile delay still renders textarea with MOCKED SKILL FILE CONTENT)
 - [Phase ?]: Phase 44 Plan 03: mount SkillsEditorModal as immediate JSX sibling of GlobalFilesModal in PrettyConversationsPanel — parallel-sibling wiring pattern (three landmark positions + one menu item + KEEP ORDER guard)
 - [Phase ?]: Phase 44 handoff artifact pair: UAT-CHECKLIST.md (Ashley-facing, iPhone-primary PWA framed) + PATCH-DRAFT.md (maintainer-facing skynet-patches.md entry ready for orchestrator PIN)
+- [Phase ?]: Phase 47 Plan 01: line-cursor request shape (beforeLine + count) locked over eventId-cursor — server does exactly one bounded readSessionFileRange call, no cursor-search that would contradict the 200-line hard cap.
+- [Phase ?]: Phase 47 Plan 01: wire type names locked as fetch_older_range (request) + fetch_older_range_batch (response) with inline // LOCKED comments preserving Phase 45 Test H forbidden-name gate at every declaration.
+- [Phase ?]: Phase 47 Plan 01: readSessionFileRange declares file-local execWithTimeout + shellEscape (seventh file-local execWithTimeout copy in the backend) — deferred share-point creation until an organic migration site emerges.
 
 ### Pending Todos
 
@@ -629,8 +618,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-19T04:15:42.216Z
-Stopped at: Completed 45-05-PLAN.md (ship-ready manifest written); handed off to orchestrator
+Last session: 2026-08-20T02:26:14.051Z
+Stopped at: Completed 47-01-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
