@@ -513,10 +513,21 @@ describe("PrettyConversationRow: Phase 13 full-bubble class-toggle branch", () =
 // Test 13 — [Phase 13] inActiveSet + isWorking===false renders ready-dot
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: Phase 13 ready-dot render", () => {
-  it("Test 13: inActiveSet+isWorking===false renders ready-dot with aria-label='ready' + data attribute", () => {
+describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement (was Phase 13 ready-dot render)", () => {
+  it("Test 13 (Phase 48 Plan 05 rewrite): inActiveSet+isWorking===false is the READY branch of Ashley's 4-input gate — no ready-dot in DOM AND no `spinner-on` class on row", () => {
+    // Pre-Phase-48 this test asserted the ready-dot span was PRESENT with
+    // aria-label='ready' + data-pv-conv-ready-dot='true' + .pv-ready-dot
+    // class. Phase 48 Plan 05 retires the ready-dot entirely (Ashley 2026-
+    // 08-19 verbatim: "make the spinner work on the same logic as the idle
+    // indicator, except you invert it as the final step of logic there").
+    // The 4-input gate `!(inActiveSet && isWorking===false && !isRecycling
+    // && !hasQueuePending)` evaluates to `!(true && true && true && true)`
+    // = `!true` = `false` for this input combination → NO `spinner-on` on
+    // the row. This test locks BOTH: ready-dot fully absent + row has no
+    // spinner-on class (idle-in-active-set is the ONE combination that
+    // suppresses the spinner).
     currentIdentity = makeIdentity(210, "nelly");
-    const { getByLabelText, queryByLabelText } = render(
+    const { container, queryByLabelText } = render(
       <PrettyConversationRow
         row={makeRow()}
         selected={false}
@@ -528,13 +539,14 @@ describe("PrettyConversationRow: Phase 13 ready-dot render", () => {
         isWorking={false}
       />,
     );
-    const dot = getByLabelText("ready") as HTMLElement;
-    expect(dot.getAttribute("data-pv-conv-ready-dot")).toBe("true");
-    expect(dot.className).toContain("pv-ready-dot");
-    // Steady — no animation string in the inline style.
-    expect(dot.style.animation).toBe("");
-    // Regression: the old patch-#136 aria-label must be absent.
-    expect(queryByLabelText("working")).toBeNull();
+    expect(queryByLabelText("ready")).toBeNull();
+    expect(container.querySelector(".pv-ready-dot")).toBeNull();
+    expect(container.querySelector("[data-pv-conv-ready-dot]")).toBeNull();
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).not.toContain("spinner-on");
   });
 });
 
@@ -542,15 +554,15 @@ describe("PrettyConversationRow: Phase 13 ready-dot render", () => {
 // Test 14 — [Phase 13] RDP row + inActiveSet+isWorking===false: dot in DOM
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: Phase 13 ready-dot component-level render for RDP", () => {
-  it("Test 14: RDP row with inActiveSet+isWorking===false renders the dot span (component-level invariant)", () => {
-    // Note: in the real app, PrettyConversationsPanel passes isWorking=null
-    // for RDP rows because their sessionWorkingKey resolves against a null
-    // tmuxSession → useSessionWorking returns null. This test exercises the
-    // component-level contract only (JS gate: inActiveSet && isWorking===false
-    // → render the dot). CSS handles the fill; the neutral `--pv-hue: 216`
-    // fallback applies for hue-null rows.
-    const { getByLabelText } = render(
+describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement for RDP (was Phase 13 ready-dot component-level render for RDP)", () => {
+  it("Test 14 (Phase 48 Plan 05 rewrite): RDP row with inActiveSet+isWorking===false has NO ready-dot in DOM and NO spinner-on class (idle-in-active-set branch)", () => {
+    // Pre-Phase-48 this asserted the ready-dot span was PRESENT even on RDP
+    // rows at the component level. Phase 48 Plan 05 retires the ready-dot
+    // entirely — the "ready-for-attention" cue is now the absence of the
+    // spinner ring rather than a positive dot render. RDP + idle-in-active-
+    // set still evaluates to the READY branch of Ashley's 4-input gate
+    // (`!(true && true && true && true)` = `false`) → no spinner-on class.
+    const { container, queryByLabelText } = render(
       <PrettyConversationRow
         row={makeRow({ rdpHostRow: true, targetTmuxSession: null })}
         selected={false}
@@ -562,10 +574,14 @@ describe("PrettyConversationRow: Phase 13 ready-dot component-level render for R
         isWorking={false}
       />,
     );
-    const dot = getByLabelText("ready") as HTMLElement;
-    expect(dot).toBeTruthy();
-    expect(dot.className).toContain("pv-ready-dot");
-    expect(dot.getAttribute("data-pv-conv-ready-dot")).toBe("true");
+    expect(queryByLabelText("ready")).toBeNull();
+    expect(container.querySelector(".pv-ready-dot")).toBeNull();
+    expect(container.querySelector("[data-pv-conv-ready-dot]")).toBeNull();
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).not.toContain("spinner-on");
   });
 });
 
@@ -634,10 +650,20 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", ()
 //           too.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: ambient row ready-dot render (2026-08-14)", () => {
-  it("Test 17: !inActiveSet+isWorking===false renders ready-dot", () => {
+describe("PrettyConversationRow: Phase 48 Plan 05 non-active-set spinner-on (was 2026-08-14 ambient ready-dot render)", () => {
+  it("Test 17 (Phase 48 Plan 05 rewrite): !inActiveSet+isWorking===false has NO ready-dot AND HAS `spinner-on` class (non-active-set is NOT the READY branch)", () => {
+    // Pre-Phase-48 this asserted the ready-dot rendered on non-active-set
+    // rows (2026-08-14 reversal that surfaced "ready for attention" on
+    // ambient rows too). Phase 48 Plan 05 fully retires the ready-dot;
+    // Ashley's 4-input gate `!(inActiveSet && isWorking===false &&
+    // !isRecycling && !hasQueuePending)` evaluates to `!(false && ...)` =
+    // `!false` = `true` for this input combination (inActiveSet=false
+    // short-circuits the inner AND) → `spinner-on` class IS applied. This
+    // locks the "non-active-set idle row DOES spin" branch of Ashley's
+    // literal 4-input rule — see also P47-15 for the same invariant with
+    // isWorking=true.
     currentIdentity = makeIdentity(210);
-    const { queryByLabelText } = render(
+    const { container, queryByLabelText } = render(
       <PrettyConversationRow
         row={makeRow()}
         selected={false}
@@ -649,10 +675,13 @@ describe("PrettyConversationRow: ambient row ready-dot render (2026-08-14)", () 
         isWorking={false}
       />,
     );
-    const dot = queryByLabelText("ready") as HTMLElement | null;
-    expect(dot).not.toBeNull();
-    expect(dot!.getAttribute("data-pv-conv-ready-dot")).toBe("true");
-    expect(dot!.className).toContain("pv-ready-dot");
+    expect(queryByLabelText("ready")).toBeNull();
+    expect(container.querySelector(".pv-ready-dot")).toBeNull();
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("spinner-on");
   });
 });
 
@@ -722,14 +751,17 @@ describe("PrettyConversationRow: quick-260802-w9e ready-dot suppression — queu
     expect(queryByLabelText("ready")).toBeNull();
   });
 
-  it("Test 15c-guard: hasQueuePending default (false) preserves existing dot render (regression guard)", () => {
-    // Verify that the new prop defaults to false so ALL pre-w9e call sites
-    // (which do NOT pass hasQueuePending) continue to render the dot when
-    // the other three predicates are satisfied. Guards against a
-    // hypothetical default flip that would silently suppress every
-    // pre-existing consumer's dot.
+  it("Test 15c-guard (Phase 48 Plan 05 rewrite): hasQueuePending default (false) preserves the READY branch — no ready-dot in DOM + no spinner-on class on row", () => {
+    // Pre-Phase-48 this asserted the ready-dot rendered when hasQueuePending
+    // was omitted (default false). Phase 48 Plan 05 retires the ready-dot;
+    // the READY branch of Ashley's 4-input gate now suppresses the
+    // spinner-on class instead of rendering a positive dot. The guard's
+    // spirit — "the omitted hasQueuePending prop defaults to false and does
+    // NOT accidentally trip the spinner ON" — is preserved by asserting the
+    // spinner-on class stays absent when the other three predicates are
+    // satisfied.
     currentIdentity = makeIdentity(210);
-    const { queryByLabelText } = render(
+    const { container, queryByLabelText } = render(
       <PrettyConversationRow
         row={makeRow()}
         selected={false}
@@ -739,10 +771,16 @@ describe("PrettyConversationRow: quick-260802-w9e ready-dot suppression — queu
         onTogglePin={vi.fn()}
         inActiveSet={true}
         isWorking={false}
-        /* hasQueuePending omitted — must default to false → dot renders */
+        /* hasQueuePending omitted — must default to false → no spinner-on */
       />,
     );
-    expect(queryByLabelText("ready")).not.toBeNull();
+    expect(queryByLabelText("ready")).toBeNull();
+    expect(container.querySelector(".pv-ready-dot")).toBeNull();
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).not.toContain("spinner-on");
   });
 });
 
@@ -794,16 +832,22 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
     }
   });
 
-  // Phase 41 Plan 01 regression (Ashley lock #8): the ready-dot renders on
-  // every non-working, non-recycling, non-queue-pending row regardless of
-  // `inActiveSet` value. Patch #447 already dropped the inActiveSet gate;
-  // this test locks that the gate stays dropped through the ambient CSS
-  // retirement. Covers both branches (inActiveSet=true and false) so a
-  // future accidental re-introduction of the gate would fail this test.
-  it("Test READY-DOT-UNIFORM-01: ready-dot renders when isWorking===false regardless of inActiveSet", () => {
+  // Phase 48 Plan 05 (rewrite): the pre-Phase-48 uniformity test asserted the
+  // ready-dot rendered on both inActiveSet=true and =false when isWorking
+  // ===false. Under Ashley's 4-input inversion gate those two branches are
+  // NOT the same anymore:
+  //   inActiveSet=true  + isWorking===false → READY branch → no spinner-on.
+  //   inActiveSet=false + isWorking===false → non-READY → spinner-on IS
+  //                                            applied (short-circuits on
+  //                                            the leading `inActiveSet`
+  //                                            conjunct in the negation).
+  // This test locks the two-branch asymmetry so a future regression that
+  // widens the gate back to the pre-Phase-48 uniform shape (or narrows the
+  // spinner-on emission to only `.working`/`.recycling` rows) would fail.
+  it("Test SPINNER-INVERSION-01 (Phase 48 Plan 05 rewrite of READY-DOT-UNIFORM-01): isWorking===false yields DIFFERENT spinner-on state on inActiveSet=true vs =false — ready-dot fully absent in both cases", () => {
     for (const inActiveSet of [true, false]) {
       currentIdentity = makeIdentity(210);
-      const { queryByLabelText, unmount } = render(
+      const { container, queryByLabelText, unmount } = render(
         <PrettyConversationRow
           row={makeRow()}
           selected={false}
@@ -815,9 +859,28 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
           isWorking={false}
         />,
       );
-      const dot = queryByLabelText("ready") as HTMLElement | null;
-      expect(dot, `inActiveSet=${inActiveSet}`).not.toBeNull();
-      expect(dot!.getAttribute("data-pv-conv-ready-dot")).toBe("true");
+      // ready-dot fully retired in BOTH branches.
+      expect(queryByLabelText("ready"), `inActiveSet=${inActiveSet}`).toBeNull();
+      expect(
+        container.querySelector(".pv-ready-dot"),
+        `inActiveSet=${inActiveSet}`,
+      ).toBeNull();
+      // spinner-on emission tracks Ashley's inversion:
+      //   inActiveSet=true → READY branch → no spinner-on.
+      //   inActiveSet=false → non-READY → spinner-on present.
+      const wrapper = container.querySelector(
+        '[data-conversation-id="conv-1"]',
+      ) as HTMLElement;
+      const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+      if (inActiveSet) {
+        expect(body.className, `inActiveSet=${inActiveSet}`).not.toContain(
+          "spinner-on",
+        );
+      } else {
+        expect(body.className, `inActiveSet=${inActiveSet}`).toContain(
+          "spinner-on",
+        );
+      }
       unmount();
     }
   });
@@ -980,8 +1043,14 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
 // behavior (hostname text + Server icon). Test C is the load-bearing guard
 // for that fallback — do NOT weaken or skip it.
 
-describe("PrettyConversationRow: subtitleMode='identityTitle' (quick-260727-f9v)", () => {
-  it("Test 19A: subtitleMode='identityTitle' + identity.title set → sublabel is title, NO Server icon in .pv-host", () => {
+describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-260727-f9v subtitleMode='identityTitle')", () => {
+  it("Test 19A (Phase 48 Plan 05 rewrite): subtitle is aiTitle when provided; subtitleMode='identityTitle' is now inert (accepted for backward compat, has no runtime effect)", () => {
+    // Pre-Phase-48 the sublabel was rendered inside .pv-host and its
+    // content depended on subtitleMode ('hostname' vs 'identityTitle')
+    // and identity resolution. Phase 48 Plan 05 replaces the sublabel
+    // entirely with a subtitle .pv-ai-title span whose content is the
+    // aiTitle prop — subtitleMode is retained on the interface for
+    // backward compat but has no runtime effect.
     currentIdentity = {
       ...makeIdentity(45, "nelly"),
       title: "Ashley Ops",
@@ -995,21 +1064,21 @@ describe("PrettyConversationRow: subtitleMode='identityTitle' (quick-260727-f9v)
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}
         subtitleMode="identityTitle"
+        aiTitle="Fix bug X"
       />,
     );
-    const pvHost = container.querySelector(".pv-host") as HTMLElement | null;
-    expect(pvHost).toBeTruthy();
-    // Sublabel text is exactly the identity.title.
-    expect(pvHost!.textContent?.trim()).toBe("Ashley Ops");
-    // The Server icon (rendered by lucide as an svg with width=11 height=11
-    // inside `.pv-host`) MUST NOT be present when identityTitle mode resolves.
-    expect(pvHost!.querySelector('svg[width="11"]')).toBeNull();
-    // Defense-in-depth: no svg at all inside .pv-host in the identityTitle-
-    // resolved render path.
-    expect(pvHost!.querySelector("svg")).toBeNull();
+    const pvAiTitle = container.querySelector(
+      ".pv-ai-title",
+    ) as HTMLElement | null;
+    expect(pvAiTitle).toBeTruthy();
+    expect(pvAiTitle!.textContent?.trim()).toBe("Fix bug X");
+    // Server icon fully retired (hostname is now on the title line).
+    expect(container.querySelector('svg[width="11"]')).toBeNull();
+    // Pre-Phase-48 .pv-host block is retired from the render.
+    expect(container.querySelector(".pv-host")).toBeNull();
   });
 
-  it("Test 19B: subtitleMode='identityTitle' + identity.title null → sublabel is displayName, NO Server icon", () => {
+  it("Test 19B (Phase 48 Plan 05 rewrite): subtitle is aiTitle regardless of identity.title value — subtitleMode has no effect on subtitle content", () => {
     currentIdentity = makeIdentity(90, "ashley"); // makeIdentity sets title: null
     const { container } = render(
       <PrettyConversationRow
@@ -1020,21 +1089,23 @@ describe("PrettyConversationRow: subtitleMode='identityTitle' (quick-260727-f9v)
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}
         subtitleMode="identityTitle"
+        aiTitle="Reviewing test coverage"
       />,
     );
-    const pvHost = container.querySelector(".pv-host") as HTMLElement | null;
-    expect(pvHost).toBeTruthy();
-    // Fallback: identity.title is null → displayName ("ashley") is used.
-    expect(pvHost!.textContent?.trim()).toBe("ashley");
-    expect(pvHost!.querySelector("svg")).toBeNull();
+    const pvAiTitle = container.querySelector(
+      ".pv-ai-title",
+    ) as HTMLElement | null;
+    expect(pvAiTitle).toBeTruthy();
+    expect(pvAiTitle!.textContent?.trim()).toBe("Reviewing test coverage");
+    expect(pvAiTitle!.querySelector("svg")).toBeNull();
   });
 
-  it("Test 19C: subtitleMode='identityTitle' + NO identity resolved → verbatim fallback (hostname text + Server icon)", () => {
-    // currentIdentity is null (reset in beforeEach) — useIdentities().byKey
-    // will not resolve. The safety-net terminal branch MUST render the
-    // previous behavior verbatim so unresolved-identity rows in host groups
-    // do NOT ship with sublabel "" or "undefined" on Ashley's next click.
-    // This is the guard against Tina's patch #149 lesson recurring here.
+  it("Test 19C (Phase 48 Plan 05 rewrite): aiTitle=null renders a muted italic ellipsis placeholder — the row still has a subtitle span so it doesn't collapse-look", () => {
+    // The safety-net semantics from patch #149 are preserved in a new
+    // shape: instead of falling back to hostname+Server-icon, an
+    // aiTitle-null row falls back to a placeholder .pv-ai-title--
+    // placeholder span with a U+2026 ellipsis. Row visual weight is
+    // preserved regardless of ai-title presence.
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({
@@ -1047,15 +1118,20 @@ describe("PrettyConversationRow: subtitleMode='identityTitle' (quick-260727-f9v)
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}
         subtitleMode="identityTitle"
+        aiTitle={null}
       />,
     );
-    const pvHost = container.querySelector(".pv-host") as HTMLElement | null;
-    expect(pvHost).toBeTruthy();
-    // Sublabel text falls back to the hostname (row.host.name).
-    expect(pvHost!.textContent?.trim()).toBe("hostA");
-    // The Server icon IS present in the fallback path (verbatim previous
-    // behavior — width=11 height=11 marker from the existing render).
-    expect(pvHost!.querySelector('svg[width="11"]')).toBeTruthy();
+    const pvAiTitle = container.querySelector(
+      ".pv-ai-title",
+    ) as HTMLElement | null;
+    expect(pvAiTitle).toBeTruthy();
+    // U+2026 ellipsis (single character).
+    expect(pvAiTitle!.textContent?.trim()).toBe("…");
+    // Placeholder marker class present so CSS can apply muted-italic styling.
+    expect(pvAiTitle!.className).toContain("pv-ai-title--placeholder");
+    // Server icon fully absent (hostname is now on the title line's
+    // .pv-hostname-suffix, not paired with an icon here).
+    expect(container.querySelector('svg[width="11"]')).toBeNull();
   });
 });
 
@@ -1070,11 +1146,13 @@ describe("PrettyConversationRow: subtitleMode='identityTitle' (quick-260727-f9v)
 // When either condition is false, the row falls back verbatim to row.label
 // (raw terminal rows, unresolved identities, hostname-mode rows unchanged).
 
-describe("PrettyConversationRow: main label source (Ashley 2026-08-01)", () => {
-  it("Test 20A: subtitleMode='identityTitle' + identity resolved → main label is identity.displayName (NOT row.label)", () => {
-    // Identity's displayName is properly-cased "Nelly"; row.label is the
-    // lowercase tmux sessionName "nelly-session". The .pv-label must render
-    // "Nelly" — matching what IdentityBadge shows for the same identity.
+describe("PrettyConversationRow: Phase 48 Plan 05 main label source + hostname suffix (was Ashley 2026-08-01 main label source)", () => {
+  it("Test 20A (Phase 48 Plan 05 rewrite): identity resolved → main label prefix is identity.displayName, followed by the (hostname) parens suffix; subtitleMode no longer gates the source", () => {
+    // Pre-Phase-48 this asserted the label was JUST 'Nelly' when
+    // subtitleMode='identityTitle' resolved. Phase 48 Plan 05 always
+    // renders `identityName (hostname)` when an identity resolves AND
+    // row.host is present — the parens live inside .pv-label as a nested
+    // .pv-hostname-suffix span. subtitleMode is retained but inert.
     currentIdentity = { ...makeIdentity(200, "Nelly") };
     const { container } = render(
       <PrettyConversationRow
@@ -1089,14 +1167,23 @@ describe("PrettyConversationRow: main label source (Ashley 2026-08-01)", () => {
     );
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
-    expect(pvLabel!.textContent?.trim()).toBe("Nelly");
+    // Full textContent (identity prefix + parens suffix): "Nelly (thenasty)"
+    expect(pvLabel!.textContent?.trim()).toBe("Nelly (thenasty)");
+    // The lowercase tmux sessionName MUST NOT appear as the prefix.
     expect(pvLabel!.textContent?.trim()).not.toBe("nelly-session");
+    // Suffix span is present with hostname content.
+    const suffix = pvLabel!.querySelector(
+      ".pv-hostname-suffix",
+    ) as HTMLElement | null;
+    expect(suffix).toBeTruthy();
+    expect(suffix!.textContent).toBe(" (thenasty)");
   });
 
-  it("Test 20B: subtitleMode='identityTitle' + NO identity resolved → main label is row.label (verbatim fallback)", () => {
-    // currentIdentity null (reset in beforeEach) — safety-net fallback for
-    // rows in identity-mode contexts that don't resolve an identity. MUST
-    // render row.label so the row never ships with an empty main label.
+  it("Test 20B (Phase 48 Plan 05 rewrite): NO identity resolved → main label prefix is row.label (verbatim fallback), still followed by the (hostname) parens suffix when host is present", () => {
+    // Fallback safety-net preserved from patch #149 in new shape: when
+    // useIdentities does not resolve, the label prefix is row.label so
+    // the row never ships with an empty main label. Hostname parens
+    // suffix still appears from row.host.
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ label: "unresolved-session", targetTmuxSession: "nobody" })}
@@ -1110,7 +1197,12 @@ describe("PrettyConversationRow: main label source (Ashley 2026-08-01)", () => {
     );
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
-    expect(pvLabel!.textContent?.trim()).toBe("unresolved-session");
+    expect(pvLabel!.textContent?.trim()).toBe("unresolved-session (thenasty)");
+    const suffix = pvLabel!.querySelector(
+      ".pv-hostname-suffix",
+    ) as HTMLElement | null;
+    expect(suffix).toBeTruthy();
+    expect(suffix!.textContent).toBe(" (thenasty)");
   });
 });
 
@@ -2737,5 +2829,405 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
     // (see PrettyConversationContextMenu.tsx line 212: `color: item.danger ? "#ff9a8a" : "#e8e4d8"`)
     // jsdom normalizes hex → rgb(...) in computed style; match either form.
     expect(killItem.style.color).toMatch(/rgb\(255,\s*154,\s*138\)|#ff9a8a/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19)
+// ─────────────────────────────────────────────────────────────────────────────
+// New tests locking the v14 shape invariants: title-line hostname parens
+// suffix; subtitle line = aiTitle (or muted italic ellipsis placeholder
+// when null); Server icon fully retired; ready-dot fully retired; .pv-meta
+// wrapper fully retired; bounty badges relocated to avatar corners; spinner-
+// on className emitted per Ashley's FULL 4-input verbatim inversion gate:
+//
+//   showSpinnerOn = !(inActiveSet && isWorking===false && !isRecycling
+//                     && !hasQueuePending)
+//
+// P47-14 and P47-15 are LOAD-BEARING regression guards against a hypothetical
+// regression back to the pre-revision CSS-only gate `.pv-row.active-set:is(
+// .working, .recycling)` which dropped 2 of the 4 inputs (hasQueuePending +
+// polarity on inActiveSet). Do NOT weaken or delete either.
+describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
+  it("Test P48-01: title line renders identityName + ' (hostname)' suffix (parens contain hostname, single space between name and parens)", () => {
+    currentIdentity = { ...makeIdentity(210, "Tanya") };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({
+          host: makeHost({ name: "skynet-ec2" }),
+          targetTmuxSession: "tanya",
+        })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
+    expect(pvLabel).toBeTruthy();
+    expect(pvLabel!.textContent?.trim()).toBe("Tanya (skynet-ec2)");
+    const suffix = pvLabel!.querySelector(
+      ".pv-hostname-suffix",
+    ) as HTMLElement | null;
+    expect(suffix).toBeTruthy();
+    expect(suffix!.textContent).toBe(" (skynet-ec2)");
+  });
+
+  it("Test P48-02: title line renders JUST identityName when row.host is null (no trailing parens, no space)", () => {
+    currentIdentity = { ...makeIdentity(210, "Tanya") };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ host: null, targetTmuxSession: "tanya" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
+    expect(pvLabel).toBeTruthy();
+    expect(pvLabel!.textContent?.trim()).toBe("Tanya");
+    expect(pvLabel!.querySelector(".pv-hostname-suffix")).toBeNull();
+  });
+
+  it("Test P48-03: subtitle line is `.pv-ai-title` span with aiTitle textContent when aiTitle is a non-empty string", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        aiTitle="Fix bug X"
+      />,
+    );
+    const pvAiTitle = container.querySelector(
+      ".pv-ai-title",
+    ) as HTMLElement | null;
+    expect(pvAiTitle).toBeTruthy();
+    expect(pvAiTitle!.textContent).toBe("Fix bug X");
+    // Not the placeholder variant.
+    expect(pvAiTitle!.className).not.toContain("pv-ai-title--placeholder");
+  });
+
+  it("Test P48-04: subtitle line renders U+2026 '…' with `pv-ai-title--placeholder` class when aiTitle is null", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        aiTitle={null}
+      />,
+    );
+    const pvAiTitle = container.querySelector(
+      ".pv-ai-title",
+    ) as HTMLElement | null;
+    expect(pvAiTitle).toBeTruthy();
+    // Single U+2026 ellipsis character.
+    expect(pvAiTitle!.textContent).toBe("…");
+    expect(pvAiTitle!.className).toContain("pv-ai-title--placeholder");
+  });
+
+  it("Test P48-05: subtitle line does NOT render any Server svg from lucide (Server icon fully retired since hostname now lives on title line)", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ host: makeHost({ name: "skynet" }) })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        aiTitle="X"
+      />,
+    );
+    const pvAiTitle = container.querySelector(
+      ".pv-ai-title",
+    ) as HTMLElement | null;
+    expect(pvAiTitle).toBeTruthy();
+    // No lucide Server (or any) svg inside the subtitle span with aria-hidden=true.
+    expect(pvAiTitle!.querySelector("svg")).toBeNull();
+    // Regression: the pre-Phase-48 Server icon marker was width=11 height=11.
+    expect(container.querySelector('svg[width="11"]')).toBeNull();
+  });
+
+  it("Test P47-06: `.pv-ready-dot` and `[data-pv-conv-ready-dot]` are ABSENT from the DOM across all four (inActiveSet, isWorking, isRecycling, hasQueuePending) combos", () => {
+    // The ready-dot element is fully retired. Iterating multiple state
+    // combinations guards against any residual JSX branch that would emit
+    // a `.pv-ready-dot` span under some input combination.
+    const combos: Array<{
+      inActiveSet: boolean;
+      isWorking: boolean | null;
+      isRecycling: boolean;
+      hasQueuePending: boolean;
+      label: string;
+    }> = [
+      { inActiveSet: true, isWorking: false, isRecycling: false, hasQueuePending: false, label: "READY" },
+      { inActiveSet: true, isWorking: true, isRecycling: false, hasQueuePending: false, label: "working-in-set" },
+      { inActiveSet: false, isWorking: false, isRecycling: false, hasQueuePending: false, label: "idle-out-of-set" },
+      { inActiveSet: true, isWorking: false, isRecycling: true, hasQueuePending: false, label: "recycling" },
+      { inActiveSet: true, isWorking: false, isRecycling: false, hasQueuePending: true, label: "queue-pending" },
+    ];
+    for (const c of combos) {
+      currentIdentity = makeIdentity(210, "tanya");
+      const { container, unmount } = render(
+        <PrettyConversationRow
+          row={makeRow()}
+          selected={false}
+          pinned={false}
+          variant="desktop"
+          onSelect={vi.fn()}
+          onTogglePin={vi.fn()}
+          inActiveSet={c.inActiveSet}
+          isWorking={c.isWorking}
+          isRecycling={c.isRecycling}
+          hasQueuePending={c.hasQueuePending}
+          aiTitle={null}
+        />,
+      );
+      expect(
+        container.querySelector(".pv-ready-dot"),
+        `combo=${c.label}`,
+      ).toBeNull();
+      expect(
+        container.querySelector("[data-pv-conv-ready-dot]"),
+        `combo=${c.label}`,
+      ).toBeNull();
+      unmount();
+    }
+  });
+
+  it("Test P47-07: `.pv-meta` wrapper is ABSENT from the row markup (element retired per 48-CONTEXT.md § .pv-meta right column retirement)", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={false}
+      />,
+    );
+    expect(container.querySelector(".pv-meta")).toBeNull();
+  });
+
+  it("Test P47-08: Pin badge wrap renders INSIDE `.pv-avatar` when pinnedCount > 0 (avatar bottom-left corner marker)", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 0 };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const pinWrap = container.querySelector(
+      '.pv-avatar [data-testid="pv-bounty-badge-pinned"]',
+    );
+    expect(pinWrap).not.toBeNull();
+    expect(pinWrap!.textContent).toBe("3");
+  });
+
+  it("Test P47-09: Monitor badge wrap renders INSIDE `.pv-avatar` when needsDeskCount > 0 (avatar bottom-right corner marker)", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    currentBountyCounts = { pinnedCount: 0, needsDeskCount: 2 };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const deskWrap = container.querySelector(
+      '.pv-avatar [data-testid="pv-bounty-badge-needs-desk"]',
+    );
+    expect(deskWrap).not.toBeNull();
+    expect(deskWrap!.textContent).toBe("2");
+  });
+
+  it("Test P47-10: row emits both `.working` AND `.active-set` classes when inActiveSet+isWorking=true (pre-Phase-48 className composition invariant preserved by Task 1)", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("working");
+    expect(body.className).toContain("active-set");
+  });
+
+  it("Test P47-11: idle-in-active-set row is the READY branch — no `.spinner-on`, no `.working`, no `.recycling` (locks the ONE combination that suppresses the spinner)", () => {
+    // Ashley's 4-input gate: `!(true && true && true && true)` = `!true`
+    // = `false` → no spinner-on emission. This is the ONE and ONLY input
+    // combination that suppresses the spinner. Any other combination
+    // yields spinner-on = true.
+    currentIdentity = makeIdentity(210, "tanya");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={false}
+        isRecycling={false}
+        hasQueuePending={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).not.toContain("spinner-on");
+    expect(body.className).not.toContain("working");
+    expect(body.className).not.toContain("recycling");
+  });
+
+  it("Test P47-12: both badge wraps render when pinnedCount > 0 AND needsDeskCount > 0 (both counts positive)", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 2 };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    expect(
+      container.querySelector(
+        '.pv-avatar [data-testid="pv-bounty-badge-pinned"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '.pv-avatar [data-testid="pv-bounty-badge-needs-desk"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("Test P47-13: neither badge wrap renders when both pinnedCount === 0 AND needsDeskCount === 0 (PrettyBountyCountBadge's zero-null contract preserved through the relocation)", () => {
+    currentIdentity = makeIdentity(210, "tanya");
+    currentBountyCounts = { pinnedCount: 0, needsDeskCount: 0 };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    expect(
+      container.querySelector(
+        '.pv-avatar [data-testid="pv-bounty-badge-pinned"]',
+      ),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        '.pv-avatar [data-testid="pv-bounty-badge-needs-desk"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("Test P47-14 (LOAD-BEARING): inActiveSet=true + isWorking=false + hasQueuePending=true → row HAS `spinner-on` class (queue-pending trips the spinner even when the row would otherwise satisfy the pre-Phase-48 ready condition)", () => {
+    // Ashley's 4-input gate: `!(true && true && true && false)` =
+    // `!false` = `true` → spinner-on. Under the pre-revision CSS-only
+    // gate `.pv-row.active-set:is(.working, .recycling)` this row would
+    // have failed (it has neither `.working` nor `.recycling` — 2 of the
+    // 4 inputs, hasQueuePending in particular, were invisible to CSS).
+    // This test guards against regression back to the CSS-only shape.
+    currentIdentity = makeIdentity(210, "tanya");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+        isWorking={false}
+        isRecycling={false}
+        hasQueuePending={true}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("spinner-on");
+    // Row does NOT carry `.working` or `.recycling` — the pre-revision
+    // CSS-only gate would have MISSED this row. The JS gate catches it.
+    expect(body.className).not.toContain("working");
+    expect(body.className).not.toContain("recycling");
+  });
+
+  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row HAS `spinner-on` class (non-active-set working row still spins per literal 4-input inversion)", () => {
+    // Ashley's 4-input gate: `!(false && ...)` = `!false` = `true` →
+    // spinner-on. Under the pre-revision CSS-only gate `.pv-row.active-
+    // set:is(.working, .recycling)`, this row would have failed (missing
+    // `.active-set` class would have suppressed the spinner even though
+    // the row is genuinely working). This test locks Ashley's literal
+    // 4-input inversion — non-active-set working rows also spin.
+    currentIdentity = makeIdentity(210, "tanya");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={false}
+        isWorking={true}
+        isRecycling={false}
+        hasQueuePending={false}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.className).toContain("spinner-on");
+    // The row DOES carry `.working` (isWorking===true), but does NOT
+    // carry `.active-set` — the pre-revision CSS-only gate `.pv-row
+    // .active-set:is(.working, .recycling)` would have suppressed the
+    // spinner ring on this row. The JS-driven `.spinner-on` fires anyway.
+    expect(body.className).toContain("working");
+    expect(body.className).not.toContain("active-set");
   });
 });

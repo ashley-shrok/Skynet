@@ -805,34 +805,50 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
     expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
   });
 
-  // Phase 41 Plan 01 regression (Ashley lock #8): the ready-dot renders on
-  // every non-working middle row regardless of active-set membership. Locks
-  // patch #447 behavior survives the ambient CSS retirement.
-  it("Test 19E (ready-dot-on-all-non-working): every non-working middle row renders the ready-dot regardless of active-set", () => {
+  // Phase 48 Plan 05 (rewrite): Ashley 2026-08-19 retired the ready-dot
+  // entirely and inverted the affordance — idle rows have NOTHING; working
+  // rows get a slow dashed spinner ring on the avatar via `.pv-row.spinner-
+  // on .pv-avatar::before`. The `spinner-on` class is JS-emitted by the
+  // full 4-input verbatim gate `!(inActiveSet && isWorking===false &&
+  // !isRecycling && !hasQueuePending)`. For a non-active-set, non-working
+  // row, the gate evaluates to `!(false && ...)` = `!false` = `true` →
+  // spinner-on is applied even though the row is "idle-in-not-in-set".
+  // This test locks two invariants: the ready-dot span is fully absent, and
+  // every non-active-set idle row carries spinner-on (matches the pre-
+  // Phase-48 test's spirit: "these two rows carry the same affordance
+  // regardless of active-set", now inverted).
+  it("Test 19E (Phase 48 Plan 05 rewrite of ready-dot-on-all-non-working): non-active-set idle rows have NO ready-dot AND carry `spinner-on` (Ashley's 4-input inversion gate)", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       // Two rows, neither in the active-set, both non-working (default in
-      // the mock — useSessionIsWorking returns false → dot renders).
+      // the mock — useSessionIsWorking returns false).
       middle: [
         makeConversationRow({ id: "m1", label: "s1", host: hostA }),
         makeConversationRow({ id: "m2", label: "s2", host: hostA }),
       ],
-      // mockActiveSet is empty (reset in beforeEach) → both rows have
-      // inActiveSet=false. Post-Phase-41 retirement, the dot MUST still
-      // render for both.
     });
 
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Both rows carry the ready-dot span.
     const m1 = container.querySelector('[data-conversation-id="m1"]');
     const m2 = container.querySelector('[data-conversation-id="m2"]');
     expect(m1).toBeTruthy();
     expect(m2).toBeTruthy();
-    expect(m1!.querySelector('[data-pv-conv-ready-dot="true"]')).toBeTruthy();
-    expect(m2!.querySelector('[data-pv-conv-ready-dot="true"]')).toBeTruthy();
+    // Ready-dot fully retired — no `.pv-ready-dot` span or data attribute
+    // in either row's subtree.
+    expect(m1!.querySelector('[data-pv-conv-ready-dot="true"]')).toBeNull();
+    expect(m2!.querySelector('[data-pv-conv-ready-dot="true"]')).toBeNull();
+    expect(m1!.querySelector(".pv-ready-dot")).toBeNull();
+    expect(m2!.querySelector(".pv-ready-dot")).toBeNull();
+    // Both rows carry `.spinner-on` — non-active-set idle branch of Ashley's
+    // 4-input inversion gate. See Test P47-15 in PrettyConversationRow.
+    // test.tsx for the load-bearing invariant lock.
+    const m1Body = m1!.querySelector('[role="button"]') as HTMLElement;
+    const m2Body = m2!.querySelector('[role="button"]') as HTMLElement;
+    expect(m1Body.className).toContain("spinner-on");
+    expect(m2Body.className).toContain("spinner-on");
   });
 });
 
@@ -881,11 +897,16 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     expect(rowEl).toBeTruthy();
 
     // Post quick-260730-o2m: neither PinAction nor DeactivateAction render
-    // in the desktop .pv-meta column.
-    const meta = rowEl!.querySelector(".pv-meta") as HTMLElement | null;
-    expect(meta).toBeTruthy();
-    expect(meta!.querySelector('[data-testid="deactivate-action"]')).toBeNull();
-    expect(meta!.querySelector('[data-testid="pin-action"]')).toBeNull();
+    // in the desktop `.pv-meta` column. Phase 48 Plan 05: the `.pv-meta`
+    // wrapper itself is retired entirely (bounty badges relocated to avatar
+    // corners; ready-dot deleted outright). This assertion is now
+    // "neither PinAction nor DeactivateAction render anywhere in the row"
+    // instead of "in the .pv-meta column" — same spirit, correct DOM shape.
+    expect(rowEl!.querySelector(".pv-meta")).toBeNull();
+    expect(
+      rowEl!.querySelector('[data-testid="deactivate-action"]'),
+    ).toBeNull();
+    expect(rowEl!.querySelector('[data-testid="pin-action"]')).toBeNull();
 
     // Dispatch contextmenu on the row body to open the portal menu.
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
@@ -2072,12 +2093,14 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
 // by PrettyConversationRow.test.tsx Tests 19A/B/C — this test proves the
 // panel wires the prop through at the pinned render site specifically.
 
-describe("PrettyConversationsPanel: pinned rows render identity title (patch #184 / quick-260729-gsv)", () => {
-  it("Test 29: pinned row with resolved identity renders identity.title (no Server icon, no hostname)", () => {
+describe("PrettyConversationsPanel: Phase 48 Plan 05 pinned row v14 shape (was patch #184 / quick-260729-gsv pinned identity.title subtitle)", () => {
+  it("Test 29 (Phase 48 Plan 05 rewrite): pinned row renders aiTitle in the `.pv-ai-title` subtitle span, title-line carries `identityName (hostname)`, no Server icon, no `.pv-host` element", () => {
+    // Pre-Phase-48 the pinned row's sublabel rendered `identity.title` via
+    // subtitleMode='identityTitle'. Phase 48 Plan 05 replaces the sublabel
+    // entirely: subtitle = aiTitle string threaded from the working-store
+    // (or placeholder ellipsis when null). The identity.title / .displayName
+    // moves to the title line (before the hostname parens suffix).
     const hostA = makeHost("h1", "hostA");
-    // Seed the identity for the pinned row's tmux session. The session-hue
-    // mock at lines 42-45 lowercases the tmux session name via
-    // sessionMatchKey, so the map key MUST match that transform.
     mockIdentitiesByKey = new Map([
       [
         "tina-session",
@@ -2088,6 +2111,10 @@ describe("PrettyConversationsPanel: pinned rows render identity title (patch #18
         },
       ],
     ]);
+    // Seed the panel mock's useSessionAiTitle hook so this row receives a
+    // concrete ai-title through the Plan 48-04 wire.
+    // sessionWorkingKey format: `${host.id}:${targetTmuxSession ?? ""}`.
+    mockAiTitleByKey.set("h1:tina-session", "Reviewing test coverage");
     setSnapshot({
       activeSet: [],
       pinned: [
@@ -2106,8 +2133,6 @@ describe("PrettyConversationsPanel: pinned rows render identity title (patch #18
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Scope every query to the pinned-group wrapper — future-proofs the
-    // test against unrelated rows leaking into the assertion set.
     const pinnedGroup = container.querySelector(
       '[data-pinned-group="true"]',
     ) as HTMLElement | null;
@@ -2118,21 +2143,28 @@ describe("PrettyConversationsPanel: pinned rows render identity title (patch #18
     ) as HTMLElement | null;
     expect(pinnedRow).toBeTruthy();
 
-    const pvHost = pinnedRow!.querySelector(
-      ".pv-host",
-    ) as HTMLElement | null;
-    expect(pvHost).toBeTruthy();
+    // Phase 48 Plan 05: `.pv-host` element is retired outright — the
+    // pre-Phase-48 sublabel wrapper is gone. Assert absence.
+    expect(pinnedRow!.querySelector(".pv-host")).toBeNull();
 
-    // (1) identity.title text renders under the label.
-    expect(pvHost!.textContent).toContain("Tina's Laptop");
-    // (2) The hostname (hostA) does NOT appear in the sublabel — confirms
-    //     the swap from the pre-#184 "Server icon + row.host.name" render.
-    expect(pvHost!.textContent).not.toContain("hostA");
-    // (3) The Server icon (rendered as <svg> inside .pv-host in the
-    //     hostname-mode path) MUST NOT render inside the pinned row's
-    //     .pv-host when identityTitle mode resolves — the pin glyph +
-    //     absence of the icon jointly signal the identity-first treatment.
-    expect(pvHost!.querySelector("svg")).toBeFalsy();
+    // (1) The subtitle line is `.pv-ai-title` and carries the aiTitle text.
+    const pvAiTitle = pinnedRow!.querySelector(
+      ".pv-ai-title",
+    ) as HTMLElement | null;
+    expect(pvAiTitle).toBeTruthy();
+    expect(pvAiTitle!.textContent).toBe("Reviewing test coverage");
+    expect(pvAiTitle!.className).not.toContain("pv-ai-title--placeholder");
+
+    // (2) The title line reads "identity.displayName (hostname)". The
+    //     identity mock uses displayName="tina@laptop"; hostname is "hostA".
+    const pvLabel = pinnedRow!.querySelector(
+      ".pv-label",
+    ) as HTMLElement | null;
+    expect(pvLabel).toBeTruthy();
+    expect(pvLabel!.textContent?.trim()).toBe("tina@laptop (hostA)");
+
+    // (3) Server icon fully retired — no svg with width=11 in the row.
+    expect(pinnedRow!.querySelector('svg[width="11"]')).toBeNull();
   });
 });
 
