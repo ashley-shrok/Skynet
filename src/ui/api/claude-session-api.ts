@@ -95,6 +95,12 @@ export type InactiveEvent = {
 export type ContextPctEvent = {
   type: "context_pct";
   pct: number; // 0-100 inclusive
+  // Optional flag on frames emitted from the dormant-branch JSONL read
+  // (readContextPctFromJsonl piggybacking on the dormant-poll tick). Absent
+  // (or false) on the normal active-flow contextPctTimer emits. Consumed by
+  // the frontend's live-frame auto-dismiss check so a dormant-branch emit
+  // does not false-dismiss the DormancyOverlay.
+  dormant?: boolean;
 };
 
 export type HarnessTask = {

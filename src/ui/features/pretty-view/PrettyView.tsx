@@ -1287,7 +1287,10 @@ export function PrettyView({
           parsed.type === "relay_inbound" ||
           parsed.type === "relay_outbound" ||
           parsed.type === "malformed_line" ||
-          parsed.type === "context_pct" ||
+          // context_pct WITH dormant:true is emitted from the dormant-branch
+          // JSONL read (not a supervisor-recovery signal); skip auto-dismiss
+          // in that case so the meter can update without wiping the overlay.
+          (parsed.type === "context_pct" && !parsed.dormant) ||
           parsed.type === "harness_tasks" ||
           parsed.type === "session")
       ) {

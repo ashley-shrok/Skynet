@@ -757,3 +757,177 @@ describe("Test P (quick 260809-ha3): dormant:true frame carries wakingSince fiel
     expect(frame).toEqual({ type: "dormant", dormant: true, wakingSince: null });
   });
 });
+
+// ─── Tests P-R: dormant-branch context-pct piggyback ─────────────────────────
+//
+// These cover the readJsonlPct + dormantSessionFile inject on the sentinel-
+// still-present branch of __applyDormantPollWithRediscoveryForTests. The emit
+// carries `dormant: true` so PrettyView's live-frame auto-dismiss (L1149)
+// treats it as a rest-value refresh, not a supervisor-recovery signal.
+
+describe("Test P: dormant sentinel present + session file resolved + pct read → emits context_pct with dormant:true", () => {
+  it("emits {type:'context_pct', pct, dormant:true} on the same tick as the dormant frame", async () => {
+    const wsSend = vi.fn();
+    const startActiveFlow = vi.fn();
+    const exec = vi.fn().mockResolvedValue("yes\n"); // stat returns yes → still dormant
+    const discoverSession = vi.fn();
+    const readJsonlPct = vi.fn().mockResolvedValue(42);
+    const state = makeDormantState(null); // first tick
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession,
+        wsSend,
+        startActiveFlow,
+        markerCommand: vi.fn().mockResolvedValue(null),
+        now: () => 0,
+        readJsonlPct,
+        dormantSessionFile: () => "/home/ubuntu/.claude/projects/-x/y.jsonl",
+      },
+      state,
+    );
+
+    // readJsonlPct was called with the connSnapshot + the resolved session file path
+    expect(readJsonlPct).toHaveBeenCalledTimes(1);
+    expect(readJsonlPct).toHaveBeenCalledWith(
+      fakeConn,
+      "/home/ubuntu/.claude/projects/-x/y.jsonl",
+    );
+
+    // Two wsSend calls: the dormant:true frame + the context_pct:dormant frame
+    expect(wsSend).toHaveBeenCalledTimes(2);
+    const dormantFrame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(dormantFrame).toEqual({ type: "dormant", dormant: true, wakingSince: null });
+    const pctFrame = JSON.parse(wsSend.mock.calls[1][0]);
+    expect(pctFrame).toEqual({ type: "context_pct", pct: 42, dormant: true });
+
+    // Poll behaviors unchanged
+    expect(discoverSession).not.toHaveBeenCalled();
+    expect(startActiveFlow).not.toHaveBeenCalled();
+  });
+});
+
+describe("Test Q: dormant sentinel present + session file NOT YET resolved (getter returns null) → no context_pct emit", () => {
+  it("silent skip on the pct path; dormant frame still emits normally", async () => {
+    const wsSend = vi.fn();
+    const startActiveFlow = vi.fn();
+    const exec = vi.fn().mockResolvedValue("yes\n");
+    const readJsonlPct = vi.fn(); // should NOT be called
+    const state = makeDormantState(null);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession: vi.fn(),
+        wsSend,
+        startActiveFlow,
+        markerCommand: vi.fn().mockResolvedValue(null),
+        now: () => 0,
+        readJsonlPct,
+        dormantSessionFile: () => null, // discovery hasn't completed yet
+      },
+      state,
+    );
+
+    expect(readJsonlPct).not.toHaveBeenCalled();
+    // Only the dormant:true frame emitted; no context_pct
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame.type).toBe("dormant");
+  });
+});
+
+describe("Test R: dormant sentinel present + readJsonlPct returns null → no context_pct emit", () => {
+  it("silent skip when JSONL has no assistant turn yet (helper returns null)", async () => {
+    const wsSend = vi.fn();
+    const exec = vi.fn().mockResolvedValue("yes\n");
+    const readJsonlPct = vi.fn().mockResolvedValue(null); // no usage block
+    const state = makeDormantState(null);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession: vi.fn(),
+        wsSend,
+        startActiveFlow: vi.fn(),
+        markerCommand: vi.fn().mockResolvedValue(null),
+        now: () => 0,
+        readJsonlPct,
+        dormantSessionFile: () => "/some/file.jsonl",
+      },
+      state,
+    );
+
+    expect(readJsonlPct).toHaveBeenCalledTimes(1);
+    // Only dormant:true; no context_pct
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame.type).toBe("dormant");
+  });
+});
+
+describe("Test S: dormant sentinel present + readJsonlPct throws → silent skip, dormant frame still emits", () => {
+  it("swallows the JSONL-read error; keeps polling", async () => {
+    const wsSend = vi.fn();
+    const exec = vi.fn().mockResolvedValue("yes\n");
+    const readJsonlPct = vi.fn().mockRejectedValue(new Error("ssh transient"));
+    const state = makeDormantState(null);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession: vi.fn(),
+        wsSend,
+        startActiveFlow: vi.fn(),
+        markerCommand: vi.fn().mockResolvedValue(null),
+        now: () => 0,
+        readJsonlPct,
+        dormantSessionFile: () => "/some/file.jsonl",
+      },
+      state,
+    );
+
+    // Dormant frame still emitted despite the JSONL-read throw
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame.type).toBe("dormant");
+    // No unhandled rejection surfaced (test would fail otherwise)
+  });
+});
+
+describe("Test T: readJsonlPct + dormantSessionFile absent (older callers) → seam behavior unchanged", () => {
+  it("no pct emit path invoked when the optional deps are omitted", async () => {
+    const wsSend = vi.fn();
+    const exec = vi.fn().mockResolvedValue("yes\n");
+    const state = makeDormantState(null);
+
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "tiffany",
+        execCommand: exec,
+        discoverSession: vi.fn(),
+        wsSend,
+        startActiveFlow: vi.fn(),
+        markerCommand: vi.fn().mockResolvedValue(null),
+        now: () => 0,
+        // readJsonlPct + dormantSessionFile intentionally omitted
+      },
+      state,
+    );
+
+    // Only dormant:true frame; behavior identical to Test G
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = JSON.parse(wsSend.mock.calls[0][0]);
+    expect(frame.type).toBe("dormant");
+  });
+});

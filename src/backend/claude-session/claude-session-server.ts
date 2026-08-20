@@ -1641,6 +1641,15 @@ export async function __applyDormantPollWithRediscoveryForTests(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     markerCommand: (conn: any, name: string) => Promise<string | null>;
     now: () => number;
+    // Optional dormant-branch context-pct emit. When both the getter returns a
+    // resolved session file path AND readJsonlPct returns a non-null pct, emits
+    // {type:"context_pct", pct, dormant:true} on the same "sentinel present"
+    // tick. Absence of either (no session file resolved yet, or JSONL read
+    // returned null) is a silent skip — the meter stays on whatever value the
+    // frontend last held. The `dormant:true` flag stops the frontend's live-
+    // frame auto-dismiss from wiping the DormancyOverlay (PrettyView.tsx L1149).
+    readJsonlPct?: (conn: unknown, sessionFile: string) => Promise<number | null>;
+    dormantSessionFile?: () => string | null;
   },
   state: {
     dormantLastEmitted: () => boolean | null;
@@ -1648,7 +1657,7 @@ export async function __applyDormantPollWithRediscoveryForTests(
     wakeTriggerTs: () => number | null;
   },
 ): Promise<void> {
-  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow, markerCommand, now } = deps;
+  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow, markerCommand, now, readJsonlPct, dormantSessionFile } = deps;
   try {
     // Poll the .dormant sentinel (reuse exact command from seam line 956-961)
     const statOut = await exec(
@@ -1665,6 +1674,26 @@ export async function __applyDormantPollWithRediscoveryForTests(
         // bar after Fix B (visibility false->true edge) wipes local wakingStartTs.
         // Natural-resume path (wakeTriggerTs null) sends wakingSince:null.
         wsSend(JSON.stringify({ type: "dormant", dormant: true, wakingSince: state.wakeTriggerTs() }));
+      }
+      // Dormant-branch context-pct: read the last assistant turn's `usage`
+      // block from the identity's cached JSONL and emit. The JSONL is
+      // authoritative for token-usage (readContextPctFromJsonl docblock) so
+      // this stays correct even though claude is not running. Silent-skip
+      // when either injectable is absent (getter returns null before the
+      // tail-open discovery completes, or a test omits readJsonlPct).
+      if (readJsonlPct && dormantSessionFile) {
+        const sessionFile = dormantSessionFile();
+        if (sessionFile !== null) {
+          try {
+            const pct = await readJsonlPct(connSnapshot, sessionFile);
+            if (pct !== null) {
+              wsSend(JSON.stringify({ type: "context_pct", pct, dormant: true }));
+            }
+          } catch {
+            // Silent — nice-to-have, not load-bearing. Mirrors the outer
+            // catch's posture (skip this tick, keep polling).
+          }
+        }
       }
       return; // keep polling
     }
@@ -1774,6 +1803,11 @@ export type __DormantBranchTailOpenDepsForTests = {
 /** Mutable state for the dormant-branch tail-open seam. */
 export type __DormantBranchTailOpenStateForTests = {
   setTailHandle: (h: { stop: () => void } | null) => void;
+  // Called with the discovered JSONL path (or null on no-match / throw) so the
+  // connection closure can cache it for the dormant-poll timer's JSONL-read
+  // context-pct emit. Called BEFORE setTailHandle when discovery succeeds; on
+  // null-return / helper-throw it is called with null.
+  setDormantSessionFile?: (f: string | null) => void;
 };
 
 /**
@@ -1834,10 +1868,14 @@ export async function __applyDormantBranchTailOpenForTests(
         operation: "claude_session_dormant_tail_discovered",
         discoveredFileBasename: basename(discoveredFile),
       });
+      // Cache the resolved path for the dormant-poll timer's JSONL-read
+      // context-pct emit (piggybacked on the sentinel poll).
+      state.setDormantSessionFile?.(discoveredFile);
       // SAME onLine/onError refs — no wrapping (D-08).
       const handle = tail(sshConn, discoveredFile, onLine, onError);
       state.setTailHandle(handle);
     } else {
+      state.setDormantSessionFile?.(null);
       logger.info(
         "Dormant tail not discovered — no matching identity session file",
         {
@@ -1859,6 +1897,7 @@ export async function __applyDormantBranchTailOpenForTests(
         err: err instanceof Error ? err.message : String(err),
       },
     );
+    state.setDormantSessionFile?.(null);
   }
 }
 
@@ -2067,6 +2106,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // pattern for lifecycle (cleared in teardownPane, guarded against pileups).
   let dormantPollTimer: NodeJS.Timeout | null = null;
   let dormantPollInFlight = false;
+  // Cached path of the identity's most-recent JSONL, resolved by the
+  // dormant-branch tail-open seam and consumed by the dormant-poll timer
+  // for the piggyback context-pct emit (readContextPctFromJsonl). Null
+  // until discovery completes; also null when discovery returns no-match.
+  let dormantSessionFile: string | null = null;
   // 2026-08-18 Layer 3 (session-holding-overlay-arm-on-recycle-sentinel):
   // per-tick in-flight guard for the `.recycle-requested` sentinel probe
   // that piggybacks on the context-pct tick. Mirrors dormantInFlight —
@@ -5872,6 +5916,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
                         },
                         // Injectable clock — Date.now in production, deterministic in tests.
                         now: () => Date.now(),
+                        // Dormant-branch context-pct plumbing (piggyback on this tick).
+                        readJsonlPct: readContextPctFromJsonl,
+                        dormantSessionFile: () => dormantSessionFile,
                       },
                       {
                         dormantLastEmitted: () => dormantLastEmitted,
@@ -5986,6 +6033,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 {
                   setTailHandle: (h) => {
                     tailHandle = h;
+                  },
+                  setDormantSessionFile: (f) => {
+                    dormantSessionFile = f;
                   },
                 },
               );
