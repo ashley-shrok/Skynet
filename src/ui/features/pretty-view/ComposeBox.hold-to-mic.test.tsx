@@ -445,7 +445,8 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     // The glue rule: existing "hello" does not end in whitespace, so a single
     // space is inserted between "hello" and the STT transcript "hello world".
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("hello hello world");
+    // Phase 50 D-18: onSend widened to (text, mqid?).
+    expect(onSend).toHaveBeenCalledWith("hello hello world", expect.stringMatching(/^pv-optim-/));
 
     // Fetch was made to /voice/transcribe.
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
@@ -777,7 +778,8 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     });
 
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("test1 hello world");
+    // Phase 50 D-18: onSend widened to (text, mqid?).
+    expect(onSend).toHaveBeenCalledWith("test1 hello world", expect.stringMatching(/^pv-optim-/));
 
     // State should be back to idle — the mic button is visible again (post-send,
     // voice.state → "idle" and holdInitiatedRef cleared in resetGestureState).
@@ -972,7 +974,8 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
 
       // Long-press branch: transcript glued to typed text, fetch fired.
       expect(onSendB).toHaveBeenCalledTimes(1);
-      expect(onSendB).toHaveBeenCalledWith("hi hello world");
+      // Phase 50 D-18: onSend widened to (text, mqid?).
+      expect(onSendB).toHaveBeenCalledWith("hi hello world", expect.stringMatching(/^pv-optim-/));
       const fetchMockB = fetch as ReturnType<typeof vi.fn>;
       expect(fetchMockB.mock.calls.length).toBe(1);
     }

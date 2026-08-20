@@ -329,7 +329,9 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
       );
       fireEvent.change(textarea, { target: { value: "plain" } });
       await shortTapSendButton(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement);
-      expect(onSend).toHaveBeenCalledWith("plain");
+      // Phase 50 D-18: onSend now receives (text, mqid) — mqid is the
+      // ComposeBox-generated pv-optim-<...> identifier. Match text arg only.
+      expect(onSend).toHaveBeenCalledWith("plain", expect.stringMatching(/^pv-optim-/));
       expect(onSendWithAttachments).not.toHaveBeenCalled();
     } finally {
       restore();
@@ -384,7 +386,8 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "hi" } });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
-    expect(onSend).toHaveBeenCalledWith("hi");
+    // Phase 50 D-18: onSend now receives (text, mqid).
+    expect(onSend).toHaveBeenCalledWith("hi", expect.stringMatching(/^pv-optim-/));
   });
 
   it("Test 15: Retry button appears only when at least one chip is in error state; click fires onRetryBatch", () => {
@@ -454,7 +457,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     expect(wrapper!.contains(sendBtn)).toBe(true);
   });
 
-  it("inside-textarea send button: short-tap with text present calls onSend with trimmed payload and clears the textarea (COMPOSE-04)", async () => {
+  it("inside-textarea send button: short-tap with text present calls onSend with trimmed payload and clears the textarea (Phase 50 D-18)", async () => {
     const restore = withMediaDevicesStub();
     try {
       const onSend = vi.fn(() => true);
@@ -467,9 +470,11 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
       await act(async () => {
         await shortTapSendButton(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement);
       });
-      // handleSend trims trailing whitespace before dispatch.
-      expect(onSend).toHaveBeenCalledWith("hi there");
-      // COMPOSE-04 clear-on-success: textarea is empty after a truthy dispatch.
+      // handleSend trims trailing whitespace before dispatch. Phase 50 D-18
+      // widened onSend to (text, mqid) — text arg matches, mqid is the
+      // ComposeBox-generated pv-optim-<...> identifier.
+      expect(onSend).toHaveBeenCalledWith("hi there", expect.stringMatching(/^pv-optim-/));
+      // Phase 50 D-01 clear-on-success: textarea is empty after a truthy dispatch.
       expect(textarea.value).toBe("");
     } finally {
       restore();

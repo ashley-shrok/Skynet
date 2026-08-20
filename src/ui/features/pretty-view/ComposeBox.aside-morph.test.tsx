@@ -218,7 +218,8 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
-      expect(onSend).toHaveBeenCalledWith("hello");
+      // Phase 50 D-18: onSend widened to (text, mqid?).
+      expect(onSend).toHaveBeenCalledWith("hello", expect.stringMatching(/^pv-optim-/));
     } finally {
       Object.defineProperty(globalThis, "navigator", {
         value: originalNavigator,

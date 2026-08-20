@@ -147,7 +147,8 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
       await Promise.resolve();
       await Promise.resolve();
       expect(onSend).toHaveBeenCalledTimes(1);
-      expect(onSend).toHaveBeenCalledWith("normal send");
+      // Phase 50 D-18: onSend widened to (text, mqid?).
+      expect(onSend).toHaveBeenCalledWith("normal send", expect.stringMatching(/^pv-optim-/));
     } finally {
       Object.defineProperty(globalThis, "navigator", {
         value: originalNavigator,

@@ -320,7 +320,8 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // Starting text was "" and transcript is "hello world" → glued = "hello world".
     // handleSend trims the payload before dispatch, so onSend receives "hello world".
     await waitFor(() => {
-      expect(onSend).toHaveBeenCalledWith("hello world");
+      // Phase 50 D-18: onSend widened to (text, mqid?).
+      expect(onSend).toHaveBeenCalledWith("hello world", expect.stringMatching(/^pv-optim-/));
     });
 
     // Fetch was called to /voice/transcribe.
@@ -496,6 +497,9 @@ describe("ComposeBox — Phase 16 voice flow", () => {
 
     // onSend fires with the glued payload after endSend resolves.
     await waitFor(() => {
+      // /id reset path uses dispatchResetPayload (single-arg onSend),
+      // NOT handleSend — Phase 50 D-18's mqid threading is scoped to
+      // primary handleSend only. This assertion stays single-arg.
       expect(onSend).toHaveBeenCalledWith("/id reset (hi there and one more thing)");
     });
 
@@ -543,6 +547,9 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // KEY assertion: onSend fires with the EXISTING textarea body — NOT
     // plain "/id reset", NOT a silent no-op.
     await waitFor(() => {
+      // /id reset path uses dispatchResetPayload (single-arg onSend),
+      // NOT handleSend — Phase 50 D-18's mqid threading is scoped to
+      // primary handleSend only. This assertion stays single-arg.
       expect(onSend).toHaveBeenCalledWith("/id reset (existing body)");
     });
   });

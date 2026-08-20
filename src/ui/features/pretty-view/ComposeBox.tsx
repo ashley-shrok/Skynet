@@ -33,8 +33,13 @@ import { RecordingControls } from "./RecordingControls";
 // 3. Text selection intentionally unrestricted (RENDER-04 defense in
 //    depth — do NOT add user-select restrictions here).
 //
-// 4. No optimistic display on send (COMPOSE-04 HARD LOCK per D-52).
-//    On success: clear textarea. On failure: keep text and show error.
+// 4. Optimistic display on send (Phase 50 D-18 — was HARD LOCK; reversed.
+//    See .planning/phases/50-optimistic-message-bubbles/50-CONTEXT.md
+//    D-01/D-18/D-19). handleSend now fires onOptimisticSend synchronously
+//    with the WS write so PrettyView seeds a pending bubble that shows an
+//    inline spinner until a matching kind:"message" role:"user" WS frame
+//    arrives. On success: clear textarea. On failure: keep text and show
+//    error (PrettyView also flips the pending bubble to red per D-20).
 //
 // 5. Newlines collapsed to spaces on send (per D-50 policy — Ink
 //    safety; mirrors MessageQueueDrawer's established behavior).
@@ -52,7 +57,8 @@ import { RecordingControls } from "./RecordingControls";
 // provided, it is used as the send payload instead of the current `text` state.
 // This lets voice.endSend pass the glued transcript synchronously without
 // fighting React's async setState batching. ALL handleSend behavior (attachment
-// branching, D-50 newline collapse, COMPOSE-04 hard-lock) still applies.
+// branching, D-50 newline collapse, Phase 50 D-18 optimistic-bubble seeding)
+// still applies.
 //
 // Sync-getUserMedia constraint (D-16-02): the hook's `start()` is a plain
 // function that calls getUserMedia as its FIRST statement — ComposeBox simply
@@ -67,9 +73,10 @@ import { RecordingControls } from "./RecordingControls";
 //    send (any of Send / go-ahead / reset-send) clears the persisted
 //    draft.
 //
-//    NO ERROR UI on failed autosave — mirrors the COMPOSE-04 HARD LOCK
-//    posture: no ghost UI that lies about state. The retry loop is the
-//    recovery mechanism.
+//    NO ERROR UI on failed autosave — mirrors the same "no ghost UI that
+//    lies about state" posture that Phase 50 D-19 keeps for the autosave
+//    path (autosave has no optimistic surface, only the send path does).
+//    The retry loop is the recovery mechanism.
 
 const DEBOUNCE_MS = 400;
 
@@ -123,7 +130,39 @@ export interface ComposeBoxProps {
   // return false if the transport was unavailable (e.g., WS disconnected).
   // The component uses the return to decide whether to clear the textarea
   // (true) or preserve the text and show an inline error (false).
-  onSend: (text: string) => boolean;
+  //
+  // Phase 50 D-18 (Blocker #4 pre-req): the second `mqid` arg carries the
+  // ComposeBox-generated optimistic-send identifier so PrettyView →
+  // IdentitySessionPane → pvSendInputRef → backend armPvSendWatchdog all
+  // key their state under the SAME mqid. Optional at the prop-type level
+  // for back-compat with existing test doubles that pass `(text) => true`
+  // and for any caller that doesn't participate in the pending-bubble
+  // flow.
+  onSend: (text: string, mqid?: string) => boolean;
+  // Phase 50 D-01/D-03: called synchronously from handleSend just before
+  // onSend (immediateFailure:false), and again after onSend returns false
+  // (immediateFailure:true, D-20 immediate-red-bubble on WS unavailable).
+  // The same mqid flows into both calls so PrettyView can track a single
+  // PendingSend record and just update its state on the second call.
+  // Optional so read-only or non-PrettyView callers stay backward-compat.
+  onOptimisticSend?: (args: {
+    payload: string;
+    mqid: string;
+    immediateFailure: boolean;
+  }) => void;
+  // Phase 50 D-03 failure-path repopulate surface. When this prop
+  // transitions from null/undefined → non-empty string, the useEffect
+  // populates the textarea with the value AND fires onOverrideTextConsumed
+  // in the same effect (Warning #6 resolution: an ack callback lets the
+  // parent transition composeOverrideText back to null cleanly without
+  // the effect re-firing on unchanged references).
+  overrideText?: string | null;
+  // Phase 50 D-03 / Warning #6: ack callback for the overrideText one-way
+  // trigger. Fires synchronously in the same useEffect as the setText
+  // call. Parent (PrettyView) uses this to clear composeOverrideText
+  // back to null so a subsequent parent re-render doesn't force-repopulate
+  // the textarea with the same value.
+  onOverrideTextConsumed?: () => void;
   // Patch #122: fired synchronously when the meter well's Reset button is
   // clicked, BEFORE the `/id reset` payload is dispatched via `onSend`.
   // Lets PrettyView flip `isHolding` true immediately instead of waiting
@@ -331,6 +370,9 @@ export interface ComposeBoxProps {
 
 export function ComposeBox({
   onSend,
+  onOptimisticSend,
+  overrideText,
+  onOverrideTextConsumed,
   onResetClicked,
   canSend,
   isHolding,
@@ -418,6 +460,18 @@ export function ComposeBox({
   const hasAttachments = (stagedAttachments?.length ?? 0) > 0;
   const hasErroredChip = !!stagedAttachments?.some((a) => a.status === "error");
   const [text, setText] = useState("");
+  // Phase 50 D-03 failure-path repopulate surface. Warning #6 (checker
+  // feedback iteration 1): onOverrideTextConsumed acks the one-way
+  // overrideText trigger so the parent (PrettyView) can transition
+  // composeOverrideText back to null without the useEffect re-firing on
+  // unchanged references. Fires ONLY when overrideText is a non-empty
+  // string; null / undefined / "" no-op.
+  useEffect(() => {
+    if (typeof overrideText === "string" && overrideText.length > 0) {
+      setText(overrideText);
+      onOverrideTextConsumed?.();
+    }
+  }, [overrideText, onOverrideTextConsumed]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composeRootRef = useRef<HTMLDivElement>(null);
@@ -648,7 +702,8 @@ export function ComposeBox({
       }
     } catch {
       // Re-queue latest — prefer newer edits over the snapshot we just
-      // tried to send. No error UI (COMPOSE-04 HARD LOCK).
+      // tried to send. No error UI on the AUTOSAVE path — send path
+      // optimistic bubbles live on PrettyView per Phase 50 D-01.
       const latestBody = latestBodyRef.current;
       const latestSlots = latestQueueSlotsRef.current;
       dirtyBodyRef.current = latestBody;
@@ -1197,7 +1252,12 @@ export function ComposeBox({
   // Bounty message-queue-in-pretty-view: per-slot send handler.
   // Routes through the same onSend(text) prop the primary uses:
   // - D-50 newline collapse applied
-  // - COMPOSE-04 hard-lock: no optimistic bubble (same as primary)
+  // - Phase 50 D-18: primary handleSend seeds an optimistic bubble via
+  //   onOptimisticSend; queue-slot sends currently do NOT (out of scope
+  //   for phase 50 — queue slots have their own visual affordance in the
+  //   drawer, so the perceived-responsiveness gap this phase closes is
+  //   scoped to the primary handleSend path). Revisit if queue-slot sends
+  //   grow their own dead moment.
   // - On success: remove slot from state + trigger autosave
   // - On failure: keep slot + surface errorMessage (mirrors primary handleSend)
   function handleQueueSlotSend(slotId: string) {
@@ -1223,7 +1283,8 @@ export function ComposeBox({
       scheduleAutosave(latestBodyRef.current, nextSlots);
     } else {
       setErrorMessage("Not connected — try again in a moment");
-      // Keep the slot — same as primary handleSend's COMPOSE-04 posture.
+      // Keep the slot — same failure-preservation posture as primary
+      // handleSend's D-20 path (Phase 50).
     }
   }
 
@@ -1231,7 +1292,8 @@ export function ComposeBox({
   // transcript here so it reaches the send path synchronously, bypassing
   // React's async setState batching on text. When present it is used in place
   // of the current `text` state. All other handleSend logic (attachment
-  // branching, D-50 newline collapse, COMPOSE-04 hard-lock) still applies.
+  // branching, D-50 newline collapse, Phase 50 D-18 optimistic-bubble
+  // seeding) still applies.
   function handleSend(overridePayload?: string, trigger: "enter-key" | "send-button" | "queue-item" | "unknown" = "unknown") {
     // Vehicle C v2: source-scoped cancel — send on primary dequeues
     // primary only; other armed sources persist through the cadence.
@@ -1273,20 +1335,45 @@ export function ComposeBox({
 
     // Phase 31 D-02: compose submit instrumentation — normal send path.
     console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} attachmentCount=0 trigger=${trigger}`);
-    const dispatched = onSend(payload);
+    // Phase 50 D-01/D-18: generate the mqid ONCE per send. This mqid
+    // flows through onOptimisticSend → PrettyView.pendingSends AND through
+    // onSend(text, mqid) → PrettyView.handleComposeSend → IdentitySessionPane
+    // → pvSendInputRef → backend armPvSendWatchdog — a single source of
+    // truth for the entire mqid chain (Blocker #4 root-cause resolution
+    // from the plan-checker iteration 1). Pattern is `pv-optim-<ms>-<8hex>`
+    // — deterministic-enough for FIFO ordering + unique enough that
+    // concurrent sends don't collide.
+    const mqid = `pv-optim-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+    // Phase 50 D-01: fire the optimistic-bubble seed BEFORE the WS send so
+    // PrettyView renders the pending bubble on the same React frame as the
+    // send dispatches.
+    onOptimisticSend?.({ payload, mqid, immediateFailure: false });
+    const dispatched = onSend(payload, mqid);
     if (dispatched) {
       console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length}`);
       setText(""); // clear compose textarea on success
       clearAfterSend();
-      // COMPOSE-04 HARD LOCK: do NOT emit any local optimistic bubble.
-      // The message will render in the conversation when the
-      // session-file tail confirms it (Phase 1 WS bridge).
+      // Phase 50 D-18: prior HARD LOCK removed. The optimistic bubble
+      // is seeded via onOptimisticSend synchronously with the WS send;
+      // PrettyView owns the pending-send state machine and matches the
+      // returning MessageEvent (or paste_send_failed / send_keys_error /
+      // 20s-timer) to clear or fail the bubble. See
+      // .planning/phases/50-optimistic-message-bubbles/50-CONTEXT.md
+      // D-01/D-05/D-19.
     } else {
       console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} err="not-connected"`);
       setErrorMessage("Not connected — try again in a moment");
-      // COMPOSE-04 + D-56: do NOT clear text; user may want to retry.
-      // Do NOT clear the persisted draft either — failed send should
-      // leave the composition intact server-side too.
+      // Phase 50 D-20: fire a SECOND onOptimisticSend with immediateFailure
+      // so PrettyView flips the just-seeded pending bubble to red state
+      // immediately (no waiting on the 20s timer for the WS-not-open case).
+      onOptimisticSend?.({ payload, mqid, immediateFailure: true });
+      // Phase 50 D-20 + D-56: do NOT clear text on onSend-returned-false;
+      // user may want to retry. onOptimisticSend was called with
+      // immediateFailure:true so the pending bubble on PrettyView is
+      // already in red state; keeping the textarea populated lets the user
+      // edit-and-resend without re-typing. Do NOT clear the persisted
+      // draft either — failed send should leave the composition intact
+      // server-side too.
     }
   }
 
@@ -1343,7 +1430,8 @@ export function ComposeBox({
         // quick 260808-cd6: same treatment during dormant/waking — text lands, no auto-send.
         if (!recycleActive && !planPendingActive && !reconnectingActive && !dormantActive) {
           // D-16-05: route through the SAME handleSend — attachment branching,
-          // D-50 newline collapse, COMPOSE-04 hard-lock all still apply.
+          // D-50 newline collapse, Phase 50 D-18 optimistic-bubble seeding
+          // all still apply.
           handleSend(result.glued, "queue-item");
         }
       } else {
@@ -2455,8 +2543,8 @@ export function ComposeBox({
             LEAVE the VISUAL-08 comment block above (~line 1240) ALONE.
             onClick routes ALL send behavior through the existing
             handleSend() at line ~652 (attachment branching, D-50
-            newline collapse, COMPOSE-04 clear-on-success — nothing
-            duplicated). */}
+            newline collapse, Phase 50 D-01 optimistic-bubble seeding,
+            clear-on-success — nothing duplicated). */}
         {/* Phase 16 + quick 260729-3y1: send-button slot — co-render pattern.
             The slot hosts RecordingControls ALONE while voice.state==="recording";
             otherwise the Send/X-for-Resume button ALWAYS renders (at right-1
