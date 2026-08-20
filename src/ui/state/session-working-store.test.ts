@@ -32,6 +32,9 @@ import {
   getSessionWorkingSnapshot,
   getSessionLastMessageAt,
   seedSessionLastMessageAt,
+  seedSessionAiTitle,
+  getSessionAiTitle,
+  useSessionAiTitle,
   subscribeSessionWorkingStore,
   __resetForTest,
 } from "./session-working-store.js";
@@ -706,5 +709,286 @@ describe("session-working-store (Phase 44 Plan 03): reconciliation chokepoint �
     expect(getSessionLastMessageAt("1:tina")).toBe(2000);
     expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
     dispose();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 47 Plan 03 — Reconciliation chokepoint (LAST-WINS for aiTitle) + seed
+// API + three-axis single-chokepoint routing (3 axes → 3 notifies on
+// co-change frames). Extends the Phase 44 Plan 03 two-axes-two-notifies
+// contract to three axes. LAST-WINS distinct from lastMessageAt's max-wins
+// because ai-title EVOLVES: as the session's topic drifts across turns, the
+// freshest ARRIVAL is the correct value — strings have no numeric ordering.
+//
+// Test 1 (seed-only): seedSessionAiTitle writes + creates dormant record.
+// Test 2 (WS-only, no prior seed): publish writes aiTitle via Axis C.
+// Test 3 (seed then WS newer, LAST-WINS): WS string overwrites seed string.
+// Test 4 (WS then seed newer, LAST-WINS): seed overwrites WS; isWorking preserved.
+// Test 5 (seed then WS "older", LAST-WINS regardless): WS wins by arrival order.
+// Test 6 (seed null — no-op): no record created; cache stays empty.
+// Test 7 (WS null after cached string — no regression): null does NOT overwrite.
+// Test 8 (identical string seed → no double-notify): Object.is guard locks it.
+// Test 9 (seed-created record isWorking:false + lastMessageAt:null — dormant defaults).
+// Test 10 (key-format contract for seedSessionAiTitle).
+// Test 11 (gone-frame regression lock): seed=X then gone → record removed; cache null.
+// Test 12 (single-chokepoint notify: WS Axis C only → +1).
+// Test 13 (LOAD-BEARING single-chokepoint notify: co-change frame → +3).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store (Phase 47 Plan 03): reconciliation chokepoint — last-wins + seed API + three-axis single-chokepoint routing", () => {
+  // Test 1 — seed-only writes cached value + creates dormant record
+  it("Test 1 (seed-only): seedSessionAiTitle(1, 'tina', 'Fix bug X') → cache reads 'Fix bug X'; record isWorking:false + lastMessageAt:null", () => {
+    seedSessionAiTitle(1, "tina", "Fix bug X");
+    expect(getSessionAiTitle("1:tina")).toBe("Fix bug X");
+
+    const snap = getSessionWorkingSnapshot();
+    const record = snap.get("1:tina");
+    expect(record).toBeDefined();
+    expect(record?.isWorking).toBe(false);
+    expect(record?.lastMessageAt).toBe(null);
+    expect(record?.aiTitle).toBe("Fix bug X");
+  });
+
+  // Test 2 — WS-only, no prior seed: publish writes aiTitle via Axis C
+  it("Test 2 (WS-only): publishFleetStatusSessionState with aiTitle:'Fix bug X' → cache reads 'Fix bug X'", () => {
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        aiTitle: "Fix bug X",
+      }),
+    );
+    expect(getSessionAiTitle("1:tina")).toBe("Fix bug X");
+    const record = getSessionWorkingSnapshot().get("1:tina");
+    expect(record?.isWorking).toBe(false);
+    expect(record?.aiTitle).toBe("Fix bug X");
+  });
+
+  // Test 3 — seed then WS newer → LAST-WINS: WS string overwrites seed string
+  it("Test 3 (seed then WS newer, LAST-WINS): seed='Debug X', WS='Fix Y' → cache reads 'Fix Y'", () => {
+    seedSessionAiTitle(1, "tina", "Debug X");
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "busy",
+        backgroundTasks: [],
+        aiTitle: "Fix Y",
+      }),
+    );
+    expect(getSessionAiTitle("1:tina")).toBe("Fix Y");
+    // isWorking reflects the WS frame's derived value (main = busy → true)
+    expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
+  });
+
+  // Test 4 — WS then seed newer → LAST-WINS: seed overwrites WS; isWorking preserved from WS frame
+  it("Test 4 (WS then seed newer, LAST-WINS): WS='Debug X' busy, seed='Fix Y' → cache reads 'Fix Y'; isWorking:true preserved", () => {
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "busy",
+        backgroundTasks: [],
+        aiTitle: "Debug X",
+      }),
+    );
+    seedSessionAiTitle(1, "tina", "Fix Y");
+    expect(getSessionAiTitle("1:tina")).toBe("Fix Y");
+    // Seed does NOT touch isWorking axis — preserved from WS frame
+    expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
+  });
+
+  // Test 5 — seed then WS "older" (by pretend chronology): LAST-WINS applies regardless
+  it("Test 5 (seed then WS 'older' — LAST-WINS applies regardless): seed='Fix Y', WS='Debug X' → cache reads 'Debug X'", () => {
+    // Ai-title is LAST-WINS (not max-wins like lastMessageAt) because strings have no
+    // numeric ordering — the freshest ARRIVAL is the correct value. Ashley 2026-08-19:
+    // "If WS says Debug X and later WS says Fix Y, we want Fix Y".
+    seedSessionAiTitle(1, "tina", "Fix Y");
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        aiTitle: "Debug X",
+      }),
+    );
+    // LAST-WINS: WS arrived after seed, so WS wins even though its string is not "newer" in any
+    // chronological sense. THIS IS THE KEY DIFFERENCE FROM MAX-WINS lastMessageAt.
+    expect(getSessionAiTitle("1:tina")).toBe("Debug X");
+  });
+
+  // Test 6 — seed null on empty cache → no-op, no record created
+  it("Test 6 (seed null — no-op): seed(hostId, tmux, null) with empty cache → cache stays empty", () => {
+    seedSessionAiTitle(1, "tina", null);
+    expect(getSessionAiTitle("1:tina")).toBe(null);
+    expect(getSessionWorkingSnapshot().size).toBe(0);
+  });
+
+  // Test 7 — WS with null aiTitle after cached string → no regression (LAST-WINS null-no-op)
+  it("Test 7 (WS null after cached string — no regression): seed='Fix Y', WS aiTitle:null → cache stays 'Fix Y'", () => {
+    seedSessionAiTitle(1, "tina", "Fix Y");
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        // aiTitle omitted → undefined → normalized to null in publish → Axis C no-op
+      }),
+    );
+    // Invariant 1: null does NOT overwrite an existing string (fail-open guard).
+    expect(getSessionAiTitle("1:tina")).toBe("Fix Y");
+  });
+
+  // Test 8 — identical string seed → no double-notify (Object.is guard)
+  it("Test 8 (identical string seed → no double-notify): two seeds w/ title='X', listener fires once", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    seedSessionAiTitle(1, "tina", "X");
+    seedSessionAiTitle(1, "tina", "X");
+
+    // First seed writes + notifies; second is Object.is no-op + no-notify.
+    expect(cb).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  // Test 9 — seed-only-created record has isWorking:false + lastMessageAt:null (dormant defaults)
+  it("Test 9 (dormant defaults on seed-only-created record): seed → record.isWorking===false, lastMessageAt===null", () => {
+    seedSessionAiTitle(42, "fresh", "Some topic");
+    const record = getSessionWorkingSnapshot().get("42:fresh");
+    expect(record).toBeDefined();
+    expect(record?.isWorking).toBe(false);
+    expect(record?.lastMessageAt).toBe(null);
+    expect(record?.aiTitle).toBe("Some topic");
+  });
+
+  // Test 10 — key-format contract
+  it("Test 10 (seedSessionAiTitle key-format contract): hostId=42, tmux='my-session' → key '42:my-session'", () => {
+    seedSessionAiTitle(42, "my-session", "X");
+    // Exact key format `${String(hostId)}:${tmuxSession}` matches getSessionAiTitle's consumer format
+    expect(getSessionAiTitle("42:my-session")).toBe("X");
+    expect(getSessionWorkingSnapshot().has("42:my-session")).toBe(true);
+  });
+
+  // Test 11 — publishFleetStatusSessionGone still deletes even with aiTitle cached
+  it("Test 11 (gone-frame regression lock): seed='X' then gone → record removed; getSessionAiTitle null", () => {
+    seedSessionAiTitle(1, "tina", "X");
+    expect(getSessionAiTitle("1:tina")).toBe("X");
+
+    publishFleetStatusSessionGone("1", "tina", "sess-1");
+
+    expect(getSessionAiTitle("1:tina")).toBe(null);
+    expect(getSessionWorkingSnapshot().has("1:tina")).toBe(false);
+  });
+
+  // Test 12 — single-chokepoint notify: Axis C only (isWorking unchanged, lastMessageAt unchanged, aiTitle changes)
+  it("Test 12 (Axis C only — WS unchanged isWorking + unchanged lastMessageAt + changed aiTitle): notify count += 1", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // Pre-populate: idle + lastMessageAt=1000 + aiTitle='A'
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+        aiTitle: "A",
+      }),
+    );
+    const n0 = cb.mock.calls.length;
+
+    // Trigger under test: SAME isWorking (idle → false), SAME lastMessageAt, DIFFERENT aiTitle
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+        aiTitle: "B",
+      }),
+    );
+
+    // Axis A no-ops (isWorking unchanged); Axis B no-ops (ts unchanged);
+    // Axis C fires (advanceSessionAiTitle writes + notifies).
+    expect(cb.mock.calls.length).toBe(n0 + 1);
+    expect(getSessionAiTitle("1:tina")).toBe("B");
+    dispose();
+  });
+
+  // Test 13 — LOAD-BEARING single-chokepoint notify: all three axes fire (3 notifies)
+  it("Test 13 (LOAD-BEARING: three-axis co-change frame — changed isWorking AND fresher lastMessageAt AND changed aiTitle): notify count += 3", () => {
+    // Load-bearing lock for the THREE-axis single-chokepoint architecture (extends
+    // Phase 44 Plan 03 Test 15's n0+2 to n0+3). Would fail under any
+    // atomic-swap-then-notify-once implementation. See 47-CONTEXT.md § Working-store third axis.
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // Pre-populate: idle + lastMessageAt=1000 + aiTitle='A'
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "idle",
+        backgroundTasks: [],
+        lastMessageAt: 1000,
+        aiTitle: "A",
+      }),
+    );
+    const n0 = cb.mock.calls.length;
+
+    // Trigger under test: CHANGED isWorking (busy → true) AND FRESHER lastMessageAt AND CHANGED aiTitle
+    publishFleetStatusSessionState(
+      "1",
+      makeState({
+        hostId: "1",
+        tmuxSession: "tina",
+        status: "busy",
+        backgroundTasks: [],
+        lastMessageAt: 2000,
+        aiTitle: "B (drifted)",
+      }),
+    );
+
+    // Axis A + Axis B + Axis C all fire → 3 notifies. This is the correct observable
+    // contract of the three-axis single-chokepoint architecture (Phase 47 Plan 03
+    // § Working-store third axis); any future refactor that collapses the three axes
+    // into an atomic-swap-then-notify-once path would fail this test.
+    expect(cb.mock.calls.length).toBe(n0 + 3);
+    expect(getSessionAiTitle("1:tina")).toBe("B (drifted)");
+    expect(getSessionLastMessageAt("1:tina")).toBe(2000);
+    expect(getSessionWorkingSnapshot().get("1:tina")?.isWorking).toBe(true);
+    dispose();
+  });
+
+  // Test 14 (hook parity) — useSessionAiTitle short-circuits and reads cached value
+  it("Test 14 (hook parity): useSessionAiTitle(null) → null; useSessionAiTitle(unknown) → null; useSessionAiTitle(known) → cached value", () => {
+    // null key short-circuit
+    const { result: r1 } = renderHook(() => useSessionAiTitle(null));
+    expect(r1.current).toBe(null);
+
+    // unknown key
+    const { result: r2 } = renderHook(() => useSessionAiTitle("nope:key"));
+    expect(r2.current).toBe(null);
+
+    // known key — seed then read via hook
+    seedSessionAiTitle(1, "tina", "Wired via hook");
+    const { result: r3, rerender } = renderHook(() => useSessionAiTitle("1:tina"));
+    rerender();
+    expect(r3.current).toBe("Wired via hook");
   });
 });
