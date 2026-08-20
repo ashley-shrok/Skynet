@@ -53,8 +53,10 @@ import {
   armPvSendWatchdog,
   notifyMatched,
   clearPvSendWatchdog,
+  clearPvSendWatchdogsForSession,
   __resetPvSendWatchdogForTests,
 } from "./pv-send-watchdog.js";
+import { __applyTransitionToActiveNewCleanupForTests } from "./claude-session-server.js";
 
 // Silence sshLogger — the modules log at every arm / retry / escalation /
 // dedup step and tests would otherwise dump a lot of operation lines.
@@ -576,6 +578,111 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
     expect(escalations.length).toBe(0);
   });
 
+  it("(h) Fix #2 session-recycle path — mid-armed watchdog on OLD session is cleared; no full-resend into NEW session", async () => {
+    // Regression: transitionToActiveNew (session recycle) previously reset
+    // buffered per-session state (harnessTasks, backgroundedAgents, plan
+    // pending, tail-state, etc.) but did NOT clear:
+    //   • queueEnqueueDedup Map    (stale hashes suppress fresh-session frames)
+    //   • pv-send-watchdog pending (armed against OLD sessionId — full-resend
+    //                               retypes OLD body into NEW composebox)
+    //   • pendingMqidsForThisConnection Set (stale mqid bookkeeping)
+    //
+    // A watchdog armed against the OLD sessionId whose full-resend timer
+    // fires post-recycle directly violates the shape invariant "retry
+    // never submits an unintended message" AND leaks private OLD-session
+    // content into the NEW session's transcript.
+    //
+    // This scenario:
+    //   1. Fires split-send under OLD sessionId ("sess-OLD") → watchdog armed.
+    //   2. Populates queueEnqueueDedup with an OLD-session hash + adds mqid
+    //      to a mock pendingMqidsForThisConnection Set.
+    //   3. Simulates transitionToActiveNew via the extracted cleanup helper
+    //      __applyTransitionToActiveNewCleanupForTests(oldSessionId, ...).
+    //   4. Advances 30s past every watchdog stage.
+    //   5. Asserts:
+    //      • NO retry Enter fired (would be a 3rd exec call).
+    //      • NO full-resend body C-u/-l/Enter (would be 3 more exec calls).
+    //      • NO paste_send_failed frame.
+    //      • queueEnqueueDedup.size === 0 (cleared).
+    //      • pendingMqidsForThisConnection.size === 0 (mqid removed).
+    const OLD_SESSION_ID = "sess-OLD";
+    const exec = vi.fn().mockResolvedValue("");
+    const wsSend = vi.fn();
+
+    // Per-connection state mirrors — same shapes as production
+    // (~L2419 queueEnqueueDedup, ~L2426 pendingMqidsForThisConnection).
+    const queueEnqueueDedup = new Map<string, number>();
+    const pendingMqidsForThisConnection = new Set<string>();
+    const trackMqid = (mqid: string) =>
+      pendingMqidsForThisConnection.add(mqid);
+
+    // 1. Fire split-send under OLD_SESSION_ID.
+    const inputPromise = __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: TMUX_TARGET,
+      currentHostId: HOST_ID,
+      execCommand: exec,
+      data: "secret-old-body\r",
+      messageQueueItemId: "m1",
+      sessionId: OLD_SESSION_ID,
+      wsSend,
+      armWatchdog: armPvSendWatchdog,
+      trackMqid,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    await Promise.resolve();
+    await inputPromise;
+
+    // Body + Enter fired; watchdog armed; mqid tracked.
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(pendingMqidsForThisConnection.has("m1")).toBe(true);
+
+    // 2. Populate queueEnqueueDedup with an OLD-session hash to prove the
+    //    recycle cleanup wipes it. Real production sets these hashes via
+    //    __applyQueueDedupForTests when an enqueue frame parses; we insert
+    //    directly to keep the test focused on the cleanup step under test.
+    queueEnqueueDedup.set(computeContentHash("secret-old-body"), Date.now());
+    expect(queueEnqueueDedup.size).toBe(1);
+
+    // 3. Simulate transitionToActiveNew mid-arm (before any signal arrives).
+    //    Fires ~1s after the split-send — well before the 2500ms retry
+    //    timer would otherwise trigger.
+    await vi.advanceTimersByTimeAsync(1000);
+    __applyTransitionToActiveNewCleanupForTests({
+      oldSessionId: OLD_SESSION_ID,
+      queueEnqueueDedup,
+      pendingMqidsForThisConnection,
+    });
+
+    // Cleanup immediate assertions:
+    expect(queueEnqueueDedup.size).toBe(0);
+    expect(pendingMqidsForThisConnection.size).toBe(0);
+
+    // 4. Advance 30s — well past every watchdog stage.
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // 5. No escalation fired. exec stayed at 2 (initial body + Enter only).
+    //    Any additional exec call would indicate the watchdog fired retry
+    //    Enter (→ 3 calls) or full-resend (→ 5 calls) or full-resend + Enter
+    //    (→ 6 calls) — all forbidden post-recycle.
+    expect(exec).toHaveBeenCalledTimes(2);
+
+    // No exec call contains the OLD body — proves full-resend body write
+    // did NOT retype OLD content into NEW composebox.
+    for (const call of exec.mock.calls) {
+      const cmd = call[1] as string;
+      expect(cmd).not.toContain("secret-old-body");
+    }
+
+    // No paste_send_failed / send_keys_error frame.
+    const escalations = wsSend.mock.calls.filter((c: unknown[]) => {
+      const f = c[0] as { type?: string };
+      return f?.type === "paste_send_failed" || f?.type === "send_keys_error";
+    });
+    expect(escalations.length).toBe(0);
+  });
+
   it.skip("(f) latest-only rendering — see PrettyView.optimistic-bubbles.test.tsx Task 3b Test 14", () => {
     // D-22 (f) latest-only rendering is a FRONTEND-only concern (only newest
     // 'sending' pending shows spinner; every 'failed' shows red). It is fully
@@ -669,3 +776,7 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
 // pv-send-watchdog module surface and available for future scenario
 // extensions (e.g., mid-watchdog WS-close simulation in Plan 50-04+).
 void clearPvSendWatchdog;
+// clearPvSendWatchdogsForSession is used indirectly via
+// __applyTransitionToActiveNewCleanupForTests in scenario (h); the import
+// stays for direct-invocation availability in future recycle-scenario tests.
+void clearPvSendWatchdogsForSession;
