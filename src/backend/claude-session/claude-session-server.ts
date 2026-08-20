@@ -18,6 +18,7 @@ import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 import {
   armPvSendWatchdog,
   clearPvSendWatchdog,
+  clearPvSendWatchdogsForSession,
   notifyMatched as notifyPvSendMatched,
 } from "./pv-send-watchdog.js";
 // Phase 47 Plan 03: bounded JSONL slice reader for the load-more button
@@ -1466,6 +1467,68 @@ export async function __applyDormantPollTickForTests(
   }
   // isIdentityShapedCached === false → skip entirely (never re-probe on this connection)
 }
+
+/**
+ * Fix #2 (post-Phase-50 code review): shared cleanup helper for the
+ * session-recycle path (transitionToActiveNew). Called from the closure
+ * transitionToActiveNew AND directly from optimistic-bubbles.integration.test.ts
+ * scenario (h) via the __applyTransitionToActiveNewCleanupForTests export.
+ *
+ * Clears three per-connection state slots that previously survived the
+ * recycle and could leak OLD-session behavior into the NEW session:
+ *
+ *   1. queueEnqueueDedup Map — stale content-hash entries could suppress
+ *      fresh-session type:"user" frames on content collision.
+ *   2. pv-send-watchdog module `pending` (via clearPvSendWatchdogsForSession)
+ *      — a mid-arm watchdog for the OLD sessionId whose full-resend timer
+ *      fires post-recycle would retype OLD body into NEW composebox,
+ *      violating the shape invariant "retry never submits unintended
+ *      message" and leaking OLD-session content into the NEW transcript.
+ *   3. pendingMqidsForThisConnection Set — stale mqid bookkeeping so the
+ *      ws.on("close") cleanup does not attempt to clear already-cancelled
+ *      watchdogs and stays in sync with the pending Map.
+ *
+ * The cleared-mqid list from clearPvSendWatchdogsForSession is used to
+ * scrub matching entries from pendingMqidsForThisConnection.
+ */
+function applyTransitionToActiveNewCleanup(args: {
+  oldSessionId: string;
+  queueEnqueueDedup: Map<string, number>;
+  pendingMqidsForThisConnection: Set<string>;
+}): void {
+  const {
+    oldSessionId,
+    queueEnqueueDedup,
+    pendingMqidsForThisConnection,
+  } = args;
+  // (1) queueEnqueueDedup is per-connection scope (declared in the ws-server
+  //     closure at L~2419) — not sessionId-keyed at the top level. A recycle
+  //     is a session boundary; every stale hash was scoped to the OLD
+  //     session's content flow, so blanket .clear() is correct.
+  queueEnqueueDedup.clear();
+  // (2) Watchdog module state — clear every pending entry matching the OLD
+  //     sessionId. Returns cleared mqids so we can prune the per-connection
+  //     Set below.
+  const clearedMqids = clearPvSendWatchdogsForSession(oldSessionId);
+  // (3) Remove cleared mqids from pendingMqidsForThisConnection so
+  //     ws.on("close") does not attempt double-clears on already-cancelled
+  //     watchdogs (harmless but noise). Any mqids for OTHER sessions on
+  //     this connection stay — a WS connection could in principle hold
+  //     watchdogs for different session UUIDs during a rapid recycle,
+  //     though the common case is a 1:1 connection:session mapping.
+  for (const mqid of clearedMqids) {
+    pendingMqidsForThisConnection.delete(mqid);
+  }
+}
+
+/**
+ * Test-only re-export of the applyTransitionToActiveNewCleanup helper.
+ * Consumed by optimistic-bubbles.integration.test.ts scenario (h) so
+ * the recycle cleanup contract is exercised without needing to spin up
+ * a full WS server + SSH connection + tail restart.
+ */
+export const __applyTransitionToActiveNewCleanupForTests =
+  applyTransitionToActiveNewCleanup;
 
 /**
  * Apply the input message handler logic for tests.
@@ -3457,6 +3520,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
         databaseLogger.warn(`[ws-server] tail-stop-failed hostId=${currentHostId ?? 'null'} err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_tail_stop_failed" });
       }
       tailHandle = null;
+    }
+    // Fix #2 (post-Phase-50 code review): clear session-scoped state that
+    // previously survived the recycle and could leak OLD-session behavior:
+    //   • queueEnqueueDedup Map (stale hashes suppress fresh frames)
+    //   • pv-send-watchdog `pending` for the OLD sessionId (a mid-arm
+    //     watchdog whose full-resend fires post-recycle would retype OLD
+    //     body into NEW composebox — shape-invariant violation)
+    //   • pendingMqidsForThisConnection Set entries for those cleared mqids
+    // Runs BEFORE the other buffered-state resets so OLD-session watchdogs
+    // are cancelled before any onLine callback from the fresh tail's
+    // `-n +1` replay can race with them. The helper is a pure function
+    // (applyTransitionToActiveNewCleanup at ~L1470) — re-exported for
+    // integration test scenario (h) in optimistic-bubbles.integration.test.ts.
+    if (oldSessionIdFromFile !== null) {
+      applyTransitionToActiveNewCleanup({
+        oldSessionId: oldSessionIdFromFile,
+        queueEnqueueDedup,
+        pendingMqidsForThisConnection,
+      });
     }
     // Clear ALL buffered per-session state before the new tail starts so
     // the fresh session's `-n +1` replay converges on clean bookkeeping.

@@ -647,8 +647,11 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
 
     // 3. Simulate transitionToActiveNew mid-arm (before any signal arrives).
     //    Fires ~1s after the split-send — well before the 2500ms retry
-    //    timer would otherwise trigger.
+    //    timer would otherwise trigger. Snapshot exec call count so
+    //    post-recycle activity can be measured in isolation from the
+    //    (legitimate) initial split-send body+Enter calls.
     await vi.advanceTimersByTimeAsync(1000);
+    const execCallCountAtRecycle = exec.mock.calls.length;
     __applyTransitionToActiveNewCleanupForTests({
       oldSessionId: OLD_SESSION_ID,
       queueEnqueueDedup,
@@ -662,15 +665,22 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
     // 4. Advance 30s — well past every watchdog stage.
     await vi.advanceTimersByTimeAsync(30_000);
 
-    // 5. No escalation fired. exec stayed at 2 (initial body + Enter only).
-    //    Any additional exec call would indicate the watchdog fired retry
-    //    Enter (→ 3 calls) or full-resend (→ 5 calls) or full-resend + Enter
-    //    (→ 6 calls) — all forbidden post-recycle.
-    expect(exec).toHaveBeenCalledTimes(2);
+    // 5. No escalation fired post-recycle. exec call count is UNCHANGED
+    //    from the snapshot at recycle time — only the initial split-send
+    //    body + Enter (both pre-recycle) executed. Any additional exec
+    //    call would indicate the watchdog fired retry Enter (→ +1),
+    //    full-resend (→ +3), or the give-up escalation (via wsSend, not
+    //    exec) — all forbidden post-recycle.
+    expect(exec.mock.calls.length).toBe(execCallCountAtRecycle);
+    // Sanity: those pre-recycle calls were exactly the split-send pair.
+    expect(execCallCountAtRecycle).toBe(2);
 
-    // No exec call contains the OLD body — proves full-resend body write
-    // did NOT retype OLD content into NEW composebox.
-    for (const call of exec.mock.calls) {
+    // No POST-recycle exec call contains the OLD body — proves full-resend
+    // body write did NOT retype OLD content into NEW composebox. Skip the
+    // pre-recycle calls (index 0 body, index 1 Enter) because the initial
+    // body write LEGITIMATELY contains the OLD body.
+    const postRecycleCalls = exec.mock.calls.slice(execCallCountAtRecycle);
+    for (const call of postRecycleCalls) {
       const cmd = call[1] as string;
       expect(cmd).not.toContain("secret-old-body");
     }
