@@ -361,6 +361,15 @@ export function PrettyView({
   // effect run — the same rationale as autoplayArmedRef at L487). The
   // useEffect mirror below keeps it synchronized with state.
   const capOffRef = useRef<boolean>(false);
+  // loadOlderInFlightRef: SYNCHRONOUS single-request-in-flight guard for
+  // handleLoadOlder. React's setLoadOlderState('in-flight') doesn't reach
+  // the DOM's disabled attribute within the same event-loop tick, so a
+  // rapid double-click (both firing before React re-renders) would bypass
+  // Plan 02's disabled={status === "in-flight"} guard. This ref flips
+  // synchronously inside handleLoadOlder so a second immediate invocation
+  // returns early. Reset in the response case branch AND on error path AND
+  // in the fresh-pane reset. Test 7 locks the behavior.
+  const loadOlderInFlightRef = useRef<boolean>(false);
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -686,6 +695,70 @@ export function PrettyView({
     setWakingStartTs(Date.now());
     setWakeError(null);
   }, []);
+
+  // Phase 47 (load-more button) — click handler for the LoadMoreOlderButton
+  // mount at the top of the scroll container. Sends
+  // { type: "fetch_older_range", beforeLine: oldestLoadedLine, count: 20 }
+  // on the pane's long-lived WS, then flips local state to reflect the
+  // in-flight request. Response arrives via the "fetch_older_range_batch"
+  // case in the ws.onmessage switch above.
+  //
+  // Three defense-in-depth guards before send:
+  //   (a) readyState !== OPEN → WS is mid-close or reconnecting; the button
+  //       is already hidden in that state by the visibility gate, but this
+  //       guard defends against a torn-down socket.
+  //   (b) oldestLoadedLine === null → hydration hasn't landed a per-turn
+  //       frame carrying `line` yet (either fresh pane pre-hydration or
+  //       old backend build without Plan 01 widening); the visibility gate
+  //       ALSO hides the button when hasOlderMessages is false, but this
+  //       runtime check is defense-in-depth for stale-state click races.
+  //   (c) oldestLoadedLine <= 1 → already at start of file; sessionHasMore
+  //       is also false in that state and the button is hidden, but again
+  //       runtime defense-in-depth.
+  //
+  // Post-send state flip (order matters — capOff FIRST so the very next
+  // live-tail frame arriving between here and the response uses the
+  // uncapped appendDedup path):
+  //   1. setCapOff(true) → capOffRef mirror-effect fires on next commit;
+  //      the 5 appendDedup sites use appendDedup(prev, parsed) uncapped
+  //      from here on for this pane's lifetime.
+  //   2. setLoadOlderState("in-flight") → button disables at HTML level;
+  //      Plan 02's disabled={status === "in-flight"} prevents a rapid
+  //      second click from re-invoking this handler (Test 7 locks).
+  //   3. setLoadOlderError(null) → clears any prior error state so the
+  //      button re-enters the in-flight aria-label variant cleanly.
+  //
+  // Deps: [oldestLoadedLine] — the ONE place handleLoadOlder differs from
+  // handleWake ([]): the cursor value must be current at click time. React
+  // recreates the callback whenever oldestLoadedLine changes so the
+  // captured value inside the ws.send construction is always fresh.
+  const handleLoadOlder = useCallback(() => {
+    // Synchronous in-flight guard — React setState doesn't reach the DOM's
+    // disabled attribute within the same event-loop tick, so a rapid
+    // double-click would bypass Plan 02's disabled prop. This ref flips
+    // synchronously here so a second immediate invocation returns early
+    // BEFORE the ws.send. Cleared in the response case branch (both success
+    // and error paths). Test 7 locks the behavior.
+    if (loadOlderInFlightRef.current) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (oldestLoadedLine === null) return;
+    if (oldestLoadedLine <= 1) return;
+    const payload: FetchOlderRangePayload = {
+      type: "fetch_older_range",
+      beforeLine: oldestLoadedLine,
+      count: 20,
+    };
+    loadOlderInFlightRef.current = true;
+    try {
+      ws.send(JSON.stringify(payload));
+    } catch {
+      /* swallow — best-effort; ws may be mid-close */
+    }
+    setCapOff(true);
+    setLoadOlderState("in-flight");
+    setLoadOlderError(null);
+  }, [oldestLoadedLine]);
 
   // Phase 24: plan-mode replies use a NEW WS frame `raw_keystrokes` that
   // writes bytes to the PTY in one shot (no split-send). The split-send
@@ -1151,6 +1224,7 @@ export function PrettyView({
       setSessionHasMore(true);
       setOldestLoadedLine(null);
       capOffRef.current = false;
+      loadOlderInFlightRef.current = false;
       reconnectAttemptsRef.current = 0;
       // phase-29: mirror into state so wsState derivation re-runs on cold-mount
       // reconnect-counter reset.
@@ -1278,7 +1352,11 @@ export function PrettyView({
         }
         case "message": {
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
-          setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          setMessages((prev) =>
+            capOffRef.current
+              ? appendDedup(prev, parsed)
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+          );
           // Phase 47 (load-more button) — seed oldestLoadedLine from the min
           // `line?: number` across all incoming per-turn frames (Plan 01
           // additive optional widening). The cursor is the smallest line
@@ -1308,7 +1386,11 @@ export function PrettyView({
           // wire order — same state channel, same dedup on eventId. The
           // render branch below discriminates on `m.type`.
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
-          setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          setMessages((prev) =>
+            capOffRef.current
+              ? appendDedup(prev, parsed)
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+          );
           // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
           setOldestLoadedLine((prev) => {
             if (typeof parsed.line !== "number") return prev;
@@ -1320,7 +1402,11 @@ export function PrettyView({
         case "relay_outbound": {
           // RELAYBUB-01: outbound relay frame → RelayOutboundBubble (identity-hue, left-aligned per patch #200).
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
-          setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          setMessages((prev) =>
+            capOffRef.current
+              ? appendDedup(prev, parsed)
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+          );
           // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
           setOldestLoadedLine((prev) => {
             if (typeof parsed.line !== "number") return prev;
@@ -1332,7 +1418,11 @@ export function PrettyView({
         case "relay_inbound": {
           // RELAYBUB-02: inbound relay frame → RelayInboundBubble (sender-hue tinted, left-aligned — multi-user chat convention).
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
-          setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          setMessages((prev) =>
+            capOffRef.current
+              ? appendDedup(prev, parsed)
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+          );
           // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
           setOldestLoadedLine((prev) => {
             if (typeof parsed.line !== "number") return prev;
@@ -1345,13 +1435,66 @@ export function PrettyView({
           // pv-malformed-jsonl-placeholder-bubble (2026-08-10): interleave a
           // compact placeholder so a dropped turn is visible instead of silent.
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
-          setMessages((prev) => appendDedupWithCap(prev, parsed, WORKING_SET_CAP));
+          setMessages((prev) =>
+            capOffRef.current
+              ? appendDedup(prev, parsed)
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+          );
           // Phase 47 (load-more button) — seed oldestLoadedLine (see message case).
           setOldestLoadedLine((prev) => {
             if (typeof parsed.line !== "number") return prev;
             if (prev === null || parsed.line < prev) return parsed.line;
             return prev;
           });
+          break;
+        }
+        case "fetch_older_range_batch": {
+          // Phase 47 (load-more button) — server response to handleLoadOlder's
+          // fetch_older_range send. Two paths:
+          //
+          //   (a) Error path (parsed.error set): flip to error state, retain
+          //       all prior state — messages, oldestLoadedLine, sessionHasMore.
+          //       T-47-24 mitigation: NOT advancing oldestLoadedLine on error
+          //       is load-bearing — the retry click MUST send the same
+          //       beforeLine (81 in tests), not the server-echoed 0. Test 8
+          //       locks this.
+          //
+          //   (b) Success path: prepend parsed.messages above the existing
+          //       array (server returns oldest-first per Plan 03 chronological-
+          //       order invariant), dedupe on eventId to defend against
+          //       overlap at the cursor boundary, advance oldestLoadedLine to
+          //       parsed.oldestLine, apply parsed.hasMore to sessionHasMore
+          //       (hasMore=false hides the button per Test 9), clear the
+          //       in-flight/error state.
+          if (parsed.error != null) {
+            setLoadOlderState("error");
+            setLoadOlderError(parsed.error);
+            // Clear in-flight guard so the user can retry-click (retry
+            // contract per CONTEXT.md § Philosophy "Fail visibly" —
+            // error state remains clickable). Test 8 asserts a retry
+            // click sends a second fetch_older_range payload.
+            loadOlderInFlightRef.current = false;
+            break;
+          }
+          setMessages((prev) => {
+            const combined = [...parsed.messages, ...prev];
+            const seen = new Set<string>();
+            const result: typeof combined = [];
+            for (const m of combined) {
+              if (!seen.has(m.eventId)) {
+                seen.add(m.eventId);
+                result.push(m);
+              }
+            }
+            return result;
+          });
+          setOldestLoadedLine(parsed.oldestLine);
+          setSessionHasMore(parsed.hasMore);
+          setLoadOlderState("idle");
+          setLoadOlderError(null);
+          // Clear in-flight guard so a subsequent click after the response
+          // succeeds. Response has landed → next click may fire.
+          loadOlderInFlightRef.current = false;
           break;
         }
         case "inactive": {
@@ -1751,6 +1894,41 @@ export function PrettyView({
     capOffRef.current = capOff;
   }, [capOff]);
 
+  // Phase 47 (load-more button) — oldestLoadedLine reconciliation.
+  //
+  // The seed sites in the 5 case branches (Task 2a) UPDATE oldestLoadedLine
+  // as frames arrive, taking a running MIN across everything seen. That
+  // running-min is wrong when the cap drops messages: a frame at line 26
+  // may have been seen (setting oldestLoadedLine=26) but then dropped by
+  // WORKING_SET_CAP=20 (only lines 31..50 remain in messages[]). If the
+  // user clicks with oldestLoadedLine=26, the server returns lines 6..25
+  // — but the client's own dropped-cache still had lines 26..30 that are
+  // no longer requested, creating a permanent gap.
+  //
+  // This effect reconciles: after every messages change, take the min of
+  // parsed.line across CURRENTLY-HELD messages (not everything ever seen).
+  // Only fires when the derived value differs — no-op when the seed sites
+  // already have the correct value (streaming-tail with no cap-drops).
+  //
+  // Skipped when capOff is true: post-first-click, the response case
+  // authoritatively sets oldestLoadedLine to parsed.oldestLine, and
+  // messages[] no longer drops-oldest — so the min-of-messages could go
+  // BACKWARD past the response cursor as older batches arrive, which
+  // would be wrong. Under capOff, oldestLoadedLine is source-of-truth for
+  // the next request cursor; only the response case advances it.
+  useEffect(() => {
+    if (capOff) return;
+    let derivedMin: number | null = null;
+    for (const m of messages) {
+      if (typeof m.line === "number") {
+        if (derivedMin === null || m.line < derivedMin) {
+          derivedMin = m.line;
+        }
+      }
+    }
+    setOldestLoadedLine((prev) => (prev === derivedMin ? prev : derivedMin));
+  }, [messages, capOff]);
+
   // quick 260808-cd6: dormantRef mirror — keeps dormantRef.current in sync
   // with the `dormant` state so the WS onmessage auto-dismiss hook can read
   // current dormant state without stale-closure issues. Pattern mirrors isVisibleRef.
@@ -2102,6 +2280,25 @@ export function PrettyView({
     };
   }, [sendInput, sendInterrupt, onRegisterSendInput, onRegisterSendInterrupt, onUnregisterSendInput, onUnregisterSendInterrupt]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Phase 47 (load-more button) — visibility gate for LoadMoreOlderButton.
+  // Truth table (see 47-04-PLAN.md § Task 2b behavior):
+  //   sessionTotalLines | messages.length | sessionHasMore | hasOlderMessages
+  //   ------------------|-----------------|----------------|-----------------
+  //   null              | any             | any            | false  (pre-hydration)
+  //   15                | 15              | true           | false  (short convo)
+  //   100               | 20              | true           | true   (cap, older exists)
+  //   100               | 40              | true           | true   (post-1st-click)
+  //   100               | 100             | true           | false  (all loaded)
+  //   100               | 40              | false          | false  (hasMore=false edge)
+  //   500               | 20              | true           | true   (long history)
+  //
+  // Guards against CONTEXT.md § "What would make it wrong" "no lie" — the
+  // button never appears on a conversation with nothing older behind it.
+  const hasOlderMessages =
+    sessionTotalLines != null &&
+    sessionHasMore &&
+    sessionTotalLines > messages.length;
+
   return (
     <div
       ref={pvRootRef}
@@ -2363,6 +2560,21 @@ export function PrettyView({
           // sole scroll-position authority through measurement changes.
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
         >
+          {/* Phase 47 (load-more button) — mounted at the TOP of the scroll
+              container, immediately above the messages.map. Visibility gate
+              `hasOlderMessages` derived below matches CONTEXT.md § What would
+              make it wrong "no lie" invariant: only shown when the server has
+              signaled totalLines > messages.length AND hasMore. See truth
+              table in the plan's <behavior> block for boundary rows. Same
+              in-flow structural convention as the accessory siblings below
+              (WipBubble/WaitingBubble/etc.) — plain child of the same scroll
+              container, no position:absolute. */}
+          <LoadMoreOlderButton
+            hasOlder={hasOlderMessages}
+            status={loadOlderState}
+            error={loadOlderError}
+            onClick={handleLoadOlder}
+          />
           {/* Phase 43 (plan 43-07a): plain-DOM message rendering. Every entry
               in messages[] is a real in-flow child of the outer scroll
               container. No sized virtualizer wrapper, no absolute positioning,
