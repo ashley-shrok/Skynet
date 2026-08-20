@@ -1,9 +1,54 @@
 // ─── PrettyConversationRow ───────────────────────────────────────────────────
+// Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19) — biggest surface
+// change since Phase 41 Plan 01. Retired vs pre-Phase-48:
+//   * `.pv-meta` right column — element removed from the row entirely; the
+//     right-column grid slot is gone. Bounty badge relocated to avatar corners
+//     (Pin bottom-left, Monitor bottom-right); ready-dot deleted outright.
+//   * The pre-Phase-48 ready-dot span (with its inline display-block hack)
+//     plus the 4-input `isWorking-false + !isRecycling + !hasQueuePending`
+//     JSX render gate — the "come look" cue is now INVERTED: idle rows have
+//     NOTHING; working rows get a slow dashed spinner ring painted on
+//     `.pv-avatar::before` (CSS only; no JSX element for the spinner).
+//   * `.pv-host` Server-icon rendering — hostname migrates to the title line
+//     wrapped in parens (`identityName (hostname)`); the subtitle line becomes
+//     the aiTitle text (or an italic ellipsis placeholder when aiTitle is null).
+//   * `subtitleMode` prop-driven sublabel branching — the prop is still
+//     ACCEPTED on the interface for backward compat with the 5 panel render
+//     sites (search-flat, pinned, middle, RDP, hidden), but its value has no
+//     runtime effect: the subtitle is always the aiTitle string (or the
+//     placeholder ellipsis when null). Kept in the interface so a plan-scope
+//     grep-and-remove pass across all 5 render sites is a follow-up concern.
+// New in Phase 48 Plan 05:
+//   * Title-line hostname suffix: `<span className="pv-hostname-suffix">
+//     ({row.host.name})</span>` — parens same font-size as identity name,
+//     alpha 0.85 (CSS-owned).
+//   * Subtitle line: `<span className="pv-ai-title">{aiTitle}</span>` when
+//     aiTitle is truthy; `<span className="pv-ai-title pv-ai-title--placeholder">
+//     …</span>` when aiTitle is null. Muted italic ellipsis anchors row height
+//     regardless of ai-title presence.
+//   * `.pv-avatar` gets Pin (bottom-left) + Monitor (bottom-right) badge
+//     corners via VERBATIM JSX duplication of PrettyBountyCountBadge.tsx's
+//     two-wrap shape (chosen over the component-call route so each wrap can be
+//     absolute-positioned independently). PrettyBountyCountBadge.tsx itself is
+//     UNTOUCHED per 48-CONTEXT.md § Badge relocation V12 style reuse.
+//   * `showSpinnerOn` JS-computed boolean: Ashley 2026-08-19 verbatim rule
+//     "make the spinner work on the same logic as the idle indicator, except
+//     you invert it as the final step of logic there." Concretely:
+//     `showSpinnerOn = !(inActiveSet && isWorking === false && !isRecycling
+//       && !hasQueuePending)` — the SAME 4 inputs the pre-Phase-48 ready-dot
+//     JS render gate used, evaluated the same way, with the final boolean
+//     inverted. Emitted as the `spinner-on` className on `.pv-row` (see
+//     className composition below). CSS keys off `.pv-row.spinner-on
+//     .pv-avatar::before` — single class match; all 4 inputs live in JS, CSS
+//     is the paint layer only. Do NOT widen (drop inputs) or narrow (add
+//     `:is(.working, .recycling)` on the CSS side) — that would violate
+//     48-CONTEXT.md § Working indicator INVERSION and Ashley's verbatim rule.
+//
 // Phase 13 Plan 01 (Ashley 2026-07-23 lift-from-mock v4) — as amended by
 // Phase 41 Plan 01 (Ashley 2026-08-14 ambient-retirement): the row renders the
 // mock's semantic markup with class-toggle state variants. Every visual
 // definition (base body, avatar disc, selected treatment, hover, RDP,
-// ready-dot) lives in pretty-conversations.css.
+// spinner ring) lives in pretty-conversations.css.
 //
 // Phase 41 Plan 01 retired the ambient-recession visual entirely: this
 // component no longer derives the pre-Phase-41 amb-recession flag and no
@@ -15,24 +60,13 @@
 //
 // This component keeps only the surviving JS-only concerns:
 //
-//   - Ready-dot conditional render
-//     (`isWorking === false && !isRecycling && !hasQueuePending`)
-//     — JS-gated so the DOM never contains a ready-dot span when isWorking is
-//     null or true, when the SessionHoldingOverlay is up (quick-260730-qbl),
-//     OR when the row's ComposeBox has an armed idle-send queue
-//     (quick-260802-w9e — closes the pinned bounty
-//     `hide-idle-dot-when-queued-message-waiting-to-send`). The `inActiveSet`
-//     conjunct was dropped 2026-08-14 — since the Phase 34 Plan 06 fleet-
-//     status cutover, isWorking is backend-authoritative for every session
-//     the fleet-status channel knows about (not just active-set rows), so
-//     the dot surfaces "ready for attention" on every non-working row.
-//     Phase 41 Plan 01 formalized this uniformity: the ambient-recession
-//     visual is now retired, so all rows carry the same visual weight, and
-//     the dot's "come look" cue is uniform across the whole list.
-//     The CSS `.pv-row:not(.working):not(.recycling) .pv-ready-dot
-//     { display: block }` provides a secondary gate for the isWorking +
-//     isRecycling axes only; the queue-pending gate lives ONLY in JS
-//     because it isn't surfaced as a row className.
+//   - Working-spinner INVERSION gate (Phase 48 Plan 05, Ashley 2026-08-19):
+//     JS computes `showSpinnerOn = !(inActiveSet && isWorkingFalse &&
+//     !isRecycling && !hasQueuePending)` — the DIRECT LOGICAL INVERSE of
+//     the pre-Phase-48 ready-dot render gate. Emitted as the `spinner-on`
+//     className on `.pv-row`; CSS at `.pv-row.spinner-on .pv-avatar::before`
+//     paints the slow dashed spinner ring. All 4 inputs live in JS; CSS is
+//     the paint layer only. See 48-CONTEXT.md § Working indicator INVERSION.
 //   - Avatar image src selection (identity.avatarUrl vs initial letter vs
 //     tabIcon fallback).
 //   - Click / keyboard / touch handlers, aria-labels, `--pv-hue` custom
@@ -89,7 +123,7 @@ import {
   type MouseEvent,
   type TouchEvent,
 } from "react";
-import { Pin, Server } from "lucide-react";
+import { Pin, Monitor } from "lucide-react";
 
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -99,7 +133,13 @@ import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
 
-import { PrettyBountyCountBadge } from "./PrettyBountyCountBadge";
+// Phase 48 Plan 05: PrettyBountyCountBadge is no longer instantiated by this
+// component (badge wraps now render as inline JSX inside `.pv-avatar` to
+// enable independent absolute-corner positioning — see the avatar render
+// block below). PrettyBountyCountBadge.tsx itself is UNTOUCHED verbatim per
+// 48-CONTEXT.md § Badge relocation V12 style reuse; it remains available for
+// any future consumer that wants the pre-Phase-48 flex-row layout of the two
+// wraps as a single component call.
 import {
   PrettyConversationContextMenu,
   type PrettyContextMenuItem,
@@ -269,7 +309,8 @@ export function PrettyConversationRow({
   const hue: number | null = identity?.colorHue ?? null;
   const isRdp = row.rdpHostRow === true;
 
-  // Phase 26 Plan 03: per-row bounty counts pair for the .pv-meta badge.
+  // Phase 26 Plan 03 / Phase 48 Plan 05: per-row bounty counts pair feeding
+  // the two avatar-corner badge wraps (Pin bottom-left, Monitor bottom-right).
   // useBountyCounts(null, ...) short-circuits to undefined (identityKey null
   // means no identity resolved — no subscription cost for non-identity rows).
   // Host.id is a string in the fork's ui-types; we convert with parseInt
@@ -898,12 +939,39 @@ export function PrettyConversationRow({
     dxLive < 0 &&
     swipeRawDx <= -swipeThreshold;
 
+  // Phase 48 Plan 05 — working-spinner INVERSION gate (Ashley 2026-08-19
+  // verbatim: "make the spinner work on the same logic as the idle indicator,
+  // except you invert it as the final step of logic there.") The pre-Phase-48
+  // ready-dot JS render gate was the 4-input boolean at the old L1109 that
+  // used the (isWorkingFalse + notRecycling + noQueuePending) conjuncts under
+  // an `inActiveSet` scope at the render site. This is the DIRECT LOGICAL
+  // INVERSE — SAME 4 inputs, SAME evaluation shape, final boolean inverted —
+  // so a row that satisfies "ready-for-attention" (active set + idle + not
+  // recycling + no queued send) yields `false`, and every other combination
+  // yields `true`. Emitted as the `spinner-on` className on `.pv-row`; CSS
+  // matches on that single class alone at `.pv-row.spinner-on .pv-avatar
+  // ::before` — no CSS-side narrowing to `:is(.working, .recycling)`, no
+  // `.active-set` scoping. All 4 inputs live in JS; CSS is the paint layer
+  // only. See 48-CONTEXT.md § Working indicator INVERSION and 48-CONTEXT.md
+  // § Canonical Refs § Working-indicator gate source (the pre-plan draft that
+  // used a CSS-only `.pv-row.active-set:is(.working, .recycling)` shape
+  // dropped 2 of the 4 inputs — `hasQueuePending` and the polarity on
+  // `inActiveSet` — and was rejected). Tests P47-14 and P47-15 lock the
+  // full 4-input boolean against regression back to the CSS-only shape.
+  const showSpinnerOn = !(
+    inActiveSet &&
+    isWorking === false &&
+    !isRecycling &&
+    !hasQueuePending
+  );
+
   const rowClassName = cn(
     "pv-row",
     variantClass,
     selected && "selected",
     inActiveSet && "active-set",
     isWorking === true && "working",
+    showSpinnerOn && "spinner-on",
     isRecycling === true && "recycling",
     pinned && "pinned",
     // Phase 41 Plan 01: amb-recession className toggle retired.
@@ -974,7 +1042,30 @@ export function PrettyConversationRow({
         style={bodyStyle}
         className={rowClassName}
       >
-        {/* Avatar disc — identity avatar OR initial letter OR tabIcon fallback */}
+        {/* Avatar disc — identity avatar OR initial letter OR tabIcon fallback.
+            Phase 48 Plan 05: `.pv-avatar` is now the positioning host for the
+            Pin + Monitor bounty-count badges (relocated from the retired
+            retired right-column meta wrapper to absolute corners of the avatar — Pin
+            bottom-left, Monitor bottom-right). The V12 notification-badge
+            style (patch #468) is reused VERBATIM per 48-CONTEXT.md § Badge
+            relocation V12 style reuse: PrettyBountyCountBadge.tsx is UNTOUCHED
+            and its `.pv-bounty-badge-wrap` / `.pv-bounty-badge-icon` /
+            `.pv-bounty-badge-num` class values + child structure are preserved
+            verbatim. However, the component's outer `.pv-bounty-badge` flex
+            container groups the two wraps in a single row — inconvenient for
+            absolute-positioning them independently at avatar corners — so
+            here we DUPLICATE the wrap JSX inline (Pin + count-pill; Monitor +
+            count-pill) so each wrap can be a direct child of `.pv-avatar` and
+            CSS at `.pv-avatar .pv-bounty-badge-wrap[data-testid=...] {
+            position: absolute; bottom: -4px; left|right: -8px; }` can pin
+            each corner independently. Keep the two shapes in sync manually
+            with PrettyBountyCountBadge.tsx (~L44-68). Alternative refactor
+            (extract sub-component) rejected for Phase 48 scope — the badge
+            component is verbatim-locked per patch #468 preservation contract.
+            Zero-count branches match PrettyBountyCountBadge.tsx exactly:
+            each wrap renders iff its count > 0; the unfetched-pair case
+            (both undefined) also renders no wraps, matching the badge
+            component's null-return contract. */}
         <div className="pv-avatar" data-testid="pcrow-avatar">
           {identity ? (
             identity.avatarUrl ? (
@@ -993,68 +1084,75 @@ export function PrettyConversationRow({
               {tabIcon(row.type)}
             </span>
           )}
+          {/* Phase 48 Plan 05 — Pin count badge (bottom-left of avatar).
+              Renders iff pinnedCount > 0 (unfetched pair OR zero count → no
+              wrap). Verbatim JSX shape from PrettyBountyCountBadge.tsx L50-58. */}
+          {bountyCounts?.pinnedCount !== undefined &&
+            bountyCounts.pinnedCount > 0 && (
+              <span
+                className="pv-bounty-badge-wrap"
+                data-testid="pv-bounty-badge-pinned"
+              >
+                <Pin className="pv-bounty-badge-icon" aria-hidden="true" />
+                <span className="pv-bounty-badge-num">
+                  {bountyCounts.pinnedCount}
+                </span>
+              </span>
+            )}
+          {/* Phase 48 Plan 05 — Monitor count badge (bottom-right of avatar).
+              Renders iff needsDeskCount > 0. Verbatim JSX shape from
+              PrettyBountyCountBadge.tsx L59-67. */}
+          {bountyCounts?.needsDeskCount !== undefined &&
+            bountyCounts.needsDeskCount > 0 && (
+              <span
+                className="pv-bounty-badge-wrap"
+                data-testid="pv-bounty-badge-needs-desk"
+              >
+                <Monitor className="pv-bounty-badge-icon" aria-hidden="true" />
+                <span className="pv-bounty-badge-num">
+                  {bountyCounts.needsDeskCount}
+                </span>
+              </span>
+            )}
         </div>
 
-        {/* Body: label + host secondary line.
-            quick-260727-f9v: sublabel render is now subtitleMode-driven.
-            Fallback chain (both explicit and self-documenting per Tina's
-            patch #149 lesson — "known limitation, inert ≠ inert"):
-              1. subtitleMode === "identityTitle" AND identity resolved
-                 → render `identity.title ?? identity.displayName`, NO Server icon
-                 (the per-host divider chip above the group already carries
-                 the Server glyph; duplicating here would be noisy).
-              2. subtitleMode === "identityTitle" AND identity is null
-                 → fall through to the verbatim previous behavior — the
-                 terminal safety net that guarantees rows never ship with
-                 sublabel "" or "undefined".
-              3. subtitleMode === "hostname" (default)
-                 → verbatim previous behavior: Server icon + row.host.name.
-            The outer `{row.host && …}` guard stays intact — rows without a
-            host render nothing here in both modes (final safety net; no host
-            = no sublabel line = no possibility of stringifying undefined). */}
+        {/* Body: title line + subtitle line.
+            Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19):
+              Title line — identity displayName (or row.label as safety-net
+              fallback) followed by a `(hostname)` suffix when row.host is
+              present. Parens are the SAME font-size as identity name; alpha
+              subtly softened (0.85 via CSS) to read as parenthetical. Fade-
+              truncation is handled by CSS mask-image on `.pv-label`
+              (text-overflow: clip + right-edge linear-gradient mask).
+              Subtitle line — the aiTitle prop threaded by Plan 48-04. When
+              aiTitle is a non-empty string, render as `.pv-ai-title`. When
+              aiTitle is null (fresh session; RDP; not-yet-published), render
+              a muted italic ellipsis anchor via `.pv-ai-title--placeholder`
+              so the row visually retains the same height regardless of
+              ai-title presence. Server icon is DROPPED entirely (hostname
+              lives on the title line now). subtitleMode prop is accepted
+              for backward compat but has no runtime effect. */}
         <div className="pv-body">
           <span className="pv-label">
-            {subtitleMode === "identityTitle" && identity
-              ? identity.displayName
-              : row.label}
+            {identity ? identity.displayName : row.label}
+            {row.host && (
+              <span className="pv-hostname-suffix">
+                {" "}
+                ({row.host.name})
+              </span>
+            )}
           </span>
-          {row.host && (
-            <span className="pv-host">
-              {subtitleMode === "identityTitle" && identity ? (
-                // Path 1: identity-title mode with a resolved identity.
-                // Drop the Server icon (the group's divider chip carries it).
-                <span>{identity.title ?? identity.displayName}</span>
-              ) : (
-                // Path 2 (identityTitle + no identity) and Path 3 (hostname
-                // mode): verbatim previous render — Server icon + hostname.
-                <>
-                  <Server aria-hidden="true" width={11} height={11} />
-                  <span>{row.host.name}</span>
-                </>
-              )}
-            </span>
+          {aiTitle !== null ? (
+            <span className="pv-ai-title">{aiTitle}</span>
+          ) : (
+            <span className="pv-ai-title pv-ai-title--placeholder">…</span>
           )}
         </div>
 
-        {/* Right meta column: desktop PinAction + ready-dot. Pin glyph is
-            handled by CSS via `.pv-row:not(.pinned) .pv-meta .pv-pin
-            { display: none }` — but the mock uses a lucide Pin svg. In this
-            React port we render PinAction (which internally renders a lucide
-            Pin/PinOff) — the desktop hover-reveal is CSS-driven via the
-            `.pv-row.pv-row--desktop:not(.pinned):not(:hover) .pv-meta
-            [data-testid="pin-action"] { opacity: 0 }` rule in
-            pretty-conversations.css. Mobile PinAction lives in the swipe
-            strip (above); RDP rows skip PinAction entirely. */}
         {/* Non-interactive pin indicator — absolute-positioned at the row's
-            top-left corner so it reads as a row-level flag rather than
-            competing visually with the bounty count badge in .pv-meta.
-            Fills the gap left by (a) mobile rows never rendering PinAction
-            at all post-quick-260802-pq2 and (b) desktop PinAction being
-            hover-reveal only — both of which meant a pinned row that moved
-            into the active-set section lost its only visible pin cue.
-            Rendered iff `pinned` (defense-in-depth: CSS also display:none-s
-            on :not(.pinned) and .rdp). CSS handles absolute positioning +
-            hue-drop-shadow. */}
+            top-left corner so it reads as a row-level flag. Preserved from
+            pre-Phase-48; the right-column meta wrapper retirement does NOT
+            affect this element. Rendered iff `pinned`. */}
         {pinned && (
           <span
             className="pv-pin-indicator"
@@ -1064,73 +1162,18 @@ export function PrettyConversationRow({
             <Pin />
           </span>
         )}
-        <div className="pv-meta">
-          {/* Phase 26 Plan 03: combined pin·desk bounty count badge. Renders
-              INSIDE .pv-meta immediately BEFORE the ready-dot (final left-
-              to-right order: [deactivate] [pin] [bounty-badge] [ready-dot]).
-              The badge component returns null when the pair is undefined
-              (pre-fetch) or both halves are zero (absence is the correct
-              signal), so nothing else guards visibility here — non-identity
-              rows short-circuit inside useBountyCounts above (identityKey
-              null returns undefined). Coexists with the ready-dot: a row
-              that is BOTH in-active-set-and-idle AND has bounties shows
-              BOTH indicators side by side per spec verification #4. Hue
-              tinting inherits from .pv-row's --pv-hue via .pv-bounty-badge
-              CSS rule. Null-safety via optional chaining on the pair. */}
-          <PrettyBountyCountBadge
-            pinnedCount={bountyCounts?.pinnedCount}
-            needsDeskCount={bountyCounts?.needsDeskCount}
-          />
-
-          {/* Ready-dot — signals "engaged AND agent idle, ready for
-              Ashley's next input." Rendered iff inActiveSet &&
-              isWorking === false && !isRecycling && !hasQueuePending. JS
-              gate is strictly narrower than any CSS gate (JS excludes null
-              and true for isWorking, and excludes both recycling and
-              queue-pending) — the JS gate is the source of truth and the
-              CSS `.pv-row.active-set:not(.working):not(.recycling)
-              .pv-ready-dot { display: block }` rule is a defense-in-depth
-              visibility invariant for the isWorking + isRecycling axes.
-
-              The `!isRecycling` conjunct (quick-260730-qbl) suppresses the
-              dot whenever the row's pretty-view surface is currently
-              showing SessionHoldingOverlay (patch #74). The CSS gate at
-              pretty-conversations.css line 463 has been extended in
-              parallel to `:not(.recycling)` for defense-in-depth.
-
-              The `!hasQueuePending` conjunct (quick-260802-w9e) suppresses
-              the dot whenever this row's ComposeBox has at least one
-              message armed for send-when-idle. Bounty rationale verbatim:
-              "if a queued message is armed to auto-send the moment the
-              agent goes idle, the agent is effectively already spoken-for
-              and NOT ready for Ashley's next instruction (which IS the
-              meaning of the dot)." Closes pinned bounty
-              `hide-idle-dot-when-queued-message-waiting-to-send`.
-              JS-only gate here — no matching CSS mirror because
-              `has-queue-pending` is not surfaced as a row className (the
-              class rollup at lines 342-343 is deliberately untouched;
-              only the dot-render suppression is in scope).
-
-              Hue-cream fill + hue outer glow all handled by CSS via
-              `.pv-ready-dot` selector; the neutral fallback for hue-null
-              rows is handled by the `--pv-hue: 216` fallback on `.pv-row`
-              (RDP rows never carry the `.active-set:not(.working)`
-              combination in practice — the panel passes isWorking={null}
-              for RDP rows because sessionWorkingKey resolves against a
-              null tmux session). */}
-          {isWorking === false && !isRecycling && !hasQueuePending && (
-            <span
-              aria-label="ready"
-              data-pv-conv-ready-dot="true"
-              className="pv-ready-dot"
-              // Force display:block inline — CSS gate is
-              // `.pv-row:not(.working):not(.recycling) .pv-ready-dot { display:
-              // block }`; inline display:block guarantees the JS gate is
-              // authoritative regardless of parent className shape.
-              style={{ display: "block" }}
-            />
-          )}
-        </div>
+        {/* Phase 48 Plan 05 — the right-column meta wrapper RETIRED entirely.
+            Retired symbols and their replacements:
+              - PrettyBountyCountBadge invocation → replaced by direct-JSX
+                duplication of the two wraps inside `.pv-avatar` above.
+              - The pre-Phase-48 ready-dot span (with its inline display-block
+                hack) plus the 4-input `isWorkingFalse + notRecycling +
+                noQueuePending` JSX render gate → replaced by the CSS-painted
+                spinner ring on `.pv-avatar::before` (see pretty-conversations
+                .css). The 4-input JS boolean that drove the ready-dot render
+                now drives the INVERTED `showSpinnerOn` className computed at
+                the rowClassName composition above (Ashley 2026-08-19 verbatim
+                rule; 48-CONTEXT.md § Working indicator INVERSION). */}
       </div>
       {/* Right-click menu portal. Items filter by row eligibility: Pin
           renders for any row; Hide/Show only when onToggleHide is provided;
