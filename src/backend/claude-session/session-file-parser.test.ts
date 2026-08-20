@@ -810,3 +810,189 @@ describe("parseSessionLine — malformed line diagnostic bytes", () => {
     expect(parsed.bytes).toBe(raw.trim().length);
   });
 });
+
+// Phase 50 Plan 01 Task 1 (D-09, D-10, D-11) — teach parseSessionLine to
+// treat a normal-content type:"queue-operation" + operation:"enqueue" entry
+// as a first-class kind:"message" (role:"user") emission. eventId is
+// deterministic per (sessionId, timestamp, content). Task-notification and
+// system-reminder wrapped enqueues still skip (patch #66 completion path
+// unchanged). See 50-01-PLAN.md § objective "Hash-derivation contract" for
+// the two-hash rationale (eventId here vs. contentHash used by Task 2's
+// dedup Map + Plan 50-02 watchdog).
+describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50 Plan 01 Task 1)", () => {
+  it("Test QO-1 (positive): normal-content enqueue → kind:message role:user", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "hello world",
+        timestamp: "2026-08-20T12:00:00.000Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("user");
+    expect(parsed.content).toBe("hello world");
+    expect(typeof parsed.eventId).toBe("string");
+    expect(parsed.eventId.length).toBe(32);
+    expect(parsed.eventId).toMatch(/^[0-9a-f]{32}$/);
+    expect(typeof parsed.ts).toBe("number");
+    expect(parsed.ts).toBe(Date.parse("2026-08-20T12:00:00.000Z"));
+  });
+
+  it("Test QO-2 (positive, deterministic eventId): identical inputs → identical eventId", () => {
+    const a = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "same body",
+        timestamp: "2026-08-20T12:00:01.000Z",
+      }),
+      "sess-A",
+    );
+    const b = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "same body",
+        timestamp: "2026-08-20T12:00:01.000Z",
+      }),
+      "sess-A",
+    );
+    expect(a.kind).toBe("message");
+    expect(b.kind).toBe("message");
+    if (a.kind !== "message" || b.kind !== "message") throw new Error("unreachable");
+    expect(a.eventId).toBe(b.eventId);
+    // Changing sessionId → different eventId (sessionId is part of the derivation)
+    const c = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "same body",
+        timestamp: "2026-08-20T12:00:01.000Z",
+      }),
+      "sess-B",
+    );
+    if (c.kind !== "message") throw new Error("unreachable");
+    expect(c.eventId).not.toBe(a.eventId);
+  });
+
+  it("Test QO-3 (negative — task-notification skipped): enqueue whose content starts with <task-notification> does NOT emit message", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "<task-notification>\n<task-id>abc</task-id>\n</task-notification>",
+        timestamp: "2026-08-20T12:00:02.000Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("Test QO-3b (negative — system-reminder skipped): enqueue whose content starts with <system-reminder> does NOT emit message", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "<system-reminder>reminder body</system-reminder>",
+        timestamp: "2026-08-20T12:00:02.500Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("Test QO-4 (negative — non-enqueue operation): operation:dequeue does NOT emit message", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "dequeue",
+        content: "hello world",
+        timestamp: "2026-08-20T12:00:03.000Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("Test QO-5 (timestamp derivation): missing timestamp → ts falls back to Date.now()", () => {
+    const before = Date.now();
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "no timestamp",
+      }),
+      "sess-A",
+    );
+    const after = Date.now();
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.ts).toBeGreaterThanOrEqual(before);
+    expect(parsed.ts).toBeLessThanOrEqual(after);
+  });
+
+  it("Test QO-5b (timestamp derivation): unparseable timestamp → ts falls back to Date.now()", () => {
+    const before = Date.now();
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "garbage timestamp",
+        timestamp: "not-a-date",
+      }),
+      "sess-A",
+    );
+    const after = Date.now();
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.ts).toBeGreaterThanOrEqual(before);
+    expect(parsed.ts).toBeLessThanOrEqual(after);
+  });
+
+  it("Test QO-6 (edge — empty content): empty-string content does NOT emit; falls through to skip", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "",
+        timestamp: "2026-08-20T12:00:04.000Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("Test QO-6b (edge — whitespace-only content): whitespace-only content does NOT emit; falls through to skip", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "   \n\t  ",
+        timestamp: "2026-08-20T12:00:04.500Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("Test QO-7 (back-compat): sessionId omitted → still emits message (fallback eventId)", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "back compat call",
+        timestamp: "2026-08-20T12:00:05.000Z",
+      }),
+      // no second arg → sessionId undefined
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.content).toBe("back compat call");
+    // fallback eventId is a Date.now + random suffix string; just assert it's non-empty
+    expect(typeof parsed.eventId).toBe("string");
+    expect(parsed.eventId.length).toBeGreaterThan(0);
+  });
+});
