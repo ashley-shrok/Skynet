@@ -86,6 +86,12 @@ import {
   // Phase 44 Plan 04 — seed the max-wins reconciliation chokepoint from the
   // /sessions/list payload (both cached rehydrate and fresh fetch paths).
   seedSessionLastMessageAt,
+  // Phase 47 Plan 04 — seed the LAST-WINS reconciliation chokepoint (aiTitle
+  // axis, Plan 47-03) from the /sessions/list payload alongside the Phase 44
+  // Plan 04 lastMessageAt seed. Same 2-site pattern (cached rehydrate loop +
+  // fresh fetch loop); both paths are load-bearing so a row's ai-title is
+  // seeded regardless of which source class delivered the row.
+  seedSessionAiTitle,
 } from "@/state/session-working-store";
 import { publishFleetStatusWaitingFor } from "@/state/session-waiting-store";
 import {
@@ -602,8 +608,15 @@ export function AppShell({
       // overwrite; if it returns stale or null, cache values persist. Also
       // paints the correct middle-zone order immediately on cold-start (via
       // the flipped null-to-bottom Rule 1), before the fresh fetch resolves.
+      //
+      // Phase 47 Plan 04 — same loop now also seeds the aiTitle axis (Plan
+      // 47-03 LAST-WINS chokepoint). Coalesces undefined → null so pre-Phase-47
+      // cached rows (aiTitle field absent on their FleetSession) are treated
+      // identically to explicit-null. Null seed is a no-op under the
+      // advanceSessionAiTitle guard, so this is safe on cold cache.
       for (const s of cached) {
         seedSessionLastMessageAt(s.hostId, s.sessionName, s.lastMessageAt ?? null);
+        seedSessionAiTitle(s.hostId, s.sessionName, s.aiTitle ?? null); // Phase 47 Plan 04
       }
     }
 
@@ -617,8 +630,15 @@ export function AppShell({
         // Phase 44 Plan 04 — seed working-store from the fresh /sessions/list
         // snapshot. Max-wins reconciliation in the working-store handles
         // ordering vs. WS-live updates (which may arrive before or after this).
+        //
+        // Phase 47 Plan 04 — same loop now also seeds the aiTitle axis
+        // (Plan 47-03 LAST-WINS chokepoint). Distinct semantics from Axis B:
+        // ai-titles evolve as the session's topic drifts, so LAST-WINS is
+        // correct (freshest arrival replaces older). A WS frame arriving
+        // AFTER this seed will overwrite via the same chokepoint.
         for (const s of fresh) {
           seedSessionLastMessageAt(s.hostId, s.sessionName, s.lastMessageAt ?? null);
+          seedSessionAiTitle(s.hostId, s.sessionName, s.aiTitle ?? null); // Phase 47 Plan 04
         }
         // quick-260805-tub: persist the fresh snapshot for the next refresh.
         // Silent on write failure (see writeFleetSessionsCache).
