@@ -353,3 +353,58 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     expect(mockPlay).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Phase 50 Plan 03 Task 1 — pendingState prop tests.
+ *
+ * D-01, D-03, D-06, D-19 (per 50-CONTEXT.md): user bubbles gain an
+ * optional pendingState prop that renders a small trailing-edge spinner
+ * (Loader2) when 'sending' and a muted-red border/tint when 'failed'.
+ * The prop is USER-ONLY (assistant bubbles ignore it — pending state is
+ * a send-path concept). Spinner and failed are mutually exclusive
+ * (failed supersedes sending). Back-compat: absence of the prop OR
+ * value null MUST render identically to pre-Phase-50 behavior.
+ */
+describe("ChatMessage — pendingState (Phase 50 Plan 03 Task 1)", () => {
+  it("Test 1 — spinner renders when pendingState='sending' on a user bubble", () => {
+    render(<ChatMessage role="user" content="hello" pendingState="sending" />);
+    const spinner = document.querySelector("[data-pv-bubble-spinner]");
+    expect(spinner).not.toBeNull();
+  });
+
+  it("Test 2 — no spinner when pendingState is null on a user bubble", () => {
+    render(<ChatMessage role="user" content="hello" pendingState={null} />);
+    const spinner = document.querySelector("[data-pv-bubble-spinner]");
+    expect(spinner).toBeNull();
+  });
+
+  it("Test 3 — no spinner when pendingState is undefined (back-compat with existing mount sites)", () => {
+    render(<ChatMessage role="user" content="hello" />);
+    const spinner = document.querySelector("[data-pv-bubble-spinner]");
+    expect(spinner).toBeNull();
+  });
+
+  it("Test 4 — failure styling when pendingState='failed' on a user bubble", () => {
+    render(<ChatMessage role="user" content="hello" pendingState="failed" />);
+    const failedBubble = document.querySelector("[data-pv-bubble-failed]");
+    expect(failedBubble).not.toBeNull();
+  });
+
+  it("Test 5 — assistant bubbles ignore pendingState (no spinner, no failed attribute)", () => {
+    render(<ChatMessage role="assistant" content="hi" pendingState="sending" />);
+    const spinner = document.querySelector("[data-pv-bubble-spinner]");
+    expect(spinner).toBeNull();
+    // Also verify no failure attribute even when pendingState='failed'.
+    render(<ChatMessage role="assistant" content="hi2" pendingState="failed" />);
+    const failedBubble = document.querySelector("[data-pv-bubble-failed]");
+    expect(failedBubble).toBeNull();
+  });
+
+  it("Test 6 — spinner and failed are mutually exclusive (failed supersedes sending)", () => {
+    render(<ChatMessage role="user" content="hello" pendingState="failed" />);
+    // failed attribute present
+    expect(document.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
+    // spinner NOT rendered
+    expect(document.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+  });
+});
