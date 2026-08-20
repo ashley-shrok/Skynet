@@ -1562,8 +1562,19 @@ export async function __applyInputMessageForTests(deps: {
     // key (sha256(content).slice(0,32) — content-only). If any of the three
     // drift, watchdogs never notify and every real send escalates unnecessarily.
     // See 50-01-PLAN.md § objective "Hash-derivation contract".
+    //
+    // Fix #1 (post-Phase-50 code review): bare-Enter split-sends (data="\r"
+    // with an mqid — the second half of MessageQueueDrawer's split-write
+    // shape) have body="" after slicing the trailing \r. Arming a watchdog
+    // against sha256("").slice(0,32) is a dead arm: the parser never emits
+    // an empty-content message frame, so notifyMatched never fires → the
+    // full 2.5s→5.5s→20s escalation runs on every queue-drawer send. The
+    // body write already happened in the prior WS input event (queue-drawer
+    // step (a) — body without \r without mqid). Gate the arm on
+    // body.length > 0 so the bare Enter alone stays silent.
     if (
       isSplitSend &&
+      body.length > 0 &&
       mqid.length > 0 &&
       deps.sessionId &&
       deps.wsSend &&
