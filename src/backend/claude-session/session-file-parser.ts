@@ -198,6 +198,27 @@ export function detectRelayOutbound(
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Phase 49: sanitize-pass helpers — port of parsers.py extract_sanitized
+// (2026-08-20). Replace both bash single-quote-escape idioms with a
+// private-use-area placeholder before regex, restore apostrophes at return.
+// ---------------------------------------------------------------------------
+
+const APOS_MARKER = "";
+
+function sanitizeBashSqEscapeIdioms(cmd: string): string {
+  // Replace bash's two single-quote-escape idioms with a private-use-area
+  // placeholder that regex captures can traverse. Restored to `'` post-match.
+  //   '"'"'  — close-sq + "'" + open-sq  → literal '
+  //   '\''   — close-sq + \' + open-sq   → literal '
+  return cmd.replace(/'"'"'/g, APOS_MARKER).replace(/'\\''/g, APOS_MARKER);
+}
+
+function restoreApostrophes(body: string | null): string | null {
+  if (body === null) return null;
+  return body.replaceAll(APOS_MARKER, "'");
+}
+
 /**
  * Opportunistically extract the human message body from a confirmed Matrix
  * relay outbound send command.
@@ -222,78 +243,80 @@ export function detectRelayOutbound(
  * 10. inline-json      — -d '{"msgtype":"m.text","body":"..."}' literal JSON
  */
 export function extractOutboundBody(cmd: string): string | null {
+  const s = sanitizeBashSqEscapeIdioms(cmd);
+
   // ---------------------------------------------------------------------------
-  // Strategy 1: BODY-sq — BODY='...' with optional '\'' shell-escape
+  // Strategy 1: BODY-sq — BODY='...' (sanitize pass removed escape idioms)
   // ---------------------------------------------------------------------------
-  const bodySqMatch = cmd.match(/(?:^|\s)BODY='((?:'\\'\'|[^'])*)'/);
+  const bodySqMatch = s.match(/(?:^|\s)BODY='([^']*)'/);
   if (bodySqMatch) {
-    const body = bodySqMatch[1].replace(/'\\''/g, "'");
+    const body = bodySqMatch[1];
     sessionParserLogger.debug(
       `[session-parser] extract result=outbound_body strategy=BODY-sq bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
   // Strategy 2: BODY-dq — BODY="..." with backslash decoding
   // ---------------------------------------------------------------------------
-  const bodyDqMatch = cmd.match(/(?:^|\s)BODY="((?:\\.|[^"\\])*)"/);
+  const bodyDqMatch = s.match(/(?:^|\s)BODY="((?:\\.|[^"\\])*)"/);
   if (bodyDqMatch) {
     const body = bodyDqMatch[1].replace(/\\(.)/g, "$1");
     sessionParserLogger.debug(
       `[session-parser] extract result=outbound_body strategy=BODY-dq bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
-  // Strategy 3: MSG-sq — MSG='...' with optional '\'' shell-escape
+  // Strategy 3: MSG-sq — MSG='...' (sanitize pass removed escape idioms)
   // ---------------------------------------------------------------------------
-  const msgSqMatch = cmd.match(/(?:^|\s)MSG='((?:'\\'\'|[^'])*)'/);
+  const msgSqMatch = s.match(/(?:^|\s)MSG='([^']*)'/);
   if (msgSqMatch) {
-    const body = msgSqMatch[1].replace(/'\\''/g, "'");
+    const body = msgSqMatch[1];
     sessionParserLogger.debug(
       `[session-parser] extract result=outbound_body strategy=MSG-sq bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
   // Strategy 4: MSG-dq — MSG="..." with backslash decoding
   // ---------------------------------------------------------------------------
-  const msgDqMatch = cmd.match(/(?:^|\s)MSG="((?:\\.|[^"\\])*)"/);
+  const msgDqMatch = s.match(/(?:^|\s)MSG="((?:\\.|[^"\\])*)"/);
   if (msgDqMatch) {
     const body = msgDqMatch[1].replace(/\\(.)/g, "$1");
     sessionParserLogger.debug(
       `[session-parser] extract result=outbound_body strategy=MSG-dq bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
   // Strategy 5: TEXT/MESSAGE variants — sq and dq, same handling as BODY/MSG
   // ---------------------------------------------------------------------------
-  const textSqMatch = cmd.match(/(?:^|\s)(?:TEXT|MESSAGE)='((?:'\\'\'|[^'])*)'/);
+  const textSqMatch = s.match(/(?:^|\s)(?:TEXT|MESSAGE)='([^']*)'/);
   if (textSqMatch) {
-    const body = textSqMatch[1].replace(/'\\''/g, "'");
+    const body = textSqMatch[1];
     sessionParserLogger.debug(
       `[session-parser] extract result=outbound_body strategy=TEXT/MESSAGE-sq bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
-  const textDqMatch = cmd.match(/(?:^|\s)(?:TEXT|MESSAGE)="((?:\\.|[^"\\])*)"/);
+  const textDqMatch = s.match(/(?:^|\s)(?:TEXT|MESSAGE)="((?:\\.|[^"\\])*)"/);
   if (textDqMatch) {
     const body = textDqMatch[1].replace(/\\(.)/g, "$1");
     sessionParserLogger.debug(
       `[session-parser] extract result=outbound_body strategy=TEXT/MESSAGE-dq bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
@@ -301,7 +324,7 @@ export function extractOutboundBody(cmd: string): string | null {
   // --arg <word> "literal" '{msgtype: ... (trailing '{msgtype:' disambiguates
   // from unrelated jq --arg u "$USER" uses)
   // ---------------------------------------------------------------------------
-  const jqArgDqMatch = cmd.match(
+  const jqArgDqMatch = s.match(
     /--arg\s+\w+\s+"((?:\\.|[^"\\])*)"\s+'\{msgtype:/,
   );
   if (jqArgDqMatch) {
@@ -310,23 +333,23 @@ export function extractOutboundBody(cmd: string): string | null {
       `[session-parser] extract result=outbound_body strategy=jq-arg-inline-dq bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
   // Strategy 7: jq-arg-inline-sq
   // --arg <word> 'literal' '{msgtype: ... (symmetric single-quote variant)
   // ---------------------------------------------------------------------------
-  const jqArgSqMatch = cmd.match(
-    /--arg\s+\w+\s+'((?:'\\'\'|[^'])*)'\s+'\{msgtype:/,
+  const jqArgSqMatch = s.match(
+    /--arg\s+\w+\s+'([^']*)'\s+'\{msgtype:/,
   );
   if (jqArgSqMatch) {
-    const body = jqArgSqMatch[1].replace(/'\\''/g, "'");
+    const body = jqArgSqMatch[1];
     sessionParserLogger.debug(
       `[session-parser] extract result=outbound_body strategy=jq-arg-inline-sq bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
@@ -335,7 +358,7 @@ export function extractOutboundBody(cmd: string): string | null {
   // Body is verbatim (no shell-escape decoding: single-quoted heredoc is literal).
   // More specific than heredoc-inline (has the '>' redirection), so wins first.
   // ---------------------------------------------------------------------------
-  const heredocToFileMatch = cmd.match(
+  const heredocToFileMatch = s.match(
     /cat\s*>\s*(?:"[^"]*"|'[^']*'|\S+)\s*<<\s*'?EOF'?\s*\n([\s\S]*?)\n\s*EOF\b/,
   );
   if (heredocToFileMatch) {
@@ -344,7 +367,7 @@ export function extractOutboundBody(cmd: string): string | null {
       `[session-parser] extract result=outbound_body strategy=heredoc-to-file bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
@@ -354,7 +377,7 @@ export function extractOutboundBody(cmd: string): string | null {
   // Note: BODY=$(cat <<'EOF' ... EOF) is also matched here because the regex
   // anchors on 'cat <<' regardless of what surrounds it.
   // ---------------------------------------------------------------------------
-  const heredocInlineMatch = cmd.match(
+  const heredocInlineMatch = s.match(
     /cat\s*<<\s*'?EOF'?\s*\n([\s\S]*?)\n\s*EOF\b/,
   );
   if (heredocInlineMatch) {
@@ -363,7 +386,7 @@ export function extractOutboundBody(cmd: string): string | null {
       `[session-parser] extract result=outbound_body strategy=heredoc-inline bodyLen=${body.length}`,
       { operation: "session_extract" },
     );
-    return body;
+    return restoreApostrophes(body);
   }
 
   // ---------------------------------------------------------------------------
@@ -371,7 +394,7 @@ export function extractOutboundBody(cmd: string): string | null {
   // -d '{"msgtype":"m.text","body":"..."}' literal JSON object.
   // Parse body via JSON.parse; on failure return null (do not throw).
   // ---------------------------------------------------------------------------
-  const inlineJsonMatch = cmd.match(
+  const inlineJsonMatch = s.match(
     /-d\s+'(\{"msgtype":"m\.text","body":"(?:\\.|[^"\\])*"\})'/,
   );
   if (inlineJsonMatch) {
@@ -383,14 +406,14 @@ export function extractOutboundBody(cmd: string): string | null {
           `[session-parser] extract result=outbound_body strategy=inline-json bodyLen=${body.length}`,
           { operation: "session_extract" },
         );
-        return body;
+        return restoreApostrophes(body);
       }
     } catch {
       // JSON parse failure → fall through to null
     }
   }
 
-  return null;
+  return restoreApostrophes(null);
 }
 
 /**

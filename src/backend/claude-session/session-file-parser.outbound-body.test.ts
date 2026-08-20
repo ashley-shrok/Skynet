@@ -62,6 +62,15 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
     expectedBody: "Ack — holding cps, nothing in flight on my end.",
   },
 
+  {
+    // corpus: nelly's DM to tabitha 2026-08-20, room !pCARzCxigsTfPfxsfc
+    // bash '"'"' idiom for embedding ' in single-quoted BODY (produces literal ')
+    // Phase 49 sanitize pass fix — pre-Phase-49 this returned "Relaying Ashley"
+    name: `NELLY-SHAPE — BODY-sq with '"'"' apostrophe escape (bash close-sq/quote/open-sq)`,
+    cmd: `TOK=$(jq -r .access_token ~/.claude/identities/nelly/relay.json); BASE=$(jq -r .base ~/.claude/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying Ashley'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
+    expectedBody: "Relaying Ashley's reply: hi",
+  },
+
   // -------------------------------------------------------------------------
   // BODY-dq: BODY="..." with optional \" escaping inside
   // -------------------------------------------------------------------------
@@ -378,5 +387,26 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
   -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
 
     expect(extractOutboundBody(priorityCmd)).toBe("real body");
+  });
+});
+
+describe("extractOutboundBody — known limitations", () => {
+  it("SELF-REFERENTIAL: BODY='...' substring inside heredoc content still gets matched by BODY-sq before heredoc-inline (documented, not fixed by Phase 49)", () => {
+    // The BODY='...' inside the heredoc's CONTENT gets matched by Strategy 1
+    // before heredoc-inline (Strategy 9) fires. Sanitize pass doesn't address
+    // this — it's a shell-quoting-context bug, not a bash-escape-idiom bug.
+    // Deferred per Phase 49 CONTEXT.md § Deferred Ideas — fixing would require
+    // either a heredoc-first strategy reorder (breaks PRIORITY-REGRESSION),
+    // a heredoc-content pre-mask, or a shell-aware parser (major rewrite).
+    // If a future phase addresses this, this test flips from documentation
+    // to regression guard.
+    const cmd = `BODY=$(cat <<'EOF'
+Hey — the extractor's BODY='relaying Ashley' bug matched inside my heredoc content instead of the real body.
+EOF
+)
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" \\
+  -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
+    // Current behavior: BODY-sq matches the inner substring, returns 'relaying Ashley'.
+    expect(extractOutboundBody(cmd)).toBe("relaying Ashley");
   });
 });
