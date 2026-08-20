@@ -43,6 +43,16 @@
 // calls the chokepoint after the isWorking swap; the seed path calls it
 // directly. See 43-CONTEXT.md § Reconciliation helper.
 //
+// Phase 47 (Plan 03): the store now carries a THIRD axis, aiTitle, with
+// LAST-WINS semantics (not max-wins). Publish path grows an Axis C block
+// that routes through advanceSessionAiTitle (unconditional call after
+// Axis B; the helper's own predicate handles null/no-op/write). Seed path
+// via seedSessionAiTitle mirrors the seedSessionLastMessageAt API. On
+// frames that co-change all three axes, publishFleetStatusSessionState
+// fires exactly 3 notifies (one per axis) — the correct observable
+// contract of the three-axis single-chokepoint architecture. See
+// 47-CONTEXT.md § Working-store third axis.
+//
 // Store pattern mirrors src/ui/state/conversation-store.ts: module-scoped
 // `state` object + Map + Set<() => void> listener registry + snapshotVersion
 // counter; notify() bumps + iterates; subscribe() returns disposer.
@@ -62,6 +72,15 @@ type WorkingRecord = {
   // and stamps row.lastMessageAt so compareByRecencyDesc can drive the flat
   // middle-zone sort. See §Sort model — middle section in 41-CONTEXT.md.
   lastMessageAt: number | null;
+  // Phase 47 — the current-work hint sourced from the harness-emitted
+  // ai-title JSONL line. `null` when the wire frame carried `null` (no
+  // ai-title yet) OR when the wire frame omitted the field entirely
+  // (pre-Phase-47 backend). Reconciliation is LAST-WINS (not max-wins like
+  // lastMessageAt) because ai-title EVOLVES: as the session's topic drifts
+  // across turns, the freshest value from either source (WS or
+  // /sessions/list seed) is the correct one. See 47-CONTEXT.md § Working-
+  // store third axis.
+  aiTitle: string | null;
 };
 
 type State = {
@@ -141,12 +160,21 @@ export function publishFleetStatusSessionState(
   // and the /sessions/list-seed path funnel through the same reconciliation
   // predicate. Two notify events on frames that co-change both axes is the
   // correct observable contract.
+  //
+  // Phase 47 (Plan 03) — extended to a THIRD axis (aiTitle) via
+  // advanceSessionAiTitle (Axis C below). Distinct LAST-WINS semantics
+  // (freshest positive string wins; null does NOT overwrite). Co-change
+  // frames now emit 3 notifies (one per axis) — extends Phase 44's
+  // two-axes-two-notifies contract to three. See 47-CONTEXT.md § Working-
+  // store third axis.
 
   // ── Axis A — isWorking swap-and-notify block ──
   // Fire only when isWorking actually changed OR the key is brand-new.
   // The lastMessageAt value written into the record here is the
   // CURRENTLY-CACHED value (preserved unchanged); Axis B below handles
-  // any lastMessageAt update via advanceSessionLastMessageAt.
+  // any lastMessageAt update via advanceSessionLastMessageAt. Similarly
+  // the aiTitle value is preserved as the currently-cached string;
+  // Axis C below handles any aiTitle update via advanceSessionAiTitle.
   if (existing === undefined || existing.isWorking !== isWorking) {
     console.info({
       operation: "fleet_status_working_state_change",
@@ -157,14 +185,17 @@ export function publishFleetStatusSessionState(
       backgroundTaskCount: state_arg.backgroundTasks.length,
       isWorking,
       lastMessageAt: existing?.lastMessageAt ?? null,
+      aiTitle: existing?.aiTitle ?? null,
       previous: existing?.isWorking ?? null,
       previousLastMessageAt: existing?.lastMessageAt ?? null,
+      previousAiTitle: existing?.aiTitle ?? null,
     });
 
     const nextMap = new Map(state.map);
     nextMap.set(key, {
       isWorking,
       lastMessageAt: existing?.lastMessageAt ?? null,
+      aiTitle: existing?.aiTitle ?? null,
     });
     state = { map: nextMap };
     notify();
@@ -175,6 +206,18 @@ export function publishFleetStatusSessionState(
   // If Axis A just wrote, this sees the fresh isWorking with the OLD
   // lastMessageAt so the max-wins compare works correctly.
   advanceSessionLastMessageAt(key, state_arg.lastMessageAt ?? null);
+
+  // ── Axis C — aiTitle reconciliation via the chokepoint ──
+  // Unconditional call after Axis B; the helper's own predicate handles
+  // null/no-op/write (LAST-WINS: null does NOT overwrite an existing
+  // string; a fresh non-null string overwrites any previous value;
+  // identical strings are a no-op-no-notify via Object.is guard).
+  // Distinct from Axis B's max-wins because ai-title has no numeric
+  // ordering — the freshest ARRIVAL is the correct value. Frames that
+  // co-change all three axes emit 3 notifies (one per axis), the correct
+  // observable contract of the three-axis single-chokepoint architecture
+  // per 47-CONTEXT.md § Working-store third axis.
+  advanceSessionAiTitle(key, state_arg.aiTitle ?? null);
 }
 
 /**
@@ -242,6 +285,7 @@ function advanceSessionLastMessageAt(key: string, ts: number | null): void {
   const nextRecord: WorkingRecord = {
     isWorking: existing?.isWorking ?? false,
     lastMessageAt: ts,
+    aiTitle: existing?.aiTitle ?? null,
   };
 
   console.info({
@@ -280,6 +324,89 @@ export function seedSessionLastMessageAt(
 ): void {
   const key = `${String(hostId)}:${tmuxSession}`;
   advanceSessionLastMessageAt(key, ts);
+}
+
+/**
+ * Phase 47 (Plan 03) — the ONLY writer of WorkingRecord.aiTitle.
+ *
+ * LAST-WINS contract (per 47-CONTEXT.md § Working-store third axis):
+ *   - If `title === null`: no-op + no-notify (null NEVER overwrites; the
+ *     ai-title axis only advances on positive signal — fail-open so a
+ *     transient WS frame lacking aiTitle cannot blank the cached string).
+ *   - If no record exists for `key`: create
+ *     `{ isWorking: false, lastMessageAt: null, aiTitle: title }`, notify.
+ *   - If record exists AND `record.aiTitle === title` (Object.is via `===`
+ *     for string primitives): no-op + no-notify (prevents needless
+ *     re-renders when a WS frame carries the same title as the cached one).
+ *   - Otherwise: write `title` (overwriting any prior string OR any prior
+ *     null-with-record case), notify.
+ *
+ * The `isWorking` + `lastMessageAt` axes are preserved verbatim on
+ * existing records — never mutated by this helper. New-record writes
+ * default `isWorking: false` + `lastMessageAt: null` (dormant seed case).
+ *
+ * Distinct from advanceSessionLastMessageAt's max-wins because ai-title
+ * EVOLVES: as the session's topic drifts across turns, the freshest
+ * ARRIVAL is the correct value — strings have no numeric ordering, only
+ * recency of arrival. Ashley 2026-08-19: "If WS says Debug X and later
+ * WS says Fix Y, we want Fix Y."
+ *
+ * Called from BOTH the WS publish path (via publishFleetStatusSessionState's
+ * Axis C block) AND the /sessions/list seed path (via seedSessionAiTitle).
+ * Single reconciliation chokepoint — any future contract tweak is a
+ * one-place change.
+ */
+function advanceSessionAiTitle(key: string, title: string | null): void {
+  if (title === null) return;
+
+  const existing = state.map.get(key);
+  if (existing !== undefined && existing.aiTitle === title) {
+    // Cache already holds this exact string — last-wins no-op + no-notify.
+    return;
+  }
+
+  const nextRecord: WorkingRecord = {
+    isWorking: existing?.isWorking ?? false,
+    lastMessageAt: existing?.lastMessageAt ?? null,
+    aiTitle: title,
+  };
+
+  console.info({
+    operation: "session_ai_title_advance",
+    key,
+    title,
+    previous: existing?.aiTitle ?? null,
+  });
+
+  const nextMap = new Map(state.map);
+  nextMap.set(key, nextRecord);
+  state = { map: nextMap };
+  notify();
+}
+
+/**
+ * Phase 47 (Plan 03) — public seed API for the /sessions/list payload.
+ *
+ * Wrapper around advanceSessionAiTitle that computes the working-store
+ * key format `${String(hostId)}:${tmuxSession}` (matching the existing
+ * convention documented at the store header — hostId numeric here per
+ * the fleet-session type, so stringified explicitly).
+ *
+ * `tmuxSession` is a required string (not nullable): the Phase 47
+ * /sessions/list route always emits a non-null sessionName; CONTEXT.md
+ * locks "identity name === tmux session name === /id target" so this
+ * seed path never fires for null tmuxSession. If no WorkingRecord exists
+ * yet for the key, advanceSessionAiTitle creates one with
+ * `isWorking: false` + `lastMessageAt: null` (dormant seed default).
+ * See 47-CONTEXT.md § Working-store third axis.
+ */
+export function seedSessionAiTitle(
+  hostId: number,
+  tmuxSession: string,
+  title: string | null,
+): void {
+  const key = `${String(hostId)}:${tmuxSession}`;
+  advanceSessionAiTitle(key, title);
 }
 
 /**
@@ -341,7 +468,7 @@ export function useSessionIsWorkingRaw(key: string | null): boolean | null {
  */
 export function getSessionWorkingSnapshot(): ReadonlyMap<
   string,
-  { isWorking: boolean; lastMessageAt: number | null }
+  { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null }
 > {
   return state.map;
 }
@@ -382,6 +509,40 @@ export function getSessionLastMessageAt(sessionKey: string | null): number | nul
  */
 export function useSessionLastMessageAt(sessionKey: string | null): number | null {
   const getSnapshot = (): number | null => getSessionLastMessageAt(sessionKey);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+// ─── Phase 47 Plan 03 — aiTitle cache read paths ─────────────────────────────
+
+/**
+ * Plain getter — return the cached `aiTitle` string for the given session-
+ * working-key, or `null` when the key is not in the cache OR when the cache
+ * holds an explicit null (session with no ai-title yet).
+ *
+ * PRIMARY caller: Plan 47-04's PrettyConversationRow subtitle consumer —
+ * every middle-zone row's subtitle is derived from this cache entry via
+ * the useSessionAiTitle hook below. Non-React entry point: does NOT
+ * subscribe. Mirrors getSessionLastMessageAt's shape (Phase 41 Plan 03).
+ */
+export function getSessionAiTitle(sessionKey: string | null): string | null {
+  if (sessionKey === null) return null;
+  const record = state.map.get(sessionKey);
+  if (record === undefined) return null;
+  return record.aiTitle;
+}
+
+/**
+ * React hook — subscribe to a single session's cached `aiTitle` and
+ * re-render on change. Returns null when the key is absent OR when the
+ * cache holds an explicit null (session with no ai-title yet).
+ *
+ * Consumed by Plan 47-04's PrettyConversationRow (per-row subtitle).
+ * Signature parallels useSessionLastMessageAt. Notify cadence is
+ * controlled by advanceSessionAiTitle's LAST-WINS + Object.is guard so
+ * successive frames carrying the same title do NOT re-render this hook.
+ */
+export function useSessionAiTitle(sessionKey: string | null): string | null {
+  const getSnapshot = (): string | null => getSessionAiTitle(sessionKey);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
