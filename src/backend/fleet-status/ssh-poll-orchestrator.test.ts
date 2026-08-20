@@ -1954,3 +1954,386 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     ).toBe("Fresh topic");
   });
 });
+
+// ---------------------------------------------------------------------------
+// quick-260820-tm0 — per-host in-flight guard on pollOneHost
+//
+// Closes the 2026-08-20 wilma incident (392 concurrent tailscale-ssh be-child
+// sessions accumulated on the remote target because pollAllHosts kept
+// stacking new pollOneHost invocations on the same hostId while the prior
+// one was still awaiting `ls -1` on a slow-responding host).
+// ---------------------------------------------------------------------------
+
+describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * Test-local deferred() factory — a manually-controlled promise so a test
+   * can "hang" one specific SSH exec until it decides to resolve. Used to
+   * simulate a slow-responding remote target without real timers.
+   */
+  function deferred<T>(): {
+    promise: Promise<T>;
+    resolve: (v: T) => void;
+    reject: (e: unknown) => void;
+  } {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  /**
+   * A MockSshChannel variant whose `ls -1` response for the Nth (default:
+   * second) exec is served through a manually-controlled deferred promise.
+   * Prior ls -1 calls return the base-map response immediately so the
+   * initial `start()` poll cycle completes normally and setInterval gets
+   * invoked (capturing the pollFn we drive subsequent ticks with).
+   *
+   * The Nth ls -1 hangs until `resolveLs(value)` fires; after that any
+   * further ls -1 calls return the resolved value from the base map.
+   */
+  class DeferredLsChannel implements SshChannel {
+    private deferredLs = deferred<string | null>();
+    private resolvedLsResponse: string | null = "";
+    private ownLsResolvedFlag = false;
+    private responses = new Map<string, string | null>();
+    private callLog: Array<{ command: string; response: string | null }> = [];
+    private lsCallCount = 0;
+    private hangOnLsCall: number;
+
+    /**
+     * @param hangOnLsCall — which ls -1 exec call hangs. Default 2 (initial
+     *   poll succeeds, second poll tick hangs).
+     */
+    constructor(hangOnLsCall = 2) {
+      this.hangOnLsCall = hangOnLsCall;
+    }
+
+    setResponse(pattern: string, response: string | null): void {
+      this.responses.set(pattern, response);
+    }
+
+    /**
+     * Called by the test to resolve the currently-hanging `ls -1` exec.
+     * After this fires, subsequent `ls -1` calls return `value` too
+     * (base-map response). Await one microtask afterwards in the test.
+     */
+    resolveLs(value: string | null): void {
+      this.resolvedLsResponse = value;
+      this.ownLsResolvedFlag = true;
+      this.deferredLs.resolve(value);
+    }
+
+    countCallsMatching(pattern: string): number {
+      return this.callLog.filter((c) => c.command.includes(pattern)).length;
+    }
+
+    async exec(command: string): Promise<string | null> {
+      if (command.includes("ls -1")) {
+        this.lsCallCount++;
+        this.callLog.push({ command, response: null });
+        if (this.lsCallCount === this.hangOnLsCall && !this.ownLsResolvedFlag) {
+          // Hang until the test resolves the deferred.
+          const v = await this.deferredLs.promise;
+          return v;
+        }
+        // Pre-hang and post-resolve calls return the base-map response.
+        return (
+          this.responses.get("ls -1") ??
+          "/home/ubuntu/.claude/sessions/12345.json\n"
+        );
+      }
+      let response: string | null = null;
+      for (const [pattern, resp] of this.responses.entries()) {
+        if (command.includes(pattern)) {
+          response = resp;
+          break;
+        }
+      }
+      this.callLog.push({ command, response });
+      return response;
+    }
+  }
+
+  // Helper: count `fleet_status_poll_skipped_inflight` info-log invocations
+  // filtered by fleetHostId. Mirrors the F1-F5 pattern that counts
+  // fleet_status_hook_payload_missing warns.
+  function countSkipsForHost(hostId: string): number {
+    const infoCalls = (systemLogger.info as unknown as MockInstance).mock.calls;
+    return infoCalls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "fleet_status_poll_skipped_inflight" &&
+        (c[1] as Record<string, unknown>).fleetHostId === hostId,
+    ).length;
+  }
+
+  // Helper: capture the last skip-log payload for a given host.
+  function lastSkipPayload(hostId: string): Record<string, unknown> | null {
+    const infoCalls = (systemLogger.info as unknown as MockInstance).mock.calls;
+    const matches = infoCalls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "fleet_status_poll_skipped_inflight" &&
+        (c[1] as Record<string, unknown>).fleetHostId === hostId,
+    );
+    if (matches.length === 0) return null;
+    return matches[matches.length - 1][1] as Record<string, unknown>;
+  }
+
+  // -------------------------------------------------------------------------
+  // Test IF1 — slow-host isolation: prior tick in-flight → next tick skips.
+  // -------------------------------------------------------------------------
+
+  it("Test IF1: prior pollOneHost still in-flight → next tick skips that host, does NOT stack a second pollOneHost", async () => {
+    // hangOnLsCall=2: initial start() poll completes normally (ls call #1
+    // returns), then the SECOND ls -1 call — fired by the first setInterval
+    // tick we drive manually — hangs on the deferred. This keeps setInterval
+    // setup unblocked so we can capture the pollFn and drive subsequent
+    // ticks to assert on the in-flight skip.
+    const channel = new DeferredLsChannel(2);
+    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+
+    const setIntervalFns: Array<{ fn: () => Promise<void> | void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => Promise<void> | void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // initial poll completes (ls call #1)
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (!pollFn) throw new Error("no 2s pollFn captured");
+
+    // Trigger tick 2: THIS ls -1 (call #2) will hang on the deferred.
+    // Kick it fire-and-forget so we can drive subsequent ticks while
+    // pollOneHost is still awaiting deep inside the hung exec.
+    const hungTickPromise = pollFn.fn();
+    // Yield microtasks so pollAllHosts progresses into pollOneHost →
+    // channel.exec("ls -1") → await deferred.promise (in-flight set).
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Sanity: 2 ls calls issued (initial + hung), no skips yet.
+    expect(channel.countCallsMatching("ls -1")).toBe(2);
+    expect(countSkipsForHost("host-1")).toBe(0);
+
+    // Trigger tick 3: host-1 is in-flight → must skip.
+    await pollFn.fn();
+
+    expect(countSkipsForHost("host-1")).toBe(1);
+    const skip1 = lastSkipPayload("host-1");
+    expect(skip1).not.toBeNull();
+    expect(skip1?.skipCount).toBe(1);
+    expect(skip1?.hostName).toBe("testhost");
+    // No new ls -1 fired on the skipped tick.
+    expect(channel.countCallsMatching("ls -1")).toBe(2);
+
+    // Trigger tick 4: still in-flight, skipCount should now be 2.
+    await pollFn.fn();
+    expect(countSkipsForHost("host-1")).toBe(2);
+    const skip2 = lastSkipPayload("host-1");
+    expect(skip2?.skipCount).toBe(2);
+    expect(channel.countCallsMatching("ls -1")).toBe(2);
+
+    // Resolve the hung ls -1 so the hung pollOneHost completes.
+    channel.resolveLs("/home/ubuntu/.claude/sessions/12345.json\n");
+    await hungTickPromise;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // A fresh tick MUST now fire a new ls -1 — the guard released via finally.
+    await pollFn.fn();
+    expect(channel.countCallsMatching("ls -1")).toBe(3);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test IF2 — per-host, not global: one hung host doesn't block other hosts.
+  // -------------------------------------------------------------------------
+
+  it("Test IF2: per-host, not global — a hung host-1 does NOT block a responsive host-2 on the same tick", async () => {
+    // channel1: initial poll completes; second ls -1 hangs.
+    const channel1 = new DeferredLsChannel(2);
+    channel1.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel1.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
+    channel1.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel1.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel1.setResponse("tmux display-message", "tina");
+    channel1.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+
+    const channel2 = new MockSshChannel();
+    channel2.setResponse("ls -1", "/home/ubuntu/.claude/sessions/22222.json\n");
+    channel2.setResponse(
+      "cat ~/.claude/sessions/22222.json",
+      makeSessionJson({ pid: 22222, sessionId: "sess-2" }),
+    );
+    channel2.setResponse("cat /proc/22222/stat", makeStatContents("12345"));
+    channel2.setResponse("cat /proc/22222/environ", "TMUX_PANE=%1\0");
+    channel2.setResponse("tmux display-message", "tanya");
+    channel2.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+
+    const hosts: HostRecord[] = [
+      { id: "host-1", name: "testhost" },
+      { id: "host-2", name: "otherhost" },
+    ];
+    const setIntervalFns: Array<{ fn: () => Promise<void> | void; ms: number }> = [];
+    const deps = buildDeps({
+      listIdentityHostingHosts: vi.fn().mockResolvedValue(hosts),
+      acquireSshChannel: vi.fn(async (host: HostRecord) => {
+        if (host.id === "host-1") return channel1;
+        return channel2;
+      }),
+      setInterval: vi.fn((fn: () => Promise<void> | void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // initial poll: both hosts complete normally
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (!pollFn) throw new Error("no 2s pollFn captured");
+
+    const channel1LsBaseline = channel1.countCallsMatching("ls -1");
+    const channel2LsBaseline = channel2.countCallsMatching("ls -1");
+
+    // Trigger tick 2: host-1's ls -1 hangs (call #2), which blocks the
+    // serial for-of loop AFTER host-1 has entered the try but BEFORE it
+    // moves on to host-2 on this tick. Fire-and-forget so we can drive
+    // the next tick while host-1 is still awaiting.
+    const hungTickPromise = pollFn.fn();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // host-1 is in-flight on the hung tick; host-2 hasn't been reached yet
+    // on THIS tick because the serial loop is blocked on host-1's await.
+    expect(channel1.countCallsMatching("ls -1")).toBe(channel1LsBaseline + 1);
+
+    // Trigger tick 3: host-1 is in-flight → skip. host-2 is NOT in-flight
+    // → polls normally on the same tick. This proves per-host, not global.
+    await pollFn.fn();
+
+    expect(countSkipsForHost("host-1")).toBe(1);
+    expect(channel2.countCallsMatching("ls -1")).toBeGreaterThan(
+      channel2LsBaseline,
+    );
+    expect(countSkipsForHost("host-2")).toBe(0);
+
+    // Resolve host-1's ls so the hung tick completes cleanly.
+    channel1.resolveLs("/home/ubuntu/.claude/sessions/12345.json\n");
+    await hungTickPromise;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // One more tick — both hosts should poll on this tick now.
+    const c1Post = channel1.countCallsMatching("ls -1");
+    const c2Post = channel2.countCallsMatching("ls -1");
+    await pollFn.fn();
+    expect(channel1.countCallsMatching("ls -1")).toBeGreaterThan(c1Post);
+    expect(channel2.countCallsMatching("ls -1")).toBeGreaterThan(c2Post);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test IF3 — in-flight flag clears in `finally` even on thrown errors.
+  // -------------------------------------------------------------------------
+
+  it("Test IF3: in-flight flag clears via `finally` even when pollOneHost throws", async () => {
+    // Custom channel whose first ls -1 call REJECTS (throws), subsequent
+    // calls succeed. This drives pollOneHost's catch path and asserts the
+    // finally { inFlight.delete } branch ran (next tick fires again).
+    let lsCallCount = 0;
+    const channel: SshChannel = {
+      async exec(command: string): Promise<string | null> {
+        if (command.includes("ls -1")) {
+          lsCallCount++;
+          if (lsCallCount === 1) {
+            throw new Error("simulated ls -1 explosion");
+          }
+          return "/home/ubuntu/.claude/sessions/12345.json\n";
+        }
+        if (command.includes("cat ~/.claude/sessions/12345.json")) {
+          return makeSessionJson();
+        }
+        if (command.includes("cat /proc/12345/stat")) {
+          return makeStatContents("12345");
+        }
+        if (command.includes("cat /proc/12345/environ")) {
+          return "TMUX_PANE=%2\0";
+        }
+        if (command.includes("tmux display-message")) {
+          return "tina";
+        }
+        if (command.includes("fleet-status/last-stop-payload.json")) {
+          return makeValidPayload();
+        }
+        return null;
+      },
+    };
+
+    const setIntervalFns: Array<{ fn: () => Promise<void> | void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => Promise<void> | void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // initial poll: ls -1 throws → catch → finally releases
+
+    // The existing fleet_status_poll_error warn should have fired.
+    const warnCalls = (systemLogger.warn as unknown as MockInstance).mock.calls;
+    const pollErrorCount = warnCalls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "fleet_status_poll_error",
+    ).length;
+    expect(pollErrorCount).toBeGreaterThan(0);
+
+    // Trigger next tick — MUST fire a fresh ls -1 (proves finally released).
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+    expect(lsCallCount).toBe(2);
+    // And no skip fired (in-flight was empty when the tick started).
+    expect(countSkipsForHost("host-1")).toBe(0);
+  });
+});

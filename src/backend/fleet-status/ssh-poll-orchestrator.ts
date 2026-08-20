@@ -415,6 +415,30 @@ export function createSshPollOrchestrator(
 
   // Internal state
   const perHostState = new Map<string, PerHostState>();
+  // -----------------------------------------------------------------------
+  // quick-260820-tm0 — per-host in-flight guard (2026-08-20 wilma incident)
+  //
+  // The wilma incident (2026-08-20) accumulated 392 concurrent tailscale-ssh
+  // be-child sessions on a single remote target because pollAllHosts kept
+  // stacking new pollOneHost invocations on the same hostId while the prior
+  // one was still awaiting a slow `ls -1`. Node's setInterval fires every
+  // pollIntervalMs regardless of whether the previous async fn resolved, so
+  // a target whose `ls -1` takes 30s under load can accumulate ~15
+  // concurrent pollOneHost iterations before a single one completes.
+  //
+  // The guard is PER-HOST, NOT GLOBAL — a slow host must NOT block polls
+  // for other hosts on the same tick. Membership check runs immediately
+  // before the pollOneHost call inside the pollAllHosts loop; a match
+  // increments skipCount, logs at INFO, and continues to the next host.
+  // On successful schedule the flag is set, skipCount is reset to 0, and
+  // pollOneHost is invoked inside try/catch/finally so `inFlight.delete`
+  // runs on both happy-path return AND thrown errors (never leaks a
+  // stuck flag). See Task 2 (quick-260820-tm0) for the paired eviction
+  // cleanup that removes entries here when a host is pruned from the
+  // identity-host list.
+  // -----------------------------------------------------------------------
+  const inFlight = new Set<string>();
+  const skipCount = new Map<string, number>();
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let sweepTimer: ReturnType<typeof setInterval> | null = null;
   let pollTickCount = 0;
@@ -780,8 +804,27 @@ export function createSshPollOrchestrator(
       }
     }
 
-    // Poll each known host
+    // Poll each known host (quick-260820-tm0: per-host in-flight guard —
+    // skip hosts whose prior tick's pollOneHost has not yet resolved).
     for (const hostState of perHostState.values()) {
+      const hostId = hostState.host.id;
+      if (inFlight.has(hostId)) {
+        const nextSkip = (skipCount.get(hostId) ?? 0) + 1;
+        skipCount.set(hostId, nextSkip);
+        systemLogger.info(
+          "Fleet-status: poll skipped — prior tick still in flight",
+          {
+            operation: "fleet_status_poll_skipped_inflight",
+            fleetHostId: hostId,
+            hostName: hostState.host.name,
+            skipCount: nextSkip,
+            tick: pollTickCount,
+          },
+        );
+        continue;
+      }
+      inFlight.add(hostId);
+      skipCount.set(hostId, 0);
       try {
         await pollOneHost(hostState);
       } catch (err) {
@@ -790,6 +833,13 @@ export function createSshPollOrchestrator(
           fleetHostId: hostState.host.id,
           error: err instanceof Error ? err.message : "unknown",
         });
+      } finally {
+        // Release the guard on BOTH happy-path return and thrown errors.
+        // Never leak a stuck in-flight flag (would silently freeze polls
+        // for this hostId forever). See Task 2 (quick-260820-tm0) for the
+        // paired eviction cleanup: inFlight.delete + skipCount.delete for
+        // evicted hostIds happens in the refresh block below.
+        inFlight.delete(hostId);
       }
     }
   }
