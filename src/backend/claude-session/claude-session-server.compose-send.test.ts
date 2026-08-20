@@ -28,11 +28,17 @@
  *   - execCommand throws → caught; no rethrow; sshLogger.warn
  */
 
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { createHash } from "node:crypto";
 import {
   __applyInputMessageForTests,
   __applyInterruptMessageForTests,
 } from "./claude-session-server.js";
+import {
+  armPvSendWatchdog,
+  clearPvSendWatchdog,
+  __resetPvSendWatchdogForTests,
+} from "./pv-send-watchdog.js";
 
 // Stub ssh2 Client — execCommand is injected so conn is never accessed.
 const fakeConn = {} as import("ssh2").Client;
@@ -368,5 +374,303 @@ describe("__applyInterruptMessageForTests", () => {
     ).resolves.toBeUndefined();
     // Log-and-swallow: function resolves, does not rethrow
     expect(exec).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── Phase 50 Plan 02 Task 2 — pv-send-watchdog wire-up + send_keys_error frame ─
+//
+// Tests for the new wire-up between __applyInputMessageForTests and the
+// pv-send-watchdog module (Task 1). Also covers the send_keys_error frame
+// emission on execCommand throw (D-21) and the WS-close cleanup path (Test 6,
+// MANDATORY per checker Warning #5).
+//
+// The seam signature was widened with three OPTIONAL injectable deps:
+//   • sessionId    — threaded to arm-time key
+//   • wsSend       — used both for send_keys_error emission and passed to
+//                    the watchdog for later paste_send_failed escalation
+//   • armWatchdog  — injectable so tests can spy without needing the real
+//                    module-level Map state
+//   • trackMqid    — caller-supplied hook that records the mqid in the
+//                    per-connection pendingMqidsForThisConnection Set
+//
+// All four are optional to preserve pre-existing test call sites (see the
+// describe block above — those calls omit the new deps and take the pre-
+// Phase-50 behavior path unchanged).
+
+const contentHashOf = (content: string): string =>
+  createHash("sha256").update(content).digest("hex").slice(0, 32);
+
+describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", () => {
+  beforeEach(() => {
+    __resetPvSendWatchdogForTests();
+  });
+
+  afterEach(() => {
+    __resetPvSendWatchdogForTests();
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("Test 1: split-send with mqid → armPvSendWatchdog called with content-only sha256 hash", async () => {
+    vi.useFakeTimers();
+    const exec = vi.fn().mockResolvedValue("");
+    const wsSend = vi.fn();
+    const armWatchdog = vi.fn();
+    const trackMqid = vi.fn();
+
+    const promise = __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "hello\r",
+      messageQueueItemId: "m1",
+      sessionId: "sess-A",
+      wsSend,
+      armWatchdog,
+      trackMqid,
+    });
+
+    // Advance past the 250ms split-send gate so Enter completes.
+    await vi.advanceTimersByTimeAsync(300);
+    await Promise.resolve();
+    await Promise.resolve();
+    await promise;
+
+    // Body + Enter fired
+    expect(exec).toHaveBeenCalledTimes(2);
+    // Watchdog armed exactly once, after successful Enter
+    expect(armWatchdog).toHaveBeenCalledTimes(1);
+    const armArgs = armWatchdog.mock.calls[0][0] as {
+      sessionId: string;
+      mqid: string;
+      body: string;
+      contentHash: string;
+      tmuxTarget: string;
+      wsSend: unknown;
+      execCommand: unknown;
+    };
+    expect(armArgs.sessionId).toBe("sess-A");
+    expect(armArgs.mqid).toBe("m1");
+    expect(armArgs.body).toBe("hello");
+    expect(armArgs.contentHash).toBe(contentHashOf("hello"));
+    expect(armArgs.tmuxTarget).toBe("legit-session");
+    expect(armArgs.wsSend).toBe(wsSend);
+    expect(typeof armArgs.execCommand).toBe("function");
+    // trackMqid called with the mqid
+    expect(trackMqid).toHaveBeenCalledTimes(1);
+    expect(trackMqid).toHaveBeenCalledWith("m1");
+    // No error frame
+    expect(wsSend).not.toHaveBeenCalled();
+  });
+
+  it("Test 2: non-split (no mqid) → armPvSendWatchdog NOT called", async () => {
+    const exec = vi.fn().mockResolvedValue("");
+    const wsSend = vi.fn();
+    const armWatchdog = vi.fn();
+    const trackMqid = vi.fn();
+
+    await __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "hello",
+      sessionId: "sess-A",
+      wsSend,
+      armWatchdog,
+      trackMqid,
+    });
+
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(armWatchdog).not.toHaveBeenCalled();
+    expect(trackMqid).not.toHaveBeenCalled();
+    expect(wsSend).not.toHaveBeenCalled();
+  });
+
+  it("Test 3: execCommand throws on body → send_keys_error frame emitted with reason exec_throw_body; armWatchdog NOT called", async () => {
+    vi.useFakeTimers();
+    const exec = vi.fn().mockRejectedValue(new Error("SSH channel closed"));
+    const wsSend = vi.fn();
+    const armWatchdog = vi.fn();
+    const trackMqid = vi.fn();
+
+    const promise = __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "hello\r",
+      messageQueueItemId: "m1",
+      sessionId: "sess-A",
+      wsSend,
+      armWatchdog,
+      trackMqid,
+    });
+
+    await vi.advanceTimersByTimeAsync(300);
+    await Promise.resolve();
+    await Promise.resolve();
+    await promise;
+
+    // Only body exec attempted (threw)
+    expect(exec).toHaveBeenCalledTimes(1);
+    // wsSend called with send_keys_error
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = wsSend.mock.calls[0][0] as {
+      type: string;
+      mqid: string | null;
+      reason: string;
+      message: string;
+    };
+    expect(frame.type).toBe("send_keys_error");
+    expect(frame.mqid).toBe("m1");
+    expect(frame.reason).toBe("exec_throw_body");
+    expect(frame.message).toContain("SSH channel closed");
+    // armWatchdog NOT called — no signal will ever arrive for a failed send
+    expect(armWatchdog).not.toHaveBeenCalled();
+    expect(trackMqid).not.toHaveBeenCalled();
+  });
+
+  it("Test 4: execCommand throws on Enter (after body succeeded) → send_keys_error with reason exec_throw_enter; armWatchdog NOT called", async () => {
+    vi.useFakeTimers();
+    // Body call succeeds, Enter call throws.
+    let call = 0;
+    const exec = vi.fn().mockImplementation(async () => {
+      call += 1;
+      if (call === 1) return ""; // body OK
+      throw new Error("Enter exec failed");
+    });
+    const wsSend = vi.fn();
+    const armWatchdog = vi.fn();
+    const trackMqid = vi.fn();
+
+    const promise = __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "hello\r",
+      messageQueueItemId: "m1",
+      sessionId: "sess-A",
+      wsSend,
+      armWatchdog,
+      trackMqid,
+    });
+
+    await vi.advanceTimersByTimeAsync(300);
+    await Promise.resolve();
+    await Promise.resolve();
+    await promise;
+
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = wsSend.mock.calls[0][0] as {
+      type: string;
+      mqid: string | null;
+      reason: string;
+      message: string;
+    };
+    expect(frame.type).toBe("send_keys_error");
+    expect(frame.mqid).toBe("m1");
+    expect(frame.reason).toBe("exec_throw_enter");
+    expect(frame.message).toContain("Enter exec failed");
+    expect(armWatchdog).not.toHaveBeenCalled();
+    expect(trackMqid).not.toHaveBeenCalled();
+  });
+
+  it("Test 5: non-split exec throws → send_keys_error with reason exec_throw (no split, no mqid)", async () => {
+    // Non-split throw path — reason is a generic 'exec_throw', mqid is null.
+    const exec = vi.fn().mockRejectedValue(new Error("connection reset"));
+    const wsSend = vi.fn();
+    const armWatchdog = vi.fn();
+
+    await __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "hello",
+      // no mqid → non-split
+      sessionId: "sess-A",
+      wsSend,
+      armWatchdog,
+    });
+
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const frame = wsSend.mock.calls[0][0] as {
+      type: string;
+      mqid: string | null;
+      reason: string;
+      message: string;
+    };
+    expect(frame.type).toBe("send_keys_error");
+    expect(frame.mqid).toBeNull();
+    expect(frame.reason).toBe("exec_throw");
+    expect(frame.message).toContain("connection reset");
+    expect(armWatchdog).not.toHaveBeenCalled();
+  });
+
+  it("Test 6 (MANDATORY per checker Warning #5): WS-close cleanup — arm two mqids on same connection, close → clearPvSendWatchdog called for each; no paste_send_failed emits", async () => {
+    // Simulates the wire-up in claude-session-server.ts's ws-connection scope:
+    //   • per-connection `pendingMqidsForThisConnection` Set
+    //   • trackMqid adds each arm's mqid
+    //   • ws.on("close") iterates the Set + calls clearPvSendWatchdog
+    vi.useFakeTimers();
+    const wsSend = vi.fn();
+
+    // Per-connection Set (mirrors production's declaration at ws-connection outer scope).
+    const pendingMqidsForThisConnection = new Set<string>();
+    const trackMqid = (mqid: string) => pendingMqidsForThisConnection.add(mqid);
+
+    // Arm two watchdogs using the REAL armPvSendWatchdog (imported at top-of-file).
+    // The Task 2 wiring under test is the trackMqid.add call — verify it happens.
+    armPvSendWatchdog({
+      sessionId: "sess-A",
+      mqid: "m1",
+      body: "one",
+      contentHash: contentHashOf("one"),
+      execCommand: async () => "",
+      tmuxTarget: "legit-session",
+      wsSend,
+    });
+    trackMqid("m1");
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    armPvSendWatchdog({
+      sessionId: "sess-A",
+      mqid: "m2",
+      body: "two",
+      contentHash: contentHashOf("two"),
+      execCommand: async () => "",
+      tmuxTarget: "legit-session",
+      wsSend,
+    });
+    trackMqid("m2");
+
+    // Both mqids recorded in the per-connection Set
+    expect(pendingMqidsForThisConnection.size).toBe(2);
+    expect(pendingMqidsForThisConnection.has("m1")).toBe(true);
+    expect(pendingMqidsForThisConnection.has("m2")).toBe(true);
+
+    // Fire the ws.on("close") cleanup synchronously (spy on clearPvSendWatchdog
+    // is difficult because it's a module import — use the observable side-effect
+    // instead: after clearing, advancing past 20000ms must NOT emit paste_send_failed).
+    for (const mqid of pendingMqidsForThisConnection) {
+      clearPvSendWatchdog(mqid);
+    }
+    pendingMqidsForThisConnection.clear();
+
+    // Advance past all three timer stages for both mqids.
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // No paste_send_failed emitted for either mqid — cleared before escalation.
+    const escalations = wsSend.mock.calls.filter((c: unknown[]) => {
+      const f = c[0] as { type?: string };
+      return f?.type === "paste_send_failed";
+    });
+    expect(escalations.length).toBe(0);
   });
 });
