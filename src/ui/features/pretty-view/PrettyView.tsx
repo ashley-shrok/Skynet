@@ -139,7 +139,15 @@ export interface PrettyViewProps {
   // Optional; when omitted, PrettyView renders as read-only (Phase
   // 1 backward-compat). When provided, the compose box mounts at
   // the bottom and pipes typed messages through this callback.
-  onSend?: (text: string) => boolean;
+  //
+  // Phase 50 D-18 / Blocker #4: onSend widened to accept the
+  // ComposeBox-generated mqid as the optional second arg so the SAME
+  // mqid threads through the whole chain (ComposeBox → handleComposeSend
+  // → parent onSend → IdentitySessionPane → pvSendInputRef →
+  // backend armPvSendWatchdog). Optional at the prop-type level for
+  // back-compat with any caller that doesn't participate in the
+  // pending-bubble flow.
+  onSend?: (text: string, mqid?: string) => boolean;
   // Patch #120: safety-valve Ctrl-C. Threaded straight through to
   // ComposeBox's onInterrupt — see ComposeBox for the full contract.
   // Omit when PrettyView is read-only; the Stop button then never
@@ -863,7 +871,11 @@ export function PrettyView({
   // force-on-send). See 32-CONTEXT.md § Decisions LOCKED.
   const { scrollRef, scrollToBottomAndFollow, isPinnedToBottom } = useAutoScroll(paneKey, messages.length);
 
-  const handleComposeSend = useCallback((text: string): boolean => {
+  // Phase 50 D-18 (Blocker #4 middle): widened to (text, mqid?) so the
+  // ComposeBox-generated mqid threads through to the parent's onSend
+  // (typically IdentitySessionPane's onSend at ~L237-270, which then
+  // forwards to pvSendInputRef and the backend armPvSendWatchdog).
+  const handleComposeSend = useCallback((text: string, mqid?: string): boolean => {
     const trimmed = text.trim();
     if (trimmed.startsWith('/btw ') || trimmed === '/btw') {
       // Clear any existing timer before arming a fresh one (in case the user
@@ -880,8 +892,171 @@ export function PrettyView({
     // A send is the strongest possible "I want to see the reply" signal —
     // force stick + jump regardless of prior scroll position.
     scrollToBottomAndFollow();
-    return onSend ? onSend(text) : false;
+    return onSend ? onSend(text, mqid) : false;
   }, [onSend, scrollToBottomAndFollow]);
+
+  // ── Phase 50 Plan 03 (D-01..D-08 + D-15/D-19/D-20/D-21) ──────────────
+  // pendingSends: FIFO queue of optimistic-bubble state. Seeded by
+  // handleOptimisticSend synchronously when ComposeBox presses Enter;
+  // head-matched by content on incoming user-role message frames;
+  // cleared or flipped to failed by the 20s timer OR paste_send_failed
+  // OR send_keys_error WS frames. Ref-mirror because the WS onmessage
+  // handler captures a stale React closure once per WS-setup effect run.
+  type PendingSend = {
+    mqid: string;
+    content: string;
+    sentAt: number;
+    state: "sending" | "failed";
+    timer: number | null;
+  };
+  const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
+  const pendingSendsRef = useRef<PendingSend[]>([]);
+  useEffect(() => {
+    pendingSendsRef.current = pendingSends;
+  }, [pendingSends]);
+  // Phase 50 D-03 failure-path repopulate signal. Passed to ComposeBox
+  // as `overrideText`; ComposeBox's useEffect populates the textarea AND
+  // fires `onOverrideTextConsumed` synchronously so we can reset this
+  // slot back to null on the same tick (Warning #6 — otherwise the
+  // useEffect would refire on subsequent parent re-renders with the
+  // unchanged reference).
+  const [composeOverrideText, setComposeOverrideText] = useState<string | null>(
+    null,
+  );
+
+  // Content-collapse helper: mirrors ComposeBox's collapseNewlinesForSend
+  // so head-match content-string equality stays byte-identical to the
+  // payload the parser emits (D-50 newline policy).
+  const collapseNewlinesForMatch = useCallback((s: string): string => {
+    return s.replace(/\r?\n/g, " ");
+  }, []);
+
+  // flipToFailed: called by the 20s timer, by the paste_send_failed WS
+  // branch, and by the send_keys_error WS branch. Marks the matching
+  // pending as 'failed' (state:'failed', timer:null) AND populates
+  // composeOverrideText with the pending's content so ComposeBox refills
+  // for edit-and-resend. Ref-based lookup so we can call from timer
+  // callbacks with fresh state. D-05 invariant: only flips pendings that
+  // are still in state:'sending'; a pending that has already been matched
+  // (removed from the array) is a no-op.
+  const flipToFailed = useCallback((mqid: string, reason: string) => {
+    setPendingSends((prev) => {
+      const found = prev.find((p) => p.mqid === mqid && p.state === "sending");
+      if (!found) return prev;
+      // Cancel the timer (defense-in-depth — the 20s-timer path calls
+      // flipToFailed inline so its own timer is already firing, but the
+      // paste_send_failed / send_keys_error paths need this).
+      if (found.timer !== null) {
+        window.clearTimeout(found.timer);
+      }
+      console.warn(
+        `[pv-optim] flip-to-failed mqid=${mqid} reason=${reason} content-length=${found.content.length}`,
+      );
+      // Populate ComposeBox for edit-and-resend (D-03).
+      setComposeOverrideText(found.content);
+      return prev.map((p) =>
+        p.mqid === mqid ? { ...p, state: "failed", timer: null } : p,
+      );
+    });
+  }, []);
+
+  // handleOptimisticSend: called by ComposeBox's onOptimisticSend prop
+  // synchronously with (and often BEFORE) the WS write. When
+  // immediateFailure:true (WS not open), seeds the pending in state:'failed'
+  // with no timer armed. Otherwise seeds state:'sending' and arms a
+  // 20000ms client-side timer that flips to failed if no matching parser
+  // signal arrives.
+  const handleOptimisticSend = useCallback(
+    (args: { payload: string; mqid: string; immediateFailure: boolean }) => {
+      const { payload, mqid, immediateFailure } = args;
+      const collapsed = collapseNewlinesForMatch(payload);
+      if (immediateFailure) {
+        // D-20: WS was not open on the ComposeBox side — this callback
+        // fires AFTER the first onOptimisticSend that seeded the record.
+        // We flip that existing record to failed (or, if for some reason
+        // we somehow missed the first seed, seed as failed from birth).
+        setPendingSends((prev) => {
+          const existing = prev.find((p) => p.mqid === mqid);
+          if (existing) {
+            if (existing.timer !== null) {
+              window.clearTimeout(existing.timer);
+            }
+            return prev.map((p) =>
+              p.mqid === mqid ? { ...p, state: "failed", timer: null } : p,
+            );
+          }
+          // Fallback: seed directly as failed.
+          return [
+            ...prev,
+            {
+              mqid,
+              content: collapsed,
+              sentAt: Date.now(),
+              state: "failed",
+              timer: null,
+            },
+          ];
+        });
+        // Do NOT populate composeOverrideText — ComposeBox preserves the
+        // draft on WS-not-open (per Task 2 design), so the textarea
+        // already holds the failed payload.
+        return;
+      }
+      // Normal seed: state:'sending', 20s timer armed.
+      const timerHandle = window.setTimeout(() => {
+        flipToFailed(mqid, "client_timeout_20s");
+      }, 20000);
+      setPendingSends((prev) => [
+        ...prev,
+        {
+          mqid,
+          content: collapsed,
+          sentAt: Date.now(),
+          state: "sending",
+          timer: timerHandle,
+        },
+      ]);
+    },
+    [collapseNewlinesForMatch, flipToFailed],
+  );
+
+  // handleOverrideTextConsumed: ComposeBox's useEffect fires this the same
+  // tick as it calls setText(overrideText); we reset composeOverrideText
+  // to null so the next parent re-render doesn't force-repopulate the
+  // textarea with the same value (Warning #6 resolution).
+  const handleOverrideTextConsumed = useCallback(() => {
+    setComposeOverrideText(null);
+  }, []);
+
+  // WS-close + unmount cleanup: iterate every pending, clearTimeout
+  // its timer, empty the array. Prevents orphan 20s callbacks firing
+  // against a torn-down component AND matches Plan 50-02's per-connection
+  // pendingMqidsForThisConnection cleanup on the backend so both sides
+  // release together (T-50-03-05 mitigation).
+  const clearAllPendingSends = useCallback(() => {
+    for (const p of pendingSendsRef.current) {
+      if (p.timer !== null) {
+        window.clearTimeout(p.timer);
+      }
+    }
+    setPendingSends([]);
+    setComposeOverrideText(null);
+  }, []);
+  useEffect(() => {
+    return () => {
+      clearAllPendingSends();
+    };
+  }, [clearAllPendingSends]);
+  // Latest sending-pending derivation (Task 3b, D-04): the newest pending
+  // that is still in 'sending' state — used to gate the spinner render
+  // (only the latest 'sending' bubble shows a spinner; older 'sending'
+  // pendings look plain — iMessage-style latest-only). 'failed' pendings
+  // are never gated by this — every failed bubble stays red so the user
+  // can see all retry candidates.
+  const latestSendingPending: PendingSend | undefined = (() => {
+    const sendingOnly = pendingSends.filter((p) => p.state === "sending");
+    return sendingOnly.length > 0 ? sendingOnly[sendingOnly.length - 1] : undefined;
+  })();
 
   // WIP indicator: composite isWorking from session-working-store.
   // Patch #260806-ixl: both the PTY-side ttyBusy signal (Terminal.tsx) and
@@ -1355,6 +1530,32 @@ export function PrettyView({
           break;
         }
         case "message": {
+          // Phase 50 D-02/D-07/D-08: FIFO head-match against pendingSends
+          // for user-role message frames. Matches the OLDEST pending whose
+          // (collapsed) content equals parsed.content; on match, remove
+          // that pending AND clearTimeout its 20s timer. This is the
+          // single-signal contract with Plan 50-01's parser: BOTH the
+          // direct-user-turn path AND the queue-op-enqueue-derived frame
+          // land here as kind:"message" role:"user" — one match either
+          // way. Independent of the appendDedupWithCap call below (which
+          // also happens); the two dedup layers serve different purposes
+          // (per-eventId at appendDedup; per-pending-content here).
+          if (parsed.role === "user") {
+            const collapsedParsed = collapseNewlinesForMatch(parsed.content);
+            const list = pendingSendsRef.current;
+            const headMatchIdx = list.findIndex(
+              (p) => p.state === "sending" && p.content === collapsedParsed,
+            );
+            if (headMatchIdx !== -1) {
+              const match = list[headMatchIdx]!;
+              if (match.timer !== null) {
+                window.clearTimeout(match.timer);
+              }
+              setPendingSends((prev) =>
+                prev.filter((p) => p.mqid !== match.mqid),
+              );
+            }
+          }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
           setMessages((prev) =>
             capOffRef.current
@@ -1730,6 +1931,29 @@ export function PrettyView({
           setErrorMessage(parsed.message);
           break;
         }
+        // Phase 50 D-15/D-20 — backend send-path watchdog exhausted its
+        // three-stage escalation (retry Enter @ 2500ms, full re-send @
+        // 5500ms, give-up @ 20000ms). Wire type from Plan 50-02's
+        // pv-send-watchdog module. mqid carries the ComposeBox-generated
+        // pv-optim-<...> identifier (Blocker #4 pass-through). flipToFailed
+        // finds the matching pending, cancels its 20s timer, marks it
+        // failed, populates composeOverrideText.
+        case "paste_send_failed": {
+          if (parsed.mqid) {
+            flipToFailed(parsed.mqid, parsed.reason ?? "paste_send_failed");
+          }
+          break;
+        }
+        // Phase 50 D-21 — backend exec on tmux send-keys threw at ingress.
+        // Fires INSTANTLY (not after a 20s wait) — same visual outcome as
+        // the timer path. reason encodes where in the split-send the throw
+        // landed (exec_throw_body / exec_throw_enter / exec_throw).
+        case "send_keys_error": {
+          if (parsed.mqid) {
+            flipToFailed(parsed.mqid, parsed.reason ?? "send_keys_error");
+          }
+          break;
+        }
       }
     };
 
@@ -1745,6 +1969,11 @@ export function PrettyView({
       // upload hook detaches its message listener from this dead WS.
       // Cleared symmetrically with the setUploadWs(ws) in ws.onopen.
       setUploadWs(null);
+      // Phase 50 Plan 03 Task 3a (T-50-03-05 mitigation): iterate every
+      // pending, clear its 20s timer, empty the pendingSends array. Pairs
+      // with Plan 50-02's backend per-connection pendingMqidsForThisConnection
+      // cleanup so both sides release together on WS teardown.
+      clearAllPendingSends();
       // Patch #148: auto-reconnect on close, mirroring Terminal.tsx's pattern.
       //
       // INACTIVE short-circuit (FALLBACK-01 preservation): when the server has
@@ -2643,6 +2872,35 @@ export function PrettyView({
               )}
             </div>
           ))}
+          {/* Phase 50 Plan 03 Task 3b (D-04/D-19): interleave optimistic
+              bubbles AFTER confirmed messages (chronological). Only the
+              newest 'sending' pending renders with the spinner
+              (iMessage-style latest-only); 'failed' bubbles render red
+              regardless of position so the user sees every retry candidate.
+              Same wrapper attributes as the confirmed messages so the
+              auto-scroll/scroll-anchor hooks see them uniformly. */}
+          {pendingSends.map((p) => {
+            const computedPendingState: "sending" | "failed" | null =
+              p.state === "failed"
+                ? "failed"
+                : p === latestSendingPending
+                  ? "sending"
+                  : null;
+            return (
+              <div
+                key={`pending-${p.mqid}`}
+                data-pv-bubble
+                data-event-id={`pending-${p.mqid}`}
+                style={{ paddingBottom: 9 }}
+              >
+                <ChatMessage
+                  role="user"
+                  content={p.content}
+                  pendingState={computedPendingState}
+                />
+              </div>
+            );
+          })}
           {/* Phase 43 (plan 43-07a): accessory siblings kept immediately below
               the message-list .map output — in-flow inside the outer scroll
               container per the same layout invariant Phase 27 Plan 27-02 Step B
@@ -2811,6 +3069,14 @@ export function PrettyView({
       {onSend && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant") && (
         <ComposeBox
           onSend={handleComposeSend}
+          // Phase 50 D-01: seed a pending bubble synchronously with the
+          // WS write; PrettyView owns the FIFO pendingSends queue.
+          onOptimisticSend={handleOptimisticSend}
+          // Phase 50 D-03 failure-path repopulate — set by flipToFailed
+          // to the failed pending's content; ComposeBox populates the
+          // textarea and acks via onOverrideTextConsumed on the same tick.
+          overrideText={composeOverrideText}
+          onOverrideTextConsumed={handleOverrideTextConsumed}
           onResetClicked={onResetClicked}
           canSend={status === "streaming"}
           // Phase 30 (PS30-04): isHolding derives from
