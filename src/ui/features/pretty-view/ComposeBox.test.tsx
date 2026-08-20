@@ -1478,3 +1478,134 @@ describe("ComposeBox — quick-260802-w9e session-queue-pending-store publish in
     expect(getSnapshot().get("99:")).toBe(false);
   });
 });
+
+/**
+ * Phase 50 Plan 03 Task 2 — optimistic-bubble seeding tests.
+ *
+ * D-01/D-03/D-18/D-20 + Warning #6 + Blocker #3 + Blocker #4 pre-req.
+ *
+ * These tests exercise the new onOptimisticSend + overrideText +
+ * onOverrideTextConsumed contract and the widened onSend(text, mqid?)
+ * prop signature added by Task 2. The COMPOSE-04 sweep is verified by
+ * grep gates in the plan acceptance criteria (not by unit tests) since
+ * comment-removal cannot fail a runtime assertion.
+ */
+describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("Test 2: onOptimisticSend fires synchronously with successful onSend, mqid forwarded", async () => {
+    const onSend = vi.fn(() => true);
+    const onOptimisticSend = vi.fn();
+    render(
+      <ComposeBox {...baseProps({ onSend, onOptimisticSend })} />,
+    );
+    // Type into textarea and press Enter.
+    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hello world" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await Promise.resolve();
+    // onOptimisticSend fired at least once with immediateFailure:false.
+    expect(onOptimisticSend).toHaveBeenCalled();
+    const firstCall = onOptimisticSend.mock.calls[0]![0] as {
+      payload: string;
+      mqid: string;
+      immediateFailure: boolean;
+    };
+    expect(firstCall.payload).toBe("hello world");
+    expect(firstCall.immediateFailure).toBe(false);
+    expect(firstCall.mqid).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
+    // onSend received the same mqid as second arg.
+    expect(onSend).toHaveBeenCalled();
+    const [sendText, sendMqid] = onSend.mock.calls[0]!;
+    expect(sendText).toBe("hello world");
+    expect(sendMqid).toBe(firstCall.mqid);
+  });
+
+  it("Test 3: onSend returning false triggers onOptimisticSend with immediateFailure:true and preserves text", async () => {
+    const onSend = vi.fn(() => false); // WS down
+    const onOptimisticSend = vi.fn();
+    render(
+      <ComposeBox {...baseProps({ onSend, onOptimisticSend })} />,
+    );
+    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "failing send" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await Promise.resolve();
+    // Two calls: first immediateFailure:false (pre-onSend), second true.
+    expect(onOptimisticSend).toHaveBeenCalledTimes(2);
+    const firstCall = onOptimisticSend.mock.calls[0]![0] as {
+      immediateFailure: boolean;
+      mqid: string;
+    };
+    const secondCall = onOptimisticSend.mock.calls[1]![0] as {
+      immediateFailure: boolean;
+      mqid: string;
+    };
+    expect(firstCall.immediateFailure).toBe(false);
+    expect(secondCall.immediateFailure).toBe(true);
+    // Same mqid across both calls (single-source per send).
+    expect(firstCall.mqid).toBe(secondCall.mqid);
+    // Text preserved (draft stays for user to retry-and-resend).
+    expect(textarea.value).toBe("failing send");
+  });
+
+  it("Test 5: mqid format matches pv-optim-<timestamp>-<random8hex>", async () => {
+    const onSend = vi.fn(() => true);
+    const onOptimisticSend = vi.fn();
+    render(
+      <ComposeBox {...baseProps({ onSend, onOptimisticSend })} />,
+    );
+    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hi" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await Promise.resolve();
+    const { mqid } = onOptimisticSend.mock.calls[0]![0] as { mqid: string };
+    expect(mqid).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
+  });
+
+  it("Test 6: overrideText populates textarea and fires onOverrideTextConsumed synchronously", async () => {
+    const onOverrideTextConsumed = vi.fn();
+    const { rerender } = render(
+      <ComposeBox
+        {...baseProps({ overrideText: null, onOverrideTextConsumed })}
+      />,
+    );
+    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    // Wait for hydrate effect to settle (async getComposeDraft mock resolves).
+    await waitFor(() => expect(textarea.value).toBe(""));
+    expect(onOverrideTextConsumed).not.toHaveBeenCalled();
+    // Now override with a non-empty value → useEffect populates + acks.
+    rerender(
+      <ComposeBox
+        {...baseProps({
+          overrideText: "recovered text",
+          onOverrideTextConsumed,
+        })}
+      />,
+    );
+    await waitFor(() => expect(textarea.value).toBe("recovered text"));
+    expect(onOverrideTextConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test 7: onSend prop signature is (text, mqid?) — call site forwards mqid as second arg", async () => {
+    // Regression against Blocker #4 — the mqid MUST flow through onSend.
+    const onSend = vi.fn(() => true);
+    const onOptimisticSend = vi.fn();
+    render(
+      <ComposeBox {...baseProps({ onSend, onOptimisticSend })} />,
+    );
+    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "mqid check" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await Promise.resolve();
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const call = onSend.mock.calls[0]!;
+    expect(call.length).toBeGreaterThanOrEqual(2);
+    expect(call[0]).toBe("mqid check");
+    expect(typeof call[1]).toBe("string");
+    expect(call[1]).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
+  });
+});
