@@ -1389,7 +1389,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 50-02-PLAN.md — Backend send-path watchdog replacement: new pv-send-watchdog module (signal-driven, three-stage escalation) + rip out the old terminal-layer PTY-activity-proxy watchdog + new send_keys_error wire frame on execCommand throw (D-06/D-07 discretion, D-12, D-13, D-14, D-15, D-16, D-17, D-21)
+- [x] 50-02-PLAN.md — Backend send-path watchdog replacement: new pv-send-watchdog module (signal-driven, three-stage escalation) + rip out the old terminal-layer PTY-activity-proxy watchdog + new send_keys_error wire frame on execCommand throw (D-06/D-07 discretion, D-12, D-13, D-14, D-15, D-16, D-17, D-21) — 50-02-SUMMARY.md
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
