@@ -1008,9 +1008,11 @@ describe("conversation-store (Plan 07-01): updateFleetSessions no-op guards", ()
 // quick-260810-oig: removeFleetSession R1-R4
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (quick-260810-oig): removeFleetSession", () => {
-  // Phase 44 Plan 04: cache key bumped v1 → v2 (see conversation-store.ts
-  // FLEET_CACHE_KEY comment for rationale).
-  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v2";
+  // Phase 47 Plan 01: cache key bumped v2 → v3 (see conversation-store.ts
+  // FLEET_CACHE_KEY comment for rationale — aiTitle field addition on
+  // FleetSession forces a fresh cold-start so v2 entries lacking aiTitle
+  // do not rehydrate and seed working-store with missing/undefined aiTitle).
+  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v3";
 
   it("R1: removes present (hostId, sessionName) tuple, fires notify, trims cache", () => {
     const sessions: FleetSession[] = [
@@ -2980,15 +2982,18 @@ describe("conversation-store (Phase 41 Plan 03): real fleet-status wire-side sig
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cache round-trip", () => {
-  const FLEET_CACHE_KEY_V2 = "skynet:convo-fleet-cache:v2";
+  // Phase 47 Plan 01: cache key bumped v2 → v3 (aiTitle addition). Local const
+  // renamed from the prior v2-suffixed name to track the current v3 key.
+  const FLEET_CACHE_KEY_V3 = "skynet:convo-fleet-cache:v3";
 
   beforeEach(() => {
     try {
-      localStorage.removeItem(FLEET_CACHE_KEY_V2);
-      // Also clear any lingering v1 entry so a v1 cache from a previous test
-      // run does NOT leak into the v2 read (which would correctly return [] —
-      // this beforeEach is defense in depth).
+      localStorage.removeItem(FLEET_CACHE_KEY_V3);
+      // Also clear any lingering v1 or v2 entry so a pre-bump cache from a
+      // previous test run does NOT leak into the v3 read (which would correctly
+      // return [] — this beforeEach is defense in depth).
       localStorage.removeItem("skynet:convo-fleet-cache:v1");
+      localStorage.removeItem("skynet:convo-fleet-cache:v2");
     } catch {
       /* jsdom localStorage always available */
     }
@@ -3021,15 +3026,17 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
     expect(read[0].lastMessageAt).toBeNull();
   });
 
-  it("Task 1 – Test C: readFleetSessionsCache accepts pre-Phase-44 v2 entries missing lastMessageAt (coerces to null)", () => {
-    // Simulate a v2 cache entry that predates the lastMessageAt field being
+  it("Task 1 – Test C: readFleetSessionsCache accepts current-key entries missing lastMessageAt (coerces to null)", () => {
+    // Simulate a v3 cache entry that predates the lastMessageAt field being
     // populated by the writer — the isFleetSession predicate accepts the
     // absence (optional), and the reader defensively coerces to null so
     // downstream consumers (AppShell seed loop) have a consistent shape.
+    // (Phase 47 Plan 01: bumped v2 → v3; the read path shape-check is
+    // otherwise identical.)
     const legacy = [
       { hostId: 4, hostName: "hD", sessionName: "s-legacy", created: 400, role: null },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V2, JSON.stringify(legacy));
+    localStorage.setItem(FLEET_CACHE_KEY_V3, JSON.stringify(legacy));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-legacy");
@@ -3045,32 +3052,93 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
       { hostId: 5, hostName: "hE", sessionName: "s-bad", created: 500, role: null, lastMessageAt: "not-a-number" },
       { hostId: 6, hostName: "hF", sessionName: "s-good", created: 600, role: null, lastMessageAt: 6000 },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V2, JSON.stringify(mixed));
+    localStorage.setItem(FLEET_CACHE_KEY_V3, JSON.stringify(mixed));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-good");
     expect(read[0].lastMessageAt).toBe(6000);
   });
 
-  it("Task 1 – Test E: writeFleetSessionsCache writes to the v2 cache key (v1 not written)", () => {
+  it("Task 1 – Test E: writeFleetSessionsCache writes to the v3 cache key (v2 not written)", () => {
+    // Phase 47 Plan 01: bump v2 → v3. Writer must not touch the old key.
     const sessions: FleetSession[] = [
       { hostId: 7, hostName: "hG", sessionName: "s-key-test", created: 700, role: null, lastMessageAt: 700 },
     ];
     writeFleetSessionsCache(sessions);
-    expect(localStorage.getItem("skynet:convo-fleet-cache:v2")).not.toBeNull();
-    expect(localStorage.getItem("skynet:convo-fleet-cache:v1")).toBeNull();
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v3")).not.toBeNull();
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v2")).toBeNull();
   });
 
-  it("Task 1 – Test F: readFleetSessionsCache returns [] when only a v1 (pre-bump) cache entry exists", () => {
-    // A leftover v1 cache from a pre-Phase-44 client must be ignored — the
-    // reader reads FROM v2, so the v1 entry contributes nothing. Forces a
-    // clean fresh-fetch on first Phase 44 load.
-    const v1data = [
-      { hostId: 8, hostName: "hH", sessionName: "s-v1-leftover", created: 800, role: null },
+  it("Task 1 – Test F: readFleetSessionsCache returns [] when only a v2 (pre-Phase-47-bump) cache entry exists", () => {
+    // Phase 47 Plan 01: bumped v2 → v3. A leftover v2 cache from a pre-Phase-47
+    // client (post-Phase-44) must be ignored — the reader reads FROM v3, so
+    // the v2 entry contributes nothing. Forces a clean fresh-fetch on first
+    // Phase 47 load. Same rationale as Phase 44's v1→v2 bump: prevents
+    // rehydrate from seeding working-store with objects lacking aiTitle
+    // (which would flow undefined → null via readFleetSessionsCache's coerce
+    // → AppShell seed-loop calls seedSessionAiTitle with null → last-wins
+    // no-op → row renders the fallback ellipsis instead of the last-known
+    // ai-title from the v2 cache).
+    const v2data = [
+      { hostId: 8, hostName: "hH", sessionName: "s-v2-leftover", created: 800, role: null, lastMessageAt: 800 },
     ];
-    localStorage.setItem("skynet:convo-fleet-cache:v1", JSON.stringify(v1data));
+    localStorage.setItem("skynet:convo-fleet-cache:v2", JSON.stringify(v2data));
     const read = readFleetSessionsCache();
     expect(read).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 47 Plan 01 — FleetSession aiTitle field + cache round-trip
+//
+// Task 2 coverage: FleetSession type gained optional aiTitle; isFleetSession
+// predicate accepts undefined/null/string for aiTitle (rejects other types);
+// readFleetSessionsCache preserves the field (coerces undefined → null);
+// writeFleetSessionsCache persists it. Cache key bumped v2 → v3.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store (Phase 47 Plan 01): FleetSession aiTitle cache round-trip", () => {
+  const FLEET_CACHE_KEY_V3 = "skynet:convo-fleet-cache:v3";
+
+  beforeEach(() => {
+    try {
+      localStorage.removeItem(FLEET_CACHE_KEY_V3);
+      localStorage.removeItem("skynet:convo-fleet-cache:v1");
+      localStorage.removeItem("skynet:convo-fleet-cache:v2");
+    } catch {
+      /* jsdom localStorage always available */
+    }
+  });
+
+  it("Task 2 – Test G: writeFleetSessionsCache + readFleetSessionsCache round-trip preserves aiTitle (both null and string cases)", () => {
+    // Write a two-item fleet with one null aiTitle + one populated aiTitle.
+    // Both must survive the round-trip verbatim, exercising both branches of
+    // the reader's `?? null` coerce (populated: pass-through; null: pass-through).
+    const sessions: FleetSession[] = [
+      { hostId: 10, hostName: "hJ", sessionName: "s-null-title", created: 1000, role: null, lastMessageAt: null, aiTitle: null },
+      { hostId: 11, hostName: "hK", sessionName: "s-real-title", created: 1100, role: "sre", lastMessageAt: 1100, aiTitle: "Fix bug X" },
+    ];
+    writeFleetSessionsCache(sessions);
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(2);
+    expect(read[0].aiTitle).toBeNull();
+    expect(read[1].aiTitle).toBe("Fix bug X");
+  });
+
+  it("Task 2 – Test H: isFleetSession rejects aiTitle of wrong type (number)", () => {
+    // Construct a cache payload with all valid canonical fields except
+    // aiTitle: 42 (number). The reader must reject the entry defensively —
+    // else last-wins reconciliation would poison the working-store with a
+    // non-string aiTitle until the next legitimate write.
+    const bad = [
+      { hostId: 12, hostName: "hL", sessionName: "s-bad-title", created: 1200, role: null, lastMessageAt: null, aiTitle: 42 },
+      { hostId: 13, hostName: "hM", sessionName: "s-good-title", created: 1300, role: null, lastMessageAt: null, aiTitle: "OK" },
+    ];
+    localStorage.setItem(FLEET_CACHE_KEY_V3, JSON.stringify(bad));
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(1);
+    expect(read[0].sessionName).toBe("s-good-title");
+    expect(read[0].aiTitle).toBe("OK");
   });
 });
 

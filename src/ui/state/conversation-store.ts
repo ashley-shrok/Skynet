@@ -1052,7 +1052,18 @@ export function removeFleetSession(hostId: number, sessionName: string): void {
 // of respecting whatever /sessions/list is about to return. Bumping to v2
 // forces one clean cold-start after deploy; small acceptable UX cost, and
 // avoids a transient wrong-order paint under the flipped comparator.
-const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v2";
+//
+// Phase 47 Plan 01 — bumped v2 → v3 because FleetSession gained
+// `aiTitle?: string | null`. Same rationale as Phase 44's v1→v2 bump: a v2
+// rehydrate would seed FleetSession objects lacking aiTitle (undefined →
+// coerced to null by readFleetSessionsCache → AppShell seed loop's
+// `s.aiTitle ?? null` fires seedSessionAiTitle with null → last-wins no-op →
+// working-store cache stays empty for that session's aiTitle → row subtitle
+// renders the fallback ellipsis instead of the last-known ai-title from the
+// v2 cache). Because ai-title reconciliation is LAST-WINS (not max-wins),
+// we prefer a clean cold-start over a silently-empty rehydrate for cached
+// rows on deploy — small acceptable UX cost.
+const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v3";
 
 function isFleetSession(x: unknown): x is FleetSession {
   if (!x || typeof x !== "object") return false;

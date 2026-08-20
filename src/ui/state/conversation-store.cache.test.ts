@@ -24,9 +24,9 @@ import {
   type FleetSession,
 } from "./conversation-store";
 
-// Phase 44 Plan 04: cache key bumped v1 → v2 (FleetSession gained
-// optional lastMessageAt; see conversation-store.ts FLEET_CACHE_KEY comment).
-const CACHE_KEY = "skynet:convo-fleet-cache:v2";
+// Phase 47 Plan 01: cache key bumped v2 → v3 (FleetSession gained
+// optional aiTitle; see conversation-store.ts FLEET_CACHE_KEY comment).
+const CACHE_KEY = "skynet:convo-fleet-cache:v3";
 
 const SAMPLE_A: FleetSession = {
   hostId: 1,
@@ -38,6 +38,10 @@ const SAMPLE_A: FleetSession = {
   // "no history yet" wire value; the reader coerces undefined to null on
   // round-trip so consumers always see either null or a number.
   lastMessageAt: null,
+  // Phase 47 Plan 01: cache round-trip preserves aiTitle. `null` is the
+  // "no ai-title yet" wire value; the reader coerces undefined to null on
+  // round-trip so consumers always see either null or a string.
+  aiTitle: null,
 };
 
 const SAMPLE_B: FleetSession = {
@@ -47,6 +51,9 @@ const SAMPLE_B: FleetSession = {
   created: 1_700_000_100,
   role: null,
   lastMessageAt: 1_700_000_200,
+  // Phase 47 Plan 01: populated string case — exercises the round-trip's
+  // string-value branch. Combined with SAMPLE_A's null, both branches covered.
+  aiTitle: "Fix cache round-trip",
 };
 
 describe("FleetSession localStorage cache (quick-260805-tub)", () => {
@@ -99,8 +106,10 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw as string) as Record<string, unknown>[];
     expect(parsed).toHaveLength(1);
-    // Phase 44 Plan 04: canonical field set is now 6 (added lastMessageAt).
+    // Phase 47 Plan 01: canonical field set is now 7 (added aiTitle to the
+    // Phase 44 Plan 04 set of 6). Alphabetical order places aiTitle first.
     expect(Object.keys(parsed[0]).sort()).toEqual([
+      "aiTitle",
       "created",
       "hostId",
       "hostName",
