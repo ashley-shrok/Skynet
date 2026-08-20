@@ -9,7 +9,7 @@
  * Ashley's UAT 2026-08-18 moved the CAP AUTHORITY from server to client:
  *   - Server now emits every JSONL line on connect (tail -F -n +1). No
  *     historyWindow handshake param. No fetch_older WS handler.
- *   - Client caps `messages[]` to WORKING_SET_CAP (150) via
+ *   - Client caps `messages[]` to WORKING_SET_CAP (20) via
  *     `appendDedupWithCap` during BOTH initial hydration (as the server
  *     drains its full-file emission the client drops-oldest as it grows past
  *     the cap) AND live-tail (post-hydration frames continue to enforce the
@@ -32,13 +32,13 @@
  *     frames so React batches the commits together.
  *
  * Eight tests (A-H) per 45-PATTERNS.md § 10:
- *   Test A: initial hydration cap — 200 frames arrive → 150 bubbles survive
- *           (drop-oldest math: first 50 dropped from the front).
+ *   Test A: initial hydration cap — 40 frames arrive → 20 bubbles survive
+ *           (drop-oldest math: first 20 dropped from the front).
  *   Test B: live-append respects cap after cap reached — one more frame after
- *           filling to cap keeps count at 150 (oldest shifts forward by 1).
- *   Test C: cap uniform across all 5 wire-frame types — 160 mixed frames
+ *           filling to cap keeps count at 20 (oldest shifts forward by 1).
+ *   Test C: cap uniform across all 5 wire-frame types — 30 mixed frames
  *           (message + image + relay_outbound + relay_inbound + malformed_line)
- *           yield 150 bubbles.
+ *           yield 20 bubbles.
  *   Test D: dedup within cap — same eventId fired twice = one bubble
  *           (appendDedupWithCap dedups; cap unaffected by would-be-duplicates).
  *   Test E: openClaudeSessionSocket called with ZERO arguments — locks
@@ -241,7 +241,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("Test A: initial hydration cap — 200 message frames arrive, exactly WORKING_SET_CAP=150 bubbles survive (first 50 dropped from the front)", async () => {
+  it("Test A: initial hydration cap — 40 message frames arrive, exactly WORKING_SET_CAP=20 bubbles survive (first 20 dropped from the front)", async () => {
     const { container } = render(
       <PrettyView
         hostId={1}
@@ -253,7 +253,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
 
-    fireMessageBatch(ws, 200, (i) => ({
+    fireMessageBatch(ws, 40, (i) => ({
       type: "message",
       role: i % 2 === 0 ? "user" : "assistant",
       content: `hydration message ${i}`,
@@ -261,26 +261,26 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
       ts: 1_000_000 + i,
     }));
 
-    // Exactly 150 bubbles survive.
+    // Exactly 20 bubbles survive.
     await waitFor(() => {
       const bubbles = container.querySelectorAll("[data-pv-bubble]");
-      expect(bubbles.length).toBe(150);
+      expect(bubbles.length).toBe(20);
     });
 
-    // First surviving bubble is eventId "50" (0..49 dropped from front).
+    // First surviving bubble is eventId "20" (0..19 dropped from front).
     const bubbles = container.querySelectorAll("[data-pv-bubble]");
     expect(
       (bubbles[0] as HTMLElement).getAttribute("data-event-id"),
-    ).toBe("50");
-    // Last bubble is eventId "199" (the newest).
+    ).toBe("20");
+    // Last bubble is eventId "39" (the newest).
     expect(
       (bubbles[bubbles.length - 1] as HTMLElement).getAttribute(
         "data-event-id",
       ),
-    ).toBe("199");
+    ).toBe("39");
   });
 
-  it("Test B: live-append respects cap — after filling to 150, one more frame keeps count at 150 (oldest shifts forward by 1)", async () => {
+  it("Test B: live-append respects cap — after filling to 20, one more frame keeps count at 20 (oldest shifts forward by 1)", async () => {
     const { container } = render(
       <PrettyView
         hostId={1}
@@ -293,7 +293,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     flipToStreaming(ws);
 
     // Fill to cap first.
-    fireMessageBatch(ws, 200, (i) => ({
+    fireMessageBatch(ws, 40, (i) => ({
       type: "message",
       role: "assistant",
       content: `fill ${i}`,
@@ -303,37 +303,37 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
 
     await waitFor(() => {
       const bubbles = container.querySelectorAll("[data-pv-bubble]");
-      expect(bubbles.length).toBe(150);
+      expect(bubbles.length).toBe(20);
     });
 
-    // First surviving bubble is currently eventId "50".
+    // First surviving bubble is currently eventId "20".
     let bubbles = container.querySelectorAll("[data-pv-bubble]");
     expect(
       (bubbles[0] as HTMLElement).getAttribute("data-event-id"),
-    ).toBe("50");
+    ).toBe("20");
 
-    // Fire ONE more frame — cap keeps the count at 150, oldest shifts by 1.
+    // Fire ONE more frame — cap keeps the count at 20, oldest shifts by 1.
     fireMessageBatch(ws, 1, (_i) => ({
       type: "message",
       role: "assistant",
       content: "one more",
-      eventId: "200",
+      eventId: "40",
       ts: 1_000_200,
     }));
 
     await waitFor(() => {
       const b = container.querySelectorAll("[data-pv-bubble]");
-      expect(b.length).toBe(150);
-      expect((b[0] as HTMLElement).getAttribute("data-event-id")).toBe("51");
+      expect(b.length).toBe(20);
+      expect((b[0] as HTMLElement).getAttribute("data-event-id")).toBe("21");
       expect(
         (b[b.length - 1] as HTMLElement).getAttribute("data-event-id"),
-      ).toBe("200");
+      ).toBe("40");
     });
     // Reference used to avoid unused-var (helps lint suppression readers).
     void bubbles;
   });
 
-  it("Test C: cap is uniform across all 5 wire-frame types (message, image, relay_outbound, relay_inbound, malformed_line) — 160 mixed frames yield 150 bubbles", async () => {
+  it("Test C: cap is uniform across all 5 wire-frame types (message, image, relay_outbound, relay_inbound, malformed_line) — 30 mixed frames yield 20 bubbles", async () => {
     const { container } = render(
       <PrettyView
         hostId={1}
@@ -345,11 +345,11 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
 
-    // 30 message + 40 image + 30 relay_outbound + 30 relay_inbound +
-    // 30 malformed_line = 160 total, unique eventIds 0..159.
+    // 6 message + 6 image + 6 relay_outbound + 6 relay_inbound +
+    // 6 malformed_line = 30 total, unique eventIds 0..29.
     let idx = 0;
     act(() => {
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 6; i++) {
         ws.onmessage?.(
           new MessageEvent("message", {
             data: JSON.stringify({
@@ -362,7 +362,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
           }),
         );
       }
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 6; i++) {
         ws.onmessage?.(
           new MessageEvent("message", {
             data: JSON.stringify({
@@ -376,7 +376,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
           }),
         );
       }
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 6; i++) {
         ws.onmessage?.(
           new MessageEvent("message", {
             data: JSON.stringify({
@@ -390,7 +390,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
           }),
         );
       }
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 6; i++) {
         ws.onmessage?.(
           new MessageEvent("message", {
             data: JSON.stringify({
@@ -404,7 +404,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
           }),
         );
       }
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 6; i++) {
         ws.onmessage?.(
           new MessageEvent("message", {
             data: JSON.stringify({
@@ -420,22 +420,22 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
 
     await waitFor(() => {
       const bubbles = container.querySelectorAll("[data-pv-bubble]");
-      expect(bubbles.length).toBe(150);
+      expect(bubbles.length).toBe(20);
     });
 
-    // First 10 message frames (eventIds 0..9) dropped from the front:
-    // the cap ate them uniformly regardless of frame type. First surviving
-    // eventId is "10".
+    // First 10 frames (eventIds 0..9) dropped from the front: the cap ate them
+    // uniformly regardless of frame type (spanning message + image types).
+    // First surviving eventId is "10".
     const bubbles = container.querySelectorAll("[data-pv-bubble]");
     expect(
       (bubbles[0] as HTMLElement).getAttribute("data-event-id"),
     ).toBe("10");
-    // Last surviving eventId is "159" (last malformed_line).
+    // Last surviving eventId is "29" (last malformed_line).
     expect(
       (bubbles[bubbles.length - 1] as HTMLElement).getAttribute(
         "data-event-id",
       ),
-    ).toBe("159");
+    ).toBe("29");
   });
 
   it("Test D: dedup within cap — same eventId fired twice produces exactly one bubble (cap unaffected by would-be-duplicates)", async () => {
@@ -519,8 +519,8 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
 
-    // Fire 200 frames — cap kicks in at 150.
-    fireMessageBatch(ws, 200, (i) => ({
+    // Fire 40 frames — cap kicks in at 20.
+    fireMessageBatch(ws, 40, (i) => ({
       type: "message",
       role: "assistant",
       content: `pinned ${i}`,
@@ -530,7 +530,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
 
     await waitFor(() => {
       const bubbles = container.querySelectorAll("[data-pv-bubble]");
-      expect(bubbles.length).toBe(150);
+      expect(bubbles.length).toBe(20);
     });
 
     // Locate the outer scroll container and confirm we're still pinned to
@@ -562,8 +562,8 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
 
-    // Fire 30 frames, enough to fill the DOM but well under cap.
-    fireMessageBatch(ws, 30, (i) => ({
+    // Fire 10 frames, enough to fill the DOM but well under cap.
+    fireMessageBatch(ws, 10, (i) => ({
       type: "message",
       role: "assistant",
       content: `noyank ${i}`,
@@ -573,7 +573,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
 
     await waitFor(() => {
       const bubbles = container.querySelectorAll("[data-pv-bubble]");
-      expect(bubbles.length).toBe(30);
+      expect(bubbles.length).toBe(10);
     });
 
     // Simulate the user scrolling to the top.
@@ -595,8 +595,8 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
       fireEvent.scroll(scrollContainer!);
     });
 
-    // Now fire 30 more frames while the user is scrolled to top.
-    fireMessageBatch(ws, 30, (i) => ({
+    // Now fire 5 more frames while the user is scrolled to top (10+5=15 < cap 20).
+    fireMessageBatch(ws, 5, (i) => ({
       type: "message",
       role: "assistant",
       content: `after-scroll ${i}`,
@@ -623,8 +623,8 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
 
-    // Fire 50 frames.
-    fireMessageBatch(ws, 50, (i) => ({
+    // Fire 15 frames (under cap 20).
+    fireMessageBatch(ws, 15, (i) => ({
       type: "message",
       role: "assistant",
       content: `pre-scroll ${i}`,
@@ -634,7 +634,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
 
     await waitFor(() => {
       const bubbles = container.querySelectorAll("[data-pv-bubble]");
-      expect(bubbles.length).toBe(50);
+      expect(bubbles.length).toBe(15);
     });
 
     // Scroll to top.
@@ -658,8 +658,8 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     // Phase 43; we wait 2x that.)
     await new Promise((r) => setTimeout(r, 500));
 
-    // Fire 10 more frames while scrolled up.
-    fireMessageBatch(ws, 10, (i) => ({
+    // Fire 5 more frames while scrolled up (15+5=20 = cap, no drop yet).
+    fireMessageBatch(ws, 5, (i) => ({
       type: "message",
       role: "assistant",
       content: `post-scroll ${i}`,

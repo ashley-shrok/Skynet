@@ -94,7 +94,7 @@ const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000;
 // sustained message array to this size to bound memory on long sessions.
 // Loss of scroll-back-forever is explicit trade-off per Phase 45 UAT — see
 // .planning/phases/45-fix-forward-on-phase-43-restore-correct-architecture-for-win/45-CONTEXT.md § "Client architecture" for rationale.
-const WORKING_SET_CAP = 150;
+const WORKING_SET_CAP = 20;
 
 // Minimal read-only pretty view for a live Claude Code session.
 //
