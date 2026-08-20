@@ -265,6 +265,37 @@ export type TailErrorEvent = {
   message: string;
 };
 
+// Phase 50 Plan 02 D-15 — signal-driven send-path watchdog escalation.
+// Fired by src/backend/claude-session/pv-send-watchdog.ts at T+20000ms
+// silence after a split-send arm, indicating the harness never accepted
+// the message (no matching kind:"message" role:"user" parser signal
+// arrived from either the direct-user-turn path or the queue-operation-
+// enqueue path). Frontend consumers flip the corresponding optimistic
+// bubble to the red-failure state and re-populate the composebox text so
+// the user can edit and re-send (D-03).
+//
+// Wire shape PRESERVED from the OLD terminal-layer watchdog (removed in
+// Phase 50 Plan 02 Task 3) for frontend backward compatibility — matches
+// what terminal-pv-watchdog.ts:232-238 used to emit.
+export type PasteSendFailedEvent = {
+  type: "paste_send_failed";
+  mqid: string | null;
+  reason: string;
+};
+
+// Phase 50 Plan 02 D-21 — execCommand throw at the input handler surface.
+// Distinct from paste_send_failed (which fires at T+20000ms after the
+// send tried to complete): this fires the INSTANT the tmux send-keys
+// exec throws — the message failed at ingress and no watchdog was armed.
+// `mqid` is null for non-split (adhoc keystroke) throws where the send
+// is not tied to a compose-send optimistic bubble.
+export type SendKeysErrorEvent = {
+  type: "send_keys_error";
+  mqid: string | null;
+  reason: string;
+  message: string;
+};
+
 export type ErrorEvent = {
   type: "error";
   message: string;
@@ -373,6 +404,9 @@ export type ClaudeSessionServerEvent =
   | RelayInboundEvent
   // pv-malformed-jsonl-placeholder-bubble (2026-08-10)
   | MalformedLineEvent
+  // Phase 50 Plan 02 (D-15 + D-21) — signal-driven send-path watchdog frames
+  | PasteSendFailedEvent
+  | SendKeysErrorEvent
   // Phase 47 (load-more button) — response to FetchOlderRangePayload
   | FetchOlderRangeBatchEvent;
 

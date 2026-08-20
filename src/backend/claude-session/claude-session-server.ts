@@ -11,6 +11,15 @@ import { discoverClaudeSession } from "./session-file-discovery.js";
 import { discoverIdentitySessionFile } from "./discover-identity-session-file.js";
 import { parseSessionLine, detectIdReset } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+// Phase 50 Plan 02 — signal-driven send-path watchdog. Replaces the OLD
+// PTY-activity-proxy watchdog at src/backend/ssh/terminal-pv-watchdog.ts
+// (patch quick 260803-1xw). See pv-send-watchdog.ts file header for the
+// three-stage timing chain + hash-derivation contract.
+import {
+  armPvSendWatchdog,
+  clearPvSendWatchdog,
+  notifyMatched as notifyPvSendMatched,
+} from "./pv-send-watchdog.js";
 // Phase 47 Plan 03: bounded JSONL slice reader for the load-more button
 // (Plan 01 output). Used by handleFetchOlderRange below AND by
 // startActiveSessionFlow's Hunk B totalLines probe.
@@ -1481,6 +1490,14 @@ export async function __applyInputMessageForTests(deps: {
   execCommand: (conn: unknown, cmd: string) => Promise<string>;
   data: string;
   messageQueueItemId?: string;
+  // Phase 50 Plan 02 Task 2 — optional wire-up for the signal-driven send
+  // watchdog. All four are optional to preserve backward compat with the
+  // pre-Phase-50 test call sites (they omit these and get the log-and-swallow-
+  // only path unchanged).
+  sessionId?: string;
+  wsSend?: (frame: object) => void;
+  armWatchdog?: typeof armPvSendWatchdog;
+  trackMqid?: (mqid: string) => void;
 }): Promise<void> {
   const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
   if (!sshConn || !currentTmuxSession) return;
@@ -1506,25 +1523,73 @@ export async function __applyInputMessageForTests(deps: {
   // Body write first, then 250ms (matches terminal.ts:842 — patch #111 raised from 50ms
   // after Ashley UAT confirmed 50ms caused paste-detection-still-active symptom), then Enter.
   const isSplitSend = mqid.length > 0 && data.endsWith("\r");
+  // Phase 50 Plan 02 Task 2 — track which exec call threw so the send_keys_error
+  // frame (D-21) can carry a precise reason. Body throw short-circuits Enter.
+  let bodyExecFailed = false;
+  let enterExecFailed = false;
+  const body = isSplitSend ? data.slice(0, -1) : "";
   try {
     if (isSplitSend) {
-      const body = data.slice(0, -1);
       if (body.length > 0) {
-        await exec(
-          sshConn,
-          `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} ${shellQuote(body)}`,
-        );
+        try {
+          await exec(
+            sshConn,
+            `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} ${shellQuote(body)}`,
+          );
+        } catch (bodyErr) {
+          bodyExecFailed = true;
+          throw bodyErr;
+        }
       }
       // 250ms — matches terminal.ts:842 (patch #111). Do NOT change to 50ms.
       await new Promise((resolve) => setTimeout(resolve, 250));
-      await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} Enter`);
+      try {
+        await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} Enter`);
+      } catch (enterErr) {
+        enterExecFailed = true;
+        throw enterErr;
+      }
     } else {
       await exec(
         sshConn,
         `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} ${shellQuote(data)}`,
       );
     }
+
+    // Phase 50 Plan 02 Task 2 — arm the signal-driven watchdog on successful
+    // split-send. contentHash derivation MUST match the arm-time key derivation
+    // in the onLine notifyMatched call site AND Plan 50-01 Task 2's dedup Map
+    // key (sha256(content).slice(0,32) — content-only). If any of the three
+    // drift, watchdogs never notify and every real send escalates unnecessarily.
+    // See 50-01-PLAN.md § objective "Hash-derivation contract".
+    if (
+      isSplitSend &&
+      mqid.length > 0 &&
+      deps.sessionId &&
+      deps.wsSend &&
+      deps.armWatchdog
+    ) {
+      const contentHash = createHash("sha256")
+        .update(body)
+        .digest("hex")
+        .slice(0, 32);
+      deps.armWatchdog({
+        sessionId: deps.sessionId,
+        mqid,
+        body,
+        contentHash,
+        // Bind sshConn into the exec signature the watchdog expects.
+        execCommand: (cmd: string) => exec(sshConn, cmd),
+        tmuxTarget: currentTmuxSession,
+        wsSend: deps.wsSend,
+        logger: sshLogger,
+      });
+      deps.trackMqid?.(mqid);
+    }
   } catch (err) {
+    // Phase 50 Plan 02 D-21 — surface execCommand throws as a new
+    // send_keys_error WS frame instead of the pre-Phase-50 log-and-swallow.
+    // The log stays (extended, not removed) for backend audit continuity.
     sshLogger.warn("input send failed", {
       operation: "input_send_error",
       hostId: currentHostId,
@@ -1532,6 +1597,28 @@ export async function __applyInputMessageForTests(deps: {
       dataLength: data.length,
       error: err instanceof Error ? err.message : String(err),
     });
+    if (deps.wsSend) {
+      const reason = isSplitSend
+        ? bodyExecFailed
+          ? "exec_throw_body"
+          : enterExecFailed
+            ? "exec_throw_enter"
+            : "exec_throw"
+        : "exec_throw";
+      try {
+        deps.wsSend({
+          type: "send_keys_error",
+          mqid: mqid.length > 0 ? mqid : null,
+          reason,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      } catch (wsErr) {
+        sshLogger.warn("send_keys_error frame emit failed", {
+          operation: "input_send_error_ws_emit_failed",
+          error: wsErr instanceof Error ? wsErr.message : String(wsErr),
+        });
+      }
+    }
   }
 }
 
@@ -2374,6 +2461,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // is destroyed on WS disconnect / pane teardown along with every
   // other per-connection state slot in this scope.
   const queueEnqueueDedup = new Map<string, number>();
+  // Phase 50 Plan 02 D-15 cleanup — per-connection tracking of every mqid
+  // armed via armPvSendWatchdog on this WS. Iterated on ws.on("close") to
+  // fire clearPvSendWatchdog for each pending mqid — prevents orphan
+  // paste_send_failed frames firing against a torn-down socket. T-50-02-06
+  // mitigation (Warning #5 mandated this, not optional). See the ws.on("close")
+  // handler at L~3660 for the iteration + clear + Set.clear() sequence.
+  const pendingMqidsForThisConnection = new Set<string>();
   // Plan-pending tracking (patch #63): parent-JSONL scan for
   // ExitPlanMode tool_use blocks (Claude asking Ashley to accept /
   // keep-planning in Plan Mode), paired against subsequent
@@ -3075,6 +3169,27 @@ wss.on("connection", async (ws: WebSocket, req) => {
         } catch {
           /* ws may be mid-close; drop */
         }
+        // Phase 50 Plan 02 Task 2 — notify any pending pv-send-watchdog that
+        // the matching parser signal has arrived. Fires for BOTH the direct-
+        // user-turn path AND the queue-operation-enqueue path (Plan 50-01 T1).
+        // contentHash derivation MUST match the arm-time key at
+        // __applyInputMessageForTests L~1585 AND Plan 50-01 Task 2's dedup
+        // Map key — if any of the three drift, watchdogs never notify and
+        // every send escalates unnecessarily. See 50-01-PLAN.md § objective
+        // "Hash-derivation contract".
+        if (
+          frame.type === "message" &&
+          frame.role === "user" &&
+          typeof frame.content === "string" &&
+          frame.content.length > 0 &&
+          sessionIdFromFile
+        ) {
+          const contentHash = createHash("sha256")
+            .update(frame.content)
+            .digest("hex")
+            .slice(0, 32);
+          notifyPvSendMatched(sessionIdFromFile, contentHash);
+        }
       }
     }
     // kind:"skip" returns null and is silently dropped (RENDER-01 lock;
@@ -3581,6 +3696,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
     databaseLogger.info(`[ws-server] close userId=${userId ?? 'null'} hostId=${currentHostId ?? 'null'} tmuxSession=${currentTmuxSession ?? 'null'} code=${code} reason="${reason?.toString() ?? ''}"`, { operation: "ws_close" });
     clearInterval(wsPingInterval);
     stopped = true;
+    // Phase 50 D-15 cleanup: cancel any pending pv-send-watchdog escalations for
+    // mqids armed under this WS connection — prevents paste_send_failed frames
+    // firing against a torn-down socket. Warning #5 (checker feedback iteration 1)
+    // made this mandatory rather than aspirational. Iterated BEFORE teardownPane
+    // so the clear is not gated on any downstream side effect.
+    if (pendingMqidsForThisConnection.size > 0) {
+      for (const mqid of pendingMqidsForThisConnection) {
+        clearPvSendWatchdog(mqid);
+      }
+      pendingMqidsForThisConnection.clear();
+    }
     teardownPane();
     // Phase 41 Plan 04: unlink any orphaned .partial temp files for pretty-
     // view upload batches this WS owned. teardownPane() above already drains
@@ -4995,6 +5121,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // hostId/tmuxSession in the payload — a client cannot spoof an input
     // frame into a pane it doesn't own.
     if (msg.type === "input") {
+      // Phase 50 Plan 02 Task 2 — wire the signal-driven send watchdog into
+      // the production input handler. sessionId comes from the connection-
+      // scoped sessionIdFromFile (set on connectToPane discovery success);
+      // wsSend is a WS-OPEN-guarded JSON.stringify shim; armWatchdog is the
+      // real module export; trackMqid records into the per-connection
+      // pendingMqidsForThisConnection Set (iterated on ws.on("close") for
+      // orphan-frame prevention — T-50-02-06 mitigation).
       await __applyInputMessageForTests({
         sshConn,
         currentTmuxSession,
@@ -5002,6 +5135,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
         execCommand,
         data: String((msg as { data?: unknown }).data ?? ""),
         messageQueueItemId: String((msg as { messageQueueItemId?: unknown }).messageQueueItemId ?? "") || undefined,
+        sessionId: sessionIdFromFile ?? undefined,
+        wsSend: (frame: object) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(JSON.stringify(frame));
+            } catch {
+              /* ws may be mid-close; drop */
+            }
+          }
+        },
+        armWatchdog: armPvSendWatchdog,
+        trackMqid: (mqid: string) => {
+          pendingMqidsForThisConnection.add(mqid);
+        },
       });
       return;
     }
