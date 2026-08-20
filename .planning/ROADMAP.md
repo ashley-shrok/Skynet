@@ -1400,3 +1400,16 @@ Plans:
 - [x] 50-04-PLAN.md — In-process end-to-end integration tests covering all 7 D-22 scenarios (happy path / queued path / failure path / retry-Enter path / full-resend path / latest-only referenced from PrettyView test / dedup) + D-23 adapt-not-delete audit (D-22, D-23) — 50-04-SUMMARY.md
 
 **History note:** Phase originally numbered 45 in this identity's tree (started 2026-08-19). Collided on rebase with FIVE origin-side phases that had shipped between my planning-commit time and my next work session: tina P45 (fix-forward on P43, shipped as #466), tiffany P46 (frontend-skill-editing, shipped as #469), tina P47 (load-more button, in tanya's bundled ship #472), tanya P48 (convo-list ai-title, shipped in bundled #472), tabitha P49 (relay-outbound sanitize, shipped as #473). Fully autonomous rescue-rebase per role-file directive + `rescue-rebase-runbook.md` — the 11th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). No source overlap with any of the five (theirs = various pretty-view surfaces + skills-editor router + extractor sanitize; mine = ComposeBox HARD LOCK removal + ChatMessage pending state + parser queue-operation-enqueue emission + terminal.ts watchdog swap + IdentitySessionPane mqid thread). Planning artifacts renamed 45-* → 50-*, ROADMAP + STATE re-added under new number. Zero-cost rescue in the sense that no plans had shipped yet — only planning commits were on the local branch, none pushed.
+### Phase 51: BG-agents panel — admit 2.1.150+ async Agent invocations via tool_result launch-ack
+
+Bounty: `claude-code-2-1-214-pretty-view-compat` (Bug 1 only; Bug 2 plan-pending is a separate phase). Parser at `src/backend/claude-session/claude-session-server.ts` backgrounded_agents correlator (~L2506) gates admission on `input.run_in_background === true` — modern Claude Code (v2.1.150+ verified against taylor's live JSONL) writes `Agent` invocations WITHOUT that flag and signals async via tool_result launch-ack (`toolUseResult.isAsync === true`, already parsed at L2559 but only used as skip-guard). Fix shape: admit every `Agent` tool_use into a scratch map; promote to `backgroundedAgents` on tool_result async-ack; drop scratch entry if first tool_result is a non-async completion (was sync). Preserve backward compat with legacy `input.run_in_background === true` admission path. Verify whether `Bash{run_in_background:true}` branch (~L2529) needs the same treatment or if only `Agent` moved shape. Tests: parser fixtures for the new shape. Scoped tight — no push/deploy inside executor, orchestrator handles ship.
+
+**History note:** Phase originally numbered 50 in this identity's tree (2026-08-20). Rescue-rebased 50 → 51 at add-time on detection of taylor's in-flight Phase 50 (`optimistic-message-bubbles`, mid-fix-pass executor with 10+ unpushed commits). 12th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous per role-file rule + `rescue-rebase-runbook.md` — zero source overlap, zero-cost rename since no plans had been authored yet at rescue-rebase time.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** nothing new (independent parser fix)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 51 to break down)
