@@ -89,6 +89,11 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionLastMessageAt: () => null,
   getSessionLastMessageAt: () => null,
   subscribeSessionWorkingStore: (_cb: () => void) => () => {},
+  // Phase 47 Plan 04: PrettyConversationRowLive subscribes to the aiTitle
+  // axis via useSessionAiTitle (Plan 47-03 chokepoint). Returns null so
+  // the threaded prop stays null in this new-role-button suite (which
+  // doesn't exercise the ai-title surface).
+  useSessionAiTitle: () => null,
 }));
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal so this test suite does not pull in

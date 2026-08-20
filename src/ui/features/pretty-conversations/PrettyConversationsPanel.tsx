@@ -82,7 +82,14 @@ import {
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 import { getSessionList } from "@/api/sessions-api";
-import { useSessionIsWorking } from "@/state/session-working-store";
+import {
+  useSessionIsWorking,
+  // Phase 47 Plan 04 — subscribes PrettyConversationRowLive to the working-
+  // store's aiTitle axis (Plan 47-03 LAST-WINS chokepoint). Threaded through
+  // to PrettyConversationRow as a new prop; Plan 47-05 consumes the value
+  // as the row's subtitle content. Same key shape as useSessionIsWorking.
+  useSessionAiTitle,
+} from "@/state/session-working-store";
 import { useSessionRecycling } from "@/state/session-recycling-store";
 import { useSessionQueuePending } from "@/state/session-queue-pending-store";
 import { useIdentities, refreshIdentities } from "@/state/identities-store";
@@ -209,6 +216,13 @@ function PrettyConversationRowLive(props: {
   // predicate so a session with an armed idle-send queue does NOT paint the
   // dot (the session is spoken-for pending idle; NOT ready for input).
   const hasQueuePending = useSessionQueuePending(sessionKey);
+  // Phase 47 Plan 04 — subscribes to the working-store's aiTitle axis
+  // (Plan 47-03 chokepoint) for the row's (host, tmuxSession) key. Same
+  // key shape as the other three working-store hooks above. Returns
+  // string | null; null for null-key rows (RDP) and for known-key rows
+  // the store hasn't seen an ai-title for yet — PrettyConversationRow's
+  // subtitle-line fallback (Plan 47-05) handles the null case.
+  const aiTitle = useSessionAiTitle(sessionKey);
   return (
     <PrettyConversationRow
       {...rowProps}
@@ -216,6 +230,7 @@ function PrettyConversationRowLive(props: {
       isRecycling={isRecycling === true}
       hasQueuePending={hasQueuePending}
       inActiveSet={inActiveSet}
+      aiTitle={aiTitle}
     />
   );
 }

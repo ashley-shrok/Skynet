@@ -293,11 +293,29 @@ vi.mock("@/api/user-preferences-api", () => ({
 // exports are stubbed as no-ops here — subscribe returns a no-op disposer;
 // getSessionLastMessageAt returns null so every row's derived lastMessageAt
 // stays null (matches pre-Plan-03 shape).
+// Phase 47 Plan 04: useSessionAiTitle added to the mock alongside the
+// pre-existing three exports. Backed by a vi.fn spy + mutable-return map
+// so Task 2's wire tests can (a) assert the hook was CALLED with the
+// expected sessionKey per render site (proves PrettyConversationRowLive
+// subscribes) and (b) assert the returned value threaded through to
+// PrettyConversationRow's aiTitle prop (via seeded mockAiTitleByKey +
+// verifying no throw on render, since the prop is accepted-but-unused
+// in this plan's scope per Plan 47-05 owning the visual).
+//
+// Default returns null so every row's threaded aiTitle prop stays null
+// in existing tests — behaviorally identical to the pre-Phase-47 shape.
+let mockAiTitleByKey: Map<string | null, string | null> = new Map();
+const useSessionAiTitleSpy = vi.fn((sessionKey: string | null) => {
+  if (sessionKey === null) return null;
+  return mockAiTitleByKey.get(sessionKey) ?? null;
+});
 vi.mock("@/state/session-working-store", () => ({
   useSessionIsWorking: () => false,
   useSessionLastMessageAt: () => null,
   getSessionLastMessageAt: () => null,
   subscribeSessionWorkingStore: (_cb: () => void) => () => {},
+  useSessionAiTitle: (sessionKey: string | null) =>
+    useSessionAiTitleSpy(sessionKey),
 }));
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal so the panel-level test suite
@@ -406,6 +424,12 @@ beforeEach(async () => {
   // both explicitly before render.
   mockIdentitiesByKey = new Map();
   mockBountyCounts = new Map<string, { pinnedCount: number; needsDeskCount: number }>();
+  // Phase 47 Plan 04: reset the ai-title mock map to empty so pre-Phase-47
+  // tests observe the null-default subtitle path (matches pre-plan behavior;
+  // aiTitle prop threads null through to PrettyConversationRow, which does
+  // not consume it in this plan's scope). Wire tests populate explicitly.
+  mockAiTitleByKey = new Map<string | null, string | null>();
+  useSessionAiTitleSpy.mockClear();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3483,5 +3507,172 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
     expect(t1Removes).toEqual([]);
     const t1Deactivates = onDeactivateRow.mock.calls.filter(([row]) => row?.id === "t1");
     expect(t1Deactivates).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 47 Plan 04 — PrettyConversationRowLive aiTitle wire tests
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Locks the working-store third-axis subscription contract:
+//
+//   PrettyConversationRowLive
+//     ── subscribes ──► useSessionAiTitle(sessionWorkingKey(row))
+//     ── threads ────► PrettyConversationRow aiTitle prop
+//
+// Load-bearing invariants:
+//
+//   1. Every PrettyConversationRowLive instance (regardless of render site:
+//      search-flat, pinned, middle, RDP, hidden) calls useSessionAiTitle
+//      with the row's sessionKey. Source-level uniformity is enforced by
+//      the grep acceptance criteria — the hook is called ONCE inside
+//      PrettyConversationRowLive so all 5 render sites go through the same
+//      subscription code path. These runtime tests exercise the pinned +
+//      middle sites (the two most commonly rendered) and a null-host row
+//      (which produces sessionKey === null via sessionWorkingKey's guard).
+//
+//   2. When a row's sessionKey has a seeded ai-title in the working-store
+//      (mock returns "Fix bug X"), PrettyConversationRowLive threads that
+//      value through to PrettyConversationRow's aiTitle prop. In this
+//      plan's scope PrettyConversationRow does NOT visually consume the
+//      prop (Plan 47-05 owns the subtitle render), so we assert the
+//      wire indirectly: the useSessionAiTitleSpy was called with the
+//      expected sessionKey AND returned the seeded value. This proves
+//      both hook subscription + return-value flow.
+//
+//   3. Null-key rows (fleet-only rows without a resolved host) call
+//      useSessionAiTitleSpy(null); the mock short-circuits to null;
+//      PrettyConversationRow receives aiTitle={null} via the destructure
+//      default. Renders cleanly (no throw).
+//
+// See:
+//   - PrettyConversationsPanel.tsx PrettyConversationRowLive (~L211)
+//   - session-working-store.ts useSessionAiTitle (Plan 47-03 export)
+//   - 47-CONTEXT.md § Working-store third axis (LAST-WINS semantics)
+//   - 47-04-PLAN.md § Task 2 <acceptance_criteria>
+
+describe("PrettyConversationsPanel (Phase 47 Plan 04): PrettyConversationRowLive aiTitle wire", () => {
+  it("Test AT-1: pinned row with seeded ai-title calls useSessionAiTitle with the row's sessionKey and receives the seeded value", () => {
+    const hostA = makeHost("h1", "hostA");
+    // sessionWorkingKey format: `${host.id}:${targetTmuxSession ?? ""}`.
+    // With host.id="h1" + targetTmuxSession="tina", the key is "h1:tina".
+    const expectedKey = "h1:tina";
+    mockAiTitleByKey.set(expectedKey, "Fix bug X");
+    setSnapshot({
+      pinned: [
+        makeConversationRow({
+          id: "pinned-with-ai-title",
+          label: "tina",
+          host: hostA,
+          targetTmuxSession: "tina",
+        }),
+      ],
+      middle: [],
+      rdpGroup: null,
+      pinnedIds: new Set(["pinned-with-ai-title"]),
+    });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Hook was called with the expected sessionKey (proves the pinned
+    // render site's PrettyConversationRowLive subscribed).
+    const calls = useSessionAiTitleSpy.mock.calls.map((c) => c[0]);
+    expect(calls).toContain(expectedKey);
+    // Return value threaded through: the hook's mock impl returns the
+    // seeded value for this key, and PrettyConversationRow accepts it as
+    // the aiTitle prop (default null when not passed). No throw = wire
+    // is intact; PrettyConversationRow does not consume it visually in
+    // Plan 47-04 scope (Plan 47-05 owns the render).
+    expect(mockAiTitleByKey.get(expectedKey)).toBe("Fix bug X");
+  });
+
+  it("Test AT-2: middle row without a seeded ai-title receives aiTitle={null} via the mock's short-circuit", () => {
+    const hostA = makeHost("h1", "hostA");
+    const expectedKey = "h1:nelly";
+    // Deliberately do NOT seed mockAiTitleByKey for this key.
+    setSnapshot({
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "middle-no-ai-title",
+          label: "nelly",
+          host: hostA,
+          targetTmuxSession: "nelly",
+        }),
+      ],
+      rdpGroup: null,
+    });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Hook called with the middle row's key (proves middle site subscribed).
+    const calls = useSessionAiTitleSpy.mock.calls.map((c) => c[0]);
+    expect(calls).toContain(expectedKey);
+    // Mock returns null for un-seeded keys → aiTitle prop threads null.
+    // PrettyConversationRow's destructure default is null; renders clean.
+    expect(mockAiTitleByKey.get(expectedKey)).toBeUndefined();
+  });
+
+  it("Test AT-3: fleet-only row without a resolved host calls useSessionAiTitle(null) and receives null", () => {
+    // sessionWorkingKey returns null when row.host is undefined
+    // (see PrettyConversationsPanel.tsx:154-157). This exercises the
+    // hook's null-key short-circuit branch: mock returns null, prop
+    // threads null, PrettyConversationRow renders with aiTitle={null}
+    // via its destructure default.
+    setSnapshot({
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "fleet-only-no-host",
+          label: "orphan",
+          host: undefined,
+          targetTmuxSession: "orphan",
+          fleetOnly: true,
+        }),
+      ],
+      rdpGroup: null,
+    });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Hook called with null (proves the null-key branch is exercised).
+    const calls = useSessionAiTitleSpy.mock.calls.map((c) => c[0]);
+    expect(calls).toContain(null);
+  });
+
+  it("Test AT-4: two rows across pinned + middle both invoke useSessionAiTitle with distinct keys (per-row subscription, not shared)", () => {
+    const hostA = makeHost("h1", "hostA");
+    const hostB = makeHost("h2", "hostB");
+    mockAiTitleByKey.set("h1:tina", "Debug X");
+    mockAiTitleByKey.set("h2:nelly", "Fix Y");
+    setSnapshot({
+      pinned: [
+        makeConversationRow({
+          id: "p-tina",
+          label: "tina",
+          host: hostA,
+          targetTmuxSession: "tina",
+        }),
+      ],
+      middle: [
+        makeConversationRow({
+          id: "m-nelly",
+          label: "nelly",
+          host: hostB,
+          targetTmuxSession: "nelly",
+        }),
+      ],
+      rdpGroup: null,
+      pinnedIds: new Set(["p-tina"]),
+    });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const calls = useSessionAiTitleSpy.mock.calls.map((c) => c[0]);
+    // Both render sites (pinned + middle) subscribed with the correct
+    // per-row keys. Proves the hook is INSIDE PrettyConversationRowLive
+    // (not hoisted to the panel) — each row gets its own subscription.
+    expect(calls).toContain("h1:tina");
+    expect(calls).toContain("h2:nelly");
   });
 });

@@ -148,6 +148,12 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionLastMessageAt: () => null,
   getSessionLastMessageAt: () => null,
   subscribeSessionWorkingStore: (_cb: () => void) => () => {},
+  // Phase 47 Plan 04: PrettyConversationRowLive now subscribes to the
+  // working-store's aiTitle axis (Plan 47-03 chokepoint). Returns null
+  // for every key so the threaded aiTitle prop stays null in this
+  // clone-dialog suite (Plan 47-05 owns the visual render; this suite
+  // does not exercise the ai-title surface).
+  useSessionAiTitle: () => null,
 }));
 
 vi.mock("@/state/session-recycling-store", () => ({

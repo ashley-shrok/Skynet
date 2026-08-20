@@ -159,6 +159,7 @@ export function PrettyConversationRow({
   hasQueuePending = false,
   inActiveSet = false,
   subtitleMode = "hostname",
+  aiTitle = null,
 }: {
   row: ConversationRowShape;
   selected: boolean;
@@ -220,6 +221,17 @@ export function PrettyConversationRow({
   // — all three stores (working / recycling / queue-pending) share the
   // exact same `${hostId}:${tmuxSession ?? ""}` key shape.
   hasQueuePending?: boolean;
+  // Phase 47 Plan 04 — the identity's freshest ai-title sourced from the
+  // working-store's aiTitle axis (Plan 47-03 LAST-WINS chokepoint). Null
+  // when no ai-title has been published yet, or when this row has no
+  // working-store key (RDP rows via sessionKey === null → hook short-
+  // circuits). Panel resolves via useSessionAiTitle(sessionWorkingKey(row))
+  // — keyed identically to the isWorking / isRecycling / hasQueuePending
+  // stores. Consumed in Plan 47-05 as the row's subtitle content; NOT yet
+  // rendered by this component's tree — the prop is accepted here so the
+  // type surface is stable before Plan 47-05 wires the visual. Default
+  // null so tests constructing the row without the prop keep working.
+  aiTitle?: string | null;
   // Patch #137 (updated Phase 41 Plan 01): whether this row is in Ashley's
   // active-set (any session she has selectConversation-ed in this browser-tab
   // session). Phase 41 retired the ambient-recession visual entirely, so this
