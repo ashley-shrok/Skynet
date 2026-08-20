@@ -68,3 +68,45 @@ The empirical basis for the design — that the harness writes both direct and q
 **Empirical data available.** The opening discussion for this shape reproduced the mid-turn queued message case in a throwaway harness session and captured concrete timings and JSONL shapes; the numbers cited in Prior context above come from that run. If the implementer wants to re-verify or extend, the reproduction pattern is: start a fresh session, send a message that forces the assistant into a long turn, immediately send a follow-up while the first is still processing, watch the session file for the two entries. The queued follow-up shows up within a couple hundred milliseconds as an enqueue-shape entry, then again as a normal user turn when the queue drains.
 
 **Fleet constraints that apply.** Deploy after code + tests green is orchestrator-only, not the executor's job. Coord-room announce before and after any container mutation. Rebase before every push on the shared branch. No worktrees. Standard fleet rules — nothing bespoke to this work.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-08-20
+**Vehicle used:** gsd phase (Phase 50, 4 sub-plans 50-01..50-04)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **Shape §1 — optimistic bubble on send (spinner, ~20s red, composebox repopulate)** — present · D-01/D-03 verified: ComposeBox seeds mqid + fires onOptimisticSend synchronously; PrettyView 20000ms timer flips to red and populates composeOverrideText; ChatMessage renders spinner and muted-red styling.
+- **Shape §1 — 'only latest sent bubble ever shows spinner or red state'** — endorsed-drift · Latest-only applies to spinner (D-04) but red persists on ALL failed bubbles indefinitely — Ashley confirmed "fine as is" on both the primary and the sharpening question; accumulate-forever chosen intentionally, no clearing rule.
+- **Shape §2 — backend signal (direct + queued both first-class, dedup on second appearance)** — present · D-02/D-09/D-10/D-11 verified: session-file-parser extends queue-operation branch for normal-content enqueue emitting kind:'message'; per-connection dedup Map keyed by sha256(content).slice(0,32) suppresses the later user-turn dequeue exactly once.
+- **Shape §3 — retry rebuilt on the same signal (2-3s retry Enter, 5-6s full re-send, ~20s give up)** — present · pv-send-watchdog: RETRY_ENTER_MS=2500, FULL_RESEND_MS=5500, GIVE_UP_MS=20000; retry is bare send-keys Enter (D-16 safe no-op); full re-send is C-u + literal body + Enter scoped to harness pane (D-17); old activity-based watchdog DELETED.
+- **Philosophy — one signal, both features consume it** — present · Backend notifyMatched (pv-send-watchdog + PrettyView case 'message') both consume the same session-file-parser emission; content-hash derivation byte-identical across all 6 sites.
+- **Philosophy — never falsely tell the user their message failed** — present · D-05 enforced structurally: on match, entry is REMOVED from pendingSends array and its timer cleared; flipToFailed guards on state==='sending' — no code path can flip a matched bubble.
+- **Philosophy — keep the surface quiet (small spinner, muted red, no processing-state)** — present · h-3 w-3 trailing-edge spinner; muted hsla borders and tints; deferred queue-vs-processing visual distinction NOT added.
+- **Scope In — every listed item delivered** — present · Optimistic bubble, spinner, red, composebox repopulate, extended parser, watchdog replacement, dedup, in-process tests for both paths — all present with locking tests.
+- **Scope Out — no harness changes, no delivered/read states, no watcher changes** — present · No modifications to harness queue behavior; no read-receipt concepts introduced; session-file watch mechanism unchanged.
+- **Deferred — no queued-vs-processing visual distinction** — present · PendingSend state is only 'sending' | 'failed'; no third dequeue-triggered visual state added despite the signal being technically available.
+- **Tempting-but-no — no wire-level per-message identifier, no adaptive timer** — present · D-08: mqid is client-scope only, never injected into JSONL; matching uses FIFO+content equality. 20s timer is a fixed constant, not adaptive.
+- **What would make it wrong: legit queued msg flipped to red by timer** — prevented · Dedup Map ensures the enqueue-shape signal arrives ~200ms after send, matching + removing the pending and clearing the 20s timer long before it fires.
+- **What would make it wrong: single sent message rendering as two bubbles** — prevented · Per-connection queueEnqueueDedup Map with single-shot delete on suppress; verified by integration test (b) with explicit T+120000ms dequeue and (g) asserting wsSend called exactly once.
+- **What would make it wrong: retry submits unintended/duplicate/truncated message** — prevented · Retry Enter is bare send-keys Enter with no body — safe no-op if composebox already empty; full re-send starts with C-u to clear the harness composebox before typing.
+- **What would make it wrong: spinner or red loud enough to compete with chat** — prevented · Muted hsla tokens and small spinner glyph; no new theme tokens introduced; feels like refinement, not chrome.
+- **What would make it wrong: retry and bubble state each track 'accepted' independently and drift** — prevented · Single notifyMatched call drives BOTH backend watchdog cleanup AND (via wire) frontend spinner clear; content-hash derivation identical across all sites.
+- **What would make it wrong: surviving fallback path that renders bubble without session-file signal** — prevented · PendingSend.state type is exactly 'sending' | 'failed'; matched entries removed from array; no third path in type system or render gate.
+- **What would make it wrong: spinner or red on older sends after a new send** — partial (endorsed drift) · Spinner: latest-only enforced via strict identity check. Red: persists on all failed bubbles — Ashley confirmed "fine as is." See endorsed-drift facet above.
+
+### Additions (in the result, not in the shape)
+
+- send_keys_error fast-fail WS frame on backend execCommand throw (D-21) — not an addition; natural expression of shape · Shape philosophy says "only surface a failure state when a message genuinely didn't make it." An execCommand throw at ingress means zero keystrokes reached the pane — the paradigm case of a genuine non-delivery. Flipping to red immediately (rather than waiting 20s for a signal that provably cannot come) honors both the responsiveness principle and the "never falsely tell the user their message failed" invariant.
+- immediateFailure:true synchronous WS.send-failure red path (D-20) — not an addition; natural expression of shape · Same reasoning: if the WebSocket is not open at Enter time, the send provably never left the browser.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+One endorsed drift recorded: red state accumulates on all prior failed bubbles indefinitely (shape §1 could be read as scoping BOTH indicators to latest-only). Ashley picked accumulate-forever intentionally when asked — no caveat, no clearing rule. The impl (D-04) scopes latest-only only to the spinner path, and this is now the endorsed shape. All 23 D-IDs verified with locking tests; 7 acid tests green; 6 pass + 1 intentional-skip on integration suite; 0 fleet-directive violations. No genuine misses; no additions beyond the shape's philosophy; nothing to escalate.
