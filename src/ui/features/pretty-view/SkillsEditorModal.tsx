@@ -35,6 +35,12 @@ import type { TabState } from "./IdentityFileTab";
 // Controlled component: callers own `open` + `onOpenChange` state. Wave 3
 // mounts it and drives open state from the panel-header menu.
 
+// Chrome/Linux desktop <option> popup inherits browser defaults, not the parent
+// <select>'s Tailwind classes — reads near-black-on-black. Explicit inline
+// bg + fg on every <option> forces readable contrast in the dropdown popup.
+// Applied to the parallel <select> sites in GlobalFilesModal.tsx too.
+const OPTION_STYLE = { backgroundColor: "#1a1a1a", color: "#e8e4d8" } as const;
+
 // NOTE: duplicated from GlobalFilesModal.tsx L32-42 (which itself is the third
 // duplication instance from NewSessionDialog + CreateRoleDialog). Fourth
 // intentional duplication — keeps plan 44-02 diff scoped to net-new files.
@@ -412,60 +418,43 @@ export default function SkillsEditorModal({
               }
               className="ml-2 px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] text-sm outline-none cursor-pointer"
             >
-              <option value="">Pick a host…</option>
+              <option value="" style={OPTION_STYLE}>Pick a host…</option>
               {flatHosts.map((h) => (
-                <option key={h.id} value={h.id}>
+                <option key={h.id} value={h.id} style={OPTION_STYLE}>
                   {h.name}
                 </option>
               ))}
             </select>
 
-            {/* Skill picker — NEW for Phase 44. Three branches:
-                (a) no host   → disabled, single option "Pick a host first…"
-                (b) loading   → disabled, single option "Loading skills…"
-                (c) ready     → placeholder + skill options
-                (d) error     → disabled, error option (surfaces via body branch too) */}
-            {selectedHostId == null ? (
-              <select
-                aria-label="Skill"
-                disabled
-                className="px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#a89a80] text-sm outline-none cursor-not-allowed"
-              >
-                <option>Pick a host first…</option>
-              </select>
-            ) : skills.status === "loading" ? (
-              <select
-                aria-label="Skill"
-                disabled
-                className="px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#a89a80] text-sm outline-none cursor-not-allowed"
-              >
-                <option>Loading skills…</option>
-              </select>
-            ) : skills.status === "error" ? (
-              <select
-                aria-label="Skill"
-                disabled
-                className="px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#a89a80] text-sm outline-none cursor-not-allowed"
-              >
-                <option>Couldn&apos;t load skills</option>
-              </select>
-            ) : (
-              <select
-                aria-label="Skill"
-                value={selectedSkillName ?? ""}
-                onChange={(e) =>
-                  setSelectedSkillName(e.target.value ? e.target.value : null)
-                }
-                className="px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] text-sm outline-none cursor-pointer"
-              >
-                <option value="">Pick a skill…</option>
-                {skills.data.map((s) => (
-                  <option key={s.name} value={s.name}>
+            {/* Skill picker — single <select>, disabled until host + skills ready.
+                Placeholder stays "Pick a skill…" throughout so the copy doesn't
+                flicker; the disabled affordance carries the "not yet" signal
+                (Ashley 2026-08-20 UAT of #469). Loading/error swap placeholder
+                copy only within the enabled-eligible window, so a slow load
+                still surfaces distinct signal. */}
+            <select
+              aria-label="Skill"
+              value={selectedSkillName ?? ""}
+              onChange={(e) =>
+                setSelectedSkillName(e.target.value ? e.target.value : null)
+              }
+              disabled={selectedHostId == null || skills.status !== "ready"}
+              className="px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-sm outline-none text-[#e8e4d8] cursor-pointer disabled:text-[#a89a80] disabled:cursor-not-allowed"
+            >
+              <option value="" style={OPTION_STYLE}>
+                {selectedHostId != null && skills.status === "loading"
+                  ? "Loading skills…"
+                  : selectedHostId != null && skills.status === "error"
+                  ? "Couldn't load skills"
+                  : "Pick a skill…"}
+              </option>
+              {skills.status === "ready" &&
+                skills.data.map((s) => (
+                  <option key={s.name} value={s.name} style={OPTION_STYLE}>
                     {s.name}
                   </option>
                 ))}
-              </select>
-            )}
+            </select>
 
             {/* + Add file — NEW for Phase 44. Header-row primary accent per
                 UI-SPEC L173-178. Disabled when no skill picked OR file list

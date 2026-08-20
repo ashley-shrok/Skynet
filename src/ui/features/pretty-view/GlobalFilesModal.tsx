@@ -26,6 +26,12 @@ import type { TabState } from "./IdentityFileTab";
 // Uses --color-pv-* / literal glass hex per CONTEXT §GEFM-01 — no Skynet
 // chrome tokens (bg-background, text-foreground, bg-popover).
 
+// Chrome/Linux desktop <option> popup inherits browser defaults, not the parent
+// <select>'s Tailwind classes — reads near-black-on-black. Explicit inline
+// bg + fg on every <option> forces readable contrast in the dropdown popup.
+// Applied to the parallel <select> sites in SkillsEditorModal.tsx too.
+const OPTION_STYLE = { backgroundColor: "#1a1a1a", color: "#e8e4d8" } as const;
+
 // NOTE: duplicated from NewSessionDialog.tsx L83-100 + CreateRoleDialog.tsx L51-65
 // pending shared HostPickerList extraction (RESEARCH F1). Third instance
 // intentional — keeps plan 23-03 diff scoped to net-new files.
@@ -233,9 +239,9 @@ export default function GlobalFilesModal({
               }
               className="ml-2 px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] text-sm outline-none cursor-pointer"
             >
-              <option value="">Pick a host…</option>
+              <option value="" style={OPTION_STYLE}>Pick a host…</option>
               {flatHosts.map((h) => (
-                <option key={h.id} value={h.id}>
+                <option key={h.id} value={h.id} style={OPTION_STYLE}>
                   {h.name}
                 </option>
               ))}
