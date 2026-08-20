@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-20T13:49:32.442Z"
-last_activity: 2026-08-20 -- Phase 50 planning complete
+last_updated: "2026-08-20T14:50:00.000Z"
+last_activity: 2026-08-20 -- Phase 50 Plan 01 executed (parser queue-op enqueue emission + per-session dedup)
 progress:
   total_phases: 50
   completed_phases: 39
-  total_plans: 199
-  completed_plans: 192
+  total_plans: 200
+  completed_plans: 193
   percent: 78
 ---
 
@@ -20,15 +20,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 44 — fix-convo-list-recency-signal-switch-dormant-live-paths-to-i (renumbered from 43 after collision with tina's Phase 43 replace-pv-virtualization-with-plain-dom-windowed-pagination — 7th `gsd-sdk phase.add` cross-tree race)
+**Current focus:** Phase 50 — Optimistic message bubbles
 
 ## Current Position
 
-Phase: 44 (fix-convo-list-recency-signal-switch-dormant-live-paths-to-i) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
+Phase: 50 (Optimistic message bubbles) — EXECUTING
+Plan: 2 of 4
+Status: Plan 50-01 complete — Wave 2 (50-02) unblocked
 
-Last activity: 2026-08-20 -- Phase 50 planning complete
+Last activity: 2026-08-20 — Phase 50 Plan 01 executed on `feat/tab-title-from-tmux` (sequential mode, main working tree, no worktrees). Backend queue-operation-enqueue emission + per-session dedup. **Task 1** (TDD): extended `parseSessionLine` in `src/backend/claude-session/session-file-parser.ts` with an optional `sessionId?: string` second arg + a new branch that fires when `type === "queue-operation" && operation === "enqueue"` and content is a non-empty, non-`<task-notification>`/`<system-reminder>`-prefixed string; returns `{kind:"message", role:"user", content, eventId, ts}` where `eventId = sha256(sessionId + timestamp + content).slice(0, 32)` (deterministic per D-10) with `fallbackEventId()` fallback when sessionId omitted. 9 new tests appended to `session-file-parser.test.ts` (QO-1 positive; QO-2 deterministic-eventId + sessionId-variation; QO-3/QO-3b task-notification/system-reminder skipped; QO-4 non-enqueue skipped; QO-5/QO-5b timestamp fallback; QO-6/QO-6b empty/whitespace skipped; QO-7 back-compat). Commits `5342a350` (RED test) + `ed541d0f` (GREEN feat). **Task 2** (TDD): added per-session `queueEnqueueDedup = new Map<string, number>()` on the tail-watcher closure in `claude-session-server.ts` (~L2332); added exported `__applyQueueDedupForTests` seam (~L1523-1710) with content-only sha256(content).slice(0,32) key, 10-minute TTL, 100-entry cap oldest-first eviction, single-shot suppress, wrapper-content defense-in-depth; wired into onLine before `ws.send` for `kind:"message" + role:"user"` frames with a fresh `JSON.parse` for `rawObj` inspection; threaded `sessionIdFromFile` through both `parseSessionLine` call sites (streaming tail + `handleFetchOlderRange` — deps widened with optional `sessionIdFromFile?: string | null`, caller at ~L4926 updated). New test file `src/backend/claude-session/claude-session-server.queue-dedup.test.ts` with 8 scenarios covering the empirically-observed enqueue → dequeue 2-minute span, different-content non-dedup, cross-Map isolation, 10-min TTL expiry, 100-entry cap eviction, task-notification unaffected, lazy TTL prune, assistant frames pass-through. Commits `bb2a3243` (RED test) + `44fcaa63` (GREEN feat). **Verification:** `node_modules/.bin/vitest run src/backend/claude-session/` = 449/449 pass; full `node_modules/.bin/vitest run` = 2670 pass / 9 skip / 1 todo (exit 0); `npm run build:backend` exit 0; `npm run build` exit 0; `npx tsc --noEmit` clean. Patch #66 task-notification completion handler at L2582-2623 in claude-session-server.ts (pre-plan line numbers) untouched — verified by git diff. Two-hash contract documented inline in both files for Plans 50-02, 50-03, 50-04. Zero new dependencies (built-in `node:crypto` only). NO worktrees. NOT pushed, NOT built container, NOT deployed — executor scope ends at code + commit + tests green. SUMMARY at `.planning/phases/50-optimistic-message-bubbles/50-01-SUMMARY.md`.
+
+
 
 Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bounty editor). Ashley: *"Can we quickly add something to be able to toggle on and off the needs desk field of bounties in the identity modal where I can edit bounties?"* Byte-shape mirror of pinned wire endpoint for the parallel `needs_desk` boolean (already read/counted by Phase 26's `identity:count-bounties` but no write path existed). 5 files touched: `Bounty` wire type + `normalizeBounty` carry `needs_desk` (default false); new `writeIdentityBountyNeedsDesk` writer in `identity-artifact-reader.ts` (byte-shape mirror of `writeIdentityBountyPinned` — same slug guard, same local fs + remote python3 branches, same timeline line format); new `identity:update-bounty-needs-desk` WS handler in `claude-session-server.ts`; `updateBountyNeedsDesk` wrapper in `IdentityModal.tsx` + `onNeedsDeskChange` threaded to `BountyCard` for both open + archived partitions; new labeled Checkbox toggle in BountyCard expanded editor body next to Deadline (autosave-on-flip pattern matching deadline row). `writeIdentityBountyFields` rejects `needs_desk` in patch (parity with pinned's rejection). Inline vehicle per Ashley redirect off `/gsd:quick` recommendation: *"Whatever you think is best, can we just do inline and get it up quick?"* Full `npx vitest run` = 2399 pass / 9 skip / 1 todo (pre-rebase); backend + frontend typecheck green. One atomic commit `2cc5e670` → post-rebase `ed1e901b` past tina's #457/#458/#459/#460/#461. Deployed as patch #462: `docker build` EXIT 0 (image `1ddf9eab4a4f`), `docker compose up -d --force-recreate skynet` (container `1bb769e09991` healthy T+14s), HTTPS 200 in 98ms. Byte-verify: `identity:update-bounty-needs-desk` 1x in AppShell chunk, `writeIdentityBountyNeedsDesk` / "needs_desk set to" 5x in reader.js, `identity:update-bounty-needs-desk` / `identity_update_bounty_needs_desk` 7x in server.js. Coord-room BEFORE `$7T4P-D7OYGwjW8NB9Z0t2jJ_LGHRx0F1gNeq1yLls_M` + AFTER `$ZxhURIWoWMixq25d8RRVJY-PZj0apbNlvqWpmzafEm0`. HEAD `ed1e901b` pushed to origin. Patch #462 entry appended to `~/.claude/roles/box-maintainer/skynet-patches.md`. Prior activity:
 

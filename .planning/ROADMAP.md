@@ -1385,7 +1385,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 50-01-PLAN.md — Backend parser extension: emit kind:'message' for normal-content queue-operation enqueue lines + per-session dedup Set for the queued-then-consumed double-write (D-09, D-10, D-11)
+- [x] 50-01-PLAN.md — Backend parser extension: emit kind:'message' for normal-content queue-operation enqueue lines + per-session dedup Set for the queued-then-consumed double-write (D-09, D-10, D-11) — 50-01-SUMMARY.md
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
