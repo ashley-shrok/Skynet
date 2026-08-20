@@ -1379,7 +1379,7 @@ Plans:
 **Goal:** PrettyView's chat surface feels responsive on send — pressing Enter renders the outgoing user bubble immediately (small trailing-edge spinner) and clears the spinner the instant the JSONL session-file confirms the message was accepted (either as a normal user turn OR as a queue-operation enqueue). A 20s outer bound flips the bubble to muted red-failure and repopulates the composebox for edit-and-resend. Bundled fix: replace the noisy PTY-activity-proxy PV submit watchdog with a signal-driven watchdog keyed off the same JSONL emission so the retry-Enter + full-resend path fires on the specific "message not accepted" signal (never on false positives). Deliberately reverses the COMPOSE-04 HARD LOCK.
 **Requirements**: None — Phase 50 has no formal REQ-ID mapping in REQUIREMENTS.md; coverage is against 50-CONTEXT.md decisions D-01..D-23 (all 23 addressed across the 4 plans).
 **Depends on:** Phase 44
-**Plans:** 4 plans
+**Plans:** 3/4 plans executed
 
 Plans:
 
@@ -1393,7 +1393,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 50-03-PLAN.md — Frontend optimistic-bubble state machine: remove COMPOSE-04 HARD LOCK, add ChatMessage pendingState prop (spinner + muted-red), add PrettyView pendingSends FIFO queue with 20s timer + WS-frame red-flip + latest-only rendering + composebox repopulate (D-01 through D-08, D-15, D-18, D-19, D-20, D-21)
+- [x] 50-03-PLAN.md — Frontend optimistic-bubble state machine: remove COMPOSE-04 HARD LOCK, add ChatMessage pendingState prop (spinner + muted-red), add PrettyView pendingSends FIFO queue with 20s timer + WS-frame red-flip + latest-only rendering + composebox repopulate (D-01 through D-08, D-15, D-18, D-19, D-20, D-21)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
