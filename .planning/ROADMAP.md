@@ -1325,3 +1325,13 @@ Plans:
 **Close-out:** `.planning/shapes/shape-frontend-skill-editing.closed.md` — verdict `closed-hit` (pass 1) + `closed-hit` (pass 2 after code-review fix pass); one endorsed-as-drift addition (subpath-on-create).
 
 **History note:** Phase originally numbered 44 in this identity's tree (started 2026-08-18). Collided with the concurrent Phase 44 slot claim on origin (`fix-convo-list-recency-signal`, tanya, first plan 44-01 shipped 2026-08-18) — the eighth known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Tanya's Phase 44 had already landed shipped bytes at rescue-rebase time → she kept the Phase 44 slot per the auto-resolve tiebreak; I renumbered mine to Phase 46 (Phase 45 was taken by tina's fix-forward, also shipped in origin). Fully autonomous rescue-rebase per role-file directive + bounty's `rescue-rebase-runbook.md`. Planning artifacts renamed 44-* → 46-*, ROADMAP + STATE re-added under new number. Code artifacts (`src/backend/database/routes/skills-editor.ts`, frontend `SkillsEditorModal.tsx` cluster, twin nginx blocks) reference `Phase 44` in their comment prose historically; not sed-updated because commit-message prefixes and source-file references are chronology not identity (per runbook step 5).
+
+### Phase 47: Load-more button in PrettyView — manual reveal of older messages beyond the twenty-cap default; per-pane, transient, additive (cap enforcement turns off after first click for that pane's lifetime); companion to patch #470's twenty-cap resource-cut
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 46
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 47 to break down)
