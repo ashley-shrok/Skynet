@@ -26,6 +26,18 @@ export type SessionMetaEvent = {
   type: "session";
   pid: number;
   sessionFile: string;
+  /**
+   * Phase 47 (load-more button): total line count of the current JSONL
+   * session file at emit time. The client compares against WORKING_SET_CAP
+   * (PrettyView.tsx:97) to gate the load-more button's initial visibility —
+   * `totalLines > WORKING_SET_CAP` means there is older history behind the
+   * default twenty-newest window, so the button mounts. Emitted always by
+   * Phase 47+ backends (Plan 03 populates it); optional in the type for
+   * backward-compat with any older backend build. See CONTEXT.md § What
+   * this is / § Shape rationale in
+   * .planning/phases/47-.../47-CONTEXT.md.
+   */
+  totalLines?: number;
 };
 
 export type MessageEvent = {
@@ -34,6 +46,17 @@ export type MessageEvent = {
   content: string;
   eventId: string;
   ts: number;
+  /**
+   * Phase 47 (load-more button): 1-indexed JSONL line-number this frame was
+   * parsed from. Populated by Phase 47+ backends for both streaming-tail
+   * hydration and range-fetch responses. The client tracks
+   * `oldestLoadedLine` from the smallest `line` value seen and uses it as
+   * the `beforeLine` cursor for the next FetchOlderRangePayload. Optional
+   * in the type for backward-compat; the client MUST tolerate its absence
+   * on frames from older backend builds (null-safe fallback for the
+   * oldestLoadedLine bootstrap).
+   */
+  line?: number;
 };
 
 // Patch #86: WS-inline base64 image payload. `data` is raw base64 — the
@@ -54,6 +77,14 @@ export type ImageEvent = {
   text: string;
   eventId: string;
   ts: number;
+  /**
+   * Phase 47 (load-more button): 1-indexed JSONL line-number this frame was
+   * parsed from. Populated by Phase 47+ backends for both streaming-tail
+   * hydration and range-fetch responses. Optional in the type for
+   * backward-compat; the client MUST tolerate its absence on frames from
+   * older backend builds.
+   */
+  line?: number;
 };
 
 export type InactiveEvent = {
@@ -170,6 +201,14 @@ export type RelayOutboundEvent = {
   body: string | null;
   eventId: string;
   ts: number;
+  /**
+   * Phase 47 (load-more button): 1-indexed JSONL line-number this frame was
+   * parsed from. Populated by Phase 47+ backends for both streaming-tail
+   * hydration and range-fetch responses. Optional in the type for
+   * backward-compat; the client MUST tolerate its absence on frames from
+   * older backend builds.
+   */
+  line?: number;
 };
 
 export type RelayInboundEvent = {
@@ -181,6 +220,14 @@ export type RelayInboundEvent = {
   raw: string;
   eventId: string;
   ts: number;
+  /**
+   * Phase 47 (load-more button): 1-indexed JSONL line-number this frame was
+   * parsed from. Populated by Phase 47+ backends for both streaming-tail
+   * hydration and range-fetch responses. Optional in the type for
+   * backward-compat; the client MUST tolerate its absence on frames from
+   * older backend builds.
+   */
+  line?: number;
 };
 
 // Phase 14 (plain-language-translation-asides) Wave 2 — new WS wire types.
@@ -267,6 +314,14 @@ export type MalformedLineEvent = {
   bytes: number;
   eventId: string;
   ts: number;
+  /**
+   * Phase 47 (load-more button): 1-indexed JSONL line-number this frame was
+   * parsed from. Populated by Phase 47+ backends for both streaming-tail
+   * hydration and range-fetch responses. Optional in the type for
+   * backward-compat; the client MUST tolerate its absence on frames from
+   * older backend builds.
+   */
+  line?: number;
 };
 
 export type ClaudeSessionServerEvent =
@@ -311,7 +366,9 @@ export type ClaudeSessionServerEvent =
   | RelayOutboundEvent
   | RelayInboundEvent
   // pv-malformed-jsonl-placeholder-bubble (2026-08-10)
-  | MalformedLineEvent;
+  | MalformedLineEvent
+  // Phase 47 (load-more button) — response to FetchOlderRangePayload
+  | FetchOlderRangeBatchEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";
@@ -362,6 +419,44 @@ export type AsideDismissedPayload = {
 export type RawKeystrokesPayload = {
   type: "raw_keystrokes";
   bytes: string;
+};
+
+/**
+ * Phase 47 (load-more button) — client → server request payload.
+ *
+ * Sent by PrettyView when the user clicks the LoadMoreOlderButton. The
+ * client asks the server to read a bounded slice of older JSONL lines
+ * ending just BEFORE `beforeLine` (exclusive) — i.e. the server returns
+ * lines `[max(1, beforeLine - count), beforeLine - 1]` inclusive.
+ *
+ * LINE-CURSOR SHAPE (locked 2026-08-20, revised from eventId-cursor after
+ * checker feedback): the server does NOT search for a cursor eventId in
+ * the JSONL. An eventId-cursor would require scanning up to totalLines
+ * of the file to find the matching line, which contradicts the range
+ * reader's 200-line hard cap and would crash on any session larger than
+ * 200 lines. The line-cursor shape lets the handler do exactly ONE
+ * bounded `readSessionFileRange` call per request.
+ *
+ * See CONTEXT.md § What this is / § Shape rationale in
+ * .planning/phases/47-.../47-CONTEXT.md.
+ */
+export type FetchOlderRangePayload = {
+  // LOCKED: type tag must NOT be "fetch_older" — see
+  // PrettyView.hydration-cap.test.tsx Test H
+  type: "fetch_older_range";
+  /**
+   * Line-number of the client's OLDEST currently-visible message; the
+   * server reads lines `[max(1, beforeLine - count), beforeLine - 1]`
+   * inclusive. 1-indexed to match `sed -n '2,4p'` semantics.
+   */
+  beforeLine: number;
+  /**
+   * Number of older lines to fetch. Caller MUST pass 20 per CONTEXT.md
+   * § Scope edges batch-size lock; server also clamps in [1, 200] with
+   * a hard cap for defense-in-depth (see
+   * session-file-range-reader.readSessionFileRange).
+   */
+  count: number;
 };
 
 // Patch #87: identity bounties WS wire types.
@@ -852,6 +947,68 @@ export type BountyCountResult = {
 export type IdentityBountyCountsEvent = {
   type: "identity:bounty-counts";
   counts: BountyCountResult[];
+};
+
+/**
+ * Phase 47 (load-more button) — server → client response event.
+ *
+ * Emitted in reply to a FetchOlderRangePayload. Carries a bounded batch
+ * of raw parsed per-turn wire frames drawn from the underlying JSONL
+ * session file. Every element in `messages` carries the widened
+ * `line?: number` field (populated by Plan 03) so the client can advance
+ * its `oldestLoadedLine` cursor to the smallest returned line.
+ *
+ * Success path: `messages` is non-empty (or empty when
+ * `beforeLine <= 1`), `oldestLine = max(1, beforeLine - count)`,
+ * `hasMore = oldestLine > 1`, `error` absent.
+ *
+ * Failure path: `messages: []`, `oldestLine: 0`, `hasMore: false`, and
+ * `error: "..."`. When `error` is set, the client MUST IGNORE
+ * `messages` / `oldestLine` / `hasMore` and drive the button's error
+ * state variant (the client-side gate is the `error` field itself, not
+ * the numeric field values).
+ *
+ * See CONTEXT.md § Shape / § What would make it wrong in
+ * .planning/phases/47-.../47-CONTEXT.md.
+ */
+export type FetchOlderRangeBatchEvent = {
+  // LOCKED: type tag must NOT be "fetch_older_batch" — see
+  // PrettyView.hydration-cap.test.tsx Test H
+  type: "fetch_older_range_batch";
+  /**
+   * The batch of per-turn wire frames the server read from the JSONL
+   * range. Every element carries the widened `line?: number` field
+   * (populated by Plan 03) so the client can advance its
+   * `oldestLoadedLine`. Union mirrors PrettyView.tsx's `StreamEvent`
+   * type (L190-195) — the same set of per-turn frames the streaming
+   * tail emits.
+   */
+  messages: (
+    | MessageEvent
+    | ImageEvent
+    | RelayOutboundEvent
+    | RelayInboundEvent
+    | MalformedLineEvent
+  )[];
+  /**
+   * The line-number of the oldest frame in this batch. Plan 04's client
+   * uses this to advance `oldestLoadedLine` for the next click's
+   * `beforeLine`. Equal to `max(1, beforeLine - count)` on the server.
+   */
+  oldestLine: number;
+  /**
+   * Server-reported "there are still older lines behind this batch"
+   * (i.e. `oldestLine > 1`). Drives the button's post-response
+   * visibility — `false` unmounts the button.
+   */
+  hasMore: boolean;
+  /**
+   * Present ONLY on failure; drives the error state variant in Plan
+   * 02's LoadMoreOlderButton. On failure Plan 03 emits
+   * `messages: [], oldestLine: 0, hasMore: false, error: "..."` — the
+   * client's gate is the `error` field itself.
+   */
+  error?: string;
 };
 
 /**
