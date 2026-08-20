@@ -488,6 +488,75 @@ describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", ()
     expect(wsSend).not.toHaveBeenCalled();
   });
 
+  it("Test 2b (Fix #1): bare-Enter split-send (data='\\r' + mqid) → armPvSendWatchdog NOT called and pending Map stays empty", async () => {
+    // Regression: MessageQueueDrawer sends two separate WS events for its
+    // queued send — (a) body without \r without mqid, then (b) bare "\r"
+    // with mqid ~60ms later. Event (b) enters __applyInputMessageForTests
+    // with data="\r" + non-empty mqid → isSplitSend=true but body="".
+    //
+    // Previously we armed a watchdog against sha256("").slice(0,32). The
+    // parser never emits an empty-content message frame → notifyMatched
+    // NEVER fires for that hash → guaranteed T+2.5s retry Enter, T+5.5s
+    // full re-send, T+20s paste_send_failed. Silent noise on every
+    // queue-drawer send.
+    //
+    // Fix: skip the arm entirely when body.length === 0 — the message
+    // body was already written by a prior WS input event (queue-drawer
+    // step (a)); the bare Enter alone does not need signal-driven retry
+    // escalation.
+    vi.useFakeTimers();
+    __resetPvSendWatchdogForTests();
+    const exec = vi.fn().mockResolvedValue("");
+    const wsSend = vi.fn();
+    const trackMqid = vi.fn();
+
+    // Use the REAL armPvSendWatchdog so we can observe module-level pending
+    // Map state — a spied vi.fn() would not exercise the real behavior we
+    // want to protect against (the module-level Map growing an entry for
+    // sha256("") that no signal will ever clear).
+    const promise = __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "\r",
+      messageQueueItemId: "mqid-bare-enter",
+      sessionId: "sess-A",
+      wsSend,
+      armWatchdog: armPvSendWatchdog,
+      trackMqid,
+    });
+
+    // Advance past the 250ms split-send gate so the Enter completes.
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    await Promise.resolve();
+    await promise;
+
+    // Split-send fired only the Enter (body write was skipped for body="").
+    expect(exec).toHaveBeenCalledTimes(1);
+    const cmd = exec.mock.calls[0][1] as string;
+    expect(cmd).toMatch(/\sEnter\s*$/);
+
+    // armPvSendWatchdog MUST NOT have been called → trackMqid not invoked.
+    expect(trackMqid).not.toHaveBeenCalled();
+
+    // Observable side-effect proof: advance past all three watchdog stages.
+    // If a watchdog HAD been armed against sha256("").slice(0,32), it would
+    // fire retry Enter (2500ms), full-resend C-u+body+Enter (5500ms), and
+    // paste_send_failed (20000ms). None of those should occur.
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // exec still at 1 (no retry Enter → 2, no full-resend → 4).
+    expect(exec).toHaveBeenCalledTimes(1);
+    // wsSend never emitted paste_send_failed.
+    const escalations = wsSend.mock.calls.filter((c: unknown[]) => {
+      const f = c[0] as { type?: string };
+      return f?.type === "paste_send_failed" || f?.type === "send_keys_error";
+    });
+    expect(escalations.length).toBe(0);
+  });
+
   it("Test 3: execCommand throws on body → send_keys_error frame emitted with reason exec_throw_body; armWatchdog NOT called", async () => {
     vi.useFakeTimers();
     const exec = vi.fn().mockRejectedValue(new Error("SSH channel closed"));
