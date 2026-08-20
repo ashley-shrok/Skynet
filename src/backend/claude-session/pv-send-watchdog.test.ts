@@ -35,6 +35,7 @@ import { createHash } from "node:crypto";
 import {
   armPvSendWatchdog,
   clearPvSendWatchdog,
+  clearPvSendWatchdogsForSession,
   notifyMatched,
   __resetPvSendWatchdogForTests,
 } from "./pv-send-watchdog.js";
@@ -435,5 +436,108 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     expect(exec).not.toHaveBeenCalled();
     expect(wsSend).not.toHaveBeenCalled();
+  });
+
+  it("T-12 (Fix #2) clearPvSendWatchdogsForSession(sessionId) cancels only matching-session watchdogs; unrelated sessions survive", async () => {
+    // Regression: on session recycle, pv-send-watchdog entries armed against
+    // the OLD sessionId must be cancelled so their full-resend stage does
+    // not retype the OLD body into the NEW Claude session's composebox.
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+
+    // Arm three watchdogs on OLD session + one on a different (unrelated) session.
+    armPvSendWatchdog({
+      sessionId: "sess-OLD",
+      mqid: "m1",
+      body: "old-one",
+      contentHash: contentHashOf("old-one"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+    armPvSendWatchdog({
+      sessionId: "sess-OLD",
+      mqid: "m2",
+      body: "old-two",
+      contentHash: contentHashOf("old-two"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+    armPvSendWatchdog({
+      sessionId: "sess-OLD",
+      mqid: "m3",
+      body: "old-three",
+      contentHash: contentHashOf("old-three"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+    armPvSendWatchdog({
+      sessionId: "sess-OTHER",
+      mqid: "m4",
+      body: "keep",
+      contentHash: contentHashOf("keep"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    // Clear ONLY sess-OLD entries — returns array of cleared mqids.
+    const cleared = clearPvSendWatchdogsForSession("sess-OLD");
+    expect(cleared.sort()).toEqual(["m1", "m2", "m3"]);
+
+    // Advance past every timer stage.
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // Nothing from sess-OLD should have escalated:
+    //   - No retry Enter (would be exec call with `Enter` for old bodies)
+    //   - No full-resend body (would be exec call with -l flag + 'old-*')
+    //   - No paste_send_failed for m1/m2/m3
+    for (const call of exec.mock.calls) {
+      const cmd = call[0] as string;
+      expect(cmd).not.toContain("old-one");
+      expect(cmd).not.toContain("old-two");
+      expect(cmd).not.toContain("old-three");
+    }
+    for (const call of wsSend.mock.calls) {
+      const frame = call[0] as { type?: string; mqid?: string };
+      if (frame.type === "paste_send_failed") {
+        expect(["m1", "m2", "m3"]).not.toContain(frame.mqid);
+      }
+    }
+
+    // The sess-OTHER watchdog SURVIVED — it should still escalate normally.
+    // At T+20000ms we expect its paste_send_failed frame to have fired.
+    const otherEscalations = wsSend.mock.calls.filter((c) => {
+      const f = c[0] as { type?: string; mqid?: string };
+      return f?.type === "paste_send_failed" && f?.mqid === "m4";
+    });
+    expect(otherEscalations.length).toBe(1);
+  });
+
+  it("T-13 (Fix #2) clearPvSendWatchdogsForSession(sessionId) with no matches returns empty array; no side-effects", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: "sess-A",
+      mqid: "m1",
+      body: "hello",
+      contentHash: contentHashOf("hello"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    const cleared = clearPvSendWatchdogsForSession("sess-NONEXISTENT");
+    expect(cleared).toEqual([]);
+
+    // The unrelated watchdog is intact — should escalate at T+20000ms.
+    await vi.advanceTimersByTimeAsync(20_000);
+    const escalations = wsSend.mock.calls.filter((c) => {
+      const f = c[0] as { type?: string };
+      return f?.type === "paste_send_failed";
+    });
+    expect(escalations.length).toBe(1);
   });
 });

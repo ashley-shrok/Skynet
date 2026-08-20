@@ -384,6 +384,48 @@ export function clearPvSendWatchdog(mqid: string): void {
 }
 
 /**
+ * Fix #2 (post-Phase-50 code review): clear every pending watchdog whose
+ * sessionId matches. Called from claude-session-server.ts's
+ * transitionToActiveNew when a session recycles.
+ *
+ * DISTINCT from `__resetPvSendWatchdogForTests` (which clears the ENTIRE
+ * module-level pending Map — hermetic-test-only) and from
+ * `clearPvSendWatchdog(mqid)` (which clears exactly one by mqid).
+ *
+ * Rationale: without this, a watchdog armed against the OLD session can
+ * fire its full-resend stage AFTER the session recycled — retyping the
+ * OLD body into the NEW Claude session's composebox. That directly
+ * violates the shape invariant "retry never submits an unintended
+ * message" and can leak private OLD-session content into a NEW session
+ * whose transcript is being replayed via `tail -F -n +1`.
+ *
+ * Returns the number of watchdogs cleared. The caller uses this to
+ * decide whether to also scrub the per-connection
+ * pendingMqidsForThisConnection Set (see transitionToActiveNew).
+ */
+export function clearPvSendWatchdogsForSession(sessionId: string): string[] {
+  const clearedMqids: string[] = [];
+  for (const [mqid, entry] of pending) {
+    if (entry.sessionId === sessionId) {
+      entry.logger.debug(
+        "pv-send-watchdog: cleared (session recycle)",
+        {
+          operation: "pv_send_watchdog_clear_session",
+          mqid,
+          sessionId: entry.sessionId,
+        },
+      );
+      cancelTimers(entry);
+      clearedMqids.push(mqid);
+    }
+  }
+  for (const mqid of clearedMqids) {
+    pending.delete(mqid);
+  }
+  return clearedMqids;
+}
+
+/**
  * Test-only reset — clears the entire module-level `pending` Map and cancels
  * every timer. Required by Plan 50-04's integration test beforeEach hook
  * so tests don't leak state across cases (checker Warning #7 upstream).
