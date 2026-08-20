@@ -184,7 +184,7 @@ function Chip({
           onClick={() => onRemove(tempId)}
           aria-label={`Remove attachment ${file.name}`}
           title={`Remove ${file.name}`}
-          className="ml-1 opacity-70 hover:opacity-100"
+          className="ml-1 opacity-70 hover:opacity-100 max-md:opacity-100"
         >
           <X className="size-3" />
         </Button>

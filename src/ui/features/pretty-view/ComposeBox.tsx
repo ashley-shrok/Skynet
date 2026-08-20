@@ -2976,7 +2976,7 @@ function QueuedRow(props: QueuedRowProps) {
           "absolute -top-2 -left-2 z-20",
           "p-1 rounded-full",
           "bg-[rgba(10,12,20,0.85)] border border-[rgba(220,225,245,0.12)]",
-          "text-[#f0ebe0] opacity-30 hover:opacity-90",
+          "text-[#f0ebe0] opacity-30 hover:opacity-90 max-md:opacity-80",
           "transition-[color,opacity,transform] duration-120",
           "active:scale-95",
           "cursor-pointer",
