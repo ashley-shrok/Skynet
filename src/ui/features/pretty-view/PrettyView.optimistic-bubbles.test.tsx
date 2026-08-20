@@ -558,6 +558,70 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(container.querySelectorAll("[data-pv-bubble-failed]").length).toBe(0);
   });
 
+  it("Test 12b (Fix #3): session_changed WS frame clears pendingSends AND cancels their 20s timers", async () => {
+    // Regression: after the backend emits `session_changed` (Phase 3
+    // session recycle completed), the frontend's pendingSends array
+    // previously SURVIVED with OLD-session entries. Their 20s timers
+    // kept running, and when the fresh tail replayed with `-n +1`,
+    // content-matching against the replay could incorrectly clear
+    // pending bubbles that should have been dropped — or those timers
+    // could later flip stale pendings to failed against a NEW session's
+    // fresh transcript.
+    //
+    // Fix (frontend side, symmetric with backend Fix #2c
+    // clearPvSendWatchdogsForSession): call clearAllPendingSends() in the
+    // session_changed case. Both sides release together.
+    vi.useFakeTimers();
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Seed three sends on the OLD session — each starts a 20s timer.
+    typeAndEnter(container, "old-one");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    typeAndEnter(container, "old-two");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    typeAndEnter(container, "old-three");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(countPendingBubbles(container)).toBe(3);
+
+    // Fire session_changed frame — simulates backend transitionToActiveNew
+    // completing after a discovery-diff recycle.
+    sendWsFrame(ws, {
+      type: "session_changed",
+      newSessionFile: "/tmp/new-session.jsonl",
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Pending array MUST be empty — every stale OLD-session pending
+    // dropped alongside the rest of the session-scoped state
+    // (messages, harnessTasks, contextPct, etc.).
+    expect(countPendingBubbles(container)).toBe(0);
+
+    // Advance past 20000ms — MUST NOT resurrect any failed bubbles.
+    // If clearAllPendingSends did NOT cancel the 20s timers, they would
+    // now fire flipToFailed and paint red bubbles for OLD content
+    // against the NEW session's transcript.
+    await act(async () => {
+      vi.advanceTimersByTime(20_001);
+      await Promise.resolve();
+    });
+    expect(container.querySelectorAll("[data-pv-bubble-failed]").length).toBe(0);
+    // Pending bubbles also stay empty (no timer flipped a stale entry).
+    expect(countPendingBubbles(container)).toBe(0);
+  });
+
   it("Test 13: onOverrideTextConsumed clears composeOverrideText (Warning #6)", async () => {
     vi.useFakeTimers();
     const { container } = mount();
