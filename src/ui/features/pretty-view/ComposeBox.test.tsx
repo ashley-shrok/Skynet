@@ -1491,9 +1491,9 @@ describe("ComposeBox — quick-260802-w9e session-queue-pending-store publish in
  *
  * These tests exercise the new onOptimisticSend + overrideText +
  * onOverrideTextConsumed contract and the widened onSend(text, mqid?)
- * prop signature added by Task 2. The COMPOSE-04 sweep is verified by
- * grep gates in the plan acceptance criteria (not by unit tests) since
- * comment-removal cannot fail a runtime assertion.
+ * prop signature added by Task 2. The prior HARD LOCK sweep is verified
+ * by grep gates in the plan acceptance criteria (not by unit tests)
+ * since comment-removal cannot fail a runtime assertion.
  */
 describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", () => {
   beforeEach(() => {

@@ -656,8 +656,8 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
   //   • The existing PV send-path tests (compose-send.test.ts,
   //     ComposeBox.test.tsx, ChatMessage.test.tsx, PrettyView.compose-send.test.tsx)
   //     were adapted in place across Plans 50-02 (Test 6 WS-close cleanup)
-  //     and 50-03 (COMPOSE-04 sweep + mqid-arg update + pv-adhoc rename),
-  //     NOT wholesale deleted. This integration file ADDS coverage —
+  //     and 50-03 (prior HARD LOCK sweep + mqid-arg update + local-mqid
+  //     rename), NOT wholesale deleted. This integration file ADDS coverage —
   //     it does not supplant the unit-level coverage that already exists
   //     on each seam.
   //   • No test-file deletions in this plan.

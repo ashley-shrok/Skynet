@@ -23,7 +23,7 @@ import type { ProxyNode } from "../../types/index.js";
 import { SSHHostKeyVerifier } from "./host-key-verifier.js";
 import { createJumpHostChain } from "./terminal-jump-hosts.js";
 import { sessionManager } from "./terminal-session-manager.js";
-// Phase 50 D-12 — armPvSubmitWatchdog import REMOVED. See breadcrumb at
+// Phase 50 D-12 — former submit-watchdog import REMOVED. See breadcrumb at
 // the former call site (~L780) for the replacement pointer.
 import {
   detectTmux,

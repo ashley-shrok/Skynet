@@ -51,10 +51,10 @@ export interface TerminalSession {
   initialStateEmitted: boolean;
   idleCheckTimer: NodeJS.Timeout | null;
   idleCheckInFlight: boolean;
-  // Phase 50 D-12: pvSubmitWatchdogs field REMOVED — the old PTY-activity-
-  // proxy watchdog is superseded by src/backend/claude-session/pv-send-
-  // watchdog.ts (per-connection Set at ws-connection outer scope + WS-close
-  // cleanup, not per-terminal-session).
+  // Phase 50 D-12: former PTY-activity-proxy watchdog field REMOVED —
+  // the old submit-watchdog is superseded by
+  // src/backend/claude-session/pv-send-watchdog.ts (per-connection Set at
+  // ws-connection outer scope + WS-close cleanup, not per-terminal-session).
 }
 
 class TerminalSessionManager {
@@ -318,8 +318,8 @@ class TerminalSessionManager {
       session.detachTimeout = null;
     }
 
-    // Phase 50 D-12: pvSubmitWatchdogs detach cleanup REMOVED — the OLD
-    // PTY-activity-proxy watchdog is retired. The new signal-driven
+    // Phase 50 D-12: former submit-watchdog detach cleanup REMOVED — the
+    // OLD PTY-activity-proxy watchdog is retired. The new signal-driven
     // watchdog lives on the claude-session WS (not the terminal-tab WS)
     // and manages its own per-connection cleanup via pendingMqidsForThisConnection
     // in claude-session-server.ts's ws.on("close") handler.
@@ -360,8 +360,8 @@ class TerminalSessionManager {
       session.idleCheckTimer = null;
     }
 
-    // Phase 50 D-12: pvSubmitWatchdogs destroy cleanup REMOVED — see the
-    // matching detachWs edit above and pv-send-watchdog.ts for the
+    // Phase 50 D-12: former submit-watchdog destroy cleanup REMOVED — see
+    // the matching detachWs edit above and pv-send-watchdog.ts for the
     // replacement (per-connection cleanup on the claude-session WS).
 
     if (session.sshStream) {
