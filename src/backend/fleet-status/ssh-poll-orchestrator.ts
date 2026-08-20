@@ -119,6 +119,16 @@ interface PidCacheEntry {
   // frame overwrites it. This is what makes the signal edge-triggered on
   // messages (not on lifecycle events / tool_use / thinking blocks).
   lastMessageAt: number | null;
+  // Phase 47 — cached derived latest ai-title from the same JSONL tail-read
+  // that feeds lastMessageAt. Passenger on the same jsonlPath — no
+  // independent stale-tick counter (aiTitle inherits invalidation via the
+  // shared cached jsonlPath). Last-wins semantics: a fresher tail-scan
+  // whose scanTailForLatestAiTitle returns a non-null string overwrites the
+  // cached value; a scan returning null preserves the cache (fail-open on
+  // transient SSH hiccups matches lastMessageAt's behavior). Publishes iff
+  // computeFingerprint sees a change (aiTitle is a distinct fingerprint
+  // axis so an ai-title-only drift still fires publishSessionState).
+  aiTitle: string | null;
   // Phase 44 Plan 02 — cached JSONL path resolved via
   // discoverIdentityJsonlPathViaChannel (identity /id-first-turn discovery).
   // Populated on the first tick where tmuxSession resolves; reused across
@@ -129,8 +139,9 @@ interface PidCacheEntry {
   // swap for the timing + rationale.
   jsonlPath: string | null;
   // Phase 44 Plan 02 — count of consecutive ticks where the cached
-  // `jsonlPath`'s `tail -n 200` scan failed to advance a NON-NULL cached
-  // `lastMessageAt`. Reset to 0 on any tick that advances lastMessageAt.
+  // `jsonlPath`'s tail-scan (Phase 47 Plan 02: `tail -c 262144`) failed to
+  // advance a NON-NULL cached `lastMessageAt`. Reset to 0 on any tick that
+  // advances lastMessageAt.
   // On reaching STALE_TAIL_REDISCOVERY_THRESHOLD, invalidate `jsonlPath`
   // so the next tick re-fires discovery — defense against Claude Code
   // JSONL rotation mid-session (a resume/compaction event can rotate the
@@ -221,8 +232,10 @@ const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
  * lines, or null if no line qualified. Empty lines and malformed lines are
  * skipped silently — this is a best-effort sample, not a validation pass.
  *
- * This runs on EVERY poll tick per PID; the cost is bounded by `tail -n 200`
- * (~200 lines × O(1) parse each = well under 5ms on typical hardware).
+ * This runs on EVERY poll tick per PID; the cost is bounded by the tail
+ * width (Phase 47 Plan 02: `tail -c 262144` — 256KB; per Phase 47 CONTEXT.md
+ * § Backend scraper mechanics — bounded parse well under 5ms on typical
+ * hardware).
  * Session-file-parser's parseSessionLine already handles the harness quirks
  * (queued_command attachments, wrapper-only turns, tool_result vs. bare
  * image role derivation, etc.) — this function stays agnostic to those
@@ -244,6 +257,58 @@ function scanTailForNewestMessageAt(tailContents: string): number | null {
     }
   }
   return newest;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 47 Plan 02 — ai-title scanner
+// ---------------------------------------------------------------------------
+
+/**
+ * Substring pre-filter for the harness-emitted `{"type":"ai-title","aiTitle":
+ * "…","sessionId":"…"}` line (see Phase 47 CONTEXT.md § Backend scraper
+ * mechanics + § Harness ai-title source). Used to avoid JSON.parse-ing every
+ * message-bearing line just to check for ai-title lines.
+ */
+const AI_TITLE_LINE_PREFIX = '"type":"ai-title"';
+
+/**
+ * Scan the raw stdout of a `tail -c N <jsonl-path>` for the LAST ai-title
+ * line's aiTitle string (last-wins per CONTEXT.md § working-store third axis
+ * — topic drifts across a session, so the freshest line reflects the current
+ * topic). Returns null if zero valid ai-title lines are found (empty tail,
+ * missing field, malformed JSON, wrong-type value).
+ *
+ * Hand-mirrored from `sessions.ts scanTailForLatestAiTitle` per Phase 44
+ * Plan 01 precedent — the two backend read paths keep local copies rather
+ * than share a module (44-CONTEXT.md § "no new shared module" scope decision
+ * inherited from Phase 43; 47-CONTEXT.md § domain inherits from Phase 43
+ * scope decision). If either copy ever needs to change, update BOTH sites.
+ *
+ * In-process JSON.parse (not `jq` shell subprocess) matches the existing
+ * `parseSessionLine` pattern the Phase 44 Plan 01 scanner uses — cheaper
+ * (no exec) and consistent with the surrounding scanTailForNewestMessageAt.
+ */
+function scanTailForLatestAiTitle(tailContents: string): string | null {
+  let latest: string | null = null;
+  const lines = tailContents.split("\n");
+  for (const line of lines) {
+    // Cheap substring pre-filter — avoid JSON.parse on non-ai-title lines.
+    if (!line.includes(AI_TITLE_LINE_PREFIX)) continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        typeof (parsed as { aiTitle?: unknown }).aiTitle === "string"
+      ) {
+        latest = (parsed as { aiTitle: string }).aiTitle;
+      }
+    } catch {
+      // Malformed line — skip silently (best-effort sampling).
+      continue;
+    }
+  }
+  return latest;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +392,12 @@ function computeFingerprint(state: SessionState): string {
   // publish trigger even when status + backgroundTasks are unchanged.
   // Null is normalized to "" so a first-time null publish still emits a
   // distinct fingerprint distinct from an unpopulated cache entry.
-  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}`;
+  // Phase 47 Plan 02: aiTitle is a distinct axis of the fingerprint — an
+  // ai-title change (topic drift) is a state-change publish trigger even
+  // when status + backgroundTasks + lastMessageAt are unchanged. Same
+  // null-normalization pattern as lastMessageAt so a first-time null
+  // publish is distinguishable from an unpopulated cache entry.
+  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -501,14 +571,34 @@ export function createSshPollOrchestrator(
     // with empty stdout — scanTailForNewestMessageAt returns null (no
     // history), we keep the cached value (also null in this case).
     let derivedLastMessageAt: number | null = cached?.lastMessageAt ?? null;
+    let derivedAiTitle: string | null = cached?.aiTitle ?? null;
     let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
     if (jsonlPath !== null) {
+      // Phase 47 Plan 02 — tail width bumped from a line-count-bounded
+      // read to `tail -c 262144` (256KB byte-count) so an ai-title line
+      // older than the last handful of message-bearing lines is still
+      // captured. The sessions.ts /sessions/list route uses the same tail
+      // shape; both backend read paths stay aligned.
+      // scanTailForNewestMessageAt iterates lines regardless of
+      // byte-vs-line-bound source, so the switch is semantically invisible
+      // to the lastMessageAt derivation.
       const tailRaw = await channel.exec(
-        `tail -n 200 ${jsonlPath} 2>/dev/null || true`,
+        `tail -c 262144 ${jsonlPath} 2>/dev/null || true`,
       );
       let scanned: number | null = null;
+      let scannedAiTitle: string | null = null;
       if (tailRaw !== null && tailRaw.trim() !== "") {
+        // ONE buffer, TWO scans — no duplicate exec, no duplicate discovery.
         scanned = scanTailForNewestMessageAt(tailRaw);
+        scannedAiTitle = scanTailForLatestAiTitle(tailRaw);
+      }
+      // Phase 47 Plan 02 — last-wins reconciliation for aiTitle. If the
+      // fresh tail-scan returned a non-null string, use it; otherwise
+      // preserve the cache (fail-open on transient SSH hiccup or a tick
+      // where the tail is empty — matches lastMessageAt's semantics). A
+      // truly-no-ai-title session's cache starts at null and stays null.
+      if (scannedAiTitle !== null) {
+        derivedAiTitle = scannedAiTitle;
       }
       // Phase 44 Plan 02 — TIGHTENED stale-tick condition. Three mutually-
       // exclusive branches, evaluated in order:
@@ -589,7 +679,9 @@ export function createSshPollOrchestrator(
 
     // Compose SessionState — Phase 41 Plan 03 stamps lastMessageAt from the
     // JSONL-tail derivation above (null when no message-bearing history is
-    // known for this session).
+    // known for this session). Phase 47 Plan 02 stamps aiTitle from the
+    // SAME tail-read (shared buffer, one exec) — last-wins across
+    // multiple ai-title lines in the tail.
     const state: SessionState = {
       hostId: host.id,
       tmuxSession,
@@ -601,6 +693,7 @@ export function createSshPollOrchestrator(
       backgroundTasks,
       updatedAt: sessionJson.updatedAt,
       lastMessageAt: derivedLastMessageAt,
+      aiTitle: derivedAiTitle,
     };
 
     // Delta semantics — only publish if fingerprint changed
@@ -624,6 +717,7 @@ export function createSshPollOrchestrator(
         procStart: sessionJson.procStart,
         lastPublishedFingerprint: newFingerprint,
         lastMessageAt: derivedLastMessageAt,
+        aiTitle: derivedAiTitle,
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
       });
@@ -635,6 +729,7 @@ export function createSshPollOrchestrator(
         tmuxSession,
         lastPublishedFingerprint: newFingerprint,
         lastMessageAt: derivedLastMessageAt,
+        aiTitle: derivedAiTitle,
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
       });

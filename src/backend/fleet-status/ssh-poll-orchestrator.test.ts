@@ -1105,7 +1105,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
     channel.setResponse("IDENTITY=", discoveryStdout);
     // Match on the JSONL filename fragment — the orchestrator will build a
     // path ending in `discovered.jsonl` (the mocked discovery result) and
-    // run `tail -n 200` against it. All tail command shapes route to the
+    // run `tail -c 262144` against it. All tail command shapes route to the
     // same fixture.
     channel.setResponse("discovered.jsonl", jsonlContents);
   }
@@ -1340,8 +1340,20 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     // Discovery script fires ONCE across both ticks — tick 1 populates
     // PidCacheEntry.jsonlPath; tick 2 reuses the cached path.
     expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
-    // Tail fires on every tick.
-    expect(channel.countCallsMatching("tail -n 200")).toBe(2);
+    // Tail fires on every tick. Phase 47 Plan 02: tail width bumped from
+    // `tail -n 200` (line-count) to `tail -c 262144` (256KB byte-count) so
+    // an ai-title line older than the last 200 message-bearing lines is
+    // still captured. The two backend read paths (sessions.ts + this) stay
+    // aligned on the same tail shape.
+    expect(channel.countCallsMatching("tail -c 262144")).toBe(2);
+    // Post-Phase-47 the old tail width MUST NOT be used anywhere.
+    expect(channel.countCallsMatching("tail -n 200")).toBe(0);
+    // Phase 47 Plan 02 lock: fixture has no ai-title lines → both publishes
+    // carry aiTitle: null. This asserts the new axis lands on the wire.
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.aiTitle).toBeNull();
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -1396,8 +1408,10 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     // threshold trip on tick 6 nulls jsonlPath in cache; tick 7 re-fires
     // discovery. Total = 2 discovery calls across 7 ticks.
     expect(channel.countCallsMatching("IDENTITY=")).toBe(2);
-    // Tail fires every tick regardless.
-    expect(channel.countCallsMatching("tail -n 200")).toBe(7);
+    // Tail fires every tick regardless. Phase 47 Plan 02: tail width now
+    // `tail -c 262144` (256KB) instead of `tail -n 200`.
+    expect(channel.countCallsMatching("tail -c 262144")).toBe(7);
+    expect(channel.countCallsMatching("tail -n 200")).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
@@ -1441,8 +1455,13 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     // Discovery yielded null → jsonlPath stays null → tail skipped →
     // derivedLastMessageAt stays at cached-or-null (null on cold).
     expect(published.state.lastMessageAt).toBeNull();
+    // Phase 47 Plan 02 lock: no discovery → no scan → aiTitle stays null.
+    expect(published.state.aiTitle).toBeNull();
     // Discovery fired once (cold cache), tail never fired for this PID.
     expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    // Phase 47 Plan 02: bumped to `tail -c 262144` — still 0 calls here
+    // (discovery-null path skips tail entirely).
+    expect(channel.countCallsMatching("tail -c 262144")).toBe(0);
     expect(channel.countCallsMatching("tail -n 200")).toBe(0);
   });
 
@@ -1480,7 +1499,10 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     // tmuxSession null → discovery skipped → jsonlPath stays null →
     // tail skipped → lastMessageAt stays null.
     expect(published.state.lastMessageAt).toBeNull();
+    // Phase 47 Plan 02 lock: tmux null → no discovery → no scan → aiTitle null.
+    expect(published.state.aiTitle).toBeNull();
     expect(channel.countCallsMatching("IDENTITY=")).toBe(0);
+    expect(channel.countCallsMatching("tail -c 262144")).toBe(0);
     expect(channel.countCallsMatching("tail -n 200")).toBe(0);
   });
 
@@ -1546,12 +1568,389 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
     // Tail fires every tick (that behavior is UNCHANGED by the tightened
     // condition — only the counter-increment logic changed).
-    expect(channel.countCallsMatching("tail -n 200")).toBe(10);
+    // Phase 47 Plan 02: tail width bumped `tail -n 200` → `tail -c 262144`.
+    expect(channel.countCallsMatching("tail -c 262144")).toBe(10);
+    expect(channel.countCallsMatching("tail -n 200")).toBe(0);
     // No message-bearing frames ever → published state's lastMessageAt
-    // is null throughout.
+    // is null throughout. Phase 47 Plan 02: empty tail → aiTitle also null.
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
     for (const p of deps.registry.publishedStates) {
       expect(p.state.lastMessageAt).toBeNull();
+      expect(p.state.aiTitle).toBeNull();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 47 Plan 02 — aiTitle derivation and publish
+//
+// Contract (locked by 47-CONTEXT.md § domain + § Backend scraper mechanics):
+//   - Orchestrator tails the same discovered JSONL (Phase 44 Plan 02
+//     mechanism) and scans for the LAST `{"type":"ai-title","aiTitle":"…",
+//     "sessionId":"…"}` line in file order. Last-wins semantics (not
+//     max-wins like lastMessageAt) — topic drifts across a session.
+//   - Published SessionState.aiTitle carries the derived string (or null
+//     when no valid ai-title line found).
+//   - Fingerprint includes aiTitle as a DISTINCT axis — an ai-title-only
+//     change (status/backgroundTasks/updatedAt/lastMessageAt all identical)
+//     STILL fires publishSessionState. Topic drift is a state-change signal.
+//   - Cached PidCacheEntry.aiTitle survives across ticks when scan yields
+//     null (transient SSH hiccup or empty tail); advances when a fresher
+//     tail-scan returns a new string. No independent stale-tick counter —
+//     aiTitle rides on the same jsonlPath cache Phase 44 Plan 02 owns.
+// ---------------------------------------------------------------------------
+
+describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Local jsonlMessageLine — mirrors the Phase 44 Plan 02 describe helper.
+  function jsonlMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+    });
+  }
+
+  // Phase 47 harness format — `{"type":"ai-title","aiTitle":"…","sessionId":"…"}`.
+  // Mirrors sessions.test.ts jsonlAiTitleLine (hand-mirrored per CONTEXT.md
+  // "no new shared module" scope decision inherited from Phase 43/44).
+  function jsonlAiTitleLine(sessionId: string, aiTitle: string): string {
+    return JSON.stringify({
+      type: "ai-title",
+      aiTitle,
+      sessionId,
+    });
+  }
+
+  // buildDiscoveryFixture — copy from Phase 44 Plan 02 describe (self-
+  // contained per the existing pattern; both describes need the helper).
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+    matchesIdentity = true,
+  ): string {
+    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  // Local wireBaseResponses — same shape as Phase 44 Plan 02 describe.
+  function wireBaseResponses(
+    channel: MockSshChannel,
+    jsonlContents: string,
+    discoveryOverride?: string,
+  ): void {
+    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    const discoveryStdout =
+      discoveryOverride ??
+      buildDiscoveryFixture(
+        "tina",
+        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlContents);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test 1 — happy path: one ai-title line in tail → published state carries it.
+  // ---------------------------------------------------------------------------
+
+  it("Test 1: happy path — single ai-title line → published SessionState.aiTitle equals that string", async () => {
+    const channel = new MockSshChannel();
+    const jsonl =
+      jsonlMessageLine(1000, "user", "start") +
+      "\n" +
+      jsonlAiTitleLine("test-session-id", "Auth refactor") +
+      "\n" +
+      jsonlMessageLine(2000, "assistant", "on it") +
+      "\n";
+    wireBaseResponses(channel, jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.aiTitle).toBe("Auth refactor");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 2 — last-wins: multiple ai-title lines → LAST one in file order wins.
+  // ---------------------------------------------------------------------------
+
+  it("Test 2: last-wins — multiple ai-title lines → published aiTitle equals LAST in file order", async () => {
+    const channel = new MockSshChannel();
+    const jsonl =
+      jsonlAiTitleLine("test-session-id", "First topic") +
+      "\n" +
+      jsonlMessageLine(1500, "assistant", "drift 1") +
+      "\n" +
+      jsonlAiTitleLine("test-session-id", "Middle topic") +
+      "\n" +
+      jsonlMessageLine(2500, "assistant", "drift 2") +
+      "\n" +
+      jsonlAiTitleLine("test-session-id", "Final topic wins") +
+      "\n";
+    wireBaseResponses(channel, jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // Last-wins per CONTEXT.md § working-store third axis.
+    expect(published.state.aiTitle).toBe("Final topic wins");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 3 — no ai-title lines in tail: has messages but no ai-title → null.
+  // ---------------------------------------------------------------------------
+
+  it("Test 3: no ai-title lines in tail — has messages, no ai-title → published aiTitle null", async () => {
+    const channel = new MockSshChannel();
+    const jsonl =
+      jsonlMessageLine(1000, "user", "hi") +
+      "\n" +
+      jsonlMessageLine(2000, "assistant", "hello") +
+      "\n";
+    wireBaseResponses(channel, jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.aiTitle).toBeNull();
+    // Corroborate: lastMessageAt still derived correctly from the same tail.
+    expect(published.state.lastMessageAt).toBe(2000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 4 — discovery null → aiTitle null. tmuxSession null covered by
+  //           Phase 44 Plan 02 Test J's aiTitle:null assertion above; here
+  //           we cover the discovery-returns-null branch specifically.
+  // ---------------------------------------------------------------------------
+
+  it("Test 4: discovery returns null (no matching first-user-line) → aiTitle stays null across published frames", async () => {
+    const channel = new MockSshChannel();
+    // Discovery fixture emits a record but first-user-line does NOT match
+    // identity `tina` → discoverIdentityJsonlPathViaChannel returns null →
+    // tail skipped → aiTitle stays null.
+    const badDiscovery = buildDiscoveryFixture(
+      "tina",
+      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      false,
+    );
+    wireBaseResponses(
+      channel,
+      jsonlAiTitleLine("test-session-id", "Should never reach here") + "\n",
+      badDiscovery,
+    );
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // Discovery null → jsonlPath null → tail skipped → aiTitle stays cached
+    // (null on cold cache).
+    expect(published.state.aiTitle).toBeNull();
+    // Tail never fired because jsonlPath was null.
+    expect(channel.countCallsMatching("tail -c 262144")).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 5 — aiTitle-change publish trigger: computeFingerprint includes
+  //           aiTitle so an ai-title-only change (all other axes identical)
+  //           STILL fires publishSessionState. Load-bearing lock for the
+  //           fingerprint axis addition per CONTEXT.md § working-store third
+  //           axis + 47-02-PLAN.md Task 2 <behavior> Test 5.
+  // ---------------------------------------------------------------------------
+
+  it("Test 5: aiTitle-change publish trigger — fingerprint includes aiTitle, ai-title-only change fires publish", async () => {
+    const channel = new MockSshChannel();
+    // Tick 1 tail — one message + one ai-title (topic A).
+    const tick1Jsonl =
+      jsonlMessageLine(1000, "assistant", "hi") +
+      "\n" +
+      jsonlAiTitleLine("test-session-id", "Topic A") +
+      "\n";
+    wireBaseResponses(channel, tick1Jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBeGreaterThan(0);
+    expect(
+      deps.registry.publishedStates[publishesAfterTick1 - 1].state.aiTitle,
+    ).toBe("Topic A");
+
+    // Tick 2 tail — SAME message ts (1000), SAME session, ONLY aiTitle
+    // changes (topic drift A → B). status/backgroundTasks/updatedAt all
+    // unchanged (SessionJson unchanged); lastMessageAt unchanged (still
+    // 1000). ONLY aiTitle differs. Fingerprint MUST see this and fire a
+    // new publish.
+    const tick2Jsonl =
+      jsonlMessageLine(1000, "assistant", "hi") +
+      "\n" +
+      jsonlAiTitleLine("test-session-id", "Topic B (drifted)") +
+      "\n";
+    channel.setResponse("discovered.jsonl", tick2Jsonl);
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    // Publish count MUST increase — the fingerprint change on aiTitle
+    // alone triggered publishSessionState.
+    const publishesAfterTick2 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick2).toBe(publishesAfterTick1 + 1);
+    expect(
+      deps.registry.publishedStates[publishesAfterTick2 - 1].state.aiTitle,
+    ).toBe("Topic B (drifted)");
+    // lastMessageAt confirms nothing else changed on this axis.
+    expect(
+      deps.registry.publishedStates[publishesAfterTick2 - 1].state.lastMessageAt,
+    ).toBe(1000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 6 — cache preserves aiTitle across ticks: tick 2 unchanged tail
+  //           reuses cached value; tick 3 with a new ai-title advances the
+  //           cache. Verifies the last-wins reconciliation semantics for
+  //           the PidCacheEntry.aiTitle field.
+  // ---------------------------------------------------------------------------
+
+  it("Test 6: cache preserves aiTitle across ticks — tick 2 unchanged reuses cache, tick 3 with new ai-title advances", async () => {
+    const channel = new MockSshChannel();
+    const tick1Jsonl =
+      jsonlMessageLine(1000, "assistant", "hi") +
+      "\n" +
+      jsonlAiTitleLine("test-session-id", "Original topic") +
+      "\n";
+    wireBaseResponses(channel, tick1Jsonl);
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1: publishes with "Original topic"
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBeGreaterThan(0);
+    expect(
+      deps.registry.publishedStates[publishesAfterTick1 - 1].state.aiTitle,
+    ).toBe("Original topic");
+
+    // Tick 2: SAME tail content — no fingerprint change → NO new publish
+    // (delta semantics). Cache still holds "Original topic".
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+    // No new publish (fingerprint unchanged).
+    expect(deps.registry.publishedStates.length).toBe(publishesAfterTick1);
+
+    // Tick 3: new ai-title line appended → last-wins picks it up → publish.
+    const tick3Jsonl =
+      jsonlMessageLine(1000, "assistant", "hi") +
+      "\n" +
+      jsonlAiTitleLine("test-session-id", "Original topic") +
+      "\n" +
+      jsonlAiTitleLine("test-session-id", "Fresh topic") +
+      "\n";
+    channel.setResponse("discovered.jsonl", tick3Jsonl);
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    const publishesAfterTick3 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick3).toBe(publishesAfterTick1 + 1);
+    expect(
+      deps.registry.publishedStates[publishesAfterTick3 - 1].state.aiTitle,
+    ).toBe("Fresh topic");
   });
 });
