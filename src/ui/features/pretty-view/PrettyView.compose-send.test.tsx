@@ -171,7 +171,7 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
 
     let result: boolean | undefined;
     act(() => {
-      result = sendInputRef.current!("hello world\r", "pv-adhoc-abc");
+      result = sendInputRef.current!("hello world\r", "pv-test-mqid-abc");
     });
 
     expect(result).toBe(true);
@@ -188,7 +188,7 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
     expect(inputFrames).toHaveLength(1);
     const parsed = JSON.parse(inputFrames[0][0] as string);
     expect(parsed.data).toBe("hello world\r");
-    expect(parsed.messageQueueItemId).toBe("pv-adhoc-abc");
+    expect(parsed.messageQueueItemId).toBe("pv-test-mqid-abc");
 
     // Regression: no raw_keystrokes frame on the pretty-view WS.
     const rawKeystrokesFrames = newCalls.filter(([data]) => {

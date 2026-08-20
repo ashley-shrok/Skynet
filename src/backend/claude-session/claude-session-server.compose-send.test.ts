@@ -87,7 +87,7 @@ describe("__applyInputMessageForTests", () => {
       currentHostId: 1,
       execCommand: exec,
       data: "",
-      messageQueueItemId: "pv-adhoc-1",
+      messageQueueItemId: "pv-test-mqid-1",
     });
     expect(exec).not.toHaveBeenCalled();
   });
@@ -172,7 +172,7 @@ describe("__applyInputMessageForTests", () => {
       currentHostId: 1,
       execCommand: exec,
       data: "hello\r",
-      messageQueueItemId: "pv-adhoc-1",
+      messageQueueItemId: "pv-test-mqid-1",
     });
 
     // Flush microtasks so call #1 (body write) completes before timer gate check.
@@ -281,7 +281,7 @@ describe("__applyInputMessageForTests", () => {
       currentHostId: 1,
       execCommand: exec,
       data: "hello\r",
-      messageQueueItemId: "pv-adhoc-1",
+      messageQueueItemId: "pv-test-mqid-1",
     });
 
     // Advance timers past 250ms — the throw already caught in catch block; Enter never fires.
