@@ -11,6 +11,10 @@ import { discoverClaudeSession } from "./session-file-discovery.js";
 import { discoverIdentitySessionFile } from "./discover-identity-session-file.js";
 import { parseSessionLine, detectIdReset } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+// Phase 47 Plan 03: bounded JSONL slice reader for the load-more button
+// (Plan 01 output). Used by handleFetchOlderRange below AND by
+// startActiveSessionFlow's Hunk B totalLines probe.
+import { readSessionFileRange } from "./session-file-range-reader.js";
 import {
   applyLineToLayer1State,
   type Layer1State,
@@ -186,6 +190,165 @@ function malformedEventId(rawLine: string): string {
   );
 }
 export const __malformedEventIdForTests = malformedEventId;
+
+// ─── Phase 47 Plan 03 Hunk A: shared reshape helper ─────────────────────────
+//
+// `reshapeParsedLineToWireFrame` was extracted from the streaming-tail
+// dispatch switch (was inline at ~L2416-2522). It is the SINGLE source of
+// truth for turning a `ParsedLine` (from parseSessionLine) into a wire
+// frame — used by both:
+//   (a) the streaming-tail onLine callback (real-time playback of new lines
+//       written to the JSONL as the conversation progresses); and
+//   (b) `handleFetchOlderRange` (Plan 47-03 Hunk C — the load-more button's
+//       WS request handler, reads a bounded slice of older lines).
+//
+// Wire-shape parity between the two paths is structurally guaranteed by
+// their SHARED call to this helper. Without the extraction, streaming-tail
+// and range-fetch would drift on frame shape (parser produces {kind:"..."},
+// wire expects {type:"..."} with role/content/eventId/ts fields — the
+// reshape is 100+ lines of case handling; duplicating would guarantee bugs).
+//
+// Signature:
+//   parsed:  the discriminated-union output of parseSessionLine
+//   rawLine: the original raw JSONL line (needed by the malformed branch for
+//            malformedEventId(rawLine))
+//   line:    the 1-indexed JSONL line-number that produced `parsed` — Plan
+//            01 widened every per-turn wire type with an optional `line?:
+//            number` field so the client can track `oldestLoadedLine` and
+//            derive the next `beforeLine` cursor value.
+// Returns:
+//   The wire-frame object (a member of the `StreamEvent` union below),
+//   OR null when `parsed.kind === "skip"` (silent-drop policy inherited
+//   from the streaming-tail's original switch — RENDER-01 hard-lock).
+//
+// The `StreamEvent` local type alias mirrors Plan 01's
+// `FetchOlderRangeBatchEvent.messages[]` union in claude-session-api.ts —
+// the same 5 per-turn types the streaming tail emits. Local alias (rather
+// than an import) keeps this backend file free of a cross-boundary type
+// coupling for what is effectively a purely-local emit shape.
+type StreamEvent =
+  | {
+      type: "message";
+      role: "user" | "assistant";
+      content: string;
+      eventId: string;
+      ts: number;
+      line: number;
+    }
+  | {
+      type: "image";
+      role: "user" | "assistant" | "tool_result";
+      images: import("./session-file-parser.js").ImageBlock[];
+      text: string;
+      eventId: string;
+      ts: number;
+      line: number;
+    }
+  | {
+      type: "relay_outbound";
+      room: string | null;
+      rawCommand: string;
+      body: string | null;
+      eventId: string;
+      ts: number;
+      line: number;
+    }
+  | {
+      type: "relay_inbound";
+      room: string;
+      sender: string;
+      matrixEventId: string;
+      body: string;
+      raw: string;
+      eventId: string;
+      ts: number;
+      line: number;
+    }
+  | {
+      type: "malformed_line";
+      bytes: number;
+      eventId: string;
+      ts: number;
+      line: number;
+    };
+
+export function reshapeParsedLineToWireFrame(
+  parsed: import("./session-file-parser.js").ParsedLine,
+  rawLine: string,
+  line: number,
+): StreamEvent | null {
+  switch (parsed.kind) {
+    case "message":
+      return {
+        type: "message",
+        role: parsed.role,
+        content: parsed.content,
+        eventId: parsed.eventId,
+        ts: parsed.ts,
+        line,
+      };
+    case "image":
+      return {
+        type: "image",
+        role: parsed.role,
+        images: parsed.images,
+        text: parsed.text,
+        eventId: parsed.eventId,
+        ts: parsed.ts,
+        line,
+      };
+    case "relay_outbound":
+      // bounty pretty-view-outgoing-relay-render: body ?? null so JSON.stringify
+      // emits an explicit null; the frontend's `body !== null` check would take
+      // the pretty branch on undefined and produce an invisible bubble.
+      return {
+        type: "relay_outbound",
+        room: parsed.room,
+        rawCommand: parsed.rawCommand,
+        body: parsed.body ?? null,
+        eventId: parsed.eventId,
+        ts: parsed.ts,
+        line,
+      };
+    case "relay_inbound":
+      return {
+        type: "relay_inbound",
+        room: parsed.room,
+        sender: parsed.sender,
+        matrixEventId: parsed.matrixEventId,
+        body: parsed.body,
+        raw: parsed.raw,
+        eventId: parsed.eventId,
+        ts: parsed.ts,
+        line,
+      };
+    case "malformed":
+      // pv-malformed-jsonl-placeholder-bubble: eventId is a content-hash of
+      // the raw line so tail-restart replays dedupe via appendDedup instead
+      // of stacking a fresh placeholder each restart.
+      return {
+        type: "malformed_line",
+        bytes: parsed.bytes,
+        eventId: malformedEventId(rawLine),
+        ts: Date.now(),
+        line,
+      };
+    case "skip":
+      // RENDER-01 hard-lock: kind:"skip" (meta / empty_content /
+      // harness_wrapper / no_message / unknown-type) is silently dropped.
+      // Caller filters nulls before pushing to the messages array.
+      return null;
+    default: {
+      // Exhaustive-check guard — TS narrows `parsed` to `never` here if
+      // every case is covered. If parseSessionLine gains a new kind and
+      // this switch isn't updated, the assignment fails compilation.
+      const _exhaustive: never = parsed;
+      void _exhaustive;
+      return null;
+    }
+  }
+}
+export const __reshapeParsedLineToWireFrameForTests = reshapeParsedLineToWireFrame;
 
 // Phase 3 session-changeover tuning constants. Holding timeout: 200 * 3s = 600s (10min).
 // Per D-31 and CONTEXT.md § holding timeout — Nelly's original timing note said "new .jsonl
@@ -872,6 +1035,198 @@ export async function handleIdentityUpdateRoleFile(
 // above. Vitest drives the handlers directly with mocked reader/writer helpers.
 export const __handleIdentityGetRoleFileForTests = handleIdentityGetRoleFile;
 export const __handleIdentityUpdateRoleFileForTests = handleIdentityUpdateRoleFile;
+
+// ─── Phase 47 Plan 03 Hunk C: handleFetchOlderRange WS handler ────────────────
+//
+// Client → server request: `{ type: "fetch_older_range", beforeLine, count }`
+// (see FetchOlderRangePayload in src/ui/api/claude-session-api.ts). Server
+// reads lines `[max(1, beforeLine - count), beforeLine - 1]` inclusive via
+// the Plan 01 range reader, parses+reshapes each via the shared
+// `reshapeParsedLineToWireFrame` helper (also used by the streaming-tail
+// dispatch — this shared helper is what makes streaming and range-fetched
+// frames byte-identical on the wire, including the additive `line: number`
+// field Plan 01 widened onto every per-turn wire type), filters skip nulls,
+// and emits a `fetch_older_range_batch` response.
+//
+// Trust boundary (T-47-09, mirror of raw_keystrokes' T-14-02-01 at L4349):
+// `currentSessionFile` is read from `deps` (the dispatch branch captures it
+// from connection scope at L1845). Never accepted from the client payload.
+//
+// v1 skip-frame policy (LOCKED via Test 8 of the plan's test suite): skip
+// frames drop out, batch may be shorter than count. We do NOT re-read to
+// refill — additive behavior means clicking again works, and the client's
+// next `beforeLine` uses the batch's oldest visible line via `oldestLine`.
+//
+// Reject-not-clamp (LOCKED via Test 4): count > 20 or < 1 emits an error
+// frame; matches Plan 01's reader-side 200-cap defense-in-depth and
+// prevents silent client/server drift (asked for 1e9, got 20 without notice).
+//
+// Error frame (LOCKED via Test 2): missing sshConn or currentSessionFile
+// emits `{ ..., messages: [], oldestLine: 0, hasMore: false, error: "no
+// active session" }`, NOT silent return — the client's in-flight state
+// needs to be dismissible without hanging forever, and Plan 04's button
+// error-state variant is what shows the user "the click did something".
+//
+// Cursor semantic: LINE-cursor, not eventId-cursor. Plan 01's revision
+// (see 47-01-SUMMARY.md § key-decisions) eliminated any need to scan
+// the JSONL to resolve an eventId to a line — handler does ONE bounded
+// `readSessionFileRange` call per request. No scan, no search step of
+// any kind (this is what allows the 200-line reader cap to be
+// architecturally sufficient rather than a fragile invariant).
+
+export async function handleFetchOlderRange(
+  ws: WebSocket,
+  msg: unknown,
+  deps: {
+    sshConn: SSHClientType | null;
+    currentSessionFile: string | null;
+    currentHostId: number | null;
+  },
+): Promise<void> {
+  // Inline helper: DRY the error-emit sites. Every error path emits the
+  // same shape — `messages:[], oldestLine:0, hasMore:false, error:<msg>` —
+  // and the client's gate is the presence of `error`.
+  const emitErrorFrame = (errMsg: string): void => {
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "fetch_older_range_batch",
+          messages: [],
+          oldestLine: 0,
+          hasMore: false,
+          error: errMsg,
+        }),
+      );
+    } catch (err) {
+      databaseLogger.warn(
+        `[ws-server] send-failed msgType=fetch_older_range_batch err="${err instanceof Error ? err.message : String(err)}"`,
+        { operation: "ws_send_failed" },
+      );
+    }
+  };
+
+  // ─ Input-validation gate — BEFORE any I/O. Same discipline as
+  //   handleIdentityGetRoleFile L744-750 (validate shape+bounds first,
+  //   trust-boundary second, work third).
+  const m = (msg ?? {}) as {
+    type?: unknown;
+    beforeLine?: unknown;
+    count?: unknown;
+  };
+  if (m.type !== "fetch_older_range") {
+    emitErrorFrame("invalid type");
+    return;
+  }
+  if (!Number.isInteger(m.beforeLine) || (m.beforeLine as number) < 1) {
+    emitErrorFrame("invalid beforeLine");
+    return;
+  }
+  const beforeLine = m.beforeLine as number;
+  if (
+    !Number.isInteger(m.count) ||
+    (m.count as number) < 1 ||
+    (m.count as number) > 20
+  ) {
+    // Reject-not-clamp: matches Plan 01's reader-side throw on count > 200
+    // (defense-in-depth) and CONTEXT.md § scope-edges batch-size lock of 20
+    // (client always passes 20). Silent clamping would drift semantics.
+    emitErrorFrame("invalid count");
+    return;
+  }
+  const count = m.count as number;
+
+  // ─ Trust-boundary gate (T-47-09): both `sshConn` and `currentSessionFile`
+  //   MUST originate from connection scope. Missing = pane not yet
+  //   discovered (client sent fetch_older_range before connectToPane
+  //   completed, or after teardownPane cleared them). Not silent return —
+  //   the client needs the error frame to dismiss in-flight state.
+  if (!deps.sshConn || !deps.currentSessionFile) {
+    emitErrorFrame("no active session");
+    return;
+  }
+
+  // ─ Clamp the LINE range so we never ask the reader for lines <1 or an
+  //   empty range. `beforeLine=1` means client is already at the top.
+  const startLine = Math.max(1, beforeLine - count);
+  const rangeCount = Math.min(count, beforeLine - 1);
+  if (rangeCount <= 0) {
+    // Nothing to read — client's beforeLine=1 (or lower after gate). Emit
+    // an empty success (not error) so the client updates hasMore=false
+    // and unmounts the button gracefully.
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "fetch_older_range_batch",
+          messages: [],
+          oldestLine: 1,
+          hasMore: false,
+        }),
+      );
+    } catch (err) {
+      databaseLogger.warn(
+        `[ws-server] send-failed msgType=fetch_older_range_batch err="${err instanceof Error ? err.message : String(err)}"`,
+        { operation: "ws_send_failed" },
+      );
+    }
+    return;
+  }
+
+  // ─ Read the range. try/catch surfaces reader errors as an error frame
+  //   without crashing the WS.
+  let readResult: { lines: string[]; totalLines: number };
+  try {
+    readResult = await readSessionFileRange(
+      deps.sshConn,
+      deps.currentSessionFile,
+      startLine,
+      rangeCount,
+    );
+  } catch (err) {
+    emitErrorFrame(err instanceof Error ? err.message : String(err));
+    return;
+  }
+
+  // ─ Parse + reshape each line via the SHARED helper (Hunk A output). Skip
+  //   frames reshape to null; filter them out (v1 partial-batch policy,
+  //   Test 8 lock — no refill).
+  const messages: StreamEvent[] = [];
+  for (let i = 0; i < readResult.lines.length; i++) {
+    const lineNumber = startLine + i;
+    const rawLine = readResult.lines[i];
+    const parsed = parseSessionLine(rawLine);
+    const frame = reshapeParsedLineToWireFrame(parsed, rawLine, lineNumber);
+    if (frame !== null) {
+      messages.push(frame);
+    }
+  }
+
+  // ─ oldestLine reflects the LINE range asked (startLine), not the
+  //   wire-frame count. hasMore = startLine > 1 (there are still older
+  //   lines behind this batch).
+  const oldestLine = startLine;
+  const hasMore = startLine > 1;
+
+  try {
+    ws.send(
+      JSON.stringify({
+        type: "fetch_older_range_batch",
+        messages,
+        oldestLine,
+        hasMore,
+      }),
+    );
+  } catch (err) {
+    databaseLogger.warn(
+      `[ws-server] send-failed msgType=fetch_older_range_batch err="${err instanceof Error ? err.message : String(err)}"`,
+      { operation: "ws_send_failed" },
+    );
+  }
+}
+
+// Test seam — mirrors __handleIdentityGetRoleFileForTests convention above.
+// Vitest drives the handler directly (with a mocked readSessionFileRange)
+// via this alias, without needing a real WebSocketServer + ssh2 pair.
+export const __handleFetchOlderRangeForTests = handleFetchOlderRange;
 
 // ─── Test seam: discovery-repoll tick logic (Fix A + Fix B, quick 260730-sjf) ──
 //
@@ -1678,6 +2033,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   let sshConn: SSHClientType | null = null;
   let tailHandle: TailHandle | null = null;
+  // Phase 47 Plan 03 Hunk A: 1-indexed line-number counter for the
+  // streaming-tail's per-line dispatch. tail -F -n +1 starts at line 1 of
+  // the current file; each onLine invocation is the NEXT line, so we
+  // pre-increment (0 → 1 on first invocation) and pass to
+  // reshapeParsedLineToWireFrame(parsed, rawLine, lineNum). Reset to 0 in
+  // transitionToActiveNew below when the tail restarts against a new file
+  // (fresh -n +1 replay converges on lineNum=1 again).
+  let lineNum = 0;
   let contextPctTimer: NodeJS.Timeout | null = null;
   let contextPctInFlight = false;
   // Phase 41 Plan 04: pretty-view upload handler state, ported from
@@ -2405,121 +2768,38 @@ wss.on("connection", async (ws: WebSocket, req) => {
       /* malformed line — silently ignore, same posture as parser */
     }
 
+    // Phase 47 Plan 03 Hunk A: pre-increment the outer `lineNum` counter
+    // (declared at ~L1839, reset in transitionToActiveNew). tail -F -n +1
+    // starts at line 1 of the current file; this is the NEXT line, so
+    // lineNum becomes 1 on first invocation and matches sed's 1-indexing
+    // used by session-file-range-reader.ts.
+    lineNum += 1;
+
     const parsed = parseSessionLine(line);
     // Discriminator switch on parsed.kind — RENDER-01 hard-lock enforcement.
     // kind:"skip" and kind:"malformed" are silently dropped. Each emitting
     // branch sends exactly one WS frame per parsed turn; the switch guarantees
     // mutual exclusivity (only one case fires per line).
     //
-    // Phase 17 (RELAYBUB-01, RELAYBUB-02) adds two new cases without touching
-    // the existing "message"/"image" branches or skip/malformed semantics.
-    switch (parsed.kind) {
-      case "message":
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "message",
-              role: parsed.role,
-              content: parsed.content,
-              eventId: parsed.eventId,
-              ts: parsed.ts,
-            }),
-          );
-        } catch {
-          /* ws may be mid-close; drop */
-        }
-        break;
-      case "image":
-        // Patch #86: images that survived the parser's dedup + role
-        // derivation. Wire shape mirrors the parser's ImageMessage 1:1;
-        // frontend adds the `data:${mediaType};base64,` URI prefix when
-        // building the <img src>.
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "image",
-              role: parsed.role,
-              images: parsed.images,
-              text: parsed.text,
-              eventId: parsed.eventId,
-              ts: parsed.ts,
-            }),
-          );
-        } catch {
-          /* ws may be mid-close; drop */
-        }
-        break;
-      case "relay_outbound":
-        // Phase 17 (RELAYBUB-01): a Bash tool_use confirmed as a real Matrix
-        // relay send (curl + -X PUT + URL shape conjunction). Wire shape is a
-        // faithful command record — rawCommand IS the body (Option D, Ashley
-        // 2026-07-28). No body extraction, no ⚠ fallback. The bubble renders
-        // rawCommand as a scrollable mono block.
-        // Dedup: eventId = outer JSONL uuid — appendDedup handles it identically
-        // to message/image turns (no special-casing needed downstream).
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "relay_outbound",
-              room: parsed.room,
-              rawCommand: parsed.rawCommand,
-              body: parsed.body ?? null, // bounty pretty-view-outgoing-relay-render — null explicit so JSON.stringify emits it (undefined would be dropped and the frontend's `body !== null` check would take the pretty branch on an empty body → invisible bubble)
-              eventId: parsed.eventId,
-              ts: parsed.ts,
-            }),
-          );
-        } catch {
-          /* ws may be mid-close; drop */
-        }
-        break;
-      case "relay_inbound":
-        // Phase 17 (RELAYBUB-02): a task-notification user turn whose body
-        // matches the recv.sh event-line format [room X] [@sender] (event $Y):
-        // BODY. matrixEventId is the Matrix $event_id from the recv.sh line
-        // (distinct from the outer JSONL uuid in eventId). raw is preserved for
-        // the expand-raw panel in plan 17-03.
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "relay_inbound",
-              room: parsed.room,
-              sender: parsed.sender,
-              matrixEventId: parsed.matrixEventId,
-              body: parsed.body,
-              raw: parsed.raw,
-              eventId: parsed.eventId,
-              ts: parsed.ts,
-            }),
-          );
-        } catch {
-          /* ws may be mid-close; drop */
-        }
-        break;
-      case "malformed":
-        // pv-malformed-jsonl-placeholder-bubble (2026-08-10): emit a
-        // placeholder frame so the frontend can render a compact
-        // "[malformed JSONL line — N bytes, content lost]" bubble.
-        // eventId is a content-hash of the raw line (see malformedEventId)
-        // so tail-restart replays dedupe via appendDedup instead of stacking.
-        // Bytes carries the trimmed byte length as diagnostic. Root cause is
-        // a Claude Code writer race reported separately upstream; this
-        // placeholder is user-facing visibility that a turn was dropped.
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "malformed_line",
-              bytes: parsed.bytes,
-              eventId: malformedEventId(line),
-              ts: Date.now(),
-            }),
-          );
-        } catch {
-          /* ws may be mid-close; drop */
-        }
-        break;
-      // kind:"skip" — silent drop (RENDER-01 lock; skip covers meta,
-      // empty_content, harness_wrapper, no_message, unknown-type)
+    // Phase 47 Plan 03 Hunk A: the case-by-case switch that lived here was
+    // extracted into the shared `reshapeParsedLineToWireFrame` helper (~L280).
+    // Both the streaming-tail (here) AND `handleFetchOlderRange` (Plan 47-03
+    // Hunk C) call the SAME helper — this is what guarantees wire-shape
+    // parity between the two emit paths (streaming vs. range-fetch). If you
+    // are tempted to add a new per-kind case, extend the shared helper
+    // instead — do NOT reintroduce a switch here.
+    const frame = reshapeParsedLineToWireFrame(parsed, line, lineNum);
+    if (frame !== null) {
+      try {
+        ws.send(JSON.stringify(frame));
+      } catch {
+        /* ws may be mid-close; drop */
+      }
     }
+    // kind:"skip" returns null and is silently dropped (RENDER-01 lock;
+    // skip covers meta, empty_content, harness_wrapper, no_message,
+    // unknown-type — same policy as the pre-refactor switch's implicit
+    // no-case default fallthrough).
   };
   // ── PHASE-43 OBSERVATION CHANNEL END ──
 
@@ -2792,6 +3072,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
     layer1 = { mostRecentUserTurnIsIdReset: null };
     holdingReason = null;
     holdingTicks = 0;
+    // Phase 47 Plan 03 Hunk A: reset the streaming-tail line-counter for
+    // the new session file. The new `tail -F -n +1` will re-play from line
+    // 1, so the counter must return to 0 (pre-increment brings it back to
+    // 1 on first callback).
+    lineNum = 0;
 
     // Derive the new UUID basename using the same slug logic the initial-
     // connect path uses. Kept inline to keep this file self-contained.
@@ -3056,13 +3341,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // Assigned on the first connectToPane message (before discovery), so it is
   // in scope when the dormant-poll timer callback fires 3 seconds later even if
   // the message handler returned early via the inactive→dormant branch.
+  // Phase 47 Plan 03 Hunk B: widened return type from `void` to
+  // `Promise<void> | void` to accommodate the totalLines probe (Plan 03
+  // makes the assignment async). Callers use fire-and-forget shape
+  // (no `await`) so both the pre-Phase-47 sync path and the Phase 47+
+  // async path work uniformly at the call sites.
   // eslint-disable-next-line prefer-const
   let startActiveSessionFlow: (params: {
     pid: number;
     sessionFile: string;
     tmuxSession: string;
     hostId: number;
-  }) => void = () => { /* noop until assigned by connectToPane */ };
+  }) => Promise<void> | void = () => { /* noop until assigned by connectToPane */ };
 
   ws.on("message", async (raw: RawData) => {
     // Idempotency guard: once stopped, refuse all traffic.
@@ -4387,6 +4677,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
+    // Phase 47 Plan 03 Hunk D: load-more button — client asks for a
+    // bounded slice of older JSONL lines. Placed here (alongside
+    // raw_keystrokes) because both are pane-scoped WS requests that
+    // require connection-scoped SSH + session state. The handler
+    // (handleFetchOlderRange ~L900) validates payload shape+bounds,
+    // enforces the T-47-09 trust boundary (reads currentSessionFile
+    // from closure scope, never from msg), and emits a single
+    // `fetch_older_range_batch` response frame.
+    if (msg.type === "fetch_older_range") {
+      await handleFetchOlderRange(ws, msg, {
+        sshConn,
+        currentSessionFile,
+        currentHostId,
+      });
+      return;
+    }
+
     // Phase 35 — pretty-view compose-send owns its own WebSocket instead of
     // borrowing the terminal SSH WS (see bounty: terminal-ws-silent-death-on-session-return).
     //
@@ -4634,18 +4941,56 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // backgroundedShellsLastSerialized, changeoverState, currentSessionFile,
     // sessionIdFromFile, hasSeenExit, holdingTicks, discoveryRepollInFlight,
     // currentHostId, currentTmuxSession, stopped.
-    startActiveSessionFlow = ({ pid, sessionFile, tmuxSession: activeTmuxSession, hostId: activeHostId }: {
+    startActiveSessionFlow = async ({ pid, sessionFile, tmuxSession: activeTmuxSession, hostId: activeHostId }: {
       pid: number;
       sessionFile: string;
       tmuxSession: string;
       hostId: number;
     }) => {
+    // Phase 47 Plan 03 Hunk B: probe totalLines once so the connect-time
+    // session metadata frame can carry it. The client (PrettyView.tsx,
+    // Plan 47-04) gates the load-more button's initial visibility on
+    // `totalLines > messages.length` — without this field the button
+    // can't decide whether to mount. `readSessionFileRange(count=1)` is
+    // the cheapest possible probe: on the REMOTE branch it still runs
+    // the sentinel-split sed+wc pipeline in ONE round-trip; on the LOCAL
+    // branch it reads the whole file and returns just totalLines. We
+    // discard the returned line (only totalLines matters here).
+    //
+    // On probe failure emit `totalLines: 0` so the client hides the
+    // button gracefully (0 <= any messages count, gate fails, button
+    // stays unmounted). Structured log for post-deploy dashboards. This
+    // is non-fatal: the streaming tail delivers lines as they arrive and
+    // the pane still functions in full — the user just can't load history.
+    //
+    // Session frame is emitted BEFORE tail start (unchanged ordering);
+    // the probe runs on the same SSH connection so ssh2's channel
+    // multiplexing keeps this from blocking anything downstream.
+    let totalLinesProbe = 0;
+    if (sshConn) {
+      try {
+        const probeResult = await readSessionFileRange(sshConn, sessionFile, 1, 1);
+        totalLinesProbe = probeResult.totalLines;
+      } catch (err) {
+        sshLogger.warn("pv_totalLines_probe_failed", {
+          operation: "pv_totalLines_probe_failed",
+          hostId: activeHostId,
+          tmuxSession: activeTmuxSession,
+          sessionFile,
+          err: err instanceof Error ? err.message : String(err),
+        });
+        // totalLinesProbe stays 0 — client-side gate is `totalLines > messages.length`;
+        // 0 fails the gate and the button hides gracefully.
+      }
+    }
+
     // Active path: metadata frame first, then start the tail.
     ws.send(
       JSON.stringify({
         type: "session",
         pid,
         sessionFile,
+        totalLines: totalLinesProbe,
       }),
     );
     // Phase 30 Plan 30-01 (PS30-07): attach-time pane_state establishment.
