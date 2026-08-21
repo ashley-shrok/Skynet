@@ -168,6 +168,16 @@ interface PidCacheEntry {
   // preservation matches lastMessageAt / aiTitle patterns — transient SSH
   // hiccups do NOT flip a valid dormant reading.
   dormant: boolean;
+  // Phase 53 Plan 01 — cached derived boolean result of the source A recycling
+  // sentinel stat (`stat ~/.claude/identities/'<tmuxSession>'/.recycled-at
+  // 2>/dev/null >/dev/null && echo yes || echo no`). Same semantics as the
+  // dormant field above: trimmed stdout "yes" → true; "no" → false; anything
+  // else → fail-open to this cached value (default `false` on cold start).
+  // Participates in computeFingerprint as its own axis so a recycling-only flip
+  // publishes a new frame. No source B needed — the caretaker's sentinel is held
+  // for the full recycle window while a live claude PID exists, so per-PID
+  // source A coverage is sufficient (see Phase 53 RESEARCH § Assumption A1).
+  recycling: boolean;
 }
 
 interface PerHostState {
@@ -422,7 +432,12 @@ function computeFingerprint(state: SessionState): string {
   // distinguishable from cold cache. In practice source A always stamps a
   // strict boolean; the ?? branch handles the "field omitted" path from
   // source B's future explicit-null frames.
-  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}`;
+  // Phase 53 Plan 01: recycling is a distinct axis of the fingerprint — a
+  // recycling-only flip publishes a new frame even when status +
+  // backgroundTasks + lastMessageAt + aiTitle + dormant are all unchanged.
+  // Same tri-valued pattern as dormant: "1"/"0"/"" so a recycling-only flip
+  // is detectable vs cold cache. Source A always stamps a strict boolean.
+  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -765,6 +780,36 @@ export function createSshPollOrchestrator(
       // dormantRaw === null → SSH hiccup → keep cached value (fail-open).
     }
 
+    // Phase 53 Plan 01 — source A recycling sentinel stat.
+    // Per PID-tick, when tmuxSession is non-null, stat the
+    // `~/.claude/identities/<tmuxSession>/.recycled-at` sentinel file. Trimmed
+    // stdout "yes" → recycling true; "no" → recycling false; anything else
+    // (null from SSH error, throw, unexpected output) → fail-open using
+    // cached value (defaulting to `false` on cold start). Same T-52-01-02
+    // shell-quoting mitigation via shellSingleQuote as the dormant stat above.
+    // Same T-53-01-01 fail-open mitigation on stdout parsing. No source B —
+    // the caretaker's sentinel is placed while the outgoing PID is still alive
+    // and held for 8s past the fresh PID being up, so the 2s poll cadence
+    // guarantees source A visibility across the entire recycle window
+    // (see Phase 53 RESEARCH § Assumption A1).
+    let derivedRecycling: boolean = cached?.recycling ?? false;
+    if (tmuxSession !== null) {
+      const quotedTmuxSession = shellSingleQuote(tmuxSession);
+      const recyclingRaw = await channel.exec(
+        `stat ~/.claude/identities/${quotedTmuxSession}/.recycled-at 2>/dev/null >/dev/null && echo yes || echo no`,
+      );
+      if (recyclingRaw !== null) {
+        const trimmed = recyclingRaw.trim();
+        if (trimmed === "yes") {
+          derivedRecycling = true;
+        } else if (trimmed === "no") {
+          derivedRecycling = false;
+        }
+        // Anything else → fail-open, keep cached value (T-53-01-01 mitigation).
+      }
+      // recyclingRaw === null → SSH hiccup → keep cached value (fail-open).
+    }
+
     // Phase 44 Plan 02 — replace jsonlPathForSession derivation with
     // discoverIdentityJsonlPathViaChannel (Phase 32 mechanism + SshChannel
     // adapter). The Phase 41 Plan 03 `cwd + sessionId` construction was
@@ -908,7 +953,9 @@ export function createSshPollOrchestrator(
     // SAME tail-read (shared buffer, one exec) — last-wins across
     // multiple ai-title lines in the tail. Phase 52 Plan 01 Task 2 stamps
     // dormant from the identity-folder .dormant sentinel stat above
-    // (fail-open to cached value on SSH hiccup).
+    // (fail-open to cached value on SSH hiccup). Phase 53 Plan 01 stamps
+    // recycling from the identity-folder .recycled-at sentinel stat above
+    // (fail-open to cached value on SSH hiccup — same semantics as dormant).
     const state: SessionState = {
       hostId: host.id,
       tmuxSession,
@@ -922,6 +969,7 @@ export function createSshPollOrchestrator(
       lastMessageAt: derivedLastMessageAt,
       aiTitle: derivedAiTitle,
       dormant: derivedDormant,
+      recycling: derivedRecycling,
     };
 
     // Delta semantics — only publish if fingerprint changed
@@ -949,6 +997,7 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
+        recycling: derivedRecycling,
       });
     } else {
       // Update procStart + tmux in case they changed without a state-change
@@ -962,6 +1011,7 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
+        recycling: derivedRecycling,
       });
     }
   }
