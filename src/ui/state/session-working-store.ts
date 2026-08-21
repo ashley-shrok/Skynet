@@ -58,9 +58,9 @@
 // an Axis E block below Axis D; sourced from the backend-authoritative
 // `.recycled-at` sentinel plumbed by Plan 53-01; consumed by BOTH the
 // PrettyView holding overlay AND the PrettyConversationRow row spinner via
-// useSessionIsRecycling — retires the client-side session-recycling-store
-// (Plan 53-03) which required a mounted pane to publish; see 53-CONTEXT.md
-// § Shape (one source for both surfaces).
+// useSessionIsRecycling — retires the client-side recycling bridge store
+// (Plan 53-03, deleted) which required a mounted pane to publish; see
+// 53-CONTEXT.md § Shape (one source for both surfaces).
 //
 // Store pattern mirrors src/ui/state/conversation-store.ts: module-scoped
 // `state` object + Map + Set<() => void> listener registry + snapshotVersion
@@ -613,9 +613,9 @@ export function useSessionIsDormant(key: string | null): boolean {
  * A1, see Phase 53 Plan 01.
  *
  * Consumer surfaces: PrettyView holding overlay mount gate + PrettyConversationRow
- * row-spinner input in Plan 53-03. Retires the client-side session-recycling-store
- * that previously bridged them (required a mounted pane to publish; any unmounted
- * row was blind to its own session's recycling state).
+ * row-spinner input in Plan 53-03. Retires the client-side recycling bridge store
+ * (deleted in 53-03) that previously bridged them — required a mounted pane to
+ * publish; any unmounted row was blind to its own session's recycling state.
  */
 export function useSessionIsRecycling(key: string | null): boolean {
   const getSnapshot = (): boolean => {

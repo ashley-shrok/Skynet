@@ -315,7 +315,15 @@ const useSessionAiTitleSpy = vi.fn((sessionKey: string | null) => {
 // arrange steps; afterEach clears them.
 let mockIsWorkingByKey: Map<string | null, boolean> = new Map();
 let mockIsDormantByKey: Map<string | null, boolean> = new Map();
-let mockWorkingSnapshot: Map<string, { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean }> = new Map();
+// Phase 53 Plan 03 — per-test seeding for the recycling axis. Mirrors the
+// mockIsDormantByKey pattern. Tests seed this Map in arrange steps; afterEach
+// clears it.
+let mockIsRecyclingByKey: Map<string | null, boolean> = new Map();
+const useSessionIsRecyclingSpy = vi.fn((sessionKey: string | null) => {
+  if (sessionKey === null) return false;
+  return mockIsRecyclingByKey.get(sessionKey) ?? false;
+});
+let mockWorkingSnapshot: Map<string, { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean; recycling: boolean }> = new Map();
 
 const useSessionIsWorkingSpy = vi.fn((sessionKey: string | null) => {
   if (sessionKey === null) return false;
@@ -325,7 +333,7 @@ const useSessionIsDormantSpy = vi.fn((sessionKey: string | null) => {
   if (sessionKey === null) return false;
   return mockIsDormantByKey.get(sessionKey) ?? false;
 });
-const getSessionWorkingSnapshotSpy = vi.fn(() => mockWorkingSnapshot as ReadonlyMap<string, { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean }>);
+const getSessionWorkingSnapshotSpy = vi.fn(() => mockWorkingSnapshot as ReadonlyMap<string, { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean; recycling: boolean }>);
 
 vi.mock("@/state/session-working-store", () => ({
   useSessionIsWorking: (sessionKey: string | null) => useSessionIsWorkingSpy(sessionKey),
@@ -334,13 +342,14 @@ vi.mock("@/state/session-working-store", () => ({
   subscribeSessionWorkingStore: (_cb: () => void) => () => {},
   useSessionAiTitle: (sessionKey: string | null) =>
     useSessionAiTitleSpy(sessionKey),
-  // Phase 52 Plan 03 (plan-checker B-2 fix): Panel.tsx now imports
-  // getSessionWorkingSnapshot + useSessionIsDormant. Without these
-  // stubs every existing test throws TypeError on render.
+  // Phase 52 Plan 03 (plan-checker B-2 fix) + Phase 53 Plan 03: Panel.tsx now
+  // imports useSessionIsRecycling in addition to getSessionWorkingSnapshot +
+  // useSessionIsDormant. Without these stubs every render throws TypeError.
   // Phase 52 Plan 04: upgraded from default stubs to spy-based per-test
   // seeding via mockIsWorkingByKey / mockIsDormantByKey / mockWorkingSnapshot.
   getSessionWorkingSnapshot: () => getSessionWorkingSnapshotSpy(),
   useSessionIsDormant: (sessionKey: string | null) => useSessionIsDormantSpy(sessionKey),
+  useSessionIsRecycling: (sessionKey: string | null) => useSessionIsRecyclingSpy(sessionKey),
 }));
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal so the panel-level test suite
@@ -461,9 +470,12 @@ beforeEach(async () => {
   // to Plan 03's `() => false` / `() => new Map()` defaults.
   mockIsWorkingByKey = new Map();
   mockIsDormantByKey = new Map();
+  // Phase 53 Plan 03 — reset recycling seed Map alongside sibling maps.
+  mockIsRecyclingByKey = new Map();
   mockWorkingSnapshot = new Map();
   useSessionIsWorkingSpy.mockClear();
   useSessionIsDormantSpy.mockClear();
+  useSessionIsRecyclingSpy.mockClear();
   getSessionWorkingSnapshotSpy.mockClear();
 });
 
@@ -3759,6 +3771,8 @@ describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready 
   afterEach(() => {
     mockIsWorkingByKey.clear();
     mockIsDormantByKey.clear();
+    // Phase 53 Plan 03 — clear recycling seed Map alongside sibling Maps.
+    mockIsRecyclingByKey.clear();
     mockWorkingSnapshot.clear();
   });
 
@@ -3872,7 +3886,7 @@ describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready 
     // Seed working-store snapshot: tina-session is working.
     // Key for mockWorkingSnapshot: sessionMatchKey("tina-session") = "tina-session".
     // Key for mockIsWorkingByKey: sessionWorkingKey(row) = "1:tina-session".
-    mockWorkingSnapshot.set("tina-session", { isWorking: true, lastMessageAt: null, aiTitle: null, dormant: false });
+    mockWorkingSnapshot.set("tina-session", { isWorking: true, lastMessageAt: null, aiTitle: null, dormant: false, recycling: false });
     mockIsWorkingByKey.set("1:tina-session", true);
     const { container, getByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
@@ -3891,7 +3905,7 @@ describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready 
   it("P50-5 — Ready toggle hides rows where isDormant=true", () => {
     setupTinaRow();
     // Seed: tina-session is dormant (not working, but dormant).
-    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: true });
+    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: true, recycling: false });
     mockIsDormantByKey.set("1:tina-session", true);
     const { container, getByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
@@ -3911,7 +3925,7 @@ describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready 
     setupTinaRow();
     // Seed: tina-session is idle AND not dormant, with an explicit wire signal
     // (rowState IS defined — this is the admit case for fail-CLOSED predicate).
-    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: false });
+    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: false, recycling: false });
     const { container, getByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
@@ -4015,7 +4029,7 @@ describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready 
       rdpGroup: null,
     });
     // Seed: tina is READY (idle + not-dormant + wire signal present → passes Ready).
-    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: false });
+    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: false, recycling: false });
     const { container, getByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );

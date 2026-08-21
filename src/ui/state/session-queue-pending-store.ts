@@ -1,4 +1,10 @@
 // ─── Session queue-pending-state store (quick-260802-w9e) ────────────────────
+// Phase 53 Plan 03 (2026-08-21): the client-side recycling bridge store was
+// retired and deleted. This queue-pending store remains as-is — queue-pending
+// state genuinely doesn't survive the pretty-view's own X-minute cleanup; the
+// client is the only source that knows whether the queue is still armed
+// (per Phase 53 CONTEXT.md § Prior context).
+//
 // Module-scoped in-memory store for per-(host, tmuxSession) "does this
 // ComposeBox currently have at least one queued message armed to auto-send
 // on the next agent-idle window" state. Fed exclusively by ComposeBox.tsx's
@@ -21,7 +27,7 @@
 //   - `false` = queue is empty OR key has never been published (see hook).
 //
 // Store type is `Map<string, boolean>` (NOT `Map<string, boolean | null>` like
-// session-working-store / session-recycling-store). There is no "unknown"
+// session-working-store). There is no "unknown"
 // middle state here: ComposeBox is the SOLE publisher and always knows the
 // state of its own queue. `false` is the safe default: "we don't know if
 // there's a queue → let the dot render" is the correct behavior (the row's
@@ -31,9 +37,9 @@
 // Key shape `${hostId}:${tmuxSession ?? ""}` is IDENTICAL to sessionWorkingKey()
 // at src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx:95-98
 // so consumers can look up either store with the same string. Same shape as
-// session-working-store and session-recycling-store — the three stores
+// session-working-store — the two stores
 // deliberately share the key so a single row-level string subscribes to all
-// three signals.
+// signals.
 //
 // Storage layer: NONE. This is an in-memory Map<string, boolean> only.
 // Deliberately NOT persisted to any browser storage layer — a page refresh
@@ -41,7 +47,7 @@
 // ComposeBox.tsx will re-populate. Cross-tab isolation is a side benefit.
 //
 // Publishing `false` OVERWRITES to `false` (does NOT delete the key). Same
-// rationale as session-working-store / session-recycling-store: a re-mount
+// rationale as session-working-store: a re-mount
 // observing `false` after a known transition is semantically correct; the
 // row should treat "no queue pending" rather than fall back to a stale
 // prior value.

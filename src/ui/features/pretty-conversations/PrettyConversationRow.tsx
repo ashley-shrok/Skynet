@@ -255,8 +255,9 @@ export function PrettyConversationRow({
   // regardless of other conditions — a row whose pane is showing the
   // "session recycling…" overlay is NOT ready for Ashley's next
   // instruction, so showing the ready-dot would be a false-positive
-  // signal. Panel resolves via useSessionRecycling(sessionWorkingKey(row))
-  // — both stores are keyed identically (`${hostId}:${tmuxSession ?? ""}`).
+  // signal. Phase 53 Plan 03: Panel resolves via useSessionIsRecycling
+  // (working-store Axis E, backend-authoritative) — keyed identically
+  // to useSessionIsWorking: `${hostId}:${tmuxSession ?? ""}`.
   isRecycling?: boolean;
   // quick-260802-w9e: true when this row's ComposeBox has at least one
   // message armed to auto-send on the next agent-idle window (Vehicle C v2

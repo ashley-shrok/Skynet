@@ -98,8 +98,15 @@ import {
   useSessionIsDormant,
   getSessionWorkingSnapshot,
   subscribeSessionWorkingStore,
+  // Phase 53 Plan 03 — recycling axis (Plan 53-02) hook. Replaces the retired
+  // client-side recycling bridge which required a mounted PrettyView pane to
+  // publish the recycling state, leaving unmounted rows blind to their own
+  // session's recycling state.
+  useSessionIsRecycling,
 } from "@/state/session-working-store";
-import { useSessionRecycling } from "@/state/session-recycling-store";
+// Phase 53 Plan 03 — the retired recycling-bridge hook import is REMOVED;
+// now using useSessionIsRecycling from the working-store above
+// (backend-authoritative via Plan 53-01 + Plan 53-02).
 import { useSessionQueuePending } from "@/state/session-queue-pending-store";
 import { useIdentities, refreshIdentities } from "@/state/identities-store";
 import {
@@ -171,11 +178,18 @@ function sessionWorkingKey(row: ConversationRowShape): string | null {
 // at the render sites below, so React's reconciler pairs the same hook
 // order to the same row instance across renders.
 //
-// quick-260730-qbl added the session-recycling-store subscription.
+// Phase 53 Plan 03: recycling-axis subscription now reads from the working-store
+// (useSessionIsRecycling — backend-authoritative via the fleet-status poller
+// per Plans 53-01 + 53-02). Previously bridged via a client-side recycling
+// store (quick-260730-qbl) which required a mounted PrettyView
+// pane to publish; row-spinner correctness for unmounted rows is the entire
+// reason for the swap. All working-store hooks share the exact same
+// `${hostId}:${tmuxSession ?? ""}` key shape via `sessionWorkingKey()` at
+// line ~162.
 // quick-260802-w9e added the session-queue-pending-store subscription — the
 // row's ready-dot is now suppressed by a FOURTH gate `!hasQueuePending` when
-// this session has an armed idle-send queue in its ComposeBox. All three
-// stores share the exact same `${hostId}:${tmuxSession ?? ""}` key shape.
+// this session has an armed idle-send queue in its ComposeBox. Both working-
+// store and queue-pending-store share the same key shape.
 function PrettyConversationRowLive(props: {
   row: ConversationRowShape;
   selected: boolean;
@@ -212,11 +226,13 @@ function PrettyConversationRowLive(props: {
 }) {
   const { sessionKey, inActiveSet, ...rowProps } = props;
   const isWorking = useSessionIsWorking(sessionKey);
-  // quick-260730-qbl: recycling-store consumption. Keyed identically to the
-  // working-store subscription above — both stores share the exact same
-  // `${hostId}:${tmuxSession ?? ""}` shape (PrettyView.tsx and Terminal.tsx
-  // compute the same key; sessionWorkingKey() at line 81-84 produces it here).
-  const isRecycling = useSessionRecycling(sessionKey);
+  // Phase 53 Plan 03 — recycling axis from the backend-authoritative
+  // working-store. Keyed identically to the useSessionIsWorking hook above —
+  // all working-store hooks share the same `${hostId}:${tmuxSession ?? ""}`
+  // shape via sessionWorkingKey() at line ~162. Returns strict boolean (never
+  // null) — the `=== true` coercion at the prop site below is now redundant
+  // but simplified to `isRecycling={isRecycling}` for readability.
+  const isRecycling = useSessionIsRecycling(sessionKey);
   // quick-260802-w9e: queue-pending-store consumption. Same key shape as
   // both stores above. Published by ComposeBox from a useEffect on
   // `[queue, sessionKey]`; the row-level ready-dot render at
@@ -235,7 +251,7 @@ function PrettyConversationRowLive(props: {
     <PrettyConversationRow
       {...rowProps}
       isWorking={isWorking}
-      isRecycling={isRecycling === true}
+      isRecycling={isRecycling}
       hasQueuePending={hasQueuePending}
       inActiveSet={inActiveSet}
       aiTitle={aiTitle}

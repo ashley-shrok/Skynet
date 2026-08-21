@@ -55,13 +55,13 @@ import {
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
-// Phase 53 Plan 03 — session-recycling-store import REMOVED (retired; see
-// tombstone comment near line ~2415 and the deleted store Task 2).
+// Phase 53 Plan 03 — the retired recycling bridge import is REMOVED here
+// (see tombstone comment near line ~2415 and Task 2 deletion).
 import {
   useSessionIsWorking,
   useSessionIsWorkingRaw,
   // Phase 53 Plan 03 — backend-authoritative recycling axis hook (Plan 53-02).
-  // Replaces the retired session-recycling-store bridge which required this
+  // Replaces the retired client-side recycling bridge which required this
   // PrettyView to be mounted for a row's recycling state to be accurate.
   // Consumed at THREE sites: SessionHoldingOverlay mount gate, ComposeBox
   // isHolding, ComposeBox recycleActive — all three fed from the same
@@ -1082,8 +1082,8 @@ export function PrettyView({
   const isWorking = useSessionIsWorking(sessionWorkingKey);
   // Phase 53 Plan 03 — backend-authoritative recycling signal, sourced from
   // the working-store's Axis E (Plan 53-02). Replaces the retired client-side
-  // session-recycling-store bridge which required this PrettyView to be mounted
-  // for a row's recycling state to be visible. Consumed by THREE sites below:
+  // recycling bridge (deleted in Task 2) which required this PrettyView to be
+  // mounted for a row's recycling state to be visible. Consumed by THREE sites below:
   // the SessionHoldingOverlay mount gate (patch #74 site) AND ComposeBox's
   // isHolding + recycleActive props. Reuses sessionWorkingKey (line above) —
   // same key shape.
@@ -2431,8 +2431,8 @@ export function PrettyView({
   // Phase 53 Plan 03 — the publishSessionRecycling useEffect was retired here.
   // The overlay + ComposeBox recycling props now read the backend-authoritative
   // recycling axis via useSessionIsRecycling(sessionWorkingKey) above (see
-  // line ~1075). Retired store: src/ui/state/session-recycling-store.ts
-  // (deleted in this plan's Task 2).
+  // line ~1075). The retired client-side recycling bridge store was deleted
+  // in this plan's Task 2 (see 53-03-SUMMARY.md).
 
   // Phase 14 (plain-language-translation-asides) Wave 3 — isIdle-transition
   // arm emitter. This is THE SOLE trigger source for the aside subsystem

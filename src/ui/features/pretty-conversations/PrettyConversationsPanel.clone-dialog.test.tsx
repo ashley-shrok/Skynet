@@ -159,11 +159,13 @@ vi.mock("@/state/session-working-store", () => ({
   // stubs every existing test throws TypeError on render.
   getSessionWorkingSnapshot: () => new Map(),
   useSessionIsDormant: () => false,
+  // Phase 53 Plan 03: Panel.tsx now imports useSessionIsRecycling from the
+  // working-store (retired client-side recycling bridge deleted). Without this
+  // stub every render throws TypeError.
+  useSessionIsRecycling: () => false,
 }));
-
-vi.mock("@/state/session-recycling-store", () => ({
-  useSessionRecycling: () => null,
-}));
+// Phase 53 Plan 03 — the retired recycling bridge mock was removed here
+// (the store no longer exists; Panel now uses useSessionIsRecycling above).
 
 vi.mock("@/state/session-queue-pending-store", () => ({
   useSessionQueuePending: () => null,
