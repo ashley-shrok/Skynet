@@ -1917,6 +1917,18 @@ export function PrettyView({
           // recycle. Backend re-attach probe re-emits aside_ready if the
           // new session somehow has one.
           clearAsideState();
+          // Fix #3 (post-Phase-50 code review): symmetric with backend Fix
+          // #2c (clearPvSendWatchdogsForSession on transitionToActiveNew).
+          // Drop every pending optimistic send + cancel its 20s timer +
+          // clear composeOverrideText. Otherwise stale OLD-session pendings
+          // survive alongside their timers and can:
+          //   • flip to 'failed' against the NEW session's fresh replay
+          //     (surfacing red bubbles for OLD content in a NEW transcript);
+          //   • or be silently head-matched by the fresh tail's `-n +1`
+          //     replay content, incorrectly clearing pendings that should
+          //     have dropped alongside the rest of session-scoped state.
+          // Same helper the WS-close cleanup path (~L1973) uses.
+          clearAllPendingSends();
           // Diagnostic: parsed.newSessionFile is available if a future console
           // log is wanted; do not add ambient debug logging in this patch.
           break;
