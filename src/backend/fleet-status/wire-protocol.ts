@@ -153,6 +153,45 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // consumers treat pid as opaque (Plan 03 only reads dormant + isWorking).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase 53 Plan 01 (2026-08-21): added `recycling` as an OPTIONAL, NULLABLE
+// boolean field carrying the backend-authoritative identity-recycling signal
+// for a session.
+//
+// Source: the caretaker's `~/.claude/identities/<tmuxSession>/.recycled-at`
+// sentinel file on the target host. Presence of the sentinel ⇔ identity is
+// currently being replaced via the /id-reset routine (renamed from
+// `.recycle-requested` at recycle-intent detection, before the outgoing claude
+// PID exits; removed with an 8s delay after the fresh claude is up and driven
+// through /id — the whole window is on-disk with no gaps).
+//
+// Semantics:
+//   - true      → sentinel file present; the identity is being replaced via the
+//                 /id-reset routine (recycle in flight).
+//   - false     → sentinel file absent; the identity is in normal operation OR
+//                 dormant OR any other non-recycling state.
+//   - null      → normalised-null in transit (backend may emit null when it
+//                 cannot distinguish true/false due to SSH error — treated as
+//                 false by the frontend per the same convention as dormant).
+//   - undefined → emitting backend pre-dates Phase 53 Plan 01; frontend treats
+//                 undefined and null identically (both → false).
+//
+// Scope-lock: recycling means SPECIFICALLY "identity is being replaced via the
+// reset routine." It does NOT expand to memory-cap restarts, dormancy-wake, or
+// any other harness-down state. Those have their own overlays (dormant /
+// connection-drop / inactive) and MUST NOT flip recycling.
+//
+// Source A only: unlike dormant, recycling has no source B enumeration. The
+// caretaker's sentinel is placed while the outgoing claude PID is still alive
+// and held for 8s after the fresh PID is up — the poller's 2s cadence
+// guarantees source A (per-PID processPid) sees the sentinel for multiple
+// ticks during the entire recycle window. See Phase 53 RESEARCH § Assumption A1.
+//
+// Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
+// (same T-41-03-05 mitigation established for lastMessageAt in Phase 41 and
+// inherited by aiTitle in Phase 47 + dormant in Phase 52).
+// ---------------------------------------------------------------------------
+
 export const SessionStateSchema = z.object({
   hostId: z.string(),
   tmuxSession: z.string().nullable(),
@@ -171,6 +210,8 @@ export const SessionStateSchema = z.object({
   aiTitle: z.string().nullable().optional(),
   // Phase 52 Plan 01 — inline supervisor-dormancy signal (see block comment above).
   dormant: z.boolean().nullable().optional(),
+  // Phase 53 Plan 01 — inline backend-authoritative recycling signal (see block comment above).
+  recycling: z.boolean().nullable().optional(),
 });
 
 export type SessionState = z.infer<typeof SessionStateSchema>;
