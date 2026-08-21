@@ -277,4 +277,63 @@ describe("wire-protocol", () => {
     // Additive+optional fields never require a version bump per T-41-03-05 mitigation.
     expect(FRAME_SCHEMA_VERSION).toBe(1);
   });
+
+  // Phase 53 Plan 01 — recycling is an optional, back-compat boolean field on
+  // SessionState. Source: ~/.claude/identities/<tmuxSession>/.recycled-at sentinel
+  // file on the target host. Semantics: true → sentinel present (recycle in flight);
+  // false → sentinel absent; null → normalised-null; undefined → pre-Phase-53 watcher.
+  // Frontend treats undefined/null identically (both → false). FRAME_SCHEMA_VERSION
+  // deliberately held at 1 (same T-41-03-05 mitigation as lastMessageAt/aiTitle/dormant).
+
+  it("Test P53-01 A (Phase 53 Plan 01 schema forward — true): SessionState parses when recycling is true — the boolean value is preserved", () => {
+    const withRecyclingTrue = { ...validSessionState, recycling: true };
+    const result = SessionStateSchema.safeParse(withRecyclingTrue);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.recycling).toBe(true);
+    }
+  });
+
+  it("Test P53-01 B (Phase 53 Plan 01 schema forward — false): SessionState parses when recycling is false — the boolean value is preserved", () => {
+    const withRecyclingFalse = { ...validSessionState, recycling: false };
+    const result = SessionStateSchema.safeParse(withRecyclingFalse);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.recycling).toBe(false);
+    }
+  });
+
+  it("Test P53-01 C (Phase 53 Plan 01 schema null): SessionState parses when recycling is explicitly null — the null value is preserved (pre-Phase-53 path through nullable)", () => {
+    const withNull = { ...validSessionState, recycling: null };
+    const result = SessionStateSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.recycling).toBeNull();
+    }
+  });
+
+  it("Test P53-01 D (Phase 53 Plan 01 schema back-compat): SessionState parses when recycling is OMITTED — field is optional, pre-Phase-53 watcher remains compatible", () => {
+    // validSessionState fixture at top-of-file does NOT carry recycling —
+    // parse must succeed; the parsed result has recycling === undefined
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.recycling).toBeUndefined();
+    }
+  });
+
+  it("Test P53-01 E (Phase 53 Plan 01 schema type-enforcement): SessionState rejects recycling of wrong type (string) — z.boolean() enforces the type when the field IS present", () => {
+    const withBadType = { ...validSessionState, recycling: "yes" };
+    const result = SessionStateSchema.safeParse(withBadType);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("recycling"))).toBe(true);
+    }
+  });
+
+  it("Test P53-01 F (Phase 53 Plan 01 schema version guard): FRAME_SCHEMA_VERSION is NOT bumped by the additive+optional recycling extension — stays at 1", () => {
+    // Additive+optional fields never require a version bump per T-41-03-05 mitigation.
+    expect(FRAME_SCHEMA_VERSION).toBe(1);
+  });
 });
