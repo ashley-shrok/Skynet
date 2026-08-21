@@ -1442,9 +1442,9 @@ Plans:
 **Goal:** Move the "session is being recycled" signal from a client-side bridge store (PrettyView-published, mount-gated) to a backend-authoritative axis on the fleet-status wire (`.recycled-at` sentinel → ssh-poll → new `recycling?: boolean` wire field → working-store Axis E → useSessionIsRecycling hook). Both consumer surfaces (PrettyView holding overlay + PrettyConversationRow row spinner) read from the SAME store axis so a row's recycling indicator is correct regardless of whether that session's pretty-view is currently mounted. Client-side session-recycling-store is RETIRED.
 **Requirements**: none (fork-driven improvement phase; no requirement mapping)
 **Depends on:** Phase 52
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 53-01-PLAN.md — Backend wire + poller: add `recycling?: boolean` to SessionStateSchema (wire-protocol.ts) + stat `.recycled-at` per PID-tick in ssh-poll-orchestrator source A + extend computeFingerprint with recycling axis + PidCacheEntry.recycling cache + 5 test cases (P53-01-T1-i…v)
 - [x] 53-02-PLAN.md — Browser store + hook: mirror recycling field on fleet-status-types.ts SessionState (closes Phase 52 dormant gap along the way) + WorkingRecord Axis E (recycling: boolean) + Axis E swap-and-notify block + Axis A preservation of recycling (Pitfall 3 defense) + useSessionIsRecycling hook + 7 test cases (P53-02-i…vii)
-- [ ] 53-03-PLAN.md — Consumer swaps + retirement: PrettyView.tsx SessionHoldingOverlay + ComposeBox isHolding + ComposeBox recycleActive all swap to useSessionIsRecycling (one source for all three surfaces) + PrettyConversationsPanel row-spinner swap + DELETE session-recycling-store.ts + .test.ts + update PrettyView.phase29.test.tsx grep gates + update PrettyView.test.tsx Test F fixture + docblock cleanup in session-queue-pending-store.ts
+- [x] 53-03-PLAN.md — Consumer swaps + retirement: PrettyView.tsx SessionHoldingOverlay + ComposeBox isHolding + ComposeBox recycleActive all swap to useSessionIsRecycling (one source for all three surfaces) + PrettyConversationsPanel row-spinner swap + DELETE session-recycling-store.ts + .test.ts + update PrettyView.phase29.test.tsx grep gates + update PrettyView.test.tsx Test F fixture + docblock cleanup in session-queue-pending-store.ts
