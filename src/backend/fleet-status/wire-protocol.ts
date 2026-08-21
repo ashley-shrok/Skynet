@@ -124,11 +124,43 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // established for lastMessageAt).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase 52 Plan 01 (2026-08-20): added `dormant` as an OPTIONAL, NULLABLE
+// boolean field carrying the inline supervisor-dormancy signal for a session.
+// Source: the `~/.claude/identities/<tmuxSession>/.dormant` sentinel file on
+// the target host. Presence of the sentinel ⇔ identity is dormant
+// (supervisor-managed pause). Semantics:
+//   - true      → sentinel file present; the identity has been parked by the
+//                 supervisor and has no live claude process.
+//   - false     → sentinel file absent; the identity is in normal operation.
+//   - null      → normalised-null in transit (backend may emit null when it
+//                 cannot distinguish true/false due to SSH error — treated as
+//                 false by the frontend per the AND-of-negations Ready predicate).
+//   - undefined → emitting watcher pre-dates Phase 52 Plan 01; frontend
+//                 treats undefined and null identically (both → false).
+// This field is published by TWO sources in ssh-poll-orchestrator:
+//   Source A: per-PID tick — stats the sentinel for live-PID identities.
+//   Source B: per-host tick — enumerates ~/.claude/identities/*/ and stats
+//             each sentinel for dormant-only identities with no live PID.
+// Because the field is `.optional().nullable()`, FRAME_SCHEMA_VERSION is
+// deliberately HELD AT 1 — additive+optional extensions never require a
+// version bump (same T-41-03-05 mitigation invariant established for
+// lastMessageAt and inherited by aiTitle).
+//
+// Phase 52 Plan 01 Task 3 relaxes `pid` to z.number().int().nullable() so
+// source B (dormant-only identities with no live claude process) can publish
+// frames with pid:null. Source A still publishes numeric PIDs. Frontend
+// consumers treat pid as opaque (Plan 03 only reads dormant + isWorking).
+// ---------------------------------------------------------------------------
+
 export const SessionStateSchema = z.object({
   hostId: z.string(),
   tmuxSession: z.string().nullable(),
   sessionId: z.string(),
-  pid: z.number(),
+  // Phase 52 Plan 01 Task 3 — relaxed from z.number() to z.number().int().nullable()
+  // so source B (dormant-only identity frames with no live claude process) can
+  // publish pid:null. Source A still publishes numeric PIDs from /proc enumeration.
+  pid: z.number().int().nullable(),
   status: z.enum(["busy", "shell", "idle", "waiting"]),
   waitingFor: z.string().optional(),
   backgroundTasks: z.array(BackgroundTaskSchema),
@@ -137,6 +169,8 @@ export const SessionStateSchema = z.object({
   lastMessageAt: z.number().nullable().optional(),
   // Phase 47 Plan 01 — inline current-work hint (see block comment above).
   aiTitle: z.string().nullable().optional(),
+  // Phase 52 Plan 01 — inline supervisor-dormancy signal (see block comment above).
+  dormant: z.boolean().nullable().optional(),
 });
 
 export type SessionState = z.infer<typeof SessionStateSchema>;

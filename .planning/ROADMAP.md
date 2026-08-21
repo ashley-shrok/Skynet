@@ -1413,3 +1413,26 @@ Bounty: `claude-code-2-1-214-pretty-view-compat` (Bug 1 only; Bug 2 plan-pending
 
 Plans:
 - [ ] 51-01-PLAN.md — Parser admission via async-launch-ack + fixtures (scratch map, dual-path admission, four fixture tests)
+
+### Phase 52: Convo-list filter: restyle popover + add Ready toggle
+
+**Goal:** Restyle the pretty-conversations filter popover to match the panel's menu vocabulary (glass chrome + inline-SVG check affordance mirroring PrettyConversationContextMenu + the three-dots MoreVertical menu), retire the shadcn Checkbox / .pv-filter-toggle-row markup, and add a third filter toggle "Ready" whose predicate is `!isWorking && !dormant` (real supervisor-dormancy signal, not a time-threshold approximation). Ready extends `anyFilterOn`, participates in AND-intersection with Pinned + Needs-desk, and skips the RDP zone same as the existing toggles.
+**Requirements**: None (feature phase — no pre-existing REQ IDs)
+**Depends on:** Phase 49 (no code dependency; roadmap sequence)
+**Plans:** 4 plans
+
+**Wave 1** *(parallel — no file overlap)*
+
+- [ ] 52-01-PLAN.md — Plumb dormant signal end-to-end: extend SessionState wire schema with optional `dormant?: boolean`, stat the `~/.claude/identities/<name>/.dormant` sentinel per ssh-poll tick, mirror onto working-store fourth axis + `useSessionIsDormant(key)` hook (Option (a) from CONTEXT.md — extend existing fleet-status broadcast)
+- [ ] 52-02-PLAN.md — Restyle filter popover: rewrite `.pv-filter-popover` CSS chrome + add `.pv-filter-menu-item` + `.pv-filter-check` classes, rewrite popover markup in PrettyConversationsPanel.tsx to use three inline-styled `role="menuitemcheckbox"` buttons (Ready, Pinned, Needs desk) with outlined-square check affordance + inline SVG check, retire `.pv-filter-toggle-row` + shadcn Checkbox, add `readyOnly` state, extend `anyFilterOn`
+
+**Wave 2** *(blocked on Plans 01 + 02 — needs `useSessionIsDormant` hook from 01 and shares PrettyConversationsPanel.tsx with 02)*
+
+- [ ] 52-03-PLAN.md — Wire Ready predicate: extend `matchesFilterForRow` with `!isWorking && !isDormant` branch consuming per-row (isWorking, isDormant) map built via `useSyncExternalStore(subscribeSessionWorkingStore, getSessionWorkingSnapshot)`, add `readyOnly` + `rowSessionStates` to useMemo deps, preserve RDP pass-through
+
+**Wave 3** *(blocked on Plans 01 + 02 + 03)*
+
+- [ ] 52-04-PLAN.md — Add 9 Phase 52 tests to PrettyConversationsPanel.test.tsx covering chrome tokens, menu-item order, inline-SVG check path, Ready predicate against isWorking/isDormant fixtures, anyFilterOn dot extension, RDP pass-through, AND-intersection
+
+**History note:** Phase originally numbered 50 in this identity's tree (2026-08-20). Rescue-rebased to Phase 52 mid-planning after coord-room detection of taylor's in-flight Phase 50 (optimistic-message-bubbles) + tabitha's rescue-renumber Phase 50 → Phase 51 (claude-session-server BG-agents correlator). Taylor was mid-ship per tabitha's post; per fleet tiebreak rule (mid-ship keeps its number) taylor keeps 50, tabitha kept 51, mine moves to 52. 13th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous — zero source overlap (mine touches PrettyConversationsPanel filter markup + fleet-status wire; taylor touches PrettyView + ComposeBox), zero-cost rename since no commits had landed on origin at rescue-rebase time.
+

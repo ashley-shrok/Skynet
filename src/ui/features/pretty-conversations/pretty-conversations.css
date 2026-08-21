@@ -211,32 +211,78 @@
   }
 }
 
-/* Phase 26 D-05: popover surface + toggle rows.
-   Popover chrome inherits shadcn's default token treatment (bg-popover /
-   text-popover-foreground / border / rounded-md / shadow) from the primitive;
-   these rules add layout + a subtle pretty-view accent so it reads as part of
-   the panel-header not a generic dropdown. */
+/* Phase 52 Plan 02 (2026-08-20): filter popover chrome + item styling now mirror
+   .pv-context-menu-item at :1397-1418 and the three-dots MoreVertical menu at
+   PrettyConversationsPanel.tsx:1622-1675. Chrome tokens are applied via inline
+   style={{}} on <PopoverContent> in the Panel (matches how the three-dots menu
+   hand-styles its portal div). CSS here carries hover/active flashes for
+   .pv-filter-menu-item and OFF/ON state for .pv-filter-check.
+   Mobile-touch-target bump uses @media (max-width: 767.98px) aligning to
+   Tailwind v4's default md=48rem/768px breakpoint (existing convention at :205,
+   :1287; Tailwind config lives in src/ui/index.css @theme, no tailwind.config.js). */
 .pv-filter-popover {
-  /* shadcn PopoverContent provides base chrome; we add pretty-view spacing. */
-  min-width: 240px;
-  padding: 10px 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  /* Chrome (background, border, shadow, backdrop-filter, width) is set via inline
+     style on <PopoverContent> to escape shadcn defaults (including w-72 fixed
+     288px width) without !important fights. This rule intentionally carries
+     no chrome. */
 }
-.pv-filter-toggle-row {
+.pv-filter-menu-item {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 18px;
+  color: #e8e4d8;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
   padding: 8px 12px;
-  border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
-  color: var(--color-pv-fg);
   user-select: none;
 }
-.pv-filter-toggle-row:hover {
-  background: rgba(220, 225, 245, 0.06);
+.pv-filter-menu-item:hover {
+  background: rgba(255, 240, 215, 0.08);
+}
+.pv-filter-menu-item:active {
+  background: rgba(255, 240, 215, 0.18);
+}
+@media (max-width: 767.98px) {
+  .pv-filter-menu-item {
+    padding: 18px 14px;
+  }
+}
+.pv-filter-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 240, 215, 0.32);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.pv-filter-check[data-checked="true"] {
+  background: rgba(255, 220, 170, 0.22);
+  border-color: rgba(255, 220, 170, 0.55);
+}
+.pv-filter-check svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  stroke: rgba(255, 232, 200, 1);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+.pv-filter-check[data-checked="true"] svg {
+  opacity: 1;
 }
 
 /* Header logo (Skynet triangle SVG left of the wordmark).

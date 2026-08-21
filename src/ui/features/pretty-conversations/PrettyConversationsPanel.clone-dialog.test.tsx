@@ -154,6 +154,11 @@ vi.mock("@/state/session-working-store", () => ({
   // clone-dialog suite (Plan 47-05 owns the visual render; this suite
   // does not exercise the ai-title surface).
   useSessionAiTitle: () => null,
+  // Phase 52 Plan 03 (plan-checker B-2 fix): Panel.tsx now imports
+  // getSessionWorkingSnapshot + useSessionIsDormant. Without these
+  // stubs every existing test throws TypeError on render.
+  getSessionWorkingSnapshot: () => new Map(),
+  useSessionIsDormant: () => false,
 }));
 
 vi.mock("@/state/session-recycling-store", () => ({

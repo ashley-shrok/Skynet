@@ -51,7 +51,7 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
@@ -89,6 +89,15 @@ import {
   // to PrettyConversationRow as a new prop; Plan 47-05 consumes the value
   // as the row's subtitle content. Same key shape as useSessionIsWorking.
   useSessionAiTitle,
+  // Phase 52 Plan 03 — useSessionIsDormant: hook for the dormant axis added by
+  // Plan 01 (source A + source B). Used in PrettyConversationRowLive per the
+  // same per-row hook pattern as useSessionIsWorking.
+  // getSessionWorkingSnapshot + subscribeSessionWorkingStore: imperative snapshot
+  // read via useSyncExternalStore for building the panel-level rowSessionStates
+  // map consumed by matchesFilterForRow's Ready predicate.
+  useSessionIsDormant,
+  getSessionWorkingSnapshot,
+  subscribeSessionWorkingStore,
 } from "@/state/session-working-store";
 import { useSessionRecycling } from "@/state/session-recycling-store";
 import { useSessionQueuePending } from "@/state/session-queue-pending-store";
@@ -99,7 +108,6 @@ import {
   useAllBountyCounts,
 } from "@/state/bounty-counts-store";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
-import { Checkbox } from "@/components/checkbox";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
 // Phase 22 (SRIC-04): CreateRoleDialog + `+ New role` launcher next to the pencil.
@@ -582,8 +590,12 @@ export function PrettyConversationsPanel({
   // required for Test 30 Escape-closes semantics.
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [needsDeskOnly, setNeedsDeskOnly] = useState(false);
+  const [readyOnly, setReadyOnly] = useState(false);
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
-  const anyFilterOn = pinnedOnly || needsDeskOnly;
+  // Phase 52 Plan 02 — Ready extends the anyFilterOn derivation so the
+  // .pv-filter-dot indicator lights when the Ready toggle is on. Order
+  // matches the V2 snippet's menu order (Ready leftmost).
+  const anyFilterOn = readyOnly || pinnedOnly || needsDeskOnly;
 
   // Patch #167: subscribes to the full bounty-counts map so the filter
   // re-runs when the 60s poller lands a new count OR when the IdentityModal
@@ -592,14 +604,79 @@ export function PrettyConversationsPanel({
   // powers the panel-level filter helper below.
   const bountyCounts = useAllBountyCounts();
 
+  // Phase 52 Plan 03 — per-row (isWorking, isDormant) map for the Ready predicate.
+  // Built via useSyncExternalStore over the working-store snapshot so the panel
+  // re-renders when the store notifies — preserves reactivity without calling
+  // hooks inside the pure matchesFilterForRow function (Rules-of-Hooks compliance).
+  // Keyed by sessionMatchKey (same shape as useSessionIsWorking + useSessionIsDormant).
+  // Only pinned + middle rows are included; RDP rows pass through unfiltered and
+  // are absent from the map (matchesFilterForRow's early-return-false on null
+  // matchKey handles RDP correctly). Rows absent from the working-store snapshot
+  // are omitted — matchesFilterForRow's fail-CLOSED default handles them.
+  //
+  // Referential stability: useSyncExternalStore requires getSnapshot to return the
+  // SAME object reference when the underlying data has not changed (React's tearing
+  // check calls getSnapshot twice per commit and forces a re-render if it sees
+  // different references). We use a ref-based cache with a `dirty` flag. The dirty
+  // flag is set in the subscribe callback (i.e., when the store notifies) and cleared
+  // after each rebuild. Additionally, if the pinned/middle input arrays changed (new
+  // render with different conversation data), we also rebuild. This guarantees that
+  // React's two consecutive tearing-check calls to getSnapshot both return the same
+  // cached Map reference, preventing the infinite re-render loop.
+  const rowSessionStatesCacheRef = useRef<{
+    dirty: boolean;
+    pinnedRef: typeof pinned;
+    middleRef: typeof middle;
+    result: Map<string, { isWorking: boolean; isDormant: boolean }>;
+  }>({ dirty: true, pinnedRef: pinned, middleRef: middle, result: new Map() });
+
+  // Stable subscribe wrapper that marks the cache dirty on store notify, then
+  // calls the useSyncExternalStore listener so React schedules a re-render.
+  const subscribeRowSessionStates = useCallback(
+    (onStoreChange: () => void) => {
+      return subscribeSessionWorkingStore(() => {
+        rowSessionStatesCacheRef.current.dirty = true;
+        onStoreChange();
+      });
+    },
+    [], // stable — subscribeSessionWorkingStore is a module-level export
+  );
+
+  const rowSessionStates = useSyncExternalStore(
+    subscribeRowSessionStates,
+    () => {
+      const cache = rowSessionStatesCacheRef.current;
+      // Return cached result when the store has not notified AND input arrays unchanged.
+      if (!cache.dirty && cache.pinnedRef === pinned && cache.middleRef === middle) {
+        return cache.result;
+      }
+      const snapshot = getSessionWorkingSnapshot();
+      const out = new Map<string, { isWorking: boolean; isDormant: boolean }>();
+      for (const row of [...pinned, ...middle]) {
+        const matchKey = sessionMatchKey(row.targetTmuxSession);
+        if (!matchKey) continue;
+        const record = snapshot.get(matchKey);
+        if (record === undefined) continue; // absent from working-store — fail-CLOSED default in matchesFilterForRow
+        out.set(matchKey, {
+          isWorking: record.isWorking === true,
+          isDormant: record.dormant === true,
+        });
+      }
+      rowSessionStatesCacheRef.current = { dirty: false, pinnedRef: pinned, middleRef: middle, result: out };
+      return out;
+    },
+    () => new Map<string, { isWorking: boolean; isDormant: boolean }>(),
+  );
+
   // Phase 26 D-02: AND-intersection filter helper. "Does this row satisfy ALL
   // active filter predicates?" Formula per CONTEXT.md §specifics:
-  //   matchesFilterForRow(row) = (!pinnedOnly || pair.pinnedCount > 0)
+  //   matchesFilterForRow(row) = (!readyOnly || (rowState defined && !isWorking && !isDormant))
+  //                             && (!pinnedOnly || pair.pinnedCount > 0)
   //                             && (!needsDeskOnly || pair.needsDeskCount > 0)
   // Rows with no resolvable identity or no count pair → false (filtered out
   // when any toggle is on). Wrapped in useMemo so the helper identity is
   // stable across renders that don't change identitiesByKey, bountyCounts,
-  // pinnedOnly, or needsDeskOnly.
+  // pinnedOnly, needsDeskOnly, readyOnly, or rowSessionStates.
   //
   // Phase 26 D-06 (as amended by Phase 42 UAT amendment 2026-08-17): the
   // symmetric active-set exemption was scoped to the retired Tier 1 render
@@ -618,9 +695,19 @@ export function PrettyConversationsPanel({
       const pair = bountyCounts.get(key);
       const pinnedOk = !pinnedOnly || (pair !== undefined && pair.pinnedCount > 0);
       const needsDeskOk = !needsDeskOnly || (pair !== undefined && pair.needsDeskCount > 0);
-      return pinnedOk && needsDeskOk;
+      // Phase 52 Plan 03 — Ready predicate: !isWorking && !isDormant per CONTEXT.md § decisions § Filter semantic.
+      // Row's session state is looked up from the pre-computed rowSessionStates map keyed by matchKey.
+      // FAIL-CLOSED default (plan-checker W-3 fix, 2026-08-20): a row absent from rowSessionStates
+      // (no working-store publish for this key) is treated as NOT ready. Plan 01's source B publishes
+      // dormant frames for identities that have no live PID, so an undefined rowState now genuinely
+      // represents "no wire signal at all" — which the Ready filter conservatively treats as
+      // "not confirmed ready" and hides. This also correctly handles the dormant case: dormant
+      // identities have rowState defined with dormant=true, so the second-clause AND short-circuits.
+      const rowState = rowSessionStates.get(matchKey);
+      const readyOk = !readyOnly || (rowState !== undefined && !rowState.isWorking && !rowState.isDormant);
+      return readyOk && pinnedOk && needsDeskOk;
     };
-  }, [identitiesByKey, bountyCounts, pinnedOnly, needsDeskOnly]);
+  }, [identitiesByKey, bountyCounts, pinnedOnly, needsDeskOnly, readyOnly, rowSessionStates]);
 
   // Phase 26 D-02 (as amended by Phase 41 Plan 01, Phase 42 UAT amendment
   // 2026-08-17): apply the AND-intersect filter to each render collection when
@@ -1148,9 +1235,9 @@ export function PrettyConversationsPanel({
             />
           </span>
           <div className="pv-header-actions">
-            {/* Phase 26 D-03/D-05: Filter button → shadcn Popover with two
-                Checkbox toggles (pinned + needs-desk). Popover handles Escape,
-                click-outside, and Tab navigation via Radix primitives. The
+            {/* Phase 26 D-03/D-05 (Phase 52 Plan 02 restyle): Filter button → shadcn Popover
+                with three menuitemcheckbox buttons (Ready, Pinned, Needs desk). Popover
+                handles Escape, click-outside, and Tab navigation via Radix primitives. The
                 button's aria-label is hardcoded as the literal English string
                 "Filter conversations" — NOT the stale filterLabel i18n key
                 which reads "Filter by pinned bounties" and would mislead
@@ -1171,23 +1258,80 @@ export function PrettyConversationsPanel({
                   {anyFilterOn && <span className="pv-filter-dot" aria-hidden="true" />}
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" sideOffset={6} className="pv-filter-popover" data-testid="pv-filter-toggles-popover">
-                <label className="pv-filter-toggle-row">
-                  <Checkbox
-                    checked={pinnedOnly}
-                    onCheckedChange={(v) => setPinnedOnly(v === true)}
-                    data-testid="pv-filter-toggle-pinned"
-                  />
-                  <span>Only rows with pinned bounties</span>
-                </label>
-                <label className="pv-filter-toggle-row">
-                  <Checkbox
-                    checked={needsDeskOnly}
-                    onCheckedChange={(v) => setNeedsDeskOnly(v === true)}
-                    data-testid="pv-filter-toggle-needs-desk"
-                  />
-                  <span>Only rows with needs-desk bounties</span>
-                </label>
+              <PopoverContent
+                align="end"
+                sideOffset={6}
+                className="pv-filter-popover"
+                data-testid="pv-filter-toggles-popover"
+                style={{
+                  padding: 4,
+                  borderRadius: 12,
+                  background: "linear-gradient(160deg, rgba(20,21,32,0.94), rgba(10,11,18,0.94))",
+                  border: "1px solid rgba(255,240,215,0.12)",
+                  boxShadow: "0 12px 32px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,240,215,0.08)",
+                  backdropFilter: "blur(20px) saturate(1.6)",
+                  WebkitBackdropFilter: "blur(20px) saturate(1.6)",
+                  color: "#e8e4d8",
+                  minWidth: 200,
+                  // Phase 52 Plan 02 (plan-checker W-1 fix): shadcn PopoverContent hardcodes
+                  // w-72 (fixed 288px width) in its className. Inline `width: "auto"` here
+                  // overrides that utility via same-property inline-wins so the popover
+                  // sizes to content (matching the three-dots menu's auto-width behavior).
+                  // Without this, minWidth: 200 alone leaves the popover at 288px because
+                  // width and min-width are different CSS properties.
+                  width: "auto",
+                }}
+              >
+                {/* Phase 52 Plan 02: three menuitemcheckbox buttons — Ready, Pinned, Needs desk.
+                    Order matches the V2 snippet (Ready leftmost). Chrome (background gradient,
+                    border, radius, blur, drop shadow, color, width, padding) is on the
+                    PopoverContent inline style above. Item hover/active flash comes from
+                    .pv-filter-menu-item CSS rules. Checkbox affordance from .pv-filter-check. */}
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={readyOnly ? "true" : "false"}
+                  data-testid="pv-filter-toggle-ready"
+                  className="pv-filter-menu-item"
+                  onClick={(e) => { e.preventDefault(); setReadyOnly((v) => !v); }}
+                >
+                  <span className="pv-filter-check" data-checked={readyOnly ? "true" : "false"} aria-hidden="true">
+                    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M3.5 8.5 L7 12 L13 5" />
+                    </svg>
+                  </span>
+                  <span>Ready</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={pinnedOnly ? "true" : "false"}
+                  data-testid="pv-filter-toggle-pinned"
+                  className="pv-filter-menu-item"
+                  onClick={(e) => { e.preventDefault(); setPinnedOnly((v) => !v); }}
+                >
+                  <span className="pv-filter-check" data-checked={pinnedOnly ? "true" : "false"} aria-hidden="true">
+                    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M3.5 8.5 L7 12 L13 5" />
+                    </svg>
+                  </span>
+                  <span>Pinned</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={needsDeskOnly ? "true" : "false"}
+                  data-testid="pv-filter-toggle-needs-desk"
+                  className="pv-filter-menu-item"
+                  onClick={(e) => { e.preventDefault(); setNeedsDeskOnly((v) => !v); }}
+                >
+                  <span className="pv-filter-check" data-checked={needsDeskOnly ? "true" : "false"} aria-hidden="true">
+                    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M3.5 8.5 L7 12 L13 5" />
+                    </svg>
+                  </span>
+                  <span>Needs desk</span>
+                </button>
               </PopoverContent>
             </Popover>
             {/* Phase 23 (GEFM-01): pencil + `+ New role` collapsed into one

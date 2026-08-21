@@ -37,6 +37,7 @@ vi.mock("../utils/logger.js", () => ({
     info: vi.fn(),
     error: vi.fn(),
     success: vi.fn(),
+    debug: vi.fn(),
   },
   // Phase 41 Plan 03: session-file-parser (imported by the orchestrator for
   // JSONL tail parsing) uses `databaseLogger` for its per-line classify
@@ -199,9 +200,12 @@ function buildDeps(
 
   // Default channel responses
   channel.setResponse(
-    "ls -1",
+    "ls -1 ~/.claude/sessions/",
     "/home/ubuntu/.claude/sessions/12345.json\n",
   );
+  // Phase 52 Plan 01 Task 3 — source B identities listing. Default empty so
+  // existing tests don't trigger source B publishes. Task 3 tests override.
+  channel.setResponse("ls -1 ~/.claude/identities/", "");
   channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
   channel.setResponse(
     "cat /proc/12345/stat",
@@ -320,7 +324,7 @@ describe("createSshPollOrchestrator", () => {
 
   it("Test 5: Fail-open — hook payload exec null → backgroundTasks=[] + rate-limited warn", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson({ status: "idle" }));
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -399,7 +403,7 @@ describe("createSshPollOrchestrator", () => {
 
   it("Test 6: Fail-open — orchestrator does NOT throw, does NOT stop polling, does NOT publish session_gone on missing hook", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -435,7 +439,7 @@ describe("createSshPollOrchestrator", () => {
 
   it("Test 7: 30s stale sweep reaps PIDs that go stale between polls", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -475,7 +479,7 @@ describe("createSshPollOrchestrator", () => {
 
   it("Test 8: PID→tmux cache — environ read called exactly once across 5 poll cycles for same PID", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -509,7 +513,7 @@ describe("createSshPollOrchestrator", () => {
 
   it("Test 9: When PID is reaped, cache is cleared; if same PID reappears, environ is re-read", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -615,7 +619,7 @@ describe("createSshPollOrchestrator", () => {
 
   it("Test 12: SSH failure for one host does not stop polling other hosts", async () => {
     const workingChannel = new MockSshChannel();
-    workingChannel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    workingChannel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     workingChannel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     workingChannel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     workingChannel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -731,7 +735,7 @@ describe("fail-open on missing hook payload file", () => {
 
   it("Test F1 (ENOENT): null exec response → backgroundTasks=[], ONE warn, no throw, no session_gone", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -752,7 +756,7 @@ describe("fail-open on missing hook payload file", () => {
 
   it("Test F2 (empty string): empty exec response → same fail-open behaviour as ENOENT", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -772,7 +776,7 @@ describe("fail-open on missing hook payload file", () => {
 
   it("Test F3 (malformed JSON): parseStopHookPayload returns null → fail-open", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -792,7 +796,7 @@ describe("fail-open on missing hook payload file", () => {
 
   it("Test F4 (transient SSH read error mid-poll): warn rate-limited, delta semantics correct", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -854,7 +858,7 @@ describe("fail-open on missing hook payload file", () => {
 
   it("Test F5 (schema-valid JSON but wrong shape): treated as missing, fail-open", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -878,7 +882,7 @@ describe("fail-open on missing hook payload file", () => {
 
   it("Test F6 (session-JSON authoritative): status changes still publish correctly even with permanently-missing hook", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson({ status: "busy" }));
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -1081,7 +1085,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
     jsonlContents: string,
     discoveryOverride?: string,
   ): void {
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson(),
@@ -1285,7 +1289,7 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     jsonlContents: string,
     discoveryOverride?: string,
   ): void {
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson(),
@@ -1657,7 +1661,7 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     jsonlContents: string,
     discoveryOverride?: string,
   ): void {
-    channel.setResponse("ls -1", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson(),
@@ -1956,6 +1960,629 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint
+//
+// Contract (locked by 52-01-PLAN.md § task 2 + § threat_model T-52-01-01/02):
+//   - Per PID-tick, when tmuxSession is non-null, orchestrator executes
+//     `stat ~/.claude/identities/'<escapedTmuxSession>'/.dormant 2>/dev/null
+//     >/dev/null && echo yes || echo no` on the SSH channel. Trimmed stdout
+//     "yes" → dormant true; "no" → dormant false; anything else (null, throw)
+//     → fail-open (preserve cached value, default false on cold start).
+//   - Composed SessionState.dormant carries the derived boolean.
+//   - computeFingerprint includes dormant as a distinct axis so a dormant-only
+//     flip publishes a new frame (status/backgroundTasks/lastMessageAt/aiTitle
+//     all unchanged still fires publishSessionState on dormant delta).
+//   - PidCacheEntry.dormant caches the value for fail-open across ticks.
+//   - If tmuxSession is null (identity name unknown) → skip stat, use cache.
+// ---------------------------------------------------------------------------
+
+describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Local jsonlMessageLine — same shape as sibling describes.
+  function jsonlMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+    });
+  }
+
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+    matchesIdentity = true,
+  ): string {
+    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  function wireBaseResponses(
+    channel: MockSshChannel,
+    jsonlContents: string,
+    discoveryOverride?: string,
+  ): void {
+    // Full-path pattern for the sessions ls (avoids collision with source B's
+    // identities ls when Task 3 lands).
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    // Source B (Task 3) — return empty listing here so Task 2 tests don't
+    // trigger source B publishes. Task 3 tests set this explicitly.
+    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    const discoveryStdout =
+      discoveryOverride ??
+      buildDiscoveryFixture(
+        "tina",
+        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlContents);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T2-i — stat returns "yes\n" → SessionState.dormant === true.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T2-i: stat returns 'yes\\n' → composed SessionState.dormant === true; publishSessionState called with dormant:true", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    // Source A dormant stat — the substring pattern uniquely identifies the
+    // .dormant stat command (per source A action step 2). trailing newline is
+    // what a real ssh exec of `stat …/.dormant … && echo yes || echo no` returns.
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.dormant",
+      "yes\n",
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.dormant).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T2-ii — stat returns "no\n" → SessionState.dormant === false.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T2-ii: stat returns 'no\\n' → composed SessionState.dormant === false", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.dormant",
+      "no\n",
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.dormant).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T2-iii — stat returns null (SSH hiccup) → cached value preserved
+  //                       (fail-open). Cold start cache defaults to false.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T2-iii: stat returns null (SSH hiccup) → cold-start cached value (false) preserved (fail-open)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    // Return null — simulates SSH channel error mid-tick. Orchestrator MUST
+    // fall through to cached value (default false on cold start), NOT throw.
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.dormant",
+      null,
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await expect(orchestrator.start()).resolves.not.toThrow();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // Fail-open — cold-start cache default is false.
+    expect(published.state.dormant).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T2-iv — two consecutive ticks with SAME dormant value →
+  //                     fingerprint-suppressed (no second publish).
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T2-iv: two consecutive ticks with SAME dormant value (all other axes unchanged) → second tick fingerprint-suppressed (no second publish)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.dormant",
+      "no\n",
+    );
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1: publishes with dormant:false
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBeGreaterThan(0);
+
+    // Tick 2: everything unchanged (same dormant value, same session json,
+    // same tail contents) → fingerprint identical → no publish.
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(publishesAfterTick1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T2-v — two consecutive ticks with DIFFERENT dormant value →
+  //                    second tick publishes (fingerprint delta on dormant axis).
+  //                    Load-bearing: dormant is a distinct fingerprint axis.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T2-v: dormant flips (all other axes unchanged) → second tick publishes (fingerprint delta on dormant axis)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    // Tick 1: dormant:false
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.dormant",
+      "no\n",
+    );
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1: dormant:false published
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBeGreaterThan(0);
+    expect(
+      deps.registry.publishedStates[publishesAfterTick1 - 1].state.dormant,
+    ).toBe(false);
+
+    // Tick 2: dormant flips to true — ALL OTHER axes unchanged (same session
+    // json, same tail, same hook payload). Fingerprint MUST see the dormant
+    // delta and fire publish.
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.dormant",
+      "yes\n",
+    );
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    const publishesAfterTick2 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick2).toBe(publishesAfterTick1 + 1);
+    expect(
+      deps.registry.publishedStates[publishesAfterTick2 - 1].state.dormant,
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publish
+//
+// Contract (locked by 52-01-PLAN.md § task 3 + B-1 architectural fix):
+//   - pollOneHost invokes pollDormantOnlyIdentities AFTER source A's
+//     Promise.all completes. Builds liveTmuxSet from livenessMap.values()
+//     — identities that had a live PID this tick (and every tick prior
+//     since PID reap deletes the entry).
+//   - Source B: `ls -1 ~/.claude/identities/ 2>/dev/null || true` → parse
+//     identity names → parallel-stat each `.dormant` sentinel → for each
+//     identity NOT in liveTmuxSet, publish a SessionState frame with
+//     sessionId:"__dormant__", pid:null, status:"idle", dormant:isDormant,
+//     tmuxSession:name. Fingerprint-suppress via dormantOnlyIdentities cache.
+//   - Live-PID identities that appear in liveTmuxSet: source B skips them
+//     (source A owns publish) AND clears them from dormantOnlyIdentities
+//     cache so a future transition back to no-live-PID re-publishes cleanly.
+//   - `ls` returns null (SSH error) OR empty (no identities dir) → log
+//     debug, skip source B (fail-open — source A still fires normally).
+// ---------------------------------------------------------------------------
+
+describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publish", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Local helpers — matching sibling describes.
+  function jsonlMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+    });
+  }
+
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+    matchesIdentity = true,
+  ): string {
+    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  // wireBaseResponses default: NO live PIDs (empty sessions listing). Source
+  // A won't fire; source B will enumerate identities per test config.
+  // Test P52-01-T3-vi/-vii use a variant with a live PID for source A.
+  function wireEmptySessions(channel: MockSshChannel): void {
+    channel.setResponse("ls -1 ~/.claude/sessions/", "");
+    channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
+  }
+
+  // wireBaseResponses variant that includes a live PID (for tests where
+  // source A + source B interact).
+  function wireLivePid(
+    channel: MockSshChannel,
+    jsonlContents: string,
+    tmuxSession = "tina",
+  ): void {
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", tmuxSession);
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    const discoveryStdout = buildDiscoveryFixture(
+      tmuxSession,
+      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+    );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlContents);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T3-i — Empty `ls` output (no identities dir) → no publish, no throw.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T3-i: empty `ls -1 ~/.claude/identities/` output → source B skips (no publish, no throw)", async () => {
+    const channel = new MockSshChannel();
+    wireEmptySessions(channel);
+    // Explicit empty for identities listing.
+    channel.setResponse("ls -1 ~/.claude/identities/", "");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await expect(orchestrator.start()).resolves.not.toThrow();
+
+    // No source A publish (no live PIDs) AND no source B publish (empty listing).
+    expect(deps.registry.publishedStates).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T3-ii — `ls` returns null (SSH error) → no publish, no throw.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T3-ii: `ls -1 ~/.claude/identities/` returns null (SSH error) → source B skips (no publish, no throw)", async () => {
+    const channel = new MockSshChannel();
+    wireEmptySessions(channel);
+    channel.setResponse("ls -1 ~/.claude/identities/", null);
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await expect(orchestrator.start()).resolves.not.toThrow();
+
+    expect(deps.registry.publishedStates).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T3-iii — Two identities, one dormant one not, neither has a
+  //                     live PID. Expect BOTH publish frames (dormant:true for
+  //                     dormant name, dormant:false for the other via first-
+  //                     appearance rule: previousDormant undefined ≠ false).
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T3-iii: two identities, one dormant one not, no live PID → source B publishes BOTH (first-appearance emits both dormant states)", async () => {
+    const channel = new MockSshChannel();
+    wireEmptySessions(channel);
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\ntanya\n");
+    // Per-identity dormant stat responses. Substring `identities/'tina'` and
+    // `identities/'tanya'` uniquely identify each stat command since source A
+    // is dormant here (no live PID → no source A stat).
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("stat ~/.claude/identities/'tanya'/.dormant", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Two publishes — one per identity (first-appearance rule).
+    expect(deps.registry.publishedStates).toHaveLength(2);
+
+    const byName = new Map<string, boolean>();
+    for (const p of deps.registry.publishedStates) {
+      // Source B frames carry synthetic sessionId "__dormant__" + pid:null.
+      expect(p.state.sessionId).toBe("__dormant__");
+      expect(p.state.pid).toBeNull();
+      expect(p.state.status).toBe("idle");
+      byName.set(p.state.tmuxSession as string, p.state.dormant as boolean);
+    }
+    expect(byName.get("tina")).toBe(true);
+    expect(byName.get("tanya")).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T3-iv — same fixture as -iii on tick 2 with NO change → 0
+  //                     publishes (cache-hit fingerprint suppression).
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T3-iv: tick 2 with same dormant states → 0 additional publishes (cache-hit fingerprint suppression)", async () => {
+    const channel = new MockSshChannel();
+    wireEmptySessions(channel);
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\ntanya\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("stat ~/.claude/identities/'tanya'/.dormant", "no\n");
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1: publishes for both
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBe(2);
+
+    // Tick 2: SAME values, same names → cache-hit, no publish.
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(publishesAfterTick1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T3-v — tick 1 dormant:true for name X. Tick 2 stat returns
+  //                    dormant:false for X → publish frame with dormant:false.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T3-v: tick 1 dormant:true, tick 2 dormant:false → publish dormant:false frame on tick 2", async () => {
+    const channel = new MockSshChannel();
+    wireEmptySessions(channel);
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1: dormant:true
+
+    expect(deps.registry.publishedStates).toHaveLength(1);
+    expect(deps.registry.publishedStates[0].state.dormant).toBe(true);
+
+    // Tick 2: dormant flips to false → cache miss → publish.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates).toHaveLength(2);
+    expect(deps.registry.publishedStates[1].state.dormant).toBe(false);
+    expect(deps.registry.publishedStates[1].state.tmuxSession).toBe("tina");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T3-vi — name X has a live PID this tick (source A publishes)
+  //                     AND X's folder has .dormant sentinel present → source
+  //                     B SKIPS X (does NOT double-publish) and clears X from
+  //                     dormantOnlyIdentities cache.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T3-vi: live-PID identity with .dormant sentinel → source B skips (source A owns publish); no double-publish", async () => {
+    const channel = new MockSshChannel();
+    // Live PID for identity "tina" — source A will publish for this PID.
+    wireLivePid(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n", "tina");
+    // Source A dormant stat — tina has .dormant present → source A publishes dormant:true.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+    // Source B: identities listing includes tina; but tina is in liveTmuxSet
+    // because source A had a live PID → source B must SKIP tina.
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Exactly ONE publish — from source A. Source B skipped tina.
+    expect(deps.registry.publishedStates).toHaveLength(1);
+    const p = deps.registry.publishedStates[0];
+    // Source A publishes have numeric pid + real sessionId (not "__dormant__").
+    expect(p.state.pid).toBe(12345);
+    expect(p.state.sessionId).toBe("test-session-id");
+    expect(p.state.dormant).toBe(true); // source A stamped from stat
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P52-01-T3-vii — cache eviction on live-set entry. Tick 1: X in source B
+  //                      (no live PID, dormant:true). Tick 2: X gets a live PID
+  //                      → source A publishes, source B removes X from cache.
+  //                      Tick 3: X loses PID (source A reap) → source B cache-
+  //                      miss re-publishes cleanly.
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01-T3-vii: transition ping-pong — source B → source A → source B rediscover cleanly (cache evicted on live-set membership)", async () => {
+    const channel = new MockSshChannel();
+    // Tick 1 setup: NO live PIDs; source B enumerates "tina" as dormant.
+    wireEmptySessions(channel);
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1: source B publishes tina dormant:true
+
+    const afterTick1 = deps.registry.publishedStates.length;
+    expect(afterTick1).toBe(1);
+    expect(deps.registry.publishedStates[0].state.pid).toBeNull();
+    expect(deps.registry.publishedStates[0].state.dormant).toBe(true);
+
+    // Tick 2: tina gains a live PID. Source A publishes for PID 12345, source B
+    // must SKIP tina and clear it from dormantOnlyIdentities cache.
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    const discoveryStdout = buildDiscoveryFixture(
+      "tina",
+      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+    );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlMessageLine(1000, "assistant", "hi") + "\n");
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    // Source A publishes once for tina (fingerprint change: pid changed from
+    // null source B frame to numeric). Source B skips tina (in liveTmuxSet).
+    const afterTick2 = deps.registry.publishedStates.length;
+    expect(afterTick2).toBe(afterTick1 + 1);
+    const t2Publish = deps.registry.publishedStates[afterTick2 - 1];
+    expect(t2Publish.state.pid).toBe(12345);
+    expect(t2Publish.state.sessionId).toBe("test-session-id");
+
+    // Tick 3: PID reaped (stat null → sessionJson null after next cycle). To
+    // simulate reap cleanly, mark stale via /proc/stat null.
+    channel.setResponse("cat /proc/12345/stat", null);
+
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    // Source A publishes session_gone. Source B re-enumerates tina; because
+    // dormantOnlyIdentities was cleared for tina on tick 2, previousDormant
+    // is undefined → cache-miss → re-publish dormant:true source B frame.
+    // Also expect a source_gone publish from source A reap.
+    expect(deps.registry.publishedGone.length).toBeGreaterThanOrEqual(1);
+    const afterTick3 = deps.registry.publishedStates.length;
+    expect(afterTick3).toBeGreaterThan(afterTick2);
+    const t3LastPublish = deps.registry.publishedStates[afterTick3 - 1];
+    // Last publish this tick is source B (pid:null, sessionId:"__dormant__").
+    expect(t3LastPublish.state.pid).toBeNull();
+    expect(t3LastPublish.state.sessionId).toBe("__dormant__");
+    expect(t3LastPublish.state.dormant).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // quick-260820-tm0 — per-host in-flight guard on pollOneHost
 //
 // Closes the 2026-08-20 wilma incident (392 concurrent tailscale-ssh be-child
@@ -2035,7 +2662,7 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
     }
 
     async exec(command: string): Promise<string | null> {
-      if (command.includes("ls -1")) {
+      if (command.includes("ls -1 ~/.claude/sessions/")) {
         this.lsCallCount++;
         this.callLog.push({ command, response: null });
         if (this.lsCallCount === this.hangOnLsCall && !this.ownLsResolvedFlag) {
@@ -2045,6 +2672,7 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
         }
         // Pre-hang and post-resolve calls return the base-map response.
         return (
+          this.responses.get("ls -1 ~/.claude/sessions/") ??
           this.responses.get("ls -1") ??
           "/home/ubuntu/.claude/sessions/12345.json\n"
         );
@@ -2139,7 +2767,7 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
     await Promise.resolve();
 
     // Sanity: 2 ls calls issued (initial + hung), no skips yet.
-    expect(channel.countCallsMatching("ls -1")).toBe(2);
+    expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(2);
     expect(countSkipsForHost("host-1")).toBe(0);
 
     // Trigger tick 3: host-1 is in-flight → must skip.
@@ -2151,14 +2779,14 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
     expect(skip1?.skipCount).toBe(1);
     expect(skip1?.hostName).toBe("testhost");
     // No new ls -1 fired on the skipped tick.
-    expect(channel.countCallsMatching("ls -1")).toBe(2);
+    expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(2);
 
     // Trigger tick 4: still in-flight, skipCount should now be 2.
     await pollFn.fn();
     expect(countSkipsForHost("host-1")).toBe(2);
     const skip2 = lastSkipPayload("host-1");
     expect(skip2?.skipCount).toBe(2);
-    expect(channel.countCallsMatching("ls -1")).toBe(2);
+    expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(2);
 
     // Resolve the hung ls -1 so the hung pollOneHost completes.
     channel.resolveLs("/home/ubuntu/.claude/sessions/12345.json\n");
@@ -2168,7 +2796,7 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
 
     // A fresh tick MUST now fire a new ls -1 — the guard released via finally.
     await pollFn.fn();
-    expect(channel.countCallsMatching("ls -1")).toBe(3);
+    expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(3);
   });
 
   // -------------------------------------------------------------------------
@@ -2226,8 +2854,8 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
     expect(pollFn).toBeDefined();
     if (!pollFn) throw new Error("no 2s pollFn captured");
 
-    const channel1LsBaseline = channel1.countCallsMatching("ls -1");
-    const channel2LsBaseline = channel2.countCallsMatching("ls -1");
+    const channel1LsBaseline = channel1.countCallsMatching("ls -1 ~/.claude/sessions/");
+    const channel2LsBaseline = channel2.countCallsMatching("ls -1 ~/.claude/sessions/");
 
     // Trigger tick 2: host-1's ls -1 hangs (call #2), which blocks the
     // serial for-of loop AFTER host-1 has entered the try but BEFORE it
@@ -2240,14 +2868,14 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
 
     // host-1 is in-flight on the hung tick; host-2 hasn't been reached yet
     // on THIS tick because the serial loop is blocked on host-1's await.
-    expect(channel1.countCallsMatching("ls -1")).toBe(channel1LsBaseline + 1);
+    expect(channel1.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(channel1LsBaseline + 1);
 
     // Trigger tick 3: host-1 is in-flight → skip. host-2 is NOT in-flight
     // → polls normally on the same tick. This proves per-host, not global.
     await pollFn.fn();
 
     expect(countSkipsForHost("host-1")).toBe(1);
-    expect(channel2.countCallsMatching("ls -1")).toBeGreaterThan(
+    expect(channel2.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThan(
       channel2LsBaseline,
     );
     expect(countSkipsForHost("host-2")).toBe(0);
@@ -2259,11 +2887,11 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
     await Promise.resolve();
 
     // One more tick — both hosts should poll on this tick now.
-    const c1Post = channel1.countCallsMatching("ls -1");
-    const c2Post = channel2.countCallsMatching("ls -1");
+    const c1Post = channel1.countCallsMatching("ls -1 ~/.claude/sessions/");
+    const c2Post = channel2.countCallsMatching("ls -1 ~/.claude/sessions/");
     await pollFn.fn();
-    expect(channel1.countCallsMatching("ls -1")).toBeGreaterThan(c1Post);
-    expect(channel2.countCallsMatching("ls -1")).toBeGreaterThan(c2Post);
+    expect(channel1.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThan(c1Post);
+    expect(channel2.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThan(c2Post);
   });
 
   // -------------------------------------------------------------------------
@@ -2277,7 +2905,7 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
     let lsCallCount = 0;
     const channel: SshChannel = {
       async exec(command: string): Promise<string | null> {
-        if (command.includes("ls -1")) {
+        if (command.includes("ls -1 ~/.claude/sessions/")) {
           lsCallCount++;
           if (lsCallCount === 1) {
             throw new Error("simulated ls -1 explosion");
@@ -2508,17 +3136,17 @@ describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
     listMock.mockResolvedValue([hostA]);
     await pollFn.fn(); // eviction tick
 
-    const channelALsBaseline = channelA.countCallsMatching("ls -1");
-    const channelBLsBaseline = channelB.countCallsMatching("ls -1");
+    const channelALsBaseline = channelA.countCallsMatching("ls -1 ~/.claude/sessions/");
+    const channelBLsBaseline = channelB.countCallsMatching("ls -1 ~/.claude/sessions/");
 
     // Two more ticks — host-A should still poll, host-B must not.
     await pollFn.fn();
     await pollFn.fn();
 
-    expect(channelA.countCallsMatching("ls -1")).toBeGreaterThan(
+    expect(channelA.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThan(
       channelALsBaseline,
     );
-    expect(channelB.countCallsMatching("ls -1")).toBe(channelBLsBaseline);
+    expect(channelB.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(channelBLsBaseline);
   });
 
   // -------------------------------------------------------------------------
@@ -2579,13 +3207,13 @@ describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
     expect(refreshFailCount).toBeGreaterThan(0);
 
     // Both hosts continue polling on subsequent ticks.
-    const channelALsBaseline = channelA.countCallsMatching("ls -1");
-    const channelBLsBaseline = channelB.countCallsMatching("ls -1");
+    const channelALsBaseline = channelA.countCallsMatching("ls -1 ~/.claude/sessions/");
+    const channelBLsBaseline = channelB.countCallsMatching("ls -1 ~/.claude/sessions/");
     await pollFn.fn();
-    expect(channelA.countCallsMatching("ls -1")).toBeGreaterThan(
+    expect(channelA.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThan(
       channelALsBaseline,
     );
-    expect(channelB.countCallsMatching("ls -1")).toBeGreaterThan(
+    expect(channelB.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThan(
       channelBLsBaseline,
     );
   });
@@ -2614,7 +3242,7 @@ describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
 
     const channelC: SshChannel = {
       async exec(command: string): Promise<string | null> {
-        if (command.includes("ls -1")) {
+        if (command.includes("ls -1 ~/.claude/sessions/")) {
           lsCallCount++;
           if (lsCallCount === 2) {
             // Hang forever until the test resolves.

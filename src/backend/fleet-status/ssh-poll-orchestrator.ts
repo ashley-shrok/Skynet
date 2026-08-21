@@ -158,6 +158,16 @@ interface PidCacheEntry {
   // /id; identity whose entire history is tool_use / thinking / lifecycle
   // events). See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
   staleTailTickCount: number;
+  // Phase 52 Plan 01 Task 2 — cached derived boolean result of the source A
+  // dormant sentinel stat (`stat ~/.claude/identities/'<tmuxSession>'/.dormant
+  // 2>/dev/null >/dev/null && echo yes || echo no`). Trimmed stdout "yes" →
+  // true; "no" → false; anything else (null, throw, unexpected output) →
+  // fail-open using this cached value (defaults to `false` on cold-start).
+  // The dormant axis participates in computeFingerprint so a dormant-only
+  // flip publishes a new frame (delta detection is per-axis). Fail-open
+  // preservation matches lastMessageAt / aiTitle patterns — transient SSH
+  // hiccups do NOT flip a valid dormant reading.
+  dormant: boolean;
 }
 
 interface PerHostState {
@@ -165,6 +175,14 @@ interface PerHostState {
   channel: SshChannel;
   livenessMap: Map<number, PidCacheEntry>;
   lastHookWarnAt: number;
+  // Phase 52 Plan 01 Task 3 — source B fingerprint-suppression cache.
+  // Maps identity name → last-published dormant value for identities that
+  // have a `.dormant` sentinel present AND have NO live claude PID this
+  // tick. Distinct from `livenessMap` (source A, keyed by PID) because
+  // source B's identities are keyed by identity name and have no PID.
+  // Populated by pollDormantOnlyIdentities; entries are cleared when the
+  // same identity acquires a live PID (source A takes over publishing).
+  dormantOnlyIdentities: Map<string, boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +415,14 @@ function computeFingerprint(state: SessionState): string {
   // when status + backgroundTasks + lastMessageAt are unchanged. Same
   // null-normalization pattern as lastMessageAt so a first-time null
   // publish is distinguishable from an unpopulated cache entry.
-  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}`;
+  // Phase 52 Plan 01: dormant is a distinct axis of the fingerprint — a
+  // dormant-only flip publishes a new frame even when status +
+  // backgroundTasks + lastMessageAt + aiTitle are unchanged. Boolean-with-
+  // undefined collapses to "1"/"0"/"" so a first-time undefined publish is
+  // distinguishable from cold cache. In practice source A always stamps a
+  // strict boolean; the ?? branch handles the "field omitted" path from
+  // source B's future explicit-null frames.
+  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -494,12 +519,149 @@ export function createSshPollOrchestrator(
       pidNumbers.map((pid) => processPid(hostState, pid)),
     );
 
+    // (c) Phase 52 Plan 01 Task 3 — source B: enumerate ~/.claude/identities/
+    //     for dormant-only identities that have NO live claude PID this tick
+    //     and publish SessionState frames for them. Built from the current
+    //     livenessMap AFTER source A's Promise.all completes so that identities
+    //     with live PIDs are properly excluded.
+    //
+    //     liveTmuxSet reflects genuinely-live-this-tick tmuxSessions because
+    //     source A's stale-reap path (isStaleFromStat) deletes reaped PID
+    //     entries from livenessMap before this point. Any lingering entry has
+    //     a live PID in the current tick.
+    const liveTmuxSet = new Set<string>();
+    for (const entry of hostState.livenessMap.values()) {
+      if (entry.tmuxSession !== null) {
+        liveTmuxSet.add(entry.tmuxSession);
+      }
+    }
+    await pollDormantOnlyIdentities(hostState, liveTmuxSet);
+
     systemLogger.info("Fleet-status poll end", {
       operation: "fleet_status_poll_end",
       fleetHostId: host.id,
       tick: pollTickCount,
       pidCount: pidNumbers.length,
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 52 Plan 01 Task 3 — source B: dormant-only identity enumeration
+  //
+  // For each host per tick, list ~/.claude/identities/ and stat each identity's
+  // .dormant sentinel. For any identity whose folder has the sentinel present
+  // AND does NOT have a live claude PID (not in liveTmuxSet), publish a
+  // SessionState frame keyed by the identity name as tmuxSession, with:
+  //   - sessionId: "__dormant__" (synthetic sentinel — frontend treats opaque)
+  //   - pid: null (source A publishes numeric PIDs)
+  //   - status: "idle" (dormant identities have no live claude process)
+  //   - dormant: true (per stat result)
+  //
+  // Fingerprint-suppress via dormantOnlyIdentities per-host cache. Cache
+  // eviction on live-set membership: if an identity gains a live PID between
+  // ticks, source A takes over publishing for it and source B clears the cache
+  // entry so a future transition back to no-live-PID re-publishes cleanly.
+  //
+  // Fail-open: if `ls` returns null (SSH error) or empty (no identities dir),
+  // log a debug and skip source B for this tick. Source A still fires normally.
+  //
+  // Parallelism: per-identity stats run via Promise.all (T-52-01-05 accept:
+  // bounded by identity count in the low tens per host on Ashley's fleet).
+  //
+  // Shell-quoting via shellSingleQuote (T-52-01-02 mitigation): identity names
+  // from `ls` output are attacker-controlled (a compromised host could name
+  // an identity `; rm -rf $HOME`), so each stat command interpolates the
+  // FULL quoted argument returned by shellSingleQuote — cannot escape.
+  // ---------------------------------------------------------------------------
+
+  async function pollDormantOnlyIdentities(
+    hostState: PerHostState,
+    liveTmuxSet: Set<string>,
+  ): Promise<void> {
+    const { host, channel, dormantOnlyIdentities } = hostState;
+
+    // Enumerate identity folders
+    const listing = await channel.exec(
+      "ls -1 ~/.claude/identities/ 2>/dev/null || true",
+    );
+    if (listing === null || listing.trim() === "") {
+      systemLogger.debug(
+        "Fleet-status: source B — no identities dir or SSH error",
+        {
+          operation: "fleet_status_source_b_skip",
+          fleetHostId: host.id,
+        },
+      );
+      return;
+    }
+
+    const identityNames = listing
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    // Parallel-stat each identity's .dormant sentinel. Cap implicit via
+    // Promise.all — bounded by identity count per host (typically <20).
+    const statResults = await Promise.all(
+      identityNames.map(async (name) => {
+        const quotedName = shellSingleQuote(name);
+        const out = await channel.exec(
+          `stat ~/.claude/identities/${quotedName}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+        );
+        // T-52-01-01 mitigation: only "yes" or "no" are meaningful. Anything
+        // else (null, unexpected output) → treat as not-dormant (false) since
+        // source B has no prior cache to fall back to for this specific
+        // identity — it's cache-populated per-tick.
+        const isDormant = out !== null && out.trim() === "yes";
+        return { name, isDormant };
+      }),
+    );
+
+    // For each identity: publish/suppress based on cache + live-set membership.
+    for (const { name, isDormant } of statResults) {
+      // Skip identities that had a live PID this tick — source A already
+      // published for them (with source A's own dormant stat). Also clear
+      // the source-B cache for this name so a future transition back to
+      // no-live-PID re-publishes cleanly (Test P52-01-T3-vii).
+      if (liveTmuxSet.has(name)) {
+        dormantOnlyIdentities.delete(name);
+        continue;
+      }
+
+      const previousDormant = dormantOnlyIdentities.get(name);
+      if (previousDormant === isDormant) {
+        // Cache hit with same value → fingerprint-suppress (no publish).
+        continue;
+      }
+
+      dormantOnlyIdentities.set(name, isDormant);
+
+      const state: SessionState = {
+        hostId: host.id,
+        tmuxSession: name,
+        sessionId: "__dormant__",
+        pid: null,
+        status: "idle",
+        waitingFor: undefined,
+        backgroundTasks: [],
+        updatedAt: deps.now(),
+        lastMessageAt: null,
+        aiTitle: null,
+        dormant: isDormant,
+      };
+      deps.registry.publishSessionState(host.id, state);
+
+      systemLogger.info(
+        "Fleet-status: source B dormant-only frame published",
+        {
+          operation: "fleet_status_source_b_publish",
+          fleetHostId: host.id,
+          identityName: name,
+          dormant: isDormant,
+          previousDormant: previousDormant ?? null,
+        },
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -562,6 +724,45 @@ export function createSshPollOrchestrator(
           );
         },
       });
+    }
+
+    // Phase 52 Plan 01 Task 2 — source A dormant sentinel stat.
+    // Per PID-tick, when tmuxSession is non-null, stat the
+    // `~/.claude/identities/<tmuxSession>/.dormant` sentinel file. Trimmed
+    // stdout "yes" → dormant true; "no" → dormant false; anything else
+    // (null from SSH error, throw, unexpected output) → fail-open using
+    // cached value (defaulting to `false` on cold start).
+    //
+    // Shell-quoting via shellSingleQuote (T-52-01-02 mitigation): the helper
+    // returns the FULL quoted argument (e.g. `shellSingleQuote("tina")` →
+    // `'tina'`) so it is interpolated WITHOUT surrounding template quotes.
+    // Attacker-controlled tmuxSession values containing quotes/backticks
+    // cannot escape the single-quoted argument (shellSingleQuote replaces
+    // `'` → `'\''` inside the quoted region).
+    //
+    // Skipped when tmuxSession is null (identity name unknown) — use cache
+    // (default false on cold start).
+    //
+    // The dormant axis is DISTINCT from the JSONL tail-scan below: source A
+    // stats the identity folder directly, not the session JSONL. Cached in
+    // PidCacheEntry.dormant and participates in computeFingerprint so a
+    // dormant-only flip publishes a new frame (delta detection is per-axis).
+    let derivedDormant: boolean = cached?.dormant ?? false;
+    if (tmuxSession !== null) {
+      const quotedTmuxSession = shellSingleQuote(tmuxSession);
+      const dormantRaw = await channel.exec(
+        `stat ~/.claude/identities/${quotedTmuxSession}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+      );
+      if (dormantRaw !== null) {
+        const trimmed = dormantRaw.trim();
+        if (trimmed === "yes") {
+          derivedDormant = true;
+        } else if (trimmed === "no") {
+          derivedDormant = false;
+        }
+        // Anything else → fail-open, keep cached value (T-52-01-01 mitigation).
+      }
+      // dormantRaw === null → SSH hiccup → keep cached value (fail-open).
     }
 
     // Phase 44 Plan 02 — replace jsonlPathForSession derivation with
@@ -705,7 +906,9 @@ export function createSshPollOrchestrator(
     // JSONL-tail derivation above (null when no message-bearing history is
     // known for this session). Phase 47 Plan 02 stamps aiTitle from the
     // SAME tail-read (shared buffer, one exec) — last-wins across
-    // multiple ai-title lines in the tail.
+    // multiple ai-title lines in the tail. Phase 52 Plan 01 Task 2 stamps
+    // dormant from the identity-folder .dormant sentinel stat above
+    // (fail-open to cached value on SSH hiccup).
     const state: SessionState = {
       hostId: host.id,
       tmuxSession,
@@ -718,6 +921,7 @@ export function createSshPollOrchestrator(
       updatedAt: sessionJson.updatedAt,
       lastMessageAt: derivedLastMessageAt,
       aiTitle: derivedAiTitle,
+      dormant: derivedDormant,
     };
 
     // Delta semantics — only publish if fingerprint changed
@@ -744,6 +948,7 @@ export function createSshPollOrchestrator(
         aiTitle: derivedAiTitle,
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
+        dormant: derivedDormant,
       });
     } else {
       // Update procStart + tmux in case they changed without a state-change
@@ -756,6 +961,7 @@ export function createSshPollOrchestrator(
         aiTitle: derivedAiTitle,
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
+        dormant: derivedDormant,
       });
     }
   }
@@ -898,6 +1104,9 @@ export function createSshPollOrchestrator(
         channel,
         livenessMap: new Map(),
         lastHookWarnAt: -Infinity,
+        // Phase 52 Plan 01 Task 3 — initialize source B fingerprint-suppression
+        // cache empty; populated by pollDormantOnlyIdentities on each tick.
+        dormantOnlyIdentities: new Map(),
       });
     } catch (err) {
       systemLogger.warn("Fleet-status: SSH channel acquire threw for host", {

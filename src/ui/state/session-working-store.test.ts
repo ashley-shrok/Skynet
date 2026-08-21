@@ -29,6 +29,7 @@ import {
   publishFleetStatusSessionGone,
   useSessionIsWorking,
   useSessionIsWorkingRaw,
+  useSessionIsDormant,
   getSessionWorkingSnapshot,
   getSessionLastMessageAt,
   seedSessionLastMessageAt,
@@ -990,5 +991,161 @@ describe("session-working-store (Phase 47 Plan 03): reconciliation chokepoint �
     const { result: r3, rerender } = renderHook(() => useSessionAiTitle("1:tina"));
     rerender();
     expect(r3.current).toBe("Wired via hook");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 52 Plan 01 — Dormant axis (Axis D) + useSessionIsDormant hook.
+// Source: ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the
+// target host. Boolean strict (dormant: boolean default false in WorkingRecord).
+//
+// Test P52-01-i   (publish dormant:true → hook returns true)
+// Test P52-01-ii  (publish dormant:false → hook returns false)
+// Test P52-01-iii (publish without dormant field → hook returns false)
+// Test P52-01-iv  (re-publish SAME dormant value → no additional notify beyond Axis A/B/C)
+// Test P52-01-v   (toggle dormant while isWorking unchanged → notify fires)
+// Test P52-01-vi  (null key → false; unknown key → false)
+// Test P52-01-vii (dormant persists across Axis A (isWorking) republish)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store (Phase 52 Plan 01): dormant axis (Axis D) + useSessionIsDormant hook", () => {
+  // Test P52-01-i — publish dormant:true → hook returns true
+  it("Test P52-01-i: publishFleetStatusSessionState with dormant:true → useSessionIsDormant returns true", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsDormant("h1:s1"),
+    );
+    expect(result.current).toBe(false); // unknown → false
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", dormant: true }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+
+  // Test P52-01-ii — publish dormant:false → hook returns false
+  it("Test P52-01-ii: publishFleetStatusSessionState with dormant:false → useSessionIsDormant returns false", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsDormant("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", dormant: false }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(false);
+  });
+
+  // Test P52-01-iii — publish without dormant field → hook returns false
+  it("Test P52-01-iii: publish without dormant field (omitted) → useSessionIsDormant returns false", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsDormant("h1:s1"),
+    );
+
+    act(() => {
+      // makeState omits dormant by default (undefined)
+      publishFleetStatusSessionState("h1", makeState({ status: "idle" }));
+    });
+    rerender();
+    expect(result.current).toBe(false);
+  });
+
+  // Test P52-01-iv — re-publish SAME dormant value → no additional Axis D notify
+  it("Test P52-01-iv: re-publish with same dormant value (isWorking unchanged) → no additional Axis D notify beyond Axis A/B/C", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // First publish: dormant:true (sets Axis D, notifies once for Axis A + once for Axis D)
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", dormant: true }),
+      );
+    });
+    const n0 = cb.mock.calls.length; // captures Axis A + Axis D notifies
+
+    // Second publish: SAME dormant value → Axis D must NOT notify again
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", dormant: true, updatedAt: Date.now() + 1 }),
+      );
+    });
+    // Axis A no-ops (isWorking unchanged); Axis B no-ops (no lastMessageAt);
+    // Axis C no-ops (no aiTitle); Axis D no-ops (dormant unchanged).
+    expect(cb.mock.calls.length).toBe(n0);
+
+    dispose();
+  });
+
+  // Test P52-01-v — toggle dormant (isWorking unchanged) → Axis D notify fires
+  it("Test P52-01-v: toggle dormant (isWorking unchanged) → Axis D notify fires", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // First publish: dormant:false (Axis A fires for new key)
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", dormant: false }),
+      );
+    });
+    const n0 = cb.mock.calls.length;
+
+    // Toggle dormant: false → true (isWorking unchanged at false)
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", dormant: true }),
+      );
+    });
+    // Axis D fires (dormant changed); Axis A no-ops (isWorking still false).
+    expect(cb.mock.calls.length).toBe(n0 + 1);
+
+    const snap = getSessionWorkingSnapshot();
+    expect(snap.get("h1:s1")?.dormant).toBe(true);
+    dispose();
+  });
+
+  // Test P52-01-vi — null key / unknown key → false
+  it("Test P52-01-vi: null key → useSessionIsDormant returns false; unknown key → false", () => {
+    const { result: r1 } = renderHook(() => useSessionIsDormant(null));
+    expect(r1.current).toBe(false);
+
+    const { result: r2 } = renderHook(() =>
+      useSessionIsDormant("never-published:key"),
+    );
+    expect(r2.current).toBe(false);
+  });
+
+  // Test P52-01-vii — dormant preserved across Axis A (isWorking) republish
+  it("Test P52-01-vii: dormant:true, then isWorking toggles → dormant still true (Axis A preserves Axis D cache)", () => {
+    // Set dormant:true + idle
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", dormant: true }),
+      );
+    });
+
+    // Publish again with isWorking flipping (busy → true), dormant omitted
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "busy" }), // dormant omitted → undefined → false in Axis D
+      );
+    });
+
+    // After Axis A fires with isWorking=true, the cached dormant must still be preserved
+    // in the Axis A write path (existing?.dormant ?? false). Since dormant was true,
+    // Axis A preserves it.
+    const snap = getSessionWorkingSnapshot();
+    expect(snap.get("h1:s1")?.dormant).toBe(true);
   });
 });

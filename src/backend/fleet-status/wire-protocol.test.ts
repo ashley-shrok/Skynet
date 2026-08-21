@@ -214,4 +214,67 @@ describe("wire-protocol", () => {
     // require a version bump. Guard against inadvertent bumps.
     expect(FRAME_SCHEMA_VERSION).toBe(1);
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 52 Plan 01 — dormant is an optional, back-compat boolean field on
+  // SessionState carrying the inline supervisor-dormancy signal. Source is the
+  // ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the target
+  // host. Additive-only wire extension; FRAME_SCHEMA_VERSION stays at 1.
+  // Three-valued semantics: true → sentinel present, false → sentinel absent,
+  // undefined → emitting watcher pre-dates this phase (treated as false).
+  // ---------------------------------------------------------------------------
+
+  it("Test P52-01 A (Phase 52 Plan 01 schema forward — true): SessionState parses when dormant is true — the boolean value is preserved", () => {
+    const withDormantTrue = { ...validSessionState, dormant: true };
+    const result = SessionStateSchema.safeParse(withDormantTrue);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dormant).toBe(true);
+    }
+  });
+
+  it("Test P52-01 B (Phase 52 Plan 01 schema forward — false): SessionState parses when dormant is false — the boolean value is preserved", () => {
+    const withDormantFalse = { ...validSessionState, dormant: false };
+    const result = SessionStateSchema.safeParse(withDormantFalse);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dormant).toBe(false);
+    }
+  });
+
+  it("Test P52-01 C (Phase 52 Plan 01 schema null): SessionState parses when dormant is explicitly null — the null value is preserved (pre-Phase-52 path through nullable)", () => {
+    const withNull = { ...validSessionState, dormant: null };
+    const result = SessionStateSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dormant).toBeNull();
+    }
+  });
+
+  it("Test P52-01 D (Phase 52 Plan 01 schema back-compat): SessionState parses when dormant is OMITTED — field is optional, pre-Phase-52 watcher remains compatible", () => {
+    // validSessionState fixture at top-of-file does NOT carry dormant —
+    // parse must succeed; the parsed result has dormant === undefined
+    // (optional field, no default). Frontend consumer treats undefined
+    // and null identically (both → false per the AND-of-negations Ready predicate).
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dormant).toBeUndefined();
+    }
+  });
+
+  it("Test P52-01 E (Phase 52 Plan 01 schema type-enforcement): SessionState rejects dormant of wrong type (string) — z.boolean() enforces the type when the field IS present", () => {
+    const withBadType = { ...validSessionState, dormant: "yes" };
+    const result = SessionStateSchema.safeParse(withBadType);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("dormant"))).toBe(true);
+    }
+  });
+
+  it("Test P52-01 F (Phase 52 Plan 01 schema version guard): FRAME_SCHEMA_VERSION is NOT bumped by the additive+optional dormant extension — stays at 1", () => {
+    // Additive+optional fields never require a version bump per T-41-03-05 mitigation.
+    expect(FRAME_SCHEMA_VERSION).toBe(1);
+  });
 });

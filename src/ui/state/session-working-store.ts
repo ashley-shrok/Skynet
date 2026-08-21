@@ -81,6 +81,16 @@ type WorkingRecord = {
   // /sessions/list seed) is the correct one. See 47-CONTEXT.md § Working-
   // store third axis.
   aiTitle: string | null;
+  // Phase 52 Plan 01 — the inline supervisor-dormancy signal. Source: the
+  // ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the target
+  // host. `true` when the sentinel is present (identity parked by supervisor),
+  // `false` otherwise. Default `false` on cold-start and on frames from
+  // pre-Phase-52 backends that omit the field entirely. Strict boolean at
+  // the store boundary — three-valued wire input (true/false/null/undefined)
+  // collapses to boolean here so the Ready predicate (!isWorking && !dormant)
+  // in Plan 03 reads a simple boolean. Reconciliation: direct swap-and-notify
+  // (no max-wins, no last-wins — just a boolean gate on the sentinel).
+  dormant: boolean;
 };
 
 type State = {
@@ -175,6 +185,9 @@ export function publishFleetStatusSessionState(
   // any lastMessageAt update via advanceSessionLastMessageAt. Similarly
   // the aiTitle value is preserved as the currently-cached string;
   // Axis C below handles any aiTitle update via advanceSessionAiTitle.
+  // The dormant value is ALSO preserved from cache here (Axis D below
+  // handles the dormant update independently). This ensures Axis A
+  // republishes do not wipe a dormant:true set by a prior frame.
   if (existing === undefined || existing.isWorking !== isWorking) {
     console.info({
       operation: "fleet_status_working_state_change",
@@ -186,9 +199,11 @@ export function publishFleetStatusSessionState(
       isWorking,
       lastMessageAt: existing?.lastMessageAt ?? null,
       aiTitle: existing?.aiTitle ?? null,
+      dormant: existing?.dormant ?? false,
       previous: existing?.isWorking ?? null,
       previousLastMessageAt: existing?.lastMessageAt ?? null,
       previousAiTitle: existing?.aiTitle ?? null,
+      previousDormant: existing?.dormant ?? false,
     });
 
     const nextMap = new Map(state.map);
@@ -196,6 +211,7 @@ export function publishFleetStatusSessionState(
       isWorking,
       lastMessageAt: existing?.lastMessageAt ?? null,
       aiTitle: existing?.aiTitle ?? null,
+      dormant: existing?.dormant ?? false,
     });
     state = { map: nextMap };
     notify();
@@ -218,6 +234,36 @@ export function publishFleetStatusSessionState(
   // observable contract of the three-axis single-chokepoint architecture
   // per 47-CONTEXT.md § Working-store third axis.
   advanceSessionAiTitle(key, state_arg.aiTitle ?? null);
+
+  // ── Axis D — dormant swap-and-notify block (Phase 52 Plan 01) ──
+  // Wire semantic (optional field): `dormant: true` sets true, `dormant: false`
+  // sets false (explicit reset), `dormant` absent (undefined) preserves the
+  // cached value — an Axis-A-only republish that carries no dormant signal
+  // must NOT wipe a dormant:true set by a prior frame. This matches the
+  // optional-field convention on the wire (dormant?: boolean).
+  //
+  // Direct swap-and-notify: no max-wins, no last-wins — when we DO have a
+  // signal, dormant is a strict boolean gate on the sentinel file's presence.
+  // Fire only when we have an explicit signal AND it differs from cache.
+  // Brand-new-key case is handled above in Axis A; here we only fire on change.
+  if (state_arg.dormant !== undefined) {
+    const dormant = state_arg.dormant === true;
+    const existingAfterAxes = state.map.get(key);
+    if (
+      existingAfterAxes !== undefined &&
+      existingAfterAxes.dormant !== dormant
+    ) {
+      const nextMap = new Map(state.map);
+      nextMap.set(key, {
+        isWorking: existingAfterAxes.isWorking,
+        lastMessageAt: existingAfterAxes.lastMessageAt,
+        aiTitle: existingAfterAxes.aiTitle,
+        dormant,
+      });
+      state = { map: nextMap };
+      notify();
+    }
+  }
 }
 
 /**
@@ -286,6 +332,7 @@ function advanceSessionLastMessageAt(key: string, ts: number | null): void {
     isWorking: existing?.isWorking ?? false,
     lastMessageAt: ts,
     aiTitle: existing?.aiTitle ?? null,
+    dormant: existing?.dormant ?? false,
   };
 
   console.info({
@@ -369,6 +416,7 @@ function advanceSessionAiTitle(key: string, title: string | null): void {
     isWorking: existing?.isWorking ?? false,
     lastMessageAt: existing?.lastMessageAt ?? null,
     aiTitle: title,
+    dormant: existing?.dormant ?? false,
   };
 
   console.info({
@@ -461,6 +509,32 @@ export function useSessionIsWorkingRaw(key: string | null): boolean | null {
 }
 
 /**
+ * Phase 52 Plan 01 — Hook: derive "is this session dormant?" for a single key.
+ * Returns a strict boolean (never null/undefined).
+ *
+ *   - Null key          → false (short-circuit; no useSyncExternalStore work).
+ *   - Unknown key       → false (key never published — default-open state).
+ *   - dormant === false → false (sentinel absent; identity in normal operation).
+ *   - dormant === true  → true  (sentinel present; identity parked by supervisor).
+ *
+ * Source: ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the
+ * target host, plumbed via ssh-poll-orchestrator source A (live-PID tick) and
+ * source B (dormant-only enumeration). See Phase 52 Plan 01 for both sources.
+ *
+ * Consumed by Plan 03's Ready predicate: rows are "ready" when
+ * !isWorking && !isDormant — both hooks read from the same WorkingRecord.
+ */
+export function useSessionIsDormant(key: string | null): boolean {
+  const getSnapshot = (): boolean => {
+    if (key === null) return false;
+    const record = state.map.get(key);
+    if (record === undefined) return false;
+    return record.dormant;
+  };
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
  * Return the raw internal Map as a ReadonlyMap view.
  * NOT for production callers. Kept exported (rather than gated on
  * import.meta.env.MODE === "test") because Vite's tree-shaker drops it from
@@ -468,7 +542,7 @@ export function useSessionIsWorkingRaw(key: string | null): boolean | null {
  */
 export function getSessionWorkingSnapshot(): ReadonlyMap<
   string,
-  { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null }
+  { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean }
 > {
   return state.map;
 }

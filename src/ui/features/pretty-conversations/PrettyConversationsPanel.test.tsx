@@ -309,13 +309,38 @@ const useSessionAiTitleSpy = vi.fn((sessionKey: string | null) => {
   if (sessionKey === null) return null;
   return mockAiTitleByKey.get(sessionKey) ?? null;
 });
+
+// Phase 52 Plan 04 — per-test seeding for the Ready toggle test coverage.
+// Mirrors the mockAiTitleByKey pattern at :307. Tests seed these Maps in
+// arrange steps; afterEach clears them.
+let mockIsWorkingByKey: Map<string | null, boolean> = new Map();
+let mockIsDormantByKey: Map<string | null, boolean> = new Map();
+let mockWorkingSnapshot: Map<string, { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean }> = new Map();
+
+const useSessionIsWorkingSpy = vi.fn((sessionKey: string | null) => {
+  if (sessionKey === null) return false;
+  return mockIsWorkingByKey.get(sessionKey) ?? false;
+});
+const useSessionIsDormantSpy = vi.fn((sessionKey: string | null) => {
+  if (sessionKey === null) return false;
+  return mockIsDormantByKey.get(sessionKey) ?? false;
+});
+const getSessionWorkingSnapshotSpy = vi.fn(() => mockWorkingSnapshot as ReadonlyMap<string, { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean }>);
+
 vi.mock("@/state/session-working-store", () => ({
-  useSessionIsWorking: () => false,
+  useSessionIsWorking: (sessionKey: string | null) => useSessionIsWorkingSpy(sessionKey),
   useSessionLastMessageAt: () => null,
   getSessionLastMessageAt: () => null,
   subscribeSessionWorkingStore: (_cb: () => void) => () => {},
   useSessionAiTitle: (sessionKey: string | null) =>
     useSessionAiTitleSpy(sessionKey),
+  // Phase 52 Plan 03 (plan-checker B-2 fix): Panel.tsx now imports
+  // getSessionWorkingSnapshot + useSessionIsDormant. Without these
+  // stubs every existing test throws TypeError on render.
+  // Phase 52 Plan 04: upgraded from default stubs to spy-based per-test
+  // seeding via mockIsWorkingByKey / mockIsDormantByKey / mockWorkingSnapshot.
+  getSessionWorkingSnapshot: () => getSessionWorkingSnapshotSpy(),
+  useSessionIsDormant: (sessionKey: string | null) => useSessionIsDormantSpy(sessionKey),
 }));
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal so the panel-level test suite
@@ -430,6 +455,16 @@ beforeEach(async () => {
   // not consume it in this plan's scope). Wire tests populate explicitly.
   mockAiTitleByKey = new Map<string | null, string | null>();
   useSessionAiTitleSpy.mockClear();
+  // Phase 52 Plan 04: reset the Ready-toggle seeding Maps to empty so existing
+  // tests see the same empty-Map default as Plan 03's stubs provided. The spy
+  // functions return false / new Map() for empty maps — behaviorally identical
+  // to Plan 03's `() => false` / `() => new Map()` defaults.
+  mockIsWorkingByKey = new Map();
+  mockIsDormantByKey = new Map();
+  mockWorkingSnapshot = new Map();
+  useSessionIsWorkingSpy.mockClear();
+  useSessionIsDormantSpy.mockClear();
+  getSessionWorkingSnapshotSpy.mockClear();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1790,7 +1825,9 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     expect(queryByTestId("pv-filter-toggles-popover")).toBeNull();
   });
 
-  it("Test 24: clicking the button opens the popover; both checkboxes unchecked; button still data-active=false + no dot", () => {
+  it("Test 24: clicking the button opens the popover; all three buttons unchecked; button still data-active=false + no dot", () => {
+    // Phase 52 Plan 02 adaptation: shadcn Checkbox data-state="unchecked" replaced by
+    // role="menuitemcheckbox" aria-checked="false" on the new button elements.
     setSnapshot({ activeSet: [], pinned: [], grouped: [] });
     const { container, getByTestId, queryByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
@@ -1799,11 +1836,13 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     fireEvent.click(getByTestId("pv-filter-toggles"));
     // Popover is now in DOM (via portal — use screen queries).
     expect(screen.queryByTestId("pv-filter-toggles-popover")).toBeTruthy();
-    // Both checkboxes present, both unchecked (Radix state="unchecked").
-    const pinnedCb = screen.getByTestId("pv-filter-toggle-pinned");
-    const deskCb = screen.getByTestId("pv-filter-toggle-needs-desk");
-    expect(pinnedCb.getAttribute("data-state")).toBe("unchecked");
-    expect(deskCb.getAttribute("data-state")).toBe("unchecked");
+    // All three menu-item buttons present, all aria-checked=false.
+    const readyBtn = screen.getByTestId("pv-filter-toggle-ready");
+    const pinnedBtn = screen.getByTestId("pv-filter-toggle-pinned");
+    const deskBtn = screen.getByTestId("pv-filter-toggle-needs-desk");
+    expect(readyBtn.getAttribute("aria-checked")).toBe("false");
+    expect(pinnedBtn.getAttribute("aria-checked")).toBe("false");
+    expect(deskBtn.getAttribute("aria-checked")).toBe("false");
     // Button still inactive — opening popover doesn't flip any toggle.
     const btn = getByTestId("pv-filter-toggles");
     expect(btn.getAttribute("data-active")).toBe("false");
@@ -3705,5 +3744,292 @@ describe("PrettyConversationsPanel (Phase 47 Plan 04): PrettyConversationRowLive
     // (not hoisted to the panel) — each row gets its own subscription.
     expect(calls).toContain("h1:tina");
     expect(calls).toContain("h2:nelly");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 52 Plan 04 — filter popover chrome + Ready toggle coverage (10 tests)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready toggle", () => {
+  // Clear the Phase 52 Plan 04 seeding Maps after each test in this block.
+  // beforeEach (module-level above) resets them to empty; this afterEach
+  // clears them as a belt-and-suspenders guard for any tests that mutate
+  // the Maps mid-test and don't clean up before asserting a second render.
+  afterEach(() => {
+    mockIsWorkingByKey.clear();
+    mockIsDormantByKey.clear();
+    mockWorkingSnapshot.clear();
+  });
+
+  // ── Shared fixture helper ──────────────────────────────────────────────────
+  // Sets up one middle row: tina-session on host "1" (hostA). Used by the
+  // four Ready-predicate tests (P50-4, P50-5, P50-6, P50-6b) and P50-9.
+  // Keys:
+  //   sessionMatchKey("tina-session") → "tina-session" (matchKey used by rowSessionStates)
+  //   sessionWorkingKey(row)          → "1:tina-session" (key for per-row hooks)
+  function setupTinaRow() {
+    const host1 = makeHost("1", "hostA");
+    mockIdentitiesByKey = new Map([["tina-session", { identityKey: "tina" }]]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: host1 }),
+      ],
+      rdpGroup: null,
+    });
+  }
+
+  // ── P50-1: Popover chrome tokens (including width:auto override) ──────────
+
+  it("P50-1 — popover chrome tokens are present on PopoverContent inline style including width:auto (plan-checker W-1 alignment)", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    const { getByTestId, queryByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Open the popover.
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    const popover = screen.queryByTestId("pv-filter-toggles-popover");
+    expect(popover).toBeTruthy();
+    // Read the style attribute and normalize whitespace for reliable substring matching.
+    const styleAttr = (popover!.getAttribute("style") ?? "").replace(/\s+/g, " ");
+    // Glass gradient background.
+    expect(styleAttr).toContain("linear-gradient(160deg");
+    // Deep navy base layer — note rgba may or may not have spaces; check both.
+    const hasNordBase =
+      styleAttr.includes("rgba(20,21,32,0.94)") ||
+      styleAttr.includes("rgba(20, 21, 32, 0.94)");
+    expect(hasNordBase).toBe(true);
+    // Warm-cream border alpha.
+    const hasWarmBorder =
+      styleAttr.includes("rgba(255,240,215,0.12)") ||
+      styleAttr.includes("rgba(255, 240, 215, 0.12)");
+    expect(hasWarmBorder).toBe(true);
+    // Backdrop blur + saturate.
+    expect(styleAttr).toContain("blur(20px)");
+    expect(styleAttr).toContain("saturate(1.6)");
+    // Warm cream text color. JSDOM normalizes hex to rgb(), so check both forms.
+    const hasWarmColor =
+      styleAttr.includes("#e8e4d8") ||
+      styleAttr.includes("rgb(232, 228, 216)") ||
+      styleAttr.includes("rgb(232,228,216)");
+    expect(hasWarmColor).toBe(true);
+    // min-width: 200px (from minWidth: 200 in React inline style).
+    const hasMinWidth =
+      styleAttr.includes("min-width: 200px") ||
+      styleAttr.includes("min-width:200px");
+    expect(hasMinWidth).toBe(true);
+    // width: auto — the shadcn w-72 override (plan-checker W-1 alignment).
+    const hasWidthAuto =
+      styleAttr.includes("width: auto") ||
+      styleAttr.includes("width:auto");
+    expect(hasWidthAuto).toBe(true);
+  });
+
+  // ── P50-2: Menu-item count + order ───────────────────────────────────────
+
+  it("P50-2 — popover renders 3 menuitemcheckbox buttons in Ready → Pinned → Needs desk order", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    const { getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    const items = screen.getAllByRole("menuitemcheckbox");
+    expect(items).toHaveLength(3);
+    // Order: Ready first, Pinned second, Needs desk third.
+    expect(items[0].textContent).toContain("Ready");
+    expect(items[1].textContent).toContain("Pinned");
+    expect(items[2].textContent).toContain("Needs desk");
+  });
+
+  // ── P50-3: Leading outlined-square check affordance with inline SVG ───────
+
+  it("P50-3 — Ready button has a .pv-filter-check affordance with inline-SVG path M3.5 8.5 L7 12 L13 5; clicking toggles data-checked", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    const { getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    const readyBtn = screen.getByTestId("pv-filter-toggle-ready");
+    // Leading checkbox affordance element.
+    const checkEl = readyBtn.querySelector(".pv-filter-check");
+    expect(checkEl).toBeTruthy();
+    expect(checkEl!.getAttribute("data-checked")).toBe("false");
+    // Inline SVG path — exact value from CONTEXT.md § decisions § Menu items.
+    const pathEl = readyBtn.querySelector("svg > path");
+    expect(pathEl).toBeTruthy();
+    expect(pathEl!.getAttribute("d")).toBe("M3.5 8.5 L7 12 L13 5");
+    // Click toggles the check.
+    fireEvent.click(readyBtn);
+    expect(checkEl!.getAttribute("data-checked")).toBe("true");
+  });
+
+  // ── P50-4: Ready toggle filters out working rows ──────────────────────────
+
+  it("P50-4 — Ready toggle hides rows where isWorking=true", () => {
+    setupTinaRow();
+    // Seed working-store snapshot: tina-session is working.
+    // Key for mockWorkingSnapshot: sessionMatchKey("tina-session") = "tina-session".
+    // Key for mockIsWorkingByKey: sessionWorkingKey(row) = "1:tina-session".
+    mockWorkingSnapshot.set("tina-session", { isWorking: true, lastMessageAt: null, aiTitle: null, dormant: false });
+    mockIsWorkingByKey.set("1:tina-session", true);
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Pre-filter: row is present.
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
+    // Enable Ready filter.
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
+    // Working row is hidden: !isWorking is false → readyOk is false.
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeNull();
+  });
+
+  // ── P50-5: Ready toggle filters out dormant rows ──────────────────────────
+
+  it("P50-5 — Ready toggle hides rows where isDormant=true", () => {
+    setupTinaRow();
+    // Seed: tina-session is dormant (not working, but dormant).
+    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: true });
+    mockIsDormantByKey.set("1:tina-session", true);
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Pre-filter: row is present.
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
+    // Enable Ready filter.
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
+    // Dormant row is hidden: !isDormant is false → readyOk is false.
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeNull();
+  });
+
+  // ── P50-6: Ready toggle admits idle-not-dormant rows WITH seeded wire signal
+
+  it("P50-6 — Ready toggle shows idle-not-dormant rows that have a seeded wire signal (fail-CLOSED-compatible admit case)", () => {
+    setupTinaRow();
+    // Seed: tina-session is idle AND not dormant, with an explicit wire signal
+    // (rowState IS defined — this is the admit case for fail-CLOSED predicate).
+    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: false });
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Pre-filter: row is present.
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
+    // Enable Ready filter.
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
+    // Row passes: rowState defined, isWorking=false, isDormant=false → readyOk=true.
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
+  });
+
+  // ── P50-6b: Ready toggle fail-CLOSED default ──────────────────────────────
+
+  it("P50-6b — Ready toggle fail-CLOSED default: row with no wire signal is HIDDEN when readyOnly is on", () => {
+    // fail-CLOSED: a row absent from the working-store snapshot (rowState undefined)
+    // is treated as NOT ready. This test locks the W-3 plan-checker fix: if a future
+    // refactor reverts to fail-OPEN (!rowState?.isWorking && !rowState?.isDormant),
+    // this test fails immediately because undefined?.isWorking evaluates to undefined
+    // (falsy) — making the row VISIBLE instead of hidden.
+    setupTinaRow();
+    // IMPORTANT: do NOT seed mockWorkingSnapshot for "tina-session". The row is
+    // truly rowState-undefined — no wire signal has arrived for this session.
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Pre-filter: row is present (Ready toggle is off, so filter is not applied).
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
+    // Enable Ready filter.
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
+    // fail-CLOSED: rowState undefined → readyOk=false → row hidden.
+    // The predicate is `!readyOnly || (rowState !== undefined && !rowState.isWorking && !rowState.isDormant)`.
+    // With readyOnly=true and rowState=undefined: false → row is filtered out.
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeNull();
+  });
+
+  // ── P50-7: anyFilterOn extends to readyOnly ───────────────────────────────
+
+  it("P50-7 — anyFilterOn extends to readyOnly: .pv-filter-dot appears and data-active=true when only Ready is on", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // No dot initially.
+    expect(container.querySelector(".pv-filter-dot")).toBeNull();
+    expect(getByTestId("pv-filter-toggles").getAttribute("data-active")).toBe("false");
+    // Enable Ready filter only (Pinned + Needs desk remain off).
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
+    // anyFilterOn is now true (readyOnly=true) → dot is present.
+    expect(container.querySelector(".pv-filter-dot")).toBeTruthy();
+    expect(getByTestId("pv-filter-toggles").getAttribute("data-active")).toBe("true");
+  });
+
+  // ── P50-8: RDP-group rows pass through unfiltered when Ready is on ────────
+
+  it("P50-8 — RDP-group rows pass through unfiltered when Ready toggle is on", () => {
+    // RDP rows never match the identity-based filter predicates (no tmuxSession,
+    // no working-store signal) — they are explicitly excluded from filtering per
+    // CONTEXT.md § decisions § Filter logic (displayedRdpGroup = rdpGroup verbatim).
+    const rdpRow = makeConversationRow({
+      id: "rdp-row",
+      targetTmuxSession: null,
+      host: makeHost("2", "rdpBox"),
+      rdpHostRow: true,
+    });
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [],
+      rdpGroup: { hostId: "__rdp__", hostName: "rdp-hosts", rows: [rdpRow] },
+    });
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // RDP row is present pre-filter.
+    expect(container.querySelector('[data-conversation-id="rdp-row"]')).toBeTruthy();
+    // Enable Ready filter.
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
+    // RDP row is still present: it bypasses the filter entirely.
+    expect(container.querySelector('[data-conversation-id="rdp-row"]')).toBeTruthy();
+  });
+
+  // ── P50-9: AND-intersection: Ready + Pinned reject a row satisfying only Ready
+
+  it("P50-9 — AND-intersection: Ready-on + Pinned-on rejects a row that passes Ready but has pinnedCount=0", () => {
+    // tina-session: idle + not-dormant + rowState-defined (passes Ready),
+    // but pinnedCount=0 (fails Pinned). After enabling both filters, the row
+    // must be hidden because the AND-intersection fails on the Pinned axis.
+    const host1 = makeHost("1", "hostA");
+    mockIdentitiesByKey = new Map([["tina-session", { identityKey: "tina" }]]);
+    mockBountyCounts = new Map([["tina:1", { pinnedCount: 0, needsDeskCount: 0 }]]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: host1 }),
+      ],
+      rdpGroup: null,
+    });
+    // Seed: tina is READY (idle + not-dormant + wire signal present → passes Ready).
+    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: false });
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    // Pre-filter: row is present.
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
+    // Open popover.
+    fireEvent.click(getByTestId("pv-filter-toggles"));
+    // Enable Ready only: row passes (Ready predicate met; Pinned not yet on).
+    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
+    // Now also enable Pinned: AND-intersection fails (pinnedCount=0).
+    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
+    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeNull();
+    // Filter dot is present throughout (any filter on → anyFilterOn=true).
+    expect(container.querySelector(".pv-filter-dot")).toBeTruthy();
   });
 });
