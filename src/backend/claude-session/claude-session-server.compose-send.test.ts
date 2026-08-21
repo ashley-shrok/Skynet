@@ -158,10 +158,12 @@ describe("__applyInputMessageForTests", () => {
     expect(cmd).not.toMatch(/\sEnter\s*$/);
   });
 
-  it("input: SPLIT-SEND case under fake timers → 250ms boundary enforced", async () => {
-    // Gate: at t=249ms still ONE call; at t=250ms exactly TWO calls.
+  it("input: SPLIT-SEND case under fake timers → 1000ms boundary enforced", async () => {
+    // Gate: at t=999ms still ONE call; at t=1000ms exactly TWO calls.
     // Mirrors claude-session-server.aside.test.ts:376-403 (200ms gate for injectBtw),
-    // substituting 249/1 for the 250ms boundary per D-PVWS-01 + terminal.ts:842 (patch #111).
+    // substituting 999/1 for the 1000ms boundary (bumped from 250ms 2026-08-21
+    // by tina after diagnosing stuck sends; see claude-session-server.ts's
+    // SPLIT_SEND_DELAY block for reasoning).
     vi.useFakeTimers();
     const exec = vi.fn().mockResolvedValue("");
 
@@ -179,8 +181,8 @@ describe("__applyInputMessageForTests", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // At 249ms — body write has fired, Enter (at 250ms) has NOT yet fired.
-    await vi.advanceTimersByTimeAsync(249);
+    // At 999ms — body write has fired, Enter (at 1000ms) has NOT yet fired.
+    await vi.advanceTimersByTimeAsync(999);
     expect(exec.mock.calls.length).toBe(1);
 
     // Body call: must have -l flag, must NOT be the Enter call
@@ -191,7 +193,7 @@ describe("__applyInputMessageForTests", () => {
     expect(cmd1).toContain("'hello'");
     expect(cmd1).not.toMatch(/\sEnter\s*$/);
 
-    // Advance 1ms more (total 250ms) — setTimeout fires, Enter write executes.
+    // Advance 1ms more (total 1000ms) — setTimeout fires, Enter write executes.
     await vi.advanceTimersByTimeAsync(1);
     // Flush microtasks triggered by the timer.
     await Promise.resolve();
@@ -209,9 +211,9 @@ describe("__applyInputMessageForTests", () => {
     await promise;
   });
 
-  it("input: SPLIT-SEND with empty body (mqid = 'x', data = '\\r') → SKIP body write, ONE Enter call at 250ms", async () => {
+  it("input: SPLIT-SEND with empty body (mqid = 'x', data = '\\r') → SKIP body write, ONE Enter call at 1000ms", async () => {
     // Edge case: data is just \r with a non-empty mqid → isSplitSend=true, body is empty.
-    // Body write is SKIPPED (body.length === 0); only the Enter call fires after 250ms.
+    // Body write is SKIPPED (body.length === 0); only the Enter call fires after 1000ms.
     vi.useFakeTimers();
     const exec = vi.fn().mockResolvedValue("");
 
@@ -229,8 +231,8 @@ describe("__applyInputMessageForTests", () => {
     await Promise.resolve();
     expect(exec.mock.calls.length).toBe(0);
 
-    // Advance past 250ms — Enter fires.
-    await vi.advanceTimersByTimeAsync(250);
+    // Advance past 1000ms — Enter fires.
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.resolve();
     await Promise.resolve();
 
@@ -284,8 +286,8 @@ describe("__applyInputMessageForTests", () => {
       messageQueueItemId: "pv-test-mqid-1",
     });
 
-    // Advance timers past 250ms — the throw already caught in catch block; Enter never fires.
-    await vi.advanceTimersByTimeAsync(300);
+    // Advance timers past 1000ms — the throw already caught in catch block; Enter never fires.
+    await vi.advanceTimersByTimeAsync(1100);
     await Promise.resolve();
     await Promise.resolve();
 
@@ -431,8 +433,8 @@ describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", ()
       trackMqid,
     });
 
-    // Advance past the 250ms split-send gate so Enter completes.
-    await vi.advanceTimersByTimeAsync(300);
+    // Advance past the 1000ms split-send gate so Enter completes.
+    await vi.advanceTimersByTimeAsync(1100);
     await Promise.resolve();
     await Promise.resolve();
     await promise;
@@ -527,8 +529,8 @@ describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", ()
       trackMqid,
     });
 
-    // Advance past the 250ms split-send gate so the Enter completes.
-    await vi.advanceTimersByTimeAsync(250);
+    // Advance past the 1000ms split-send gate so the Enter completes.
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.resolve();
     await Promise.resolve();
     await promise;
@@ -557,6 +559,93 @@ describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", ()
     expect(escalations.length).toBe(0);
   });
 
+  it("Test 2c (2026-08-21, tina): non-split with data ending in \\r + no mqid → arm retry-Enter-only watchdog with synthetic mqid", async () => {
+    // Non-split-path safety net: the frontend chain sometimes loses the
+    // messageQueueItemId (diagnosed 2026-08-21 — 2/6 sends this session
+    // took the non-split path with body pasted + literal \r → composer
+    // newline, no submit, watchdog never armed). This test locks in the
+    // rescue: on non-split with data.length > 1 && data.endsWith("\r"),
+    // arm a retry-Enter-only watchdog with a synthetic backend-side mqid.
+    // The retry Enter at T+2500ms submits whatever's in the composer.
+    const exec = vi.fn().mockResolvedValue("");
+    const wsSend = vi.fn();
+    const armWatchdog = vi.fn();
+    const trackMqid = vi.fn();
+
+    await __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "hello\r",
+      // No messageQueueItemId — this is the trap: frontend meant to submit
+      // but lost the mqid somewhere; backend takes the non-split path.
+      sessionId: "sess-A",
+      wsSend,
+      armWatchdog,
+      trackMqid,
+    });
+
+    // Body written once via the non-split path (`send-keys -l <data>`).
+    expect(exec).toHaveBeenCalledTimes(1);
+    const bodyCmd = exec.mock.calls[0][1] as string;
+    expect(bodyCmd).toContain("-l");
+    expect(bodyCmd).toContain("hello");
+    // \r survives inside the single-quoted argument as a literal byte.
+    expect(bodyCmd).toContain("\r");
+
+    // Watchdog armed exactly once with retryEnterOnly=true and a synthetic mqid.
+    expect(armWatchdog).toHaveBeenCalledTimes(1);
+    const armArgs = armWatchdog.mock.calls[0][0] as {
+      sessionId: string;
+      mqid: string;
+      body: string;
+      contentHash: string;
+      tmuxTarget: string;
+      retryEnterOnly?: boolean;
+    };
+    expect(armArgs.sessionId).toBe("sess-A");
+    expect(armArgs.mqid).toMatch(/^backend-synth-\d+-[a-z0-9]{8}$/);
+    expect(armArgs.body).toBe("hello"); // data without trailing \r
+    expect(armArgs.tmuxTarget).toBe("legit-session");
+    expect(armArgs.retryEnterOnly).toBe(true);
+    // contentHash derivation MUST match sha256(body).slice(0,32).
+    const expectedHash = createHash("sha256")
+      .update("hello")
+      .digest("hex")
+      .slice(0, 32);
+    expect(armArgs.contentHash).toBe(expectedHash);
+
+    // Synthetic mqid tracked on the connection for orphan-frame prevention.
+    expect(trackMqid).toHaveBeenCalledTimes(1);
+    expect(trackMqid.mock.calls[0][0]).toBe(armArgs.mqid);
+  });
+
+  it("Test 2d (2026-08-21, tina): non-split with data='\\r' only (1 byte) → do NOT arm the retry-Enter-only watchdog", async () => {
+    // Boundary check: the non-split arm gate requires data.length > 1. A
+    // bare \r on the non-split path (data='\r' without mqid) is not a
+    // compose-submit shape — it's a raw single-byte write. Do not arm.
+    const exec = vi.fn().mockResolvedValue("");
+    const armWatchdog = vi.fn();
+    const trackMqid = vi.fn();
+
+    await __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "\r",
+      sessionId: "sess-A",
+      wsSend: vi.fn(),
+      armWatchdog,
+      trackMqid,
+    });
+
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(armWatchdog).not.toHaveBeenCalled();
+    expect(trackMqid).not.toHaveBeenCalled();
+  });
+
   it("Test 3: execCommand throws on body → send_keys_error frame emitted with reason exec_throw_body; armWatchdog NOT called", async () => {
     vi.useFakeTimers();
     const exec = vi.fn().mockRejectedValue(new Error("SSH channel closed"));
@@ -577,7 +666,7 @@ describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", ()
       trackMqid,
     });
 
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1100);
     await Promise.resolve();
     await Promise.resolve();
     await promise;
@@ -627,7 +716,7 @@ describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", ()
       trackMqid,
     });
 
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1100);
     await Promise.resolve();
     await Promise.resolve();
     await promise;

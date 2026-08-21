@@ -1795,9 +1795,29 @@ export async function __applyInputMessageForTests(deps: {
   const mqid = String(deps.messageQueueItemId ?? "");
   // Split-send gate (mirrors terminal.ts:499 split-send semantics):
   // mqid non-empty + data ends in \r → pretty-view compose-send shape (patch #110).
-  // Body write first, then 250ms (matches terminal.ts:842 — patch #111 raised from 50ms
-  // after Ashley UAT confirmed 50ms caused paste-detection-still-active symptom), then Enter.
+  // Body write first, then SPLIT_SEND_DELAY_MS (bumped from 250ms → 1000ms
+  // 2026-08-21 by tina after diagnosing stuck sends; 250ms was sometimes
+  // inside the bracketed-paste-drain window on this pane. Patch #111 lore
+  // said "don't go BELOW 250" — going higher is more conservative, not less),
+  // then Enter.
   const isSplitSend = mqid.length > 0 && data.endsWith("\r");
+  // Instrumentation (2026-08-21, tina): log every input frame at rx with all
+  // signals needed to diagnose "message stuck in composer" reports. Compare
+  // against `[compose] submit-*` on the frontend side to see where mqid gets
+  // dropped in the chain. Cheap + batched to console; rules per Ashley
+  // 2026-08-11 (logging-first diagnosis).
+  sshLogger.info(
+    `[pv-input] rx hostId=${currentHostId} tmuxSession=${currentTmuxSession} dataLen=${data.length} hasMqid=${mqid.length > 0} mqid=${mqid.length > 0 ? mqid : "none"} endsWithCR=${data.endsWith("\r")} isSplitSend=${isSplitSend}`,
+    {
+      operation: "pv_input_rx",
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      dataLen: data.length,
+      hasMqid: mqid.length > 0,
+      endsWithCR: data.endsWith("\r"),
+      isSplitSend,
+    },
+  );
   // Phase 50 Plan 02 Task 2 — track which exec call threw so the send_keys_error
   // frame (D-21) can carry a precise reason. Body throw short-circuits Enter.
   let bodyExecFailed = false;
@@ -1816,8 +1836,13 @@ export async function __applyInputMessageForTests(deps: {
           throw bodyErr;
         }
       }
-      // 250ms — matches terminal.ts:842 (patch #111). Do NOT change to 50ms.
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      // 1000ms — bumped from 250ms 2026-08-21 by tina. Patch #111 lore said
+      // "don't go BELOW 250" (Ashley UAT confirmed 50ms caused paste-detection-
+      // still-active symptom). Diagnostic on 2026-08-21 found sends still
+      // occasionally getting stuck at 250ms; raising to 1000ms adds more
+      // headroom for bracketed-paste-drain / tmux-write-coalesce edges. Cost:
+      // every compose send is ~750ms slower.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       try {
         await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} Enter`);
       } catch (enterErr) {
@@ -1871,6 +1896,59 @@ export async function __applyInputMessageForTests(deps: {
         logger: sshLogger,
       });
       deps.trackMqid?.(mqid);
+      sshLogger.info("[pv-input] armed split-send watchdog", {
+        operation: "pv_input_arm_split",
+        mqid,
+        sessionId: deps.sessionId,
+        bodyBytes: body.length,
+      });
+    }
+
+    // Non-split safety net (2026-08-21, tina). When the frontend loses mqid
+    // somewhere in the chain, we take the non-split path — body written with
+    // `send-keys -l <data>` where data ends in \r. Under bracketed paste the
+    // trailing \r lands as a newline in the composer, NOT a submit, and the
+    // message sits forever with no auto-recovery. Arm a retry-Enter-only
+    // watchdog so T+2500ms fires a bare Enter (safe by D-16: Claude ignores
+    // empty-input Enter). Full-resend + give-up are SKIPPED here — see
+    // pv-send-watchdog.ts ArmPvSendWatchdogArgs.retryEnterOnly comment for
+    // the double-submit reasoning. Gate on data.length > 1 so a bare "\r"
+    // frame doesn't arm.
+    if (
+      !isSplitSend &&
+      data.length > 1 &&
+      data.endsWith("\r") &&
+      deps.sessionId &&
+      deps.wsSend &&
+      deps.armWatchdog
+    ) {
+      const nonSplitBody = data.slice(0, -1);
+      const contentHash = createHash("sha256")
+        .update(nonSplitBody)
+        .digest("hex")
+        .slice(0, 32);
+      const synthMqid = `backend-synth-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+      deps.armWatchdog({
+        sessionId: deps.sessionId,
+        mqid: synthMqid,
+        body: nonSplitBody,
+        contentHash,
+        execCommand: (cmd: string) => exec(sshConn, cmd),
+        tmuxTarget: currentTmuxSession,
+        wsSend: deps.wsSend,
+        logger: sshLogger,
+        retryEnterOnly: true,
+      });
+      deps.trackMqid?.(synthMqid);
+      sshLogger.warn(
+        "[pv-input] armed non-split retry-Enter-only watchdog (mqid lost somewhere in frontend chain?)",
+        {
+          operation: "pv_input_arm_non_split",
+          synthMqid,
+          sessionId: deps.sessionId,
+          bodyBytes: nonSplitBody.length,
+        },
+      );
     }
   } catch (err) {
     // Phase 50 Plan 02 D-21 — surface execCommand throws as a new
