@@ -33,6 +33,8 @@ import { createHash } from "node:crypto";
 import {
   __applyInputMessageForTests,
   __applyInterruptMessageForTests,
+  __applyOnLineNotifyForTests,
+  reconstructRawSlashCommand,
 } from "./claude-session-server.js";
 import {
   armPvSendWatchdog,
@@ -830,5 +832,152 @@ describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", ()
       return f?.type === "paste_send_failed";
     });
     expect(escalations.length).toBe(0);
+  });
+});
+
+// ─── reconstructRawSlashCommand + __applyOnLineNotifyForTests (quick-260821-shn) ─
+//
+// See .planning/quick/260821-shn-slash-cmd-watchdog-dual-hash-notify/260821-shn-PLAN.md.
+// Purpose: prove the dual-hash notify seam clears the frontend pv-send-watchdog
+// for slash-command sends (frontend hashed raw `/id tabitha`; backend previously
+// only hashed the wrapper `<command-message>id</command-message><command-name>/id
+// </command-name><command-args>tabitha</command-args>`). Post-fix the tail-side
+// onLine callback notifies BOTH hashes for slash-command frames — clearing the
+// pending watchdog and preventing the T+2500ms retry + T+5500ms double-submit.
+
+describe("reconstructRawSlashCommand + __applyOnLineNotifyForTests — dual-hash notify (quick-260821-shn)", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const hash32 = (s: string): string =>
+    createHash("sha256").update(s).digest("hex").slice(0, 32);
+
+  it("Test 1 (with-args): wrapper /id tabitha → returns \"/id tabitha\" and notifyMatched called TWICE (wrapper-hash then raw-hash, in order)", () => {
+    const content =
+      "<command-message>id</command-message>" +
+      "<command-name>/id</command-name>" +
+      "<command-args>tabitha</command-args>";
+    expect(reconstructRawSlashCommand(content)).toBe("/id tabitha");
+
+    const spy = vi.fn();
+    __applyOnLineNotifyForTests({
+      frame: { type: "message", role: "user", content },
+      sessionIdFromFile: "sess-A",
+      notifyMatched: spy,
+    });
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    // First call = wrapper-hash (unchanged from pre-fix)
+    expect(spy).toHaveBeenNthCalledWith(1, "sess-A", hash32(content));
+    // Second call = raw-hash (the fix)
+    expect(spy).toHaveBeenNthCalledWith(2, "sess-A", hash32("/id tabitha"));
+  });
+
+  it("Test 2 (no-args, missing <command-args> block): wrapper /help → returns \"/help\" (no trailing space) and notifyMatched called TWICE", () => {
+    const content =
+      "<command-message>help</command-message>" +
+      "<command-name>/help</command-name>";
+    expect(reconstructRawSlashCommand(content)).toBe("/help");
+
+    const spy = vi.fn();
+    __applyOnLineNotifyForTests({
+      frame: { type: "message", role: "user", content },
+      sessionIdFromFile: "sess-A",
+      notifyMatched: spy,
+    });
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenNthCalledWith(1, "sess-A", hash32(content));
+    expect(spy).toHaveBeenNthCalledWith(2, "sess-A", hash32("/help"));
+  });
+
+  it("Test 3 (empty <command-args></command-args>): reconstructs to \"/help\" (no trailing space) and notifyMatched called TWICE", () => {
+    const content =
+      "<command-message>help</command-message>" +
+      "<command-name>/help</command-name>" +
+      "<command-args></command-args>";
+    expect(reconstructRawSlashCommand(content)).toBe("/help");
+
+    const spy = vi.fn();
+    __applyOnLineNotifyForTests({
+      frame: { type: "message", role: "user", content },
+      sessionIdFromFile: "sess-A",
+      notifyMatched: spy,
+    });
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenNthCalledWith(1, "sess-A", hash32(content));
+    expect(spy).toHaveBeenNthCalledWith(2, "sess-A", hash32("/help"));
+  });
+
+  it("Test 4 (multi-line args verbatim): newline preserved inside args body, notifyMatched called TWICE with raw-hash of multi-line body", () => {
+    const rawBody = "/note line one\nline two";
+    const content =
+      "<command-message>note</command-message>" +
+      "<command-name>/note</command-name>" +
+      "<command-args>line one\nline two</command-args>";
+    expect(reconstructRawSlashCommand(content)).toBe(rawBody);
+
+    const spy = vi.fn();
+    __applyOnLineNotifyForTests({
+      frame: { type: "message", role: "user", content },
+      sessionIdFromFile: "sess-A",
+      notifyMatched: spy,
+    });
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenNthCalledWith(1, "sess-A", hash32(content));
+    expect(spy).toHaveBeenNthCalledWith(2, "sess-A", hash32(rawBody));
+  });
+
+  it("Test 5 (NON-slash control): plain \"hello\" → returns null and notifyMatched called EXACTLY ONCE (byte-identical to pre-fix)", () => {
+    expect(reconstructRawSlashCommand("hello")).toBeNull();
+
+    const spy = vi.fn();
+    __applyOnLineNotifyForTests({
+      frame: { type: "message", role: "user", content: "hello" },
+      sessionIdFromFile: "sess-A",
+      notifyMatched: spy,
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenNthCalledWith(1, "sess-A", hash32("hello"));
+  });
+
+  it("Test 6 (malformed wrapper — <command-message> present but NO <command-name>): returns null, notifyMatched called EXACTLY ONCE with wrapper-hash, no crash", () => {
+    // Plan § malformed handling: this path is the "no <command-name> at all"
+    // pass-through — per behavior spec (§ A detection contract) the helper
+    // returns null and does NOT log (hot path stays silent per role directive
+    // "logging is cheap and batched" — batched here means not-per-message on
+    // the common path). Test asserts safe fallthrough behavior: single
+    // wrapper-hash notify, no second call, no crash.
+    const content =
+      "<command-message>foo</command-message>this is bare text";
+    expect(reconstructRawSlashCommand(content)).toBeNull();
+
+    const spy = vi.fn();
+    const infoSpy = vi.fn();
+    __applyOnLineNotifyForTests({
+      frame: { type: "message", role: "user", content },
+      sessionIdFromFile: "sess-A",
+      notifyMatched: spy,
+      logger: {
+        info: infoSpy,
+        debug: vi.fn(),
+      },
+    });
+
+    // Safe fallthrough: single wrapper-hash notify.
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenNthCalledWith(1, "sess-A", hash32(content));
+    // No dual-hash notify INFO log fired via the injected logger (the wrapper-
+    // detected INFO log is the only one routed through the injectable logger;
+    // the malformed-path helper log routes through the module-level sshLogger
+    // and is not pinned by this test to avoid coupling to logger transport).
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("dual-hash notify"),
+      expect.anything(),
+    );
   });
 });
