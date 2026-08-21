@@ -434,9 +434,9 @@ describe("GET /sessions/list — role resolution", () => {
     expect(poppy?.aiTitle).toBeNull();
     expect(patricia?.aiTitle).toBeNull();
 
-    // Should complete well within 2x PER_HOST_TIMEOUT_MS (3000ms), not hang indefinitely
-    expect(elapsedMs).toBeLessThan(8000);
-  });
+    // Should complete within ~PER_HOST_TIMEOUT_MS (30_000ms) + slack, not hang indefinitely.
+    expect(elapsedMs).toBeLessThan(35_000);
+  }, 40_000);
 
   it("Test 4 (host-level failure): connectOneShot throws → host silently dropped, no rows", async () => {
     // connectOneShot throws (whole-host failure — pre-existing behavior preserved)
@@ -635,9 +635,9 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     expect(tanya?.aiTitle).toBeNull();
     expect(tiffany?.aiTitle).toBeNull();
 
-    // Bounded by PER_HOST_TIMEOUT_MS (3000ms).
-    expect(elapsedMs).toBeLessThan(8000);
-  }, 10000);
+    // Bounded by PER_HOST_TIMEOUT_MS (30_000ms).
+    expect(elapsedMs).toBeLessThan(35_000);
+  }, 40_000);
 
   it("Test 4 (tail zero message-bearing frames): tool_use-only JSONL → lastMessageAt:null", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };
@@ -1064,9 +1064,9 @@ describe("GET /sessions/list — aiTitle derivation (Phase 47 Plan 02)", () => {
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
     expect(tiffany?.aiTitle).toBe("Debugging websocket"); // sibling unaffected
 
-    // Bounded by PER_HOST_TIMEOUT_MS (3000ms).
-    expect(elapsedMs).toBeLessThan(8000);
-  }, 10000);
+    // Bounded by PER_HOST_TIMEOUT_MS (30_000ms).
+    expect(elapsedMs).toBeLessThan(35_000);
+  }, 40_000);
 
   it("Test 7 (contract lock): every row has aiTitle key present (server-always-emits, null-when-unknown)", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };

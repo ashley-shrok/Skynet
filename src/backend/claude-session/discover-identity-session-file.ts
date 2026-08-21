@@ -70,13 +70,21 @@ import type { Client } from "ssh2";
 import { execCommand } from "../ssh/tmux-helper.js";
 
 /**
- * Hard ceiling on the discovery exec call. Matches the 3000ms budget the
- * active-flow discovery uses at `session-file-discovery.ts:4` — kept in
- * sync intentionally. Re-declared here (not imported) to preserve this
- * module's independence from `session-file-discovery.ts` (they own
- * different mechanisms and evolve independently per D-09).
+ * Hard ceiling on the discovery exec call. Bumped 3000 → 30000 (Ashley
+ * 2026-08-20 UAT) after aiTitle + lastMessageAt shipped as null for every
+ * local identity on skynet-ec2. Root cause: the discovery shell script
+ * (`find ~/.claude/projects/ ... | head -c 4096 | grep`) costs ~1.5s
+ * single-threaded on a ~220-JSONL box; when 5 local identities fire
+ * `Promise.all` concurrently under the /sessions/list handler + the ssh-
+ * poll orchestrator, wall-clock hits ~5s and the 3s Promise.race timeout
+ * rejects → `discoverIdentitySessionFile` returns null → jsonlPath stays
+ * null → the tail-scan branch never runs → both signals publish as null.
+ * 30s is comfortable headroom for a 5-way concurrent host and still bounds
+ * a truly-hung SSH exec. The remote SIGTERM comes from the caller's
+ * Promise.race timing out; the shell process itself is not killed
+ * (best-effort; a future refactor could shell-timeout the discovery too).
  */
-export const DISCOVERY_EXEC_TIMEOUT_MS = 3000;
+export const DISCOVERY_EXEC_TIMEOUT_MS = 30_000;
 
 /**
  * Fixed sentinel that separates per-file records in the shell script's

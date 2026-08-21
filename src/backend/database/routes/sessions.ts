@@ -18,7 +18,14 @@ const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
-const PER_HOST_TIMEOUT_MS = 3000;
+// Per-block timeout for the /sessions/list handler — bumped 3000 → 30000
+// (Ashley 2026-08-20 UAT) matching DISCOVERY_EXEC_TIMEOUT_MS. Wraps the
+// connectOneShot + `tmux list-sessions` + per-session `discoverIdentitySessionFile`
+// + `tail -c 262144` execs. On a ~5-identity host the concurrent-discovery
+// wall-clock hits ~5s; 3s tripped every /sessions/list call and null'd both
+// row.lastMessageAt and row.aiTitle for every local session. See
+// DISCOVERY_EXEC_TIMEOUT_MS docblock in discover-identity-session-file.ts.
+const PER_HOST_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Phase 43 Plan 01 — dormant-side lastMessageAt derivation
