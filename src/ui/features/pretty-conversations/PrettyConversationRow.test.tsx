@@ -104,8 +104,16 @@ vi.mock("@/state/identities-store", () => ({
   },
 }));
 
+// quick-260821-suv: per-test override handle for useIsTouchDevice — flip
+// `currentIsTouchDevice = true` before rendering to simulate an iPad
+// (matchMedia `(pointer: coarse) and (hover: none)` matches: true) and drive
+// the TL6/TL7/TL8 coarse-pointer wiring tests. Reset to false in the top-
+// level beforeEach so pre-existing TL1-TL5/UO1-UO6 coverage sees the
+// original stub behaviour.
+let currentIsTouchDevice = false;
+
 vi.mock("@/hooks/use-is-touch-device", () => ({
-  useIsTouchDevice: () => false,
+  useIsTouchDevice: () => currentIsTouchDevice,
 }));
 
 // Per-test override handle for useBountyCounts. Tests set
@@ -192,6 +200,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   currentIdentity = null;
   currentBountyCounts = undefined;
+  currentIsTouchDevice = false; // quick-260821-suv default: fine-pointer desktop
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3224,5 +3233,140 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     // without `.active-set` is not enough to trip the spinner.
     expect(body.className).toContain("working");
     expect(body.className).not.toContain("active-set");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TL6-TL8 — iPad coarse-pointer + desktop-variant long-press context menu
+// (quick-260821-suv)
+// ─────────────────────────────────────────────────────────────────────────────
+// iPad reports `window.innerWidth >= 768` in every orientation (10.9" landscape
+// = 1180px, Pro 12.9" = 1024×1366, Mini portrait = 768 exactly). The
+// pre-quick-260821-suv wiring gated touch handlers on
+// `variant === "mobile"` — which is derived from `useIsMobile()` at the panel
+// mount site, itself derived from `window.innerWidth < 768`. Result: iPad
+// long-press was dead, iPad swipe-to-act was dead, both blocked by the same
+// gate.
+//
+// The fix widens the four `onTouch*` JSX prop gates from
+// `isMobile ? h : undefined` to `(isMobile || isTouchDevice) ? h : undefined`
+// where `isTouchDevice = useIsTouchDevice()` reads the
+// `(pointer: coarse) and (hover: none)` matchMedia query.
+//
+// TL6 — coarse pointer + variant="desktop" → touch handlers wire; 500ms hold
+//        opens the menu (was RED before the row edit; GREEN after).
+// TL7 — fine pointer + variant="desktop" → touch handlers stay off; touch
+//        sequence does NOT open the menu; synthetic contextmenu (right-click)
+//        DOES open the menu (desktop path unchanged control).
+// TL8 — mobile variant → menu opens regardless of isTouchDevice (mobile
+//        regression control).
+
+describe("PrettyConversationRow: iPad (coarse-pointer + desktop-variant) long-press context menu (quick-260821-suv)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("TL6: desktop variant + coarse-pointer touchscreen + 500ms hold opens the menu at touch coords; Pin menuitem present; onSelect NOT called", () => {
+    currentIsTouchDevice = true; // simulate iPad matchMedia (pointer: coarse) and (hover: none)
+    currentIdentity = makeIdentity(180, "nelly");
+    const onSelect = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 200, clientY: 100 } as Touch],
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+
+    const menu = screen.getByRole("menu");
+    expect(menu).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("TL7: desktop variant + fine-pointer (no touchscreen) — touch handlers NOT wired; synthetic contextmenu right-click STILL opens the menu (desktop path unchanged control)", () => {
+    currentIsTouchDevice = false; // fine-pointer desktop
+    currentIdentity = makeIdentity(60, "nelly");
+    const onSelect = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={onSelect}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    // Touch sequence must NOT open the menu — the four onTouch* props are
+    // `undefined` on a fine-pointer desktop row.
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 200, clientY: 100 } as Touch],
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    // But right-click (contextmenu) DOES open the menu — desktop path is
+    // unchanged (the `onContextMenu={!isMobile ? ... : undefined}` prop is
+    // orthogonal to the coarse-pointer gate).
+    fireEvent.contextMenu(body, { clientX: 220, clientY: 110 });
+    expect(screen.getByRole("menu")).toBeTruthy();
+  });
+
+  it("TL8: mobile variant + fine-pointer matchMedia — long-press still opens the menu (mobile regression control; widening the OR gate did not break the pre-quick-260821-suv mobile path)", () => {
+    currentIsTouchDevice = false; // deliberately false — mobile gate should still win
+    currentIdentity = makeIdentity(210, "nelly");
+    const onSelect = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={onSelect}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    fireEvent.touchStart(body, {
+      touches: [{ clientX: 200, clientY: 100 } as Touch],
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    fireEvent.touchEnd(body, { changedTouches: [] });
+
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
