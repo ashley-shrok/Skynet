@@ -237,8 +237,8 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
       armWatchdog: armPvSendWatchdog,
     });
 
-    // 2. Advance past the 250ms split-send gate → body + Enter fire.
-    await vi.advanceTimersByTimeAsync(250);
+    // 2. Advance past the 1000ms split-send gate → body + Enter fire.
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.resolve();
     await Promise.resolve();
     await inputPromise;
@@ -286,7 +286,7 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
       wsSend,
       armWatchdog: armPvSendWatchdog,
     });
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.resolve();
     await Promise.resolve();
     await inputPromise;
@@ -389,8 +389,8 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
       armWatchdog: armPvSendWatchdog,
     });
 
-    // 2. Advance past split-send 250ms gate.
-    await vi.advanceTimersByTimeAsync(250);
+    // 2. Advance past split-send 1000ms gate.
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.resolve();
     await Promise.resolve();
     await inputPromise;
@@ -475,7 +475,7 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
       wsSend,
       armWatchdog: armPvSendWatchdog,
     });
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.resolve();
     await Promise.resolve();
     await inputPromise;
@@ -536,7 +536,7 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
       wsSend,
       armWatchdog: armPvSendWatchdog,
     });
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.resolve();
     await Promise.resolve();
     await inputPromise;
@@ -629,7 +629,7 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
       armWatchdog: armPvSendWatchdog,
       trackMqid,
     });
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.resolve();
     await Promise.resolve();
     await inputPromise;
