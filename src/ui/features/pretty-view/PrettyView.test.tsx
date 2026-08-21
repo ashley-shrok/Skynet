@@ -104,6 +104,14 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 import { openClaudeSessionSocket } from "@/api/claude-session-api";
 import { useSessionIdentity } from "@/features/terminal/session-hue";
 import { PrettyView } from "./PrettyView";
+// Phase 53 Plan 03 — import publishFleetStatusSessionState to seed the
+// working-store recycling axis for Test F (SessionHoldingOverlay mount) and
+// Test H (SessionHoldingOverlay regression-guard). The overlay is now gated
+// on isRecycling from the working-store, not pane_state:holding.
+import {
+  publishFleetStatusSessionState,
+  __resetForTest as resetWorkingStore,
+} from "@/state/session-working-store";
 
 // ── Patch #148 test helpers ────────────────────────────────────────────────
 
@@ -950,12 +958,30 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
     fireWsFrame(ws, { type: 'pane_state', state: 'holding', reason: 'id_reset' });
   }
 
-  it("Test F1: session_holding_cleared while isHolding=true clears the overlay (showOverlay false, role=status absent)", () => {
+  it("Test F1: session_holding_cleared while isHolding=true clears the overlay (showOverlay false, role=status absent)", async () => {
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
     const ws = getCurrentWs();
     armHolding(ws);
+
+    // Phase 53 Plan 03 — seed recycling:true so the overlay mounts (the mount
+    // gate is now isRecycling from the working-store, not pane_state:holding).
+    await act(async () => {
+      publishFleetStatusSessionState("1", {
+        hostId: "1",
+        tmuxSession: "s1",
+        sessionId: "test-session",
+        pid: 12345,
+        status: "idle",
+        backgroundTasks: [],
+        updatedAt: Date.now(),
+        lastMessageAt: null,
+        aiTitle: null,
+        dormant: false,
+        recycling: true,
+      });
+    });
 
     // Pre-condition: overlay is visible.
     expect(container.querySelector('[role="status"]')).toBeTruthy();
@@ -963,13 +989,28 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
     // Fire session_holding_cleared:
     fireWsFrame(ws, { type: 'session_holding_cleared' });
     // Phase 30: the sibling pane_state:active emission from
-    // transitionFromHoldingToActiveSameFile (Plan 30-01 § L2260)
-    // is what actually drives the overlay unmount.
+    // transitionFromHoldingToActiveSameFile (Plan 30-01 § L2260).
     fireWsFrame(ws, { type: 'pane_state', state: 'active', reason: 'same_file_recovery' });
+    // Phase 53 Plan 03 — clear the recycling axis so the overlay unmounts.
+    await act(async () => {
+      publishFleetStatusSessionState("1", {
+        hostId: "1",
+        tmuxSession: "s1",
+        sessionId: "test-session",
+        pid: 12345,
+        status: "idle",
+        backgroundTasks: [],
+        updatedAt: Date.now(),
+        lastMessageAt: null,
+        aiTitle: null,
+        dormant: false,
+        recycling: false,
+      });
+    });
 
-    // Overlay must unmount immediately (isHolding false → showOverlay false
-    // synchronously per the useEffect cleanup path: `if (!isHolding) { setShowOverlay(false); return; }`):
+    // Overlay must unmount:
     expect(container.querySelector('[role="status"]')).toBeNull();
+    act(() => { resetWorkingStore(); });
   });
 
   it("Test F2: messages populated BEFORE session_holding_cleared are preserved verbatim after (no heavy-reset)", () => {
@@ -1684,7 +1725,12 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     expect(dormancyOverlay).not.toBeNull();
   });
 
-  it("Test F: pane_state:holding trumps loading — spinner unmounts, SessionHoldingOverlay mounts (Phase 30 clean-swap)", () => {
+  it("Test F: pane_state:holding trumps loading — spinner unmounts, SessionHoldingOverlay mounts (Phase 30 clean-swap; Phase 53 Plan 03 rewired mount trigger)", async () => {
+    // Phase 53 Plan 03: SessionHoldingOverlay mount is now gated on the
+    // backend-authoritative recycling axis (useSessionIsRecycling from the
+    // working-store, Plan 53-02), not pane_state:holding. The pane_state WS
+    // frames are preserved on the wire and still update paneState/renderedState,
+    // but the overlay mount reads isRecycling from the working-store instead.
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
@@ -1697,17 +1743,38 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     // After active: spinner gone.
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
 
-    // Phase 30: pane_state:holding drives the overlay mount decision.
-    // The legacy session_holding frame is preserved on the wire alongside
-    // (Plan 30-01 § L2154) but no longer manipulates client-side state.
+    // Phase 30: pane_state:holding frames preserved on the wire.
+    // The legacy session_holding frame is preserved (Plan 30-01 § L2154)
+    // but no longer manipulates client-side state.
     fireWsFrame(ws, { type: 'session_holding' });
     fireWsFrame(ws, { type: 'pane_state', state: 'holding', reason: 'id_reset' });
+
+    // Phase 53 Plan 03 — SessionHoldingOverlay mount is now gated on the
+    // backend-authoritative recycling axis (useSessionIsRecycling), not
+    // pane_state:holding. Seed the working-store so the overlay mounts.
+    await act(async () => {
+      publishFleetStatusSessionState("1", {
+        hostId: "1",
+        tmuxSession: "s1",
+        sessionId: "test-session",
+        pid: 12345,
+        status: "idle",
+        backgroundTasks: [],
+        updatedAt: Date.now(),
+        lastMessageAt: null,
+        aiTitle: null,
+        dormant: false,
+        recycling: true,
+      });
+    });
 
     // SessionHoldingOverlay IS mounted.
     const holdingOverlay = container.querySelector('[aria-label*="recycling"]');
     expect(holdingOverlay).not.toBeNull();
     // Loading overlay NOT mounted (mutual exclusion via renderedState).
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
+    // Clean up store for subsequent tests.
+    act(() => { resetWorkingStore(); });
   });
 
   it("Test G: warm hidden→visible re-focus does NOT re-arm resolving under Phase 30 (D-11 don't-flicker via paneState retention)", () => {
@@ -1744,12 +1811,11 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
   });
 
-  it("Test H: SessionHoldingOverlay behavior is preserved (Phase 30 mount-gate rewire regression-guard)", () => {
-    // Mirror of the existing Fix B: Test F1 pattern. Ensures the mount-
-    // site rewire in PrettyView.tsx (Plan 30-03 Task 3 — from
-    // `phase === "holding"` to `renderedState === "holding"`) did not
-    // regress SessionHoldingOverlay's observable behavior. The component
-    // itself is byte-untouched; only the parent's mount gate changed.
+  it("Test H: SessionHoldingOverlay behavior is preserved (Phase 30 mount-gate rewire regression-guard; Phase 53 Plan 03 recycling-store-to-working-store axis swap)", async () => {
+    // Phase 53 Plan 03: the mount-site rewire moved from renderedState (Phase 30)
+    // to isRecycling from the working-store Axis E. The component itself is
+    // byte-untouched; only the parent's mount gate changed. This test seeds the
+    // working-store recycling axis to ensure the overlay still mounts correctly.
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
@@ -1766,17 +1832,34 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     });
     fireWsFrame(ws, { type: 'pane_state', state: 'active' });
 
-    // Phase 30: fire pane_state:holding — renderedState transitions to
-    // "holding". SessionHoldingOverlay mounts immediately (D-11 clean-
-    // swap, no delay-arm).
+    // Fire pane_state:holding frames (still on the wire per Plan 30-01).
     fireWsFrame(ws, { type: 'session_holding' });
     fireWsFrame(ws, { type: 'pane_state', state: 'holding', reason: 'id_reset' });
+
+    // Phase 53 Plan 03 — seed the working-store recycling axis so the overlay mounts.
+    await act(async () => {
+      publishFleetStatusSessionState("1", {
+        hostId: "1",
+        tmuxSession: "s1",
+        sessionId: "test-session",
+        pid: 12345,
+        status: "idle",
+        backgroundTasks: [],
+        updatedAt: Date.now(),
+        lastMessageAt: null,
+        aiTitle: null,
+        dormant: false,
+        recycling: true,
+      });
+    });
 
     // SessionHoldingOverlay's role=status element exists with the "recycling"
     // aria-label (verbatim from SessionHoldingOverlay.tsx L97).
     const holdingRoot = container.querySelector('[aria-label*="recycling"]');
     expect(holdingRoot).not.toBeNull();
     expect(holdingRoot?.getAttribute("role")).toBe("status");
+    // Clean up store for subsequent tests.
+    act(() => { resetWorkingStore(); });
   });
 });
 

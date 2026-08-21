@@ -55,10 +55,18 @@ import {
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
-import { publishSessionRecycling } from "@/state/session-recycling-store";
+// Phase 53 Plan 03 — session-recycling-store import REMOVED (retired; see
+// tombstone comment near line ~2415 and the deleted store Task 2).
 import {
   useSessionIsWorking,
   useSessionIsWorkingRaw,
+  // Phase 53 Plan 03 — backend-authoritative recycling axis hook (Plan 53-02).
+  // Replaces the retired session-recycling-store bridge which required this
+  // PrettyView to be mounted for a row's recycling state to be accurate.
+  // Consumed at THREE sites: SessionHoldingOverlay mount gate, ComposeBox
+  // isHolding, ComposeBox recycleActive — all three fed from the same
+  // isRecycling boolean (CONTEXT.md "one source for both surfaces" scope-lock).
+  useSessionIsRecycling,
 } from "@/state/session-working-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
 import { WaitingBubble } from "./WaitingBubble";
@@ -1072,6 +1080,14 @@ export function PrettyView({
   // single colon, not the double-colon paneKey used for auto-scroll.
   const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
   const isWorking = useSessionIsWorking(sessionWorkingKey);
+  // Phase 53 Plan 03 — backend-authoritative recycling signal, sourced from
+  // the working-store's Axis E (Plan 53-02). Replaces the retired client-side
+  // session-recycling-store bridge which required this PrettyView to be mounted
+  // for a row's recycling state to be visible. Consumed by THREE sites below:
+  // the SessionHoldingOverlay mount gate (patch #74 site) AND ComposeBox's
+  // isHolding + recycleActive props. Reuses sessionWorkingKey (line above) —
+  // same key shape.
+  const isRecycling = useSessionIsRecycling(sessionWorkingKey);
 
   // Phase 41 Plan 01: re-source isIdle from the fleet-status broadcast store
   // instead of reading the isIdle prop (which was always null in production
@@ -2412,17 +2428,11 @@ export function PrettyView({
   // emit is the authoritative signal for every terminal state and no
   // client-side wall-clock deadline can override it.
 
-  // Publish session-recycling state to store keyed on
-  // `renderedState === "holding"` (Phase-29 SPEC req 7 semantic preserved:
-  // dot suppressed exactly when the holding overlay is visible; source of
-  // truth is now backend-authoritative via paneState). Deliberately NO
-  // cleanup — mirrors Terminal.tsx's patch #137 publish effect: preserve
-  // last-known state across route changes so a remount doesn't stall on
-  // null waiting for the next state flip.
-  useEffect(() => {
-    const key = `${hostId}:${tmuxSession ?? ""}`;
-    publishSessionRecycling(key, renderedState === "holding");
-  }, [renderedState, hostId, tmuxSession]);
+  // Phase 53 Plan 03 — the publishSessionRecycling useEffect was retired here.
+  // The overlay + ComposeBox recycling props now read the backend-authoritative
+  // recycling axis via useSessionIsRecycling(sessionWorkingKey) above (see
+  // line ~1075). Retired store: src/ui/state/session-recycling-store.ts
+  // (deleted in this plan's Task 2).
 
   // Phase 14 (plain-language-translation-asides) Wave 3 — isIdle-transition
   // arm emitter. This is THE SOLE trigger source for the aside subsystem
@@ -2725,8 +2735,8 @@ export function PrettyView({
           textarea stays typeable while every WS-side-effecting
           control (Send, reset cell, paperclip, ThumbsUp, Lightbulb,
           Queue, Mic) is disabled via ComposeBox's `recycleActive`
-          prop wired below. Mount gate is `renderedState === "holding"`
-          (Phase 30 rewire — backend-authoritative via paneState). Sits
+          prop wired below. Mount gate is `isRecycling`
+          (Phase 53 Plan 03 rewire — backend-authoritative via working-store). Sits
           BELOW IdentityBadge (z-[99] < z-[101]) so the badge stays
           visible and clickable during a recycle (Ashley wants the
           identity affordance reachable mid-recycle — supersedes patch
@@ -2741,12 +2751,19 @@ export function PrettyView({
           the new mount site below (search for `renderedState === "dormant"`)
           and DormancyOverlay.tsx's updated file-header docblock for the
           bubble-in-flow rationale. */}
-      {/* Phase 30 (PS30-06): SessionHoldingOverlay gated on
-          `renderedState === "holding"` (backend-authoritative via the
-          paneState React state slot fed by the `case "pane_state"` WS
-          handler). `error` prop dropped — the warm-red-flip flag was
-          retired in Phase 29. */}
-      {renderedState === "holding" && <SessionHoldingOverlay />}
+      {/* Phase 53 Plan 03 — SessionHoldingOverlay mount gate swapped to
+          the backend-authoritative recycling axis (working-store Axis E)
+          via `useSessionIsRecycling(sessionWorkingKey)` (computed at the
+          hook scope near line ~1075). Previously (Phase 30 PS30-06) this
+          was gated on the paneState WS frame from THIS pane's own
+          claude-session server — an unmounted pane's row therefore could
+          not observe its own recycling state, which is the bug this phase
+          closes. `isRecycling` is derived from the fleet-status poller
+          reading the caretaker's `.recycled-at` sentinel per Plan 53-01.
+          The connection-drop overlay (a separate concern per CONTEXT.md)
+          stays on `wsTransportState`. Phase 30 PS30-06 `error` prop was
+          retired in Phase 29 and stays retired. */}
+      {isRecycling && <SessionHoldingOverlay />}
       {/* Phase 30 (PS30-06) + phase-30-restore-resolving-overlay-paint-delay
           (2026-08-10): PrettyViewLoadingOverlay is the resolving-state
           spinner. Mount gate is `showResolvingSpinner` — a boolean flipped
@@ -3097,16 +3114,16 @@ export function PrettyView({
           onOverrideTextConsumed={handleOverrideTextConsumed}
           onResetClicked={onResetClicked}
           canSend={status === "streaming"}
-          // Phase 30 (PS30-04): isHolding derives from
-          // `renderedState === "holding"` (backend-authoritative). The
-          // local isHolding state slot is DELETED — see the "isHolding
-          // local state slot DELETED" comment at the top of the render
-          // body.
-          isHolding={renderedState === "holding"}
-          // Phase 30: recycleActive derives from `renderedState === "holding"`.
-          // Semantic preserved (WS-side-effecting controls disabled while
-          // the holding overlay is up).
-          recycleActive={renderedState === "holding"}
+          // Phase 53 Plan 03 — isHolding now derives from `isRecycling`
+          // (working-store Axis E) — one source for all three ComposeBox +
+          // overlay recycle sites per CONTEXT.md scope-lock. Previously
+          // derived from `renderedState === "holding"` (Phase 30 PS30-04).
+          isHolding={isRecycling}
+          // Phase 53 Plan 03 — recycleActive now derives from `isRecycling`
+          // (same source as isHolding above and the overlay mount). Semantic
+          // preserved (WS-side-effecting controls disabled while the holding
+          // overlay is up). Previously derived from `renderedState === "holding"`.
+          recycleActive={isRecycling}
           // Phase 24: same disable treatment as recycleActive but for
           // the plan-mode approval-prompt window. When the WS
           // plan_pending state is non-null (the [Approve]/[Feedback]
