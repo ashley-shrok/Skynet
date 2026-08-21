@@ -1432,16 +1432,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             pongReceivedRef.current = true;
             return;
           }
-          if (msg.type === "idle") {
-            // Backend emits idle transitions (patch #13) + an initial-state
-            // frame on WS attach. Threaded down to PrettyView for the WIP
-            // spinner bubble (patch #51 rework). Pane tint (patch #26) is
-            // static and does not consume this signal.
-            if (typeof msg.idle === "boolean") {
-              setIsIdle(msg.idle);
-            }
-            return;
-          }
+          // idle frames intentionally ignored — pane-level PrettyView owns this signal (Phase 41-02 a997630f, quick-260821-kyf)
           if (msg.type === "data") {
             if (typeof msg.data === "string") {
               const syntaxHighlightingEnabled =
