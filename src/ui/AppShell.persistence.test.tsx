@@ -494,20 +494,12 @@ describe("AppShell persistence contract — patch #35 tabNodesRef DOM-move (T-06
     // path (Promise.reject fires immediately) so the assertion focuses
     // on the catch-branch behavior — the whole point of the fix.
     //
-    // ── RED phase (this commit) ────────────────────────────────────────────
-    // The scaffold's catch block is INTENTIONALLY EMPTY — mirroring
-    // AppShell.tsx's silent-catch shape BEFORE the quick-260821-m36 fix
-    // lands. The assertions below MUST fail cleanly (fleetSessionsLoaded
-    // stays false) proving the failure mode is a clean assertion diff,
-    // not a hang or a compile error.
-    //
-    // The GREEN commit that follows adds:
-    //   1. `if (!cancelled) updateFleetSessions([])` inside AppShell.tsx's
-    //      silent catch at ~L646-651 (the production fix).
-    //   2. The SAME line inside this scaffold's catch (mirror-lock).
-    //
-    // Any future refactor that drops the line from EITHER site diverges +
-    // fails one of the two guards (this test OR the UAT cold-cache walk).
+    // The scaffold's catch mirrors AppShell.tsx's post-quick-260821-m36
+    // silent catch — `if (!cancelled) updateFleetSessions([])`. Any
+    // future refactor that drops the line from EITHER site diverges +
+    // fails one of the two guards (this test OR the UAT cold-cache
+    // walk). This is the whitebox mirror-lock pattern the file header
+    // authorizes.
     function FleetFetcher(): null {
       useEffect(() => {
         let cancelled = false;
@@ -522,8 +514,8 @@ describe("AppShell persistence contract — patch #35 tabNodesRef DOM-move (T-06
             //  be called here if the promise resolved).
             writeFleetSessionsCacheShim();
           } catch {
-            // RED: silent-catch shape pre-quick-260821-m36. GREEN commit
-            // adds: `if (!cancelled) updateFleetSessions([]);`
+            // quick-260821-m36 fix — mirror of AppShell.tsx L656.
+            if (!cancelled) updateFleetSessions([]);
           }
         })();
         return () => {

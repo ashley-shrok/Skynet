@@ -644,10 +644,23 @@ export function AppShell({
         // Silent on write failure (see writeFleetSessionsCache).
         writeFleetSessionsCache(fresh);
       } catch {
-        // Silent — fleetSessions stays empty; openTabs-only rendering
-        // (Phase 6 behavior) takes over. T-07-01-04 mitigation.
-        // Cache is deliberately NOT touched on fetch failure — the last
-        // known-good snapshot survives the network hiccup.
+        // quick-260821-m36: flag-flip on failure so cold-cache clients
+        // don't stay stuck at "Loading agents…". updateFleetSessions([])
+        // is safe — the empty array is a shallow no-op on the
+        // fleetSessions field, but the fleetSessionsLoaded false→true
+        // transition is unconditional per quick-260727-kbw (see
+        // conversation-store.ts:962-998). The `if (!cancelled)` guard
+        // mirrors the try-branch's own guard at L627 — avoids setting
+        // store state after the component unmounted (React strict-mode
+        // double-invoke + fast unmounts).
+        if (!cancelled) updateFleetSessions([]);
+        // Silent — no toast, no console.warn (matches existing quick-
+        // 260805-tub silent-catch pattern). fleetSessions stays empty;
+        // openTabs-only rendering (Phase 6 behavior) takes over.
+        // T-07-01-04 mitigation. Cache is deliberately NOT touched on
+        // fetch failure — the last known-good snapshot survives the
+        // network hiccup (writeFleetSessionsCache only runs in the
+        // try-branch above).
       }
     })();
     return () => {
