@@ -117,12 +117,18 @@ const WORKING_SET_CAP = 20;
 //      is "message" becomes a bubble; the parser (Plan 01-01) and the
 //      WS server (Plan 01-02) already drop non-text blocks upstream.
 //
-//   2. RENDER-03 auto-scroll: Phase 32 three-case sticky-bottom model
-//      via `useAutoScroll(paneKey)`. ResizeObserver on the OUTER scroll
-//      container catches virtualized-item growth AND accessory (WipBubble
-//      / PlanPendingBubble / AsideBubble) mounts. Send-path callers +
-//      the jump-to-bottom pill share the single `scrollToBottomAndFollow`
-//      action. See 32-CONTEXT.md for the LOCKED design.
+//   2. RENDER-03 auto-scroll: pinned-follow via `useAutoScroll(paneKey,
+//      messages.length)`. Three engines: (a) messageCount effect fires on
+//      each new message frame; (b) MutationObserver + ResizeObserver on
+//      the scroll container's children re-anchor on accessory mount/unmount
+//      (WipBubble / WaitingBubble / PlanPendingBubble / DormancyOverlay /
+//      AsideBubble) AND on in-bubble content growth (streaming, image
+//      decode, markdown re-render); (c) scrollEl-mount / paneKey-change
+//      effect resets pinned=true and jumps for session enter + identity
+//      swap. Every write is gated on pinned=true so scrolled-up state
+//      suppresses yanking (Test 5 in use-auto-scroll.test.ts). Send-path
+//      callers + the jump-to-bottom pill share the single
+//      `scrollToBottomAndFollow` action. See use-auto-scroll.ts header.
 //
 //   3. FALLBACK-01 clean inactive render: on `type:"inactive"` we
 //      render exactly one literal string (see the JSX below) inside a
@@ -2973,21 +2979,21 @@ export function PrettyView({
               a child of the flex column that holds the messages — that column
               became the virtualizer's absolute-positioned sized container.
               AsideBubble stays visually below the message list.
-              Phase 32: useAutoScroll's ResizeObserver on the outer scroll
-              container catches this accessory's mount too (scrollHeight-
-              driven pin-to-bottom works uniformly across virtualized items
-              + accessories). In-flow per ASIDE-05 — NOT an overlay, popup,
-              or fixed-position element. */}
+              useAutoScroll's MutationObserver + per-child ResizeObserver
+              catches this accessory's mount (re-anchors when pinned).
+              In-flow per ASIDE-05 — NOT an overlay, popup, or fixed-
+              position element. */}
           {asideText !== null && <AsideBubble text={asideText} />}
           {/* Jump-to-bottom pill — sibling of the content wrapper, still
               inside the scroll container so `sticky bottom-2` anchors it
               to the bottom-right of the visible viewport. Shown only when
               the user has scrolled up.
-              Phase 32 (three-case sticky-bottom auto-scroll, see 32-CONTEXT.md):
-              `scrollToBottomAndFollow` enters sticky + jumps + re-arms for
-              STICK_ARM_MS (150ms) so async content settle (image decode,
-              batched WS backfill) lands at the bottom. `isPinnedToBottom` is
-              hook-derived from the single scroll listener. */}
+              `scrollToBottomAndFollow` forces pinned=true and jumps
+              regardless of prior scroll position. Async content settle
+              (image decode, batched WS backfill) is handled by the
+              MutationObserver + ResizeObserver in useAutoScroll — no
+              re-arm timer needed here. `isPinnedToBottom` is hook-derived
+              from the single scroll listener. */}
           {!isPinnedToBottom && messages.length > 0 && (
             <div className="sticky bottom-2 pointer-events-none flex justify-end">
               <Button

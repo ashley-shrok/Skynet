@@ -237,7 +237,10 @@ describe("useAutoScroll — plain-DOM pinned-follow hook (Phase 43 rewrite)", ()
     act(() => {
       result.current.scrollRef(scrollEl.el);
     });
-    // Start unpinned (user scrolled up)
+    // The mount/paneKey effect (2026-08-21 rewrite) writes scrollTop=5000
+    // on ref bind. Force scrollTop back to 0 and re-fire scroll to reach the
+    // unpinned state this test exercises the recovery from.
+    scrollEl.setScrollTop(0);
     fireScroll(scrollEl.el);
     expect(result.current.isPinnedToBottom).toBe(false);
 
@@ -278,5 +281,82 @@ describe("useAutoScroll — plain-DOM pinned-follow hook (Phase 43 rewrite)", ()
     const { result } = renderHook(() => useAutoScroll("pane-1", 0));
     const keys = Object.keys(result.current).sort();
     expect(keys).toEqual(["isPinnedToBottom", "scrollRef", "scrollToBottomAndFollow"]);
+  });
+
+  // ── Tests 9-11 (2026-08-21, tina): three-engine coverage ─────────────
+  // Locks the three fixes for Ashley's "auto-scroll feels messy" report.
+
+  it("Test 9 — paneKey change resets pinned state + jumps to bottom (identity swap on live PrettyView)", () => {
+    const scrollEl = makeScrollEl({ scrollHeight: 5000, clientHeight: 800, initialScrollTop: 4200 });
+    const { result, rerender } = renderHook(
+      ({ pk }: { pk: string }) => useAutoScroll(pk, 10),
+      { initialProps: { pk: "pane-A" } },
+    );
+    act(() => {
+      result.current.scrollRef(scrollEl.el);
+    });
+
+    // User scrolls up in pane A → pinned=false.
+    scrollEl.setScrollTop(0);
+    fireScroll(scrollEl.el);
+    expect(result.current.isPinnedToBottom).toBe(false);
+
+    // Switch to pane B on the SAME hook instance (no remount — identity swap
+    // within a live PrettyView). The paneKey change must reset pinned=true
+    // AND jump to the current scrollHeight.
+    act(() => {
+      rerender({ pk: "pane-B" });
+    });
+    expect(result.current.isPinnedToBottom).toBe(true);
+    expect(scrollEl.getScrollTop()).toBe(5000);
+  });
+
+  it("Test 10 — mount-effect scrolls to bottom on ref bind even when initialScrollTop is 0 (session-enter fix)", () => {
+    // Regression for "not always scrolling to the bottom when I enter a
+    // session." The pre-rewrite hook could compute pinned=false from the seed
+    // onScroll if the container had pre-populated DOM (fast re-mount, warm
+    // cache), then the follow effect skipped. The rewrite's mount-effect
+    // unconditionally jumps + pins on ref bind, so session enter always
+    // lands at the bottom regardless of pre-mount geometry.
+    const scrollEl = makeScrollEl({ scrollHeight: 5000, clientHeight: 800, initialScrollTop: 0 });
+    const { result } = renderHook(() => useAutoScroll("pane-A", 10));
+    act(() => {
+      result.current.scrollRef(scrollEl.el);
+    });
+    // After ref bind, scrollTop must be at scrollHeight regardless of the
+    // initialScrollTop=0 pre-condition. Pinned stays true.
+    expect(scrollEl.getScrollTop()).toBe(5000);
+    expect(result.current.isPinnedToBottom).toBe(true);
+  });
+
+  it("Test 11 — mount-effect does NOT overwrite scrollTop when the same hook re-renders (only fires on scrollEl / paneKey change)", () => {
+    // Guardrail: the mount/paneKey effect must NOT fire on unrelated re-renders
+    // (e.g. messageCount changes) or it would repeatedly yank the user to
+    // bottom every time a new message arrives even after they scrolled up.
+    const scrollEl = makeScrollEl({ scrollHeight: 5000, clientHeight: 800, initialScrollTop: 0 });
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) => useAutoScroll("pane-A", count),
+      { initialProps: { count: 10 } },
+    );
+    act(() => {
+      result.current.scrollRef(scrollEl.el);
+    });
+    // Post-mount: pinned=true, scrollTop=5000.
+    expect(scrollEl.getScrollTop()).toBe(5000);
+
+    // User scrolls up.
+    scrollEl.setScrollTop(100);
+    fireScroll(scrollEl.el);
+    expect(result.current.isPinnedToBottom).toBe(false);
+
+    // A new message arrives — messageCount grows, follow effect fires with
+    // pinnedRef.current=false so it skips. Mount effect must NOT re-fire
+    // (paneKey unchanged, scrollEl unchanged). scrollTop stays at 100.
+    scrollEl.setScrollHeight(5500);
+    act(() => {
+      rerender({ count: 11 });
+    });
+    expect(scrollEl.getScrollTop()).toBe(100);
+    expect(result.current.isPinnedToBottom).toBe(false);
   });
 });
