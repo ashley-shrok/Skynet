@@ -20,9 +20,9 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 // quick-260821-m36: split the historical single PER_HOST_TIMEOUT_MS into two
 // tiers so an unreachable candidate host (stale row whose IP no longer resolves
-// on tailnet — e.g., the phantom hosts.id 14/15 rows purged in the plan's
-// delete-phantom-hosts.mjs cleanup) fails fast at TCP+SSH connect instead of
-// consuming the full 30s discovery budget. When one dead host burned all 30s
+// on tailnet — e.g., phantom hosts.id 14/15 rows purged out-of-band in the
+// plan's ops cleanup) fails fast at TCP+SSH connect instead of consuming the
+// full 30s discovery budget. When one dead host burned all 30s
 // of the wall-clock, the aggregate /sessions/list response pushed past the
 // frontend's axios 30s ceiling → axios rejected → PrettyConversationsPanel
 // never received fleet data (spinner stuck) and the WS-health pipeline fired
