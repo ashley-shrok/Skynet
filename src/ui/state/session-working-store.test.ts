@@ -30,6 +30,7 @@ import {
   useSessionIsWorking,
   useSessionIsWorkingRaw,
   useSessionIsDormant,
+  useSessionIsRecycling,
   getSessionWorkingSnapshot,
   getSessionLastMessageAt,
   seedSessionLastMessageAt,
@@ -1147,5 +1148,162 @@ describe("session-working-store (Phase 52 Plan 01): dormant axis (Axis D) + useS
     // Axis A preserves it.
     const snap = getSessionWorkingSnapshot();
     expect(snap.get("h1:s1")?.dormant).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 53 Plan 02 — Recycling axis (Axis E) + useSessionIsRecycling hook.
+// Source: ~/.claude/identities/<tmuxSession>/.recycled-at sentinel file on the
+// target host (identity being replaced via /id-reset). Boolean strict
+// (`recycling: boolean` default false in WorkingRecord).
+//
+// Test P53-02-i   (publish recycling:true → hook returns true)
+// Test P53-02-ii  (publish recycling:false → hook returns false)
+// Test P53-02-iii (publish without recycling field → hook returns false)
+// Test P53-02-iv  (re-publish SAME recycling value → no additional notify beyond Axis A/B/C/D)
+// Test P53-02-v   (toggle recycling while isWorking unchanged → Axis E notify fires)
+// Test P53-02-vi  (null key → false; unknown key → false)
+// Test P53-02-vii (recycling persists across Axis A (isWorking) republish)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store (Phase 53 Plan 02): recycling axis (Axis E) + useSessionIsRecycling hook", () => {
+  // Test P53-02-i — publish recycling:true → hook returns true
+  it("Test P53-02-i: publishFleetStatusSessionState with recycling:true → useSessionIsRecycling returns true", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsRecycling("h1:s1"),
+    );
+    expect(result.current).toBe(false); // unknown → false
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", recycling: true }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+
+  // Test P53-02-ii — publish recycling:false → hook returns false
+  it("Test P53-02-ii: publishFleetStatusSessionState with recycling:false → useSessionIsRecycling returns false", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsRecycling("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", recycling: false }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(false);
+  });
+
+  // Test P53-02-iii — publish without recycling field → hook returns false
+  it("Test P53-02-iii: publish without recycling field (omitted) → useSessionIsRecycling returns false", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsRecycling("h1:s1"),
+    );
+
+    act(() => {
+      // makeState omits recycling by default (undefined)
+      publishFleetStatusSessionState("h1", makeState({ status: "idle" }));
+    });
+    rerender();
+    expect(result.current).toBe(false);
+  });
+
+  // Test P53-02-iv — re-publish SAME recycling value → no additional Axis E notify
+  it("Test P53-02-iv: re-publish with same recycling value (isWorking unchanged) → no additional Axis E notify beyond Axis A/B/C/D", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // First publish: recycling:true (sets Axis E, notifies once for Axis A + once for Axis E)
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", recycling: true }),
+      );
+    });
+    const n0 = cb.mock.calls.length; // captures Axis A + Axis E notifies
+
+    // Second publish: SAME recycling value and bumped updatedAt → Axis E must NOT notify again
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", recycling: true, updatedAt: Date.now() + 1 }),
+      );
+    });
+    // Axis A no-ops (isWorking unchanged); Axis B no-ops (no lastMessageAt);
+    // Axis C no-ops (no aiTitle); Axis D no-ops (no dormant); Axis E no-ops (recycling unchanged).
+    expect(cb.mock.calls.length).toBe(n0);
+
+    dispose();
+  });
+
+  // Test P53-02-v — toggle recycling (isWorking unchanged) → Axis E notify fires
+  it("Test P53-02-v: toggle recycling (isWorking unchanged) → Axis E notify fires", () => {
+    const cb = vi.fn();
+    const dispose = subscribeSessionWorkingStore(cb);
+
+    // First publish: recycling:false (Axis A fires for new key)
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", recycling: false }),
+      );
+    });
+    const n0 = cb.mock.calls.length;
+
+    // Toggle recycling: false → true (isWorking unchanged at false)
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", recycling: true }),
+      );
+    });
+    // Axis E fires (recycling changed); Axis A no-ops (isWorking still false).
+    expect(cb.mock.calls.length).toBe(n0 + 1);
+
+    const snap = getSessionWorkingSnapshot();
+    expect(snap.get("h1:s1")?.recycling).toBe(true);
+    dispose();
+  });
+
+  // Test P53-02-vi — null key / unknown key → false
+  it("Test P53-02-vi: null key → useSessionIsRecycling returns false; unknown key → false", () => {
+    const { result: r1 } = renderHook(() => useSessionIsRecycling(null));
+    expect(r1.current).toBe(false);
+
+    const { result: r2 } = renderHook(() =>
+      useSessionIsRecycling("never-published:key"),
+    );
+    expect(r2.current).toBe(false);
+  });
+
+  // Test P53-02-vii — recycling preserved across Axis A (isWorking) republish
+  it("Test P53-02-vii: recycling:true, then isWorking toggles → recycling still true (Axis A preserves Axis E cache)", () => {
+    // Set recycling:true + idle
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", recycling: true }),
+      );
+    });
+
+    // Publish again with isWorking flipping (busy → true), recycling omitted
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "busy" }), // recycling omitted → undefined → Axis E no-ops
+      );
+    });
+
+    // After Axis A fires with isWorking=true, the cached recycling must still be preserved
+    // in the Axis A write path (existing?.recycling ?? false). Since recycling was true,
+    // Axis A preserves it. This is the Pitfall-3 defense test.
+    const snap = getSessionWorkingSnapshot();
+    expect(snap.get("h1:s1")?.recycling).toBe(true);
   });
 });

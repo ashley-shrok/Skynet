@@ -53,6 +53,15 @@
 // contract of the three-axis single-chokepoint architecture. See
 // 47-CONTEXT.md § Working-store third axis.
 //
+// Phase 53 (Plan 02): the store now carries a FIFTH axis, recycling, with
+// direct swap-and-notify semantics (like dormant Axis D). Publish path grows
+// an Axis E block below Axis D; sourced from the backend-authoritative
+// `.recycled-at` sentinel plumbed by Plan 53-01; consumed by BOTH the
+// PrettyView holding overlay AND the PrettyConversationRow row spinner via
+// useSessionIsRecycling — retires the client-side session-recycling-store
+// (Plan 53-03) which required a mounted pane to publish; see 53-CONTEXT.md
+// § Shape (one source for both surfaces).
+//
 // Store pattern mirrors src/ui/state/conversation-store.ts: module-scoped
 // `state` object + Map + Set<() => void> listener registry + snapshotVersion
 // counter; notify() bumps + iterates; subscribe() returns disposer.
@@ -91,6 +100,23 @@ type WorkingRecord = {
   // in Plan 03 reads a simple boolean. Reconciliation: direct swap-and-notify
   // (no max-wins, no last-wins — just a boolean gate on the sentinel).
   dormant: boolean;
+  // Phase 53 Plan 02 — the backend-authoritative recycling signal mirrored
+  // from the fleet-status wire frame (SessionState.recycling).
+  // `true` when the wire frame carried `recycling: true` (the caretaker's
+  // `.recycled-at` sentinel present, identity being replaced via /id-reset).
+  // `false` when the wire frame carried `false`, `null`, or omitted the field
+  // entirely (safe default — no false positives). Wire's three-valued input
+  // (true / false / null / undefined) collapses to strict boolean at the store
+  // boundary in the Axis E block below via `state_arg.recycling === true`.
+  // Hook consumers read a simple boolean. Reconciliation is direct
+  // swap-and-notify (no max-wins, no last-wins) — recycling is a strict
+  // boolean gate on the sentinel file's presence. Preserved across Axis A
+  // (isWorking) republishes via `recycling: existing?.recycling ?? false` in
+  // the Axis A nextMap write (defensive against the Pitfall-3 pattern
+  // documented in Phase 53 RESEARCH.md). Consumed by useSessionIsRecycling(key),
+  // which Plan 53-03 wires into both the PrettyView holding overlay mount gate
+  // AND the PrettyConversationRow row-spinner input.
+  recycling: boolean;
 };
 
 type State = {
@@ -200,10 +226,12 @@ export function publishFleetStatusSessionState(
       lastMessageAt: existing?.lastMessageAt ?? null,
       aiTitle: existing?.aiTitle ?? null,
       dormant: existing?.dormant ?? false,
+      recycling: existing?.recycling ?? false,
       previous: existing?.isWorking ?? null,
       previousLastMessageAt: existing?.lastMessageAt ?? null,
       previousAiTitle: existing?.aiTitle ?? null,
       previousDormant: existing?.dormant ?? false,
+      previousRecycling: existing?.recycling ?? false,
     });
 
     const nextMap = new Map(state.map);
@@ -212,6 +240,7 @@ export function publishFleetStatusSessionState(
       lastMessageAt: existing?.lastMessageAt ?? null,
       aiTitle: existing?.aiTitle ?? null,
       dormant: existing?.dormant ?? false,
+      recycling: existing?.recycling ?? false,
     });
     state = { map: nextMap };
     notify();
@@ -259,6 +288,39 @@ export function publishFleetStatusSessionState(
         lastMessageAt: existingAfterAxes.lastMessageAt,
         aiTitle: existingAfterAxes.aiTitle,
         dormant,
+        recycling: existingAfterAxes.recycling,
+      });
+      state = { map: nextMap };
+      notify();
+    }
+  }
+
+  // ── Axis E — recycling swap-and-notify block (Phase 53 Plan 02) ──
+  // Wire semantic (optional field): `recycling: true` sets true; `recycling:
+  // false` sets false (explicit reset); `recycling` absent (undefined)
+  // preserves the cached value — an Axis-A-only republish that carries no
+  // recycling signal must NOT wipe a recycling:true set by a prior frame;
+  // matches the optional-field convention on the wire (recycling?: boolean).
+  //
+  // Direct swap-and-notify: no max-wins, no last-wins — recycling is a strict
+  // boolean gate on the `.recycled-at` sentinel file's presence. Fire only
+  // when we have an explicit signal AND it differs from cache. Brand-new-key
+  // case is handled above in Axis A which now also preserves recycling in its
+  // nextMap write; here we only fire on change.
+  if (state_arg.recycling !== undefined) {
+    const recycling = state_arg.recycling === true;
+    const existingAfterAxes = state.map.get(key);
+    if (
+      existingAfterAxes !== undefined &&
+      existingAfterAxes.recycling !== recycling
+    ) {
+      const nextMap = new Map(state.map);
+      nextMap.set(key, {
+        isWorking: existingAfterAxes.isWorking,
+        lastMessageAt: existingAfterAxes.lastMessageAt,
+        aiTitle: existingAfterAxes.aiTitle,
+        dormant: existingAfterAxes.dormant,
+        recycling,
       });
       state = { map: nextMap };
       notify();
@@ -333,6 +395,7 @@ function advanceSessionLastMessageAt(key: string, ts: number | null): void {
     lastMessageAt: ts,
     aiTitle: existing?.aiTitle ?? null,
     dormant: existing?.dormant ?? false,
+    recycling: existing?.recycling ?? false,
   };
 
   console.info({
@@ -417,6 +480,7 @@ function advanceSessionAiTitle(key: string, title: string | null): void {
     lastMessageAt: existing?.lastMessageAt ?? null,
     aiTitle: title,
     dormant: existing?.dormant ?? false,
+    recycling: existing?.recycling ?? false,
   };
 
   console.info({
@@ -535,6 +599,35 @@ export function useSessionIsDormant(key: string | null): boolean {
 }
 
 /**
+ * Phase 53 Plan 02 — Hook: derive 'is this session recycling?' for a single
+ * key. Returns a strict boolean (never null/undefined).
+ *
+ *   - Null key              → false (short-circuit; no useSyncExternalStore work).
+ *   - Unknown key           → false (key never published — default-safe).
+ *   - recycling === false   → false (sentinel absent; no recycle in flight).
+ *   - recycling === true    → true  (sentinel present; identity being replaced
+ *                                    via /id-reset).
+ *
+ * Source: caretaker's ~/.claude/identities/<tmuxSession>/.recycled-at sentinel,
+ * plumbed via ssh-poll-orchestrator source A per Phase 53 RESEARCH § Assumption
+ * A1, see Phase 53 Plan 01.
+ *
+ * Consumer surfaces: PrettyView holding overlay mount gate + PrettyConversationRow
+ * row-spinner input in Plan 53-03. Retires the client-side session-recycling-store
+ * that previously bridged them (required a mounted pane to publish; any unmounted
+ * row was blind to its own session's recycling state).
+ */
+export function useSessionIsRecycling(key: string | null): boolean {
+  const getSnapshot = (): boolean => {
+    if (key === null) return false;
+    const record = state.map.get(key);
+    if (record === undefined) return false;
+    return record.recycling;
+  };
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
  * Return the raw internal Map as a ReadonlyMap view.
  * NOT for production callers. Kept exported (rather than gated on
  * import.meta.env.MODE === "test") because Vite's tree-shaker drops it from
@@ -542,7 +635,7 @@ export function useSessionIsDormant(key: string | null): boolean {
  */
 export function getSessionWorkingSnapshot(): ReadonlyMap<
   string,
-  { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean }
+  { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean; recycling: boolean }
 > {
   return state.map;
 }
