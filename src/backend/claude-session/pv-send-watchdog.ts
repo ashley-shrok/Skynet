@@ -91,6 +91,30 @@ export interface ArmPvSendWatchdogArgs {
     warn: (msg: string, meta?: Record<string, unknown>) => void;
     error: (msg: string, err?: unknown, meta?: Record<string, unknown>) => void;
   };
+  /**
+   * When true, schedule ONLY Stage 1 (retry Enter at T+2500ms) — do NOT
+   * schedule Stage 2 (full-resend) or Stage 3 (give-up + paste_send_failed).
+   *
+   * Purpose: the non-split-path safety net. When the frontend's mqid is lost
+   * somewhere in the WS chain and the backend takes the non-split path
+   * (`send-keys -l <body>\r`), the literal `\r` inside the bracketed-paste
+   * wrapper lands as a newline in the harness composer instead of submitting.
+   * A bare Enter at T+2500ms recovers this — safe by D-16 (Claude ignores
+   * empty-input Enter). But the full-resend (C-u + retype + Enter) is NOT
+   * safe here: if the retry Enter submitted the message but the tail-watcher
+   * emitted a slightly different content string (e.g. trailing newline
+   * differences), notifyMatched wouldn't clear this pending → full-resend
+   * fires → re-types + submits AGAIN → double-submit. The
+   * paste_send_failed frame is also useless here because the frontend's
+   * PendingSend has a different mqid (frontend generated its own; this
+   * watchdog was armed with a synthetic backend-side mqid).
+   *
+   * When absent/false, the full three-stage escalation runs as documented
+   * in the file header. (2026-08-21, tina — added after diagnosing that
+   * ~2/6 sends this session went through the non-split path due to mqid loss,
+   * and the existing three-stage watchdog wasn't armed on that branch.)
+   */
+  retryEnterOnly?: boolean;
 }
 
 interface PendingWatchdog {
@@ -213,6 +237,20 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
       // Do NOT re-throw or cancel timers — escalation continues per D-15.
     });
   }, RETRY_ENTER_MS);
+
+  // Retry-Enter-only mode: skip Stages 2 + 3 for the non-split-path safety
+  // net (see ArmPvSendWatchdogArgs.retryEnterOnly for rationale).
+  if (args.retryEnterOnly) {
+    pending.set(mqid, entry);
+    logger.debug("pv-send-watchdog: armed (retry-Enter-only)", {
+      operation: "pv_send_watchdog_arm_retry_only",
+      mqid,
+      sessionId,
+      contentHash,
+      bodyBytes: body.length,
+    });
+    return;
+  }
 
   // Stage 2 — T+5500ms full-resend (C-u + literal body + Enter).
   entry.fullResendTimer = setTimeout(() => {

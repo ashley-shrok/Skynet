@@ -516,6 +516,87 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
     expect(otherEscalations.length).toBe(1);
   });
 
+  // ── T-14/T-15/T-16 — retryEnterOnly flag (2026-08-21, tina) ────────────────
+  // Non-split-path safety net: Stage 1 (retry Enter at T+2500ms) fires as
+  // usual, Stages 2 (full-resend at T+5500ms) and 3 (paste_send_failed at
+  // T+20000ms) are SKIPPED. See ArmPvSendWatchdogArgs.retryEnterOnly for the
+  // double-submit reasoning.
+
+  it("T-14 retryEnterOnly: Stage 1 retry Enter fires at T+2500ms (identical to full mode)", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m-retry-only",
+      body: "hello",
+      contentHash: contentHashOf("hello"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+      retryEnterOnly: true,
+    });
+
+    // Just before boundary — no retry yet.
+    await vi.advanceTimersByTimeAsync(2499);
+    expect(exec).not.toHaveBeenCalled();
+
+    // Cross the boundary — retry Enter fires once.
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.resolve();
+    expect(exec).toHaveBeenCalledTimes(1);
+    const cmd = exec.mock.calls[0][0] as string;
+    expect(cmd).toMatch(/\sEnter\s*$/);
+    expect(cmd).not.toContain("-l");
+  });
+
+  it("T-15 retryEnterOnly: Stage 2 full-resend NEVER fires (no C-u, no body retype, no second Enter)", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m-no-full-resend",
+      body: "hello",
+      contentHash: contentHashOf("hello"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+      retryEnterOnly: true,
+    });
+
+    // Advance well past the full-resend boundary (5500ms).
+    await vi.advanceTimersByTimeAsync(10_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Only the retry Enter fired — no C-u, no body retype.
+    expect(exec).toHaveBeenCalledTimes(1);
+    const cmds = exec.mock.calls.map((c) => c[0] as string);
+    expect(cmds.some((c) => c.includes("C-u"))).toBe(false);
+    expect(cmds.some((c) => c.includes("-l"))).toBe(false);
+  });
+
+  it("T-16 retryEnterOnly: Stage 3 paste_send_failed NEVER fires (no wsSend at all)", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m-no-give-up",
+      body: "hello",
+      contentHash: contentHashOf("hello"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+      retryEnterOnly: true,
+    });
+
+    // Advance well past the give-up boundary (20_000ms).
+    await vi.advanceTimersByTimeAsync(25_000);
+    await Promise.resolve();
+
+    // wsSend was never called — no paste_send_failed frame ever emitted.
+    expect(wsSend).not.toHaveBeenCalled();
+  });
+
   it("T-13 (Fix #2) clearPvSendWatchdogsForSession(sessionId) with no matches returns empty array; no side-effects", async () => {
     const exec = makeExec();
     const wsSend = makeWsSend();
