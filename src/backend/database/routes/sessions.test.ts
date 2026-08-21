@@ -1098,3 +1098,52 @@ describe("GET /sessions/list — aiTitle derivation (Phase 47 Plan 02)", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260821-m36 — connect vs discovery timeout split
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Lock the split introduced in quick-260821-m36: `CONNECT_TIMEOUT_MS = 5_000`
+// caps the TCP+SSH connect (`connectOneShot`) so an unreachable candidate host
+// fails fast (was previously wrapped in the same 30_000 cap as the three
+// post-connect discovery blocks — a phantom-host row with a stale IP would
+// hang the /sessions/list wall-clock past the frontend's axios 30s ceiling).
+// `PER_HOST_TIMEOUT_MS = 30_000` still wraps the three legitimate discovery
+// Promise.race blocks (tmux list-sessions, per-session role resolve, per-
+// session recency-signals derivation) — tanya's patch #477 30s rationale
+// holds for those.
+//
+// The single test below asserts `connectOneShot` receives 5_000 (not 30_000).
+// A future refactor that collapses the two constants back to one fails this
+// test loudly BEFORE Ashley's cold-cache clients get stuck at "Loading agents…"
+// again.
+describe("GET /sessions/list — connect vs discovery timeout split (quick-260821-m36)", () => {
+  it("connectOneShot receives CONNECT_TIMEOUT_MS (5_000), not PER_HOST_TIMEOUT_MS (30_000)", async () => {
+    // Fake conn + fast happy path (mockedDiscover already returns null from
+    // the beforeEach default → recency-signals block finishes immediately).
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    // list-sessions returns one row so the per-session Promise.all fires, but
+    // the per-session role/recency blocks resolve fast (empty frontmatter +
+    // discovery null default).
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("s|1000");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+
+    // ── split lock ──────────────────────────────────────────────────────────
+    // connectOneShot MUST be called with 5_000 (CONNECT_TIMEOUT_MS), not
+    // 30_000 (PER_HOST_TIMEOUT_MS). If the two constants are ever collapsed
+    // back into one, this assertion fires and points at quick-260821-m36.
+    expect(connectOneShot).toHaveBeenCalled();
+    expect((connectOneShot as Mock).mock.calls[0][1]).toBe(5_000);
+  });
+});
