@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-last_updated: "2026-08-20T16:11:56.980Z"
-last_activity: "2026-08-20 — Phase 50 Plan 03 executed on `feat/tab-title-from-tmux` (sequential mode, main working tree, no worktrees). Frontend optimistic-bubble state machine + Blocker #4 mqid single-source fix + Blocker #3 full-file COMPOSE-04 sweep + Warning #6 ack-based overrideText pattern. **Task 1** (TDD): extended `ChatMessage` with `pendingState?: 'sending' | 'failed' | null` prop; user-only spinner render (Loader2 trailing-edge, `data-pv-bubble-spinner`) + muted-red bubble render (`data-pv-bubble-failed` + inline hsla(0,60%,55%,0.4) border + hsla(0,40%,50%,0.08) tint); assistant ignores; failed supersedes sending. 6 new tests in `ChatMessage.test.tsx`. Commits `ef9780a3` (RED) + `f0173615` (GREEN). **Task 2** (TDD): full-file COMPOSE-04 sweep in `ComposeBox.tsx` — all 11 mentions removed or replaced with Phase 50 D-01/D-18/D-19/D-20 breadcrumbs (`grep -c 'COMPOSE-04'` → 0). `handleSend` generates a single mqid pattern `pv-optim-<ms>-<random8hex>` (`.padEnd(8, '0')` guarantees fixed-width shape); fires `onOptimisticSend({payload, mqid, immediateFailure:false})` synchronously BEFORE `onSend(payload, mqid)`; on failure returns a second `onOptimisticSend({..., immediateFailure:true})`. New props: `onOptimisticSend`, `overrideText`, `onOverrideTextConsumed` (Warning #6 ack pattern — useEffect populates textarea AND fires ack in same effect). `onSend` prop widened to `(text, mqid?) => boolean` (Blocker #4 pre-req). 5 new tests + 3 assertion updates + 8 D-23 adapt-not-delete updates across 7 sibling test files. Commits `433a2897` (RED) + `28739e79` (GREEN). **Tasks 3a+3b combined GREEN** (TDD RED separate): `PrettyView` gained `PendingSend` type + `pendingSends` state + ref-mirror + `composeOverrideText`; `flipToFailed` reducer (idempotent via `p.state === 'sending'` guard); `handleOptimisticSend` (arms 20000ms timer OR flips existing on immediateFailure); `handleOverrideTextConsumed` + `clearAllPendingSends`; `case "message"` role:"user" FIFO head-match by content BEFORE appendDedupWithCap; new `case "paste_send_failed"` + `case "send_keys_error"` branches call flipToFailed(mqid, reason); `clearAllPendingSends` in ws.onclose + useEffect return; `latestSendingPending` derivation + pendingSends.map() interleaved AFTER confirmed messages.map() with D-04 latest-only gate (only newest 'sending' shows spinner; every 'failed' shows red); `onSend?: (text, mqid?)` prop widened + `handleComposeSend` widened to forward mqid; ComposeBox mount wired with new props. New file `PrettyView.optimistic-bubbles.test.tsx` (762 lines) with 17 tests across 2 describe blocks. Commits `74f2bace` (RED) + `b8dfcdbe` (GREEN — combined because state slots + WS handlers + render are tightly coupled). **Task 4** (Blocker #4 root-cause fix): `IdentitySessionPane.tsx` onSend arrow function widened to `(text: string, mqid?: string): boolean`; DELETED `const mqid = "pv-adhoc-" + crypto.randomUUID();` at L268; return line uses `send(text + "\r", mqid ?? "")` (defensive fallback for no-mqid case). Comment block updated with new mqid-source narrative + cross-reference to 50-03-PLAN.md. Test-file hygiene: renamed 5 arbitrary `"pv-adhoc-*"` test-string placeholders in `claude-session-server.compose-send.test.ts` + `PrettyView.compose-send.test.tsx` to `"pv-test-mqid-*"` so `grep -rn 'pv-adhoc' src/` returns only 2 comment-breadcrumb hits in `IdentitySessionPane.tsx` (permitted per success criteria). Commit `90b56b79`. **Verification:** `node_modules/.bin/vitest run src/ui/features/pretty-view/PrettyView.optimistic-bubbles.test.tsx` = 17/17 pass; `node_modules/.bin/vitest run src/ui/features/pretty-view/` = 66 files / 704 pass; `node_modules/.bin/vitest run src/ui/` = 116 files / 1515 pass; full `node_modules/.bin/vitest run` = 203 files / 2708 pass / 9 skip / 1 todo, exit 0 (up +28 from Plan 50-02's 2680 baseline — 6 ChatMessage + 5 ComposeBox + 17 PrettyView optimistic-bubbles = 28 new tests); `npm run build:backend` exit 0; `npm run build` exit 0; `node_modules/.bin/tsc --noEmit` clean. Wire protocol UNCHANGED (this plan only adds frontend consumers for Plan 50-02's paste_send_failed + send_keys_error frames). Zero new dependencies (Loader2 already in lucide-react). Single-source mqid contract now proven end-to-end via Task 3a Test 11 (mqid threading). NO worktrees. NOT pushed, NOT built container, NOT deployed — executor scope ends at code + commit + tests green. SUMMARY at `.planning/phases/50-optimistic-message-bubbles/50-03-SUMMARY.md`."
+status: verifying
+last_updated: "2026-08-21T22:40:36.103Z"
+last_activity: 2026-08-21
 progress:
-  total_phases: 50
-  completed_phases: 39
-  total_plans: 199
-  completed_plans: 195
-  percent: 78
+  total_phases: 53
+  completed_phases: 42
+  total_plans: 207
+  completed_plans: 202
+  percent: 79
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 50 (Optimistic message bubbles) — COMPLETE
 Plan: 4 of 4
-Status: Phase complete — all 4 plans shipped code + tests green; ready for verification
+Status: Phase complete — ready for verification
 
-Last activity: 2026-08-21 - Completed quick task 260821-m36 (sessions-list-unstick): backend timeout split (CONNECT 5s vs PER_HOST 30s) + frontend flag-flip on fetch failure + one-shot delete of 2 phantom `laura-mac`/`lisa-mac` hosts (ids 14+15). Root cause of Ashley's "Loading agents…" spinner-stuck + "Server connection lost" toasts: tanya patch #477 coarse-bumped `PER_HOST_TIMEOUT_MS 3s→30s` also affected connectOneShot's SSH-connect timeout, so unreachable phantom hosts dragged /sessions/list past axios's 30s ceiling. iPhone worked via warm localStorage cache; desktop/iPad cold-cache stuck forever because silent catch never flipped `fleetSessionsLoaded`. 5 code commits (HEAD `46d9bf2a`), full-suite 2778/10skip/1todo (+2 baseline). Deploy pending in this workflow. Prior activity:
+Last activity: 2026-08-21
 
 Last activity: 2026-08-21 - Completed quick task 260821-kyf: setIsIdle ReferenceError fix + N=20 rename-chain console-forward log rotation (retains ~100MB history vs prior 5MB destructive truncate). 4 atomic code commits (HEAD `2f70521c`), full-suite 2776/10skip/1todo (+6 baseline, matching new rotator tests). Deploy pending in this workflow. Prior activity:
 
@@ -283,6 +283,7 @@ Progress: [██████████] 100%
 | Phase 47 P03 | 95min | 2 tasks | 2 files |
 | Phase 47 P04 | 100min | 3 tasks | 2 files |
 | Phase 50 P03 | 45min | 5 tasks | 14 files |
+| Phase 53-backend-authoritative-recycling-signal-one-wire-axis-two-con P02 | 176 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -425,6 +426,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 47 Plan 04: T-47-24 mitigation — case fetch_older_range_batch gates setOldestLoadedLine + setSessionHasMore on !parsed.error; error frames preserve prior cursor + hasMore so retry-click sends the same beforeLine
 - [Phase ?]: Phase 50 Plan 03: Single-source mqid discipline — generate identifiers at innermost caller (ComposeBox), forward unchanged through every layer; enforced structurally via grep gates
 - [Phase ?]: Phase 50 Plan 03: Ack-based one-way trigger pattern (overrideText + onOverrideTextConsumed) — child useEffect populates value AND fires ack callback in same effect; parent resets state on same tick; reusable for parent-driven ephemeral props (Warning #6)
+- [Phase ?]: Axis D nextMap.set extended to carry recycling field for WorkingRecord type integrity
+- [Phase ?]: useSessionIsRecycling hook exported for Plan 53-03 consumption
+- [Phase ?]: Pitfall-3 defense: Axis A nextMap.set preserves existing?.recycling ?? false to prevent isWorking flip wiping recycling:true
 
 ### Pending Todos
 
@@ -435,6 +439,8 @@ None yet.
 None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY DISCIPLINE — not a blocker, a standing constraint.
 
 ### Roadmap Evolution
+
+- 2026-08-21: Phase 53 added — backend-authoritative recycling signal — one wire axis, two consuming surfaces. Shape file at `.planning/shapes/shape-backend-authoritative-recycling.md`. Moves the "session is being recycled" state from browser-derived (pretty-view's WebSocket state feeding a shared store) to backend-authoritative (SSH poller reads the supervisor's `.recycled-at` sentinel and publishes as a new `recycling: boolean` axis on the fleet-status wire). Both the pretty-view holding overlay and the conversation-list row spinner rewire to consume the same axis, fixing the current asymmetric-by-mount behavior where unmounted rows can't see their session's recycling state. Client-side session-recycling-store retired. Discuss-phase skipped — CONTEXT.md seeded from the shape file per /build feature-mode vehicle guidance.
 
 - 2026-08-20: Phase 50 → 52 rescue-rebase — mid-planning renumber after coord-room detection of taylor's in-flight Phase 50 (optimistic-message-bubbles, mid-ship) + tabitha's own rescue-renumber Phase 50 → Phase 51 (claude-session-server BG-agents correlator, no plans yet). Per fleet tiebreak (mid-ship keeps its number) taylor keeps 50, tabitha kept 51, mine moves to 52. Zero source overlap (mine touches PrettyConversationsPanel filter markup + fleet-status wire; taylor touches PrettyView + ComposeBox; tabitha touches claude-session-server). 13th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous per role rule — zero-cost rename since no commits had landed on origin at rescue-rebase time (only CONTEXT.md + plan files existed local). File renames: `phases/50-*/` → `phases/52-*/`; `50-CONTEXT.md` + `50-01..04-PLAN.md` → `52-CONTEXT.md` + `52-01..04-PLAN.md`; internal refs sed'd (50-XX → 52-XX, Phase 50 → Phase 52, phase-50 → phase-52). Plan-checker's 2 blockers + 4 warnings on the original P50 plans carry forward to P52 revision — planner re-spawn will fix in-place under the new numbering.
 - 2026-08-21: Phase 50 code-review fix pass — 8 atomic commits (`c9e138ed`..`62ae753a`) applied after unbiased sub-agent code review found 3 High + 1 Medium issue. Fix #1: skip pv-send-watchdog arming when body is empty (MessageQueueDrawer bare-Enter split-send was arming a watchdog against sha256("") that never matched → guaranteed T+2.5s retry Enter + T+5.5s full re-send + T+20s paste_send_failed noise per queue-drawer send). Fix #2: added `clearPvSendWatchdogsForSession(sessionId)` API to pv-send-watchdog module + wired session-recycle cleanup into `transitionToActiveNew` — clears stale entries from `queueEnqueueDedup`, calls the new per-session clear, drops old mqids from `pendingMqidsForThisConnection`. Closes the shape-invariant hole where a watchdog armed against an old sessionId could fire full-resend and retype OLD body into NEW Claude session's composebox (directly violated shape's "retry never submits unintended message" rule). Fix #3: `session_changed` WS handler on PrettyView calls `clearAllPendingSends()` — symmetric with backend; prevents replayed-tail content-collision from clearing stale pending bubbles incorrectly. Fix #4: removed unconditional `[ctx-pct-diag]` console.info spam in `src/ui/shell/tabUtils.tsx` (from earlier commit `638ce5b7`, was firing on every render of every tab shell, shipping bundled with Phase 50). Relevant-scope test run green (12/12 files, 236 pass + 1 skip); full-suite deferred (has been slow all day). Backend + frontend builds green. Ready to bundle with the 3 pre-existing un-shipped commits + Phase 50 core + close-out for one deploy per Ashley 2026-08-19 verbatim "everything can just go out at once after we are done with this."
@@ -650,7 +656,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T16:10:17.822Z
+Last session: 2026-08-21T22:40:22.785Z
 Stopped at: Completed 47-04-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
