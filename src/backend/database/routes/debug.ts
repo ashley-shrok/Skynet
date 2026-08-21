@@ -3,6 +3,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import fs from "fs";
 import { apiLogger } from "../../utils/logger.js";
+import { rotateIfExceeds } from "../../utils/console-forward-rotator.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 
 // Patch #146: log-forwarder prototype — backend POST endpoint.
@@ -22,7 +23,9 @@ import { AuthManager } from "../../utils/auth-manager.js";
 // forwarding logs is post-hoc inspection across restarts.
 //
 // File writes are best-effort: errors are logged but never surfaced to
-// the caller. File rotates at 5 MB with a [LOG_ROTATED at <ts>] marker.
+// the caller. File rotation delegated to console-forward-rotator.ts
+// (N-file rename chain, N=20 → ~100 MB rolling retention) — history is
+// preserved, never truncated (quick-260821-kyf).
 
 // --- types ---
 
@@ -57,7 +60,6 @@ export function isValidEntry(x: unknown): x is LogEntry {
 // --- module-scoped ring buffer ---
 
 const MAX_RING = 1000;
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const ring: LogEntry[] = [];
 
 // --- lazy log path accessor (called inside handler so tests can override env) ---
@@ -100,20 +102,7 @@ export function handleConsoleLog(req: Request, res: Response): Response {
   // 4. Best-effort file mirror
   try {
     const logPath = getLogPath();
-    let currentSize = 0;
-    try {
-      currentSize = fs.statSync(logPath).size;
-    } catch {
-      // File does not exist yet — treat as size 0
-      currentSize = 0;
-    }
-
-    if (currentSize > MAX_FILE_BYTES) {
-      fs.writeFileSync(
-        logPath,
-        "[LOG_ROTATED at " + new Date().toISOString() + "]\n",
-      );
-    }
+    rotateIfExceeds(logPath);
 
     fs.appendFileSync(
       logPath,

@@ -8,9 +8,11 @@
  *
  * Design notes:
  * - Writes DIRECTLY to the log file (no HTTP hop back to itself; same-process).
- * - Log rotation mirrors debug.ts: file > 5 MB → overwrite with rotation marker,
- *   then append. Simultaneous rotation with frontend handler is safe on Linux
- *   (both use synchronous fs.writeFileSync/appendFileSync; T-31-17).
+ * - Log rotation delegated to shared console-forward-rotator.ts (N-file rename
+ *   chain, N=20). Concurrent rotation with debug.ts is safe: fs.renameSync is
+ *   atomic on POSIX; a losing racer observes size < threshold via ENOENT after
+ *   the base is renamed away and no-ops (T-31-17 concern preserved — history
+ *   is never truncated).
  * - File writes are best-effort: errors are swallowed after a stderr note (D-19).
  * - Uses the same SKYNET_CONSOLE_FORWARD_LOG_PATH env var as debug.ts (same file).
  *   Path is resolved at flush time (not module load) so tests can override per-test
@@ -20,6 +22,7 @@
  */
 
 import fs from "fs";
+import { rotateIfExceeds } from "./console-forward-rotator.js";
 
 // --- types ---
 
@@ -48,8 +51,6 @@ function getLogPath(): string {
 
 // --- internal flush ---
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
-
 function flush(): void {
   if (flushTimer !== null) {
     clearTimeout(flushTimer);
@@ -64,22 +65,7 @@ function flush(): void {
 
   try {
     const logPath = getLogPath();
-
-    // Mirror debug.ts rotation logic
-    let currentSize = 0;
-    try {
-      currentSize = fs.statSync(logPath).size;
-    } catch {
-      // File does not exist yet — treat as size 0
-      currentSize = 0;
-    }
-
-    if (currentSize > MAX_FILE_BYTES) {
-      fs.writeFileSync(
-        logPath,
-        "[LOG_ROTATED at " + new Date().toISOString() + "]\n",
-      );
-    }
+    rotateIfExceeds(logPath);
 
     fs.appendFileSync(
       logPath,
