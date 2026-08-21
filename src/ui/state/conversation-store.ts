@@ -169,6 +169,13 @@ type SnapshotForTest = ConversationList & {
   selectedId: string | null;
   pinnedIds: ReadonlySet<string>;
   hiddenIds: ReadonlySet<string>;
+  // quick-260821-m36: exposed for AppShell.persistence.test.tsx Test 5's
+  // flag-flip-on-fetch-failure assertion. Same shape as state.fleetSessions
+  // + state.fleetSessionsLoaded — read-only observability for tests, not
+  // meant for production callers (they use useFleetSessionsLoaded() hook +
+  // useSyncExternalStore-based fleet selectors).
+  fleetSessions: FleetSession[];
+  fleetSessionsLoaded: boolean;
 };
 
 // Phase 41 (Plan 01): retire the `activeSet` field's ambient-visual mention in
@@ -1551,6 +1558,9 @@ export function __getSnapshotForTest(): SnapshotForTest {
     selectedId: state.selectedId,
     pinnedIds: state.pinnedIds,
     hiddenIds: state.hiddenIds,
+    // quick-260821-m36: exposed for the flag-flip-on-fetch-failure test.
+    fleetSessions: state.fleetSessions,
+    fleetSessionsLoaded: state.fleetSessionsLoaded,
   };
 }
 

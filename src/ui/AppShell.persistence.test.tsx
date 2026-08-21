@@ -76,6 +76,7 @@ import { createPortal } from "react-dom";
 
 import {
   __getSnapshotForTest,
+  __resetFleetSessionsForTest,
   __subscribeForTest,
   selectConversation,
   updateHostTree,
@@ -442,5 +443,114 @@ describe("AppShell persistence contract — patch #35 tabNodesRef DOM-move (T-06
     expect(row.targetTmuxSession).toBe("work");
     expect((row as unknown as { fleetOnly?: boolean }).fleetOnly).toBe(true);
     expect(row.id).toBe("fleet::1::work");
+  });
+
+  // ─── quick-260821-m36: flag-flip on getSessionList() failure ─────────────
+  //
+  // Failing /sessions/list previously left cold-cache clients stuck at
+  // "Loading agents…" — the AppShell useEffect's silent catch (~L646-651)
+  // never touched the store on the failure path, so `fleetSessionsLoaded`
+  // stayed false and PrettyConversationsPanel kept rendering its spinner.
+  // The fix adds ONE guarded call inside the catch:
+  //
+  //   if (!cancelled) updateFleetSessions([]);
+  //
+  // Under the quick-260727-kbw contract (conversation-store.ts:962-998),
+  // the first call to updateFleetSessions — even with an empty array —
+  // unconditionally flips `fleetSessionsLoaded` false → true, which drives
+  // PrettyConversationsPanel out of its Loading state.
+  //
+  // This test takes the scaffold-fallback path the file header block
+  // explicitly authorizes (Tests 1-3 rationale): mocking AppShell's ~30
+  // imports (i18n provider, theme provider, dbHealthMonitor, feature
+  // panels, and every /api/sessions-api boundary) to render the real
+  // AppShell would be strictly more fragile than extracting the useEffect
+  // shape into a minimal <FleetFetcher /> component and testing THAT.
+  // This is the same "extract the mechanism, test it in isolation"
+  // pattern the MountManager scaffold above uses for the DOM-move
+  // mechanism.
+  it("Test 5 (quick-260821-m36): getSessionList rejects → updateFleetSessions([]) flips fleetSessionsLoaded false→true", async () => {
+    // Establish a clean false starting point — beforeEach called
+    // updateFleetSessions([]) on line 115 which (per quick-260727-kbw)
+    // ALREADY flipped the flag to true. __resetFleetSessionsForTest wipes
+    // both the fleetSessions array AND the flag back to their initial
+    // module-scope values so we can observe the false→true transition
+    // this test cares about.
+    __resetFleetSessionsForTest();
+    expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
+
+    // Cache-write spy — proves the try-branch's writeFleetSessionsCache is
+    // NEVER called on the failure path (invariant: "the last known-good
+    // snapshot survives the network hiccup"). We inline a no-op cache-
+    // write shim rather than spying on the real module boundary because
+    // the scaffold reproduces the useEffect body in isolation.
+    let cacheWriteCallCount = 0;
+    const writeFleetSessionsCacheShim = (): void => {
+      cacheWriteCallCount++;
+    };
+
+    // Reproduce the AppShell.tsx L596-657 useEffect shape in a minimal
+    // scaffold component. The try-branch is kept as a compiled-in dead
+    // path (Promise.reject fires immediately) so the assertion focuses
+    // on the catch-branch behavior — the whole point of the fix.
+    //
+    // ── RED phase (this commit) ────────────────────────────────────────────
+    // The scaffold's catch block is INTENTIONALLY EMPTY — mirroring
+    // AppShell.tsx's silent-catch shape BEFORE the quick-260821-m36 fix
+    // lands. The assertions below MUST fail cleanly (fleetSessionsLoaded
+    // stays false) proving the failure mode is a clean assertion diff,
+    // not a hang or a compile error.
+    //
+    // The GREEN commit that follows adds:
+    //   1. `if (!cancelled) updateFleetSessions([])` inside AppShell.tsx's
+    //      silent catch at ~L646-651 (the production fix).
+    //   2. The SAME line inside this scaffold's catch (mirror-lock).
+    //
+    // Any future refactor that drops the line from EITHER site diverges +
+    // fails one of the two guards (this test OR the UAT cold-cache walk).
+    function FleetFetcher(): null {
+      useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+          try {
+            // Simulate getSessionList() failure — matches how axios
+            // rejects on network error / 500 / timeout in production.
+            await Promise.reject(new Error("boom: /sessions/list failed"));
+            if (cancelled) return;
+            // (unreachable dead path — kept for shape symmetry with the
+            //  real useEffect body; writeFleetSessionsCacheShim would
+            //  be called here if the promise resolved).
+            writeFleetSessionsCacheShim();
+          } catch {
+            // RED: silent-catch shape pre-quick-260821-m36. GREEN commit
+            // adds: `if (!cancelled) updateFleetSessions([]);`
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, []);
+      return null;
+    }
+
+    // flushPromises: yield to the microtask + macrotask queue so the
+    // (async () => {})() IIFE completes and the store notification lands
+    // before the assertion runs. setTimeout(res, 0) drains BOTH queues.
+    const flushPromises = (): Promise<void> =>
+      new Promise((res) => setTimeout(res, 0));
+
+    await act(async () => {
+      render(<FleetFetcher />);
+      await flushPromises();
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.fleetSessionsLoaded).toBe(true);
+    expect(snap.fleetSessions.length).toBe(0);
+
+    // Cache-untouched invariant — the try-branch's writeFleetSessionsCache
+    // (the shim) was never called because Promise.reject short-circuited
+    // to the catch.
+    expect(cacheWriteCallCount).toBe(0);
   });
 });
