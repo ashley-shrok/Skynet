@@ -18,6 +18,23 @@ const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
+// quick-260821-m36: split the historical single PER_HOST_TIMEOUT_MS into two
+// tiers so an unreachable candidate host (stale row whose IP no longer resolves
+// on tailnet — e.g., the phantom hosts.id 14/15 rows purged in the plan's
+// delete-phantom-hosts.mjs cleanup) fails fast at TCP+SSH connect instead of
+// consuming the full 30s discovery budget. When one dead host burned all 30s
+// of the wall-clock, the aggregate /sessions/list response pushed past the
+// frontend's axios 30s ceiling → axios rejected → PrettyConversationsPanel
+// never received fleet data (spinner stuck) and the WS-health pipeline fired
+// "Server connection lost, recovering…" toasts on desktop + iPad. Splitting
+// gives connectOneShot its own 5s cap while preserving the 30s roof for the
+// three legitimate discovery-heavy blocks below.
+//
+// 5s is comfortable margin over the healthy SSH handshake wall-clock (~200-
+// 800ms even on cold cross-region tailscale links) and small enough that a
+// single dead host contributes at most ~5s to the aggregate.
+const CONNECT_TIMEOUT_MS = 5_000;
+
 // Per-block timeout for the /sessions/list handler — bumped 3000 → 30000
 // (Ashley 2026-08-20 UAT) matching DISCOVERY_EXEC_TIMEOUT_MS. Wraps the
 // connectOneShot + `tmux list-sessions` + per-session `discoverIdentitySessionFile`
@@ -25,6 +42,13 @@ const authenticateJWT = authManager.createAuthMiddleware();
 // wall-clock hits ~5s; 3s tripped every /sessions/list call and null'd both
 // row.lastMessageAt and row.aiTitle for every local session. See
 // DISCOVERY_EXEC_TIMEOUT_MS docblock in discover-identity-session-file.ts.
+//
+// quick-260821-m36 note: connectOneShot is NO LONGER wrapped by this cap —
+// it uses CONNECT_TIMEOUT_MS (5_000) above. The three setTimeout(...,
+// PER_HOST_TIMEOUT_MS) call sites below (tmux list-sessions Promise.race,
+// per-session role-resolve Promise.race, per-session recency-signals
+// Promise.race) still consume the full 30s budget — tanya's rationale
+// applies to concurrent-discovery, not the connect handshake.
 const PER_HOST_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
@@ -173,7 +197,7 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
           if (!resolved) return [];
           const conn = await connectOneShot(
             resolved as unknown as Parameters<typeof connectOneShot>[0],
-            PER_HOST_TIMEOUT_MS,
+            CONNECT_TIMEOUT_MS,
           );
           try {
             const output = await Promise.race([
