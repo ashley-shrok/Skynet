@@ -135,6 +135,7 @@ import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
 import { useBountyCounts } from "@/state/bounty-counts-store";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
@@ -340,6 +341,35 @@ export function PrettyConversationRow({
   const isMobile = variant === "mobile";
   const variantClass = isMobile ? "pv-row--mobile" : "pv-row--desktop";
 
+  // quick-260821-suv: iPad reports `window.innerWidth >= 768` in every
+  // orientation (10.9" landscape = 1180px, Pro 12.9" = 1024×1366, Mini
+  // portrait = 768 exactly — the `<` comparison in useIsMobile fails), so
+  // `variant` resolves to `"desktop"` and the width-only `isMobile` gate
+  // below misses touchscreen tablets entirely. `useIsTouchDevice()` reads
+  // `(pointer: coarse) and (hover: none)` via matchMedia — the reliable
+  // touchscreen signal (narrow desktop windows and hybrid laptops in
+  // trackpad mode both report `pointer: fine`). `acceptsTouch` is the OR
+  // of the two gates: mobile-width devices AND coarse-pointer devices both
+  // wire the four `onTouch*` handlers. Variant-driven STYLING branches
+  // (`pv-row--mobile` vs `pv-row--desktop`) intentionally stay width-based
+  // — iPad still renders the desktop layout; only INPUT wiring extends.
+  const isTouchDevice = useIsTouchDevice();
+  const acceptsTouch = isMobile || isTouchDevice;
+
+  // quick-260821-suv: DEV-only mount-time breadcrumb so Ashley can confirm on
+  // iPad that the coarse-pointer path opened up (the "wide-viewport
+  // touchscreen just wired its touch handlers via the OR gate" signal).
+  // Empty deps array → fires exactly once per row mount; never re-fires on
+  // state changes. Skipped in prod bundles via import.meta.env.DEV.
+  useEffect(() => {
+    if (import.meta.env.DEV && isTouchDevice && !isMobile) {
+      console.info("[pv-row] touch handlers wired via coarse-pointer gate", {
+        conversationId: row.id,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps — mount-only breadcrumb, snapshot at first render is the diagnostic
+  }, []);
+
   // ─── Context menu state (desktop right-click AND mobile long-press) ───────
   // Coords are the pointer position at open time; null = menu closed. Shared
   // state between the two entry points so both flow through the SAME
@@ -522,7 +552,12 @@ export function PrettyConversationRow({
 
   const onTouchStart = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
-      if (!isMobile) return;
+      // quick-260821-suv: widened from `!isMobile` to `!acceptsTouch` so
+      // coarse-pointer touchscreens (iPad) exercise the same handler body.
+      // The JSX gate widening above only decides whether the handler is
+      // WIRED; the handler body itself must widen its own guard for the
+      // long-press timer and swipe machinery to actually arm.
+      if (!acceptsTouch) return;
       const t = e.touches[0];
       if (!t) return;
       const x = t.clientX;
@@ -555,12 +590,14 @@ export function PrettyConversationRow({
       armedRef.current = false;
       disarmedRef.current = false;
     },
-    [isMobile, isRdp, clearLongPressTimer, closeSelf],
+    [acceptsTouch, isRdp, clearLongPressTimer, closeSelf],
   );
 
   const onTouchMove = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
-      if (!isMobile) return;
+      // quick-260821-suv: widened from `!isMobile` to `!acceptsTouch` — see
+      // onTouchStart above for the rationale (iPad wire).
+      if (!acceptsTouch) return;
       const t = e.touches[0];
       if (!t) return;
 
@@ -608,11 +645,13 @@ export function PrettyConversationRow({
       const dragged = Math.max(-cap, Math.min(cap, dx * 0.6));
       setDxLive(dragged);
     },
-    [isMobile, isRdp, clearLongPressTimer],
+    [acceptsTouch, isRdp, clearLongPressTimer],
   );
 
   const onTouchEnd = useCallback(() => {
-    if (!isMobile) return;
+    // quick-260821-suv: widened from `!isMobile` to `!acceptsTouch` — see
+    // onTouchStart above for the rationale (iPad wire).
+    if (!acceptsTouch) return;
     // ── long-press drain ────────────────────────────────────────────────
     // Clear any pending timer (early touchEnd → no menu).
     clearLongPressTimer();
@@ -692,7 +731,7 @@ export function PrettyConversationRow({
     suppressNextClickRef.current = true;
     beginSnapBack();
   }, [
-    isMobile,
+    acceptsTouch,
     isRdp,
     clearLongPressTimer,
     resetSwipeGesture,
@@ -1039,10 +1078,23 @@ export function PrettyConversationRow({
         onClick={onBodyClick}
         onKeyDown={onBodyKeyDown}
         onContextMenu={!isMobile ? onRowContextMenu : undefined}
-        onTouchStart={isMobile ? onTouchStart : undefined}
-        onTouchMove={isMobile ? onTouchMove : undefined}
-        onTouchEnd={isMobile ? onTouchEnd : undefined}
-        onTouchCancel={isMobile ? onTouchEnd : undefined}
+        // quick-260821-suv: the four `onTouch*` gates were widened from
+        // `isMobile ? h : undefined` to `acceptsTouch ? h : undefined`
+        // where `acceptsTouch = isMobile || isTouchDevice`. iPad reports
+        // `window.innerWidth >= 768` in every orientation, so the
+        // width-only `isMobile` gate missed touchscreen tablets and
+        // both long-press → context menu AND swipe-to-act were dead on
+        // iPad. `useIsTouchDevice()` reads
+        // `(pointer: coarse) and (hover: none)` via matchMedia to close
+        // the gap. Variant-driven STYLING branches
+        // (`pv-row--mobile` vs `pv-row--desktop`) intentionally stay
+        // width-based — iPad still renders the desktop layout; only
+        // input wiring extends. `onTouchCancel` reuses `onTouchEnd`
+        // (pre-existing intentional wiring, unchanged).
+        onTouchStart={acceptsTouch ? onTouchStart : undefined}
+        onTouchMove={acceptsTouch ? onTouchMove : undefined}
+        onTouchEnd={acceptsTouch ? onTouchEnd : undefined}
+        onTouchCancel={acceptsTouch ? onTouchEnd : undefined}
         onMouseDown={variant === "desktop" && !isRdp ? onMouseDown : undefined}
         onMouseMove={variant === "desktop" && !isRdp ? onMouseMove : undefined}
         onMouseUp={variant === "desktop" && !isRdp ? onMouseUp : undefined}
