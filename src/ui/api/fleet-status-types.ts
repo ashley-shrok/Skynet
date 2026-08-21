@@ -116,6 +116,35 @@ export interface SessionState {
   // renders the fallback ellipsis per the LOCKED v14 design). MUST stay
   // in lockstep with the backend schema.
   aiTitle?: string | null;
+  // Phase 52 (mirror gap-closure per Phase 53 Plan 02 Task 1): the inline
+  // supervisor-dormancy signal. Source: the
+  // ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the target
+  // host. Semantics: `true` = sentinel present (identity parked by
+  // supervisor), `false` = sentinel absent (normal operation), `null` =
+  // normalised-null in transit (SSH error), `undefined` = emitting backend
+  // pre-dates Phase 52. Frontend treats undefined and null identically (both
+  // → false at the session-working-store boundary). Mirrors backend
+  // `SessionStateSchema.dormant`. Added only now (Phase 53 Plan 02) because
+  // the field was previously undocumented on the browser mirror —
+  // tsconfig.app.json's `strict: false` allowed the omission to compile
+  // silently; adding it now gives future readers a canonical browser-side
+  // type. MUST stay in lockstep with the backend schema.
+  dormant?: boolean | null;
+  // Phase 53 Plan 02 (2026-08-21): the backend-authoritative recycling signal.
+  // Source: the caretaker's ~/.claude/identities/<tmuxSession>/.recycled-at
+  // sentinel file on the target host — renamed from `.recycle-requested` at
+  // recycle-intent detection (before the outgoing claude PID exits), removed
+  // with an 8s delay after the fresh claude is up and driven through `/id`.
+  // Scope is EXCLUSIVELY /id-reset-initiated identity replacement — NOT
+  // memory-cap restarts, NOT dormancy-wake, NOT connection drops. Semantics:
+  // `true` = sentinel present (recycle in flight), `false` = sentinel absent
+  // (any other state), `null` = normalised-null in transit (SSH error),
+  // `undefined` = emitting backend pre-dates Phase 53. Frontend treats
+  // undefined and null identically (both → false at the session-working-store
+  // boundary — see session-working-store.ts Axis E block added in Task 2
+  // below). Mirrors backend `SessionStateSchema.recycling`. MUST stay in
+  // lockstep with the backend schema.
+  recycling?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
