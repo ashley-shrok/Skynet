@@ -186,13 +186,17 @@ interface PerHostState {
   livenessMap: Map<number, PidCacheEntry>;
   lastHookWarnAt: number;
   // Phase 52 Plan 01 Task 3 — source B fingerprint-suppression cache.
-  // Maps identity name → last-published dormant value for identities that
-  // have a `.dormant` sentinel present AND have NO live claude PID this
-  // tick. Distinct from `livenessMap` (source A, keyed by PID) because
-  // source B's identities are keyed by identity name and have no PID.
-  // Populated by pollDormantOnlyIdentities; entries are cleared when the
-  // same identity acquires a live PID (source A takes over publishing).
-  dormantOnlyIdentities: Map<string, boolean>;
+  // Phase 53 code-review C2/C3 (2026-08-21): widened from Map<name, dormant>
+  // to Map<name, {dormant, recycling}> so source B covers BOTH axes for
+  // identities with no live PID. This closes the gap where the outgoing
+  // claude PID exits during a recycle: source A stops publishing for that
+  // key, and until Phase 53 CR the registry blanked the recycling axis on
+  // subsequent source-B dormant frames (C3) AND fresh browser snapshots
+  // during the PID-vanish window saw the identity as not-recycling (C2).
+  // Now source B stats `.recycled-at` alongside `.dormant` on every tick.
+  // Publish/suppress fires when EITHER axis changes vs cache. Cache is
+  // cleared when the identity acquires a live PID (source A takes over).
+  dormantOnlyIdentities: Map<string, { dormant: boolean; recycling: boolean }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -615,41 +619,57 @@ export function createSshPollOrchestrator(
       .map((l) => l.trim())
       .filter(Boolean);
 
-    // Parallel-stat each identity's .dormant sentinel. Cap implicit via
-    // Promise.all — bounded by identity count per host (typically <20).
+    // Phase 53 CR C2/C3 (2026-08-21): parallel-stat BOTH sentinels for each
+    // identity — `.dormant` (Phase 52) and `.recycled-at` (Phase 53).
+    // Bounded by identity count per host (typically <20); 2x stat calls per
+    // identity is still trivial vs the 30s SSH channel keepalive budget.
     const statResults = await Promise.all(
       identityNames.map(async (name) => {
         const quotedName = shellSingleQuote(name);
-        const out = await channel.exec(
-          `stat ~/.claude/identities/${quotedName}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
-        );
-        // T-52-01-01 mitigation: only "yes" or "no" are meaningful. Anything
-        // else (null, unexpected output) → treat as not-dormant (false) since
-        // source B has no prior cache to fall back to for this specific
-        // identity — it's cache-populated per-tick.
-        const isDormant = out !== null && out.trim() === "yes";
-        return { name, isDormant };
+        const [dormantOut, recyclingOut] = await Promise.all([
+          channel.exec(
+            `stat ~/.claude/identities/${quotedName}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+          ),
+          channel.exec(
+            `stat ~/.claude/identities/${quotedName}/.recycled-at 2>/dev/null >/dev/null && echo yes || echo no`,
+          ),
+        ]);
+        // T-52-01-01 mitigation (applies to both axes): only "yes" or "no"
+        // are meaningful. Anything else (null, unexpected output) → treat as
+        // false since source B has no prior cache to fall back to for this
+        // specific identity — it's cache-populated per-tick.
+        const isDormant = dormantOut !== null && dormantOut.trim() === "yes";
+        const isRecycling =
+          recyclingOut !== null && recyclingOut.trim() === "yes";
+        return { name, isDormant, isRecycling };
       }),
     );
 
     // For each identity: publish/suppress based on cache + live-set membership.
-    for (const { name, isDormant } of statResults) {
+    for (const { name, isDormant, isRecycling } of statResults) {
       // Skip identities that had a live PID this tick — source A already
-      // published for them (with source A's own dormant stat). Also clear
-      // the source-B cache for this name so a future transition back to
-      // no-live-PID re-publishes cleanly (Test P52-01-T3-vii).
+      // published for them (with source A's own dormant + recycling stats).
+      // Also clear the source-B cache for this name so a future transition
+      // back to no-live-PID re-publishes cleanly (Test P52-01-T3-vii).
       if (liveTmuxSet.has(name)) {
         dormantOnlyIdentities.delete(name);
         continue;
       }
 
-      const previousDormant = dormantOnlyIdentities.get(name);
-      if (previousDormant === isDormant) {
-        // Cache hit with same value → fingerprint-suppress (no publish).
+      const previous = dormantOnlyIdentities.get(name);
+      if (
+        previous !== undefined &&
+        previous.dormant === isDormant &&
+        previous.recycling === isRecycling
+      ) {
+        // Cache hit — BOTH axes match → fingerprint-suppress (no publish).
         continue;
       }
 
-      dormantOnlyIdentities.set(name, isDormant);
+      dormantOnlyIdentities.set(name, {
+        dormant: isDormant,
+        recycling: isRecycling,
+      });
 
       const state: SessionState = {
         hostId: host.id,
@@ -663,6 +683,7 @@ export function createSshPollOrchestrator(
         lastMessageAt: null,
         aiTitle: null,
         dormant: isDormant,
+        recycling: isRecycling,
       };
       deps.registry.publishSessionState(host.id, state);
 
@@ -673,7 +694,9 @@ export function createSshPollOrchestrator(
           fleetHostId: host.id,
           identityName: name,
           dormant: isDormant,
-          previousDormant: previousDormant ?? null,
+          recycling: isRecycling,
+          previousDormant: previous?.dormant ?? null,
+          previousRecycling: previous?.recycling ?? null,
         },
       );
     }

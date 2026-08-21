@@ -3603,3 +3603,130 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     ).toBe(true);
   });
 });
+
+// ==============================================================================
+// Phase 53 CR C2/C3 — source B recycling coverage (2026-08-21)
+//
+// Post-execute code review flagged two gaps in Phase 53's initial source-A-only
+// design:
+//
+//   C2: When the outgoing claude PID exits during a recycle, source A stops
+//       publishing for that key. A browser tab opening during the PID-vanish
+//       window (before the fresh PID comes up) sees no state for the identity
+//       and its row incorrectly shows "ready" instead of "recycling."
+//
+//   C3: When source B publishes for a dormant identity, it previously omitted
+//       recycling. If both .dormant AND .recycled-at existed on the same
+//       identity, the source-B frame blanked the recycling axis in the registry
+//       snapshot — later subscribers saw not-recycling.
+//
+// Fix: source B stats both .dormant AND .recycled-at on every tick, and
+// publishes when EITHER axis changes vs cache. dormantOnlyIdentities cache
+// widened from Map<name, boolean> to Map<name, {dormant, recycling}>.
+// ==============================================================================
+
+describe("Phase 53 CR C2/C3 — source B recycling coverage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // wireEmptySessions helper — copy of the Phase 52 T3 sibling for isolation.
+  function wireEmptySessions(channel: MockSshChannel): void {
+    channel.setResponse("ls -1 ~/.claude/sessions/", "");
+    channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test P53-CR-C2-i — Identity with .recycled-at present + NO live PID →
+  //                    source B publishes recycling:true frame (C2 fix).
+  // Pre-fix: source A only, no publish for this key → browser saw "ready".
+  // ---------------------------------------------------------------------------
+
+  it("Test P53-CR-C2-i: identity with .recycled-at present + no live PID → source B publishes recycling:true frame", async () => {
+    const channel = new MockSshChannel();
+    wireEmptySessions(channel);
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
+    // dormant absent, recycling present — the exact PID-vanish window.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates).toHaveLength(1);
+    const p = deps.registry.publishedStates[0];
+    expect(p.state.sessionId).toBe("__dormant__");
+    expect(p.state.pid).toBeNull();
+    expect(p.state.tmuxSession).toBe("tina");
+    expect(p.state.dormant).toBe(false);
+    expect(p.state.recycling).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P53-CR-C3-i — Identity with BOTH .dormant AND .recycled-at + no live
+  //                    PID → source B publishes with BOTH true (C3 fix).
+  // Pre-fix: source B omitted recycling → registry snapshot blanked the axis.
+  // ---------------------------------------------------------------------------
+
+  it("Test P53-CR-C3-i: identity with both .dormant and .recycled-at → source B publishes dormant:true AND recycling:true (no axis blanking)", async () => {
+    const channel = new MockSshChannel();
+    wireEmptySessions(channel);
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates).toHaveLength(1);
+    const p = deps.registry.publishedStates[0];
+    expect(p.state.dormant).toBe(true);
+    expect(p.state.recycling).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P53-CR-C2-ii — recycling-only change on tick 2 publishes new frame
+  //                     (fingerprint suppression respects the recycling axis).
+  // ---------------------------------------------------------------------------
+
+  it("Test P53-CR-C2-ii: source B tick 2 with recycling flipped (dormant unchanged) → new publish (cache respects recycling axis)", async () => {
+    const channel = new MockSshChannel();
+    wireEmptySessions(channel);
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return 0 as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    // Tick 1: first-appearance publish with recycling:false.
+    expect(deps.registry.publishedStates).toHaveLength(1);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+
+    // Tick 2: recycling flips true. dormantOnlyIdentities cache differs → publish.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+    const pollFn = setIntervalFns.find((s) => s.ms >= 500 && s.ms <= 3000)?.fn;
+    expect(pollFn).toBeDefined();
+    await pollFn!();
+
+    expect(deps.registry.publishedStates).toHaveLength(2);
+    expect(deps.registry.publishedStates[1].state.recycling).toBe(true);
+    expect(deps.registry.publishedStates[1].state.dormant).toBe(false);
+  });
+});

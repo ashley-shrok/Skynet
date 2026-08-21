@@ -144,3 +144,44 @@ from it) rather than re-running discussion.
 Identity doing the work: tina (this identity). Phase number claimed at
 ship time via the fork's rescue-rebase-and-renumber protocol; no need to
 pre-negotiate the number.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-08-21
+**Vehicle used:** gsd phase (three sequenced plans: 53-01 backend wire + poller, 53-02 browser store axis + hook, 53-03 consumer swaps + bridge-store retirement)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · recycling signal moved to backend; poller reads the marker; wire grew one axis; store grew one hook; both surfaces read that axis
+- **Shape — caretaker marker (part 1)** — present · caretaker artifact unmodified; rename at reconcile + 8s delayed removal confirmed on managed box
+- **Shape — poller reads marker (part 2)** — present · per-PID stat of .recycled-at added to processPid with fail-open on SSH hiccup and shell-quoting; cached in PidCacheEntry
+- **Shape — wire frame grows one boolean axis (part 3)** — present · SessionStateSchema.recycling optional+nullable; FRAME_SCHEMA_VERSION held at 1; participates in fingerprint
+- **Shape — browser session store parallel hook (part 4)** — present · Axis E swap-and-notify + useSessionIsRecycling hook; cross-axis preservation defends against Pitfall-3
+- **Shape — two consuming surfaces read the axis (part 5)** — present · PrettyView overlay + row spinner both source-swapped; compose-box disable props also swapped (endorsed drift)
+- **Shape — client-side recycling bridge retired** — present · session-recycling-store.ts and .test.ts deleted; no live references remain in the tree
+- **Philosophy — one source closest to reality** — present · single backend-sourced axis feeds both surfaces (and, per endorsed drift, the compose-box disable props)
+- **Prior context — caretaker marker semantics** — present · unbroken window confirmed against agent-supervisor: rename before old PID exits, 8s delayed removal after fresh /id-load
+- **Prior context — queue-pending stays client-side** — present · queue-pending store untouched semantically; only docblock references to retired store cleaned up
+- **What would make it wrong — row still needs pretty-view mounted to be accurate** — present · row reads useSessionIsRecycling(sessionKey) directly against fleet-status feed; no PrettyView-mounted dependency
+- **What would make it wrong — the two surfaces can visually disagree about the same session** — present · both surfaces read the identical Axis E of the same working-store record for the same key
+- **What would make it wrong — recycling definition expanded beyond identity-reset** — present · scope-locked in schema block-comment; sourced strictly from .recycled-at; memory-cap / dormancy-wake explicitly excluded
+- **What would make it wrong — connection-drop overlay tangled with recycling path** — present · wsTransportState / paneState / usePaneResolvingMachine / case session_holding WS handler all untouched
+- **Scope edges — In** — present · all seven in-scope items delivered (poller read, wire axis, store hook, overlay swap, row spinner swap, bridge retirement, tests on both sides)
+- **Scope edges — Out** — present · queue-pending stayed client-side; connection-drop overlay untouched; harness-down-without-marker untouched
+- **Scope edges — Deferred / tempting-but-no** — present · no fleet-status schema redesign; no broader state-layer refactor; targeted axis addition only
+
+### Additions (in the result, not in the shape)
+
+- ComposeBox isHolding and recycleActive props were also source-swapped to the new working-store recycling axis (shape agreed to one chat-surface swap — the overlay mount — but three consumer sites in PrettyView actually moved). Trade-off: compose-box disable state on a mounted pane shifts from an instantaneous per-pane pane_state signal to the fleet poller's 2s cadence. — endorsed-as-drift
+- The pre-existing Phase 52 dormant field was mirrored onto the browser-side SessionState type in the same commit that added the recycling mirror. The shape only asked for the new recycling axis; this backfilled a stale-since-Phase-52 type gap (compiled silently under tsconfig strict:false) while adjacent. — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Diff-stat against origin was initially misleading: seven unpushed remote commits (quick-260821-shn/suv, plus older commits touching claude-session-server, use-is-touch-device tests, compose-send tests, pv-send-watchdog, user-preferences, ComposeBox, use-auto-scroll) show up in the working-tree diff but are NOT part of Phase 53's 13-commit local set. Confirmed by walking git log per file — every Phase-53 commit is prefixed feat(53-...)/test(53-...)/docs(53-...) and touches only the shape's declared surfaces. Worth carrying forward: Phase 53 revealed the browser-side SessionState type has been silently drifting from the backend wire schema since Phase 52 because tsconfig.app.json has strict:false — any future wire-additive phase should double-check the mirror was actually updated, since a missing field will compile clean. The plan itself already accepted the ComposeBox 2s-cadence trade-off (T-53-03-02) and named the follow-up escape hatch (restore instantaneous pane_state gating for ComposeBox specifically if UAT surfaces a regression) — recorded here rather than as a follow_up because it is a conditional-on-UAT contingency, not an open action.
