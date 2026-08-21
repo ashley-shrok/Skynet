@@ -3341,3 +3341,265 @@ describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
     expect(skipsForHostCPostEvict).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 53 Plan 01 — source A recycling stat + fingerprint
+//
+// Contract (locked by 53-01-PLAN.md § task 2 + § threat_model T-53-01-01/02):
+//   - Per PID-tick, when tmuxSession is non-null, orchestrator executes
+//     `stat ~/.claude/identities/'<escapedTmuxSession>'/.recycled-at 2>/dev/null
+//     >/dev/null && echo yes || echo no` on the SSH channel. Trimmed stdout
+//     "yes" → recycling true; "no" → recycling false; anything else (null, throw)
+//     → fail-open (preserve cached value, default false on cold start).
+//   - Composed SessionState.recycling carries the derived boolean.
+//   - computeFingerprint includes recycling as a distinct axis so a recycling-only
+//     flip publishes a new frame (status/backgroundTasks/lastMessageAt/aiTitle/dormant
+//     all unchanged still fires publishSessionState on recycling delta).
+//   - PidCacheEntry.recycling caches the value for fail-open across ticks.
+//   - If tmuxSession is null (identity name unknown) → skip stat, use cache.
+//   - No source B added — the caretaker's sentinel is placed while the outgoing
+//     PID is still alive and held for 8s after the fresh PID is up, so source A
+//     coverage is sufficient (see Phase 53 RESEARCH § Assumption A1).
+// ---------------------------------------------------------------------------
+
+describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Local jsonlMessageLine — same shape as sibling describes.
+  function jsonlMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+    });
+  }
+
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+    matchesIdentity = true,
+  ): string {
+    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  // wireBaseResponses — mirrors the Phase 52 Plan 01 Task 2 sibling exactly,
+  // but also wires a default .recycled-at response ("no\n") so recycling tests
+  // that don't need to override the recycling stat get the safe default.
+  function wireBaseResponses(
+    channel: MockSshChannel,
+    jsonlContents: string,
+    discoveryOverride?: string,
+  ): void {
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    const discoveryStdout =
+      discoveryOverride ??
+      buildDiscoveryFixture(
+        "tina",
+        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlContents);
+    // Default dormant stat response (not dormant) — mirrors Phase 52 Task 2 sibling.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    // Default recycled-at stat response (not recycling) — override per test as needed.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test P53-01-T1-i — stat returns "yes\n" → SessionState.recycling === true.
+  // ---------------------------------------------------------------------------
+
+  it("Test P53-01-T1-i: stat returns 'yes\\n' → composed SessionState.recycling === true; publishSessionState called with recycling:true", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    // Override default recycled-at response to simulate sentinel present.
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "yes\n",
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P53-01-T1-ii — stat returns "no\n" → SessionState.recycling === false.
+  // ---------------------------------------------------------------------------
+
+  it("Test P53-01-T1-ii: stat returns 'no\\n' → composed SessionState.recycling === false", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "no\n",
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P53-01-T1-iii — stat returns null (SSH hiccup) → cached value preserved
+  //                       (fail-open). Cold start cache defaults to false.
+  // ---------------------------------------------------------------------------
+
+  it("Test P53-01-T1-iii: stat returns null (SSH hiccup) → cold-start cached value (false) preserved (fail-open)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    // Return null — simulates SSH channel error mid-tick. Orchestrator MUST
+    // fall through to cached value (default false on cold start), NOT throw.
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.recycled-at",
+      null,
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await expect(orchestrator.start()).resolves.not.toThrow();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    // Fail-open — cold-start cache default is false.
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P53-01-T1-iv — two consecutive ticks with SAME recycling value →
+  //                     fingerprint-suppressed (no second publish).
+  // ---------------------------------------------------------------------------
+
+  it("Test P53-01-T1-iv: two consecutive ticks with SAME recycling value (all other axes unchanged) → second tick fingerprint-suppressed (no second publish)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "no\n",
+    );
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1: publishes with recycling:false
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBeGreaterThan(0);
+
+    // Tick 2: everything unchanged (same recycling value, same session json,
+    // same tail contents) → fingerprint identical → no publish.
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(publishesAfterTick1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P53-01-T1-v — recycling-only delta (status/backgroundTasks/lastMessageAt/
+  //                    aiTitle/dormant all held identical across ticks; only recycling
+  //                    flips false→true on tick 2) → second tick DOES publish
+  //                    (fingerprint delta detected on recycling axis).
+  // ---------------------------------------------------------------------------
+
+  it("Test P53-01-T1-v: recycling flips false→true (all other axes unchanged) → second tick publishes (fingerprint delta on recycling axis)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    // Tick 1: recycling:false
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "no\n",
+    );
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1: recycling:false published
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBeGreaterThan(0);
+    expect(
+      deps.registry.publishedStates[publishesAfterTick1 - 1].state.recycling,
+    ).toBe(false);
+
+    // Tick 2: recycling flips to true — ALL OTHER axes unchanged (same session
+    // json, same tail, same hook payload, same dormant). Fingerprint MUST see
+    // the recycling delta and fire publish.
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "yes\n",
+    );
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    const publishesAfterTick2 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick2).toBe(publishesAfterTick1 + 1);
+    expect(
+      deps.registry.publishedStates[publishesAfterTick2 - 1].state.recycling,
+    ).toBe(true);
+  });
+});
