@@ -360,6 +360,184 @@ export function reshapeParsedLineToWireFrame(
 }
 export const __reshapeParsedLineToWireFrameForTests = reshapeParsedLineToWireFrame;
 
+// ─── quick-260821-shn: slash-command wrapper → raw-body reconstruction ───────
+//
+// Bug shape (verbatim from quick-260821-shn):
+//   • Frontend PrettyView composer arms pv-send-watchdog with
+//     `sha256("/id tabitha").slice(0,32)` — hashes the RAW body the user typed.
+//   • Claude Code writes the user turn to session-file JSONL as a WRAPPER:
+//     `<command-message>id</command-message><command-name>/id</command-name><command-args>tabitha</command-args>`.
+//   • Backend tail-side onLine callback (this file, below) previously hashed
+//     the WRAPPER string, so the two hashes never matched → pending watchdog
+//     never cleared → T+2500ms retry Enter + T+5500ms full re-send fired,
+//     double-submitting the slash-command into the harness.
+//
+// Fix (dual-hash notify — additive, backend-only):
+//   • On every kind:"message" role:"user" tail signal, notify with the
+//     wrapper-hash (unchanged pre-fix behavior).
+//   • If the content matches the slash-command wrapper shape, reconstruct the
+//     raw `/NAME[ ARGS]` body the frontend hashed and notify a SECOND time
+//     with `sha256(rawBody).slice(0,32)`. Non-slash user turns fall through
+//     unchanged (helper returns null → single notify).
+//
+// Regex idioms (load-bearing):
+//   • `[\s\S]*?` for args capture — dotall-equivalent so multi-line args land
+//     verbatim (a slash-command args body may contain real newlines; `.*?`
+//     would be newline-sensitive and would fail multi-line test 4).
+//   • `[^<]+` for name capture — bounded by the closing tag; non-empty name
+//     required (empty name after the slash is treated as malformed).
+
+const CMD_NAME_RE = /<command-name>\/([^<]+)<\/command-name>/;
+const CMD_NAME_ANY_RE = /<command-name>([\s\S]*?)<\/command-name>/;
+const CMD_ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/;
+const CMD_SIBLING_RE = /<command-message>|<command-args>/;
+
+/**
+ * Pure helper: reconstruct the raw `/NAME[ ARGS]` body the frontend hashed
+ * from the Claude-Code JSONL wrapper. Returns null when the content is not
+ * a slash-command wrapper OR when the wrapper is malformed.
+ *
+ * Detection (must-hold, both):
+ *   (i)  `<command-name>/NAME</command-name>` present, with NAME non-empty
+ *        (`name.trim().length > 0`).
+ *   (ii) At least ONE sibling wrapper tag (`<command-message>` or
+ *        `<command-args>`) present anywhere in the content.
+ *
+ * Extraction:
+ *   • NAME captured via `[^<]+` (bounded, non-empty).
+ *   • ARGS captured via `[\s\S]*?` (dotall-safe; multi-line verbatim).
+ *   • If `<command-args>` missing OR captured args trims to empty →
+ *     reconstruct as `/NAME` (no trailing space).
+ *   • Otherwise reconstruct as `/NAME ARGS` (single space; args verbatim).
+ *
+ * Malformed handling (returns null + logs at INFO on sshLogger):
+ *   • `<command-name>` present but inner text does NOT start with `/`.
+ *   • `<command-name></command-name>` empty or whitespace-only inner text.
+ *   • `<command-name>/</command-name>` (slash alone, no name).
+ *   • `<command-name>` present but NO sibling wrapper tag (`<command-message>`
+ *     or `<command-args>`) — treated as malformed, per plan § A detection
+ *     contract (ii).
+ *
+ * The "no `<command-name>` at all" case is the hot path (non-slash user
+ * turns) — returns null with NO log to keep per-message logging cheap
+ * (role directive "logging is cheap and batched" — batched here means
+ * not-per-message on the common path).
+ */
+export function reconstructRawSlashCommand(content: string): string | null {
+  // Fast path: bail immediately if no <command-name> tag anywhere. This is
+  // the common (non-slash user turn) case — must NOT log to keep per-message
+  // logging batched off the hot path.
+  const anyNameMatch = CMD_NAME_ANY_RE.exec(content);
+  if (anyNameMatch === null) return null;
+
+  const innerName = anyNameMatch[1] ?? "";
+  // Detected the wrapper tag but the inner text is missing a leading slash,
+  // is empty, or is `/` alone → malformed. Log at INFO so we can spot this
+  // failure mode in structured logs (occurrences here indicate a Claude Code
+  // wire-shape change or a wrapper produced by a code path we haven't seen).
+  const nameSlashMatch = CMD_NAME_RE.exec(content);
+  if (nameSlashMatch === null || (nameSlashMatch[1] ?? "").trim().length === 0) {
+    sshLogger.info(
+      `[pv-send-watchdog] reconstructRawSlashCommand: malformed slash-command wrapper skipped contentLen=${content.length}`,
+      {
+        operation: "pv_send_watchdog_malformed_wrapper",
+        innerNameLen: innerName.length,
+      },
+    );
+    return null;
+  }
+
+  // <command-name> alone (no sibling wrapper tag) → malformed. Log at INFO.
+  if (!CMD_SIBLING_RE.test(content)) {
+    sshLogger.info(
+      `[pv-send-watchdog] reconstructRawSlashCommand: malformed slash-command wrapper skipped contentLen=${content.length}`,
+      {
+        operation: "pv_send_watchdog_malformed_wrapper",
+        reason: "no_sibling_tag",
+      },
+    );
+    return null;
+  }
+
+  const name = nameSlashMatch[1] as string; // narrowed by the trim check above
+  const argsMatch = CMD_ARGS_RE.exec(content);
+  const args = argsMatch !== null ? (argsMatch[1] ?? "") : "";
+  return args.trim().length > 0 ? `/${name} ${args}` : `/${name}`;
+}
+
+/**
+ * Test seam extracted from the tail-side onLine notify block below (~L3498).
+ * The seam owns:
+ *   1. The guard (frame is message/user + non-empty string content + non-empty
+ *      sessionIdFromFile).
+ *   2. The wrapper-hash notify (pre-fix behavior, unchanged).
+ *   3. The dual-hash notify for slash-command wrappers (quick-260821-shn fix).
+ *
+ * Injectable deps (all required except `logger`):
+ *   • `frame` — the reshaped wire frame from `reshapeParsedLineToWireFrame`.
+ *   • `sessionIdFromFile` — session id extracted from the JSONL filepath, or
+ *      null when the tail hasn't attached to a real session yet.
+ *   • `notifyMatched` — bound to `notifyPvSendMatched` in production; tests
+ *      inject a spy to assert the exact call count + hash arguments.
+ *   • `logger` — optional; defaults to `sshLogger`. Tests may inject a mock
+ *      logger to observe the INFO log on the wrapper-detected dual-hash path
+ *      without coupling to the sshLogger module surface.
+ */
+export function __applyOnLineNotifyForTests(deps: {
+  frame: { type?: string; role?: string; content?: unknown };
+  sessionIdFromFile: string | null;
+  notifyMatched: (sessionId: string, contentHash: string) => void;
+  logger?: {
+    info: (msg: string, meta?: Record<string, unknown>) => void;
+    debug: (msg: string, meta?: Record<string, unknown>) => void;
+  };
+}): void {
+  const { frame, sessionIdFromFile, notifyMatched } = deps;
+  const logger = deps.logger ?? sshLogger;
+
+  // Guard: exactly matches the pre-fix inline block's condition.
+  if (
+    frame.type !== "message" ||
+    frame.role !== "user" ||
+    typeof frame.content !== "string" ||
+    frame.content.length === 0 ||
+    !sessionIdFromFile
+  ) {
+    return;
+  }
+
+  const content = frame.content;
+  // 1. Wrapper-hash notify — pre-fix behavior, unchanged.
+  const wrapperHash = createHash("sha256")
+    .update(content)
+    .digest("hex")
+    .slice(0, 32);
+  notifyMatched(sessionIdFromFile, wrapperHash);
+
+  // 2. Dual-hash notify for slash-command wrappers — the quick-260821-shn fix.
+  const rawBody = reconstructRawSlashCommand(content);
+  if (rawBody === null) return;
+
+  const rawHash = createHash("sha256")
+    .update(rawBody)
+    .digest("hex")
+    .slice(0, 32);
+  // Extract NAME (without leading slash) + args length for the INFO log meta.
+  const spaceIdx = rawBody.indexOf(" ");
+  const name = spaceIdx === -1 ? rawBody.slice(1) : rawBody.slice(1, spaceIdx);
+  const argsLen = spaceIdx === -1 ? 0 : rawBody.length - spaceIdx - 1;
+  logger.info(
+    `[pv-send-watchdog] dual-hash notify: slash-command wrapper detected sessionId=${sessionIdFromFile} name=${name} argsLen=${argsLen}`,
+    {
+      operation: "pv_send_watchdog_dual_hash_notify",
+      sessionId: sessionIdFromFile,
+      name,
+      argsLen,
+    },
+  );
+  notifyMatched(sessionIdFromFile, rawHash);
+}
+
 // ─── Phase 51 Plan 01: backgrounded-agents correlator (extracted test seam) ──
 //
 // State type for the extracted correlator. Mirrors the closure-local Map value
@@ -3495,19 +3673,21 @@ wss.on("connection", async (ws: WebSocket, req) => {
         // Map key — if any of the three drift, watchdogs never notify and
         // every send escalates unnecessarily. See 50-01-PLAN.md § objective
         // "Hash-derivation contract".
-        if (
-          frame.type === "message" &&
-          frame.role === "user" &&
-          typeof frame.content === "string" &&
-          frame.content.length > 0 &&
-          sessionIdFromFile
-        ) {
-          const contentHash = createHash("sha256")
-            .update(frame.content)
-            .digest("hex")
-            .slice(0, 32);
-          notifyPvSendMatched(sessionIdFromFile, contentHash);
-        }
+        //
+        // quick-260821-shn — dual-hash notify for slash-command wrappers.
+        // Claude Code writes slash-command user turns to JSONL as
+        // `<command-message>NAME</command-message><command-name>/NAME</command-name><command-args>ARGS</command-args>`,
+        // but the frontend arms the pv-send-watchdog with sha256(raw `/NAME ARGS`).
+        // Without a second notify against the raw-body hash the pending
+        // watchdog escalates on every slash-command send. The extracted seam
+        // `__applyOnLineNotifyForTests` owns the guard + wrapper-hash notify
+        // + raw-body reconstruction + second notify. See quick-260821-shn for
+        // slash-command wrapper → raw-body reconstruction.
+        __applyOnLineNotifyForTests({
+          frame,
+          sessionIdFromFile,
+          notifyMatched: notifyPvSendMatched,
+        });
       }
     }
     // kind:"skip" returns null and is silently dropped (RENDER-01 lock;
