@@ -360,6 +360,218 @@ export function reshapeParsedLineToWireFrame(
 }
 export const __reshapeParsedLineToWireFrameForTests = reshapeParsedLineToWireFrame;
 
+// ─── Phase 51 Plan 01: backgrounded-agents correlator (extracted test seam) ──
+//
+// State type for the extracted correlator. Mirrors the closure-local Map value
+// shapes at ~L2143 (backgroundedAgents), ~L2162 (backgroundedShells), and the
+// new pendingAgentAdmission scratch map introduced in Task 2 of Phase 51 Plan
+// 01 (see 51-RESEARCH.md § "Fix Shape (recommended)"). Kept as an inline type
+// bag rather than a shared interface because the per-connection closure owns
+// the concrete Maps — the helper only mutates them in place.
+export type __BackgroundedAgentsCorrelatorStateForTests = {
+  backgroundedAgents: Map<
+    string,
+    {
+      toolUseId: string;
+      subagentType: string;
+      description: string;
+      startedAt: number;
+    }
+  >;
+  pendingAgentAdmission: Map<
+    string,
+    {
+      toolUseId: string;
+      subagentType: string;
+      description: string;
+      startedAt: number;
+    }
+  >;
+  backgroundedShells: Map<
+    string,
+    {
+      toolUseId: string;
+      description: string;
+      command: string;
+      ts: number;
+    }
+  >;
+};
+
+// Phase 51 Plan 01 refactor-extract: the raw-line scan for backgrounded
+// Agent / Bash tool_use → tool_result correlation used to live inline inside
+// the wss.on("connection") closure (~L2527-2620 pre-refactor). Extracting
+// into a module-scope helper makes the correlator unit-testable without
+// spinning up a full WS server + SSH pair. The in-closure call site invokes
+// this SAME helper against its own state Maps, so what tests exercise is
+// what production runs.
+//
+// Phase 51 Plan 01 Task 2 extends the Agent branch to admit modern-shape
+// (v2.1.150+) invocations via a two-step scratch-and-promote path:
+//   (a) At tool_use time, Agents WITHOUT `input.run_in_background` (modern
+//       shape) stash into `state.pendingAgentAdmission`. Agents WITH the
+//       legacy flag admit directly to `state.backgroundedAgents` (backward
+//       compat — older Claude Code or any future harness that reintroduces
+//       the flag).
+//   (b) At tool_result time, if `toolUseResult.isAsync === true` (the async-
+//       launch-ack), any pending scratch entry with matching tool_use_id is
+//       promoted into `state.backgroundedAgents`. If NOT isAsync (a real
+//       sync completion), any lingering scratch entry is dropped alongside
+//       the existing `backgroundedAgents.delete` — this is the "sync Agent
+//       silently dropped" behavior.
+// The Bash branch is UNTOUCHED — Claude Code v2.1.150+ still writes Bash
+// {run_in_background:true} in the legacy shape per RESEARCH.md § "Bash
+// shape on v2.1.150" empirical finding.
+//
+// Malformed / non-JSON lines are silently ignored — same posture as the
+// parser (see the surrounding try/catch at ~L2527).
+export function __admitBackgroundedAgentsLineForTests(
+  line: string,
+  state: __BackgroundedAgentsCorrelatorStateForTests,
+): void {
+  const { backgroundedAgents, pendingAgentAdmission, backgroundedShells } =
+    state;
+  try {
+    const obj = JSON.parse(line) as {
+      type?: string;
+      timestamp?: string;
+      message?: { content?: unknown };
+    };
+    const content = obj?.message?.content;
+    if (obj?.type === "assistant" && Array.isArray(content)) {
+      for (const block of content as unknown[]) {
+        const b = block as {
+          type?: string;
+          name?: string;
+          id?: string;
+          input?: {
+            run_in_background?: boolean;
+            subagent_type?: unknown;
+            description?: unknown;
+            command?: unknown;
+          };
+        };
+        if (
+          b?.type === "tool_use" &&
+          b?.name === "Agent" &&
+          typeof b?.id === "string"
+        ) {
+          const startedAt =
+            typeof obj.timestamp === "string"
+              ? Date.parse(obj.timestamp) || Date.now()
+              : Date.now();
+          const info = {
+            toolUseId: b.id,
+            subagentType:
+              typeof b.input?.subagent_type === "string"
+                ? b.input.subagent_type
+                : "",
+            description:
+              typeof b.input?.description === "string"
+                ? b.input.description
+                : "",
+            startedAt,
+          };
+          if (b?.input?.run_in_background === true) {
+            // Legacy shape (older Claude Code, or any harness that
+            // reintroduces the field): admit directly — backward compat.
+            backgroundedAgents.set(b.id, info);
+          } else {
+            // Modern shape (Claude Code v2.1.150+): stash for late admission
+            // on the async-launch-ack (toolUseResult.isAsync === true). A
+            // synchronous Agent will never receive the ack — its scratch
+            // entry is silently dropped in the non-async completion branch
+            // below (never enters backgroundedAgents, never emitted).
+            pendingAgentAdmission.set(b.id, info);
+          }
+        }
+        if (
+          b?.type === "tool_use" &&
+          b?.name === "Bash" &&
+          b?.input?.run_in_background === true &&
+          typeof b?.id === "string"
+        ) {
+          const ts =
+            typeof obj.timestamp === "string"
+              ? Date.parse(obj.timestamp) || Date.now()
+              : Date.now();
+          const rawCommand =
+            typeof b.input.command === "string" ? b.input.command : "";
+          backgroundedShells.set(b.id, {
+            toolUseId: b.id,
+            description:
+              typeof b.input.description === "string"
+                ? b.input.description
+                : "",
+            command: rawCommand.slice(0, 120),
+            ts,
+          });
+        }
+      }
+    } else if (obj?.type === "user" && Array.isArray(content)) {
+      // Async launch acks (patch #66 fix): for run_in_background:true Agent
+      // invocations, Claude Code writes a tool_result within ~100ms of the
+      // tool_use as a LAUNCH ACKNOWLEDGEMENT ("Async agent launched
+      // successfully...") — NOT completion. The turn carries
+      // toolUseResult.isAsync === true and status: "async_launched". Real
+      // completion arrives ~seconds-to-minutes later as a task-notification
+      // attachment turn (see the new branch below). Skip removal for the
+      // ack so the panel stays mounted; the attachment branch clears it
+      // on the actual completion event.
+      //
+      // Phase 51 Plan 01 Task 2: additionally use the ack as an ADMIT signal
+      // for modern-shape (v2.1.150+) Agent invocations — the tool_use for
+      // these lacked `run_in_background:true`, so they stashed to
+      // `pendingAgentAdmission` instead of admitting immediately. Promote
+      // any matching scratch entry into `backgroundedAgents` here.
+      const isAsyncAck =
+        (obj as { toolUseResult?: { isAsync?: boolean } })?.toolUseResult
+          ?.isAsync === true;
+      if (isAsyncAck) {
+        for (const block of content as unknown[]) {
+          const b = block as {
+            type?: string;
+            tool_use_id?: string;
+          };
+          if (
+            b?.type === "tool_result" &&
+            typeof b?.tool_use_id === "string"
+          ) {
+            const info = pendingAgentAdmission.get(b.tool_use_id);
+            if (info) {
+              backgroundedAgents.set(b.tool_use_id, info);
+              pendingAgentAdmission.delete(b.tool_use_id);
+            }
+          }
+        }
+      } else {
+        for (const block of content as unknown[]) {
+          const b = block as {
+            type?: string;
+            tool_use_id?: string;
+          };
+          if (
+            b?.type === "tool_result" &&
+            typeof b?.tool_use_id === "string"
+          ) {
+            backgroundedAgents.delete(b.tool_use_id);
+            // Phase 51 Plan 01 Task 2: sync-Agent scratch-drop. If a modern-
+            // shape Agent invocation was synchronous (no async-launch-ack
+            // ever arrived — first tool_result is a real completion), the
+            // scratch entry lingers from tool_use time. Drop it here so it
+            // never leaks into backgroundedAgents on a later replay and
+            // never grows unbounded. Delete-on-absent is a no-op, so this
+            // is safe for tool_use_ids that never had a scratch entry.
+            pendingAgentAdmission.delete(b.tool_use_id);
+          }
+        }
+      }
+    }
+  } catch {
+    /* malformed line — silently ignore, same posture as parser */
+  }
+}
+
 // Phase 3 session-changeover tuning constants. Holding timeout: 200 * 3s = 600s (10min).
 // Per D-31 and CONTEXT.md § holding timeout — Nelly's original timing note said "new .jsonl
 // appears within ~5s; fully-loaded identity ~30-70s later" but real /id reset flows
@@ -2498,6 +2710,27 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
   >();
   let backgroundedAgentsLastSerialized = "[]";
+  // Phase 51 Plan 01: pendingAgentAdmission scratch map. Claude Code v2.1.150+
+  // Agent tool_use payloads dropped `input.run_in_background === true`; the
+  // async signal moved to the tool_result launch-ack (toolUseResult.isAsync
+  // === true). Every modern Agent tool_use is stashed here at tool_use time,
+  // then promoted into `backgroundedAgents` when the async-ack arrives (~100ms
+  // later). Synchronous Agents (whose first tool_result is a real completion,
+  // no isAsync) have their scratch entry silently dropped in the else branch —
+  // they never enter `backgroundedAgents`, exactly the desired behavior. See
+  // 51-RESEARCH.md § "Fix Shape (recommended)" for the design contract and
+  // 51-CONTEXT.md § "Parser admission gate" for the dual-admission decision
+  // (legacy `run_in_background === true` still admits directly, belt-and-
+  // suspenders). Cleared alongside `backgroundedAgents` at both reset sites.
+  const pendingAgentAdmission = new Map<
+    string,
+    {
+      toolUseId: string;
+      subagentType: string;
+      description: string;
+      startedAt: number;
+    }
+  >();
   // Backgrounded-shells tracking (patch #68): parent-JSONL scan for Bash
   // tool_use blocks with run_in_background:true, paired against subsequent
   // <task-notification> completion payloads. Unlike backgroundedAgents,
@@ -2735,6 +2968,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
     planPendingWindowToken += 1;
     backgroundedAgents.clear();
     backgroundedAgentsLastSerialized = "[]";
+    // Phase 51 Plan 01: clear the pendingAgentAdmission scratch map alongside
+    // backgroundedAgents so a teardown drops any half-lifecycle modern Agent
+    // (tool_use seen, ack/completion not yet). Same rationale as clearing
+    // backgroundedAgents — the fresh session's `-n +1` replay repopulates.
+    pendingAgentAdmission.clear();
     backgroundedShells.clear();
     backgroundedShellsLastSerialized = "[]";
     // Phase 3: reset changeover state so a full pane teardown-and-reconnect
@@ -2904,93 +3142,21 @@ wss.on("connection", async (ws: WebSocket, req) => {
         message?: { content?: unknown };
       };
       const content = obj?.message?.content;
-      if (obj?.type === "assistant" && Array.isArray(content)) {
-        for (const block of content as unknown[]) {
-          const b = block as {
-            type?: string;
-            name?: string;
-            id?: string;
-            input?: {
-              run_in_background?: boolean;
-              subagent_type?: unknown;
-              description?: unknown;
-              command?: unknown;
-            };
-          };
-          if (
-            b?.type === "tool_use" &&
-            b?.name === "Agent" &&
-            b?.input?.run_in_background === true &&
-            typeof b?.id === "string"
-          ) {
-            const startedAt =
-              typeof obj.timestamp === "string"
-                ? Date.parse(obj.timestamp) || Date.now()
-                : Date.now();
-            backgroundedAgents.set(b.id, {
-              toolUseId: b.id,
-              subagentType:
-                typeof b.input.subagent_type === "string"
-                  ? b.input.subagent_type
-                  : "",
-              description:
-                typeof b.input.description === "string"
-                  ? b.input.description
-                  : "",
-              startedAt,
-            });
-          }
-          if (
-            b?.type === "tool_use" &&
-            b?.name === "Bash" &&
-            b?.input?.run_in_background === true &&
-            typeof b?.id === "string"
-          ) {
-            const ts =
-              typeof obj.timestamp === "string"
-                ? Date.parse(obj.timestamp) || Date.now()
-                : Date.now();
-            const rawCommand =
-              typeof b.input.command === "string" ? b.input.command : "";
-            backgroundedShells.set(b.id, {
-              toolUseId: b.id,
-              description:
-                typeof b.input.description === "string"
-                  ? b.input.description
-                  : "",
-              command: rawCommand.slice(0, 120),
-              ts,
-            });
-          }
-        }
-      } else if (obj?.type === "user" && Array.isArray(content)) {
-        // Async launch acks (patch #66 fix): for run_in_background:true Agent
-        // invocations, Claude Code writes a tool_result within ~100ms of the
-        // tool_use as a LAUNCH ACKNOWLEDGEMENT ("Async agent launched
-        // successfully...") — NOT completion. The turn carries
-        // toolUseResult.isAsync === true and status: "async_launched". Real
-        // completion arrives ~seconds-to-minutes later as a task-notification
-        // attachment turn (see the new branch below). Skip removal for the
-        // ack so the panel stays mounted; the attachment branch clears it
-        // on the actual completion event.
-        const isAsyncAck =
-          (obj as { toolUseResult?: { isAsync?: boolean } })?.toolUseResult
-            ?.isAsync === true;
-        if (!isAsyncAck) {
-          for (const block of content as unknown[]) {
-            const b = block as {
-              type?: string;
-              tool_use_id?: string;
-            };
-            if (
-              b?.type === "tool_result" &&
-              typeof b?.tool_use_id === "string"
-            ) {
-              backgroundedAgents.delete(b.tool_use_id);
-            }
-          }
-        }
-      }
+      // Phase 51 Plan 01 refactor-extract: the assistant/user branches that
+      // maintain `backgroundedAgents` + `backgroundedShells` (and, after
+      // Task 2, the `pendingAgentAdmission` scratch map) now live in a
+      // module-scope helper so they can be unit-tested without spinning up
+      // a full WS server + SSH pair. Behavior is identical to the pre-
+      // refactor inline block (see the helper docblock at
+      // __admitBackgroundedAgentsLineForTests ~L352 for details). The
+      // helper re-parses `line` internally — a second JSON.parse is
+      // trivially cheap at these volumes (same rationale as the parallel
+      // parse note above).
+      __admitBackgroundedAgentsLineForTests(line, {
+        backgroundedAgents,
+        pendingAgentAdmission,
+        backgroundedShells,
+      });
       // Patch #66 completion signal for backgrounded Agents. Claude Code /
       // its harness lands the task-notification payload in the JSONL in
       // AT LEAST three observed shapes across versions and states:
@@ -3545,6 +3711,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
     harnessTasksLastSerialized = null;
     backgroundedAgents.clear();
     backgroundedAgentsLastSerialized = "[]";
+    // Phase 51 Plan 01: clear the pendingAgentAdmission scratch map alongside
+    // backgroundedAgents on session recycle. Same rationale — the fresh
+    // session's `-n +1` replay repopulates from scratch.
+    pendingAgentAdmission.clear();
     backgroundedShells.clear();
     backgroundedShellsLastSerialized = "[]";
     pendingPlans.clear();
