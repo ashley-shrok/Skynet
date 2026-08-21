@@ -134,6 +134,13 @@ vi.mock("../db/index.js", () => ({
   get db() {
     return mockDb;
   },
+  // handlePutPreferences calls DatabaseSaveTrigger.forceSave after every write
+  // to defeat the in-memory-DB deploy-loss trap (see the handler for context).
+  // Stub as a no-op so tests exercise the write path without booting the real
+  // save trigger (which needs an initialized saveFunction and would warn-spam).
+  DatabaseSaveTrigger: {
+    forceSave: vi.fn(async () => {}),
+  },
 }));
 
 // eq() is only used to smuggle the userId to the pending where clause.
@@ -205,6 +212,7 @@ import {
   handleGetPreferences,
   handlePutPreferences,
 } from "./user-preferences.js";
+import { DatabaseSaveTrigger } from "../db/index.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -215,6 +223,7 @@ const USER_ID = "user-1";
 beforeEach(() => {
   rows.clear();
   pendingWhereUserId = null;
+  (DatabaseSaveTrigger.forceSave as ReturnType<typeof vi.fn>).mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -281,9 +290,9 @@ describe("handleGetPreferences: pinnedConversationIds branches", () => {
 // ---------------------------------------------------------------------------
 
 describe("handlePutPreferences: pinnedConversationIds branches", () => {
-  it("Test 4 — PUT with valid string[] persists the JSON.stringify'd form to the DB column", () => {
+  it("Test 4 — PUT with valid string[] persists the JSON.stringify'd form to the DB column", async () => {
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { pinnedConversationIds: ["a", "b"] },
       res as unknown as Response,
@@ -297,9 +306,9 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(typeof row!.pinnedConversationIds).toBe("string");
   });
 
-  it("Test 5 — PUT response body includes pinnedConversationIds as a parsed array (PIN-08 JSON-echo — Wave 2 depends on this)", () => {
+  it("Test 5 — PUT response body includes pinnedConversationIds as a parsed array (PIN-08 JSON-echo — Wave 2 depends on this)", async () => {
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { pinnedConversationIds: ["x", "y", "z"] },
       res as unknown as Response,
@@ -313,7 +322,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(body.pinnedConversationIds).toEqual(["x", "y", "z"]);
   });
 
-  it("Test 6 — PUT with empty array [] persists (unpin-all is legal, response echoes [])", () => {
+  it("Test 6 — PUT with empty array [] persists (unpin-all is legal, response echoes [])", async () => {
     // Seed with existing pins so the empty PUT is a real state change
     rows.set(USER_ID, {
       userId: USER_ID,
@@ -328,7 +337,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     });
 
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { pinnedConversationIds: [] },
       res as unknown as Response,
@@ -343,7 +352,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(body.pinnedConversationIds).toEqual([]);
   });
 
-  it("Test 7 — PUT with non-array returns 400 with specific error message + DB row unchanged", () => {
+  it("Test 7 — PUT with non-array returns 400 with specific error message + DB row unchanged", async () => {
     const seed = {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -358,7 +367,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     rows.set(USER_ID, seed);
 
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { pinnedConversationIds: "not-an-array" },
       res as unknown as Response,
@@ -372,7 +381,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(rows.get(USER_ID)).toEqual(seed);
   });
 
-  it("Test 8 — PUT with non-string element returns 400 + DB row unchanged", () => {
+  it("Test 8 — PUT with non-string element returns 400 + DB row unchanged", async () => {
     const seed = {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -387,7 +396,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     rows.set(USER_ID, seed);
 
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { pinnedConversationIds: ["a", 42] },
       res as unknown as Response,
@@ -400,7 +409,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(rows.get(USER_ID)).toEqual(seed);
   });
 
-  it("Test 9 — PUT with length > 1000 returns 400 + DB row unchanged (DoS mitigation)", () => {
+  it("Test 9 — PUT with length > 1000 returns 400 + DB row unchanged (DoS mitigation)", async () => {
     const seed = {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -416,7 +425,7 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
 
     const huge = Array.from({ length: 1001 }, (_, i) => `id-${i}`);
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { pinnedConversationIds: huge },
       res as unknown as Response,
@@ -429,9 +438,9 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(rows.get(USER_ID)).toEqual(seed);
   });
 
-  it("Test 10 — PUT round-trip: after PUT with ['x','y'], GET returns ['x','y']", () => {
+  it("Test 10 — PUT round-trip: after PUT with ['x','y'], GET returns ['x','y']", async () => {
     const putRes = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { pinnedConversationIds: ["x", "y"] },
       putRes as unknown as Response,
@@ -452,9 +461,9 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
 // ---------------------------------------------------------------------------
 
 describe("handlePutPreferences: pre-existing 400 branches still work", () => {
-  it("REG 1 — PUT with non-boolean reopenTabsOnLogin returns 400", () => {
+  it("REG 1 — PUT with non-boolean reopenTabsOnLogin returns 400", async () => {
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { reopenTabsOnLogin: "not-a-bool" },
       res as unknown as Response,
@@ -466,9 +475,9 @@ describe("handlePutPreferences: pre-existing 400 branches still work", () => {
     });
   });
 
-  it("REG 2 — PUT with non-string theme returns 400", () => {
+  it("REG 2 — PUT with non-string theme returns 400", async () => {
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { theme: 42 },
       res as unknown as Response,
@@ -480,9 +489,9 @@ describe("handlePutPreferences: pre-existing 400 branches still work", () => {
     });
   });
 
-  it("REG 3 — PUT with empty body returns 400 (no preferences provided)", () => {
+  it("REG 3 — PUT with empty body returns 400 (no preferences provided)", async () => {
     const res = makeRes();
-    handlePutPreferences(USER_ID, {}, res as unknown as Response);
+    await handlePutPreferences(USER_ID, {}, res as unknown as Response);
 
     expect(res._status).toBe(400);
     expect(res._body).toEqual({
@@ -555,9 +564,9 @@ describe("handleGetPreferences: hiddenConversationIds branches", () => {
 // ---------------------------------------------------------------------------
 
 describe("handlePutPreferences: hiddenConversationIds branches", () => {
-  it("HIDE 4 — PUT with valid string[] persists the JSON.stringify'd form to the DB column", () => {
+  it("HIDE 4 — PUT with valid string[] persists the JSON.stringify'd form to the DB column", async () => {
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { hiddenConversationIds: ["a", "b"] },
       res as unknown as Response,
@@ -570,9 +579,9 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     expect(typeof row!.hiddenConversationIds).toBe("string");
   });
 
-  it("HIDE 5 — PUT response body includes hiddenConversationIds as a parsed array", () => {
+  it("HIDE 5 — PUT response body includes hiddenConversationIds as a parsed array", async () => {
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { hiddenConversationIds: ["x", "y", "z"] },
       res as unknown as Response,
@@ -584,7 +593,7 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     expect(body.hiddenConversationIds).toEqual(["x", "y", "z"]);
   });
 
-  it("HIDE 6 — PUT with empty array [] persists (unhide-all is legal, response echoes [])", () => {
+  it("HIDE 6 — PUT with empty array [] persists (unhide-all is legal, response echoes [])", async () => {
     rows.set(USER_ID, {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -598,7 +607,7 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     });
 
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { hiddenConversationIds: [] },
       res as unknown as Response,
@@ -611,7 +620,7 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     expect(body.hiddenConversationIds).toEqual([]);
   });
 
-  it("HIDE 7 — PUT with non-array returns 400 with specific error message + DB row unchanged", () => {
+  it("HIDE 7 — PUT with non-array returns 400 with specific error message + DB row unchanged", async () => {
     const seed = {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -626,7 +635,7 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     rows.set(USER_ID, seed);
 
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { hiddenConversationIds: "not-an-array" },
       res as unknown as Response,
@@ -639,7 +648,7 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     expect(rows.get(USER_ID)).toEqual(seed);
   });
 
-  it("HIDE 8 — PUT with non-string element returns 400 + DB row unchanged", () => {
+  it("HIDE 8 — PUT with non-string element returns 400 + DB row unchanged", async () => {
     const seed = {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -654,7 +663,7 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     rows.set(USER_ID, seed);
 
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { hiddenConversationIds: ["a", 99] },
       res as unknown as Response,
@@ -667,7 +676,7 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     expect(rows.get(USER_ID)).toEqual(seed);
   });
 
-  it("HIDE 9 — PUT with length > 1000 returns 400 + DB row unchanged (DoS mitigation)", () => {
+  it("HIDE 9 — PUT with length > 1000 returns 400 + DB row unchanged (DoS mitigation)", async () => {
     const seed = {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -683,7 +692,7 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
 
     const huge = Array.from({ length: 1001 }, (_, i) => `hide-id-${i}`);
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { hiddenConversationIds: huge },
       res as unknown as Response,
@@ -696,9 +705,9 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
     expect(rows.get(USER_ID)).toEqual(seed);
   });
 
-  it("HIDE 10 — PUT round-trip: after PUT with ['h1','h2'], GET returns ['h1','h2']", () => {
+  it("HIDE 10 — PUT round-trip: after PUT with ['h1','h2'], GET returns ['h1','h2']", async () => {
     const putRes = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       { hiddenConversationIds: ["h1", "h2"] },
       putRes as unknown as Response,
@@ -720,9 +729,9 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
 // ---------------------------------------------------------------------------
 
 describe("handlePutPreferences: cross-field (pinnedConversationIds + hiddenConversationIds)", () => {
-  it("HIDE-X — PUT with BOTH fields persists both, response echoes both as parsed arrays", () => {
+  it("HIDE-X — PUT with BOTH fields persists both, response echoes both as parsed arrays", async () => {
     const res = makeRes();
-    handlePutPreferences(
+    await handlePutPreferences(
       USER_ID,
       {
         pinnedConversationIds: ["pin-a", "pin-b"],
@@ -748,5 +757,84 @@ describe("handlePutPreferences: cross-field (pinnedConversationIds + hiddenConve
     expect(body.pinnedConversationIds).toEqual(["pin-a", "pin-b"]);
     expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
     expect(body.hiddenConversationIds).toEqual(["hide-x", "hide-y"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SAVE 1-4 — DatabaseSaveTrigger.forceSave is called on every successful
+// write and NOT on validation-rejected 400 branches. Regression gate for the
+// pins-lost-on-deploy fix (the whole point of introducing the call): if a
+// future refactor drops the forceSave, direct db.insert/update writes go back
+// to RAM-only and pins/hides silently vanish on the next deploy race.
+// ---------------------------------------------------------------------------
+
+describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () => {
+  it("SAVE 1 — insert branch (no row exists) triggers forceSave with the 'user_preferences_updated' reason", async () => {
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: ["a"] },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(DatabaseSaveTrigger.forceSave).toHaveBeenCalledTimes(1);
+    expect(DatabaseSaveTrigger.forceSave).toHaveBeenCalledWith(
+      "user_preferences_updated",
+    );
+  });
+
+  it("SAVE 2 — update branch (row exists) also triggers forceSave", async () => {
+    rows.set(USER_ID, {
+      userId: USER_ID,
+      reopenTabsOnLogin: false,
+      theme: null,
+      fontSize: null,
+      accentColor: null,
+      language: null,
+      pinnedConversationIds: JSON.stringify(["existing"]),
+      hiddenConversationIds: null,
+      updatedAt: "2026-07-27T00:00:00.000Z",
+    });
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: ["new"] },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(DatabaseSaveTrigger.forceSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("SAVE 3 — 400 validation branches do NOT trigger forceSave (no write happened)", async () => {
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: "not-an-array" },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(400);
+    expect(DatabaseSaveTrigger.forceSave).not.toHaveBeenCalled();
+  });
+
+  it("SAVE 4 — forceSave failure is caught, response still returns 200 (in-memory row is worse UX than a slow response, but a 500 is worse still)", async () => {
+    (DatabaseSaveTrigger.forceSave as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("disk-full-simulation"),
+    );
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: ["a"] },
+      res as unknown as Response,
+    );
+
+    // Response still succeeds — the write reached RAM and the client gets its
+    // echo. The lost-durability event is logged via databaseLogger.warn.
+    expect(res._status).toBe(200);
+    expect(DatabaseSaveTrigger.forceSave).toHaveBeenCalledTimes(1);
   });
 });

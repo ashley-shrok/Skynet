@@ -1,6 +1,6 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
-import { db } from "../db/index.js";
+import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { userPreferences } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import type { Request, Response } from "express";
@@ -122,11 +122,11 @@ export function handleGetPreferences(
   }
 }
 
-export function handlePutPreferences(
+export async function handlePutPreferences(
   userId: string,
   body: unknown,
   res: Response,
-): Response {
+): Promise<Response> {
   const {
     reopenTabsOnLogin,
     theme,
@@ -252,6 +252,28 @@ export function handlePutPreferences(
         .run();
     }
 
+    // Skynet's DB is in-memory-decrypted SQLite; raw db.insert/update writes
+    // reach RAM only. The 5-min isDirty poller is gated on _dirty=true which
+    // only triggerSave/forceSave set — direct writes never mark dirty. Without
+    // an explicit save call, pins + hides survive to disk only if SIGTERM's
+    // graceful flush wins the deploy race. Force the save here so the write
+    // is durable before we ACK. Silent-warn on failure — an in-memory-only
+    // preference is worse UX than a slow response, but a 500 is worse still.
+    // Pattern reference: identities.ts:264-273 (identity_updated).
+    try {
+      await DatabaseSaveTrigger.forceSave("user_preferences_updated");
+    } catch (saveErr) {
+      databaseLogger.warn(
+        "Force-save after user preferences update failed",
+        {
+          operation: "user_preferences_update_save_failed",
+          userId,
+          error:
+            saveErr instanceof Error ? saveErr.message : "Unknown error",
+        },
+      );
+    }
+
     // Read the row back through pickPreferences so the response body shape is
     // the same source of truth as the GET handler — including the parsed
     // pinnedConversationIds ARRAY (not the raw JSON string). Wave 2's
@@ -332,7 +354,7 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *       200:
  *         description: Preferences updated successfully.
  */
-router.put("/", authenticateJWT, (req: Request, res: Response) => {
+router.put("/", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   return handlePutPreferences(userId, req.body, res);
 });
