@@ -1552,6 +1552,17 @@ export async function handleFetchOlderRange(
     return;
   }
 
+  // ─ quick-260822-7no: structured entry log for the full click → WS →
+  //   response path. Fires exactly ONCE per request, AFTER validation
+  //   and trust-boundary gates but BEFORE any I/O (including the
+  //   rangeCount<=0 fast-path emit). Paired with per-iteration `slice`
+  //   logs and a single `emit` log so a grep of `[fetch-older-range]`
+  //   over the backend log shows the entire lifecycle of every click.
+  databaseLogger.info(
+    `[fetch-older-range] req beforeLine=${beforeLine} count=${count}`,
+    { operation: "fetch_older_range_req" },
+  );
+
   // ─ Clamp the LINE range so we never ask the reader for lines <1 or an
   //   empty range. `beforeLine=1` means client is already at the top.
   const startLine = Math.max(1, beforeLine - count);
@@ -1593,31 +1604,104 @@ export async function handleFetchOlderRange(
     return;
   }
 
-  // ─ Parse + reshape each line via the SHARED helper (Hunk A output). Skip
-  //   frames reshape to null; filter them out (v1 partial-batch policy,
-  //   Test 8 lock — no refill).
-  const messages: StreamEvent[] = [];
-  for (let i = 0; i < readResult.lines.length; i++) {
-    const lineNumber = startLine + i;
-    const rawLine = readResult.lines[i];
-    // Phase 50 Plan 01 Task 2: sessionId threaded from connection scope
-    // so the parser's queue-operation branch (Task 1) derives a
-    // deterministic eventId matching the streaming-tail dispatch's shape.
-    // Note: dedup is NOT applied here — the range-fetch path emits older
-    // history whose enqueue → dequeue pairs already surfaced live; the
-    // frontend's per-eventId dedup Set handles collapse on the client.
-    const parsed = parseSessionLine(rawLine, deps.sessionIdFromFile ?? undefined);
-    const frame = reshapeParsedLineToWireFrame(parsed, rawLine, lineNumber);
-    if (frame !== null) {
-      messages.push(frame);
+  // ─ v2 refill policy (quick-260822-7no): parse + reshape each line via
+  //   the SHARED helper (Hunk A output), then KEEP READING older 20-line
+  //   slices until either the accumulator holds ≥20 non-skip wire frames
+  //   OR the read cursor reaches startLine=1. Under v1 a single click on
+  //   a skip-heavy JSONL (Sally's session was 88% skip) could return 0–4
+  //   messages even though 20 non-skip messages existed further back —
+  //   symptom was "button flashes → nothing appears (sometimes)". Skip
+  //   frames reshape to null; malformed lines reshape to a placeholder
+  //   frame (NOT null) and count toward the 20-non-skip accumulator.
+  //
+  //   Chronological-order invariant: reader returns oldest-first; each
+  //   successive iteration reads OLDER lines; `accumulator.unshift(...)`
+  //   prepends survivors so the accumulator stays oldest-first — matches
+  //   Test 1's line-number monotonicity assertion.
+  const reshapeLines = (lines: string[], startingLine: number): StreamEvent[] => {
+    const out: StreamEvent[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const lineNumber = startingLine + i;
+      const rawLine = lines[i];
+      // Phase 50 Plan 01 Task 2: sessionId threaded from connection scope
+      // so the parser's queue-operation branch (Task 1) derives a
+      // deterministic eventId matching the streaming-tail dispatch's shape.
+      // Note: dedup is NOT applied here — the range-fetch path emits older
+      // history whose enqueue → dequeue pairs already surfaced live; the
+      // frontend's per-eventId dedup Set handles collapse on the client.
+      const parsed = parseSessionLine(rawLine, deps.sessionIdFromFile ?? undefined);
+      const frame = reshapeParsedLineToWireFrame(parsed, rawLine, lineNumber);
+      if (frame !== null) {
+        out.push(frame);
+      }
     }
+    return out;
+  };
+
+  const accumulator: StreamEvent[] = [];
+  let currentBefore = beforeLine;
+  let lastStartLine = startLine;
+  let refillIterations = 0;
+
+  // Iteration 1: reuse the FIRST read (already in readResult from L1583).
+  {
+    const survivors = reshapeLines(readResult.lines, lastStartLine);
+    accumulator.push(...survivors);
+    refillIterations = 1;
+    databaseLogger.info(
+      `[fetch-older-range] slice startLine=${lastStartLine} rawLines=${readResult.lines.length} nonSkip=${survivors.length} total=${accumulator.length}`,
+      { operation: "fetch_older_range_slice" },
+    );
+    currentBefore = lastStartLine;
   }
 
-  // ─ oldestLine reflects the LINE range asked (startLine), not the
-  //   wire-frame count. hasMore = startLine > 1 (there are still older
-  //   lines behind this batch).
-  const oldestLine = startLine;
-  const hasMore = startLine > 1;
+  // Refill loop: keep reading older 20-line slices until quota hit or top.
+  while (accumulator.length < 20 && currentBefore > 1) {
+    const nextStartLine = Math.max(1, currentBefore - 20);
+    const nextRangeCount = Math.min(20, currentBefore - 1);
+    try {
+      readResult = await readSessionFileRange(
+        deps.sshConn,
+        deps.currentSessionFile,
+        nextStartLine,
+        nextRangeCount,
+      );
+    } catch (err) {
+      // Mid-loop reader failure — surface as an error frame, same
+      // discipline as the FIRST read failure above.
+      emitErrorFrame(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    const survivors = reshapeLines(readResult.lines, nextStartLine);
+    accumulator.unshift(...survivors);
+    lastStartLine = nextStartLine;
+    currentBefore = nextStartLine;
+    refillIterations++;
+    databaseLogger.info(
+      `[fetch-older-range] slice startLine=${nextStartLine} rawLines=${readResult.lines.length} nonSkip=${survivors.length} total=${accumulator.length}`,
+      { operation: "fetch_older_range_slice" },
+    );
+  }
+
+  // Cap at the NEWEST 20 wire frames. The accumulator is chronological
+  // oldest-first after each prepend, so slice(-20) keeps the frames closest
+  // to the client's cursor — the client's `[...batch, ...prev]` prepend is
+  // then contiguous with what it already has.
+  const messages = accumulator.slice(-20);
+  // Prefer the actual first surviving frame's line number so
+  // `oldestLoadedLine` on the client seeks to a REAL message on the next
+  // click, not a skip line the reader would re-scan. Fall back to
+  // `lastStartLine` when the accumulator is empty (all-skip file, Test 9).
+  const oldestLine =
+    messages.length > 0 && typeof messages[0].line === "number"
+      ? messages[0].line
+      : lastStartLine;
+  const hasMore = oldestLine > 1;
+
+  databaseLogger.info(
+    `[fetch-older-range] emit oldestLine=${oldestLine} messagesLen=${messages.length} hasMore=${hasMore} refillIterations=${refillIterations}`,
+    { operation: "fetch_older_range_emit" },
+  );
 
   try {
     ws.send(
