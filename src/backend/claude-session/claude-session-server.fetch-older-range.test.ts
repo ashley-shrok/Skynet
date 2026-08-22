@@ -23,9 +23,13 @@
 //   - Success shape: { type, messages, oldestLine, hasMore }
 //   - Failure shape: { type, messages: [], oldestLine: 0, hasMore: false, error }
 //
-// Skip-frame filter policy (LOCKED v1): if `readSessionFileRange` returns 20
-// lines and 3 reshape to null (kind:"skip"), the handler emits 17 wire frames
-// (partial batch, no refill). Test 8 asserts this explicitly.
+// Skip-frame filter policy (v2 refill, quick-260822-7no): if the first
+// `readSessionFileRange` returns 20 lines with skips, the handler continues
+// reading OLDER 20-line slices and accumulating non-skip wire frames until
+// either the accumulator holds ≥20 non-skip frames OR the read cursor
+// reaches startLine=1. Test 8 (rewritten) asserts the refill loop hits the
+// 20-frame quota via a second read. Tests 9, 10, 11 lock the top-of-file,
+// partial-refill, and first-slice-satisfies edge cases.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type {
@@ -105,7 +109,8 @@ function makeAssistantMessageLine(eventId: string, content: string): string {
 /**
  * A skip line — parseSessionLine returns kind:"skip" for `type: "system"`
  * (non-user/non-assistant), so the reshape helper returns null and the
- * handler filters it out of the messages array (Test 8 policy lock).
+ * handler filters it out of the accumulator (Test 9 policy lock: all-skip
+ * range refills until startLine=1).
  */
 function makeSkipLine(): string {
   return JSON.stringify({
@@ -371,20 +376,195 @@ describe("handleFetchOlderRange", () => {
     }
   });
 
-  it("Test 8: skip frames inside range → filtered out, batch may return fewer than count (v1 policy: partial batch, no refill)", async () => {
-    // Build 20 lines where 3 are skip lines (indices 3, 8, 15). Reshape
-    // returns null for kind:"skip"; handler filters nulls. Response
-    // messages.length === 17 (NOT 20). oldestLine and hasMore still
-    // reflect the LINE range, not the wire-frame count.
-    const fixtureLines: string[] = [];
+  it("Test 8: skip frames inside range → refill loop reads next slice until accumulator holds 20 non-skip frames (v2 refill policy — quick-260822-7no)", async () => {
+    // v2 policy: reader returns 20 lines with 3 skips at indices 3, 8, 15
+    // on the FIRST call (startLine=101, count=20) → 17 message survivors.
+    // Accumulator (17) < 20 AND currentBefore (101) > 1 → refill loop
+    // reads batch 2 (startLine=81, count=20): 20 all-message lines.
+    // After iteration 2 the accumulator is chronological oldest-first:
+    //   [81..100, 101, 102, 103, 105, 106, 107, 108, 110, 111, 112, 113,
+    //    114, 115, 117, 118, 119, 120]  ← length 37
+    // Since accumulator.length (37) >= 20, loop exits.
+    // messages = accumulator.slice(-20) → keeps the NEWEST 20 wire frames
+    // (positions 17..36 = lines 98..120, contiguous with client cursor 121).
+    // oldestLine = messages[0].line = 98 (first surviving frame's line
+    // number, NOT lastStartLine — so client's next click seeks to a real
+    // message, not a stretch of skips the reader would re-scan).
+    // hasMore = oldestLine > 1 = true.
+    // Reader is called exactly twice with the expected clamped args.
+    const batch1Lines: string[] = [];
     for (let i = 0; i < 20; i++) {
       if (i === 3 || i === 8 || i === 15) {
-        fixtureLines.push(makeSkipLine());
+        batch1Lines.push(makeSkipLine());
       } else {
-        fixtureLines.push(makeUserMessageLine(`evt-${101 + i}`, `msg-${101 + i}`));
+        batch1Lines.push(makeUserMessageLine(`evt-${101 + i}`, `msg-${101 + i}`));
       }
     }
-    vi.mocked(readSessionFileRange).mockResolvedValue({
+    const batch2Lines: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      batch2Lines.push(makeUserMessageLine(`evt-${81 + i}`, `msg-${81 + i}`));
+    }
+    vi.mocked(readSessionFileRange)
+      .mockResolvedValueOnce({ lines: batch1Lines, totalLines: 500 })
+      .mockResolvedValueOnce({ lines: batch2Lines, totalLines: 500 });
+
+    await __handleFetchOlderRangeForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "fetch_older_range", beforeLine: 121, count: 20 },
+      validDeps,
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe("fetch_older_range_batch");
+    expect(sent[0].messages).toHaveLength(20);
+    // First surviving frame in newest-20 slice is line 98 (see accumulator
+    // math in the comment above).
+    expect(sent[0].oldestLine).toBe(98);
+    expect(sent[0].hasMore).toBe(true);
+    expect(sent[0].error).toBeUndefined();
+
+    // Reader called exactly twice with the expected clamped args.
+    const readerCalls = vi.mocked(readSessionFileRange).mock.calls;
+    expect(readerCalls).toHaveLength(2);
+    // Call 1: FIRST read (unchanged from v1) — startLine=101, count=20.
+    expect(readerCalls[0][2]).toBe(101);
+    expect(readerCalls[0][3]).toBe(20);
+    // Call 2: refill iteration — startLine=81, count=20 (currentBefore=101 → nextStart=max(1,81)=81).
+    expect(readerCalls[1][2]).toBe(81);
+    expect(readerCalls[1][3]).toBe(20);
+
+    // Every emitted frame is a message with contiguous line numbers 98..120
+    // MINUS the two skip lines (109, 116) that fall within that window.
+    // Skip at line 104 (index 3 of batch 1) is BEFORE line 98 so it does
+    // not appear here. Expected line sequence in the emitted slice:
+    //   98, 99, 100, 101, 102, 103, 105, 106, 107, 108, 110, 111, 112, 113,
+    //   114, 115, 117, 118, 119, 120
+    const expectedLines = [
+      98, 99, 100, 101, 102, 103, 105, 106, 107, 108, 110, 111, 112, 113, 114,
+      115, 117, 118, 119, 120,
+    ];
+    for (let i = 0; i < 20; i++) {
+      const frame = sent[0].messages[i] as WireMessageEvent;
+      expect(frame.type).toBe("message");
+      expect(frame.line).toBe(expectedLines[i]);
+    }
+  });
+
+  it("Test 9: all-skip file → refill until startLine=1, emit empty success (quick-260822-7no)", async () => {
+    // Every read returns 20 skip lines → accumulator stays empty → refill
+    // loop advances until nextStartLine hits 1. For beforeLine=101, count=20:
+    //   FIRST read: startLine=81, count=20 (clamped in handler L1557-58)
+    //   refill 1:   startLine=61, count=20
+    //   refill 2:   startLine=41, count=20
+    //   refill 3:   startLine=21, count=20
+    //   refill 4:   startLine=1,  count=20 (nextStartLine=max(1,21-20)=1)
+    // After iteration 5 currentBefore=1 → loop exits.
+    // messages = [] (accumulator empty after slice), oldestLine = 1
+    // (fallback = lastStartLine when accumulator empty), hasMore = false.
+    const skipBatch = () => {
+      const arr: string[] = [];
+      for (let i = 0; i < 20; i++) arr.push(makeSkipLine());
+      return { lines: arr, totalLines: 200 };
+    };
+    vi.mocked(readSessionFileRange)
+      .mockResolvedValueOnce(skipBatch())
+      .mockResolvedValueOnce(skipBatch())
+      .mockResolvedValueOnce(skipBatch())
+      .mockResolvedValueOnce(skipBatch())
+      .mockResolvedValueOnce(skipBatch());
+
+    await __handleFetchOlderRangeForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "fetch_older_range", beforeLine: 101, count: 20 },
+      validDeps,
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe("fetch_older_range_batch");
+    expect(sent[0].messages).toHaveLength(0);
+    expect(sent[0].oldestLine).toBe(1);
+    expect(sent[0].hasMore).toBe(false);
+    expect(sent[0].error).toBeUndefined();
+
+    // Reader called exactly 5 times with the expected refill sequence.
+    const readerCalls = vi.mocked(readSessionFileRange).mock.calls;
+    expect(readerCalls).toHaveLength(5);
+    expect(readerCalls[0][2]).toBe(81); // FIRST read
+    expect(readerCalls[1][2]).toBe(61);
+    expect(readerCalls[2][2]).toBe(41);
+    expect(readerCalls[3][2]).toBe(21);
+    expect(readerCalls[4][2]).toBe(1); // last read clamps to 1
+    expect(readerCalls[4][3]).toBe(20); // min(20, 21-1) = 20
+  });
+
+  it("Test 10: partial refill halts at top-of-file with fewer than 20 messages (quick-260822-7no)", async () => {
+    // beforeLine=25, count=20.
+    // FIRST read: startLine=max(1,25-20)=5, rangeCount=min(20,25-1)=20.
+    //   Batch 1 (lines 5..24): 3 skips at indices 0 (line 5), 5 (line 10),
+    //   10 (line 15) → 17 message survivors (lines 6..9, 11..14, 16..24).
+    // Accumulator (17) < 20 AND currentBefore (5) > 1 → refill.
+    // Refill 1: nextStartLine=max(1,5-20)=1, nextRangeCount=min(20,5-1)=4.
+    //   Batch 2 (lines 1..4): 4 all-message lines.
+    // After prepend accumulator = [1,2,3,4, 6,7,8,9,11,12,13,14,16,17,18,19,
+    // 20,21,22,23,24] length 21. currentBefore = 1 → loop exits.
+    // messages = accumulator.slice(-20) = positions 1..20 = [2,3,4, 6,7,8,9,
+    //   11,12,13,14,16,17,18,19,20,21,22,23,24] length 20.
+    // oldestLine = messages[0].line = 2. hasMore = 2 > 1 = true.
+    const batch1Lines: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      if (i === 0 || i === 5 || i === 10) {
+        batch1Lines.push(makeSkipLine());
+      } else {
+        batch1Lines.push(makeUserMessageLine(`evt-${5 + i}`, `msg-${5 + i}`));
+      }
+    }
+    const batch2Lines: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      batch2Lines.push(makeUserMessageLine(`evt-${1 + i}`, `msg-${1 + i}`));
+    }
+    vi.mocked(readSessionFileRange)
+      .mockResolvedValueOnce({ lines: batch1Lines, totalLines: 24 })
+      .mockResolvedValueOnce({ lines: batch2Lines, totalLines: 24 });
+
+    await __handleFetchOlderRangeForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "fetch_older_range", beforeLine: 25, count: 20 },
+      validDeps,
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].messages).toHaveLength(20);
+    expect(sent[0].oldestLine).toBe(2);
+    expect(sent[0].hasMore).toBe(true);
+    expect(sent[0].error).toBeUndefined();
+
+    const readerCalls = vi.mocked(readSessionFileRange).mock.calls;
+    expect(readerCalls).toHaveLength(2);
+    expect(readerCalls[0][2]).toBe(5); // startLine
+    expect(readerCalls[0][3]).toBe(20); // rangeCount
+    expect(readerCalls[1][2]).toBe(1); // clamped to 1
+    expect(readerCalls[1][3]).toBe(4); // min(20, 5-1) = 4
+
+    // Verify exact line ordering matches the newest-20 slice math above.
+    const expectedLines = [
+      2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    ];
+    for (let i = 0; i < 20; i++) {
+      const frame = sent[0].messages[i] as WireMessageEvent;
+      expect(frame.type).toBe("message");
+      expect(frame.line).toBe(expectedLines[i]);
+    }
+  });
+
+  it("Test 11: 20 non-skip lines in FIRST slice → no refill, exactly one reader call (quick-260822-7no)", async () => {
+    // Guards against the "always keep going" regression — the refill loop
+    // MUST exit as soon as the accumulator hits 20 non-skip frames, even
+    // when currentBefore > 1 (there are still older lines available).
+    const fixtureLines: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      fixtureLines.push(makeUserMessageLine(`evt-${101 + i}`, `msg-${101 + i}`));
+    }
+    vi.mocked(readSessionFileRange).mockResolvedValueOnce({
       lines: fixtureLines,
       totalLines: 500,
     });
@@ -396,21 +576,15 @@ describe("handleFetchOlderRange", () => {
     );
 
     expect(sent).toHaveLength(1);
-    expect(sent[0].messages).toHaveLength(17); // 20 - 3 skipped = 17
-
-    // oldestLine reflects the LINE range asked (101), not the wire-frame count.
+    expect(sent[0].messages).toHaveLength(20);
     expect(sent[0].oldestLine).toBe(101);
-    // hasMore reflects `startLine > 1`, unchanged by skip filtering.
     expect(sent[0].hasMore).toBe(true);
     expect(sent[0].error).toBeUndefined();
 
-    // Every emitted frame is a message (no malformed, no skip nulls that
-    // slipped through). Line numbers are the surviving source lines.
-    const expectedLines = [101, 102, 103, /* 104 skip */ 105, 106, 107, 108, /* 109 skip */ 110, 111, 112, 113, 114, 115, /* 116 skip */ 117, 118, 119, 120];
-    for (let i = 0; i < 17; i++) {
-      const frame = sent[0].messages[i] as WireMessageEvent;
-      expect(frame.type).toBe("message");
-      expect(frame.line).toBe(expectedLines[i]);
-    }
+    // Reader called exactly ONCE — no over-fetch.
+    const readerCalls = vi.mocked(readSessionFileRange).mock.calls;
+    expect(readerCalls).toHaveLength(1);
+    expect(readerCalls[0][2]).toBe(101);
+    expect(readerCalls[0][3]).toBe(20);
   });
 });
