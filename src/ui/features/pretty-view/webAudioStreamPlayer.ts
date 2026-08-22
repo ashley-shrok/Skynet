@@ -20,6 +20,11 @@
 
 import { parseRiffHeader, decodePcmChunk, type RiffHeader } from "./riffPcmDecode";
 
+// Client-side playback speedup. Applied per AudioBufferSourceNode; pitch scales
+// with rate (Web Audio API has no native time-stretch), so keep this modest.
+// Advancing `nextStartTimeRef` must divide by this value to stay gapless.
+const TTS_PLAYBACK_RATE = 1.25;
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface WebAudioStreamPlayerOptions {
@@ -155,6 +160,7 @@ export function createWebAudioStreamPlayer(
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
+    source.playbackRate.value = TTS_PLAYBACK_RATE;
     source.connect(ctx.destination);
     source.onended = onSourceEnded;
 
@@ -165,7 +171,9 @@ export function createWebAudioStreamPlayer(
     }
 
     source.start(nextStartTimeRef.value);
-    nextStartTimeRef.value += buffer.duration;
+    // Audible duration = buffer.duration / playbackRate. Advance by that so
+    // consecutive sources remain gapless at the accelerated rate.
+    nextStartTimeRef.value += buffer.duration / TTS_PLAYBACK_RATE;
     sources.push(source);
   }
 
