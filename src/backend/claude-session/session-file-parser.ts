@@ -220,6 +220,101 @@ function restoreApostrophes(body: string | null): string | null {
   return body.replaceAll(APOS_MARKER, "'");
 }
 
+// ---------------------------------------------------------------------------
+// quick-260822-9qf: shell-var substitution preprocess pass
+//
+// Some relay outbound cmds stash the body in a non-canonical shell variable
+// (WBODY, body_var, PAYLOAD, etc.) and inline the var reference via
+// `--arg b "$VAR" '{msgtype:...`. Pre-fix Strategy 6 captured the raw
+// literal `$WBODY` instead of the resolved body text.
+//
+// Same architectural philosophy as Phase 49's sanitizeBashSqEscapeIdioms:
+// preprocess `cmd` BEFORE the 10 strategies run. sanitize first (converts
+// bash apostrophe-escape idioms into APOS_MARKER), then substitute (so
+// single-quoted var values that used those idioms carry the marker through,
+// and restoreApostrophes at each strategy's return site restores them).
+//
+// First-assignment-wins across both sq and dq scans, length-descending
+// substitution order (guards $BODY_LONG vs $BODY collision), word-boundary
+// guard on `$name`, plus `${name}` braces form.
+//
+// No-op when zero var references are found (guarantees existing corpus
+// fixtures see byte-identical input) — no log line emitted in that case.
+// ---------------------------------------------------------------------------
+
+function substituteShellVars(cmd: string): string {
+  const assignments: Record<string, string> = {};
+
+  // Single-quoted assigns: VAR='...' (verbatim, sanitize pass already
+  // normalized bash apostrophe-escape idioms to APOS_MARKER). Boundary
+  // group prevents matching inside identifiers or nested quoted contexts.
+  const sqAssignRe =
+    /(^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)='([\s\S]*?)'/g;
+  let m: RegExpExecArray | null;
+  while ((m = sqAssignRe.exec(cmd)) !== null) {
+    const name = m[2];
+    if (assignments[name] === undefined) {
+      assignments[name] = m[3];
+    }
+  }
+
+  // Double-quoted assigns: VAR="..." with backslash-decode.
+  const dqAssignRe =
+    /(^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+  while ((m = dqAssignRe.exec(cmd)) !== null) {
+    const name = m[2];
+    if (assignments[name] === undefined) {
+      assignments[name] = m[3].replace(/\\(.)/g, "$1");
+    }
+  }
+
+  const names = Object.keys(assignments);
+  if (names.length === 0) return cmd;
+
+  // Length-descending: $BODY_LONG must resolve to BODY_LONG value, NOT
+  // $BODY value + literal "_LONG" suffix.
+  names.sort((a, b) => b.length - a.length);
+
+  const escapeRegex = (s: string): string =>
+    s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  let out = cmd;
+  let subCount = 0;
+  for (const name of names) {
+    const value = assignments[name];
+
+    // ${name} braces form — no word-boundary guard needed (braces close).
+    const bracesToken = "${" + name + "}";
+    if (out.includes(bracesToken)) {
+      const parts = out.split(bracesToken);
+      subCount += parts.length - 1;
+      out = parts.join(value);
+    }
+
+    // $name form with word-boundary guard so $BODY_LONG isn't partially
+    // consumed by $BODY (defense-in-depth alongside length-desc sort).
+    const bareRe = new RegExp(
+      "\\$" + escapeRegex(name) + "(?![A-Za-z0-9_])",
+      "g",
+    );
+    let matchCount = 0;
+    out = out.replace(bareRe, () => {
+      matchCount++;
+      return value;
+    });
+    subCount += matchCount;
+  }
+
+  if (subCount > 0) {
+    sessionParserLogger.debug(
+      `[session-parser] extract preprocess vars-substituted=${subCount} uniqueVars=${names.length}`,
+      { operation: "session_extract" },
+    );
+  }
+
+  return out;
+}
+
 /**
  * Opportunistically extract the human message body from a confirmed Matrix
  * relay outbound send command.
@@ -244,7 +339,8 @@ function restoreApostrophes(body: string | null): string | null {
  * 10. inline-json      — -d '{"msgtype":"m.text","body":"..."}' literal JSON
  */
 export function extractOutboundBody(cmd: string): string | null {
-  const s = sanitizeBashSqEscapeIdioms(cmd);
+  const s0 = sanitizeBashSqEscapeIdioms(cmd);
+  const s = substituteShellVars(s0);
 
   // ---------------------------------------------------------------------------
   // Strategy 1: BODY-sq — BODY='...' (sanitize pass removed escape idioms)
