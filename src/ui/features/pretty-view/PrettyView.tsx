@@ -766,6 +766,21 @@ export function PrettyView({
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (oldestLoadedLine === null) return;
     if (oldestLoadedLine <= 1) return;
+    // quick-260822-7no: structured click log for the full click → WS →
+    // response path. Fires exactly once per click AFTER the three
+    // defense-in-depth guards and BEFORE ws.send so a grep of
+    // `[pv-load-more]` on the browser devtools console output shows every
+    // click event alongside the response and the server-side
+    // `[fetch-older-range]` entries. `messages.length` is captured via
+    // `messagesLenRef.current` to avoid a stale-closure read — deps array
+    // for this callback is [oldestLoadedLine] to prevent recreating on
+    // every incoming message frame (perf).
+    console.info(
+      `[pv-load-more] click beforeLine=${oldestLoadedLine} ` +
+        `currentMessagesLen=${messagesLenRef.current} ` +
+        `sessionHasMore=${sessionHasMore} ` +
+        `sessionTotalLines=${sessionTotalLines}`,
+    );
     const payload: FetchOlderRangePayload = {
       type: "fetch_older_range",
       beforeLine: oldestLoadedLine,
@@ -1694,6 +1709,15 @@ export function PrettyView({
           //       (hasMore=false hides the button per Test 9), clear the
           //       in-flight/error state.
           if (parsed.error != null) {
+            // quick-260822-7no: response log (error branch). Paired with the
+            // click log so a grep of `[pv-load-more]` shows the full
+            // request/response cycle. preLen/postLen collapse to the
+            // pre-click state — no setMessages runs on error.
+            console.info(
+              `[pv-load-more] response ok=false messagesLen=0 ` +
+                `oldestLine=${parsed.oldestLine} hasMore=${parsed.hasMore} ` +
+                `error="${parsed.error}" preLen=${messagesLenRef.current} postLen=${messagesLenRef.current}`,
+            );
             setLoadOlderState("error");
             setLoadOlderError(parsed.error);
             // Clear in-flight guard so the user can retry-click (retry
@@ -1703,7 +1727,16 @@ export function PrettyView({
             loadOlderInFlightRef.current = false;
             break;
           }
+          // quick-260822-7no: capture pre/post lengths INSIDE the setMessages
+          // callback so the log reflects the actual state transition rather
+          // than a stale outer-closure read. React setters invoke the
+          // callback synchronously (see the 5 pre-existing setMessages
+          // callback sites in this file), so the outer-scoped `let` is
+          // populated by the time the console.info below runs.
+          let logPreLen = 0;
+          let logPostLen = 0;
           setMessages((prev) => {
+            logPreLen = prev.length;
             const combined = [...parsed.messages, ...prev];
             const seen = new Set<string>();
             const result: typeof combined = [];
@@ -1713,8 +1746,14 @@ export function PrettyView({
                 result.push(m);
               }
             }
+            logPostLen = result.length;
             return result;
           });
+          console.info(
+            `[pv-load-more] response ok=true messagesLen=${parsed.messages.length} ` +
+              `oldestLine=${parsed.oldestLine} hasMore=${parsed.hasMore} ` +
+              `error=undefined preLen=${logPreLen} postLen=${logPostLen}`,
+          );
           setOldestLoadedLine(parsed.oldestLine);
           setSessionHasMore(parsed.hasMore);
           setLoadOlderState("idle");
