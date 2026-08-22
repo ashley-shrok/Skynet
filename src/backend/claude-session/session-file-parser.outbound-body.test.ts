@@ -410,3 +410,77 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" \\
     expect(extractOutboundBody(cmd)).toBe("relaying Ashley");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Shell-var substitution (quick-260822-9qf): preprocess-pass that resolves
+// `$VAR` / `${VAR}` references from earlier `VAR='...'` / `VAR="..."` assigns
+// in the same command, so Strategy 6 `jq-arg-inline-dq` matches the actual
+// body text instead of returning the literal `$WBODY`.
+// ---------------------------------------------------------------------------
+
+describe("extractOutboundBody — shell-var substitution", () => {
+  it("A: WBODY-jq-arg-dq — $WBODY resolves via jq --arg b \"$WBODY\"", () => {
+    // Guards the primary bug: pre-fix Strategy 6 returned the literal `$WBODY`.
+    const cmd = `WBODY='literal message'
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$WBODY" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("literal message");
+  });
+
+  it("B: body_var-jq-arg-dq (lowercase) — $body_var resolves", () => {
+    // Confirms lowercase var-name pattern is accepted by the assignment regex.
+    const cmd = `body_var='another message'
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$body_var" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("another message");
+  });
+
+  it("C: PAYLOAD-multiline-sq — embedded newlines preserved through substitution", () => {
+    // Confirms [\s\S]*? non-greedy multi-line capture works.
+    const cmd = `PAYLOAD='line1
+line2
+line3'
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$PAYLOAD" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("line1\nline2\nline3");
+  });
+
+  it("D: ${MSG_TEXT} braces form — substitution respects braces syntax", () => {
+    const cmd = `MSG_TEXT='hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" -d "$(jq -nc --arg b "\${MSG_TEXT}" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("hi");
+  });
+
+  it("E: NAME-COLLISION guard — $BODY_LONG resolves to BODY_LONG, not $BODY + _LONG", () => {
+    // Confirms length-descending sort + word-boundary guard both work.
+    // The `BODY=` assign is IMMEDIATELY captured by Strategy 1 (BODY-sq) once
+    // substitution is a no-op on the assign lines themselves, so we need to
+    // ensure the jq-arg-inline-dq strategy fires by referencing $BODY_LONG.
+    // The BODY-sq strategy will match `BODY='short'` first regardless, but
+    // that's not what we're testing here — we're testing that when $BODY_LONG
+    // gets substituted, it resolves to "long text here", not "short_LONG".
+    // To isolate the collision-guard behavior we use var names that do NOT
+    // trigger the BODY-sq strategy (which matches only the exact word BODY=).
+    const cmd = `MYBODY='short'
+MYBODY_LONG='long text here'
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$MYBODY_LONG" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("long text here");
+  });
+
+  it("F: APOSTROPHE round-trip — Phase 49 sanitize + shell-var substitution compose", () => {
+    // BODY_ALT uses the `'"'"'` idiom to embed a literal apostrophe.
+    // Sanitize pass converts `'"'"'` → APOS_MARKER before substituteShellVars
+    // captures the assign; extractOutboundBody's restoreApostrophes at return
+    // site converts APOS_MARKER back to `'`. Composition must preserve the
+    // apostrophe end-to-end.
+    const cmd = `BODY_ALT='Ashley'"'"'s note'
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$BODY_ALT" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("Ashley's note");
+  });
+});
