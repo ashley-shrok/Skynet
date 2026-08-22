@@ -21,6 +21,7 @@ interface MockSource {
   _startedAt: number;
   _stopped: boolean;
   connected: boolean;
+  playbackRate: { value: number };
   start(when: number): void;
   stop(): void;
   connect(dest: unknown): void;
@@ -93,6 +94,7 @@ function makeMockContext(): MockContext {
         _startedAt: 0,
         _stopped: false,
         connected: false,
+        playbackRate: { value: 1.0 },
         start(when: number) {
           this._started = true;
           this._startedAt = when;
