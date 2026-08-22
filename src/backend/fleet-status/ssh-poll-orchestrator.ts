@@ -41,7 +41,7 @@ import {
 import { isStaleFromStat } from "./liveness-check.js";
 import { resolvePidToTmuxSession } from "./pid-to-tmux.js";
 import { filterAmbientTasks } from "./ambient-filter.js";
-import { parseSessionLine } from "../claude-session/session-file-parser.js";
+import { parseSessionLine, detectIdReset } from "../claude-session/session-file-parser.js";
 import {
   buildDiscoveryScript,
   shellSingleQuote,
@@ -178,6 +178,16 @@ interface PidCacheEntry {
   // for the full recycle window while a live claude PID exists, so per-PID
   // source A coverage is sufficient (see Phase 53 RESEARCH § Assumption A1).
   recycling: boolean;
+  // quick-260822-0vw — cached derived boolean result of scanning the JSONL tail
+  // for the most-recent real user turn's /id reset status. `false` at cold-start.
+  // Fail-open: when the tail exec returns null (SSH hiccup) the cached value is
+  // preserved (do NOT flip to false on a transient read failure). Participates as
+  // an INPUT to derivedRecycling (derivedRecyclingComposed = layer1RecyclingCached
+  // || derivedSentinelRecycling) — NOT its own fingerprint axis. The fingerprint
+  // axis remains `recycling` (the composed boolean), so a Layer-1-only change
+  // still fires a publish exactly as a sentinel-only change would, without any
+  // schema or fingerprint-version bump.
+  layer1RecyclingCached: boolean;
 }
 
 interface PerHostState {
@@ -341,6 +351,53 @@ function scanTailForLatestAiTitle(tailContents: string): string | null {
     }
   }
   return latest;
+}
+
+// ---------------------------------------------------------------------------
+// quick-260822-0vw — Layer 1 /id reset scanner
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan a JSONL tail buffer and return the Layer 1 recycling signal for the
+ * most-recent real user turn in the buffer.
+ *
+ * Returns:
+ *   true  — the last parseable user turn (per detectIdReset semantics) was
+ *            an /id reset turn
+ *   false — the last parseable user turn was NOT an /id reset turn
+ *   null  — the tail contained ZERO parseable user turns (no signal at all;
+ *            the caller should preserve its cached value — same fail-open
+ *            semantics as scanTailForNewestMessageAt returns null on no
+ *            message-bearing lines)
+ *
+ * Implementation mirrors layer1-detect.applyLineToLayer1State's "last user
+ * turn wins" reducer semantics: iterate lines in order, for each try to
+ * JSON.parse (skip malformed silently — matches the module's existing
+ * tolerance), skip non-user types, then call detectIdReset and remember the
+ * result on each user-turn hit. The last-remembered value is returned (or null
+ * if no user turn was found). ONE buffer, called as a THIRD scan on the same
+ * `tailRaw` already read by scanTailForNewestMessageAt + scanTailForLatestAiTitle
+ * — no new SSH round-trip.
+ */
+function scanTailForLayer1RecyclingSignal(tailContents: string): boolean | null {
+  let lastResult: boolean | null = null;
+  const lines = tailContents.split("\n");
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      // Malformed line — skip silently (matches existing parser tolerance).
+      continue;
+    }
+    if (parsed.type !== "user") continue;
+    // detectIdReset handles all harness-synthetic-user-turn exclusions
+    // (isMeta, array content, tool_result) at the object level — mirrors
+    // layer1-detect.ts:isUserTurn + isIdResetUserTurn on the raw-string path.
+    lastResult = detectIdReset(parsed);
+  }
+  return lastResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -815,7 +872,9 @@ export function createSshPollOrchestrator(
     // and held for 8s past the fresh PID being up, so the 2s poll cadence
     // guarantees source A visibility across the entire recycle window
     // (see Phase 53 RESEARCH § Assumption A1).
-    let derivedRecycling: boolean = cached?.recycling ?? false;
+    // quick-260822-0vw: renamed from derivedRecycling to derivedSentinelRecycling
+    // to distinguish it from the OR-composed final value (derivedRecyclingComposed).
+    let derivedSentinelRecycling: boolean = cached?.recycling ?? false;
     if (tmuxSession !== null) {
       const quotedTmuxSession = shellSingleQuote(tmuxSession);
       const recyclingRaw = await channel.exec(
@@ -824,9 +883,9 @@ export function createSshPollOrchestrator(
       if (recyclingRaw !== null) {
         const trimmed = recyclingRaw.trim();
         if (trimmed === "yes") {
-          derivedRecycling = true;
+          derivedSentinelRecycling = true;
         } else if (trimmed === "no") {
-          derivedRecycling = false;
+          derivedSentinelRecycling = false;
         }
         // Anything else → fail-open, keep cached value (T-53-01-01 mitigation).
       }
@@ -866,6 +925,10 @@ export function createSshPollOrchestrator(
     let derivedLastMessageAt: number | null = cached?.lastMessageAt ?? null;
     let derivedAiTitle: string | null = cached?.aiTitle ?? null;
     let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
+    // quick-260822-0vw — Layer 1 recycling signal: starts from the cached value
+    // (false on cold-start); updated inside the tail-scan block below (THIRD scan
+    // on the same tailRaw buffer — ONE exec, THREE scans, no new SSH round-trip).
+    let derivedLayer1Recycling: boolean = cached?.layer1RecyclingCached ?? false;
     if (jsonlPath !== null) {
       // Phase 47 Plan 02 — tail width bumped from a line-count-bounded
       // read to `tail -c 262144` (256KB byte-count) so an ai-title line
@@ -881,10 +944,19 @@ export function createSshPollOrchestrator(
       let scanned: number | null = null;
       let scannedAiTitle: string | null = null;
       if (tailRaw !== null && tailRaw.trim() !== "") {
-        // ONE buffer, TWO scans — no duplicate exec, no duplicate discovery.
+        // ONE buffer, THREE scans — no duplicate exec, no duplicate discovery.
         scanned = scanTailForNewestMessageAt(tailRaw);
         scannedAiTitle = scanTailForLatestAiTitle(tailRaw);
+        // quick-260822-0vw — THIRD scan: Layer 1 /id reset status of the
+        // most-recent real user turn. Returns true/false/null (null = tail had
+        // zero user turns → preserve cache, same fail-open as the others).
+        const scannedLayer1 = scanTailForLayer1RecyclingSignal(tailRaw);
+        if (scannedLayer1 !== null) {
+          derivedLayer1Recycling = scannedLayer1;
+        }
+        // scannedLayer1 === null → tail had zero user turns → keep cached value.
       }
+      // tailRaw null or empty → keep cached layer1RecyclingCached value (fail-open).
       // Phase 47 Plan 02 — last-wins reconciliation for aiTitle. If the
       // fresh tail-scan returned a non-null string, use it; otherwise
       // preserve the cache (fail-open on transient SSH hiccup or a tick
@@ -970,6 +1042,16 @@ export function createSshPollOrchestrator(
       emitHookPayloadWarn(hostState, host.id);
     }
 
+    // quick-260822-0vw — OR-compose the final recycling axis.
+    // derivedLayer1Recycling: from the JSONL tail scan (true if /id reset was
+    //   the most-recent real user turn in the tail; cached value on SSH hiccup).
+    // derivedSentinelRecycling: from the .recycled-at stat (placed at t=N, end
+    //   of the save flow; cached value on SSH hiccup).
+    // The OR means the recycling axis arms at t=0 (Layer 1 fires when /id reset
+    // lands in the session file) AND stays armed at t=N (sentinel appears),
+    // AND publishing is single-triggered per fingerprint delta (no double-fire).
+    const derivedRecyclingComposed: boolean = derivedLayer1Recycling || derivedSentinelRecycling;
+
     // Compose SessionState — Phase 41 Plan 03 stamps lastMessageAt from the
     // JSONL-tail derivation above (null when no message-bearing history is
     // known for this session). Phase 47 Plan 02 stamps aiTitle from the
@@ -979,6 +1061,7 @@ export function createSshPollOrchestrator(
     // (fail-open to cached value on SSH hiccup). Phase 53 Plan 01 stamps
     // recycling from the identity-folder .recycled-at sentinel stat above
     // (fail-open to cached value on SSH hiccup — same semantics as dormant).
+    // quick-260822-0vw: recycling is now the OR-composed value (Layer 1 OR sentinel).
     const state: SessionState = {
       hostId: host.id,
       tmuxSession,
@@ -992,7 +1075,7 @@ export function createSshPollOrchestrator(
       lastMessageAt: derivedLastMessageAt,
       aiTitle: derivedAiTitle,
       dormant: derivedDormant,
-      recycling: derivedRecycling,
+      recycling: derivedRecyclingComposed,
     };
 
     // Delta semantics — only publish if fingerprint changed
@@ -1020,7 +1103,8 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
-        recycling: derivedRecycling,
+        recycling: derivedSentinelRecycling,
+        layer1RecyclingCached: derivedLayer1Recycling,
       });
     } else {
       // Update procStart + tmux in case they changed without a state-change
@@ -1034,7 +1118,8 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
-        recycling: derivedRecycling,
+        recycling: derivedSentinelRecycling,
+        layer1RecyclingCached: derivedLayer1Recycling,
       });
     }
   }
