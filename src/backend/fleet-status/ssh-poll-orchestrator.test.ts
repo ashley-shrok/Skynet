@@ -3730,3 +3730,237 @@ describe("Phase 53 CR C2/C3 — source B recycling coverage", () => {
     expect(deps.registry.publishedStates[1].state.dormant).toBe(false);
   });
 });
+
+// ==============================================================================
+// quick-260822-0vw — Layer 1 /id reset OR composition into source A recycling
+//
+// Phase 53-03 swapped all three consumer sites to `useSessionIsRecycling` which
+// reads a single wire axis. Phase 53's initial source-A composition only set
+// `recycling:true` when `.recycled-at` sentinel was present (placed at t=N,
+// END of save flow). This quick task adds a Layer 1 tail predicate:
+//
+//   derivedRecyclingComposed = derivedLayer1Recycling || derivedSentinelRecycling
+//
+// so the recycling axis arms at t=0 (user presses reset → `/id reset` lands in
+// the session file as the most-recent real user turn) rather than only at t=N.
+//
+// Source B (dormant-only, no live PID) is UNCHANGED — dormant identities have
+// no JSONL to tail-scan; the sentinel remains the sole source B recycling input.
+//
+// All three consumer sites (`SessionHoldingOverlay`, `ComposeBox`,
+// `PrettyConversationRow` via `useSessionIsRecycling`) are NOT touched —
+// they pick up the earlier signal for free via the one-axis architecture.
+// ==============================================================================
+
+describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A recycling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Local helper — produces a JSONL line that satisfies detectIdReset.
+  // Shape mirrors session-file-parser.id-reset.test.ts Test 1 (bare /id reset).
+  function idResetLine(tsMillis: number): string {
+    return JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: "<command-name>/id</command-name><command-args>reset</command-args>",
+      },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-id-reset-${tsMillis}`,
+    });
+  }
+
+  // Plain assistant message — no /id reset markup. Used to verify the sentinel
+  // path still fires when Layer 1 is quiet (regression guard for P53-01 behavior).
+  function plainMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+    });
+  }
+
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+    matchesIdentity = true,
+  ): string {
+    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  // wireBaseResponses — same shape as the Phase 53 Plan 01 sibling, extended to
+  // allow overriding the JSONL tail response for Layer-1 tests.
+  function wireBaseResponses(
+    channel: MockSshChannel,
+    jsonlContents: string,
+    discoveryOverride?: string,
+  ): void {
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    const discoveryStdout =
+      discoveryOverride ??
+      buildDiscoveryFixture(
+        "tina",
+        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlContents);
+    // Default dormant stat response (not dormant).
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    // Default recycled-at stat response (not recycling) — override per test as needed.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260822-0vw-T1-i — Layer 1 alone triggers recycling.
+  // The JSONL tail contains a /id reset line; .recycled-at sentinel is absent.
+  // Expected: SessionState.recycling === true (Layer 1 fires before sentinel).
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260822-0vw-T1-i: Layer 1 alone (/id reset in tail, sentinel absent) → recycling === true", async () => {
+    const channel = new MockSshChannel();
+    // Tail contains a /id reset user turn (satisfies detectIdReset).
+    wireBaseResponses(channel, idResetLine(2000) + "\n");
+    // Sentinel absent — recycling should still be true from Layer 1 alone.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260822-0vw-T1-ii — Sentinel alone triggers recycling (regression
+  // guard for Phase 53-01 behavior). The tail contains a plain assistant message
+  // (no /id reset); .recycled-at sentinel is present.
+  // Expected: recycling === true (OR does NOT accidentally become AND).
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260822-0vw-T1-ii: sentinel alone (.recycled-at present, no /id reset in tail) → recycling === true (OR not AND)", async () => {
+    const channel = new MockSshChannel();
+    // Plain assistant message — Layer 1 predicate will be false.
+    wireBaseResponses(channel, plainMessageLine(1000, "assistant", "hello") + "\n");
+    // Sentinel present — recycling should be true from sentinel alone.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260822-0vw-T1-iii — Both signals true → still recycling (OR is
+  // idempotent). The tail contains a /id reset line AND .recycled-at is present.
+  // Expected: recycling === true; ONLY ONE publish (fingerprint identity).
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260822-0vw-T1-iii: both Layer 1 and sentinel true → recycling === true, single publish (OR is idempotent)", async () => {
+    const channel = new MockSshChannel();
+    // /id reset in tail + sentinel present.
+    wireBaseResponses(channel, idResetLine(2000) + "\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // recycling === true
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+    // Only ONE publish per tick — no double-fire from composing both signals.
+    expect(deps.registry.publishedStates.length).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260822-0vw-T1-iv — Neither signal → not recycling.
+  // Plain message in tail, .recycled-at absent.
+  // Expected: recycling === false.
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260822-0vw-T1-iv: neither Layer 1 nor sentinel → recycling === false", async () => {
+    const channel = new MockSshChannel();
+    // Plain message — no /id reset; sentinel absent.
+    wireBaseResponses(channel, plainMessageLine(1000, "user", "hello") + "\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260822-0vw-T1-v — SSH failure on session file tail → Layer 1 falls
+  // back to cached value (fail-open). Cold-start cache default is false.
+  // Sentinel also absent (no\n). Expected: recycling === false; no throw.
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260822-0vw-T1-v: SSH failure on JSONL tail → Layer 1 falls back to cold-start cache (false); no throw", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, "");
+    // Wire JSONL tail to null — simulates SSH hiccup on tail -c 262144 exec.
+    channel.setResponse("discovered.jsonl", null);
+    // Sentinel absent.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await expect(orchestrator.start()).resolves.not.toThrow();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    // Fail-open: cold-start cache default is false; matches sentinel's own
+    // fail-open contract at Test P53-01-T1-iii.
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+  });
+});
