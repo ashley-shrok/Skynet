@@ -1448,3 +1448,13 @@ Plans:
 - [x] 53-01-PLAN.md — Backend wire + poller: add `recycling?: boolean` to SessionStateSchema (wire-protocol.ts) + stat `.recycled-at` per PID-tick in ssh-poll-orchestrator source A + extend computeFingerprint with recycling axis + PidCacheEntry.recycling cache + 5 test cases (P53-01-T1-i…v)
 - [x] 53-02-PLAN.md — Browser store + hook: mirror recycling field on fleet-status-types.ts SessionState (closes Phase 52 dormant gap along the way) + WorkingRecord Axis E (recycling: boolean) + Axis E swap-and-notify block + Axis A preservation of recycling (Pitfall 3 defense) + useSessionIsRecycling hook + 7 test cases (P53-02-i…vii)
 - [x] 53-03-PLAN.md — Consumer swaps + retirement: PrettyView.tsx SessionHoldingOverlay + ComposeBox isHolding + ComposeBox recycleActive all swap to useSessionIsRecycling (one source for all three surfaces) + PrettyConversationsPanel row-spinner swap + DELETE session-recycling-store.ts + .test.ts + update PrettyView.phase29.test.tsx grep gates + update PrettyView.test.tsx Test F fixture + docblock cleanup in session-queue-pending-store.ts
+
+### Phase 54: HTTP retry policy for transient network failures (thundering-herd resilience)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 53
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 54 to break down)
