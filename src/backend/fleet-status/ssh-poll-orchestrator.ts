@@ -41,7 +41,7 @@ import {
 import { isStaleFromStat } from "./liveness-check.js";
 import { resolvePidToTmuxSession } from "./pid-to-tmux.js";
 import { filterAmbientTasks } from "./ambient-filter.js";
-import { parseSessionLine, detectIdReset } from "../claude-session/session-file-parser.js";
+import { detectIdReset } from "../claude-session/session-file-parser.js";
 import {
   buildDiscoveryScript,
   shellSingleQuote,
@@ -223,33 +223,55 @@ interface PerHostState {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 41 Plan 03 — JSONL path + message-bearing kind set
+// Phase 41 Plan 03 — JSONL path + message-bearing predicate
 // ---------------------------------------------------------------------------
 
 /**
- * Message-bearing JSONL kinds per session-file-parser.ts. These are the ONLY
- * kinds that advance `lastMessageAt` (Ashley 2026-08-14 lock: "activity =
- * message either direction, and only that"). tool_use, thinking, streaming
- * ticks, lifecycle events, and background-task starts/stops all parse to
- * `kind: "skip"` or `kind: "malformed"` and are excluded.
+ * Ashley 2026-08-23 lock: "only my real messages going to them" —
+ * INVERTS the 2026-08-14 lock. Assistant activity, incoming/outgoing
+ * DMs, scheduled wakes, task notifications, skill-body injections all
+ * excluded. See quick-260823-bap plan for the full predicate matrix.
  *
- * The four kinds map to:
- *   - "message":         real user OR assistant textual turn (either direction)
- *   - "image":           an image-bearing turn (either direction; role includes tool_result)
- *   - "relay_outbound":  an assistant Matrix relay send (Phase 17 shape)
- *   - "relay_inbound":   a user task-notification carrying a Matrix relay message body
+ * Predicate: a JSONL line counts iff top-level type==="user" AND
+ * message.content is a plain string AND (starts with "<command-" OR
+ * NOT (starts with "<" AND ends with ">") on trimmed content).
  *
- * "image" with role "tool_result" is INCLUDED — a tool result that returns
- * an image constitutes a message-bearing frame in the pretty-view sense (the
- * user sees an image bubble). This is the conservative choice; if it proves
- * noisy in practice the filter can tighten to role in {"user","assistant"} only.
+ * Independent JSON.parse (mirrors scanTailForLatestAiTitle pattern) —
+ * do NOT extend parseSessionLine to expose raw content. Parallel-copy
+ * discipline preserved per 43-CONTEXT.md scope decision (canonical
+ * copy in sessions.ts must stay byte-parallel).
  */
-const MESSAGE_BEARING_KINDS = new Set([
-  "message",
-  "image",
-  "relay_outbound",
-  "relay_inbound",
-]);
+function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
+  const trimmed = rawLine.trim();
+  if (trimmed === "") return { ok: false };
+  let obj: unknown;
+  try {
+    obj = JSON.parse(trimmed);
+  } catch {
+    return { ok: false };
+  }
+  if (obj === null || typeof obj !== "object") return { ok: false };
+  const top = obj as Record<string, unknown>;
+  // Step 2: top-level type must be "user" (excludes assistant, relay_outbound, etc.)
+  if (top.type !== "user") return { ok: false };
+  // Step 3: message.content must be a plain string (excludes list-content user turns:
+  // tool_result arrays, skill-body [{type:"text",text:…}] injections, etc.)
+  const msg = top.message;
+  if (msg === null || typeof msg !== "object") return { ok: false };
+  const content = (msg as Record<string, unknown>).content;
+  if (typeof content !== "string") return { ok: false };
+  // Step 4: apply the XML-wrapper exclusion.
+  const t = content.trim();
+  const isXmlWrapper = t.startsWith("<") && t.endsWith(">");
+  const isCommand = t.startsWith("<command-");
+  if (!isCommand && isXmlWrapper) return { ok: false };
+  // Passed all gates — extract ts from the timestamp field.
+  const rawTs = top.timestamp;
+  if (typeof rawTs !== "string") return { ok: false };
+  const ts = Date.parse(rawTs);
+  if (!Number.isFinite(ts)) return { ok: false };
+  return { ok: true, ts };
+}
 
 /**
  * Phase 44 Plan 02 — N consecutive ticks with a stale tail (against a
@@ -282,31 +304,31 @@ const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
 // compaction + resume. See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
 
 /**
- * Parse a JSONL blob (the raw stdout of a `tail -n N <jsonl-path>` exec)
- * and return the newest message-bearing `ts` (unix millis) found across all
- * lines, or null if no line qualified. Empty lines and malformed lines are
+ * Parse a JSONL blob (the raw stdout of a `tail -c 262144 <jsonl-path>` exec)
+ * and return the newest Ashley-real-user-turn `ts` (unix millis) found across
+ * all lines, or null if no line qualified. Empty lines and malformed lines are
  * skipped silently — this is a best-effort sample, not a validation pass.
  *
  * This runs on EVERY poll tick per PID; the cost is bounded by the tail
  * width (Phase 47 Plan 02: `tail -c 262144` — 256KB; per Phase 47 CONTEXT.md
  * § Backend scraper mechanics — bounded parse well under 5ms on typical
  * hardware).
- * Session-file-parser's parseSessionLine already handles the harness quirks
- * (queued_command attachments, wrapper-only turns, tool_result vs. bare
- * image role derivation, etc.) — this function stays agnostic to those
- * details and just filters on the returned kind.
+ *
+ * Predicate: isAshleyRealUserTurn (Ashley 2026-08-23 lock). Each line is
+ * independently JSON.parsed by the predicate helper — parseSessionLine is
+ * NOT used for the recency filter (it is no longer the gating function;
+ * it is still called for other purposes elsewhere if needed). The predicate
+ * returns {ok, ts} so a single JSON.parse feeds both the gate and the ts
+ * extraction, avoiding a second parse on the keep path.
  */
 function scanTailForNewestMessageAt(tailContents: string): number | null {
   let newest: number | null = null;
   const lines = tailContents.split("\n");
   for (const line of lines) {
     if (line.trim() === "") continue;
-    const parsed = parseSessionLine(line);
-    if (!MESSAGE_BEARING_KINDS.has(parsed.kind)) continue;
-    // At this point parsed.kind ∈ MESSAGE_BEARING_KINDS which all carry a `ts`
-    // numeric field (see session-file-parser.ts types).
-    const ts = (parsed as { ts: number }).ts;
-    if (typeof ts !== "number" || !Number.isFinite(ts)) continue;
+    const result = isAshleyRealUserTurn(line);
+    if (!result.ok) continue;
+    const { ts } = result;
     if (newest === null || ts > newest) {
       newest = ts;
     }

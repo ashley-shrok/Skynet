@@ -12,7 +12,6 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveRoleForIdentity } from "../../claude-session/identity-artifact-reader.js";
 import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
-import { parseSessionLine } from "../../claude-session/session-file-parser.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -55,36 +54,83 @@ const PER_HOST_TIMEOUT_MS = 30_000;
 // Phase 43 Plan 01 — dormant-side lastMessageAt derivation
 // ---------------------------------------------------------------------------
 //
-// The canonical MESSAGE_BEARING_KINDS set lives in
-// `src/backend/fleet-status/ssh-poll-orchestrator.ts:146-151` — re-declared
-// here (not cross-imported) per 43-CONTEXT.md "reuse Phase 32 mechanism"
-// scope decision. The fleet-status module owns the constant for the live-poll
-// path; sessions.ts owns the identical local copy for the dormant /sessions/list
-// path. If either set ever needs to change, update BOTH sites — a cross-cutting
-// shared module was explicitly out of scope for Phase 43.
-//
-// The four kinds match session-file-parser.ts return-type discriminants and
-// carry a numeric `ts` field (unix millis) that this scan consumes.
-const MESSAGE_BEARING_KINDS = new Set(["message", "image", "relay_outbound", "relay_inbound"]);
+// Ashley 2026-08-23 lock: "only my real messages going to them" —
+// INVERTS the 2026-08-14 lock. See quick-260823-bap plan for the full
+// predicate matrix. Canonical copy lives in
+// `src/backend/fleet-status/ssh-poll-orchestrator.ts` (isAshleyRealUserTurn
+// helper + scanTailForNewestMessageAt). This file owns the byte-parallel copy
+// for the dormant /sessions/list path. If either copy ever needs to change,
+// update BOTH sites — a cross-cutting shared module was explicitly out of
+// scope for Phase 43 (43-CONTEXT.md "no new shared module" scope decision).
 
 /**
- * Scan the raw stdout of a `tail -n N <jsonl-path>` for the newest
- * message-bearing `ts` (unix millis) across all parseable lines. Returns null
- * if zero message-bearing lines are found (or the tail is empty).
+ * Ashley 2026-08-23 lock: "only my real messages going to them" —
+ * INVERTS the 2026-08-14 lock. Assistant activity, incoming/outgoing
+ * DMs, scheduled wakes, task notifications, skill-body injections all
+ * excluded. See quick-260823-bap plan for the full predicate matrix.
+ *
+ * Predicate: a JSONL line counts iff top-level type==="user" AND
+ * message.content is a plain string AND (starts with "<command-" OR
+ * NOT (starts with "<" AND ends with ">") on trimmed content).
+ *
+ * Independent JSON.parse (mirrors scanTailForLatestAiTitle pattern) —
+ * do NOT extend parseSessionLine to expose raw content. Parallel-copy
+ * discipline preserved per 43-CONTEXT.md scope decision (canonical
+ * copy in ssh-poll-orchestrator.ts must stay byte-parallel).
+ */
+function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
+  const trimmed = rawLine.trim();
+  if (trimmed === "") return { ok: false };
+  let obj: unknown;
+  try {
+    obj = JSON.parse(trimmed);
+  } catch {
+    return { ok: false };
+  }
+  if (obj === null || typeof obj !== "object") return { ok: false };
+  const top = obj as Record<string, unknown>;
+  // Step 2: top-level type must be "user" (excludes assistant, relay_outbound, etc.)
+  if (top.type !== "user") return { ok: false };
+  // Step 3: message.content must be a plain string (excludes list-content user turns:
+  // tool_result arrays, skill-body [{type:"text",text:…}] injections, etc.)
+  const msg = top.message;
+  if (msg === null || typeof msg !== "object") return { ok: false };
+  const content = (msg as Record<string, unknown>).content;
+  if (typeof content !== "string") return { ok: false };
+  // Step 4: apply the XML-wrapper exclusion.
+  const t = content.trim();
+  const isXmlWrapper = t.startsWith("<") && t.endsWith(">");
+  const isCommand = t.startsWith("<command-");
+  if (!isCommand && isXmlWrapper) return { ok: false };
+  // Passed all gates — extract ts from the timestamp field.
+  const rawTs = top.timestamp;
+  if (typeof rawTs !== "string") return { ok: false };
+  const ts = Date.parse(rawTs);
+  if (!Number.isFinite(ts)) return { ok: false };
+  return { ok: true, ts };
+}
+
+/**
+ * Scan the raw stdout of a `tail -c 262144 <jsonl-path>` for the newest
+ * Ashley-real-user-turn `ts` (unix millis) across all parseable lines.
+ * Returns null if zero qualifying lines are found (or the tail is empty).
  *
  * Mirrors the semantics of `scanTailForNewestMessageAt` in
- * `ssh-poll-orchestrator.ts:190-206`. Empty and malformed lines are silently
+ * `ssh-poll-orchestrator.ts`. Empty and malformed lines are silently
  * skipped — this is best-effort sampling, not a validation pass.
+ *
+ * Predicate: isAshleyRealUserTurn (Ashley 2026-08-23 lock). The helper
+ * returns {ok, ts} so a single JSON.parse feeds both the gate and the ts
+ * extraction, avoiding a second parse on the keep path.
  */
 function scanTailForNewestMessageAt(tailContents: string): number | null {
   let newest: number | null = null;
   const lines = tailContents.split("\n");
   for (const line of lines) {
     if (line.trim() === "") continue;
-    const parsed = parseSessionLine(line);
-    if (!MESSAGE_BEARING_KINDS.has(parsed.kind)) continue;
-    const ts = (parsed as { ts: number }).ts;
-    if (typeof ts !== "number" || !Number.isFinite(ts)) continue;
+    const result = isAshleyRealUserTurn(line);
+    if (!result.ok) continue;
+    const { ts } = result;
     if (newest === null || ts > newest) {
       newest = ts;
     }
