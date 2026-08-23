@@ -1339,6 +1339,88 @@ describe("quick 260808-cd6 dormancy overlay integration", () => {
     expect(retryBtn).toBeTruthy();
     expect(retryBtn.disabled).toBe(false);
   });
+
+  // ── patch #491 regression lock ─────────────────────────────────────────
+  // Ashley 2026-08-23 verbatim: "I will often go into a session, hit wake
+  // up, and then as I'm waking up, I start recording a message with the
+  // mic, but when it actually wakes up, for some reason, the mic just
+  // stops, and it goes back to as if I'm not recording, and so I lose that
+  // recording." Diagnosed as ComposeBox unmount/remount during the
+  // dormant→active wake transition on a COLD-DORMANT page (fresh page load
+  // onto a dormant pane, backend's dormant-poll path never sent a session
+  // frame → status stays "connecting" → pre-fix mount gate's only
+  // true clause is `renderedState === "dormant"` → the moment paneState
+  // flips to "active" via the dormant-poll seam's emit("active",
+  // "dormancy_cleared"), the gate flips false and ComposeBox unmounts →
+  // useVoiceRecording state (mid-flight MediaRecorder + MediaStream) is
+  // destroyed → the session frame arrives some ms/seconds later from the
+  // fresh claude relaunch → ComposeBox remounts as a fresh instance with
+  // voice.state="idle"). The fix adds `renderedState === "active"` to the
+  // mount gate, keeping ComposeBox continuously mounted through the
+  // transition.
+  it("Test 5: cold-dormant→active (no prior session frame) → ComposeBox stays mounted, textarea state preserved (patch #491 regression)", () => {
+    // Fresh mount — do NOT call flipToStreaming. Reproduces cold-dormant:
+    // WS opens, backend emits pane_state:"dormant" only, no session frame,
+    // status stays "connecting".
+    const resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+    const onSend = vi.fn(() => true);
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    act(() => {
+      ws.onopen?.();
+    });
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'pane_state', state: 'dormant' }),
+        }),
+      );
+    });
+
+    // ComposeBox mounted via renderedState === "dormant". Capture the
+    // textarea DOM node — an unmount+remount would produce a NEW node.
+    const textareaBefore = container.querySelector('textarea');
+    expect(textareaBefore).toBeTruthy();
+
+    // Type into the textarea — proves ComposeBox local state exists.
+    // Standing in for the mid-flight MediaRecorder in the real-world
+    // scenario (JSDOM has no getUserMedia; textarea state is a
+    // structurally-equivalent proxy — both live in the hook/component
+    // instance and are destroyed on unmount).
+    act(() => {
+      fireEvent.change(textareaBefore!, { target: { value: 'mid-wake compose' } });
+    });
+    expect(textareaBefore!.value).toBe('mid-wake compose');
+
+    // Backend's dormant-poll seam fires pane_state:"active" (reason:
+    // "dormancy_cleared") the moment it observes the .dormant sentinel
+    // gone — BEFORE the supervisor's fresh claude launches and hits the
+    // "Active path" that emits the session frame. This is the exact wake
+    // ordering from claude-session-server.ts § L6387 → § L6025.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'pane_state',
+            state: 'active',
+            reason: 'dormancy_cleared',
+          }),
+        }),
+      );
+    });
+
+    // Regression assertion: ComposeBox MUST still be mounted, same DOM node,
+    // typed content preserved. Pre-fix: gate flips false → unmount → typed
+    // content wiped. Post-fix: renderedState === "active" keeps it mounted.
+    const textareaAfter = container.querySelector('textarea');
+    expect(textareaAfter).toBe(textareaBefore);
+    expect(textareaAfter!.value).toBe('mid-wake compose');
+  });
 });
 
 // ── quick 260809-cnx dormant flow refinements ─────────────────────────────
