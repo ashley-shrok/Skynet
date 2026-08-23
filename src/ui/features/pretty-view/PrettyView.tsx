@@ -1247,6 +1247,18 @@ export function PrettyView({
   // (race-safe cancellation) and on unmount (no timer leak).
   const hiddenPaneCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const paneKeyRef = useRef<string>('');
+  // inline-260823-pv-session-file-rotation-reset: track the last sessionFile
+  // seen on this pane. Backend emits `session_changed` ONLY from the discovery-
+  // repoll ticker on an already-open connection (claude-session-server.ts:4229);
+  // a fresh WS attach that lands on a different sessionFile than the previous
+  // WS just emits the normal `session` metadata frame. When the WS is paused
+  // (hidden-pane-close) and the target's session file rotates in the meantime
+  // (e.g. `/id reset` recycles the identity), the reopen path silently lands
+  // on the new file. Under patch #504's insertion-sort, new-file frames
+  // (line=1,2,3...) then sort ABOVE the preserved old-file frames — new
+  // content lands invisible above the viewport. Compare in the `session`
+  // handler and run the same reset that `session_changed` would.
+  const lastKnownSessionFileRef = useRef<string | null>(null);
   const [retryKey, setRetryKey] = useState<number>(0);
   const statusRef = useRef<Status>('connecting');
   // Quick 260808-b74: isVisibleRef mirrors the `isVisible` prop so the onclose
@@ -1524,6 +1536,11 @@ export function PrettyView({
       setOldestLoadedLine(null);
       capOffRef.current = false;
       loadOlderInFlightRef.current = false;
+      // inline-260823-pv-session-file-rotation-reset: fresh-pane mount also
+      // clears the last-known sessionFile so the first `session` frame on the
+      // new pane doesn't spuriously flag "rotation" against a stale ref value
+      // carried over from a different pane.
+      lastKnownSessionFileRef.current = null;
       reconnectAttemptsRef.current = 0;
       // phase-29: mirror into state so wsState derivation re-runs on cold-mount
       // reconnect-counter reset.
@@ -1651,6 +1668,28 @@ export function PrettyView({
           if (typeof parsed.totalLines === "number") {
             setSessionTotalLines(parsed.totalLines);
           }
+          // inline-260823-pv-session-file-rotation-reset: rotation detection
+          // at fresh-WS attach. See the ref declaration for the full failure
+          // mode. Reset mirrors `session_changed` below (~L2130) exactly —
+          // session-scoped state must be dropped so the fresh tail's -n +1
+          // replay hydrates cleanly. Skip the reset on the first `session`
+          // frame after a fresh-pane mount (prev === null) — the fresh-pane
+          // reset already ran.
+          const prevSessionFile = lastKnownSessionFileRef.current;
+          if (prevSessionFile !== null && prevSessionFile !== parsed.sessionFile) {
+            console.info(
+              `[session-frame] rotation-detected prev=${prevSessionFile} next=${parsed.sessionFile} hostId=${hostId} tmuxSession=${tmuxSession ?? 'null'}`,
+            );
+            setMessages([]);
+            setHarnessTasks([]);
+            setContextPct(null);
+            setBackgroundedAgents([]);
+            setBackgroundedShells([]);
+            setPlanPending(null);
+            clearAsideState();
+            clearAllPendingSends();
+          }
+          lastKnownSessionFileRef.current = parsed.sessionFile;
           break;
         }
         case "message": {
@@ -2143,6 +2182,11 @@ export function PrettyView({
           //     have dropped alongside the rest of session-scoped state.
           // Same helper the WS-close cleanup path (~L1973) uses.
           clearAllPendingSends();
+          // inline-260823-pv-session-file-rotation-reset: keep the last-known
+          // sessionFile ref in sync so a follow-up `session` frame carrying
+          // the same newSessionFile doesn't spuriously re-fire the rotation
+          // path in the `session` handler above.
+          lastKnownSessionFileRef.current = parsed.newSessionFile;
           // Diagnostic: parsed.newSessionFile is available if a future console
           // log is wanted; do not add ambient debug logging in this patch.
           break;
