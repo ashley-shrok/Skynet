@@ -359,4 +359,229 @@ describe("useAutoScroll — plain-DOM pinned-follow hook (Phase 43 rewrite)", ()
     expect(scrollEl.getScrollTop()).toBe(100);
     expect(result.current.isPinnedToBottom).toBe(false);
   });
+
+  // ── Tests 12-17 (2026-08-23, tina): first-content-arrival gate bypass ─────
+  // Locks the fix for Ashley 2026-08-23: session-enter / page-refresh must land
+  // at the bottom even when the first messageCount 0→positive transition happens
+  // AFTER an intervening scroll event has spuriously flipped pinnedRef to false.
+
+  it("Test 12 — first-content-arrival: scrolls to bottom on messageCount 0→positive even when pinnedRef was spuriously flipped false before content arrived", () => {
+    // Spurious-flip geometry: scrollHeight=2000 > clientHeight=800 while
+    // messageCount=0 — represents a container that has some scrollHeight
+    // (e.g. scrollbar mount reflow, browser scroll-restoration) but no
+    // rendered message children yet. A scroll event will compute
+    // dist = 2000 - 0 - 800 = 1200 > BOTTOM_EPSILON → pinned=false.
+    const scrollEl = makeScrollEl({ scrollHeight: 2000, clientHeight: 800, initialScrollTop: 0 });
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) => useAutoScroll("pane-A", count),
+      { initialProps: { count: 0 } },
+    );
+    act(() => {
+      result.current.scrollRef(scrollEl.el);
+    });
+
+    // Mount effect wrote scrollTop=scrollHeight. Reset to 0 to model the
+    // "spurious reflow flipped pinnedRef to false" precondition. This
+    // mirrors browser scroll-restoration / scrollbar-mount reflow that
+    // resets scrollTop after the programmatic mount write.
+    scrollEl.setScrollTop(0);
+
+    // Spurious scroll event flips pinnedRef to false BEFORE any content arrives.
+    // dist = 2000 - 0 - 800 = 1200 > BOTTOM_EPSILON → pinned=false.
+    fireScroll(scrollEl.el);
+    expect(result.current.isPinnedToBottom).toBe(false);
+
+    // Now content arrives via WS backfill: scrollHeight grows and messageCount
+    // transitions 0→5. First-content-arrival must bypass the pinnedRef gate.
+    scrollEl.setScrollHeight(5000);
+    act(() => {
+      rerender({ count: 5 });
+    });
+    expect(scrollEl.getScrollTop()).toBe(5000);
+    expect(result.current.isPinnedToBottom).toBe(true);
+  });
+
+  it("Test 13 — first-content-arrival: pinned stays true naturally → messageCount 0→positive scrolls to bottom (regression guard for the case that was already working)", () => {
+    // Empty-container geometry: scrollHeight=200 < clientHeight=800 →
+    // dist = 200 - 0 - 800 = -600, well under BOTTOM_EPSILON → pinned=true
+    // naturally on any scroll event. This is the case that ALREADY worked
+    // pre-fix; the guard ensures the fix doesn't regress it.
+    const scrollEl = makeScrollEl({ scrollHeight: 200, clientHeight: 800, initialScrollTop: 0 });
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) => useAutoScroll("pane-A", count),
+      { initialProps: { count: 0 } },
+    );
+    act(() => {
+      result.current.scrollRef(scrollEl.el);
+    });
+    expect(result.current.isPinnedToBottom).toBe(true);
+
+    scrollEl.setScrollHeight(5000);
+    act(() => {
+      rerender({ count: 5 });
+    });
+    expect(scrollEl.getScrollTop()).toBe(5000);
+  });
+
+  it("Test 14 — first-content-arrival: content present at mount → scroll to bottom (regression guard for warm-mount case)", () => {
+    // Warm-mount: messages already populated when the ref binds. Mount
+    // effect writes scrollTop=scrollHeight AND the messageCount effect
+    // fires with messageCount>0 and didFirstContentScrollRef=false, so
+    // first-content-arrival re-anchors + flips the flag true.
+    const scrollEl = makeScrollEl({ scrollHeight: 5000, clientHeight: 800, initialScrollTop: 0 });
+    const { result } = renderHook(() => useAutoScroll("pane-A", 20));
+    act(() => {
+      result.current.scrollRef(scrollEl.el);
+    });
+    expect(scrollEl.getScrollTop()).toBe(5000);
+    expect(result.current.isPinnedToBottom).toBe(true);
+  });
+
+  it("Test 15 — post-first-content no-yank preserved: first-content fires, then user scrolls up, then new message arrives → scrollTop unchanged", () => {
+    // Load-bearing preservation of Test 5's invariant: after the first-
+    // content-arrival flag flips true, the pinnedRef gate must apply to
+    // all subsequent messageCount growth. If the user has scrolled up to
+    // read history, new messages MUST NOT yank scroll back to bottom.
+    const scrollEl = makeScrollEl({ scrollHeight: 2000, clientHeight: 800, initialScrollTop: 0 });
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) => useAutoScroll("pane-A", count),
+      { initialProps: { count: 0 } },
+    );
+    act(() => {
+      result.current.scrollRef(scrollEl.el);
+    });
+
+    // First content arrives — first-content-arrival fires, flag flips true.
+    scrollEl.setScrollHeight(5000);
+    act(() => {
+      rerender({ count: 5 });
+    });
+    expect(scrollEl.getScrollTop()).toBe(5000);
+
+    // User scrolls up to read history. dist = 5000 - 0 - 800 = 4200 > 100.
+    scrollEl.setScrollTop(0);
+    fireScroll(scrollEl.el);
+    expect(result.current.isPinnedToBottom).toBe(false);
+
+    // New message arrives — flag is now true, so pinnedRef gate applies.
+    scrollEl.setScrollHeight(5500);
+    act(() => {
+      rerender({ count: 10 });
+    });
+    // CRITICAL: no yank. scrollTop stays where the user left it.
+    expect(scrollEl.getScrollTop()).toBe(0);
+    expect(result.current.isPinnedToBottom).toBe(false);
+  });
+
+  it("Test 16 — pane switch resets first-content flag: pane A first-content fires, switch to pane B, spurious pinned=false, pane B first-content still fires", () => {
+    // Pane-swap on same PrettyView instance must re-arm first-content-
+    // arrival behavior for the new pane (fresh pane gets fresh auto-anchor
+    // even if the prior pane was scrolled up when swapped).
+    const scrollEl = makeScrollEl({ scrollHeight: 2000, clientHeight: 800, initialScrollTop: 0 });
+    const { result, rerender } = renderHook(
+      ({ pk, count }: { pk: string; count: number }) => useAutoScroll(pk, count),
+      { initialProps: { pk: "pane-A", count: 0 } },
+    );
+    act(() => {
+      result.current.scrollRef(scrollEl.el);
+    });
+
+    // Pane A: content arrives, first-content-arrival fires, flag=true.
+    scrollEl.setScrollHeight(5000);
+    act(() => {
+      rerender({ pk: "pane-A", count: 5 });
+    });
+    expect(scrollEl.getScrollTop()).toBe(5000);
+
+    // Switch to pane B (empty). Mount/paneKey effect re-fires, resets
+    // pinnedRef=true AND didFirstContentScrollRef=false, writes
+    // scrollTop=scrollHeight=200 (empty pane B).
+    scrollEl.setScrollHeight(200);
+    scrollEl.setScrollTop(0);
+    act(() => {
+      rerender({ pk: "pane-B", count: 0 });
+    });
+    expect(scrollEl.getScrollTop()).toBe(200);
+
+    // Spurious scroll flips pinnedRef=false on pane B (scrollbar-mount
+    // reflow updated geometry to non-empty while count still 0).
+    scrollEl.setScrollHeight(2000);
+    scrollEl.setScrollTop(0);
+    fireScroll(scrollEl.el);
+    expect(result.current.isPinnedToBottom).toBe(false);
+
+    // Pane B content arrives — first-content-arrival fires again (fresh
+    // pane, flag was reset by the mount/paneKey effect).
+    scrollEl.setScrollHeight(4000);
+    act(() => {
+      rerender({ pk: "pane-B", count: 3 });
+    });
+    expect(scrollEl.getScrollTop()).toBe(4000);
+    expect(result.current.isPinnedToBottom).toBe(true);
+  });
+
+  it("Test 17 — observer-path first-content-arrival: MutationObserver sees first children while pinned=false → RAF still writes", async () => {
+    // Skip guard: matches the hook's own bail-out (use-auto-scroll.ts line 114)
+    // so this test is a no-op in RO-less jsdom. Tests 12-16 do not rely on
+    // RO/MO, so they remain valid regardless.
+    if (typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined") {
+      return;
+    }
+
+    // Real DOM parent so MutationObserver can observe childList reliably.
+    // Inline defineScrollGeometry helper — do NOT globally refactor
+    // makeScrollEl (single-use pattern for this observer-path test).
+    const scrollEl = document.createElement("div");
+    document.body.appendChild(scrollEl);
+    let scrollHeightState = 2000;
+    let clientHeightState = 800;
+    let scrollTopState = 0;
+    Object.defineProperty(scrollEl, "scrollHeight", {
+      get: () => scrollHeightState,
+      configurable: true,
+    });
+    Object.defineProperty(scrollEl, "clientHeight", {
+      get: () => clientHeightState,
+      configurable: true,
+    });
+    Object.defineProperty(scrollEl, "scrollTop", {
+      get: () => scrollTopState,
+      set: (v: number) => {
+        scrollTopState = v;
+      },
+      configurable: true,
+    });
+    void clientHeightState;
+
+    const { result, unmount } = renderHook(() => useAutoScroll("pane-C", 0));
+    act(() => {
+      result.current.scrollRef(scrollEl);
+    });
+
+    // Spurious scroll flips pinned=false: dist = 2000 - 0 - 800 = 1200 > 100.
+    act(() => {
+      scrollEl.dispatchEvent(new Event("scroll"));
+    });
+    expect(result.current.isPinnedToBottom).toBe(false);
+
+    // Set the new scrollHeight BEFORE the RAF fires so the observer's write
+    // sees the populated geometry when it anchors.
+    scrollHeightState = 5000;
+
+    // Mount a first child — MO fires childList mutation, scheduleCheck
+    // runs, RAF fires. Observer's first-content-arrival must bypass the
+    // pinnedRef gate.
+    await act(async () => {
+      const child = document.createElement("div");
+      scrollEl.appendChild(child);
+      await new Promise<void>((r) => {
+        requestAnimationFrame(() => r());
+      });
+    });
+
+    expect(scrollTopState).toBe(5000);
+
+    unmount();
+    scrollEl.remove();
+  });
 });
