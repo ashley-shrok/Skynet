@@ -177,6 +177,29 @@ export function IdentityModal({
   const [archivedBounties, setArchivedBounties] = useState<Bounty[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Quick 260823-80r: archive is loaded lazily on Accordion expand. The
+  // initial modal-open bounties fetch omits `includeArchived: true`, so the
+  // backend returns `archivedBounties: []` without running the expensive
+  // `for d in */; do cat "$d/bounty.json"; done` shell one-liner (which
+  // exceeds REMOTE_EXEC_TIMEOUT_MS for roles like Wendy/Molly/Aqua on host 7).
+  //   unloaded — the accordion has never been opened this session; label reads `Archive`
+  //   loading  — a fetch is in flight; label reads `Archive (loading…)`
+  //   loaded   — server responded; label reads `Archive (N)`
+  // Failure surfaces via `archivedError` while `archivedLoadState` returns to
+  // `unloaded` so the next click re-fires the fetch.
+  const [archivedLoadState, setArchivedLoadState] = useState<
+    "unloaded" | "loading" | "loaded"
+  >("unloaded");
+  const [archivedError, setArchivedError] = useState<string | null>(null);
+  // Quick 260823-80r: controlled Radix Accordion value. Empty string = closed;
+  // "archive" = expanded. We control it so the failure path can programmatically
+  // close the accordion on WS-close-before-response, guaranteeing that the
+  // user's next click on the trigger transitions "" → "archive" (which fires
+  // `onValueChange("archive")` and re-triggers the fetch). Without the
+  // controlled value, an uncontrolled Radix Accordion stays "open" after a
+  // failed fetch and the retry click would fire `onValueChange("")` instead,
+  // silently no-op'ing.
+  const [archiveAccordionValue, setArchiveAccordionValue] = useState<string>("");
   // Phase 22 SRIC-06 / Plan 22-06: Role tab is FIRST and DEFAULT per D-CONTEXT
   // §UX rules ("Role tab is FIRST and DEFAULT — not slotted after Identity,
   // not toggleable in position"). Locked with Ashley 2026-08-04.
@@ -302,6 +325,13 @@ export function IdentityModal({
     setError(null);
     setBounties([]);
     setArchivedBounties([]);
+    // Quick 260823-80r: reset lazy archive state — a fresh modal open (or
+    // identity/host switch) must not carry over the previous session's
+    // loaded/loading/error state, or the user would see the wrong count in
+    // the trigger label until they clicked again.
+    setArchivedLoadState("unloaded");
+    setArchivedError(null);
+    setArchiveAccordionValue("");
 
     // Reset all 5 artifact state slots to loading (identity file + Plan 22-06 role file + 3 others).
     setIdentityFileState({ status: "loading" });
@@ -378,7 +408,13 @@ export function IdentityModal({
         return;
       }
       setBounties(parsed.bounties ?? []);
-      setArchivedBounties(parsed.archivedBounties ?? []);
+      // Quick 260823-80r: DO NOT setArchivedBounties from the initial fetch —
+      // the backend returns `archivedBounties: []` when includeArchived is
+      // omitted (its new default), so this call would clobber whatever
+      // loadArchivedBounties() has already populated (which is nothing on
+      // the initial open, but the removal keeps the seam clean for the
+      // future case where a mutation refetch races with the initial load).
+      // Actual archive population lives in loadArchivedBounties() below.
       if (parsed.error) setError(parsed.error);
       setLoading(false);
       // One-shot: close WS after receiving the response (D-13).
@@ -462,6 +498,74 @@ export function IdentityModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, identity.identityKey, hostId, refetchKey]);
+
+  // Quick 260823-80r: lazy archive loader. Fires a NEW one-shot WS with
+  // `includeArchived: true` when the user first expands the Archive accordion.
+  // Idempotent — the `archivedLoadState === "loaded"` early return means a
+  // second click (collapse → re-expand) does not open another WS. Failure
+  // (WS closes before response) sets `archivedError` + returns state to
+  // `unloaded` so the very next click on the trigger retries. This mirrors
+  // the one-shot pattern used elsewhere in the modal (openOneShot in the
+  // initial-fetch effect, sendIdentityMutation for the write-then-refetch
+  // path) — same shape, different lifecycle.
+  //
+  // Reads state via `archivedLoadState` (functional check inside the
+  // callback would be cleaner but the closure over the current render's
+  // state is fine because the useCallback deps include it, so React
+  // regenerates the callback on every state transition — no stale reads).
+  const loadArchivedBounties = useCallback(() => {
+    if (!identity.identityKey) return;
+    // Idempotency: once loaded (with no error), the current archivedBounties
+    // state is authoritative and a re-expand should render from it. The
+    // error case falls through to a fresh fetch (retry).
+    if (archivedLoadState === "loaded" && archivedError === null) return;
+    if (archivedLoadState === "loading") return; // in flight — dedupe
+
+    setArchivedLoadState("loading");
+    setArchivedError(null);
+
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: IdentityListBountiesPayload = {
+        type: "identity:list-bounties",
+        identityKey: identity.identityKey,
+        hostId,
+        includeArchived: true,
+      };
+      try { sock.send(JSON.stringify(payload)); } catch { /* ws mid-close */ }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "identity:bounties") return;
+        const parsed = raw as IdentityBountiesEvent;
+        responded = true;
+        setArchivedBounties(parsed.archivedBounties ?? []);
+        setArchivedLoadState("loaded");
+        setArchivedError(null);
+        try { sock.close(); } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      // Return to unloaded so the next trigger click retries. `archivedError`
+      // drives the trigger label into the "failed to load — click to retry"
+      // variant so the user knows why the count didn't appear. We also
+      // programmatically CLOSE the accordion (value → "") so the retry click
+      // fires a "" → "archive" transition (Radix only invokes onValueChange
+      // when the value actually changes — clicking a still-open accordion
+      // after a failure would otherwise fire onValueChange("") and NOT
+      // re-invoke this loader).
+      setArchivedError("Failed to load archive");
+      setArchivedLoadState("unloaded");
+      setArchiveAccordionValue("");
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => { if (!responded) handleFail(); };
+  }, [identity.identityKey, hostId, archivedLoadState, archivedError]);
 
   // Quick 260731-1c8: reset editor state on fresh open or identity switch.
   // Revokes any prior avatarPreviewUrl to avoid memory leaks; resets
@@ -712,12 +816,21 @@ export function IdentityModal({
     priority: BountyPriority,
   ): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    // Quick 260823-80r: only opt into the archive refetch if the modal has
+    // already loaded the archive this session — otherwise the backend would
+    // do the expensive walk we're specifically trying to avoid, AND the
+    // returned archivedBounties would clobber our (correctly empty pre-load)
+    // local state. When archive is loaded, we DO want the fresh list so any
+    // knock-on effects (e.g. priority change on an archived pinned bounty)
+    // reflect immediately.
+    const archiveLoaded = archivedLoadState === "loaded";
     const payload: IdentityUpdateBountyPriorityPayload = {
       type: "identity:update-bounty-priority",
       identityKey: identity.identityKey,
       hostId,
       bountySlug,
       priority,
+      includeArchived: archiveLoaded,
     };
     const res = await sendIdentityMutation<
       IdentityUpdateBountyPriorityPayload,
@@ -725,7 +838,7 @@ export function IdentityModal({
     >(payload, "identity:bounty-priority-updated");
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
-    setArchivedBounties(res.archivedBounties);
+    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
     // Quick 260727-tb1: immediate-refresh piggyback. A priority change may
     // co-occur with a status change (or be a leading indicator of one), so
     // we invalidate the panel's cached pinned count for this identity
@@ -746,12 +859,15 @@ export function IdentityModal({
     status: BountyStatus,
   ): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
+    const archiveLoaded = archivedLoadState === "loaded";
     const payload: IdentityUpdateBountyStatusPayload = {
       type: "identity:update-bounty-status",
       identityKey: identity.identityKey,
       hostId,
       bountySlug,
       status,
+      includeArchived: archiveLoaded,
     };
     const res = await sendIdentityMutation<
       IdentityUpdateBountyStatusPayload,
@@ -759,7 +875,7 @@ export function IdentityModal({
     >(payload, "identity:bounty-status-updated");
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
-    setArchivedBounties(res.archivedBounties);
+    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
@@ -773,12 +889,15 @@ export function IdentityModal({
     pinned: boolean,
   ): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
+    const archiveLoaded = archivedLoadState === "loaded";
     const payload: IdentityUpdateBountyPinnedPayload = {
       type: "identity:update-bounty-pinned",
       identityKey: identity.identityKey,
       hostId,
       bountySlug,
       pinned,
+      includeArchived: archiveLoaded,
     };
     const res = await sendIdentityMutation<
       IdentityUpdateBountyPinnedPayload,
@@ -786,7 +905,7 @@ export function IdentityModal({
     >(payload, "identity:bounty-pinned-updated");
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
-    setArchivedBounties(res.archivedBounties);
+    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
@@ -800,12 +919,15 @@ export function IdentityModal({
     needsDesk: boolean,
   ): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
+    const archiveLoaded = archivedLoadState === "loaded";
     const payload: IdentityUpdateBountyNeedsDeskPayload = {
       type: "identity:update-bounty-needs-desk",
       identityKey: identity.identityKey,
       hostId,
       bountySlug,
       needs_desk: needsDesk,
+      includeArchived: archiveLoaded,
     };
     const res = await sendIdentityMutation<
       IdentityUpdateBountyNeedsDeskPayload,
@@ -813,7 +935,7 @@ export function IdentityModal({
     >(payload, "identity:bounty-needs-desk-updated");
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
-    setArchivedBounties(res.archivedBounties);
+    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
@@ -829,12 +951,15 @@ export function IdentityModal({
     patch: BountyFieldsPatch,
   ): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
+    const archiveLoaded = archivedLoadState === "loaded";
     const payload: IdentityUpdateBountyFieldsPayload = {
       type: "identity:update-bounty-fields",
       identityKey: identity.identityKey,
       hostId,
       bountySlug,
       patch,
+      includeArchived: archiveLoaded,
     };
     const res = await sendIdentityMutation<
       IdentityUpdateBountyFieldsPayload,
@@ -842,7 +967,7 @@ export function IdentityModal({
     >(payload, "identity:bounty-fields-updated");
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
-    setArchivedBounties(res.archivedBounties);
+    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
     // Rebuild the pinned-count cache — a field edit (especially todos state
     // changes or a meeting_questions add) can flip counts indirectly if the
     // panel's count derivation ever expands beyond raw pinned. Fire-and-
@@ -857,11 +982,14 @@ export function IdentityModal({
   // a pinned live bounty deterministically drops the count by 1.
   async function archiveBounty(bountySlug: string): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
+    const archiveLoaded = archivedLoadState === "loaded";
     const payload: IdentityArchiveBountyPayload = {
       type: "identity:archive-bounty",
       identityKey: identity.identityKey,
       hostId,
       bountySlug,
+      includeArchived: archiveLoaded,
     };
     const res = await sendIdentityMutation<
       IdentityArchiveBountyPayload,
@@ -869,7 +997,7 @@ export function IdentityModal({
     >(payload, "identity:bounty-archived");
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
-    setArchivedBounties(res.archivedBounties);
+    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
@@ -880,11 +1008,14 @@ export function IdentityModal({
   // UX belongs next to the button, not at the API-call layer).
   async function deleteBounty(bountySlug: string): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
+    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
+    const archiveLoaded = archivedLoadState === "loaded";
     const payload: IdentityDeleteBountyPayload = {
       type: "identity:delete-bounty",
       identityKey: identity.identityKey,
       hostId,
       bountySlug,
+      includeArchived: archiveLoaded,
     };
     const res = await sendIdentityMutation<
       IdentityDeleteBountyPayload,
@@ -892,7 +1023,7 @@ export function IdentityModal({
     >(payload, "identity:bounty-deleted");
     if (res.error) throw new Error(res.error);
     setBounties(res.bounties);
-    setArchivedBounties(res.archivedBounties);
+    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
     void invalidateBountyCount(identity.identityKey, hostId);
   }
 
@@ -1380,8 +1511,12 @@ export function IdentityModal({
                   Retry
                 </Button>
               </div>
-            ) : !hasOpen && !hasArchive ? (
-              // Empty state
+            ) : !hasOpen && !hasArchive && archivedLoadState === "loaded" ? (
+              // Empty state — quick 260823-80r: only render this pure-empty
+              // branch once we've CONFIRMED (loaded) the archive is also
+              // empty. Otherwise fall through so the Archive accordion below
+              // stays clickable (the whole point of the lazy-load fix is
+              // that we DON'T know if archive is empty on modal open).
               <div className="flex flex-col gap-1 text-sm text-[var(--color-pv-fg-muted)]">
                 <p>No open bounties for {identity.displayName}.</p>
                 <p className="text-xs">Archive will show here when populated.</p>
@@ -1468,12 +1603,41 @@ export function IdentityModal({
                   );
                 })}
 
-                {/* Archive accordion */}
-                {hasArchive && (
-                  <Accordion type="single" collapsible>
+                {/* Archive accordion — quick 260823-80r: rendered whenever
+                    we don't know for sure that archive is empty, so the user
+                    always has a click target to trigger the lazy load. Only
+                    hidden once we've CONFIRMED (loaded + no error) that the
+                    archive is empty. */}
+                {(archivedLoadState !== "loaded" || hasArchive) && (
+                  <Accordion
+                    type="single"
+                    collapsible
+                    value={archiveAccordionValue}
+                    onValueChange={(val) => {
+                      // Quick 260823-80r: controlled — mirror Radix's value into
+                      // our own state so failure paths can programmatically
+                      // close the accordion (see loadArchivedBounties.handleFail).
+                      setArchiveAccordionValue(val);
+                      // Fire the archive fetch when the user expands. Idempotency
+                      // lives inside loadArchivedBounties (early return when
+                      // already loaded).
+                      if (val === "archive") loadArchivedBounties();
+                    }}
+                  >
                     <AccordionItem value="archive" className="border-white/10">
                       <AccordionTrigger className="text-sm text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] hover:no-underline">
-                        Archive ({sortedArchive.length})
+                        {/* Quick 260823-80r: label variants
+                            - failed → "Archive (failed to load — click to retry)"
+                            - loading → "Archive (loading…)"
+                            - loaded  → "Archive (N)"
+                            - unloaded (default) → "Archive" (no count — unknown) */}
+                        {archivedError !== null
+                          ? "Archive (failed to load — click to retry)"
+                          : archivedLoadState === "loading"
+                            ? "Archive (loading…)"
+                            : archivedLoadState === "loaded"
+                              ? `Archive (${sortedArchive.length})`
+                              : "Archive"}
                       </AccordionTrigger>
                       <AccordionContent>
                         <div className="flex flex-col gap-3 pt-2">

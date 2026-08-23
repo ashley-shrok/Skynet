@@ -242,23 +242,30 @@ describe("IdentityModal — lazy-load archived bounties (quick 260823-80r)", () 
       screen.getByRole("button", { name: /^Archive$/ }),
     );
 
-    // Snapshot bounties socket count BEFORE the click.
-    const beforeCount = bountiesSockets().length;
-    expect(beforeCount).toBe(1);
+    // Snapshot the raw openedSockets count BEFORE click. We inspect the raw
+    // list (not bountiesSockets which filters on send() having been called)
+    // because the archive WS is created synchronously in loadArchivedBounties
+    // but its send() only fires when onopen runs — which we drive manually
+    // below.
+    const beforeRawCount = openedSockets.length;
+    expect(bountiesSockets()).toHaveLength(1);
 
-    fireEvent.click(trigger);
-
-    // A NEW bounties WS opened for the archive fetch.
-    await waitFor(() => {
-      expect(bountiesSockets().length).toBe(beforeCount + 1);
+    await act(async () => {
+      fireEvent.click(trigger);
     });
 
-    // Fire onopen on the newly-created archive WS. It's the last one in
-    // openedSockets that carries a list-bounties frame (or none yet — we
-    // need to fire onopen so the modal's onopen handler sends).
+    // A NEW WS was opened synchronously by loadArchivedBounties.
+    expect(openedSockets.length).toBe(beforeRawCount + 1);
     const archiveWs = openedSockets[openedSockets.length - 1];
     expect(archiveWs).toBeDefined();
+
+    // Fire onopen on the archive WS so its send() runs.
     act(() => { archiveWs.onopen?.(); });
+
+    // Now the archive WS is a bounties socket too.
+    await waitFor(() => {
+      expect(bountiesSockets()).toHaveLength(2);
+    });
 
     // The archive WS's first send() must carry includeArchived: true.
     const [sendArg] = archiveWs.send.mock.calls[0];
@@ -285,15 +292,17 @@ describe("IdentityModal — lazy-load archived bounties (quick 260823-80r)", () 
     const trigger = await waitFor(() =>
       screen.getByRole("button", { name: /^Archive$/ }),
     );
-    fireEvent.click(trigger);
+    await act(async () => {
+      fireEvent.click(trigger);
+    });
 
-    // Grab the archive WS + fire onopen so send() runs (not strictly needed
-    // for the response step but keeps parity with test 3).
+    // Archive WS was opened synchronously — grab it, fire onopen so send()
+    // runs, then verify the bounties-socket count.
+    const archiveWs = openedSockets[openedSockets.length - 1];
+    act(() => { archiveWs.onopen?.(); });
     await waitFor(() => {
       expect(bountiesSockets().length).toBe(2);
     });
-    const archiveWs = openedSockets[openedSockets.length - 1];
-    act(() => { archiveWs.onopen?.(); });
 
     // Deliver 3 archived bounties.
     const threeArchived = [
@@ -354,13 +363,15 @@ describe("IdentityModal — lazy-load archived bounties (quick 260823-80r)", () 
       screen.getByRole("button", { name: /^Archive$/ }),
     );
 
-    // First expand → fires archive WS.
-    fireEvent.click(trigger);
-    await waitFor(() => {
-      expect(bountiesSockets().length).toBe(2);
+    // First expand → fires archive WS (opened synchronously; drive onopen).
+    await act(async () => {
+      fireEvent.click(trigger);
     });
     const archiveWs = openedSockets[openedSockets.length - 1];
     act(() => { archiveWs.onopen?.(); });
+    await waitFor(() => {
+      expect(bountiesSockets().length).toBe(2);
+    });
     act(() => {
       archiveWs.onmessage?.(
         new MessageEvent("message", {
@@ -390,14 +401,21 @@ describe("IdentityModal — lazy-load archived bounties (quick 260823-80r)", () 
     const countAfterLoad = bountiesSockets().length;
     expect(countAfterLoad).toBe(2);
 
-    // Collapse the accordion.
-    fireEvent.click(triggerLoaded);
-    // Re-expand.
-    fireEvent.click(triggerLoaded);
+    // Snapshot raw openedSockets count so we can also assert NO new WS was
+    // opened synchronously (bountiesSockets only counts sockets that have
+    // sent — a socket opened but not yet sending would slip the filter).
+    const rawCountBeforeToggle = openedSockets.length;
 
-    // No new archive WS was opened — count is still 2.
-    // We wait a tick to make sure any potential async open would have fired.
+    // Collapse the accordion.
+    await act(async () => { fireEvent.click(triggerLoaded); });
+    // Re-expand.
+    await act(async () => { fireEvent.click(triggerLoaded); });
+
+    // No new WS opened — raw count unchanged AND bountiesSockets count
+    // unchanged. Waiting a tick guards against any queued microtask side
+    // effect that might have opened a WS asynchronously.
     await new Promise((r) => setTimeout(r, 20));
+    expect(openedSockets.length).toBe(rawCountBeforeToggle);
     expect(bountiesSockets().length).toBe(countAfterLoad);
   });
 
@@ -410,16 +428,15 @@ describe("IdentityModal — lazy-load archived bounties (quick 260823-80r)", () 
     const trigger = await waitFor(() =>
       screen.getByRole("button", { name: /^Archive$/ }),
     );
-    fireEvent.click(trigger);
+    await act(async () => { fireEvent.click(trigger); });
 
-    // Wait for the archive fetch WS to be created.
+    const archiveWs = openedSockets[openedSockets.length - 1];
+    act(() => { archiveWs.onopen?.(); });
     await waitFor(() => {
       expect(bountiesSockets().length).toBe(2);
     });
-    const archiveWs = openedSockets[openedSockets.length - 1];
-    act(() => { archiveWs.onopen?.(); });
 
-    // Simulate the WS closing without ever having sent a message.
+    // Simulate the WS closing without ever having sent a message back.
     act(() => { archiveWs.onclose?.(); });
 
     // Label transitions to a failed-to-load state (with retry hint).
@@ -428,13 +445,11 @@ describe("IdentityModal — lazy-load archived bounties (quick 260823-80r)", () 
     );
     expect(failedTrigger).toBeTruthy();
 
-    const countAfterFailure = bountiesSockets().length;
+    const rawCountAfterFailure = openedSockets.length;
 
-    // Click the trigger again to retry — a NEW archive WS opens.
-    fireEvent.click(failedTrigger);
-    await waitFor(() => {
-      expect(bountiesSockets().length).toBe(countAfterFailure + 1);
-    });
+    // Click the trigger again to retry — a NEW archive WS opens synchronously.
+    await act(async () => { fireEvent.click(failedTrigger); });
+    expect(openedSockets.length).toBe(rawCountAfterFailure + 1);
     const retryWs = openedSockets[openedSockets.length - 1];
     act(() => { retryWs.onopen?.(); });
 
