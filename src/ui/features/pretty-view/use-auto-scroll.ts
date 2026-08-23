@@ -20,6 +20,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //       bottom on session enter. Compounded by the `paneKey` param being
 //       accepted but never used, so `pinnedRef` from the prior conversation
 //       leaked into a new pane on identity-swap re-render.
+//   (4) First-content-arrival gap (Ashley 2026-08-23): the mount effect
+//       writes scrollTop=scrollHeight at ref-bind time, but when messages[]
+//       is empty at that moment (PrettyView initializes empty, then WS
+//       backfill populates async) the write is a no-op on an empty
+//       container. If any scroll event between ref-bind and first-content
+//       arrival flips pinnedRef to false (browser scroll-restoration,
+//       scrollbar-mount reflow, empty-container programmatic-write reflow),
+//       the messageCount 0→N follow effect gets skipped and the user lands
+//       scrolled-up. Fix: `didFirstContentScrollRef` bypasses the pinnedRef
+//       gate for the very first content-populate transition per pane, then
+//       flips true so subsequent messageCount growth respects the gate
+//       (preserving the Test 5 no-yank invariant post-first-content). Same
+//       bypass applies to the observer's RAF write path so an accessory or
+//       first-message-child mount that arrives via mutation observation
+//       also anchors even under spurious pinned=false.
 //
 // The rewrite:
 //   • ResizeObserver-on-children + MutationObserver on the scroll container
@@ -33,6 +48,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //     to true and jumps to the current scrollHeight — this owns "initial
 //     mount" AND "pane switch on the same PrettyView instance" cases.
 //     Removes the fragile seed onScroll (fix 3).
+//   • `didFirstContentScrollRef` (2026-08-23) bypasses the pinnedRef gate
+//     on the very first content-populate transition per pane (fixes 4).
+//     Reset alongside pinnedRef in the mount/paneKey effect. Flag flips
+//     true after the first-content write; all subsequent writes respect
+//     the pinnedRef gate (Test 5 no-yank invariant preserved).
 //   • The no-yank-when-scrolled-up invariant (Test 5) is preserved: every
 //     write is gated on `pinnedRef.current === true`.
 //
@@ -58,6 +78,8 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
 
   const [isPinnedToBottom, setIsPinnedToBottom] = useState<boolean>(true);
   const pinnedRef = useRef<boolean>(true);
+  // First-content-arrival guard — see header comment §(4).
+  const didFirstContentScrollRef = useRef<boolean>(false);
 
   // Initial-mount / pane-switch reset. Fires when scrollEl transitions
   // null → element (fresh mount) OR when paneKey changes on an existing
@@ -66,6 +88,7 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
   useEffect(() => {
     if (!scrollEl) return;
     pinnedRef.current = true;
+    didFirstContentScrollRef.current = false;
     setIsPinnedToBottom(true);
     scrollEl.scrollTop = scrollEl.scrollHeight;
   }, [scrollEl, paneKey]);
@@ -87,10 +110,21 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
   // Follow-when-pinned on messageCount growth. Fires on every messages[]
   // increment. The no-yank-when-scrolled-up guarantee is the
   // `if (!pinnedRef.current) return` gate — Test 5 locks this.
+  //
+  // First-content-arrival bypass (§4): the very first messageCount 0→positive
+  // transition per pane anchors to bottom even under spurious pinned=false,
+  // then flips didFirstContentScrollRef=true so subsequent growth respects
+  // the pinnedRef gate (preserving Test 5 no-yank invariant).
   useEffect(() => {
     if (!scrollEl) return;
-    if (!pinnedRef.current) return;
+    const isFirstContentArrival = !didFirstContentScrollRef.current && messageCount > 0;
+    if (!pinnedRef.current && !isFirstContentArrival) return;
     scrollEl.scrollTop = scrollEl.scrollHeight;
+    if (isFirstContentArrival) {
+      didFirstContentScrollRef.current = true;
+      pinnedRef.current = true;
+      setIsPinnedToBottom(true);
+    }
   }, [scrollEl, messageCount]);
 
   // Accessory + content-growth observer. Complements the messageCount effect
@@ -122,8 +156,17 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
       if (raf !== 0) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        if (!pinnedRef.current) return;
+        // First-content-arrival bypass (§4): the very first observed child
+        // mount per pane anchors to bottom even under spurious pinned=false.
+        const isFirstContentArrival =
+          !didFirstContentScrollRef.current && scrollEl.children.length > 0;
+        if (!pinnedRef.current && !isFirstContentArrival) return;
         scrollEl.scrollTop = scrollEl.scrollHeight;
+        if (isFirstContentArrival) {
+          didFirstContentScrollRef.current = true;
+          pinnedRef.current = true;
+          setIsPinnedToBottom(true);
+        }
       });
     };
 
