@@ -1873,12 +1873,12 @@ export type __DormantStateForTests = {
   isIdentityShapedCached: boolean | null;
   identityShapeProbeInFlight: boolean;
   dormantLastEmitted: boolean | null;
-  // quick 260809-ha3: optional getter for the wake-trigger timestamp closure.
-  // When present and non-null, the dormant:true emit carries this as
-  // wakingSince so the client can restore the wake-progress bar after Fix B
-  // (visibility false->true) wipes local wakingStartTs. Absent/undefined =>
-  // wakingSince: null (natural-dormant path — no user-initiated wake in flight).
-  wakeTriggerTs?: () => number | null;
+  // Phase 56 Plan 01: wakeTriggerTs getter removed — the {type:"dormant"}
+  // frame no longer carries a timestamp field. Backend still owns
+  // wakeTriggerTs internally in the connection closure (~L3026) for the
+  // marker-freshness gate at __applyDormantPollWithRediscoveryForTests
+  // L2604-2626, but nothing emits it any more — the frontend no longer
+  // needs to reconstruct waking state (DormancyOverlay deleted in Plan 03).
 };
 
 /**
@@ -1925,16 +1925,12 @@ export async function __applyDormantPollTickForTests(
       const isDormant = statOut.trim() === "yes";
       if (isDormant !== state.dormantLastEmitted) {
         state.dormantLastEmitted = isDormant;
-        // quick 260809-ha3: dormant:true carries wakingSince so client can
-        // restore the wake-progress bar after Fix B (visibility false->true)
-        // wipes local wakingStartTs. dormant:false is unchanged (client
-        // clears waking state on the false-branch already).
-        if (isDormant) {
-          const wakingSince = state.wakeTriggerTs?.() ?? null;
-          wsSend(JSON.stringify({ type: "dormant", dormant: true, wakingSince }));
-        } else {
-          wsSend(JSON.stringify({ type: "dormant", dormant: false }));
-        }
+        // Phase 56 Plan 01: wakingSince no longer emitted — the frontend no
+        // longer needs to reconstruct waking state (DormancyOverlay deleted
+        // in Plan 03). Backend keeps wakeTriggerTs internally only for the
+        // marker-freshness gate at __applyDormantPollWithRediscoveryForTests
+        // L2604-2626 (unchanged).
+        wsSend(JSON.stringify({ type: "dormant", dormant: isDormant }));
       }
     } catch {
       /* SSH error — skip this tick silently */
@@ -2036,11 +2032,149 @@ export async function __applyInputMessageForTests(deps: {
   wsSend?: (frame: object) => void;
   armWatchdog?: typeof armPvSendWatchdog;
   trackMqid?: (mqid: string) => void;
+  // Phase 56 Plan 01 — send-while-dormant path (invisible wake trigger).
+  // When all four are wired AND dormantLastEmitted() returns true at entry,
+  // the send-path drops the .dormant sentinel, records wakeTriggerTs so the
+  // existing dormant-poll marker-freshness gate holds this pane's dormant
+  // frame in place, polls .resume-complete until it's newer than send-time
+  // (or MARKER_FALLBACK_MS elapses), then falls through to the normal
+  // split-send. Same freshness contract as __applyDormantPollWithRediscovery
+  // ForTests (L2515-2648). All four optional to preserve backward compat
+  // with pre-Phase-56 test call sites (they omit these and get the pre-Phase-
+  // 56 non-dormant-branch path unchanged).
+  dormantLastEmitted?: () => boolean | null;
+  setWakeTriggerTs?: (ts: number) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  markerCommand?: (conn: any, name: string) => Promise<string | null>;
+  now?: () => number;
 }): Promise<void> {
   const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
   if (!sshConn || !currentTmuxSession) return;
   const data = String(deps.data ?? "");
   if (data.length === 0) return;
+  // Phase 56 Plan 01 — send-while-dormant branch. Read dormantLastEmitted at
+  // entry (BEFORE the MAX_INPUT_BYTES cap so a rejected oversize send still
+  // triggers the invisible wake — the send won't actually deliver, but the
+  // sentinel drop is still the right thing to do because the user did action
+  // this pane). When dormant AND all four Phase-56 deps are wired, drop the
+  // sentinel + record wakeTriggerTs + poll marker until fresh or fallback.
+  // Then fall through to the normal send code (which will run the MAX_INPUT
+  // _BYTES cap + split-send delivery). See T-56-01-01/02/03/04/05 in the
+  // plan's threat model for trust-boundary rationale.
+  const wasDormant = deps.dormantLastEmitted?.() === true;
+  if (
+    wasDormant &&
+    deps.setWakeTriggerTs &&
+    deps.markerCommand &&
+    deps.now
+  ) {
+    const mqidForDormantLog = String(deps.messageQueueItemId ?? "");
+    sshLogger.info(
+      "[pv-input] send received while pane dormant, dropping sentinel",
+      {
+        operation: "pv_input_dormant_send_start",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+      },
+    );
+    const triggerTs = deps.now();
+    // Write wakeTriggerTs so the existing dormant-poll marker-freshness gate
+    // at __applyDormantPollWithRediscoveryForTests L2604-2626 holds this
+    // pane's dormant:true frame in place while the wake completes. Mirrors
+    // the wake-handler write at L5828.
+    deps.setWakeTriggerTs(triggerTs);
+    try {
+      // Byte-identical to the exec at L2487 inside __applyWakeMessageForTests
+      // — same single-quote wrap, same path, same connection. T-56-01-01:
+      // currentTmuxSession is connection-scoped (from connectToPane
+      // discovery); client-supplied hostId/tmuxSession are IGNORED.
+      await exec(
+        sshConn,
+        `rm -f ~/.claude/identities/'${currentTmuxSession}'/.dormant`,
+      );
+    } catch (sentinelErr) {
+      sshLogger.warn("[pv-input] sentinel drop failed during dormant send", {
+        operation: "pv_input_dormant_sentinel_drop_failed",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+        error:
+          sentinelErr instanceof Error
+            ? sentinelErr.message
+            : String(sentinelErr),
+      });
+      // Fall through to normal send anyway — pane may still be usable, and
+      // any tmux-side failure will surface through the existing send_keys
+      // _error frame at L2216-2249.
+    }
+    sshLogger.info(
+      "[pv-input] sentinel dropped, waiting for .resume-complete marker (or MARKER_FALLBACK_MS)",
+      {
+        operation: "pv_input_dormant_wait_marker",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        triggerTs,
+        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+      },
+    );
+    // Poll the .resume-complete marker in a bounded loop. Semantics MUST
+    // match the freshness check at L2604-2626 byte-for-byte: fresh means
+    // marker_ts > triggerTs; fallback means (now - triggerTs) >=
+    // MARKER_FALLBACK_MS. 500ms poll interval mirrors the shape of the 3s
+    // dormant-poll tick but is faster because we're actively blocking a
+    // send — 500ms keeps latency low without spamming SSH.
+    let markerFresh = false;
+    let fellBack = false;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const body = await deps.markerCommand(sshConn, currentTmuxSession);
+      if (body !== null) {
+        const markerTs = Date.parse(body.trim());
+        if (Number.isFinite(markerTs) && markerTs > triggerTs) {
+          markerFresh = true;
+          break;
+        }
+      }
+      if (deps.now() - triggerTs >= MARKER_FALLBACK_MS) {
+        markerFresh = true;
+        fellBack = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const elapsedMs = deps.now() - triggerTs;
+    if (fellBack) {
+      sshLogger.info(
+        "[pv-input] .resume-complete marker did not appear; falling back after MARKER_FALLBACK_MS",
+        {
+          operation: "pv_input_dormant_marker_fallback",
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          elapsedMs,
+          fellBack: true,
+          mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+        },
+      );
+    } else {
+      sshLogger.info(
+        "[pv-input] .resume-complete marker fresh; dispatching send-keys",
+        {
+          operation: "pv_input_dormant_marker_fresh",
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          elapsedMs,
+          mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+        },
+      );
+    }
+    // markerFresh is always true here (break exits the loop only on the
+    // fresh OR fallback path). Suppress unused-var lint noise by referencing.
+    void markerFresh;
+    // Fall through to the existing normal-send code below (MAX_INPUT_BYTES
+    // cap + split-send + watchdog arm). This is the "then dispatches tmux
+    // send-keys normally" step of the plan.
+  }
   // Cap payload size before handing to tmux send-keys (mirrors MAX_RAW_KEYSTROKES_BYTES
   // at :4025 — same ARG_MAX rationale; 16KB is comfortably above any realistic composebox
   // input. Per D-PVWS-04).
@@ -2570,11 +2704,12 @@ export async function __applyDormantPollWithRediscoveryForTests(
       // Sentinel still present — emit only on change (state-change guard)
       if (state.dormantLastEmitted() !== true) {
         state.setDormantLastEmitted(true);
-        // quick 260809-ha3: dormant:true carries wakingSince (server-authoritative
-        // wake-trigger timestamp) so the client can restore the wake-progress
-        // bar after Fix B (visibility false->true edge) wipes local wakingStartTs.
-        // Natural-resume path (wakeTriggerTs null) sends wakingSince:null.
-        wsSend(JSON.stringify({ type: "dormant", dormant: true, wakingSince: state.wakeTriggerTs() }));
+        // Phase 56 Plan 01: wakingSince no longer emitted — backend keeps
+        // wakeTriggerTs internally only for the marker-freshness gate at
+        // L2604-2626 (state.wakeTriggerTs getter retained on the state
+        // signature for that gate). The frontend no longer reconstructs
+        // waking state (DormancyOverlay deleted in Plan 03).
+        wsSend(JSON.stringify({ type: "dormant", dormant: true }));
       }
       // Dormant-branch context-pct: read the last assistant turn's `usage`
       // block from the identity's cached JSONL and emit. The JSONL is
@@ -5776,6 +5911,34 @@ wss.on("connection", async (ws: WebSocket, req) => {
         trackMqid: (mqid: string) => {
           pendingMqidsForThisConnection.add(mqid);
         },
+        // Phase 56 Plan 01 — send-while-dormant wire-up. Reads the connection-
+        // scoped `dormantLastEmitted` (declared ~L3001), writes the connection-
+        // scoped `wakeTriggerTs` (declared ~L3026) so the existing dormant-
+        // poll's marker-freshness gate holds this pane's dormant frame in
+        // place while the wake completes. markerCommand mirrors the rediscovery-
+        // seam wire-up at L7013-below (both share the same `.resume-complete`
+        // read contract — if these two ever drift, extract into a module-scope
+        // helper).
+        dormantLastEmitted: () => dormantLastEmitted,
+        setWakeTriggerTs: (ts: number) => {
+          wakeTriggerTs = ts;
+        },
+        markerCommand: async (
+          conn: unknown,
+          name: string,
+        ): Promise<string | null> => {
+          try {
+            const out = await execCommand(
+              conn as import("ssh2").Client,
+              `cat ~/.claude/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
+            );
+            const trimmed = out.trim();
+            return trimmed.length > 0 ? trimmed : null;
+          } catch {
+            return null;
+          }
+        },
+        now: () => Date.now(),
       });
       return;
     }
@@ -6364,9 +6527,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
               isIdentityShapedCached,
               identityShapeProbeInFlight,
               dormantLastEmitted,
-              // quick 260809-ha3: pipe closure-scoped wakeTriggerTs through the
-              // state box so the tick seam can emit wakingSince on dormant:true.
-              wakeTriggerTs: () => wakeTriggerTs,
+              // Phase 56 Plan 01: wakeTriggerTs getter removed from the state
+              // box — the tick seam no longer emits wakingSince (frontend has
+              // no consumer after Plan 03 deletes DormancyOverlay). Closure-
+              // scoped `wakeTriggerTs` (~L3026) still lives; it's still (a)
+              // written by the wake handler at L5828 (until Plan 03 deletes
+              // that handler), (b) written by Plan 01's send-while-dormant
+              // path via the input-handler wire-up, and (c) read by the
+              // rediscovery-seam wire-up below (~L7013) which targets the
+              // DIFFERENT state.wakeTriggerTs getter on __applyDormantPoll
+              // WithRediscoveryForTests for the marker-freshness gate.
             };
             dormantInFlight = true;
             // Phase 30 Plan 30-01: capture dormantLastEmitted BEFORE the seam
@@ -6892,11 +7062,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
                 tmuxSession,
               });
               try {
-                // quick 260809-ha3: dormant:true carries wakingSince (closure-scoped
-                // wakeTriggerTs at ~L1264) so the client's wake-progress bar survives
-                // Fix B (visibility false->true edge). Natural-dormant path (fresh
-                // WS, no prior wake click) sends wakingSince:null.
-                ws.send(JSON.stringify({ type: "dormant", dormant: true, wakingSince: wakeTriggerTs }));
+                // Phase 56 Plan 01: wakingSince no longer emitted — the
+                // frontend no longer reconstructs waking state (DormancyOverlay
+                // deleted in Plan 03). Backend keeps wakeTriggerTs internally
+                // for the marker-freshness gate at __applyDormantPollWith
+                // RediscoveryForTests L2604-2626 (unchanged).
+                ws.send(JSON.stringify({ type: "dormant", dormant: true }));
               } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=dormant err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
               // Phase 30 Plan 30-01 (PS30-07): initial-discovery-dormant path
               // establishes attach-time pane_state alongside the legacy dormant
