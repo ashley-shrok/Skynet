@@ -38,6 +38,13 @@ import {
   clearPvSendWatchdogsForSession,
   notifyMatched,
   __resetPvSendWatchdogForTests,
+  RETRY_ENTER_MS,
+  FULL_RESEND_MS,
+  GIVE_UP_MS,
+  RETRY_ENTER_MS_DORMANT,
+  FULL_RESEND_MS_DORMANT,
+  GIVE_UP_MS_DORMANT,
+  MARKER_FALLBACK_MS_MIRROR,
 } from "./pv-send-watchdog.js";
 
 // Silence sshLogger — the module logs at every arm / retry / escalation and
@@ -620,5 +627,225 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       return f?.type === "paste_send_failed";
     });
     expect(escalations.length).toBe(1);
+  });
+});
+
+// ─── Phase 56 Plan 02 — widened window for dormant-triggered sends ──────────
+//
+// The invisible-wake path (Plan 01): send-path drops .dormant sentinel + polls
+// .resume-complete marker with MARKER_FALLBACK_MS=90_000 timeout, THEN
+// dispatches send-keys. The watchdog arms at that send-keys moment. Without
+// widening, the normal 20_000ms give-up would fire DURING the healthy ~90s
+// wake window → red-bubble on a healthy send.
+//
+// Fix: pv-send-watchdog.ts's new `dormantSend?: boolean` flag swaps the three
+// stages to widened variants (retry T+92500ms, full-resend T+95500ms, give-up
+// T+120_000ms). Awake-pane sends omit the flag → today's timings byte-for-byte.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("Phase 56: widened window for dormant-triggered sends", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    __resetPvSendWatchdogForTests();
+  });
+
+  afterEach(() => {
+    __resetPvSendWatchdogForTests();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("Test WW-1: dormantSend:true swaps GIVE_UP_MS to GIVE_UP_MS_DORMANT — paste_send_failed does NOT fire at T+20s, DOES fire at T+120s", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "mqid-ww1",
+      body: "hello dormant",
+      contentHash: contentHashOf("hello dormant"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+      dormantSend: true,
+    });
+
+    // Advance past the NORMAL give-up window (T+20_000+1ms).
+    await vi.advanceTimersByTimeAsync(GIVE_UP_MS + 1);
+
+    // paste_send_failed must NOT have fired yet — the widened window has
+    // NOT elapsed. (Note: retry-Enter + full-resend have fired their execs by
+    // now for the WIDENED cadence — they're scheduled at T+92500/T+95500 so
+    // they're still pending. Only wsSend of paste_send_failed is asserted here.)
+    let escalations = wsSend.mock.calls.filter((c) => {
+      const f = c[0] as { type?: string };
+      return f?.type === "paste_send_failed";
+    });
+    expect(escalations.length).toBe(0);
+
+    // Advance the rest of the way to just past the widened give-up boundary
+    // (total T+120_001ms).
+    await vi.advanceTimersByTimeAsync(GIVE_UP_MS_DORMANT - GIVE_UP_MS);
+
+    // Now paste_send_failed DID fire — with the exact wire shape.
+    escalations = wsSend.mock.calls.filter((c) => {
+      const f = c[0] as { type?: string };
+      return f?.type === "paste_send_failed";
+    });
+    expect(escalations.length).toBe(1);
+    expect(escalations[0][0]).toEqual({
+      type: "paste_send_failed",
+      mqid: "mqid-ww1",
+      reason: "no_signal_after_full_resend",
+    });
+  });
+
+  it("Test WW-2: dormantSend:false (or omitted) preserves today's GIVE_UP_MS = 20_000 — no regression", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    // Omit dormantSend entirely — undefined must be treated as false in the
+    // widened-window ternary (byte-for-byte pre-Phase-56 behavior).
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "mqid-ww2",
+      body: "hello awake",
+      contentHash: contentHashOf("hello awake"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    // Advance past the NORMAL give-up window.
+    await vi.advanceTimersByTimeAsync(GIVE_UP_MS + 1);
+
+    // paste_send_failed MUST have fired at T+20_001ms — awake-pane behavior
+    // unchanged from pre-Phase-56.
+    const escalations = wsSend.mock.calls.filter((c) => {
+      const f = c[0] as { type?: string };
+      return f?.type === "paste_send_failed";
+    });
+    expect(escalations.length).toBe(1);
+    expect(escalations[0][0]).toEqual({
+      type: "paste_send_failed",
+      mqid: "mqid-ww2",
+      reason: "no_signal_after_full_resend",
+    });
+  });
+
+  it("Test WW-3: dormantSend:true delays retry-Enter to T+92500ms and full-resend to T+95500ms — awake-window retries do not fire early", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "mqid-ww3",
+      body: "widened body",
+      contentHash: contentHashOf("widened body"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+      dormantSend: true,
+    });
+
+    // Advance past the NORMAL retry-Enter boundary (T+2600ms).
+    await vi.advanceTimersByTimeAsync(RETRY_ENTER_MS + 100);
+    // No exec should have fired — retry-Enter for dormant is at T+92500.
+    let cmds = exec.mock.calls.map((c) => c[0] as string);
+    expect(cmds.some((c) => /send-keys.*Enter/.test(c))).toBe(false);
+
+    // Advance past the NORMAL full-resend boundary (total T+5600ms).
+    await vi.advanceTimersByTimeAsync(FULL_RESEND_MS - RETRY_ENTER_MS);
+    // Still no exec — full-resend for dormant is at T+95500.
+    cmds = exec.mock.calls.map((c) => c[0] as string);
+    expect(exec).not.toHaveBeenCalled();
+
+    // Advance to just past the WIDENED retry-Enter boundary (total
+    // T+92_600ms).
+    await vi.advanceTimersByTimeAsync(
+      RETRY_ENTER_MS_DORMANT + 100 - (FULL_RESEND_MS + 100),
+    );
+    // Now the retry-Enter exec HAS fired — exactly one send-keys Enter.
+    cmds = exec.mock.calls.map((c) => c[0] as string);
+    const retryCalls = cmds.filter(
+      (c) => /send-keys.*Enter$/.test(c) && !c.includes("-l"),
+    );
+    expect(retryCalls.length).toBe(1);
+    expect(retryCalls[0]).toBe(`tmux send-keys -t '${TMUX_TARGET}' Enter`);
+
+    // Advance to just past the WIDENED full-resend boundary (total
+    // T+95_600ms).
+    await vi.advanceTimersByTimeAsync(
+      FULL_RESEND_MS_DORMANT + 100 - (RETRY_ENTER_MS_DORMANT + 100),
+    );
+    // Now the full-resend triplet HAS fired: C-u + -l body + Enter.
+    cmds = exec.mock.calls.map((c) => c[0] as string);
+    expect(cmds.some((c) => c.includes("C-u"))).toBe(true);
+    expect(
+      cmds.some((c) => c.includes("-l") && c.includes("widened body")),
+    ).toBe(true);
+    // At least two send-keys Enter — the earlier retry + full-resend's Enter.
+    const enterCount = cmds.filter(
+      (c) => /send-keys.*Enter$/.test(c) && !c.includes("-l"),
+    ).length;
+    expect(enterCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("Test WW-4: dormantSend + retryEnterOnly compose — only retry-Enter is scheduled, at the widened cadence, no full-resend, no give-up", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "mqid-ww4",
+      body: "compose-mode body",
+      contentHash: contentHashOf("compose-mode body"),
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+      dormantSend: true,
+      retryEnterOnly: true,
+    });
+
+    // Advance to just past the WIDENED retry-Enter boundary.
+    await vi.advanceTimersByTimeAsync(RETRY_ENTER_MS_DORMANT + 100);
+
+    // The bare Enter DID fire.
+    const cmds = exec.mock.calls.map((c) => c[0] as string);
+    expect(cmds.length).toBe(1);
+    expect(cmds[0]).toBe(`tmux send-keys -t '${TMUX_TARGET}' Enter`);
+    // No C-u, no -l body — retryEnterOnly suppresses full-resend.
+    expect(cmds.some((c) => c.includes("C-u"))).toBe(false);
+    expect(cmds.some((c) => c.includes("-l"))).toBe(false);
+
+    // Advance well past the WIDENED give-up boundary.
+    await vi.advanceTimersByTimeAsync(
+      GIVE_UP_MS_DORMANT + 1 - (RETRY_ENTER_MS_DORMANT + 100),
+    );
+
+    // paste_send_failed NEVER fired — retryEnterOnly suppresses stage 3.
+    const escalations = wsSend.mock.calls.filter((c) => {
+      const f = c[0] as { type?: string };
+      return f?.type === "paste_send_failed";
+    });
+    expect(escalations.length).toBe(0);
+  });
+});
+
+// WW-5 lives OUTSIDE the describe block — it's a file-read invariant guard,
+// not a timer-based watchdog test. Fake-timer setup would be a no-op here.
+describe("Phase 56: constant-drift guard", () => {
+  it("Test WW-5: MARKER_FALLBACK_MS_MIRROR must equal MARKER_FALLBACK_MS in claude-session-server.ts", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync(
+      "src/backend/claude-session/claude-session-server.ts",
+      "utf-8",
+    );
+    // Match `MARKER_FALLBACK_MS = 90_000;` (allow `_` in numeric literal).
+    const m = src.match(/MARKER_FALLBACK_MS\s*=\s*(\d[\d_]*)/);
+    expect(m).not.toBeNull();
+    if (m === null) return; // narrow for TS
+    const upstreamValue = parseInt(m[1].replace(/_/g, ""), 10);
+    expect(upstreamValue).toBe(MARKER_FALLBACK_MS_MIRROR);
+    // Sanity: guard against the raw 90_000 value silently changing.
+    expect(MARKER_FALLBACK_MS_MIRROR).toBe(90_000);
+    expect(GIVE_UP_MS_DORMANT).toBe(120_000);
+    expect(RETRY_ENTER_MS_DORMANT).toBe(92_500);
+    expect(FULL_RESEND_MS_DORMANT).toBe(95_500);
   });
 });
