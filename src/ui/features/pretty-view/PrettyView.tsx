@@ -224,12 +224,53 @@ type StreamEvent =
   | RelayInboundEvent
   | MalformedLineEvent;
 
+// inline-260823-pv-line-sorted-insert (Ashley 2026-08-23): insertion-sort by
+// `line` so out-of-arrival-order frames land in chronological position.
+// Trigger case: after a load-more click flips capOff=true, a hidden-pane-close
+// → WS re-open triggers re-hydration from line 1 of the session file. Every
+// eid never seen before (lines that were cap-dropped during initial hydration)
+// gets appendDedup'd — under naive append-at-end that placed session-start
+// content at the DOM BOTTOM (Ashley's Patricia report 2026-08-23: "the first
+// 20 bubbles of the session" appeared BELOW her most-recent messages).
+//
+// Sort key: `line: number` on every wire frame (Plan 01 additive widening on
+// StreamEvent). Frames without `line` (defensive; every current backend path
+// stamps it) fall back to `ts` for relative ordering. Uses binary search for
+// O(log N) index resolution, splice for insert. Rendering downstream is
+// `messages.map` in array order → chronological order in DOM.
+function lineKey(m: StreamEvent): number {
+  if (typeof m.line === "number") return m.line;
+  if (typeof m.ts === "number") return m.ts;
+  return 0;
+}
+
+// Binary search: return insertion index for `key` in `arr` (already sorted
+// ascending by lineKey). Stable — equal keys insert AFTER existing entries
+// so arrival-order breaks ties (matches prior append-at-end semantics for
+// same-line duplicates like enqueue/dequeue pairs).
+function findInsertIndex(arr: StreamEvent[], key: number): number {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (lineKey(arr[mid]!) <= key) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 function appendDedup(
   prev: StreamEvent[],
   next: StreamEvent,
 ): StreamEvent[] {
   if (prev.some((m) => m.eventId === next.eventId)) return prev;
-  return [...prev, next];
+  const idx = findInsertIndex(prev, lineKey(next));
+  // Fast path: insertion at end (arrival-order matches chronological, which
+  // is the norm for live-tail) → cheap array spread.
+  if (idx === prev.length) return [...prev, next];
+  const out = prev.slice();
+  out.splice(idx, 0, next);
+  return out;
 }
 
 // Live-append with drop-oldest cap. Enforced during both initial hydration
@@ -238,13 +279,44 @@ function appendDedup(
 // the same cap so long-lived sessions bound their memory). Original
 // `appendDedup` retained above as a documented pair per plan 43-07b
 // key-decisions; deleting it is out of scope for Phase 45.
-function appendDedupWithCap<T extends { eventId: string }>(
+//
+// inline-260823-pv-line-sorted-insert: also insertion-sorted (same rationale
+// as appendDedup above). Under cap enforcement drop-oldest still drops from
+// the FRONT — which under insertion-sort is the CHRONOLOGICAL oldest, matching
+// the intended semantic.
+function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: number }>(
   prev: T[],
   next: T,
   cap: number,
 ): T[] {
   if (prev.some((m) => m.eventId === next.eventId)) return prev;
-  const withNew = [...prev, next];
+  const nextKey =
+    typeof next.line === "number"
+      ? next.line
+      : typeof next.ts === "number"
+        ? next.ts
+        : 0;
+  // Binary search for insertion index (generic — mirrors findInsertIndex).
+  let lo = 0;
+  let hi = prev.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const midKey =
+      typeof prev[mid]!.line === "number"
+        ? prev[mid]!.line!
+        : typeof prev[mid]!.ts === "number"
+          ? prev[mid]!.ts!
+          : 0;
+    if (midKey <= nextKey) lo = mid + 1;
+    else hi = mid;
+  }
+  const idx = lo;
+  const withNew =
+    idx === prev.length ? [...prev, next] : (() => {
+      const c = prev.slice();
+      c.splice(idx, 0, next);
+      return c;
+    })();
   if (withNew.length > cap) {
     // pv-scroll-diag (2026-08-23): cap-drop is the primary suspect for
     // Ashley's "message bubble area suddenly jumps up" report — when the
@@ -1791,6 +1863,11 @@ export function PrettyView({
                 droppedByDedup.push(m.eventId);
               }
             }
+            // inline-260823-pv-line-sorted-insert: sort combined+deduped
+            // result by `line` so a subsequent WS-reconnect re-hydration's
+            // late-arriving low-line frames land in chronological position
+            // rather than at the end of the array.
+            result.sort((a, b) => lineKey(a) - lineKey(b));
             logPostLen = result.length;
             // pv-load-more-diag (2026-08-23): dedup + order fingerprint.
             // overlap = eids present in BOTH parsed (older batch) AND prev
