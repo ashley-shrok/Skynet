@@ -1465,9 +1465,9 @@ Plans:
 **Goal:** Cold-mount tap-to-load in Skynet PrettyView drops from ~5s to ~50ms perceived when the fleet-status poller has a fresh answer for the tapped (host, tmux session), and to ~500ms when it does not — via an opportunistic read of a shared session-file cache written by source A of the fleet-status poller (Plan 55-02), plus a batched-single-exec fallback (Plan 55-03) that compresses the current 4 serial SSH discovery round-trips into 2 (main script + JSONL existence test). Server-side only; frontend + fleet-status polling rate/coverage/output shape unchanged; downstream discovery-repoll ticker and frontend rotation-reset already handle stale-cache reads.
 **Requirements**: none (fork-driven improvement phase; no formal REQ-IDs — success criterion + scope + failure modes owned by 55-CONTEXT.md + 55-RESEARCH.md)
 **Depends on:** Phase 54
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [x] 55-01-PLAN.md — Wave 1: session-file-cache.ts primitive (module-level Map + typed read/write/clear + hostId string|number coercion) + 10 vitest cases covering cold-miss, round-trip, cross-type coercion, last-writer-wins, host-scoped clear
-- [ ] 55-02-PLAN.md — Wave 2 (parallel with 55-03): source-A writer hookup in ssh-poll-orchestrator.ts processPid (guarded on jsonlPath!=null && tmuxSession!=null; source B stays clear) + 6 orchestrator tests (Phase 55 A–F)
+- [x] 55-02-PLAN.md — Wave 2 (parallel with 55-03): source-A writer hookup in ssh-poll-orchestrator.ts processPid (guarded on jsonlPath!=null && tmuxSession!=null; source B stays clear) + 6 orchestrator tests (Phase 55 A–F)
 - [ ] 55-03-PLAN.md — Wave 2 (parallel with 55-02): discoverClaudeSessionBatched (2 round-trips instead of 4) + connectToPane cache-hit shim at ~L6776 + observability log "Claude session discovery path" with path (shared-hit|batched-fresh) + durationMs + 10 batched tests + 2 integration tests
