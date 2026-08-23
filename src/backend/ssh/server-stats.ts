@@ -36,6 +36,7 @@ import {
   createConnectionLog,
   isTcpPingEnabled,
   supportsMetrics,
+  supportsTcpPing,
 } from "./server-stats-helpers.js";
 import {
   cleanupMetricsSession,
@@ -244,7 +245,7 @@ class PollingManager {
     const canCollectMetrics = supportsMetrics(host);
 
     const enabledCollectors: string[] = [];
-    if (isTcpPingEnabled(statsConfig)) {
+    if (isTcpPingEnabled(statsConfig) && supportsTcpPing(host)) {
       enabledCollectors.push("status");
     }
     if (!statusOnly && statsConfig.metricsEnabled && canCollectMetrics) {
@@ -285,14 +286,18 @@ class PollingManager {
       viewerUserId,
     };
 
-    if (isTcpPingEnabled(statsConfig)) {
+    if (isTcpPingEnabled(statsConfig) && supportsTcpPing(host)) {
       const intervalMs = statsConfig.statusCheckInterval * 1000;
 
       this.pollHostStatus(host, viewerUserId);
 
       config.statusTimer = setInterval(() => {
         const latestConfig = this.pollingConfigs.get(host.id);
-        if (latestConfig && isTcpPingEnabled(latestConfig.statsConfig)) {
+        if (
+          latestConfig &&
+          isTcpPingEnabled(latestConfig.statsConfig) &&
+          supportsTcpPing(latestConfig.host)
+        ) {
           this.pollHostStatus(latestConfig.host, latestConfig.viewerUserId);
         }
       }, intervalMs);

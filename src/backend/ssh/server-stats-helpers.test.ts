@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   supportsMetrics,
+  supportsTcpPing,
   isTcpPingEnabled,
   createConnectionLog,
 } from "./server-stats-helpers.js";
@@ -28,6 +29,22 @@ describe("supportsMetrics", () => {
     expect(supportsMetrics({ connectionType: "ssh", authType: "opkssh" })).toBe(
       false,
     );
+  });
+});
+
+describe("supportsTcpPing", () => {
+  it("supports ssh hosts", () => {
+    expect(supportsTcpPing({ connectionType: "ssh" })).toBe(true);
+  });
+
+  it("defaults missing connectionType to ssh", () => {
+    expect(supportsTcpPing({})).toBe(true);
+  });
+
+  it("rejects non-ssh connection types (RDP/VNC/Telnet need client-first handshake)", () => {
+    expect(supportsTcpPing({ connectionType: "rdp" })).toBe(false);
+    expect(supportsTcpPing({ connectionType: "vnc" })).toBe(false);
+    expect(supportsTcpPing({ connectionType: "telnet" })).toBe(false);
   });
 });
 
