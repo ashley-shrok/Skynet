@@ -285,7 +285,12 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     const restore = withMediaDevicesStub();
     try {
       const onSend = vi.fn(() => true);
-      const onSendWithAttachments = vi.fn();
+      // Quick 260823-8ji: onSendWithAttachments now returns Promise<BatchOutcome>.
+      // Mock resolves ok so the awaited chain inside handleSend's attachment
+      // path completes without an unhandled-rejection warning.
+      const onSendWithAttachments = vi.fn(() =>
+        Promise.resolve({ ok: true as const }),
+      );
 
       // With attachments — Send should call onSendWithAttachments, not onSend.
       const { rerender } = render(
@@ -476,6 +481,202 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
       expect(onSend).toHaveBeenCalledWith("hi there", expect.stringMatching(/^pv-optim-/));
       // Phase 50 D-01 clear-on-success: textarea is empty after a truthy dispatch.
       expect(textarea.value).toBe("");
+    } finally {
+      restore();
+    }
+  });
+
+  // ============================================================
+  // Quick 260823-8ji: attachment-path outcome gating.
+  //
+  // handleSend's attachment branch used to fire-and-forget:
+  //   onSendWithAttachments(caption); setText(""); clearAfterSend();
+  // silently clearing the compose textarea + attachment chips even when
+  // the batch never reached upload_ready_to_inject (WS drop, upload_failed,
+  // timeout). Ashley hit this four times on 2026-08-23 across wanda + nelly.
+  //
+  // These tests lock the new contract: onSendWithAttachments returns a
+  // Promise<BatchOutcome>; handleSend awaits it and only clears on
+  // outcome.ok. On !outcome.ok it preserves textarea + chips and surfaces
+  // an inline error via setErrorMessage(reason-specific string).
+  // ============================================================
+
+  it("attachment outcome-gating T1 (happy): outcome ok clears the textarea", async () => {
+    const restore = withMediaDevicesStub();
+    try {
+      const onRemoveAttachment = vi.fn();
+      const onSendWithAttachments = vi.fn(() =>
+        Promise.resolve({ ok: true as const }),
+      );
+      render(
+        <ComposeBox
+          {...baseProps({
+            stagedAttachments: [mkAtt("a", "one.txt")],
+            onRemoveAttachment,
+            showPaperclip: false,
+            onAttachFiles: vi.fn(),
+            onSendWithAttachments,
+          })}
+        />,
+      );
+      const textarea = screen.getByPlaceholderText(
+        /message/i,
+      ) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "hey" } });
+      await act(async () => {
+        await shortTapSendButton(
+          screen.getByRole("button", { name: "Send" }) as HTMLButtonElement,
+        );
+      });
+      // Give the awaited outcome one more microtask hop to settle.
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(onSendWithAttachments).toHaveBeenCalledWith("hey");
+      expect(textarea.value).toBe(""); // cleared on ok
+      // No error surface rendered.
+      expect(screen.queryByText(/Upload failed/i)).toBeNull();
+      expect(screen.queryByText(/timed out/i)).toBeNull();
+      expect(screen.queryByText(/Not connected/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("attachment outcome-gating T2 (upload_failed): outcome !ok preserves textarea + surfaces 'Upload failed'", async () => {
+    const restore = withMediaDevicesStub();
+    try {
+      const onRemoveAttachment = vi.fn();
+      const onSendWithAttachments = vi.fn(() =>
+        Promise.resolve({
+          ok: false as const,
+          reason: "upload_failed" as const,
+          message: "sftp_error: connection lost",
+        }),
+      );
+      render(
+        <ComposeBox
+          {...baseProps({
+            stagedAttachments: [mkAtt("a", "one.txt")],
+            onRemoveAttachment,
+            showPaperclip: false,
+            onAttachFiles: vi.fn(),
+            onSendWithAttachments,
+          })}
+        />,
+      );
+      const textarea = screen.getByPlaceholderText(
+        /message/i,
+      ) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "hey" } });
+      await act(async () => {
+        await shortTapSendButton(
+          screen.getByRole("button", { name: "Send" }) as HTMLButtonElement,
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(onSendWithAttachments).toHaveBeenCalledWith("hey");
+      // Textarea PRESERVED — user may want to retry.
+      expect(textarea.value).toBe("hey");
+      // Chips PRESERVED — parent's onRemoveAttachment was NOT invoked.
+      expect(onRemoveAttachment).not.toHaveBeenCalled();
+      // Inline error surface rendered.
+      expect(screen.getByText("Upload failed — try again.")).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
+  it("attachment outcome-gating T3 (timeout): outcome !ok reason=timeout preserves + surfaces timeout error", async () => {
+    const restore = withMediaDevicesStub();
+    try {
+      const onRemoveAttachment = vi.fn();
+      const onSendWithAttachments = vi.fn(() =>
+        Promise.resolve({
+          ok: false as const,
+          reason: "timeout" as const,
+        }),
+      );
+      render(
+        <ComposeBox
+          {...baseProps({
+            stagedAttachments: [mkAtt("a", "one.txt")],
+            onRemoveAttachment,
+            showPaperclip: false,
+            onAttachFiles: vi.fn(),
+            onSendWithAttachments,
+          })}
+        />,
+      );
+      const textarea = screen.getByPlaceholderText(
+        /message/i,
+      ) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "hey" } });
+      await act(async () => {
+        await shortTapSendButton(
+          screen.getByRole("button", { name: "Send" }) as HTMLButtonElement,
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(textarea.value).toBe("hey");
+      expect(onRemoveAttachment).not.toHaveBeenCalled();
+      expect(
+        screen.getByText("Upload timed out — check connection and try again."),
+      ).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
+  it("attachment outcome-gating T4 (ws_not_open): outcome !ok reason=ws_not_open preserves + surfaces connection error", async () => {
+    const restore = withMediaDevicesStub();
+    try {
+      const onRemoveAttachment = vi.fn();
+      const onSendWithAttachments = vi.fn(() =>
+        Promise.resolve({
+          ok: false as const,
+          reason: "ws_not_open" as const,
+        }),
+      );
+      render(
+        <ComposeBox
+          {...baseProps({
+            stagedAttachments: [mkAtt("a", "one.txt")],
+            onRemoveAttachment,
+            showPaperclip: false,
+            onAttachFiles: vi.fn(),
+            onSendWithAttachments,
+          })}
+        />,
+      );
+      const textarea = screen.getByPlaceholderText(
+        /message/i,
+      ) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "hey" } });
+      await act(async () => {
+        await shortTapSendButton(
+          screen.getByRole("button", { name: "Send" }) as HTMLButtonElement,
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(textarea.value).toBe("hey");
+      expect(onRemoveAttachment).not.toHaveBeenCalled();
+      expect(
+        screen.getByText("Not connected — try again in a moment."),
+      ).toBeTruthy();
     } finally {
       restore();
     }
