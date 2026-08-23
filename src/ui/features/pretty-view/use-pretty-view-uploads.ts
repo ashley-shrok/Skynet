@@ -56,6 +56,39 @@ export interface StagedAttachment {
   error: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Quick 260823-8ji: per-batch outcome contract.
+//
+// Every startBatch / retryBatch invocation returns an `outcome` Promise
+// alongside `messageQueueItemId`. The Promise resolves exactly ONCE:
+//
+//   upload_ready_to_inject arrives  → { ok: true }
+//   upload_failed arrives           → { ok: false, reason: "upload_failed",
+//                                        message: `${event.reason}: ${event.message}` }
+//   No terminal event within 30s    → { ok: false, reason: "timeout" }
+//   startBatch(ws=null)             → { ok: false, reason: "ws_not_open" }
+//   ws.send throws                  → { ok: false, reason: "ws_send_threw" }
+//   resetBatch / reused-id retry    → OLD outcome { ok: false, reason: "superseded" }
+//
+// ComposeBox awaits `outcome` on the attachment path to decide whether to
+// clear the compose textarea + attachment chips (ok) or preserve them and
+// surface an inline error (!ok). Previously the attachment path was fire-
+// and-forget, silently clearing the compose state even on WS drop / upload
+// backend never emitting upload_ready_to_inject (Ashley hit this four times
+// on 2026-08-23 across wanda + nelly — bug directive quick-260823-8ji).
+// ---------------------------------------------------------------------------
+
+export type BatchFailureReason =
+  | "upload_failed"
+  | "timeout"
+  | "ws_not_open"
+  | "ws_send_threw"
+  | "superseded";
+
+export type BatchOutcome =
+  | { ok: true }
+  | { ok: false; reason: BatchFailureReason; message?: string };
+
 export interface UsePrettyViewUploadsDeps {
   /** Live WebSocket for the pane, or null if not yet connected. */
   ws: WebSocket | null;
@@ -113,10 +146,20 @@ export interface UsePrettyViewUploadsReturn {
   // are UUIDs so collision is effectively impossible, but the invariant
   // matters for correctness).
   clearStagedForTarget: (target: string) => void;
+  // Quick 260823-8ji: return shape widened to include a per-batch outcome
+  // Promise (see BatchOutcome docblock above). Existing callers that only
+  // read `.messageQueueItemId` see NO behavior change (extra property is
+  // ignored on destructure).
   startBatch: (
     caption: string,
-  ) => Promise<{ messageQueueItemId: string } | null>;
-  retryBatch: () => Promise<{ messageQueueItemId: string } | null>;
+  ) => Promise<{
+    messageQueueItemId: string;
+    outcome: Promise<BatchOutcome>;
+  } | null>;
+  retryBatch: () => Promise<{
+    messageQueueItemId: string;
+    outcome: Promise<BatchOutcome>;
+  } | null>;
   resetBatch: () => void;
   onWsReconnect: () => void;
 }
@@ -130,6 +173,16 @@ const BACKPRESSURE_LOW_WATER_BYTES = 1 * 1024 * 1024; // 1 MB — resume below
 const BACKPRESSURE_POLL_MS = 50;
 const BACKPRESSURE_HARD_TIMEOUT_ITERATIONS = 60; // ~3 s stuck → give up
 const FOLDER_REJECTION_MS = 3000;
+// Quick 260823-8ji: per-batch outcome timeout. If no terminal event
+// (upload_ready_to_inject | upload_failed) arrives within this window
+// after upload_start dispatch, the outcome resolves { ok:false,
+// reason:"timeout" } so the compose surface can flag the send as failed
+// and preserve the textarea + attachment chips. 30s is empirically
+// generous — a healthy paste_send round-trip is single-digit seconds;
+// anything beyond 30s is either a WS disruption or a backend hang.
+// Backend has no matching PASTE_SEND_TIMEOUT_MS constant to align with
+// (verified 2026-08-23), so 30_000 is authoritative on the client side.
+const BATCH_OUTCOME_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -203,6 +256,57 @@ export function usePrettyViewUploads(
   const folderRejectionTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+
+  // Quick 260823-8ji: per-batch outcome resolver + 30s timeout handle.
+  // Both keyed on batchId so a retryBatch that mints a new id gets a fresh
+  // resolver + fresh timer without stomping the old one. Refs (not state)
+  // because these are internal plumbing that must NOT drive re-renders.
+  const outcomeResolversByBatchIdRef = useRef<
+    Map<string, (o: BatchOutcome) => void>
+  >(new Map());
+  const batchTimeoutHandlesByBatchIdRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
+
+  // Quick 260823-8ji: disarm the 30s outcome timer for a batchId — idempotent.
+  const clearBatchTimeout = useCallback((batchId: string) => {
+    const handle = batchTimeoutHandlesByBatchIdRef.current.get(batchId);
+    if (handle !== undefined) {
+      clearTimeout(handle);
+      batchTimeoutHandlesByBatchIdRef.current.delete(batchId);
+    }
+  }, []);
+
+  // Quick 260823-8ji: pull the resolver, call it once, delete from the map,
+  // clear the timeout. Safe to call multiple times — the second call is a
+  // no-op because the resolver is gone from the map.
+  const resolveOutcome = useCallback(
+    (batchId: string, outcome: BatchOutcome) => {
+      const resolver = outcomeResolversByBatchIdRef.current.get(batchId);
+      if (resolver === undefined) return;
+      outcomeResolversByBatchIdRef.current.delete(batchId);
+      clearBatchTimeout(batchId);
+      resolver(outcome);
+    },
+    [clearBatchTimeout],
+  );
+
+  // Quick 260823-8ji: arm the 30s "no terminal event" timer for a batch.
+  // Fires resolveOutcome(batchId, { ok:false, reason:"timeout" }) which
+  // also disarms itself via clearBatchTimeout (idempotent-safe).
+  const armBatchTimeout = useCallback(
+    (batchId: string) => {
+      // Belt-and-suspenders: if a prior timer for this id exists (shouldn't
+      // happen — startBatch/retryBatch always mint fresh ids or supersede
+      // via resolveOutcome first), clear it before arming a new one.
+      clearBatchTimeout(batchId);
+      const handle = setTimeout(() => {
+        resolveOutcome(batchId, { ok: false, reason: "timeout" });
+      }, BATCH_OUTCOME_TIMEOUT_MS);
+      batchTimeoutHandlesByBatchIdRef.current.set(batchId, handle);
+    },
+    [clearBatchTimeout, resolveOutcome],
+  );
 
   const wsRef = useRef<WebSocket | null>(deps.ws);
   useEffect(() => {
@@ -304,6 +408,18 @@ export function usePrettyViewUploads(
           break;
         }
         case "upload_failed": {
+          // Quick 260823-8ji: resolve the batch outcome BEFORE mutating chip
+          // state so any awaiter (ComposeBox attachment-path) sees the
+          // failure signal on the same microtask as the chip flip. Per-file
+          // upload_failed events (tempId present) still resolve the batch
+          // outcome: atomicity semantics mean a per-file failure short-
+          // circuits the whole batch (backend will not emit ready_to_inject),
+          // so from ComposeBox's perspective the batch failed regardless.
+          resolveOutcome(ourBatch, {
+            ok: false,
+            reason: "upload_failed",
+            message: `${event.reason}: ${event.message}`,
+          });
           setAttachments("primary", (prev) =>
             prev.map((a) => {
               if (event.tempId && a.tempId !== event.tempId) return a;
@@ -323,6 +439,12 @@ export function usePrettyViewUploads(
         case "upload_ready_to_inject": {
           if (readyFiredRef.current) return;
           readyFiredRef.current = true;
+          // Quick 260823-8ji: resolve the batch outcome with success BEFORE
+          // firing the caller-supplied onUploadReadyToInject callback.
+          // ComposeBox awaits this outcome before clearing the compose
+          // textarea + attachment chips; resolving first keeps the ordering
+          // "outcome → caller callback → compose clear" natural.
+          resolveOutcome(ourBatch, { ok: true });
           const caption = capturedCaptionRef.current;
           const cb = onReadyRef.current;
           setBatchInFlight(false);
@@ -337,7 +459,7 @@ export function usePrettyViewUploads(
         }
       }
     },
-    [setAttachments],
+    [setAttachments, resolveOutcome],
   );
 
   // -------------------------------------------------------------------------
@@ -430,7 +552,10 @@ export function usePrettyViewUploads(
   const startBatch = useCallback(
     async (
       caption: string,
-    ): Promise<{ messageQueueItemId: string } | null> => {
+    ): Promise<{
+      messageQueueItemId: string;
+      outcome: Promise<BatchOutcome>;
+    } | null> => {
       // Quick 260802-wxy: startBatch operates on the primary target for
       // Quick A. Quick B will parameterize target when queued slots produce
       // their own batches; leaving that migration explicit for now so this
@@ -450,6 +575,24 @@ export function usePrettyViewUploads(
       setBatchInFlight(true);
       setPendingSendWaitingForWs(false);
 
+      // Quick 260823-8ji: mint the outcome Promise + stash its resolver.
+      // If a prior resolver for THIS batchId somehow still exists (would
+      // only happen if two startBatch calls used the same id, which
+      // makeId() prevents — but defensive), supersede it first so no
+      // dangling awaiter lingers.
+      const priorResolver =
+        outcomeResolversByBatchIdRef.current.get(batchId);
+      if (priorResolver) {
+        outcomeResolversByBatchIdRef.current.delete(batchId);
+        clearBatchTimeout(batchId);
+        priorResolver({ ok: false, reason: "superseded" });
+      }
+      let outcomeResolver!: (o: BatchOutcome) => void;
+      const outcomePromise = new Promise<BatchOutcome>((res) => {
+        outcomeResolver = res;
+      });
+      outcomeResolversByBatchIdRef.current.set(batchId, outcomeResolver);
+
       const startPayload: UploadStartPayload = {
         type: "upload_start",
         messageQueueItemId: batchId,
@@ -464,32 +607,47 @@ export function usePrettyViewUploads(
       const ws = wsRef.current;
       if (!ws) {
         setPendingSendWaitingForWs(true);
-        return { messageQueueItemId: batchId };
+        // Quick 260823-8ji: WS is null → the send cannot fly at all. The
+        // hook still latches pendingSendWaitingForWs so onWsReconnect can
+        // pick this up when the WS returns, but the immediate outcome is
+        // a failure so ComposeBox can surface an inline "not connected"
+        // error and preserve compose state for retry.
+        resolveOutcome(batchId, { ok: false, reason: "ws_not_open" });
+        return { messageQueueItemId: batchId, outcome: outcomePromise };
       }
       try {
         ws.send(JSON.stringify(startPayload));
       } catch {
         setPendingSendWaitingForWs(true);
-        return { messageQueueItemId: batchId };
+        // Quick 260823-8ji: ws.send() threw → same posture as ws=null case.
+        resolveOutcome(batchId, { ok: false, reason: "ws_send_threw" });
+        return { messageQueueItemId: batchId, outcome: outcomePromise };
       }
 
+      // Quick 260823-8ji: WS accepted upload_start — arm the 30s "no
+      // terminal event" timer. Cleared by resolveOutcome on any terminal
+      // path (ready_to_inject | upload_failed | supersede | reset).
+      armBatchTimeout(batchId);
       // Kick the pump (fire and forget — the promise we return resolves
       // as soon as upload_start has been issued, not when uploads finish).
       void pumpBatch(batchId);
-      return { messageQueueItemId: batchId };
+      return { messageQueueItemId: batchId, outcome: outcomePromise };
     },
     // pumpBatch is defined inside the hook body below via useCallback but
     // we intentionally omit it from deps to avoid infinite re-creation
     // (its own closure reads refs, not state).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [armBatchTimeout, clearBatchTimeout, resolveOutcome],
   );
 
   // -------------------------------------------------------------------------
   // retryBatch — restart from the currently-staged attachments
   // -------------------------------------------------------------------------
   const retryBatch = useCallback(
-    async (): Promise<{ messageQueueItemId: string } | null> => {
+    async (): Promise<{
+      messageQueueItemId: string;
+      outcome: Promise<BatchOutcome>;
+    } | null> => {
       // Quick 260802-wxy: retryBatch operates on the primary target (Quick A).
       // Symmetric with startBatch — will be parameterized in Quick B.
       const currentAttachments =
@@ -523,6 +681,23 @@ export function usePrettyViewUploads(
       setBatchInFlight(true);
       setPendingSendWaitingForWs(false);
 
+      // Quick 260823-8ji: mint the outcome Promise for this retry. If we
+      // reused the id (reuseIdOnRetry=true) and a prior resolver is still
+      // pending, supersede it FIRST so the caller of the initial batch
+      // doesn't await forever. Fresh-id path never collides.
+      const priorResolver =
+        outcomeResolversByBatchIdRef.current.get(batchId);
+      if (priorResolver) {
+        outcomeResolversByBatchIdRef.current.delete(batchId);
+        clearBatchTimeout(batchId);
+        priorResolver({ ok: false, reason: "superseded" });
+      }
+      let outcomeResolver!: (o: BatchOutcome) => void;
+      const outcomePromise = new Promise<BatchOutcome>((res) => {
+        outcomeResolver = res;
+      });
+      outcomeResolversByBatchIdRef.current.set(batchId, outcomeResolver);
+
       const startPayload: UploadStartPayload = {
         type: "upload_start",
         messageQueueItemId: batchId,
@@ -537,19 +712,30 @@ export function usePrettyViewUploads(
       const ws = wsRef.current;
       if (!ws) {
         setPendingSendWaitingForWs(true);
-        return { messageQueueItemId: batchId };
+        // Quick 260823-8ji: mirror startBatch's ws-null posture.
+        resolveOutcome(batchId, { ok: false, reason: "ws_not_open" });
+        return { messageQueueItemId: batchId, outcome: outcomePromise };
       }
       try {
         ws.send(JSON.stringify(startPayload));
       } catch {
         setPendingSendWaitingForWs(true);
-        return { messageQueueItemId: batchId };
+        resolveOutcome(batchId, { ok: false, reason: "ws_send_threw" });
+        return { messageQueueItemId: batchId, outcome: outcomePromise };
       }
+      // Quick 260823-8ji: arm the 30s timer after a successful WS accept.
+      armBatchTimeout(batchId);
       void pumpBatch(batchId);
-      return { messageQueueItemId: batchId };
+      return { messageQueueItemId: batchId, outcome: outcomePromise };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reuseIdOnRetry, setAttachments],
+    [
+      reuseIdOnRetry,
+      setAttachments,
+      armBatchTimeout,
+      clearBatchTimeout,
+      resolveOutcome,
+    ],
   );
 
   // -------------------------------------------------------------------------
@@ -581,6 +767,13 @@ export function usePrettyViewUploads(
     // Quick 260802-wxy: resetBatch clears PRIMARY only. Other targets
     // (Quick B's per-slot producers) manage their own clear semantics
     // — the primary chunk pump has no authority over them.
+    // Quick 260823-8ji: if an outstanding batch has an unresolved outcome
+    // Promise, resolve it with `superseded` so any awaiter doesn't linger
+    // forever (dangling awaits leak resources + can never be surfaced).
+    const priorBatchId = batchIdRef.current;
+    if (priorBatchId) {
+      resolveOutcome(priorBatchId, { ok: false, reason: "superseded" });
+    }
     batchIdRef.current = null;
     capturedCaptionRef.current = "";
     readyFiredRef.current = false;
@@ -589,7 +782,7 @@ export function usePrettyViewUploads(
     setBatchInFlight(false);
     setPendingSendWaitingForWs(false);
     setAttachments("primary", []);
-  }, [setAttachments]);
+  }, [setAttachments, resolveOutcome]);
 
   // -------------------------------------------------------------------------
   // onWsReconnect — caller invokes when the WS transitions from down to up
