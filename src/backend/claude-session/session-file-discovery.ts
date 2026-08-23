@@ -1,5 +1,6 @@
 import type { Client } from "ssh2";
 import { execCommand, queryPanePid } from "../ssh/tmux-helper.js";
+import { shellSingleQuote } from "./discover-identity-session-file.js";
 
 const DISCOVERY_EXEC_TIMEOUT_MS = 3000;
 
@@ -239,6 +240,210 @@ export async function discoverClaudeSession(
         setTimeout(
           () =>
             reject(new Error(`jsonl-test timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
+          DISCOVERY_EXEC_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+    testOutput = raced.trim();
+  } catch {
+    return { status: "inactive", reason: "exec_error" };
+  }
+
+  if (testOutput === "") {
+    return { status: "inactive", reason: "no_open_session_file" };
+  }
+
+  return { status: "active", pid: claudePid, sessionFile: testOutput };
+}
+
+/**
+ * Single-exec variant of discoverClaudeSession — compresses the 4 serial
+ * SSH round-trips into 2 (main batched script + test-f existence check).
+ *
+ * This is the ADDITIVE cache-miss fallback introduced in Phase 55 Plan 03.
+ * discoverClaudeSession is NOT modified — this is a separate export.
+ *
+ * Round-trip budget:
+ *   Round-trip 1: One exec running all 4 discovery steps (tmux display-message
+ *     → descendant BFS walk → PID-file read → structured stdout emit). On any
+ *     early-exit branch (no_tmux_session / not_claude / no_pid_session_file),
+ *     the shell exits early and no second round-trip fires.
+ *   Round-trip 2: test-f existence check for the constructed JSONL path.
+ *     Kept as a separate exec so we never return { status: "active" } for a
+ *     JSONL that doesn't exist on disk (fresh session, file not yet created).
+ *
+ * Slug construction (cwd → dir slug) stays in JS, NOT in shell — same fragile-
+ * across-versions reasoning as the existing helper at L224.
+ *
+ * Failure taxonomy (same reason strings as discoverClaudeSession):
+ *   no_tmux_session     — tmux display-message returned empty / non-integer pane_pid
+ *   not_claude          — awk BFS walk found no descendant with comm=claude
+ *   no_pid_session_file — PID file missing, JSON invalid, or missing sessionId/cwd
+ *   no_open_session_file — constructed JSONL path does not exist on disk
+ *   exec_error          — SSH exec threw or 3s timeout expired at any step
+ *
+ * LOAD-BEARING: same JS `+` concatenation hazard as walkScript in discoverClaudeSession.
+ * JS `+` joins these strings on ONE shell line — every shell statement MUST be terminated
+ * with `;`. Do not remove any `;` below. See discoverClaudeSession walkScript comment
+ * at L93-99 for the full explanation.
+ */
+export async function discoverClaudeSessionBatched(
+  conn: Client,
+  sessionName: string,
+): Promise<ClaudeSessionDiscoveryResult> {
+  // ── Round-trip 1: Batched main script ────────────────────────────────────
+  //
+  // Step 1: capture pane_pid from tmux display-message.
+  // Step 2: BFS walk — same awk script as walkScript above, but PANE_PID is a
+  //         shell variable instead of a JS-substituted literal.
+  // Step 3: read $HOME/.claude/sessions/$CLAUDE_PID.json and emit $HOME.
+  // Step 4: emit structured stdout so JS can parse PID + HOME + SESSION_JSON.
+  //
+  // Output format on success:
+  //   Line 1: "OK"
+  //   Line 2: CLAUDE_PID (integer string)
+  //   Line 3: $HOME (absolute path)
+  //   Line 4: "---SESSION-JSON---"
+  //   Remaining: raw SESSION_JSON blob (no trailing newline from printf)
+  //
+  // Output on early-exit:
+  //   "NO_TMUX_SESSION" | "NOT_CLAUDE" | "NO_PID_SESSION_FILE"
+  //
+  // LOAD-BEARING: same JS-concat hazard as walkScript — every statement ends with `;`.
+  const mainScript =
+    `TMUX_SESSION=${shellSingleQuote(sessionName)}; ` +
+    `PANE_PID=$(tmux display-message -p -t "$TMUX_SESSION" '#{pane_pid}' 2>/dev/null); ` +
+    `if [ -z "$PANE_PID" ] || ! [ "$PANE_PID" -gt 0 ] 2>/dev/null; then ` +
+    `echo NO_TMUX_SESSION; exit 0; ` +
+    `fi; ` +
+    // Step 2: BFS descendant walk — verbatim awk from walkScript, but PANE_PID is a shell var.
+    // NB: `awk -v root="$PANE_PID"` passes the shell variable as the awk root.
+    `CLAUDE_PID=$(ps -eo pid=,ppid=,comm= 2>/dev/null | awk -v root="$PANE_PID" '` +
+    `BEGIN { valid[root] = 1 } ` +
+    `{ pid[NR] = $1; ppid[NR] = $2; comm[NR] = $3; n = NR } ` +
+    `END { ` +
+    `  changed = 1; ` +
+    `  while (changed) { ` +
+    `    changed = 0; ` +
+    `    for (i = 1; i <= n; i++) { ` +
+    `      if (!valid[pid[i]] && valid[ppid[i]]) { ` +
+    `        valid[pid[i]] = 1; ` +
+    `        changed = 1; ` +
+    `      } ` +
+    `    } ` +
+    `  } ` +
+    `  for (i = 1; i <= n; i++) { ` +
+    `    if (valid[pid[i]] && comm[i] == "claude") { ` +
+    `      print pid[i]; exit; ` +
+    `    } ` +
+    `  } ` +
+    `}'); ` +
+    `if [ -z "$CLAUDE_PID" ]; then echo NOT_CLAUDE; exit 0; fi; ` +
+    // Step 3: read PID file
+    `PID_FILE=$HOME/.claude/sessions/$CLAUDE_PID.json; ` +
+    `if [ ! -f "$PID_FILE" ]; then echo NO_PID_SESSION_FILE; exit 0; fi; ` +
+    `SESSION_JSON=$(cat "$PID_FILE"); ` +
+    `HOME_VAL="$HOME"; ` +
+    // Step 4: emit structured result
+    `echo OK; ` +
+    `echo "$CLAUDE_PID"; ` +
+    `echo "$HOME_VAL"; ` +
+    `echo "---SESSION-JSON---"; ` +
+    `printf '%s' "$SESSION_JSON"`;
+
+  let mainOutput: string;
+  try {
+    const raced = await Promise.race([
+      execCommand(conn, mainScript),
+      new Promise<string>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`batched-main timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
+          DISCOVERY_EXEC_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+    mainOutput = raced.trim();
+  } catch {
+    return { status: "inactive", reason: "exec_error" };
+  }
+
+  // Parse early-exit markers
+  if (mainOutput === "NO_TMUX_SESSION") {
+    return { status: "inactive", reason: "no_tmux_session" };
+  }
+  if (mainOutput === "NOT_CLAUDE") {
+    return { status: "inactive", reason: "not_claude" };
+  }
+  if (mainOutput === "NO_PID_SESSION_FILE") {
+    return { status: "inactive", reason: "no_pid_session_file" };
+  }
+
+  // Parse the OK payload. Format (after trim):
+  //   "OK\n<pid>\n<home>\n---SESSION-JSON---\n<raw-json>"
+  if (!mainOutput.startsWith("OK\n")) {
+    return { status: "inactive", reason: "exec_error" };
+  }
+
+  const lines = mainOutput.split("\n");
+  // lines[0] = "OK", lines[1] = CLAUDE_PID, lines[2] = HOME_VAL
+  // lines[3] = "---SESSION-JSON---", lines[4..] = SESSION_JSON blob
+  const claudePidStr = lines[1];
+  const homeVal = lines[2];
+  const delimiterIdx = lines.indexOf("---SESSION-JSON---");
+  if (delimiterIdx === -1 || !claudePidStr || !homeVal) {
+    return { status: "inactive", reason: "exec_error" };
+  }
+  const sessionJsonStr = lines.slice(delimiterIdx + 1).join("\n");
+
+  const claudePid = parseInt(claudePidStr, 10);
+  if (Number.isNaN(claudePid) || claudePid <= 0) {
+    return { status: "inactive", reason: "exec_error" };
+  }
+
+  // Parse SESSION_JSON — same failure taxonomy as discoverClaudeSession
+  let sessionId: string;
+  let cwd: string;
+  try {
+    const parsed: unknown = JSON.parse(sessionJsonStr);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as Record<string, unknown>).sessionId !== "string" ||
+      !(parsed as Record<string, unknown>).sessionId ||
+      typeof (parsed as Record<string, unknown>).cwd !== "string" ||
+      !(parsed as Record<string, unknown>).cwd
+    ) {
+      return { status: "inactive", reason: "no_pid_session_file" };
+    }
+    sessionId = (parsed as Record<string, string>).sessionId;
+    cwd = (parsed as Record<string, string>).cwd;
+  } catch {
+    return { status: "inactive", reason: "no_pid_session_file" };
+  }
+
+  // Slugify cwd: replace every `/`, `.`, and `~` with `-`.
+  // Matches Claude Code's own project-dir naming — it escapes `~` too, so any
+  // cwd containing a tilde diverges here if we don't (Stacy 2026-08-08 on T800).
+  const slug = cwd.replace(/[./~]/g, "-");
+  const constructedPath = `${homeVal}/.claude/projects/${slug}/${sessionId}.jsonl`;
+
+  // ── Round-trip 2: test-f existence check ─────────────────────────────────
+  //
+  // The batched script has NOT verified the JSONL exists on disk — we do that
+  // here to avoid returning { status: "active" } for a nonexistent file.
+  // LOAD-BEARING: same JS-concat hazard — see walk-script comment above.
+  const testScript =
+    `if [ -f "${constructedPath}" ]; then ` +
+    `printf '%s' "${constructedPath}"; ` +
+    `fi`;
+
+  let testOutput: string;
+  try {
+    const raced = await Promise.race([
+      execCommand(conn, testScript),
+      new Promise<string>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`batched-testf timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
           DISCOVERY_EXEC_TIMEOUT_MS,
         ),
       ),

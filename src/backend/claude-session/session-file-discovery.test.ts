@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { discoverClaudeSession } from "./session-file-discovery.js";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { discoverClaudeSession, discoverClaudeSessionBatched } from "./session-file-discovery.js";
 
 // Mock the tmux-helper module. queryPaneCurrentCommand is included in the factory
 // to satisfy the module contract even though the new code no longer calls it —
@@ -381,5 +381,186 @@ describe("discoverClaudeSession — PID-file-based lookup", () => {
 
     expect(result).toEqual({ status: "inactive", reason: "no_tmux_session" });
     expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 55 Plan 03 — Task 1: discoverClaudeSessionBatched tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper to build mock execCommand dispatcher for the batched helper.
+// The batched helper calls execCommand TWICE:
+//   1. Main batched script — identified by containing BOTH "tmux display-message"
+//      AND "awk -v root=" AND "---SESSION-JSON---"
+//   2. Test-f script — identified by containing `'if [ -f "' and not the batched markers
+//
+// On each call, the mock returns the value for the call index.
+function mockBatchedExecCommand(mainOutput: string | (() => Promise<string>), testFOutput: string) {
+  vi.mocked(execCommand).mockImplementation(
+    (_conn: import("ssh2").Client, script: string): Promise<string> => {
+      const isMainScript =
+        script.includes("tmux display-message") &&
+        script.includes("awk -v root=") &&
+        script.includes("---SESSION-JSON---");
+      const isTestFScript = script.includes('if [ -f "') && !isMainScript;
+
+      if (isMainScript) {
+        if (typeof mainOutput === "function") return mainOutput();
+        return Promise.resolve(mainOutput);
+      }
+      if (isTestFScript) {
+        return Promise.resolve(testFOutput);
+      }
+      return Promise.resolve("");
+    },
+  );
+}
+
+describe("discoverClaudeSessionBatched — single-exec discovery", () => {
+  beforeEach(() => {
+    vi.mocked(execCommand).mockReset();
+    vi.useRealTimers();
+  });
+
+  // Test batched-1: happy path — full 4-step success in one exec
+  it("batched-1: happy path — full 4-step success in one exec", async () => {
+    mockBatchedExecCommand(
+      "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{\"sessionId\":\"abc123\",\"cwd\":\"/home/ubuntu/project\"}",
+      "/home/ubuntu/.claude/projects/-home-ubuntu-project/abc123.jsonl",
+    );
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({
+      status: "active",
+      pid: 12345,
+      sessionFile: "/home/ubuntu/.claude/projects/-home-ubuntu-project/abc123.jsonl",
+    });
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(2);
+  });
+
+  // Test batched-2: no pane_pid → no_tmux_session
+  it("batched-2: no pane_pid → no_tmux_session (exec called once)", async () => {
+    mockBatchedExecCommand("NO_TMUX_SESSION", "");
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "no_tmux_session" });
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+  });
+
+  // Test batched-3: pane_pid found but no claude in tree → not_claude
+  it("batched-3: pane_pid found but no claude in tree → not_claude (exec called once)", async () => {
+    mockBatchedExecCommand("NOT_CLAUDE", "");
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "not_claude" });
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+  });
+
+  // Test batched-4: claude found but PID file missing → no_pid_session_file
+  it("batched-4: claude found but PID file missing → no_pid_session_file (exec called once)", async () => {
+    mockBatchedExecCommand("NO_PID_SESSION_FILE", "");
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+  });
+
+  // Test batched-5: PID JSON malformed → no_pid_session_file
+  it("batched-5: PID JSON malformed → no_pid_session_file (exec called once)", async () => {
+    mockBatchedExecCommand(
+      "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{not json",
+      "",
+    );
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+  });
+
+  // Test batched-6: PID JSON missing sessionId → no_pid_session_file
+  it("batched-6: PID JSON missing sessionId → no_pid_session_file", async () => {
+    mockBatchedExecCommand(
+      "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{\"cwd\":\"/x\"}",
+      "",
+    );
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
+  });
+
+  // Test batched-7: JSONL not on disk → no_open_session_file (exec called twice)
+  it("batched-7: JSONL not on disk → no_open_session_file (exec called twice)", async () => {
+    mockBatchedExecCommand(
+      "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{\"sessionId\":\"abc123\",\"cwd\":\"/home/ubuntu/project\"}",
+      "",
+    );
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "no_open_session_file" });
+    expect(vi.mocked(execCommand).mock.calls.length).toBe(2);
+  });
+
+  // Test batched-8: main exec throws → exec_error
+  it("batched-8: main exec throws → exec_error", async () => {
+    vi.mocked(execCommand).mockRejectedValue(new Error("ssh gone"));
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
+  });
+
+  // Test batched-9: test-f exec throws → exec_error
+  it("batched-9: test-f exec throws → exec_error", async () => {
+    let callCount = 0;
+    vi.mocked(execCommand).mockImplementation(
+      (_conn: import("ssh2").Client, script: string): Promise<string> => {
+        callCount++;
+        const isMainScript =
+          script.includes("tmux display-message") &&
+          script.includes("awk -v root=") &&
+          script.includes("---SESSION-JSON---");
+        if (isMainScript) {
+          return Promise.resolve(
+            "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{\"sessionId\":\"abc123\",\"cwd\":\"/home/ubuntu/project\"}",
+          );
+        }
+        // test-f script rejects
+        return Promise.reject(new Error("ssh exec failed on test-f"));
+      },
+    );
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
+
+    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
+  });
+
+  // Test batched-10: main exec times out (>3s) → exec_error
+  it("batched-10: main exec times out (>3s) → exec_error", async () => {
+    vi.useFakeTimers();
+    vi.mocked(execCommand).mockImplementation(
+      (_conn: import("ssh2").Client, script: string): Promise<string> => {
+        const isMainScript =
+          script.includes("tmux display-message") &&
+          script.includes("awk -v root=") &&
+          script.includes("---SESSION-JSON---");
+        if (isMainScript) {
+          return new Promise(() => {}); // never resolves
+        }
+        return Promise.resolve("");
+      },
+    );
+
+    const resultPromise = discoverClaudeSessionBatched(fakeConn, "test-session");
+    await vi.advanceTimersByTimeAsync(3001);
+
+    const result = await resultPromise;
+    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
   });
 });
