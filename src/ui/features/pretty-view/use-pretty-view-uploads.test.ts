@@ -870,3 +870,194 @@ describe("target-aware API (Quick 260802-wxy)", () => {
     expect(result.current.getStagedAttachments("queued:slot-a")).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick 260823-8ji: per-batch outcome Promise + 30s timeout.
+//
+// startBatch / retryBatch return `{ messageQueueItemId, outcome: Promise<BatchOutcome> }`.
+// BatchOutcome = { ok: true } | { ok: false, reason, message? }.
+// Reason enum: "upload_failed" | "timeout" | "ws_not_open" | "ws_send_threw" | "superseded".
+//
+// upload_ready_to_inject   → resolves { ok: true }
+// upload_failed            → resolves { ok: false, reason: "upload_failed", message: `${reason}: ${message}` }
+// 30s with no terminal evt → resolves { ok: false, reason: "timeout" }
+// startBatch(ws=null)      → resolves { ok: false, reason: "ws_not_open" }  AND pendingSendWaitingForWs=true
+// ws.send throws           → resolves { ok: false, reason: "ws_send_threw" } AND pendingSendWaitingForWs=true
+// resetBatch / retry-with-reused-id supersedes → old outcome resolves { ok:false, reason: "superseded" }
+//
+// Motivation: ComposeBox attachment-path (see 260823-8ji quick) awaits this
+// Promise to decide whether to clear the compose textarea + attachment chips
+// or preserve them + surface an inline error. Previously the attachment path
+// was fire-and-forget → silent failure on WS drop / timeout / upload_failed.
+// ---------------------------------------------------------------------------
+
+describe("usePrettyViewUploads: batch outcome Promise (quick-260823-8ji)", () => {
+  let ws: MockWS;
+  let onReady: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    ws = new MockWS();
+    onReady = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Outcome-1: upload_ready_to_inject resolves outcome to { ok: true }", async () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f = makeMockFile("x.bin", 10);
+    act(() => {
+      result.current.stageAttachments("primary", [f]);
+    });
+    const tempId = result.current.stagedAttachments[0].tempId;
+
+    let ret: { messageQueueItemId: string; outcome: Promise<unknown> } | null =
+      null;
+    await act(async () => {
+      ret = (await result.current.startBatch("cap")) as typeof ret;
+    });
+    expect(ret).not.toBeNull();
+    expect(typeof ret!.outcome.then).toBe("function");
+
+    act(() => {
+      ws.emit({
+        type: "upload_ready_to_inject",
+        messageQueueItemId: ret!.messageQueueItemId,
+        files: [
+          {
+            tempId,
+            filename: "x.bin",
+            size: 10,
+            mimetype: "text/plain",
+            landingPath: "/tmp/x.bin",
+            uploadTimestamp: "2026-08-23T12:00:00",
+          },
+        ],
+      });
+    });
+
+    const outcome = await ret!.outcome;
+    expect(outcome).toEqual({ ok: true });
+  });
+
+  it("Outcome-2: upload_failed resolves outcome to { ok: false, reason: 'upload_failed', message }", async () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f = makeMockFile("x.bin", 10);
+    act(() => {
+      result.current.stageAttachments("primary", [f]);
+    });
+
+    let ret: { messageQueueItemId: string; outcome: Promise<unknown> } | null =
+      null;
+    await act(async () => {
+      ret = (await result.current.startBatch("cap")) as typeof ret;
+    });
+
+    act(() => {
+      ws.emit({
+        type: "upload_failed",
+        messageQueueItemId: ret!.messageQueueItemId,
+        reason: "sftp_error",
+        message: "connection lost",
+      });
+    });
+
+    const outcome = await ret!.outcome;
+    expect(outcome).toEqual({
+      ok: false,
+      reason: "upload_failed",
+      message: "sftp_error: connection lost",
+    });
+  });
+
+  it("Outcome-3: no terminal event within 30s → outcome resolves { ok: false, reason: 'timeout' }", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f = makeMockFile("x.bin", 10);
+    act(() => {
+      result.current.stageAttachments("primary", [f]);
+    });
+
+    let ret: { messageQueueItemId: string; outcome: Promise<unknown> } | null =
+      null;
+    await act(async () => {
+      ret = (await result.current.startBatch("cap")) as typeof ret;
+    });
+
+    // Advance 30 seconds — the per-batch outcome timer fires.
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    const outcome = await ret!.outcome;
+    expect(outcome).toEqual({ ok: false, reason: "timeout" });
+    vi.useRealTimers();
+  });
+
+  it("Outcome-4: startBatch with ws=null resolves outcome to { ok: false, reason: 'ws_not_open' } AND latches pendingSendWaitingForWs", async () => {
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: null,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f = makeMockFile("x.bin", 10);
+    act(() => {
+      result.current.stageAttachments("primary", [f]);
+    });
+
+    let ret: { messageQueueItemId: string; outcome: Promise<unknown> } | null =
+      null;
+    await act(async () => {
+      ret = (await result.current.startBatch("cap")) as typeof ret;
+    });
+    expect(ret).not.toBeNull();
+
+    const outcome = await ret!.outcome;
+    expect(outcome).toEqual({ ok: false, reason: "ws_not_open" });
+    // Regression control: the retry-on-reconnect state still latches so
+    // onWsReconnect can pick up the pending send when the WS returns.
+    expect(result.current.pendingSendWaitingForWs).toBe(true);
+  });
+
+  it("Outcome-5: ws.send throwing resolves outcome to { ok: false, reason: 'ws_send_threw' } AND latches pendingSendWaitingForWs", async () => {
+    ws.shouldThrowOnSend = true;
+    const { result } = renderHook(() =>
+      usePrettyViewUploads({
+        ws: ws as unknown as WebSocket,
+        onUploadReadyToInject: onReady,
+      }),
+    );
+    const f = makeMockFile("x.bin", 10);
+    act(() => {
+      result.current.stageAttachments("primary", [f]);
+    });
+
+    let ret: { messageQueueItemId: string; outcome: Promise<unknown> } | null =
+      null;
+    await act(async () => {
+      ret = (await result.current.startBatch("cap")) as typeof ret;
+    });
+    expect(ret).not.toBeNull();
+
+    const outcome = await ret!.outcome;
+    expect(outcome).toEqual({ ok: false, reason: "ws_send_threw" });
+    expect(result.current.pendingSendWaitingForWs).toBe(true);
+  });
+});
