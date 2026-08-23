@@ -494,13 +494,14 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("---\nrole: chef\n---\n# Tiffany\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
-        // tail -n 200 for tanya's JSONL — assistant message at ts=5000
+        // Ashley 2026-08-23 lock: tanya's tail has only an assistant message —
+        // excluded by isAshleyRealUserTurn; lastMessageAt is null.
         return Promise.resolve(
           jsonlMessageLine(5000, "assistant", "hi tanya") + "\n",
         );
       }
       if (cmd.includes(TIFFANY_JSONL)) {
-        // tail -n 200 for tiffany's JSONL — user message at ts=7000
+        // User message at ts=7000 — KEEP (plain prose, type=user).
         return Promise.resolve(
           jsonlMessageLine(7000, "user", "hey tiffany") + "\n",
         );
@@ -519,9 +520,12 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     }>;
     expect(rows).toHaveLength(2);
 
+    // Ashley 2026-08-23 lock: tanya's tail has only an assistant message
+    // (excluded); lastMessageAt is null.
     const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.lastMessageAt).toBe(5000);
+    expect(tanya?.lastMessageAt).toBeNull();
 
+    // Tiffany's user turn at ts=7000 is KEEP — still counts.
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
     expect(tiffany?.lastMessageAt).toBe(7000);
 
@@ -553,6 +557,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("---\nrole: chef\n---\n# X\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
+        // Ashley 2026-08-23 lock: assistant-only tail → null (excluded).
         return Promise.resolve(
           jsonlMessageLine(9000, "assistant", "found me") + "\n",
         );
@@ -571,8 +576,10 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     }>;
     expect(rows).toHaveLength(2);
 
+    // Ashley 2026-08-23 lock: tanya's tail has only an assistant message;
+    // isAshleyRealUserTurn excludes it → lastMessageAt:null.
     const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.lastMessageAt).toBe(9000);
+    expect(tanya?.lastMessageAt).toBeNull();
 
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
     expect(tiffany?.lastMessageAt).toBeNull();
@@ -604,6 +611,8 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("---\nrole: chef\n---\n# X\n");
       }
       if (cmd.includes(TIFFANY_JSONL)) {
+        // Ashley 2026-08-23 lock: tiffany's tail has only an assistant message
+        // ("sibling ok") — excluded by isAshleyRealUserTurn → lastMessageAt:null.
         return Promise.resolve(
           jsonlMessageLine(4200, "assistant", "sibling ok") + "\n",
         );
@@ -627,8 +636,10 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     const tanya = rows.find((r) => r.sessionName === "tanya");
     expect(tanya?.lastMessageAt).toBeNull(); // hung → timed out → null
 
+    // Ashley 2026-08-23 lock: tiffany's assistant message is excluded;
+    // sibling isolation still holds but lastMessageAt is now null too.
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
-    expect(tiffany?.lastMessageAt).toBe(4200); // sibling unaffected
+    expect(tiffany?.lastMessageAt).toBeNull();
 
     // Phase 47 Plan 02 — timeout on discovery cascades to aiTitle:null (same
     // catch block); sibling tail carries no ai-title lines so tiffany is null too.
@@ -682,7 +693,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     expect(tanya?.aiTitle).toBeNull();
   });
 
-  it("Test 5 (message-bearing filter): user + tool_use + assistant + bg-task → lastMessageAt = newest MESSAGE ts (tool_use + bg-task excluded)", async () => {
+  it("Test 5 (message-bearing filter): user + tool_use + assistant + bg-task → lastMessageAt = USER MSG ts (assistant excluded by Ashley 2026-08-23 lock)", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };
     (connectOneShot as Mock).mockResolvedValue(fakeConn);
 
@@ -699,9 +710,11 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("---\nrole: chef\n---\n# X\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
-        // user_ts=1000, tool_use_ts=1500, assistant_ts=2000, bg_task_ts=2500
-        // Expected: lastMessageAt=2000 (newest MESSAGE_BEARING_KINDS ts —
-        // tool_use and background_task are kind:"skip" and excluded).
+        // user_ts=1000, tool_use_ts=1500, assistant_ts=2000, bg_task_ts=2500.
+        // Ashley 2026-08-23 lock: only the user turn at ts=1000 qualifies —
+        // isAshleyRealUserTurn drops the assistant turn (ts=2000), tool_use
+        // (kind:"skip" from parseSessionLine → dropped by predicate), and
+        // background_task (type not "user" → dropped).
         const jsonl =
           jsonlMessageLine(1000, "user", "hi") +
           "\n" +
@@ -727,8 +740,10 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     }>;
     expect(rows).toHaveLength(1);
 
+    // Ashley 2026-08-23 lock: only the user turn at ts=1000 counts.
+    // The assistant turn (ts=2000), tool_use (1500), and bg-task (2500) excluded.
     const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.lastMessageAt).toBe(2000);
+    expect(tanya?.lastMessageAt).toBe(1000);
     // Phase 47 Plan 02 — mixed tail with no ai-title lines → aiTitle:null.
     expect(tanya?.aiTitle).toBeNull();
   });

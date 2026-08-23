@@ -1115,15 +1115,20 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
   }
 
   // ---------------------------------------------------------------------------
-  // Test D — message-bearing filter locks the "either direction, only messages"
-  //           contract. tool_use and background-task frames must NOT contribute.
+  // Test D — message-bearing filter locks the Ashley 2026-08-23 msg-only-recency
+  //           contract. Only Ashley's real user turns count; assistant turns,
+  //           tool_use, and background-task frames must NOT contribute.
+  //           Ashley 2026-08-23 lock: INVERTS the 2026-08-14 "either direction"
+  //           lock — only Ashley's outbound user turns advance lastMessageAt.
   // ---------------------------------------------------------------------------
 
-  it("Test D: message-bearing filter — user msg + tool_use + assistant msg + bg-task → lastMessageAt = newest ASSISTANT MSG (tool_use and bg-task ignored)", async () => {
+  it("Test D: message-bearing filter — user msg + tool_use + assistant msg + bg-task → lastMessageAt = user MSG (assistant turn does NOT count — Ashley 2026-08-23 lock)", async () => {
     const channel = new MockSshChannel();
     // Fixture: user message at ts=1000, tool_use at ts=1500, assistant
-    // message at ts=2000, background-task start at ts=2500. Expected
-    // lastMessageAt = 2000 (the newest MESSAGE-bearing frame).
+    // message at ts=2000, background-task start at ts=2500.
+    // Ashley 2026-08-23 lock: only the USER message at ts=1000 counts;
+    // the assistant turn (ts=2000), tool_use (1500), and bg-task (2500)
+    // are all excluded by isAshleyRealUserTurn.
     const jsonl =
       jsonlMessageLine(1000, "user", "hello") +
       "\n" +
@@ -1149,9 +1154,9 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
     const published = deps.registry.publishedStates[0];
-    // Newest MESSAGE-BEARING frame is the assistant turn at ts=2000. tool_use
-    // (1500) and background-task (2500) do NOT touch the signal.
-    expect(published.state.lastMessageAt).toBe(2000);
+    // Ashley 2026-08-23 lock: only the user turn at ts=1000 qualifies.
+    // Assistant turn (2000), tool_use (1500), and bg-task (2500) excluded.
+    expect(published.state.lastMessageAt).toBe(1000);
   });
 
   // ---------------------------------------------------------------------------
@@ -1649,10 +1654,12 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
 
   it("Test H: rediscovery on stale-tail threshold — session HAD a signal, 7 ticks yields exactly 2 discovery calls", async () => {
     const channel = new MockSshChannel();
-    // Same tail contents every tick — carries a real message-bearing frame
+    // Same tail contents every tick — carries an Ashley-real user turn
     // (lastMessageAt=1000 stays sticky, never advances) so the stale
     // branch (HAD a signal, tail failed to advance) ticks the counter.
-    const jsonl = jsonlMessageLine(1000, "assistant", "one and done") + "\n";
+    // Ashley 2026-08-23 lock: must be a user turn (plain prose) for it to
+    // count; assistant turns no longer seed the lastMessageAt signal.
+    const jsonl = jsonlMessageLine(1000, "user", "one and done") + "\n";
     wireBaseResponses(channel, jsonl);
 
     const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
@@ -2048,8 +2055,9 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
     const published = deps.registry.publishedStates[0];
     expect(published.state.aiTitle).toBeNull();
-    // Corroborate: lastMessageAt still derived correctly from the same tail.
-    expect(published.state.lastMessageAt).toBe(2000);
+    // Corroborate: lastMessageAt — Ashley 2026-08-23 lock: only the user turn
+    // at ts=1000 counts; the assistant turn at ts=2000 is excluded.
+    expect(published.state.lastMessageAt).toBe(1000);
   });
 
   // ---------------------------------------------------------------------------
@@ -2134,8 +2142,9 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     // Tick 2 tail — SAME message ts (1000), SAME session, ONLY aiTitle
     // changes (topic drift A → B). status/backgroundTasks/updatedAt all
     // unchanged (SessionJson unchanged); lastMessageAt unchanged (still
-    // 1000). ONLY aiTitle differs. Fingerprint MUST see this and fire a
-    // new publish.
+    // null — Ashley 2026-08-23 lock: fixture has only an assistant turn
+    // which no longer counts). ONLY aiTitle differs. Fingerprint MUST
+    // see this and fire a new publish.
     const tick2Jsonl =
       jsonlMessageLine(1000, "assistant", "hi") +
       "\n" +
@@ -2156,10 +2165,11 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     expect(
       deps.registry.publishedStates[publishesAfterTick2 - 1].state.aiTitle,
     ).toBe("Topic B (drifted)");
-    // lastMessageAt confirms nothing else changed on this axis.
+    // Ashley 2026-08-23 lock: fixture has only assistant turns (excluded);
+    // lastMessageAt is null on both ticks — confirms nothing changed on that axis.
     expect(
       deps.registry.publishedStates[publishesAfterTick2 - 1].state.lastMessageAt,
-    ).toBe(1000);
+    ).toBeNull();
   });
 
   // ---------------------------------------------------------------------------
