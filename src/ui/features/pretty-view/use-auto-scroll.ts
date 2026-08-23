@@ -102,10 +102,16 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
       const pinned = dist <= BOTTOM_EPSILON;
       pinnedRef.current = pinned;
       setIsPinnedToBottom(pinned);
+      // pv-scroll-diag (2026-08-23): log every scroll event so we can
+      // reconstruct the geometry timeline around a "jump up" complaint.
+      // Volume is bounded by user input; flows to console-forward.log.
+      console.info(
+        `[pv-scroll-diag] scroll top=${scrollEl.scrollTop} height=${scrollEl.scrollHeight} client=${scrollEl.clientHeight} dist=${dist} pinned=${pinned} paneKey=${paneKey}`,
+      );
     };
     scrollEl.addEventListener("scroll", onScroll, { passive: true });
     return () => scrollEl.removeEventListener("scroll", onScroll);
-  }, [scrollEl]);
+  }, [scrollEl, paneKey]);
 
   // Follow-when-pinned on messageCount growth. Fires on every messages[]
   // increment. The no-yank-when-scrolled-up guarantee is the
@@ -118,14 +124,27 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
   useEffect(() => {
     if (!scrollEl) return;
     const isFirstContentArrival = !didFirstContentScrollRef.current && messageCount > 0;
-    if (!pinnedRef.current && !isFirstContentArrival) return;
+    if (!pinnedRef.current && !isFirstContentArrival) {
+      // pv-scroll-diag (2026-08-23): log skip-write path so we can see
+      // whether the browser's overflow-anchor preserved position when we
+      // deliberately did not write.
+      console.info(
+        `[pv-scroll-diag] follow-skip messageCount=${messageCount} top=${scrollEl.scrollTop} height=${scrollEl.scrollHeight} pinned=false paneKey=${paneKey}`,
+      );
+      return;
+    }
+    const beforeTop = scrollEl.scrollTop;
+    const beforeHeight = scrollEl.scrollHeight;
     scrollEl.scrollTop = scrollEl.scrollHeight;
+    console.info(
+      `[pv-scroll-diag] follow-write messageCount=${messageCount} beforeTop=${beforeTop} beforeHeight=${beforeHeight} afterTop=${scrollEl.scrollTop} afterHeight=${scrollEl.scrollHeight} isFirst=${isFirstContentArrival} paneKey=${paneKey}`,
+    );
     if (isFirstContentArrival) {
       didFirstContentScrollRef.current = true;
       pinnedRef.current = true;
       setIsPinnedToBottom(true);
     }
-  }, [scrollEl, messageCount]);
+  }, [scrollEl, messageCount, paneKey]);
 
   // Accessory + content-growth observer. Complements the messageCount effect
   // by re-anchoring when scrollHeight changes for reasons OTHER than a new
@@ -152,16 +171,47 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
     }
 
     let raf = 0;
-    const scheduleCheck = (): void => {
+    // pv-scroll-diag (2026-08-23): capture the batch of mutations so we
+    // can log added/removed counts alongside geometry in the rAF callback.
+    let batchedMutations: MutationRecord[] = [];
+    const scheduleCheck = (mutations?: MutationRecord[]): void => {
+      if (mutations) batchedMutations.push(...mutations);
       if (raf !== 0) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
+        // pv-scroll-diag: summarise batched mutations before geometry log.
+        let added = 0;
+        let removed = 0;
+        for (const m of batchedMutations) {
+          for (const n of Array.from(m.addedNodes)) {
+            if (n.nodeType === 1) added += 1;
+          }
+          for (const n of Array.from(m.removedNodes)) {
+            if (n.nodeType === 1) removed += 1;
+          }
+        }
+        batchedMutations = [];
         // First-content-arrival bypass (§4): the very first observed child
         // mount per pane anchors to bottom even under spurious pinned=false.
         const isFirstContentArrival =
           !didFirstContentScrollRef.current && scrollEl.children.length > 0;
-        if (!pinnedRef.current && !isFirstContentArrival) return;
+        const willWrite = pinnedRef.current || isFirstContentArrival;
+        const beforeTop = scrollEl.scrollTop;
+        const beforeHeight = scrollEl.scrollHeight;
+        if (!willWrite) {
+          // pv-scroll-diag: skip-write path — browser overflow-anchor should
+          // handle. If Ashley sees a "jump up" and this log shows top
+          // moving between successive skip-writes without a user scroll in
+          // between, the browser's anchor is being defeated somewhere.
+          console.info(
+            `[pv-scroll-diag] mutation-skip added=${added} removed=${removed} top=${beforeTop} height=${beforeHeight} client=${scrollEl.clientHeight} pinned=false children=${scrollEl.children.length} paneKey=${paneKey}`,
+          );
+          return;
+        }
         scrollEl.scrollTop = scrollEl.scrollHeight;
+        console.info(
+          `[pv-scroll-diag] mutation-write added=${added} removed=${removed} beforeTop=${beforeTop} beforeHeight=${beforeHeight} afterTop=${scrollEl.scrollTop} afterHeight=${scrollEl.scrollHeight} isFirst=${isFirstContentArrival} children=${scrollEl.children.length} paneKey=${paneKey}`,
+        );
         if (isFirstContentArrival) {
           didFirstContentScrollRef.current = true;
           pinnedRef.current = true;
@@ -170,7 +220,7 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
       });
     };
 
-    const ro = new ResizeObserver(scheduleCheck);
+    const ro = new ResizeObserver(() => scheduleCheck());
     for (const child of Array.from(scrollEl.children)) {
       if (child instanceof HTMLElement) ro.observe(child);
     }
@@ -184,7 +234,9 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
           if (node instanceof HTMLElement) ro.unobserve(node);
         }
       }
-      scheduleCheck();
+      // pv-scroll-diag (2026-08-23): thread the mutation batch through so
+      // the rAF callback can log added/removed counts alongside geometry.
+      scheduleCheck(mutations);
     });
     mo.observe(scrollEl, { childList: true });
 
@@ -193,7 +245,7 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
       ro.disconnect();
       if (raf !== 0) cancelAnimationFrame(raf);
     };
-  }, [scrollEl]);
+  }, [scrollEl, paneKey]);
 
   // Explicit action — jump-to-bottom pill + compose-send caller. Forces
   // pinned state on and jumps regardless of prior scroll position.
