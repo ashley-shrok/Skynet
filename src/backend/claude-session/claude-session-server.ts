@@ -7,7 +7,8 @@ import { UserCrypto } from "../utils/user-crypto.js";
 import { sshLogger, databaseLogger } from "../utils/logger.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
-import { discoverClaudeSession } from "./session-file-discovery.js";
+import { discoverClaudeSession, discoverClaudeSessionBatched } from "./session-file-discovery.js";
+import { readSessionFileCache } from "../fleet-status/session-file-cache.js";
 import { discoverIdentitySessionFile } from "./discover-identity-session-file.js";
 import { parseSessionLine, detectIdReset } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
@@ -6773,7 +6774,57 @@ wss.on("connection", async (ws: WebSocket, req) => {
     tailHandle = tailSessionFile(sshConn!, sessionFile, onLine, onError);
     }; // end of startActiveSessionFlow
 
-    const result = await discoverClaudeSession(conn, tmuxSession);
+    // Phase 55 Plan 03: cache-hit / batched-fresh shim.
+    //
+    // sshConn is already established above (connectOneShot at ~L5962) — the
+    // SSH connection is needed for startActiveSessionFlow (readSessionFileRange
+    // probe + tail) regardless of which discovery path fires. RESEARCH § Pitfall 5.
+    //
+    // Cache-hit path: readSessionFileCache returns a non-null entry → call
+    //   startActiveSessionFlow directly with cached { pid, sessionFile } and
+    //   return. The aside subsystem (fan-out registration, connect-time probe,
+    //   extraction poller, harness-tasks poller, discovery-repoll timer, tail
+    //   start) is ALL inside startActiveSessionFlow (verified: L7192-7198 in
+    //   the comment block that precedes startActiveSessionFlow's call site
+    //   below). The `return;` here skips only the inactive-branch handling and
+    //   the redundant L7199 startActiveSessionFlow call — NOT the aside block.
+    //
+    // Cache-miss path: discoverClaudeSessionBatched fires (2 round-trips vs 4
+    //   serial today). Falls through to existing inactive/active branches below.
+    //
+    // Dormant-poll seam at ~L6879 (`discoverSession: (c,s) => discoverClaudeSession(...)`)
+    //   is intentionally NOT changed — dormant polling has different concurrency
+    //   semantics (ticker under dormantPollInFlight guard, 3s cadence). Batched
+    //   is used ONLY on cold attach (this shim).
+    const discoveryT0 = Date.now();
+    const cached = readSessionFileCache(hostId, tmuxSession);
+    if (cached !== null) {
+      sshLogger.info("Claude session discovery path", {
+        operation: "claude_session_discovery_path",
+        userId,
+        sessionId,
+        hostId,
+        tmuxSession,
+        path: "shared-hit",
+        durationMs: Date.now() - discoveryT0,
+      });
+      startActiveSessionFlow({ pid: cached.pid, sessionFile: cached.sessionFile, tmuxSession, hostId });
+      return;
+    }
+
+    // Cache miss — batched fresh discovery (2 round-trips instead of 4 serial)
+    const result = await discoverClaudeSessionBatched(conn, tmuxSession);
+    sshLogger.info("Claude session discovery path", {
+      operation: "claude_session_discovery_path",
+      userId,
+      sessionId,
+      hostId,
+      tmuxSession,
+      path: "batched-fresh",
+      durationMs: Date.now() - discoveryT0,
+    });
+    // Preserve the pre-existing discovery-outcome log (RESEARCH § "Note" —
+    // the path log is ADDITIONAL to this one, not a replacement).
     sshLogger.info("Claude session discovery result", {
       operation: "claude_session_discovery",
       userId,

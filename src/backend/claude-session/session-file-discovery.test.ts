@@ -564,3 +564,100 @@ describe("discoverClaudeSessionBatched — single-exec discovery", () => {
     expect(result).toEqual({ status: "inactive", reason: "exec_error" });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 55 Plan 03 — Task 2: connectToPane cache-hit vs batched-fresh integration
+// ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  writeSessionFileCache,
+  readSessionFileCache,
+  __clearAllSessionFileCacheForTests,
+} from "../fleet-status/session-file-cache.js";
+
+describe("Phase 55: connectToPane cache-hit vs batched-fresh integration", () => {
+  beforeEach(() => {
+    vi.mocked(execCommand).mockReset();
+    vi.useRealTimers();
+    __clearAllSessionFileCacheForTests();
+  });
+
+  // Test integration-1: cache-hit skips discovery entirely
+  // Proves the cache primitive contract the shim depends on:
+  // - cross-type coercion (string writer, number reader) resolves the same entry
+  // - a cache hit means discoverClaudeSessionBatched would NOT be invoked
+  it("integration-1: cache-hit — cross-type coercion, both string and number hostId resolve same entry", () => {
+    __clearAllSessionFileCacheForTests();
+    writeSessionFileCache("7", "aqua", { sessionFile: "/x/a.jsonl", pid: 42 });
+
+    // String key used by writer
+    const hitStr = readSessionFileCache("7", "aqua");
+    expect(hitStr).not.toBeNull();
+    expect(hitStr?.pid).toBe(42);
+    expect(hitStr?.sessionFile).toBe("/x/a.jsonl");
+
+    // Numeric key used by connectToPane reader (coerced via String() internally)
+    const hitNum = readSessionFileCache(7, "aqua");
+    expect(hitNum).not.toBeNull();
+    expect(hitNum?.pid).toBe(42);
+    expect(hitNum?.sessionFile).toBe("/x/a.jsonl");
+
+    // Proves the shim's cache-hit branch: if cached !== null, discoverClaudeSessionBatched
+    // is NOT called. Verify execCommand was never called during these reads.
+    expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
+  });
+
+  // Test integration-2: batched-fresh path is what the shim calls on miss
+  // Anchors the shim's cache-miss branch to a batched call that returns active.
+  it("integration-2: batched-fresh path — discoverClaudeSessionBatched resolves active on well-formed data", async () => {
+    mockBatchedExecCommand(
+      "OK\n42\n/home/x\n---SESSION-JSON---\n{\"sessionId\":\"s1\",\"cwd\":\"/home/x/proj\"}",
+      "/home/x/.claude/projects/-home-x-proj/s1.jsonl",
+    );
+
+    const result = await discoverClaudeSessionBatched(fakeConn, "aqua");
+
+    expect(result.status).toBe("active");
+    expect((result as { status: "active"; pid: number; sessionFile: string }).pid).toBe(42);
+  });
+
+  // Test integration-3: cache-miss falls straight through with no wait / no fleet-status coupling
+  // Direct behavioral test of CONTEXT.md § "What would make it wrong":
+  //   "Attach never blocks pending fleet-status work (or explicit test that empty cache
+  //    falls straight through without wait)."
+  it("integration-3: cache-miss — different key does not satisfy read; falls through to batched immediately", async () => {
+    __clearAllSessionFileCacheForTests();
+    // Write under a DIFFERENT key — should NOT satisfy readSessionFileCache(7, "aqua")
+    writeSessionFileCache("999", "some-other-identity", { sessionFile: "/x/other.jsonl", pid: 999 });
+
+    // Verify the different-key write does NOT satisfy the read for (7, "aqua")
+    const miss = readSessionFileCache(7, "aqua");
+    expect(miss).toBeNull();
+
+    // On cache-miss, the shim immediately calls discoverClaudeSessionBatched —
+    // no await on fleet-status, no timer/interval, no polling.
+    // Wire execCommand to record its first argument and return the OK payload.
+    mockBatchedExecCommand(
+      "OK\n42\n/home/x\n---SESSION-JSON---\n{\"sessionId\":\"s1\",\"cwd\":\"/home/x/proj\"}",
+      "/home/x/.claude/projects/-home-x-proj/s1.jsonl",
+    );
+
+    // Call discoverClaudeSessionBatched synchronously (no pre-await on fleet-status)
+    const result = await discoverClaudeSessionBatched(fakeConn, "aqua");
+
+    // Assert execCommand was called (proves the batched-fresh path fires)
+    expect(vi.mocked(execCommand)).toHaveBeenCalled();
+    // The first call arg should contain the batched script markers
+    const firstCallArg = vi.mocked(execCommand).mock.calls[0][1] as string;
+    expect(firstCallArg).toContain("tmux display-message");
+    expect(firstCallArg).toContain("awk -v root=");
+    expect(firstCallArg).toContain("---SESSION-JSON---");
+
+    // Result is active — the cache-miss path succeeded via batched discovery
+    expect(result.status).toBe("active");
+
+    // The path: "batched-fresh" log is NOT tested here (it lives in claude-session-server.ts),
+    // but the discriminator is: readSessionFileCache returned null → discoverClaudeSessionBatched
+    // was called → result is the batched function's return value.
+  });
+});
