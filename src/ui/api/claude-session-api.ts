@@ -554,7 +554,7 @@ export type IdentityListBountiesPayload = {
   identityKey: string;
   /** patch #92: pane's SSH host id — backend routes reads to the pane's box (local bind-mount when hostId is in IDENTITIES_LOCAL_HOST_IDS). */
   hostId: number;
-  /** Quick 260823-80r: opt-in archive read — backend runs the archive shell command ONLY when true. Default false to skip the expensive `for d in */; do cat "$d/bounty.json"; done` for roles with hundreds of archived bounties. */
+  /** Quick 260823-80r: opt-in archive read. Backend runs the archive shell command (a `for`-loop cat'ing every bounty.json in `bounties/archive`) ONLY when true. Default false skips the expensive walk for roles with hundreds of archived bounties. */
   includeArchived?: boolean;
 };
 
