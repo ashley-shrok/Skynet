@@ -168,42 +168,42 @@ interface PidCacheEntry {
   // preservation matches lastMessageAt / aiTitle patterns — transient SSH
   // hiccups do NOT flip a valid dormant reading.
   dormant: boolean;
-  // Phase 53 Plan 01 — cached derived boolean result of the source A recycling
-  // sentinel stat (`stat ~/.claude/identities/'<tmuxSession>'/.recycled-at
-  // 2>/dev/null >/dev/null && echo yes || echo no`). Same semantics as the
-  // dormant field above: trimmed stdout "yes" → true; "no" → false; anything
-  // else → fail-open to this cached value (default `false` on cold start).
-  // Participates in computeFingerprint as its own axis so a recycling-only flip
-  // publishes a new frame. No source B needed — the caretaker's sentinel is held
-  // for the full recycle window while a live claude PID exists, so per-PID
-  // source A coverage is sufficient (see Phase 53 RESEARCH § Assumption A1).
+  // quick-260823-73o — the source-A recycling cache fields (`recycling`,
+  // `layer1RecyclingCached`, `recycleRequestedCached`) are REMOVED here.
+  // All three recycle axes now live in source B's `identityRecycleState`
+  // per-identity cache map (see PerHostState below + pollDormantOnlyIdentities
+  // per-identity iteration). Source A stamps `recycling: false` unconditionally
+  // and no longer computes any of the three axes. See quick-260823-73o
+  // objective for the full RCA (source A's per-PID lifecycle-gap window
+  // during /id reset).
+}
+
+// quick-260823-73o — source B per-identity cache entry. Replaces the prior
+// Phase 52 Task 3 Map<name, {dormant, recycling}> shape (which was widened
+// in Phase 53 CR C2/C3) with a fuller record now that source B owns the
+// full three-axis recycle pipeline (was source A's).
+//
+// Field semantics:
+//   dormant                   — `.dormant` sentinel stat; participates in fingerprint.
+//   recycling                 — OR-composed axis: layer1 || requested || sentinel;
+//                                participates in fingerprint.
+//   layer1RecyclingCached     — last non-null Layer 1 tail-scan result (bool);
+//                                cache-preserved on SSH hiccup (null return).
+//   jsonlPath                 — cached discovery result (path or null); nulled
+//                                to force re-discovery on stale-tail threshold.
+//   staleTailTickCount        — count of consecutive ticks where the tail-scan
+//                                returned null while the cached Layer 1 was true;
+//                                threshold trip nulls jsonlPath for re-discovery.
+//   lastPublishedFingerprint  — the (dormant|recycling) tuple last published for
+//                                this identity; fingerprint-suppression compares
+//                                against this on every tick.
+interface IdentityRecycleCacheEntry {
+  dormant: boolean;
   recycling: boolean;
-  // quick-260822-0vw — cached derived boolean result of scanning the JSONL tail
-  // for the most-recent real user turn's /id reset status. `false` at cold-start.
-  // Fail-open: when the tail exec returns null (SSH hiccup) the cached value is
-  // preserved (do NOT flip to false on a transient read failure). Participates as
-  // an INPUT to derivedRecycling (derivedRecyclingComposed = layer1RecyclingCached
-  // || derivedSentinelRecycling) — NOT its own fingerprint axis. The fingerprint
-  // axis remains `recycling` (the composed boolean), so a Layer-1-only change
-  // still fires a publish exactly as a sentinel-only change would, without any
-  // schema or fingerprint-version bump.
   layer1RecyclingCached: boolean;
-  // quick-260823-recycle-overlay — cached derived boolean result of stat'ing
-  // `~/.claude/identities/<tmuxSession>/.recycle-requested`. `false` at
-  // cold-start. Fail-open: SSH hiccup → preserve cached value. Same axis
-  // shape as `recycling` (.recycled-at) above and `layer1RecyclingCached`
-  // (JSONL). Feeds `derivedRecyclingComposed` as a THIRD OR term. Closes
-  // the gap Ashley observed 2026-08-23: the agent drops `.recycle-requested`
-  // BEFORE the supervisor renames it to `.recycled-at`, so between t=0
-  // (agent drops) and t=supervisor_reconcile_interval (supervisor renames),
-  // NO source was arming the overlay. Layer 3 in claude-session-server.ts
-  // saw `.recycle-requested` on its own 3s tick but its action
-  // (`transitionToHolding("sentinel")`) fires the legacy `session_holding`
-  // frame, which Phase 53 Plan 03 orphaned when the mount gate flipped to
-  // `isRecycling` (fleet-status-sourced). Adding source A stat coverage for
-  // `.recycle-requested` closes that window at the correct architectural
-  // seam without needing to un-orphan Layer 3.
-  recycleRequestedCached: boolean;
+  jsonlPath: string | null;
+  staleTailTickCount: number;
+  lastPublishedFingerprint: string;
 }
 
 interface PerHostState {
@@ -211,18 +211,15 @@ interface PerHostState {
   channel: SshChannel;
   livenessMap: Map<number, PidCacheEntry>;
   lastHookWarnAt: number;
-  // Phase 52 Plan 01 Task 3 — source B fingerprint-suppression cache.
-  // Phase 53 code-review C2/C3 (2026-08-21): widened from Map<name, dormant>
-  // to Map<name, {dormant, recycling}> so source B covers BOTH axes for
-  // identities with no live PID. This closes the gap where the outgoing
-  // claude PID exits during a recycle: source A stops publishing for that
-  // key, and until Phase 53 CR the registry blanked the recycling axis on
-  // subsequent source-B dormant frames (C3) AND fresh browser snapshots
-  // during the PID-vanish window saw the identity as not-recycling (C2).
-  // Now source B stats `.recycled-at` alongside `.dormant` on every tick.
-  // Publish/suppress fires when EITHER axis changes vs cache. Cache is
-  // cleared when the identity acquires a live PID (source A takes over).
-  dormantOnlyIdentities: Map<string, { dormant: boolean; recycling: boolean }>;
+  // quick-260823-73o — source B per-identity cache. Replaces the prior
+  // `dormantOnlyIdentities: Map<string, {dormant, recycling}>` (Phase 52 T3
+  // widened by Phase 53 CR C2/C3). Now that source B owns the full three-axis
+  // recycle pipeline (migrated out of source A's per-PID loop to close the
+  // /id-reset lifecycle-gap window), the cache carries the internal
+  // discovery/scan state alongside the two published axes. See
+  // IdentityRecycleCacheEntry docblock above for field-level semantics and
+  // pollDormantOnlyIdentities for the per-tick update contract.
+  identityRecycleState: Map<string, IdentityRecycleCacheEntry>;
 }
 
 // ---------------------------------------------------------------------------
@@ -638,39 +635,63 @@ export function createSshPollOrchestrator(
   }
 
   // ---------------------------------------------------------------------------
-  // Phase 52 Plan 01 Task 3 — source B: dormant-only identity enumeration
+  // Source B — per-identity enumeration + full three-axis recycle pipeline
   //
-  // For each host per tick, list ~/.claude/identities/ and stat each identity's
-  // .dormant sentinel. For any identity whose folder has the sentinel present
-  // AND does NOT have a live claude PID (not in liveTmuxSet), publish a
-  // SessionState frame keyed by the identity name as tmuxSession, with:
-  //   - sessionId: "__dormant__" (synthetic sentinel — frontend treats opaque)
-  //   - pid: null (source A publishes numeric PIDs)
-  //   - status: "idle" (dormant identities have no live claude process)
-  //   - dormant: true (per stat result)
+  // History:
+  //   - Phase 52 Plan 01 Task 3: introduced source B for the dormant axis only
+  //     (identity-folder-keyed enumeration, PID-independent).
+  //   - Phase 53 CR C2/C3: widened source B to also cover the recycling axis
+  //     (`.recycled-at` sentinel) for identities with NO live PID (PID-vanish
+  //     window during recycle).
+  //   - quick-260823-73o: MIGRATED all three recycle axes (`.recycle-requested`,
+  //     `.recycled-at`, Layer 1 /id reset scan) out of source A's per-PID loop
+  //     and into source B here. Source A now stamps recycling:false
+  //     unconditionally; source B is the SOLE publisher of the recycling axis.
+  //     The unconditional `liveTmuxSet.has(name)` skip is CONDITIONALLY lifted:
+  //     skip only when `!isRecycling`. When any of the three axes fires true,
+  //     source B publishes regardless of whether source A also published for
+  //     the same identity in the same tick (no conflict — source A no longer
+  //     stamps the axis). RCA: source A iterates ~/.claude/tasks/*.json (PID
+  //     files); during /id reset the outgoing PID is being torn down and
+  //     source A's per-PID iteration hits a lifecycle-timing gap where none
+  //     of the three axes ever evaluate true across the sentinel-present
+  //     window. Source B is identity-folder-keyed and runs unconditionally
+  //     per identity per tick — the correct architectural seam. See
+  //     quick-260823-73o-PLAN.md for the full RCA + Ashley's UAT narration.
   //
-  // Fingerprint-suppress via dormantOnlyIdentities per-host cache. Cache
-  // eviction on live-set membership: if an identity gains a live PID between
-  // ticks, source A takes over publishing for it and source B clears the cache
-  // entry so a future transition back to no-live-PID re-publishes cleanly.
+  // Per-tick pipeline (per identity):
+  //   1. Parallel-stat all three sentinels (`.dormant`, `.recycled-at`,
+  //      `.recycle-requested`) — 3 exec calls in parallel per identity.
+  //   2. Discover jsonlPath if cache is null OR stale-tail threshold tripped;
+  //      cached across ticks so discovery only fires once per identity.
+  //   3. If jsonlPath known, `tail -c 262144 <path>` and scan for Layer 1
+  //      /id reset signal (fail-open on null return → preserve cache).
+  //   4. Compose isRecycling = layer1 || requested || sentinel.
+  //   5. Skip-and-evict branch: if identity has live PID AND !isRecycling,
+  //      delete cache entry and continue (source A owns publish; matches
+  //      pre-migration skip semantics for non-recycling live-PID identities).
+  //   6. Fingerprint = `${dormant?1:0}|${recycling?1:0}`. Compare against
+  //      cached lastPublishedFingerprint; if identical, advance cache and skip
+  //      publish. If different (or first appearance), publish source-B frame
+  //      and update cache fingerprint.
+  //   7. When isRecycling is true, emit `fleet_status_recycling_armed` log
+  //      (moved from source A) with identityName + hasLivePid + per-axis
+  //      breakdown + cached values.
   //
   // Fail-open: if `ls` returns null (SSH error) or empty (no identities dir),
   // log a debug and skip source B for this tick. Source A still fires normally.
   //
-  // Parallelism: per-identity stats run via Promise.all (T-52-01-05 accept:
-  // bounded by identity count in the low tens per host on Ashley's fleet).
-  //
   // Shell-quoting via shellSingleQuote (T-52-01-02 mitigation): identity names
   // from `ls` output are attacker-controlled (a compromised host could name
-  // an identity `; rm -rf $HOME`), so each stat command interpolates the
-  // FULL quoted argument returned by shellSingleQuote — cannot escape.
+  // an identity `; rm -rf $HOME`), so each stat + tail + discovery command
+  // interpolates the FULL quoted argument — cannot escape.
   // ---------------------------------------------------------------------------
 
   async function pollDormantOnlyIdentities(
     hostState: PerHostState,
     liveTmuxSet: Set<string>,
   ): Promise<void> {
-    const { host, channel, dormantOnlyIdentities } = hostState;
+    const { host, channel, identityRecycleState } = hostState;
 
     // Enumerate identity folders
     const listing = await channel.exec(
@@ -692,19 +713,10 @@ export function createSshPollOrchestrator(
       .map((l) => l.trim())
       .filter(Boolean);
 
-    // Phase 53 CR C2/C3 (2026-08-21): parallel-stat BOTH sentinels for each
-    // identity — `.dormant` (Phase 52) and `.recycled-at` (Phase 53).
-    // Bounded by identity count per host (typically <20); 2x stat calls per
-    // identity is still trivial vs the 30s SSH channel keepalive budget.
+    // Phase 1 — parallel-stat all three sentinels per identity.
     const statResults = await Promise.all(
       identityNames.map(async (name) => {
         const quotedName = shellSingleQuote(name);
-        // quick-260823-recycle-overlay — third parallel stat for the
-        // agent-authored `.recycle-requested` sentinel, mirrored from source A.
-        // Source B typically fires when the PID is gone (post-recycle window),
-        // so `.recycle-requested` will usually be absent by then (supervisor
-        // renamed it), but if the agent-drop → source-A-see chain misses (e.g.
-        // PID vanishes before source A stats it), source B is the safety net.
         const [dormantOut, recyclingOut, requestedOut] = await Promise.all([
           channel.exec(
             `stat ~/.claude/identities/${quotedName}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
@@ -716,49 +728,155 @@ export function createSshPollOrchestrator(
             `test -f ~/.claude/identities/${quotedName}/.recycle-requested 2>/dev/null && echo yes || echo no`,
           ),
         ]);
-        // T-52-01-01 mitigation (applies to all three axes): only "yes" or "no"
-        // are meaningful. Anything else (null, unexpected output) → treat as
-        // false since source B has no prior cache to fall back to for this
-        // specific identity — it's cache-populated per-tick.
+        // T-52-01-01 mitigation: only "yes" or "no" are meaningful. Anything
+        // else (null, unexpected output) → treat as false. Source B's stat
+        // axes are per-tick reads with no per-identity fail-open cache for
+        // the raw stat outputs; the Layer 1 tail-scan below IS cache-preserved.
         const isDormant = dormantOut !== null && dormantOut.trim() === "yes";
         const isRecycledAt =
           recyclingOut !== null && recyclingOut.trim() === "yes";
         const isRecycleRequested =
           requestedOut !== null && requestedOut.trim() === "yes";
-        // quick-260823-recycle-overlay: OR-compose the two sentinel axes at
-        // the source-B boundary. Source B doesn't have Layer 1 (no PID means
-        // JSONL discovery is orthogonal), so the composed axis here is just
-        // sentinel OR requested. Overall composed axis matches source A's
-        // three-way OR semantically (source A adds Layer 1 as the third term).
-        const isRecycling = isRecycledAt || isRecycleRequested;
-        return { name, isDormant, isRecycling };
+        return { name, isDormant, isRecycledAt, isRecycleRequested };
       }),
     );
 
-    // For each identity: publish/suppress based on cache + live-set membership.
-    for (const { name, isDormant, isRecycling } of statResults) {
-      // Skip identities that had a live PID this tick — source A already
-      // published for them (with source A's own dormant + recycling stats).
-      // Also clear the source-B cache for this name so a future transition
-      // back to no-live-PID re-publishes cleanly (Test P52-01-T3-vii).
-      if (liveTmuxSet.has(name)) {
-        dormantOnlyIdentities.delete(name);
+    // Phase 2-7 — sequential per-identity iteration (discovery + tail scan +
+    // OR compose + skip/publish). Sequential rather than parallel because
+    // each identity's Layer 1 scan uses its own cached jsonlPath and we want
+    // deterministic cache updates in the presence of test-time mocked SSH.
+    for (const { name, isDormant, isRecycledAt, isRecycleRequested } of statResults) {
+      const cached = identityRecycleState.get(name);
+
+      // Phase 2 — discovery (fires when cache empty; rediscovers after
+      // stale-tail threshold trip nulls the cached jsonlPath).
+      let jsonlPath: string | null = cached?.jsonlPath ?? null;
+      if (jsonlPath === null) {
+        jsonlPath = await discoverIdentityJsonlPathViaChannel(channel, name);
+      }
+
+      // Phase 3 — Layer 1 tail scan.
+      // Fail-open: null return → preserve cached value.
+      let layer1RecyclingCached: boolean = cached?.layer1RecyclingCached ?? false;
+      let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
+      if (jsonlPath !== null) {
+        const tailRaw = await channel.exec(
+          `tail -c 262144 ${jsonlPath} 2>/dev/null || true`,
+        );
+        if (tailRaw !== null && tailRaw.trim() !== "") {
+          const scannedLayer1 = scanTailForLayer1RecyclingSignal(tailRaw);
+          if (scannedLayer1 !== null) {
+            layer1RecyclingCached = scannedLayer1;
+            // Fresh non-null scan → reset stale counter.
+            nextStaleTailTickCount = 0;
+          } else if (layer1RecyclingCached) {
+            // Tail had zero user turns AND we had a cached true value →
+            // increment stale counter (defense against JSONL rotation
+            // silently retiring the file we were watching).
+            nextStaleTailTickCount++;
+          } else {
+            // Tail had zero user turns and cache was false — reset counter.
+            nextStaleTailTickCount = 0;
+          }
+        } else if (layer1RecyclingCached) {
+          // Empty tail / null exec AND cached true → tick stale counter.
+          nextStaleTailTickCount++;
+        }
+        // else: empty tail + cached false → keep counter at 0 (no signal to defend).
+        if (nextStaleTailTickCount >= STALE_TAIL_REDISCOVERY_THRESHOLD) {
+          jsonlPath = null;
+          nextStaleTailTickCount = 0;
+        }
+      }
+
+      // Phase 4 — OR compose. Three axes match source A's pre-migration semantics.
+      const isRecycling = layer1RecyclingCached || isRecycleRequested || isRecycledAt;
+
+      // Phase 5 — conditional skip. When identity has a live PID AND is NOT
+      // recycling, source A owns publish for the non-recycle axes (dormant,
+      // status, waitingFor, backgroundTasks) — evict this identity's source-B
+      // cache and continue. This mirrors the pre-migration Phase 52 T3 skip
+      // semantics for the dormant axis (Test P52-01-T3-vi/-vii).
+      //
+      // When isRecycling === true, DO NOT skip — publish the source-B recycle
+      // frame regardless of live-PID state. Source A stamps recycling:false
+      // so both frames publish this tick without conflict (source A's frame
+      // carries the non-recycle axes; source B's frame carries the recycle
+      // axis to the registry so consumers see it).
+      //
+      // TRANSITION EDGE (quick-260823-73o T1-vi lock): if we're about to skip-
+      // and-evict AND the cached source-B frame had recycling:true, we MUST
+      // publish a final recycling:false source-B frame BEFORE evicting so
+      // consumers see the transition. Otherwise the last-published source-B
+      // frame for this identity would be a stale recycling:true and the
+      // registry would keep serving it to fresh subscribers until source B
+      // re-fires (which won't happen until the live PID goes away).
+      if (liveTmuxSet.has(name) && !isRecycling) {
+        const cachedRecycling = cached?.recycling ?? false;
+        if (cachedRecycling) {
+          const state: SessionState = {
+            hostId: host.id,
+            tmuxSession: name,
+            sessionId: "__dormant__",
+            pid: null,
+            status: "idle",
+            waitingFor: undefined,
+            backgroundTasks: [],
+            updatedAt: deps.now(),
+            lastMessageAt: null,
+            aiTitle: null,
+            dormant: isDormant,
+            recycling: false,
+          };
+          deps.registry.publishSessionState(host.id, state);
+          systemLogger.info(
+            "Fleet-status: source B frame published (recycling-false transition, pre-evict)",
+            {
+              operation: "fleet_status_source_b_publish",
+              fleetHostId: host.id,
+              identityName: name,
+              dormant: isDormant,
+              recycling: false,
+              previousDormant: cached?.dormant ?? null,
+              previousRecycling: cached?.recycling ?? null,
+            },
+          );
+        }
+        identityRecycleState.delete(name);
         continue;
       }
 
-      const previous = dormantOnlyIdentities.get(name);
-      if (
-        previous !== undefined &&
-        previous.dormant === isDormant &&
-        previous.recycling === isRecycling
-      ) {
-        // Cache hit — BOTH axes match → fingerprint-suppress (no publish).
+      // Phase 6 — fingerprint + publish/suppress.
+      const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}`;
+
+      if (cached !== undefined && cached.lastPublishedFingerprint === fingerprint) {
+        // Cache hit — fingerprint identical → advance internal state (jsonlPath,
+        // layer1RecyclingCached, staleTailTickCount) but skip publish. This
+        // is critical: internal cache state updates every tick, but only
+        // (dormant, recycling) drift triggers a publish (source B fingerprint
+        // suppression contract inherited from Phase 52 T3 / Phase 53 CR C2).
+        identityRecycleState.set(name, {
+          dormant: isDormant,
+          recycling: isRecycling,
+          layer1RecyclingCached,
+          jsonlPath,
+          staleTailTickCount: nextStaleTailTickCount,
+          lastPublishedFingerprint: fingerprint,
+        });
         continue;
       }
 
-      dormantOnlyIdentities.set(name, {
+      // Fingerprint delta (or first appearance) → publish + update cache.
+      const previousDormant = cached?.dormant ?? null;
+      const previousRecycling = cached?.recycling ?? null;
+
+      identityRecycleState.set(name, {
         dormant: isDormant,
         recycling: isRecycling,
+        layer1RecyclingCached,
+        jsonlPath,
+        staleTailTickCount: nextStaleTailTickCount,
+        lastPublishedFingerprint: fingerprint,
       });
 
       const state: SessionState = {
@@ -778,17 +896,36 @@ export function createSshPollOrchestrator(
       deps.registry.publishSessionState(host.id, state);
 
       systemLogger.info(
-        "Fleet-status: source B dormant-only frame published",
+        "Fleet-status: source B frame published",
         {
           operation: "fleet_status_source_b_publish",
           fleetHostId: host.id,
           identityName: name,
           dormant: isDormant,
           recycling: isRecycling,
-          previousDormant: previous?.dormant ?? null,
-          previousRecycling: previous?.recycling ?? null,
+          previousDormant,
+          previousRecycling,
         },
       );
+
+      // Phase 7 — arm log (moved from source A per quick-260823-73o migration).
+      // Fires per-publish when recycling axis is true. Companion to the source B
+      // publish log above; both channels have matching forensic trails.
+      if (isRecycling) {
+        systemLogger.info("Fleet-status: recycling axis armed", {
+          operation: "fleet_status_recycling_armed",
+          fleetHostId: host.id,
+          identityName: name,
+          hasLivePid: liveTmuxSet.has(name),
+          layer1: layer1RecyclingCached,
+          requested: isRecycleRequested,
+          sentinel: isRecycledAt,
+          composed: isRecycling,
+          cachedLayer1: cached?.layer1RecyclingCached ?? false,
+          cachedRecycling: cached?.recycling ?? false,
+          cachedDormant: cached?.dormant ?? false,
+        });
+      }
     }
   }
 
@@ -893,63 +1030,20 @@ export function createSshPollOrchestrator(
       // dormantRaw === null → SSH hiccup → keep cached value (fail-open).
     }
 
-    // Phase 53 Plan 01 — source A recycling sentinel stat.
-    // Per PID-tick, when tmuxSession is non-null, stat the
-    // `~/.claude/identities/<tmuxSession>/.recycled-at` sentinel file. Trimmed
-    // stdout "yes" → recycling true; "no" → recycling false; anything else
-    // (null from SSH error, throw, unexpected output) → fail-open using
-    // cached value (defaulting to `false` on cold start). Same T-52-01-02
-    // shell-quoting mitigation via shellSingleQuote as the dormant stat above.
-    // Same T-53-01-01 fail-open mitigation on stdout parsing. No source B —
-    // the caretaker's sentinel is placed while the outgoing PID is still alive
-    // and held for 8s past the fresh PID being up, so the 2s poll cadence
-    // guarantees source A visibility across the entire recycle window
-    // (see Phase 53 RESEARCH § Assumption A1).
-    // quick-260822-0vw: renamed from derivedRecycling to derivedSentinelRecycling
-    // to distinguish it from the OR-composed final value (derivedRecyclingComposed).
-    let derivedSentinelRecycling: boolean = cached?.recycling ?? false;
-    if (tmuxSession !== null) {
-      const quotedTmuxSession = shellSingleQuote(tmuxSession);
-      const recyclingRaw = await channel.exec(
-        `stat ~/.claude/identities/${quotedTmuxSession}/.recycled-at 2>/dev/null >/dev/null && echo yes || echo no`,
-      );
-      if (recyclingRaw !== null) {
-        const trimmed = recyclingRaw.trim();
-        if (trimmed === "yes") {
-          derivedSentinelRecycling = true;
-        } else if (trimmed === "no") {
-          derivedSentinelRecycling = false;
-        }
-        // Anything else → fail-open, keep cached value (T-53-01-01 mitigation).
-      }
-      // recyclingRaw === null → SSH hiccup → keep cached value (fail-open).
-    }
-
-    // quick-260823-recycle-overlay — source A `.recycle-requested` stat.
-    // Same shape as `.recycled-at` above but for the agent-authored sentinel
-    // that appears BEFORE the supervisor renames it. Closes the gap between
-    // t=0 (agent /id reset drops the sentinel) and t=supervisor_reconcile
-    // (supervisor renames to `.recycled-at`). Fail-open to cached value on
-    // SSH hiccup / unexpected output (T-53-01-01 pattern). `test -f`
-    // instead of `stat` matches Layer 3's per-WS probe form byte-for-byte
-    // (claude-session-server.ts sentinel-detect); both work equivalently
-    // for existence check.
-    let derivedRequestedRecycling: boolean =
-      cached?.recycleRequestedCached ?? false;
-    if (tmuxSession !== null) {
-      const quotedTmuxSession = shellSingleQuote(tmuxSession);
-      const requestedRaw = await channel.exec(
-        `test -f ~/.claude/identities/${quotedTmuxSession}/.recycle-requested 2>/dev/null && echo yes || echo no`,
-      );
-      if (requestedRaw !== null) {
-        const trimmed = requestedRaw.trim();
-        if (trimmed === "yes") {
-          derivedRequestedRecycling = true;
-        } else if (trimmed === "no") {
-          derivedRequestedRecycling = false;
-        }
-      }
-    }
+    // quick-260823-73o — source A NO LONGER computes any of the three recycle
+    // axes. The `.recycled-at` sentinel stat (was Phase 53 Plan 01), the
+    // `.recycle-requested` stat (was quick-260823-recycle-overlay), and the
+    // Layer 1 /id reset tail scan (was quick-260822-0vw) have all been
+    // migrated into source B's pollDormantOnlyIdentities per-identity
+    // iteration. Source A now stamps `recycling: false` unconditionally in
+    // the composed SessionState below. RCA: source A iterates
+    // ~/.claude/tasks/*.json (PID files); during /id reset the outgoing PID
+    // is being torn down and source A's per-PID iteration hits a
+    // lifecycle-timing gap where none of the three axes ever evaluate true
+    // across the sentinel-present window. Source B is identity-folder-keyed
+    // and runs unconditionally per identity per tick — the correct seam.
+    // See pollDormantOnlyIdentities docblock for the migration + Ashley's
+    // 2026-08-23 UAT narration.
 
     // Phase 44 Plan 02 — replace jsonlPathForSession derivation with
     // discoverIdentityJsonlPathViaChannel (Phase 32 mechanism + SshChannel
@@ -984,10 +1078,10 @@ export function createSshPollOrchestrator(
     let derivedLastMessageAt: number | null = cached?.lastMessageAt ?? null;
     let derivedAiTitle: string | null = cached?.aiTitle ?? null;
     let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
-    // quick-260822-0vw — Layer 1 recycling signal: starts from the cached value
-    // (false on cold-start); updated inside the tail-scan block below (THIRD scan
-    // on the same tailRaw buffer — ONE exec, THREE scans, no new SSH round-trip).
-    let derivedLayer1Recycling: boolean = cached?.layer1RecyclingCached ?? false;
+    // quick-260823-73o — Layer 1 /id reset scan REMOVED from source A. Source B
+    // (pollDormantOnlyIdentities) now performs the Layer 1 tail scan per-identity
+    // per-tick with its own per-identity jsonlPath cache. Source A's tail exec
+    // still fires here for the lastMessageAt + aiTitle derivations (unchanged).
     if (jsonlPath !== null) {
       // Phase 47 Plan 02 — tail width bumped from a line-count-bounded
       // read to `tail -c 262144` (256KB byte-count) so an ai-title line
@@ -1003,19 +1097,11 @@ export function createSshPollOrchestrator(
       let scanned: number | null = null;
       let scannedAiTitle: string | null = null;
       if (tailRaw !== null && tailRaw.trim() !== "") {
-        // ONE buffer, THREE scans — no duplicate exec, no duplicate discovery.
+        // ONE buffer, TWO scans (lastMessageAt + aiTitle). The Layer 1 recycling
+        // scan is now in source B (quick-260823-73o migration).
         scanned = scanTailForNewestMessageAt(tailRaw);
         scannedAiTitle = scanTailForLatestAiTitle(tailRaw);
-        // quick-260822-0vw — THIRD scan: Layer 1 /id reset status of the
-        // most-recent real user turn. Returns true/false/null (null = tail had
-        // zero user turns → preserve cache, same fail-open as the others).
-        const scannedLayer1 = scanTailForLayer1RecyclingSignal(tailRaw);
-        if (scannedLayer1 !== null) {
-          derivedLayer1Recycling = scannedLayer1;
-        }
-        // scannedLayer1 === null → tail had zero user turns → keep cached value.
       }
-      // tailRaw null or empty → keep cached layer1RecyclingCached value (fail-open).
       // Phase 47 Plan 02 — last-wins reconciliation for aiTitle. If the
       // fresh tail-scan returned a non-null string, use it; otherwise
       // preserve the cache (fail-open on transient SSH hiccup or a tick
@@ -1101,45 +1187,10 @@ export function createSshPollOrchestrator(
       emitHookPayloadWarn(hostState, host.id);
     }
 
-    // quick-260822-0vw + quick-260823-recycle-overlay — OR-compose the final recycling axis.
-    // Three input axes:
-    //   derivedLayer1Recycling — JSONL tail scan (true if /id reset was the
-    //     most-recent real user turn in the tail; cached on SSH hiccup).
-    //   derivedRequestedRecycling — `.recycle-requested` stat (agent-authored;
-    //     present from the moment agent runs /id reset through the moment
-    //     supervisor renames it to `.recycled-at`; typically 0-30s window).
-    //   derivedSentinelRecycling — `.recycled-at` stat (supervisor-authored;
-    //     present from rename-time through +8s past new claude launch).
-    // The OR means the recycling axis arms at t=0 (agent drop OR /id reset lands
-    // in JSONL — whichever the poller sees first) AND stays armed continuously
-    // through the entire recycle lifecycle (rename, /exit, kill, drive, cleanup).
-    // Publishing is single-triggered per fingerprint delta (no double-fire).
-    const derivedRecyclingComposed: boolean =
-      derivedLayer1Recycling ||
-      derivedRequestedRecycling ||
-      derivedSentinelRecycling;
-
-    // quick-260823-recycle-overlay diagnostic log: emit ONLY when the composed
-    // axis is true (avoid spamming healthy-idle ticks). Field extraction is
-    // explicit (D-05 fleet directive) so future-me can read the log line and
-    // know EXACTLY which axis armed the overlay. Companion to the Layer 3
-    // probe log in claude-session-server.ts so both arm-signal channels have
-    // matching forensic trails.
-    if (derivedRecyclingComposed) {
-      systemLogger.info("Fleet-status: recycling axis armed", {
-        operation: "fleet_status_recycling_armed",
-        fleetHostId: host.id,
-        pid,
-        tmuxSession,
-        layer1: derivedLayer1Recycling,
-        requested: derivedRequestedRecycling,
-        sentinel: derivedSentinelRecycling,
-        composed: derivedRecyclingComposed,
-        cachedLayer1: cached?.layer1RecyclingCached ?? false,
-        cachedRequested: cached?.recycleRequestedCached ?? false,
-        cachedSentinel: cached?.recycling ?? false,
-      });
-    }
+    // quick-260823-73o — source A NO LONGER OR-composes recycle axes NOR emits
+    // the `fleet_status_recycling_armed` log. Both concerns have moved to
+    // source B (pollDormantOnlyIdentities). Source A stamps `recycling: false`
+    // unconditionally in the composed SessionState below.
 
     // Compose SessionState — Phase 41 Plan 03 stamps lastMessageAt from the
     // JSONL-tail derivation above (null when no message-bearing history is
@@ -1147,10 +1198,8 @@ export function createSshPollOrchestrator(
     // SAME tail-read (shared buffer, one exec) — last-wins across
     // multiple ai-title lines in the tail. Phase 52 Plan 01 Task 2 stamps
     // dormant from the identity-folder .dormant sentinel stat above
-    // (fail-open to cached value on SSH hiccup). Phase 53 Plan 01 stamps
-    // recycling from the identity-folder .recycled-at sentinel stat above
-    // (fail-open to cached value on SSH hiccup — same semantics as dormant).
-    // quick-260822-0vw: recycling is now the OR-composed value (Layer 1 OR sentinel).
+    // (fail-open to cached value on SSH hiccup). quick-260823-73o: recycling
+    // is now HARDCODED to false — source B is the sole publisher of that axis.
     const state: SessionState = {
       hostId: host.id,
       tmuxSession,
@@ -1164,7 +1213,7 @@ export function createSshPollOrchestrator(
       lastMessageAt: derivedLastMessageAt,
       aiTitle: derivedAiTitle,
       dormant: derivedDormant,
-      recycling: derivedRecyclingComposed,
+      recycling: false,
     };
 
     // Delta semantics — only publish if fingerprint changed
@@ -1180,11 +1229,9 @@ export function createSshPollOrchestrator(
         pid,
         sessionId: sessionJson.sessionId,
         status: sessionJson.status,
-        // quick-260823-recycle-overlay: surface the recycling + dormant
-        // booleans on the publish log so the forensic trail carries the
-        // exact frame the store received. Companion to the per-tick
-        // "recycling axis armed" log above (which fires per-tick when armed);
-        // this fires per-publish (only on fingerprint change).
+        // quick-260823-73o: source A always publishes recycling:false now;
+        // dormant is still source-A-owned so keep it on the publish log for
+        // forensics.
         dormant: state.dormant,
         recycling: state.recycling,
       });
@@ -1199,9 +1246,6 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
-        recycling: derivedSentinelRecycling,
-        layer1RecyclingCached: derivedLayer1Recycling,
-        recycleRequestedCached: derivedRequestedRecycling,
       });
     } else {
       // Update procStart + tmux in case they changed without a state-change
@@ -1215,9 +1259,6 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
-        recycling: derivedSentinelRecycling,
-        layer1RecyclingCached: derivedLayer1Recycling,
-        recycleRequestedCached: derivedRequestedRecycling,
       });
     }
   }
@@ -1360,9 +1401,11 @@ export function createSshPollOrchestrator(
         channel,
         livenessMap: new Map(),
         lastHookWarnAt: -Infinity,
-        // Phase 52 Plan 01 Task 3 — initialize source B fingerprint-suppression
-        // cache empty; populated by pollDormantOnlyIdentities on each tick.
-        dormantOnlyIdentities: new Map(),
+        // quick-260823-73o — source B per-identity cache (replaces the prior
+        // Phase 52 T3 dormantOnlyIdentities map). Populated by
+        // pollDormantOnlyIdentities on each tick with the full 3-axis pipeline
+        // state per identity.
+        identityRecycleState: new Map(),
       });
     } catch (err) {
       systemLogger.warn("Fleet-status: SSH channel acquire threw for host", {

@@ -3403,13 +3403,22 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
   // wireBaseResponses — mirrors the Phase 52 Plan 01 Task 2 sibling exactly,
   // but also wires a default .recycled-at response ("no\n") so recycling tests
   // that don't need to override the recycling stat get the safe default.
+  //
+  // quick-260823-73o migration: source A no longer stamps the recycling axis;
+  // source B (identity-folder-keyed) is the sole publisher. wireBaseResponses
+  // therefore wires "ls -1 ~/.claude/identities/" → "tina\n" so source B
+  // enumerates tina every tick and exercises the recycle-axis pipeline that
+  // used to live in source A. Assertions in this describe block that check
+  // recycling MUST look at the source-B frame (sessionId === "__dormant__"),
+  // not the source-A frame (pid === 12345, always recycling:false now).
   function wireBaseResponses(
     channel: MockSshChannel,
     jsonlContents: string,
     discoveryOverride?: string,
   ): void {
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    // quick-260823-73o: source B needs to iterate tina to publish the recycling axis.
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson(),
@@ -3441,6 +3450,19 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     );
   }
 
+  // quick-260823-73o helper — pick the source-B frame from the publish log.
+  // Source B frames carry sessionId "__dormant__" + pid null; source A frames
+  // carry the real sessionId and pid 12345. Under the migration, only source B
+  // stamps the recycling axis, so tests must look at the source-B frame.
+  function pickSourceBFrame(
+    publishedStates: Array<{ hostId: string; state: SessionState }>,
+  ): SessionState | undefined {
+    const frames = publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    return frames[frames.length - 1]?.state;
+  }
+
   // ---------------------------------------------------------------------------
   // Test P53-01-T1-i — stat returns "yes\n" → SessionState.recycling === true.
   // ---------------------------------------------------------------------------
@@ -3462,7 +3484,10 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     await orchestrator.start();
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+    // quick-260823-73o: source B is the sole publisher of the recycling axis.
+    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
+    expect(sourceBFrame).toBeDefined();
+    expect(sourceBFrame!.recycling).toBe(true);
   });
 
   // ---------------------------------------------------------------------------
@@ -3813,13 +3838,20 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
 
   // wireBaseResponses — same shape as the Phase 53 Plan 01 sibling, extended to
   // allow overriding the JSONL tail response for Layer-1 tests.
+  //
+  // quick-260823-73o migration: source A no longer stamps the recycling axis;
+  // source B (identity-folder-keyed) is the sole publisher of that axis. The
+  // Layer 1 tail scan (once source-A-owned) also moved to source B. Wire
+  // "ls -1 ~/.claude/identities/" → "tina\n" so source B iterates tina every
+  // tick and exercises the axis. Assertions in this describe block that check
+  // recycling MUST look at the source-B frame (sessionId === "__dormant__").
   function wireBaseResponses(
     channel: MockSshChannel,
     jsonlContents: string,
     discoveryOverride?: string,
   ): void {
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson(),
@@ -3843,6 +3875,23 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
     // Default recycled-at stat response (not recycling) — override per test as needed.
     channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    // quick-260823-73o: source B also probes .recycle-requested per identity;
+    // default no so tests that only exercise Layer 1 / .recycled-at aren't
+    // accidentally armed via the third axis.
+    channel.setResponse(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "no\n",
+    );
+  }
+
+  // quick-260823-73o helper — pick the source-B frame from the publish log.
+  function pickSourceBFrame(
+    publishedStates: Array<{ hostId: string; state: SessionState }>,
+  ): SessionState | undefined {
+    const frames = publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    return frames[frames.length - 1]?.state;
   }
 
   // ---------------------------------------------------------------------------
@@ -3866,7 +3915,10 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     await orchestrator.start();
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+    // quick-260823-73o: source B owns the recycling axis; look at its frame.
+    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
+    expect(sourceBFrame).toBeDefined();
+    expect(sourceBFrame!.recycling).toBe(true);
   });
 
   // ---------------------------------------------------------------------------
@@ -3891,16 +3943,20 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     await orchestrator.start();
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+    // quick-260823-73o: source B owns the recycling axis; look at its frame.
+    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
+    expect(sourceBFrame).toBeDefined();
+    expect(sourceBFrame!.recycling).toBe(true);
   });
 
   // ---------------------------------------------------------------------------
   // Test QT-260822-0vw-T1-iii — Both signals true → still recycling (OR is
   // idempotent). The tail contains a /id reset line AND .recycled-at is present.
-  // Expected: recycling === true; ONLY ONE publish (fingerprint identity).
+  // Expected: recycling === true; source B publishes ONE recycling frame
+  // (fingerprint identity — OR of two trues yields the same true axis value).
   // ---------------------------------------------------------------------------
 
-  it("Test QT-260822-0vw-T1-iii: both Layer 1 and sentinel true → recycling === true, single publish (OR is idempotent)", async () => {
+  it("Test QT-260822-0vw-T1-iii: both Layer 1 and sentinel true → source B publishes exactly one recycling:true frame (OR is idempotent)", async () => {
     const channel = new MockSshChannel();
     // /id reset in tail + sentinel present.
     wireBaseResponses(channel, idResetLine(2000) + "\n");
@@ -3913,11 +3969,12 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     const orchestrator = createSshPollOrchestrator(deps);
     await orchestrator.start();
 
-    // recycling === true
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
-    // Only ONE publish per tick — no double-fire from composing both signals.
-    expect(deps.registry.publishedStates.length).toBe(1);
+    // quick-260823-73o: source B owns the recycling axis; look at its frame.
+    const sourceBFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    expect(sourceBFrames).toHaveLength(1);
+    expect(sourceBFrames[0].state.recycling).toBe(true);
   });
 
   // ---------------------------------------------------------------------------
@@ -4018,13 +4075,16 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
   }
 
+  // quick-260823-73o migration: source A no longer stamps the recycling axis;
+  // source B is the sole publisher. Wire identities listing → tina so source B
+  // enumerates every tick; assertions look at the source-B frame.
   function wireBaseResponses(
     channel: MockSshChannel,
     jsonlContents: string,
     discoveryOverride?: string,
   ): void {
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -4049,6 +4109,15 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     );
   }
 
+  function pickSourceBFrame(
+    publishedStates: Array<{ hostId: string; state: SessionState }>,
+  ): SessionState | undefined {
+    const frames = publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    return frames[frames.length - 1]?.state;
+  }
+
   it("Test A: `.recycle-requested` probe returns 'yes' → SessionState.recycling === true (even when `.recycled-at` and Layer 1 both false)", async () => {
     const channel = new MockSshChannel();
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
@@ -4066,7 +4135,10 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     await orchestrator.start();
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+    // quick-260823-73o: source B owns the recycling axis; look at its frame.
+    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
+    expect(sourceBFrame).toBeDefined();
+    expect(sourceBFrame!.recycling).toBe(true);
   });
 
   it("Test B: all three axes return 'no' → SessionState.recycling === false", async () => {
