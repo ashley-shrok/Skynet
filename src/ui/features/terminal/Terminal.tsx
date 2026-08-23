@@ -1161,10 +1161,12 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         }),
       });
 
-      const delay = Math.min(
+      // R-54-07: full-jitter — random draw in [0, capMs) prevents the 10-tab Chrome-restore herd from re-clumping on the reconnect ladder. Cap (8s) and exponential base (2s * 2^(attempt-1)) unchanged.
+      const capMs = Math.min(
         2000 * Math.pow(2, reconnectAttempts.current - 1),
         8000,
       );
+      const delay = Math.floor(Math.random() * capMs);
 
       reconnectTimeoutRef.current = setTimeout(() => {
         reconnectTimeoutRef.current = null;

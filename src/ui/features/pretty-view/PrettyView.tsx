@@ -2073,7 +2073,9 @@ export function PrettyView({
       setErrorMessage((prev) => prev ?? "Connection closed");
       if (!isVisibleRef.current) return;
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-        const delay = Math.min(2000 * (reconnectAttemptsRef.current + 1), 8000);
+        // R-54-07: full-jitter — random draw in [0, capMs) prevents the 10-tab Chrome-restore herd from re-clumping on the reconnect ladder. Cap and initial-delay scale unchanged (patch #148 linear-with-cap contract preserved).
+        const capMs = Math.min(2000 * (reconnectAttemptsRef.current + 1), 8000);
+        const delay = Math.floor(Math.random() * capMs);
         reconnectAttemptsRef.current += 1;
         // phase-29: mirror into state so wsState derivation re-runs on
         // retry-attempt changes (transitions "not-connected" → "opening" and
