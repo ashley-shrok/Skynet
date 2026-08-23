@@ -2291,6 +2291,15 @@ export async function __applyInputMessageForTests(deps: {
         tmuxTarget: currentTmuxSession,
         wsSend: deps.wsSend,
         logger: sshLogger,
+        // Phase 56 Plan 02 — widened watchdog window for dormant-triggered
+        // sends. `wasDormant` was captured at L2064 (top of function body,
+        // Plan 01) BEFORE the sentinel-drop + marker-wait side-effects, so it
+        // reflects the pane's state at input-handler entry. Backend-derived
+        // — never from a WS payload field (T-56-02-01). When true, the
+        // watchdog uses GIVE_UP_MS_DORMANT (120_000ms) instead of
+        // GIVE_UP_MS (20_000ms) so a healthy ~90s wake doesn't trip
+        // paste_send_failed.
+        dormantSend: wasDormant,
       });
       deps.trackMqid?.(mqid);
       sshLogger.info("[pv-input] armed split-send watchdog", {
@@ -2298,6 +2307,7 @@ export async function __applyInputMessageForTests(deps: {
         mqid,
         sessionId: deps.sessionId,
         bodyBytes: body.length,
+        dormantSend: wasDormant,
       });
     }
 
@@ -2335,6 +2345,14 @@ export async function __applyInputMessageForTests(deps: {
         wsSend: deps.wsSend,
         logger: sshLogger,
         retryEnterOnly: true,
+        // Phase 56 Plan 02 — even when we're on the mqid-loss safety net,
+        // dormant sends need the widened cadence: the single retry-Enter
+        // must fire AFTER the marker-wait window (T+92500ms), not during
+        // it (T+2500ms — useless because the wake-supervisor's shell →
+        // claude bootstrap could still be running and tmux isn't ready to
+        // receive the Enter as a submit). Orthogonal to retryEnterOnly:
+        // still only stage 1 fires, but at the widened cadence.
+        dormantSend: wasDormant,
       });
       deps.trackMqid?.(synthMqid);
       sshLogger.warn(
@@ -2344,6 +2362,7 @@ export async function __applyInputMessageForTests(deps: {
           synthMqid,
           sessionId: deps.sessionId,
           bodyBytes: nonSplitBody.length,
+          dormantSend: wasDormant,
         },
       );
     }
