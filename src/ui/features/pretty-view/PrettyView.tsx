@@ -1567,30 +1567,26 @@ export function PrettyView({
           break;
         }
         case "message": {
-          // Phase 50 D-02/D-07/D-08: FIFO head-match against pendingSends
-          // for user-role message frames. Matches the OLDEST pending whose
-          // (collapsed) content equals parsed.content; on match, remove
-          // that pending AND clearTimeout its 20s timer. This is the
-          // single-signal contract with Plan 50-01's parser: BOTH the
-          // direct-user-turn path AND the queue-op-enqueue-derived frame
-          // land here as kind:"message" role:"user" — one match either
-          // way. Independent of the appendDedupWithCap call below (which
-          // also happens); the two dedup layers serve different purposes
-          // (per-eventId at appendDedup; per-pending-content here).
+          // quick-260823-fzy: FIFO-only head-match. Byte equality on collapsed
+          // content was fighting every Claude Code input transformation:
+          // slash-command XML wrap (typed `/fake args` → jsonl frame
+          // `<command-message>fake</command-message>\n<command-name>/fake</command-name>\n<command-args>args</command-args>`),
+          // JSON paste normalization, and every future CC wrap. Real evidence:
+          // ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl
+          // ts=2026-08-23T01:41:48.723Z (Ashley's /fake in tina session).
+          // Order-based semantic is preserved by the transport: CC processes
+          // user input serially, session file is written in order, WS preserves
+          // order — SEND ORDER itself IS the match signal. First incoming
+          // user-role frame clears the oldest sending pending (FIFO + role +
+          // state gate), period. Independent of appendDedupWithCap below
+          // (per-eventId dedup, different purpose).
           if (parsed.role === "user") {
-            const collapsedParsed = collapseNewlinesForMatch(parsed.content);
             const list = pendingSendsRef.current;
-            const headMatchIdx = list.findIndex(
-              (p) => p.state === "sending" && p.content === collapsedParsed,
-            );
-            if (headMatchIdx !== -1) {
-              const match = list[headMatchIdx]!;
-              if (match.timer !== null) {
-                window.clearTimeout(match.timer);
-              }
-              setPendingSends((prev) =>
-                prev.filter((p) => p.mqid !== match.mqid),
-              );
+            const oldestSendingIdx = list.findIndex((p) => p.state === "sending");
+            if (oldestSendingIdx !== -1) {
+              const match = list[oldestSendingIdx]!;
+              if (match.timer !== null) window.clearTimeout(match.timer);
+              setPendingSends((prev) => prev.filter((p) => p.mqid !== match.mqid));
             }
           }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
