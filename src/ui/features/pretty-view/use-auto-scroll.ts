@@ -20,6 +20,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //       bottom on session enter. Compounded by the `paneKey` param being
 //       accepted but never used, so `pinnedRef` from the prior conversation
 //       leaked into a new pane on identity-swap re-render.
+//   (5) Scroll-container remount race (Ashley 2026-08-23 whitney-click):
+//       ~75ms into hydration, React replaces the scroll container element.
+//       The new element mounts with scrollTop=0 (empty for one frame),
+//       fires a scroll event that flips pinnedRef=false via the scroll-
+//       event listener, and every subsequent mutation's observer rAF
+//       hits the pinned-gate skip path — content grows past viewport
+//       while the user sits at top=0. Fix: bottom-sentinel `<div
+//       data-pv-scroll-sentinel />` + IntersectionObserver observing
+//       its intersection with the scroll container's viewport. IO
+//       intersection state is the AUTHORITATIVE pinning signal
+//       (scroll-event pinning becomes diagnostic-only, retained as
+//       fallback only when IO is unavailable). IO auto-recovers from
+//       container remounts because sentinelEl is re-observed via
+//       callback ref, and an intersection callback fires immediately
+//       on observe with the sentinel's current state.
+//
 //   (4) First-content-arrival gap (Ashley 2026-08-23): the mount effect
 //       writes scrollTop=scrollHeight at ref-bind time, but when messages[]
 //       is empty at that moment (PrettyView initializes empty, then WS
@@ -64,6 +80,16 @@ const BOTTOM_EPSILON = 100; // px — matches Phase 32 BOTTOM_THRESHOLD threshol
 
 export interface UseAutoScrollResult {
   scrollRef: (el: HTMLElement | null) => void;
+  /**
+   * inline-260823-pv-scroll-sentinel (Ashley 2026-08-23): callback ref to
+   * bind an invisible 1px `<div data-pv-scroll-sentinel />` as the LAST
+   * child of the scroll container (after messages + all accessory
+   * bubbles). An IntersectionObserver watching this sentinel is the
+   * AUTHORITATIVE pinning signal — pinned ⇔ sentinel intersects the
+   * container's viewport. Immune to scroll-container remount races that
+   * were defeating the scroll-event-driven pinning (see header §(5)).
+   */
+  sentinelRef: (el: HTMLElement | null) => void;
   scrollToBottomAndFollow: () => void;
   isPinnedToBottom: boolean;
 }
@@ -74,6 +100,15 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
   const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
   const scrollRef = useCallback((el: HTMLElement | null) => {
     setScrollEl(el);
+  }, []);
+
+  // inline-260823-pv-scroll-sentinel: bottom-sentinel element for the
+  // IntersectionObserver-driven pinning. Callback ref → useState so the
+  // observer effect re-fires when React re-mounts the sentinel (same
+  // pattern as scrollEl above).
+  const [sentinelEl, setSentinelEl] = useState<HTMLElement | null>(null);
+  const sentinelRef = useCallback((el: HTMLElement | null) => {
+    setSentinelEl(el);
   }, []);
 
   const [isPinnedToBottom, setIsPinnedToBottom] = useState<boolean>(true);
@@ -93,20 +128,65 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
     scrollEl.scrollTop = scrollEl.scrollHeight;
   }, [scrollEl, paneKey]);
 
-  // Scroll listener → pinnedRef. No seed — the mount/paneKey effect above
-  // owns the initial value.
+  // inline-260823-pv-scroll-sentinel: IntersectionObserver on the sentinel
+  // is the AUTHORITATIVE pinning signal (Ashley 2026-08-23, diagnosed
+  // from console-forward.log 11:18:13.780→.855Z where the scroll
+  // container was replaced by React mid-hydration, resetting scrollTop=0
+  // and defeating the scroll-event-driven pinning). Sentinel intersecting
+  // the container's viewport ⇔ user can see the bottom of content ⇔
+  // pinned=true. IntersectionObserver auto-recovers from container
+  // remounts because the sentinel is re-observed via ref-callback.
+  //
+  // Coexists with the scroll listener below (which retains diagnostic
+  // logging only — the pinnedRef update is HERE, not there). Old
+  // BOTTOM_EPSILON-based scroll-event pinning is REMOVED as
+  // authoritative — sentinel intersection replaces it.
+  useEffect(() => {
+    if (!scrollEl || !sentinelEl) return;
+    if (typeof IntersectionObserver === "undefined") {
+      // JSDOM without IO polyfill — fall back to scroll-event-driven
+      // pinning via the listener below (behavior preserved for tests).
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        const pinned = entry.isIntersecting;
+        pinnedRef.current = pinned;
+        setIsPinnedToBottom(pinned);
+        console.info(
+          `[pv-scroll-diag] sentinel-intersect pinned=${pinned} ratio=${entry.intersectionRatio} paneKey=${paneKey}`,
+        );
+      },
+      { root: scrollEl, rootMargin: "0px", threshold: 0 },
+    );
+    io.observe(sentinelEl);
+    return () => io.disconnect();
+  }, [scrollEl, sentinelEl, paneKey]);
+
+  // Scroll listener. inline-260823-pv-scroll-sentinel: pinning update
+  // MOVED to the IntersectionObserver above. This listener remains for
+  // pv-scroll-diag geometry logging AND as a fallback pinning updater
+  // when IntersectionObserver is unavailable (JSDOM tests without an
+  // IO polyfill).
   useEffect(() => {
     if (!scrollEl) return;
+    const hasIO = typeof IntersectionObserver !== "undefined";
     const onScroll = (): void => {
       const dist = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
       const pinned = dist <= BOTTOM_EPSILON;
-      pinnedRef.current = pinned;
-      setIsPinnedToBottom(pinned);
+      if (!hasIO) {
+        // Only update pinnedRef from scroll events when IO is unavailable
+        // (test-env fallback). In production the IO owns pinning state.
+        pinnedRef.current = pinned;
+        setIsPinnedToBottom(pinned);
+      }
       // pv-scroll-diag (2026-08-23): log every scroll event so we can
       // reconstruct the geometry timeline around a "jump up" complaint.
       // Volume is bounded by user input; flows to console-forward.log.
       console.info(
-        `[pv-scroll-diag] scroll top=${scrollEl.scrollTop} height=${scrollEl.scrollHeight} client=${scrollEl.clientHeight} dist=${dist} pinned=${pinned} paneKey=${paneKey}`,
+        `[pv-scroll-diag] scroll top=${scrollEl.scrollTop} height=${scrollEl.scrollHeight} client=${scrollEl.clientHeight} dist=${dist} pinned=${pinnedRef.current} paneKey=${paneKey}`,
       );
     };
     scrollEl.addEventListener("scroll", onScroll, { passive: true });

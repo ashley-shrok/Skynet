@@ -913,7 +913,7 @@ export function PrettyView({
   const paneKey = `${hostId}::${tmuxSession}`;
   // Phase 32: three-case sticky-bottom auto-scroll (session load / follow-when-at-bottom /
   // force-on-send). See 32-CONTEXT.md § Decisions LOCKED.
-  const { scrollRef, scrollToBottomAndFollow, isPinnedToBottom } = useAutoScroll(paneKey, messages.length);
+  const { scrollRef, sentinelRef, scrollToBottomAndFollow, isPinnedToBottom } = useAutoScroll(paneKey, messages.length);
 
   // Phase 50 D-18 (Blocker #4 middle): widened to (text, mqid?) so the
   // ComposeBox-generated mqid threads through to the parent's onSend
@@ -3213,6 +3213,21 @@ export function PrettyView({
       {status === "streaming" && backgroundedShells.length > 0 && (
         <BackgroundedShellsPanel shells={backgroundedShells} />
       )}
+      {/* inline-260823-pv-scroll-sentinel (Ashley 2026-08-23): invisible
+          1px bottom-sentinel used by useAutoScroll's IntersectionObserver
+          to compute the AUTHORITATIVE pinned-to-bottom state. Must be the
+          LAST child of the scroll container so "sentinel in viewport" ⇔
+          "user can see the bottom of the content." Fixes the container-
+          remount race where scroll-event pinning got stuck at pinned=false
+          after React replaced the scroll container mid-hydration (see
+          use-auto-scroll.ts header §(5)). Height of 1px so it always has
+          measurable area; aria-hidden because purely structural. */}
+      <div
+        ref={sentinelRef}
+        data-pv-scroll-sentinel
+        aria-hidden="true"
+        style={{ height: 1, minHeight: 1, width: "100%" }}
+      />
       </div>
       {/* Patch #108 wrapper closes here — ComposeBox stays a peer of the
           wrapper (below it in flex-col), so it's outside the IdentityModal's
