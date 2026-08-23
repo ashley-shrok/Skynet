@@ -11,6 +11,9 @@ import {
 } from "@/api/compose-drafts-api";
 import { publishSessionQueuePending } from "@/state/session-queue-pending-store";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
+// Quick 260823-8ji: attachment-path awaits the batch outcome to gate the
+// compose textarea + attachment-chip clear on a genuine success signal.
+import type { BatchOutcome } from "./use-pretty-view-uploads";
 import { useVoiceRecording } from "./useVoiceRecording";
 import { useHoldToRecord } from "./useHoldToRecord";
 import { MicButton } from "./MicButton";
@@ -121,6 +124,42 @@ function composeDraftLsKey(
 // CSS custom properties `--seg-count` and `--meter-width` are set on the
 // meter well's inline style for live DevTools tuning without a rebuild.
 const SEG_COUNT = 12;
+
+// ============================================================================
+// Quick 260823-8ji: attachment-path outcome-failure → user-facing string.
+//
+// Mapping keeps the compose surface's language consistent with the non-
+// attachment path's "Not connected — try again in a moment" convention
+// while distinguishing between the four failure reasons so the user knows
+// whether to check their connection, wait, or expect an upload retry.
+//
+// The "superseded" reason returns "" and is never surfaced — the branch
+// that would have called this helper for a superseded outcome returns
+// early (a newer send is already driving the UI state; stomping it with
+// an error would confuse the user).
+// ============================================================================
+type BatchFailureReasonForCompose = Exclude<BatchOutcome, { ok: true }>["reason"];
+
+function getBatchFailureUserMessage(reason: BatchFailureReasonForCompose): string {
+  switch (reason) {
+    case "upload_failed":
+      return "Upload failed — try again.";
+    case "timeout":
+      return "Upload timed out — check connection and try again.";
+    case "ws_not_open":
+      return "Not connected — try again in a moment.";
+    case "ws_send_threw":
+      return "Connection dropped — try again.";
+    case "superseded":
+      // never surfaced — the branch that would call this returns early.
+      return "";
+    default: {
+      const _exhaustive: never = reason;
+      void _exhaustive;
+      return "Send failed — try again.";
+    }
+  }
+}
 
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
@@ -261,7 +300,17 @@ export interface ComposeBoxProps {
   // usePrettyViewUploads.startBatch(caption). Send remains ENABLED
   // when attachments are staged even if caption text is empty
   // (UPLOAD-13).
-  onSendWithAttachments?: (caption: string) => void;
+  //
+  // Quick 260823-8ji: return shape widened from `void` to
+  // `Promise<BatchOutcome>` so handleSend's attachment branch can await
+  // a genuine success signal from the batch lifecycle before clearing the
+  // compose textarea + attachment chips. On outcome.ok the compose state
+  // clears; on !outcome.ok the state is PRESERVED (textarea keeps its
+  // value, chips stay on-screen) and an inline error surfaces via
+  // setErrorMessage(). Mirrors the non-attachment path's Phase 50 D-20 /
+  // D-56 failure-preservation posture so Ashley never loses a compose
+  // draft to a silent-clear on WS drop / upload_failed / timeout again.
+  onSendWithAttachments?: (caption: string) => Promise<BatchOutcome>;
   // Called when the user clicks the Retry button that appears when at
   // least one chip has status='error'. Parent hook re-issues the
   // batch. Empty batches or all-complete batches do not surface this
@@ -1308,21 +1357,61 @@ export function ComposeBox({
     // Phase 05 — attachment path: Send routes to onSendWithAttachments
     // whenever at least one attachment is staged. Empty caption is
     // permitted (UPLOAD-13); the caption we pass is `trimmed` (may be
-    // empty string). The parent hook owns the batch lifecycle from
-    // here; it does NOT return a boolean the way onSend does, so we
-    // clear the textarea unconditionally on the attachment path.
-    // Note: draft persistence still uses caption = the empty string
-    // after clearing, which is exactly the desired behavior — patch
-    // #57 draft goes to '' on any send, attachment or not.
+    // empty string).
+    //
+    // Quick 260823-8ji: attachment path is no longer fire-and-forget. The
+    // onSendWithAttachments prop returns a Promise<BatchOutcome> (see the
+    // prop's JSDoc + `BatchOutcome` in ./use-pretty-view-uploads.ts).
+    // handleSend's outer signature stays synchronous (existing consumers
+    // — queue-cadence + voice — call it without awaiting; changing that
+    // is out of scope for this bug), so we extract the await into an
+    // inner async closure that:
+    //   - awaits the outcome Promise;
+    //   - on outcome.ok: logs submit-success with path=attachment marker,
+    //     clears the textarea + calls clearAfterSend() (mirrors today's
+    //     silent-clear behavior — but only on genuine success);
+    //   - on !outcome.ok (excluding "superseded" which returns early to
+    //     avoid stomping a newer send's UI state): logs submit-failed at
+    //     WARN with path=attachment + reason + message, calls
+    //     setErrorMessage with a reason-specific user-facing string,
+    //     and DELIBERATELY does NOT clear text or attachments so the
+    //     user can retry without re-typing or re-attaching.
+    //
+    // The path=attachment marker on the log lines distinguishes them from
+    // the non-attachment path's submit-entry/submit-success/submit-failed
+    // lines (which do not carry a `path=` field — preserving the existing
+    // log-assertion contracts across 7+ sibling tests).
     if (hasAttachments && onSendWithAttachments) {
       setErrorMessage(null);
       const captionPayload = collapseNewlinesForSend(trimmed);
-      // Phase 31 D-02: compose submit instrumentation — attachment path.
-      console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} attachmentCount=${stagedAttachments?.length ?? 0} trigger=${trigger}`);
-      onSendWithAttachments(captionPayload);
-      console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length}`);
-      setText("");
-      clearAfterSend();
+      // Phase 31 D-02 + quick-260823-8ji: compose submit instrumentation —
+      // attachment path. mqid isn't known until the batch is minted inside
+      // the hook; the submit-entry line logs mqid=pending and the follow-up
+      // submit-success / submit-failed lines carry hostId + tmuxSession +
+      // bodyLen for correlation.
+      console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} attachmentCount=${stagedAttachments?.length ?? 0} trigger=${trigger} path=attachment mqid=pending`);
+      const runAttachmentSend = async (): Promise<void> => {
+        // Definitely defined here — guarded by hasAttachments && onSendWithAttachments above.
+        const outcome = await onSendWithAttachments!(captionPayload);
+        if (outcome.ok) {
+          console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment`);
+          setText("");
+          clearAfterSend();
+          return;
+        }
+        if (outcome.reason === "superseded") {
+          // A newer send superseded this one — the newer send is driving
+          // the UI state; do not stomp it with a stale error message.
+          return;
+        }
+        const userMessage = getBatchFailureUserMessage(outcome.reason);
+        console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment reason=${outcome.reason} message=${outcome.message ?? ""}`);
+        setErrorMessage(userMessage);
+        // Deliberately DO NOT clear text or attachments — Ashley may want
+        // to retry the send with the same caption + same files (mirrors
+        // the non-attachment path's Phase 50 D-20 / D-56 posture).
+      };
+      void runAttachmentSend();
       return;
     }
 

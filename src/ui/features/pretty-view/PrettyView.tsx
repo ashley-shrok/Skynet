@@ -3246,12 +3246,29 @@ export function PrettyView({
           // cancels an in-flight /btw or clears a displayed aside.
           asideActive={asideText !== null || asidePending}
           onAsideDismiss={handleAsideDismiss}
-          onSendWithAttachments={(caption) => {
-            // Fire-and-forget: the promise resolves when upload_start has
-            // been issued, not when uploads complete. The batch's
-            // onUploadReadyToInject callback (wired above at hook
-            // creation) handles the "ready to send injected turn" step.
-            void uploads.startBatch(caption);
+          onSendWithAttachments={async (caption) => {
+            // quick-260823-8ji: Promise-returning — ComposeBox awaits this
+            // outcome to gate the textarea + attachment-chip clear on a
+            // genuine success signal from the batch lifecycle
+            // (upload_ready_to_inject → { ok: true }). On failure /
+            // timeout / ws-drop the compose state is preserved and an
+            // inline error surfaces, mirroring the non-attachment path's
+            // Phase 50 D-20 / D-56 posture. See ComposeBox.tsx handleSend
+            // attachment branch + use-pretty-view-uploads.ts BatchOutcome
+            // for the full contract.
+            const ret = await uploads.startBatch(caption);
+            if (!ret) {
+              // startBatch returns null when no attachments are staged —
+              // the compose surface guards this branch on hasAttachments
+              // upstream, but defensively surface as an upload_failed so
+              // ComposeBox never sees an unresolved outcome.
+              return {
+                ok: false as const,
+                reason: "upload_failed" as const,
+                message: "No attachments staged",
+              };
+            }
+            return ret.outcome;
           }}
           onRetryBatch={() => {
             void uploads.retryBatch();
