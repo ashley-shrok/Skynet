@@ -3066,15 +3066,24 @@ export function PrettyView({
                   "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.85),rgba(60,50,32,0.9))]",
                   "hover:border-[rgba(255,240,215,0.22)]",
                   "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,210,0.22),_0_0_20px_rgba(255,240,215,0.16)]",
+                  // Ashley 2026-08-23: bump DESKTOP to 64×64 with a 32px
+                  // icon, matching the mobile back-to-conversations button
+                  // (AppShell.tsx:1800-1801 inline `width: 64, height: 64`
+                  // with `<ChevronLeft className="size-8" />`) she named as
+                  // her size reference. Prior desktop base was shadcn's
+                  // `size="icon-sm"` variant (`size-7` = 28px, "kind of
+                  // small" per her).
+                  "size-16 [&_svg]:size-8",
                   // Bounty jump-to-bottom-button-bigger-on-mobile
                   // (2026-08-01): mobile-only bump matching the aux row's
                   // new 75%-of-#165 mobile size (54×54 wrapper + 27px
                   // icon at html=24 mobile) for a comfortable tap target
-                  // on the floating jump-to-bottom action.
+                  // on the floating jump-to-bottom action. Ashley said
+                  // mobile was okay, so this stays unchanged.
                   "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
                 )}
               >
-                <ArrowDown className="size-4" />
+                <ArrowDown />
               </Button>
             </div>
           )}
