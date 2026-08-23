@@ -6,7 +6,7 @@
 // were REMOVED in Plan 06 — see 34-06-SUMMARY.md for the retired symbols.
 //
 // Composite formula:
-//   main      = status === "busy"
+//   main      = status === "busy" || status === "shell"
 //   waiting   = status === "waiting"   // separate axis — NOT working, bubble-only
 //   bg        = backgroundTasks.length > 0
 //   isWorking = main || bg
@@ -15,14 +15,31 @@
 // SessionState arrives at the browser, backgroundTasks[] is already
 // ambient-filtered — every entry is non-ambient work.
 //
-// Deviates from Phase 34 D-CTX which had `main = busy || shell`. Empirically
-// the harness reports `status: "shell"` whenever ANY local tool execution is
-// active, which includes persistent Monitors (the fleet's ambient recv /
-// wakeup / ctxwatch). That kept every session permanently `shell` → WIP
-// always on + dot never showing. Filtering-out-ambient at the bg axis is not
-// enough; shell has to leave `main` entirely. Genuine backgrounded work is
-// still captured via `bg` (post-filter). See bounty
-// phase-39-uat-regression-wip-always-on-idle-dot-missing for evidence.
+// History note on `shell`:
+//   Patch #442 (2026-08-14, bounty phase-39-uat-regression-wip-always-on-
+//   idle-dot-missing) EXCLUDED `shell` from `main` after diagnosing that
+//   ambient Monitors were pinning status=shell → WIP-always-on. Fleet-
+//   status watcher-side ambient filtering had already stripped the same
+//   Monitors from `background_tasks[]`, so the fix targeted the foreground
+//   `status` axis in the store.
+//
+// inline-260823-wip-shell-is-work (Ashley 2026-08-23): RESTORED to include
+//   `shell` in `main`. Empirical: three idle sessions on tina's box (all
+//   with 4 ambient Monitors each) are `status: idle`, not `shell` — the
+//   original "shell always" symptom is no longer reproducible on the same
+//   harness version. Meanwhile every real work turn oscillates busy →
+//   shell → busy → shell (assistant tokens + tool executions), and the
+//   post-#442 predicate flipped isWorking=false for the entire duration
+//   of every tool execution — producing the "flickers on and off" +
+//   "many sessions working but no indicator" symptoms Ashley reported
+//   2026-08-23. Evidence: patricia + molly + wendy + carly + stephanie
+//   + vicky logs 10:03-10:06Z all showed busy↔shell oscillation flipping
+//   isWorking every 10-30s during continuous work.
+//
+// Ambient Monitors remain filtered on the bg axis via the watcher-side
+// [ambient]- prefix strip, so they still cannot flip isWorking. `idle`
+// and `waiting` remain excluded from main — idle correctly means
+// "waiting for the user"; waiting drives WaitingBubble on its own axis.
 //
 // Internal state shape: Map<string, { isWorking: boolean }>
 // Key format: `${hostId}:${tmuxSession ?? ""}` — unchanged convention.
@@ -184,7 +201,10 @@ export function publishFleetStatusSessionState(
 ): void {
   const key = `${hostId}:${state_arg.tmuxSession ?? ""}`;
 
-  const main = state_arg.status === "busy";
+  // inline-260823-wip-shell-is-work (Ashley 2026-08-23): `shell` is
+  // real foreground tool-execution work. See header comment above.
+  const main =
+    state_arg.status === "busy" || state_arg.status === "shell";
   const bg = state_arg.backgroundTasks.length > 0;
   const isWorking = main || bg;
 

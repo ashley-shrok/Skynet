@@ -82,11 +82,18 @@ describe("session-working-store: Test A — status:'busy' → isWorking true", (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test B — status:'shell' + bg:[] → isWorking false
+// Test B — status:'shell' + bg:[] → isWorking TRUE (inline-260823-wip-shell-is-work)
 // ─────────────────────────────────────────────────────────────────────────────
+// Ashley 2026-08-23 flipped: `shell` = harness executing a foreground tool
+// (Read / Bash / Edit / subagent / etc.) — real work. The pre-2026-08-23
+// exclusion (patch #442) was working around a "status=shell always" symptom
+// that no longer reproduces on the same harness version. Excluding shell was
+// stripping isWorking=true from every session for the entire duration of
+// every tool execution — the "flickers off during continuous work" bug.
+// See session-working-store.ts header history block for full rationale.
 
-describe("session-working-store: Test B — status:'shell' + bg:[] → isWorking false", () => {
-  it("publishFleetStatusSessionState with status:'shell' → useSessionIsWorking returns false", () => {
+describe("session-working-store: Test B — status:'shell' + bg:[] → isWorking true (inline-260823-wip-shell-is-work)", () => {
+  it("publishFleetStatusSessionState with status:'shell' → useSessionIsWorking returns true (shell IS real tool-execution work)", () => {
     const { result, rerender } = renderHook(() =>
       useSessionIsWorking("h1:s1"),
     );
@@ -95,7 +102,7 @@ describe("session-working-store: Test B — status:'shell' + bg:[] → isWorking
       publishFleetStatusSessionState("h1", makeState({ status: "shell" }));
     });
     rerender();
-    expect(result.current).toBe(false);
+    expect(result.current).toBe(true);
   });
 });
 
