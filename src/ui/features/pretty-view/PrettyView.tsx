@@ -35,7 +35,6 @@ import { WipBubble } from "./WipBubble";
 import { PlanPendingBubble } from "./PlanPendingBubble";
 import { AsideBubble } from "./AsideBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
-import { DormancyOverlay } from "./DormancyOverlay";
 import { PrettyViewLoadingOverlay } from "./PrettyViewLoadingOverlay";
 import { PrettyViewErrorOverlay } from "./PrettyViewErrorOverlay";
 import { usePaneResolvingMachine } from "./usePaneResolvingMachine";
@@ -629,18 +628,17 @@ export function PrettyView({
   // signal; when it fires, backend emits `pane_state` with state=inactive
   // and reason=holding_timeout (Phase 30 — was `inactive` frame in Phase
   // 29) which the state machine reads via paneState.
-  // dormant/waking/etc. remain LOCAL because DormancyOverlay reads them as
-  // props (waking, elapsedSeconds, onWake, error). The mount gate for
-  // DormancyOverlay itself derives from `renderedState === "dormant"`
-  // (Phase 30 — backend-authoritative); the `dormant` local state slot
-  // is retained ONLY because the WS onmessage handler needs to observe
-  // parsed.dormant to clear waking/wakingStartTs/wakeError on wake
-  // completion (see the `dormantRef` live-frame auto-dismiss path).
+  // Phase 56 (2026-08-23): dormancy is now invisible — DormancyOverlay + Wake
+  // button + progress bar + elapsed-seconds ticker + waking/wakingStartTs/
+  // wakeError local state slots ALL DELETED. Only the `dormant` slot survives
+  // because the WS onmessage `dormant` case still calls setDormant(parsed.dormant)
+  // so `dormantRef` (live-frame auto-dismiss path in the ws.onmessage handler
+  // below) has a signal to mirror. Backend still tracks dormancy internally
+  // (paneState machine, WIP-indicator gating, live-frame auto-dismiss) but no
+  // user-visible surface remains — the compose box stays enabled on dormant
+  // panes, sends into dormant panes trigger invisible wake (Plan 56-01), and
+  // the widened watchdog (Plan 56-02) covers the ~90s wake latency.
   const [dormant, setDormant] = useState(false);
-  const [waking, setWaking] = useState(false);
-  const [wakingStartTs, setWakingStartTs] = useState<number | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [wakeError, setWakeError] = useState<string | null>(null);
   // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): D-04 anti-flash
   // RESTORED at THIS site (not the hook) per PS30-06's own guidance below.
   // Ashley UAT surfaced the flash the Phase 30 deletion left exposed — cold
@@ -797,22 +795,10 @@ export function PrettyView({
     }
   }, [hostId, tmuxSession]);
 
-  // quick 260808-cd6: wake handler. Sends {type:"wake"} to the backend
-  // which SSH exec's rm -f on the .dormant sentinel. Backend trust-boundary
-  // (T-cd6-01): uses connection-scoped currentTmuxSession, NOT any payload field.
-  // Sets local waking=true + wakingStartTs so the elapsed-seconds ticker starts.
-  const handleWake = useCallback(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    try {
-      ws.send(JSON.stringify({ type: "wake" }));
-    } catch {
-      /* swallow — best-effort; ws may be mid-close */
-    }
-    setWaking(true);
-    setWakingStartTs(Date.now());
-    setWakeError(null);
-  }, []);
+  // Phase 56 (2026-08-23): handleWake callback DELETED. The {type:"wake"} WS
+  // message is dead — no frontend surface emits it. Send-into-dormant-pane
+  // now triggers invisible wake at the backend send-path (Plan 56-01) with no
+  // user-visible ceremony.
 
   // Phase 47 (load-more button) — click handler for the LoadMoreOlderButton
   // mount at the top of the scroll container. Sends
@@ -1621,19 +1607,10 @@ export function PrettyView({
           parsed.type === "session")
       ) {
         setDormant(false);
-        setWaking(false);
-        setWakingStartTs(null);
-        setElapsedSeconds(0);
-        setWakeError(null);
-        // Phase 30 note: the D-11 clean-swap back to "active" that Phase 29
-        // needed at this site is now delivered by the backend's own
-        // pane_state emit — the supervisor's recover-path live-shape frame
-        // is preceded by an emit("active", "dormancy_cleared") from the
-        // dormant-poll seam (see pane-state-emitter Plan 30-01 funnel
-        // sites). The frontend just observes; no client-side inference
-        // needed. Local dormant/waking/wakeError state slots still clear
-        // above because DormancyOverlay reads them as props for its
-        // transient waking-state UX (unchanged from Phase 29).
+        // Phase 56 (2026-08-23): waking/wakingStartTs/elapsedSeconds/wakeError
+        // setters DELETED (no local slots exist any more — DormancyOverlay is
+        // gone). The dormantRef flip above is preserved because backend still
+        // emits {type:"dormant"} frames for internal state tracking.
       }
       switch (parsed.type) {
         case "pane_state": {
@@ -1994,60 +1971,15 @@ export function PrettyView({
           setContextPct(parsed.pct);
           break;
         }
-        // quick 260808-cd6 — dormancy overlay + wake button.
-        // Hidden-pane suppression is inherited from patch #344's WS-pause on
-        // !isVisible; no additional gate needed here — a hidden pane's WS is
-        // closed so dormant frames are never received.
         case "dormant": {
           setDormant(parsed.dormant);
-          if (parsed.dormant) {
-            // quick 260809-ha3: server-driven wakingSince restores wake-progress
-            // bar after Fix B (visibility false->true edge) wipes local
-            // wakingStartTs. Loose-equality guards both undefined (older
-            // servers pre-260809-ha3) and explicit null (natural-dormant path).
-            // Non-null wakingSince means a user-initiated wake is in flight
-            // server-side — enter waking state with the authoritative timestamp.
-            //
-            // Phase 30: the paneState "dormant" comes from the sibling
-            // pane_state emit funneled through the dormant-poll seam (see
-            // Plan 30-01 § L4214/L4216 + L4649 + L4738/L4740). Local
-            // dormant/waking/wakingStartTs stay so DormancyOverlay can read
-            // them as props for its wake-progress UX.
-            if (parsed.wakingSince != null) {
-              setWaking(true);
-              setWakingStartTs(parsed.wakingSince);
-              setWakeError(null);
-              // elapsedSeconds ticker reacts to wakingStartTs going from
-              // null to a number and picks up the count automatically.
-            }
-            // parsed.wakingSince == null (undefined OR explicit null): natural-
-            // dormant path — leave waking/wakingStartTs untouched. The dormant:
-            // false else-branch below handles clearing when the wake completes.
-          } else {
-            // Natural resume path: supervisor path 1/2 auto-wake, or race
-            // with our own wake. Clear all waking state. The renderedState
-            // transition off "dormant" comes from the sibling pane_state
-            // emit("active", "dormancy_cleared") — no client-side inference
-            // needed here.
-            setWaking(false);
-            setWakingStartTs(null);
-            setElapsedSeconds(0);
-            setWakeError(null);
-          }
-          break;
-        }
-        case "wake_result": {
-          if (parsed.ok) {
-            // Wake succeeded on the SSH side — wait for live-frame auto-dismiss.
-            // Do nothing; overlay stays in "waking…" state until a live JSONL
-            // frame arrives (supervisor recover path relaunched claude + /id ran).
-          } else {
-            // Wake failed: show warm-red error variant in the overlay.
-            setWaking(false);
-            setWakingStartTs(null);
-            setElapsedSeconds(0);
-            setWakeError(parsed.error ?? "wake failed");
-          }
+          // Phase 56 (2026-08-23): dormancy is now invisible. The backend still
+          // emits {type:"dormant", dormant:true|false} frames for internal state
+          // tracking (paneState machine, WIP-indicator gating, live-frame auto-
+          // dismiss), but no wake ceremony surfaces here. wakingSince field no
+          // longer exists on this frame (removed in Plan 56-01 backend); the
+          // wake_result frame no longer exists either (backend handler + API
+          // export deleted in Plan 56-03 Task 4).
           break;
         }
         case "harness_tasks": {
@@ -2459,49 +2391,17 @@ export function PrettyView({
     paneStateRef.current = paneState;
   }, [paneState]);
 
-  // quick 260809-cnx: prevIsVisibleRef edge detector for the waking-reset
-  // useEffect below. Initialized to current isVisible so the initial mount
-  // (prev === isVisible) does NOT fire the reset — only true false→true
-  // transitions (pane returning after being hidden) clear waking state.
-  const prevIsVisibleRef = useRef<boolean>(isVisible);
-
-  // quick 260809-cnx: reset local waking-related state on isVisible false→true.
-  // Patch #344 closes the WS while isVisible=false, so any pre-hidden `waking`
-  // state is unreliable on re-visibility. Clearing it lets the next backend
-  // dormant frame (arrives within one 3s poll cycle) paint the accurate
-  // overlay: "Session is asleep" + working Wake button, instead of a stuck
-  // "Waking up…" indicator. Visibility transition is the truth signal —
-  // do NOT use a time-based threshold (locked context).
-  useEffect(() => {
-    const prev = prevIsVisibleRef.current;
-    prevIsVisibleRef.current = isVisible;
-    if (!prev && isVisible) {
-      setWaking(false);
-      setWakingStartTs(null);
-      setElapsedSeconds(0);
-      setWakeError(null);
-    }
-  }, [isVisible]);
+  // Phase 56 (2026-08-23): prevIsVisibleRef edge detector + visibility-reset
+  // useEffect + elapsed-seconds ticker useEffect ALL DELETED. Their sole
+  // purpose was clearing/driving the local waking/wakingStartTs/elapsedSeconds/
+  // wakeError state slots that fed the DormancyOverlay's progress bar and
+  // hint text — the overlay is gone, the state slots are gone, so the reset
+  // and ticker effects have no observer.
 
   // Phase 30 note: the Phase-29 loading-arm ref-mirror useEffect + its
   // backing state slot + ref are DELETED. The loading-overlay mount is
   // now driven by `renderedState === "resolving"` directly, derived from
   // (wsTransportState, paneState) via usePaneResolvingMachine.
-
-  // quick 260808-cd6: elapsed-seconds ticker for the waking overlay.
-  // Counts elapsed seconds since Wake was clicked (wakingStartTs).
-  // Renders "this can take up to 60s" hint in DormancyOverlay after 15s.
-  // Cleanup: clearInterval on unmount or when waking flips off.
-  useEffect(() => {
-    if (!waking || wakingStartTs === null) {
-      setElapsedSeconds(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - wakingStartTs) / 1000));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [waking, wakingStartTs]);
 
   // Quick 260808-b74 — WS-pause lifecycle effect (hidden-pane-cost-mitigation-
   // empirical-rotation, iteration 1).
@@ -3067,19 +2967,10 @@ export function PrettyView({
         />
       )}
 
-      {/* quick 260812-ma8: `renderedState === "dormant"` added to the outer
-          scroll-container gate so DormancyOverlay (now mounted INSIDE this
-          container as a sibling of PlanPendingBubble) can appear in the
-          zero-messages / non-streaming dormancy case (e.g. cold pane
-          discovered dormant before any session frame lands). Without this OR
-          the container would not render and DormancyOverlay would be
-          unreachable — PrettyView.test.tsx "Test E: pane_state:dormant →
-          DormancyOverlay mounts" exercises exactly this path (renderedState
-          flips to "dormant" while status is still "connecting" and
-          messages.length === 0). */}
+      {/* Phase 56 (2026-08-23): dormant-OR term removed — no DormancyOverlay
+          sibling needs the container to mount in the zero-messages/dormant case. */}
       {(status === "streaming" ||
-        ((status === "connecting" || status === "error") && messages.length > 0) ||
-        renderedState === "dormant") && (
+        ((status === "connecting" || status === "error") && messages.length > 0)) && (
         <div
           // Outer scroll container. useAutoScroll's scrollRef drives pinned-follow behavior.
           ref={scrollRef}
@@ -3226,35 +3117,15 @@ export function PrettyView({
               onFeedback={handlePlanFeedback}
             />
           )}
-          {/* quick 260812-ma8: DormancyOverlay mount moved from the
-              chat-region wrapper (sibling of SessionHoldingOverlay,
-              full-surface scrim) INTO the scroll container here, as a
-              sibling of PlanPendingBubble. The bubble now scrolls in
-              the message-list flow instead of covering the chat region
-              with a scrim, so Ashley can read the tail of the
-              conversation to decide whether to wake the dormant
-              session. Gate unchanged (`renderedState === "dormant"` —
-              backend-authoritative via paneState). Style now mirrors
-              PlanPendingBubble ("identity is waiting on you") since
-              dormancy has the same semantic ("session asleep, waiting
-              on you to wake").
-
-              Cross-reference: DormancyOverlay.tsx file-header docblock
-              (updated in the same quick task) covers the bubble shape
-              + motion-channel guardrail (STATIC Moon glyph, no
-              animate-spin).
-
-              ComposeBox reduction still fires via the sibling gate
-              `dormantActive={renderedState === "dormant" || waking}`
-              on the ComposeBox mount below — unchanged. */}
-          {renderedState === "dormant" && (
-            <DormancyOverlay
-              waking={waking}
-              elapsedSeconds={elapsedSeconds}
-              onWake={handleWake}
-              error={wakeError}
-            />
-          )}
+          {/* Phase 56 (2026-08-23): DormancyOverlay mount DELETED. Dormancy is
+              now invisible — PrettyView on a dormant pane renders identically
+              to PrettyView on an awake-idle pane. Backend still tracks dormant
+              state internally (paneState machine, WIP-indicator gating, live-
+              frame auto-dismiss), and the compose box stays mounted + enabled
+              on dormant panes (see compose-mount gate below which KEEPS the
+              `renderedState === "dormant"` OR-term for that reason). Sending
+              into a dormant pane triggers invisible wake at the backend send-
+              path (Plan 56-01) with the widened watchdog window (Plan 56-02). */}
           {/* Phase 27 Plan 27-02 Step B: AsideBubble mounts as an in-flow
               sibling immediately after the sized virtualizer container inside
               the scroll container. Post-refactor (Phase 27), it is no longer
@@ -3448,12 +3319,9 @@ export function PrettyView({
           // in-flight); renderedState="error" covers the terminal ladder-
           // exhausted state.
           reconnectingActive={status === "error" || renderedState === "error"}
-          // Phase 30: dormantActive derives from
-          // `renderedState === "dormant" || waking`. `waking` stays as
-          // internal in-flight-wake signal (the DormancyOverlay reads it
-          // as a prop; keeping it in the OR ensures the compose disable
-          // stays active while the wake round-trip is in flight).
-          dormantActive={renderedState === "dormant" || waking}
+          // Phase 56 (2026-08-23): dormantActive prop DELETED. Compose stays
+          // enabled on dormant panes — send triggers invisible wake at the
+          // backend send-path (Plan 56-01) with widened watchdog (Plan 56-02).
           contextPct={contextPct}
           isIdle={isIdleDerived}
           hostId={hostId}

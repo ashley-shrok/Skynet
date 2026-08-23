@@ -402,18 +402,10 @@ export interface ComposeBoxProps {
   //
   // Value from PrettyView: `status === "error"`.
   reconnectingActive?: boolean;
-  // quick 260808-cd6 — dormancy overlay + wake button.
-  // Identity pane is dormant OR the local 'waking…' window is active (after
-  // the user clicks Wake, until a live JSONL frame auto-dismisses the overlay).
-  // Disables all WS-side-effecting controls (Send, reset, ThumbsUp, Recap, Queue)
-  // while textarea, mic, and attach remain live — same guarantee as recycleActive.
-  // Value from PrettyView: `dormant || waking` — flipped by the WS `dormant`
-  // frame handler + the local waking state set by handleWake.
-  // INDEPENDENT-from-other-props: same "Do NOT collapse" rule as recycleActive
-  // (per CONTEXT § "Do NOT collapse") — the disable topology is intentionally
-  // symmetric with reconnectingActive (dormantActive mirrors it 1:1; every site
-  // that reads reconnectingActive also OR-in dormantActive).
-  dormantActive?: boolean;
+  // Phase 56 (2026-08-23): dormantActive prop DELETED. Compose stays enabled
+  // on dormant panes — send triggers invisible wake at the backend send-path
+  // (Plan 56-01) with widened watchdog (Plan 56-02). Dormancy is now invisible
+  // to the user; ComposeBox has no dormancy-awareness.
   className?: string;
 }
 
@@ -447,7 +439,6 @@ export function ComposeBox({
   recycleActive,
   planPendingActive,
   reconnectingActive,
-  dormantActive,
   className,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
@@ -1517,7 +1508,7 @@ export function ComposeBox({
         // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
         // Reconnect window: same treatment — text lands, no auto-send while WS is between sockets.
         // quick 260808-cd6: same treatment during dormant/waking — text lands, no auto-send.
-        if (!recycleActive && !planPendingActive && !reconnectingActive && !dormantActive) {
+        if (!recycleActive && !planPendingActive && !reconnectingActive) {
           // D-16-05: route through the SAME handleSend — attachment branching,
           // D-50 newline collapse, Phase 50 D-18 optimistic-bubble seeding
           // all still apply.
@@ -1533,7 +1524,7 @@ export function ComposeBox({
         // Phase 24: same treatment during plan-mode pending — text lands in slot, no dispatch.
         // Reconnect window: same treatment — text lands in slot, no dispatch while WS is between sockets.
         // quick 260808-cd6: same treatment during dormant/waking — text lands in slot, no dispatch.
-        if (!recycleActive && !planPendingActive && !reconnectingActive && !dormantActive) {
+        if (!recycleActive && !planPendingActive && !reconnectingActive) {
           // handleQueueSlotSend reads from queueSlots state, but due to async
           // batching we pass the glued text directly via onSend to avoid stale reads.
           const payload = collapseNewlinesForSend(result.glued.trim());
@@ -1734,7 +1725,7 @@ export function ComposeBox({
     // Phase 24: same treatment during plan-mode pending — textarea stays
     // typeable but Enter-send is swallowed.
     // Reconnect window: same treatment — Enter can't slip past disabled Send.
-    if (recycleActive || planPendingActive || reconnectingActive || dormantActive) return;
+    if (recycleActive || planPendingActive || reconnectingActive) return;
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
@@ -1780,14 +1771,12 @@ export function ComposeBox({
   //   Quick 260802-uow bounty 1: voice.state is INTENTIONALLY not gated
   //   here — send-when-idle while recording on another textarea is a
   //   valid workflow (Ashley).
-  //   Ashley 2026-08-10: dormantActive is INTENTIONALLY not gated here —
-  //   arm-idle is pure client-state (armSourceForIdle just upserts the
-  //   queue array; no WS touching) and the watchdog is already isIdle-gated
-  //   so the message naturally sits until the woken pane's Claude reports
-  //   idle, then fires. Sibling recycleActive/planPendingActive/
-  //   reconnectingActive gates deliberately kept — Ashley scoped this ask
-  //   to the waking case only (see bounty queue-send-when-idle-available-
-  //   during-waking; the parallel recycle-case bounty stays open).
+  //   Phase 56 (2026-08-23): dormantActive removed everywhere in this file;
+  //   this comment kept as historical trace of the arm-idle-during-waking
+  //   bounty that predated the invisible-dormancy shape (Ashley 2026-08-10 —
+  //   arm-idle was pure client-state, no WS touching, isIdle-gated; the
+  //   invisible-dormancy shape supersedes this design decision by removing
+  //   the concept of "dormant/waking" from the UI entirely).
   //
   // showRecordingControls: while recording, the three-button controls own the slot.
   //   MicButton and send button are both hidden. Gated on isPrimaryRecording
@@ -1828,7 +1817,6 @@ export function ComposeBox({
     recycleActive === true ||
     planPendingActive === true ||
     reconnectingActive === true ||
-    dormantActive === true ||
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
 
@@ -2061,7 +2049,7 @@ export function ComposeBox({
           <button
             type="button"
             onClick={handleResetClick}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || dormantActive === true || voice.state === "transcribing"}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || voice.state === "transcribing"}
             aria-label="Reset context window"
             title="Reset context window"
             className={cn(
@@ -2282,7 +2270,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="secondary"
             onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || dormantActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
             aria-label="Send 'let's go'"
             title="Send 'let's go'"
             className={cn(
@@ -2315,7 +2303,7 @@ export function ComposeBox({
             // quick-button above. Per 32-CONTEXT.md § Wire into PrettyView "ALL send paths"
             // rule + 32-PATTERNS.md § 2d Send-path callsite swaps table.
             onClick={() => { onGoodToGo?.(); handleQuickSend("/explain the current situation"); }}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true || dormantActive === true}
+            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
             aria-label="Recap the current situation"
             title="Recap"
             className={cn(
@@ -2361,7 +2349,6 @@ export function ComposeBox({
               recycleActive={recycleActive}
               planPendingActive={planPendingActive}
               reconnectingActive={reconnectingActive}
-              dormantActive={dormantActive}
               canSend={canSend}
               queueSlots={queueSlots}
               onSlotsChange={(next) => {
@@ -2862,8 +2849,8 @@ interface QueuedRowProps {
   // Reconnect window: same OR-in treatment — queued-row Send is disabled
   // while the pretty-view WS is between sockets.
   reconnectingActive?: boolean;
-  // quick 260808-cd6: dormantActive mirrors reconnectingActive 1:1 in QueuedRow.
-  dormantActive?: boolean;
+  // Phase 56 (2026-08-23): dormantActive prop DELETED — compose (and queued
+  // rows) stay enabled on dormant panes; invisible wake fires at the backend.
   canSend?: boolean;
   queueSlots: Array<{ id: string; text: string }>;
   onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
@@ -2898,7 +2885,6 @@ function QueuedRow(props: QueuedRowProps) {
     recycleActive,
     planPendingActive,
     reconnectingActive,
-    dormantActive,
     canSend,
     queueSlots,
     onSlotsChange,
@@ -2966,8 +2952,7 @@ function QueuedRow(props: QueuedRowProps) {
     slotArmed ||
     recycleActive === true ||
     planPendingActive === true ||
-    reconnectingActive === true ||
-    dormantActive === true;
+    reconnectingActive === true;
   // Quick 260814-1hz: hold-to-record gesture MOVED from the slot send button
   // to the slot MicButton. The Send button gets its direct
   // onClick={handleQueueSlotSend} back below. Pointer handlers spread onto
@@ -3024,11 +3009,11 @@ function QueuedRow(props: QueuedRowProps) {
     (!isSlotActiveMic || slotHold.holdInitiatedRef.current) &&
     !asideActive &&
     !slotArmed;
-  // Ashley 2026-08-10: dormantActive gate removed here — parallel treatment
-  // to showPrimaryArmButton (see comment there). Arm is pure client state;
-  // dispatch is isIdle-gated so the armed slot naturally sits until the woken
-  // pane's Claude reports idle, then fires. Sibling recycle/plan/reconnect
-  // gates deliberately preserved (scoped ask).
+  // Phase 56 (2026-08-23): dormantActive prop is fully deleted; this comment
+  // preserved as historical trace of the arm-idle-during-waking design
+  // decision that predated the invisible-dormancy shape (Ashley 2026-08-10 —
+  // arm is pure client state, dispatch is isIdle-gated). Sibling
+  // recycle/plan/reconnect gates preserved as intended.
   const showSlotArmButton =
     !asideActive &&
     !slotArmed &&
