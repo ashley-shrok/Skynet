@@ -748,23 +748,40 @@ ordering in the actual code.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`HostRecord.id` type**
+1. **`HostRecord.id` type** — **RESOLVED**
    - What we know: `host.id` is used as a Map key in `perHostState` and as
      `fleetHostId` in log payloads throughout `ssh-poll-orchestrator.ts`
    - What's unclear: whether it's typed as `string` or `number` in `HostRecord`
    - Recommendation: Read `src/backend/fleet-status/host-id-resolver.ts` in
      Wave 0 and pick the cache key type accordingly. Use `String(x)` coercion
      at both sites for safety.
+   - **Resolution (during 55-01 planning):** `HostRecord.id` is `string` (confirmed
+     at `src/backend/fleet-status/host-id-resolver.ts:14-17`); the `connectToPane`
+     message `hostId` is validated as `number` at `claude-session-server.ts:5921-5929`.
+     The cache module (`src/backend/fleet-status/session-file-cache.ts`, plan 55-01)
+     accepts `hostId: string | number` and coerces via `String(hostId)` at both
+     write and read sites, so writer/reader resolve the same entry regardless of
+     which side calls it. Enforced by 55-01 acceptance grep on `String(hostId)` +
+     Tests 3 & 4 exercising both orderings.
 
-2. **Aside subsystem registration on cache-hit path**
+2. **Aside subsystem registration on cache-hit path** — **RESOLVED**
    - What we know: the aside registration block runs inline after
      `startActiveSessionFlow` at L7199 in the `connectToPane` handler
    - What's unclear: whether the cache-hit early-return would accidentally skip it
    - Recommendation: The planner should explicitly mark which lines of the aside
      block must run on cache-hit vs only on fresh-discovery paths. Wave B task
      should include a test that confirms aside registration fires on cache-hit attach.
+   - **Resolution (during 55-03 planning):** Confirmed at
+     `claude-session-server.ts:7192-7198` — the file's own comment states the aside
+     subsystem (fan-out registration, connect-time probe, extraction poller,
+     harness-tasks poller, discovery-repoll timer, tail start) is ALL inside
+     `startActiveSessionFlow`. Cache-hit path calls `startActiveSessionFlow({pid,
+     sessionFile})` and returns immediately after; the closure's internal aside
+     setup runs unchanged. Assumption A2 = LOW risk. Plan 55-03 Task 2 includes
+     an executor STOP-and-surface directive if a re-read of L7192-7199 finds
+     the assumption broken before shipping.
 
 ---
 
