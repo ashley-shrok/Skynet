@@ -188,6 +188,22 @@ interface PidCacheEntry {
   // still fires a publish exactly as a sentinel-only change would, without any
   // schema or fingerprint-version bump.
   layer1RecyclingCached: boolean;
+  // quick-260823-recycle-overlay — cached derived boolean result of stat'ing
+  // `~/.claude/identities/<tmuxSession>/.recycle-requested`. `false` at
+  // cold-start. Fail-open: SSH hiccup → preserve cached value. Same axis
+  // shape as `recycling` (.recycled-at) above and `layer1RecyclingCached`
+  // (JSONL). Feeds `derivedRecyclingComposed` as a THIRD OR term. Closes
+  // the gap Ashley observed 2026-08-23: the agent drops `.recycle-requested`
+  // BEFORE the supervisor renames it to `.recycled-at`, so between t=0
+  // (agent drops) and t=supervisor_reconcile_interval (supervisor renames),
+  // NO source was arming the overlay. Layer 3 in claude-session-server.ts
+  // saw `.recycle-requested` on its own 3s tick but its action
+  // (`transitionToHolding("sentinel")`) fires the legacy `session_holding`
+  // frame, which Phase 53 Plan 03 orphaned when the mount gate flipped to
+  // `isRecycling` (fleet-status-sourced). Adding source A stat coverage for
+  // `.recycle-requested` closes that window at the correct architectural
+  // seam without needing to un-orphan Layer 3.
+  recycleRequestedCached: boolean;
 }
 
 interface PerHostState {
@@ -683,21 +699,38 @@ export function createSshPollOrchestrator(
     const statResults = await Promise.all(
       identityNames.map(async (name) => {
         const quotedName = shellSingleQuote(name);
-        const [dormantOut, recyclingOut] = await Promise.all([
+        // quick-260823-recycle-overlay — third parallel stat for the
+        // agent-authored `.recycle-requested` sentinel, mirrored from source A.
+        // Source B typically fires when the PID is gone (post-recycle window),
+        // so `.recycle-requested` will usually be absent by then (supervisor
+        // renamed it), but if the agent-drop → source-A-see chain misses (e.g.
+        // PID vanishes before source A stats it), source B is the safety net.
+        const [dormantOut, recyclingOut, requestedOut] = await Promise.all([
           channel.exec(
             `stat ~/.claude/identities/${quotedName}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
           ),
           channel.exec(
             `stat ~/.claude/identities/${quotedName}/.recycled-at 2>/dev/null >/dev/null && echo yes || echo no`,
           ),
+          channel.exec(
+            `test -f ~/.claude/identities/${quotedName}/.recycle-requested 2>/dev/null && echo yes || echo no`,
+          ),
         ]);
-        // T-52-01-01 mitigation (applies to both axes): only "yes" or "no"
+        // T-52-01-01 mitigation (applies to all three axes): only "yes" or "no"
         // are meaningful. Anything else (null, unexpected output) → treat as
         // false since source B has no prior cache to fall back to for this
         // specific identity — it's cache-populated per-tick.
         const isDormant = dormantOut !== null && dormantOut.trim() === "yes";
-        const isRecycling =
+        const isRecycledAt =
           recyclingOut !== null && recyclingOut.trim() === "yes";
+        const isRecycleRequested =
+          requestedOut !== null && requestedOut.trim() === "yes";
+        // quick-260823-recycle-overlay: OR-compose the two sentinel axes at
+        // the source-B boundary. Source B doesn't have Layer 1 (no PID means
+        // JSONL discovery is orthogonal), so the composed axis here is just
+        // sentinel OR requested. Overall composed axis matches source A's
+        // three-way OR semantically (source A adds Layer 1 as the third term).
+        const isRecycling = isRecycledAt || isRecycleRequested;
         return { name, isDormant, isRecycling };
       }),
     );
@@ -892,6 +925,32 @@ export function createSshPollOrchestrator(
       // recyclingRaw === null → SSH hiccup → keep cached value (fail-open).
     }
 
+    // quick-260823-recycle-overlay — source A `.recycle-requested` stat.
+    // Same shape as `.recycled-at` above but for the agent-authored sentinel
+    // that appears BEFORE the supervisor renames it. Closes the gap between
+    // t=0 (agent /id reset drops the sentinel) and t=supervisor_reconcile
+    // (supervisor renames to `.recycled-at`). Fail-open to cached value on
+    // SSH hiccup / unexpected output (T-53-01-01 pattern). `test -f`
+    // instead of `stat` matches Layer 3's per-WS probe form byte-for-byte
+    // (claude-session-server.ts sentinel-detect); both work equivalently
+    // for existence check.
+    let derivedRequestedRecycling: boolean =
+      cached?.recycleRequestedCached ?? false;
+    if (tmuxSession !== null) {
+      const quotedTmuxSession = shellSingleQuote(tmuxSession);
+      const requestedRaw = await channel.exec(
+        `test -f ~/.claude/identities/${quotedTmuxSession}/.recycle-requested 2>/dev/null && echo yes || echo no`,
+      );
+      if (requestedRaw !== null) {
+        const trimmed = requestedRaw.trim();
+        if (trimmed === "yes") {
+          derivedRequestedRecycling = true;
+        } else if (trimmed === "no") {
+          derivedRequestedRecycling = false;
+        }
+      }
+    }
+
     // Phase 44 Plan 02 — replace jsonlPathForSession derivation with
     // discoverIdentityJsonlPathViaChannel (Phase 32 mechanism + SshChannel
     // adapter). The Phase 41 Plan 03 `cwd + sessionId` construction was
@@ -1042,15 +1101,45 @@ export function createSshPollOrchestrator(
       emitHookPayloadWarn(hostState, host.id);
     }
 
-    // quick-260822-0vw — OR-compose the final recycling axis.
-    // derivedLayer1Recycling: from the JSONL tail scan (true if /id reset was
-    //   the most-recent real user turn in the tail; cached value on SSH hiccup).
-    // derivedSentinelRecycling: from the .recycled-at stat (placed at t=N, end
-    //   of the save flow; cached value on SSH hiccup).
-    // The OR means the recycling axis arms at t=0 (Layer 1 fires when /id reset
-    // lands in the session file) AND stays armed at t=N (sentinel appears),
-    // AND publishing is single-triggered per fingerprint delta (no double-fire).
-    const derivedRecyclingComposed: boolean = derivedLayer1Recycling || derivedSentinelRecycling;
+    // quick-260822-0vw + quick-260823-recycle-overlay — OR-compose the final recycling axis.
+    // Three input axes:
+    //   derivedLayer1Recycling — JSONL tail scan (true if /id reset was the
+    //     most-recent real user turn in the tail; cached on SSH hiccup).
+    //   derivedRequestedRecycling — `.recycle-requested` stat (agent-authored;
+    //     present from the moment agent runs /id reset through the moment
+    //     supervisor renames it to `.recycled-at`; typically 0-30s window).
+    //   derivedSentinelRecycling — `.recycled-at` stat (supervisor-authored;
+    //     present from rename-time through +8s past new claude launch).
+    // The OR means the recycling axis arms at t=0 (agent drop OR /id reset lands
+    // in JSONL — whichever the poller sees first) AND stays armed continuously
+    // through the entire recycle lifecycle (rename, /exit, kill, drive, cleanup).
+    // Publishing is single-triggered per fingerprint delta (no double-fire).
+    const derivedRecyclingComposed: boolean =
+      derivedLayer1Recycling ||
+      derivedRequestedRecycling ||
+      derivedSentinelRecycling;
+
+    // quick-260823-recycle-overlay diagnostic log: emit ONLY when the composed
+    // axis is true (avoid spamming healthy-idle ticks). Field extraction is
+    // explicit (D-05 fleet directive) so future-me can read the log line and
+    // know EXACTLY which axis armed the overlay. Companion to the Layer 3
+    // probe log in claude-session-server.ts so both arm-signal channels have
+    // matching forensic trails.
+    if (derivedRecyclingComposed) {
+      systemLogger.info("Fleet-status: recycling axis armed", {
+        operation: "fleet_status_recycling_armed",
+        fleetHostId: host.id,
+        pid,
+        tmuxSession,
+        layer1: derivedLayer1Recycling,
+        requested: derivedRequestedRecycling,
+        sentinel: derivedSentinelRecycling,
+        composed: derivedRecyclingComposed,
+        cachedLayer1: cached?.layer1RecyclingCached ?? false,
+        cachedRequested: cached?.recycleRequestedCached ?? false,
+        cachedSentinel: cached?.recycling ?? false,
+      });
+    }
 
     // Compose SessionState — Phase 41 Plan 03 stamps lastMessageAt from the
     // JSONL-tail derivation above (null when no message-bearing history is
@@ -1091,6 +1180,13 @@ export function createSshPollOrchestrator(
         pid,
         sessionId: sessionJson.sessionId,
         status: sessionJson.status,
+        // quick-260823-recycle-overlay: surface the recycling + dormant
+        // booleans on the publish log so the forensic trail carries the
+        // exact frame the store received. Companion to the per-tick
+        // "recycling axis armed" log above (which fires per-tick when armed);
+        // this fires per-publish (only on fingerprint change).
+        dormant: state.dormant,
+        recycling: state.recycling,
       });
 
       livenessMap.set(pid, {
@@ -1105,6 +1201,7 @@ export function createSshPollOrchestrator(
         dormant: derivedDormant,
         recycling: derivedSentinelRecycling,
         layer1RecyclingCached: derivedLayer1Recycling,
+        recycleRequestedCached: derivedRequestedRecycling,
       });
     } else {
       // Update procStart + tmux in case they changed without a state-change
@@ -1120,6 +1217,7 @@ export function createSshPollOrchestrator(
         dormant: derivedDormant,
         recycling: derivedSentinelRecycling,
         layer1RecyclingCached: derivedLayer1Recycling,
+        recycleRequestedCached: derivedRequestedRecycling,
       });
     }
   }

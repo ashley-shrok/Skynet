@@ -130,6 +130,17 @@ export async function __applySentinelCheckForTests(
     connSnapshot: any;
     identityName: string;
     execCommand: (conn: unknown, cmd: string) => Promise<string>;
+    // quick-260823-recycle-overlay: optional structured logger injected by
+    // claude-session-server.ts so the probe outcome is on the forensic trail.
+    // Optional so the exact call-shape stays compatible with the existing
+    // vitest tests (they construct deps by name; passing an undefined logger
+    // is a no-op). D-05 fleet directive — explicit field extraction.
+    log?: (payload: {
+      identityName: string;
+      present: boolean;
+      changeoverState: ChangeoverState;
+      action: SentinelAction;
+    }) => void;
   },
   state: __SentinelStateForTests,
   helpers: __SentinelHelpersForTests,
@@ -142,6 +153,14 @@ export async function __applySentinelCheckForTests(
     );
     const present = isSentinelPresent(output);
     const action = decideSentinelAction(present, state.changeoverState);
+    if (deps.log !== undefined) {
+      deps.log({
+        identityName: deps.identityName,
+        present,
+        changeoverState: state.changeoverState,
+        action,
+      });
+    }
     if (action === "arm_holding") {
       helpers.transitionToHolding("sentinel");
     }

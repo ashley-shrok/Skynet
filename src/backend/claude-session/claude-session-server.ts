@@ -6427,6 +6427,28 @@ wss.on("connection", async (ws: WebSocket, req) => {
                     connSnapshot: sentinelConnSnapshot,
                     identityName: sentinelIdentityName,
                     execCommand,
+                    // quick-260823-recycle-overlay: forensic-trail log so
+                    // future recycle-overlay-late-mount investigations see
+                    // exactly what Layer 3's probe observed each tick.
+                    // Only emitted when probe COMPLETES (SSH exception path
+                    // stays silent — matches the "skip this tick silently"
+                    // catch-block posture; a stuck SSH is orthogonal to the
+                    // arm/no-arm decision).
+                    log: (p) => {
+                      sshLogger.info(
+                        "Layer 3 sentinel probe",
+                        {
+                          operation: "claude_session_layer3_sentinel_probe",
+                          userId,
+                          sessionId,
+                          hostId: currentHostId,
+                          identityName: p.identityName,
+                          present: p.present,
+                          changeoverState: p.changeoverState,
+                          action: p.action,
+                        },
+                      );
+                    },
                   },
                   { changeoverState },
                   { transitionToHolding },
