@@ -4417,6 +4417,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ? rawHostId
           : undefined;
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      // Quick 260823-80r: opt-in archive read. Strict boolean check —
+      // anything not literally `true` becomes false, so unset/omitted field
+      // preserves the cheap single-round-trip path. See readIdentityBounties
+      // for the branch gating.
+      const includeArchived = (msg as { includeArchived?: unknown }).includeArchived === true;
 
       try {
         let bounties: unknown[];
@@ -4424,13 +4429,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
         if (useLocal) {
           // LOCAL branch — bind-mount fast-path (patch #89, preserved byte-for-byte)
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
           sshLogger.info("identity:list-bounties", {
             operation: "identity_list_bounties",
             userId,
             identityKey,
             hostId: hostIdNum,
             useLocal: true,
+            includeArchived,
             openCount: bounties.length,
             archivedCount: archivedBounties.length,
           });
@@ -4445,13 +4451,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           }
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
             sshLogger.info("identity:list-bounties", {
               operation: "identity_list_bounties",
               userId,
               identityKey,
               hostId: hostIdNum,
               useLocal: false,
+              includeArchived,
               openCount: bounties.length,
               archivedCount: archivedBounties.length,
             });
@@ -5035,12 +5042,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ? rawHostId
           : undefined;
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      // Quick 260823-80r: forward opt-in archive read flag.
+      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
       try {
         let bounties: unknown[];
         let archivedBounties: unknown[];
         if (useLocal) {
           await archiveIdentityBounty(null, identityKey, bountySlug);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
           sshLogger.info("identity:archive-bounty", {
             operation: "identity_archive_bounty",
             userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: true,
@@ -5054,7 +5063,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
             await archiveIdentityBounty(conn, identityKey, bountySlug);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
             sshLogger.info("identity:archive-bounty", {
               operation: "identity_archive_bounty",
               userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
@@ -5105,12 +5114,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ? rawHostId
           : undefined;
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      // Quick 260823-80r: forward opt-in archive read flag.
+      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
       try {
         let bounties: unknown[];
         let archivedBounties: unknown[];
         if (useLocal) {
           await deleteIdentityBounty(null, identityKey, bountySlug);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
           sshLogger.info("identity:delete-bounty", {
             operation: "identity_delete_bounty",
             userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: true,
@@ -5124,7 +5135,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
             await deleteIdentityBounty(conn, identityKey, bountySlug);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
             sshLogger.info("identity:delete-bounty", {
               operation: "identity_delete_bounty",
               userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
@@ -5180,12 +5191,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ? rawHostId
           : undefined;
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      // Quick 260823-80r: forward opt-in archive read flag.
+      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
       try {
         let bounties: unknown[];
         let archivedBounties: unknown[];
         if (useLocal) {
           await writeIdentityBountyStatus(null, identityKey, bountySlug, status);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
           sshLogger.info("identity:update-bounty-status", {
             operation: "identity_update_bounty_status",
             userId, identityKey, bountySlug, status, hostId: hostIdNum, useLocal: true,
@@ -5199,7 +5212,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
             await writeIdentityBountyStatus(conn, identityKey, bountySlug, status);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
             sshLogger.info("identity:update-bounty-status", {
               operation: "identity_update_bounty_status",
               userId, identityKey, bountySlug, status, hostId: hostIdNum, useLocal: false,
@@ -5256,12 +5269,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ? rawHostId
           : undefined;
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      // Quick 260823-80r: forward opt-in archive read flag.
+      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
       try {
         let bounties: unknown[];
         let archivedBounties: unknown[];
         if (useLocal) {
           await writeIdentityBountyPinned(null, identityKey, bountySlug, pinned);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
           sshLogger.info("identity:update-bounty-pinned", {
             operation: "identity_update_bounty_pinned",
             userId, identityKey, bountySlug, pinned, hostId: hostIdNum, useLocal: true,
@@ -5275,7 +5290,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
             await writeIdentityBountyPinned(conn, identityKey, bountySlug, pinned);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
             sshLogger.info("identity:update-bounty-pinned", {
               operation: "identity_update_bounty_pinned",
               userId, identityKey, bountySlug, pinned, hostId: hostIdNum, useLocal: false,
@@ -5330,12 +5345,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ? rawHostId
           : undefined;
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      // Quick 260823-80r: forward opt-in archive read flag.
+      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
       try {
         let bounties: unknown[];
         let archivedBounties: unknown[];
         if (useLocal) {
           await writeIdentityBountyNeedsDesk(null, identityKey, bountySlug, needsDesk);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
           sshLogger.info("identity:update-bounty-needs-desk", {
             operation: "identity_update_bounty_needs_desk",
             userId, identityKey, bountySlug, needsDesk, hostId: hostIdNum, useLocal: true,
@@ -5349,7 +5366,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
             await writeIdentityBountyNeedsDesk(conn, identityKey, bountySlug, needsDesk);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
             sshLogger.info("identity:update-bounty-needs-desk", {
               operation: "identity_update_bounty_needs_desk",
               userId, identityKey, bountySlug, needsDesk, hostId: hostIdNum, useLocal: false,
@@ -5406,12 +5423,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ? rawHostId
           : undefined;
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      // Quick 260823-80r: forward opt-in archive read flag.
+      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
       try {
         let bounties: unknown[];
         let archivedBounties: unknown[];
         if (useLocal) {
           await writeIdentityBountyFields(null, identityKey, bountySlug, patch);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
           sshLogger.info("identity:update-bounty-fields", {
             operation: "identity_update_bounty_fields",
             userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: true,
@@ -5426,7 +5445,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
             await writeIdentityBountyFields(conn, identityKey, bountySlug, patch);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
             sshLogger.info("identity:update-bounty-fields", {
               operation: "identity_update_bounty_fields",
               userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
@@ -5479,12 +5498,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ? rawHostId
           : undefined;
       const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+      // Quick 260823-80r: forward opt-in archive read flag.
+      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
       try {
         let bounties: unknown[];
         let archivedBounties: unknown[];
         if (useLocal) {
           await writeIdentityBountyPriority(null, identityKey, bountySlug, priority);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey));
+          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
           sshLogger.info("identity:update-bounty-priority", {
             operation: "identity_update_bounty_priority",
             userId, identityKey, bountySlug, priority, hostId: hostIdNum, useLocal: true,
@@ -5498,7 +5519,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
           try {
             await writeIdentityBountyPriority(conn, identityKey, bountySlug, priority);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey));
+            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
             sshLogger.info("identity:update-bounty-priority", {
               operation: "identity_update_bounty_priority",
               userId, identityKey, bountySlug, priority, hostId: hostIdNum, useLocal: false,

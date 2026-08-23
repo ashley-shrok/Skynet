@@ -700,10 +700,26 @@ export async function readIdentityHandoff(
  * plus every write-then-refetch bounty-mutation handler) get the two-step
  * "for free" — no caller-side change. See resolveRoleForIdentity above for
  * the no-fallback semantics.
+ *
+ * Quick 260823-80r: opt-in archive read via `includeArchived` (default false).
+ * Roles with hundreds of archived bounties (Wendy/Molly/Aqua on host 7) were
+ * timing out the modal because the archive shell one-liner (a shell for-loop
+ * cat'ing every bounty.json under `bounties/archive`) on the REMOTE branch
+ * exceeds REMOTE_EXEC_TIMEOUT_MS (3s) and gets swallowed to "" via
+ * `.catch(() => "")`, surfacing as a modal error via the outer
+ * connectOneShot 5000ms timeout. When the caller does NOT set
+ * `includeArchived: true` (the common case — modal opens with the Archive
+ * accordion collapsed), we skip the archive read entirely on both LOCAL and
+ * REMOTE branches and return `archivedBounties: []`. When the caller DOES
+ * set it (user expands the accordion), behavior is byte-identical to the
+ * pre-fix path — same command strings, same `.catch(() => "")` safety net
+ * on REMOTE. All 16 call sites in claude-session-server.ts forward the flag
+ * from the incoming WS message.
  */
 export async function readIdentityBounties(
   conn: SSHClientType | null,
   identityKey: string,
+  includeArchived: boolean = false,
 ): Promise<{ bounties: unknown[]; archivedBounties: unknown[] }> {
   // Phase 22 SRIC-01: two-step — resolve role from identity file's frontmatter
   // before any artifact read. Throws (no fallback) if role is missing or fails
@@ -752,66 +768,85 @@ export async function readIdentityBounties(
       }
     }
 
-    // Archived bounties
-    const archiveDir = path.join(baseDir, "archive");
-    let archiveEntries: string[];
-    try {
-      archiveEntries = await fs.readdir(archiveDir);
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        archiveEntries = [];
-      } else {
-        throw err;
-      }
-    }
-
+    // Quick 260823-80r: archive read is opt-in. Callers that don't set
+    // `includeArchived: true` (default) get archivedBounties=[] without any
+    // fs.readdir(archiveDir) call — critical for roles with hundreds of
+    // archived bounties where the fs walk itself takes seconds.
     const archivedBounties: unknown[] = [];
-    for (const entry of archiveEntries) {
-      const filePath = path.join(archiveDir, entry, "bounty.json");
+    if (includeArchived) {
+      const archiveDir = path.join(baseDir, "archive");
+      let archiveEntries: string[];
       try {
-        const raw = await fs.readFile(filePath, "utf-8");
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        archivedBounties.push(normalizeBounty(parsed, entry));
-      } catch (err) {
-        sshLogger.error(
-          "identity-artifact-reader: failed to parse local archive bounty.json",
-          err instanceof Error ? err : new Error(String(err)),
-          {
-            operation: "identity_bounties_archive_local_parse_error",
-            identityKey,
-            filePath,
-          },
-        );
-        // Skip poisoned entry.
+        archiveEntries = await fs.readdir(archiveDir);
+      } catch (err: unknown) {
+        if (
+          typeof err === "object" &&
+          err !== null &&
+          (err as NodeJS.ErrnoException).code === "ENOENT"
+        ) {
+          archiveEntries = [];
+        } else {
+          throw err;
+        }
+      }
+
+      for (const entry of archiveEntries) {
+        const filePath = path.join(archiveDir, entry, "bounty.json");
+        try {
+          const raw = await fs.readFile(filePath, "utf-8");
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          archivedBounties.push(normalizeBounty(parsed, entry));
+        } catch (err) {
+          sshLogger.error(
+            "identity-artifact-reader: failed to parse local archive bounty.json",
+            err instanceof Error ? err : new Error(String(err)),
+            {
+              operation: "identity_bounties_archive_local_parse_error",
+              identityKey,
+              filePath,
+            },
+          );
+          // Skip poisoned entry.
+        }
       }
     }
 
     return { bounties, archivedBounties };
   }
 
-  // REMOTE branch — two commands in parallel (open + archive) via Promise.all,
-  // delimiter-based dir enumeration (one round-trip per artifact per R5).
-  // Phase 22 SRIC-01: role-scoped path (~/.claude/roles/<role>/bounties/) —
-  // role validated by resolveRoleForIdentity's IDENTITY_KEY_RE gate above,
-  // so direct interpolation inside double quotes is shell-safe (same posture
-  // as identityKey per patch #95's readIdentityFile prologue).
+  // REMOTE branch — delimiter-based dir enumeration (one round-trip per
+  // artifact per R5). Phase 22 SRIC-01: role-scoped path
+  // (~/.claude/roles/<role>/bounties/) — role validated by
+  // resolveRoleForIdentity's IDENTITY_KEY_RE gate above, so direct
+  // interpolation inside double quotes is shell-safe (same posture as
+  // identityKey per patch #95's readIdentityFile prologue).
+  //
+  // Quick 260823-80r: archive read is opt-in. When includeArchived=false
+  // (default), only the open command runs — one exec round-trip instead of
+  // two, and the archive `for d in */; do cat "$d/bounty.json"; done` (which
+  // exceeds REMOTE_EXEC_TIMEOUT_MS for large archives) is skipped entirely.
+  // When includeArchived=true, behavior is byte-identical to the pre-fix
+  // path: same archive command string, same `.catch(() => "")` safety net
+  // so a slow-archive host still returns the open list.
+  //
+  // The open path deliberately drops the `.catch(() => "")` swallow — with
+  // no Promise.all racing an archive branch, a genuine open-side failure
+  // should propagate so callers see the real error instead of silently
+  // getting an empty bounties list.
   const openCmd =
     `cd "$HOME/.claude/roles/${role}/bounties" 2>/dev/null && ` +
     'for d in */; do d="${d%/}"; [ "$d" = "archive" ] && continue; ' +
     '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
-  const archiveCmd =
-    `cd "$HOME/.claude/roles/${role}/bounties/archive" 2>/dev/null && ` +
-    'for d in */; do d="${d%/}"; ' +
-    '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
 
-  const [openStdout, archiveStdout] = await Promise.all([
-    execWithTimeout(conn, openCmd).catch(() => ""),
-    execWithTimeout(conn, archiveCmd).catch(() => ""),
-  ]);
+  const openStdout = await execWithTimeout(conn, openCmd);
+  let archiveStdout = "";
+  if (includeArchived) {
+    const archiveCmd =
+      `cd "$HOME/.claude/roles/${role}/bounties/archive" 2>/dev/null && ` +
+      'for d in */; do d="${d%/}"; ' +
+      '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
+    archiveStdout = await execWithTimeout(conn, archiveCmd).catch(() => "");
+  }
 
   function parseDelimited(stdout: string, identityKeyForLog: string, isArchive: boolean): unknown[] {
     const results: unknown[] = [];

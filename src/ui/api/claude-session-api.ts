@@ -554,6 +554,8 @@ export type IdentityListBountiesPayload = {
   identityKey: string;
   /** patch #92: pane's SSH host id — backend routes reads to the pane's box (local bind-mount when hostId is in IDENTITIES_LOCAL_HOST_IDS). */
   hostId: number;
+  /** Quick 260823-80r: opt-in archive read — backend runs the archive shell command ONLY when true. Default false to skip the expensive `for d in */; do cat "$d/bounty.json"; done` for roles with hundreds of archived bounties. */
+  includeArchived?: boolean;
 };
 
 export type IdentityBountiesEvent = {
@@ -797,6 +799,8 @@ export type IdentityUpdateBountyPriorityPayload = {
   hostId: number;
   bountySlug: string;
   priority: BountyPriority;
+  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded, so the refetch matches what's on screen. */
+  includeArchived?: boolean;
 };
 export type IdentityBountyPriorityUpdatedEvent = {
   type: "identity:bounty-priority-updated";
@@ -816,6 +820,8 @@ export type IdentityUpdateBountyStatusPayload = {
   hostId: number;
   bountySlug: string;
   status: BountyStatus;
+  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
+  includeArchived?: boolean;
 };
 export type IdentityBountyStatusUpdatedEvent = {
   type: "identity:bounty-status-updated";
@@ -836,6 +842,8 @@ export type IdentityUpdateBountyPinnedPayload = {
   hostId: number;
   bountySlug: string;
   pinned: boolean;
+  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
+  includeArchived?: boolean;
 };
 export type IdentityBountyPinnedUpdatedEvent = {
   type: "identity:bounty-pinned-updated";
@@ -855,6 +863,8 @@ export type IdentityUpdateBountyNeedsDeskPayload = {
   hostId: number;
   bountySlug: string;
   needs_desk: boolean;
+  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
+  includeArchived?: boolean;
 };
 export type IdentityBountyNeedsDeskUpdatedEvent = {
   type: "identity:bounty-needs-desk-updated";
@@ -899,6 +909,8 @@ export type IdentityUpdateBountyFieldsPayload = {
   bountySlug: string;
   /** Partial JSON patch — only fields present are written; unmentioned fields untouched. */
   patch: BountyFieldsPatch;
+  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
+  includeArchived?: boolean;
 };
 
 export type IdentityBountyFieldsUpdatedEvent = {
@@ -919,6 +931,8 @@ export type IdentityArchiveBountyPayload = {
   identityKey: string;
   hostId: number;
   bountySlug: string;
+  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
+  includeArchived?: boolean;
 };
 export type IdentityBountyArchivedEvent = {
   type: "identity:bounty-archived";
@@ -938,6 +952,8 @@ export type IdentityDeleteBountyPayload = {
   identityKey: string;
   hostId: number;
   bountySlug: string;
+  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
+  includeArchived?: boolean;
 };
 export type IdentityBountyDeletedEvent = {
   type: "identity:bounty-deleted";
