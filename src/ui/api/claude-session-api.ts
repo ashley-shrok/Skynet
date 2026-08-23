@@ -99,7 +99,9 @@ export type ContextPctEvent = {
   // (readContextPctFromJsonl piggybacking on the dormant-poll tick). Absent
   // (or false) on the normal active-flow contextPctTimer emits. Consumed by
   // the frontend's live-frame auto-dismiss check so a dormant-branch emit
-  // does not false-dismiss the DormancyOverlay.
+  // does not false-flip the dormantRef mirror (Phase 56: the overlay itself
+  // no longer exists, but dormantRef is still updated for internal state
+  // tracking on the frontend — see PrettyView.tsx dormantRef mirror).
   dormant?: boolean;
 };
 
@@ -302,10 +304,16 @@ export type ErrorEvent = {
   code?: string;
 };
 
-/** quick 260808-cd6 — dormancy overlay + wake button */
+/**
+ * Phase 56 (2026-08-23): invisible-dormancy state signal. Backend emits this
+ * for pane state tracking (WIP-indicator gating, live-frame auto-dismiss,
+ * backend dormancy tracking). No user-facing UI consumes it — the
+ * DormancyOverlay + Wake button were deleted. Frontend still calls
+ * setDormant(parsed.dormant) so dormantRef live-frame auto-dismiss has a
+ * signal to mirror, but nothing renders based on this event any more.
+ * wakingSince field was removed from the emit in Plan 56-01.
+ */
 export type DormantEvent = { type: "dormant"; dormant: boolean };
-/** quick 260808-cd6 — dormancy overlay + wake button */
-export type WakeResultEvent = { type: "wake_result"; ok: boolean; error?: string };
 
 /**
  * Phase 30 (PS30-01 + PS30-04): backend-authoritative pane-entry verdict.
@@ -378,9 +386,10 @@ export type ClaudeSessionServerEvent =
   | AsideDismissedEvent
   | TailErrorEvent
   | ErrorEvent
-  // quick 260808-cd6 — dormancy overlay + wake button
+  // Phase 56 (2026-08-23) — dormancy is invisible; DormantEvent still emitted
+  // for internal state tracking. The former wake-result response arm was
+  // deleted here alongside the backend wake handler + frontend Wake button.
   | DormantEvent
-  | WakeResultEvent
   // Phase 30 (PS30-01 + PS30-04) — backend-authoritative pane-entry verdict
   | PaneStateEvent
   | IdentityBountiesEvent

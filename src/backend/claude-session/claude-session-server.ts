@@ -125,11 +125,16 @@ import {
  *     { type: "backgrounded_shells", shells }                    // currently-running Bash{run_in_background:true} shells — derived from JSONL tool_use / task-notification correlation (patch #68)
  *     { type: "plan_pending", pending }                          // pending = { planFilePath: string|null, planContent: string|null, contentError: string|null } | null (Phase 24 widened; presence via pane-scrape quick 260802-rps + parent-JSONL fallback patch #63; planContent fetched async via SFTP side-channel Phase 24 Plan 02)
  *     // (client -> server, Phase 24) { type: "raw_keystrokes", bytes: string } — one-shot PTY write via `tmux send-keys -l`, NO split-send. Used by PlanPendingBubble Approve ("1\r") + Feedback ("3<text>\r"). Split-send (patch #44) is NOT recognized by Ink Plan Mode as a keystroke selection.
- *     // quick 260808-cd6 — dormancy overlay + wake button:
+ *     // Phase 56 (2026-08-23) — invisible dormancy. The wake WS message
+ *     // (client -> server) and its wake_result response are DELETED. The
+ *     // dormant frame stays on the wire for internal state tracking
+ *     // (paneState machine, WIP-indicator gating, live-frame auto-dismiss)
+ *     // but no user-facing UI consumes it — DormancyOverlay + Wake button
+ *     // were removed in Plan 56-03. wakingSince field was removed in Plan
+ *     // 56-01. Sends into a dormant pane trigger invisible wake at the
+ *     // send-path (Plan 56-01) with widened watchdog (Plan 56-02).
  *     { type: "dormant", dormant: boolean }                      // server -> client: emit-only-on-change; identity pane's .dormant sentinel state
  *     { type: "pane_state", state: "active"|"holding"|"dormant"|"inactive"|"error", reason?: string } // Phase 30 PS30-01: authoritative pane-entry state verdict; emitted alongside every existing dormant/session_holding/session_holding_cleared/session_changed/inactive transition + on connectToPane attach. Legacy frames remain on the wire this phase for backward compat (deprecation deferred per 30-CONTEXT.md § Deferred).
- *     // (client -> server, quick 260808-cd6) { type: "wake" } — delete ~/.claude/identities/<name>/.dormant via SSH exec; backend uses connection-scoped currentTmuxSession (T-cd6-01 mitigation)
- *     { type: "wake_result", ok: boolean, error?: string }       // server -> client: response to { type: "wake" }
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
@@ -2004,7 +2009,8 @@ export const __applyTransitionToActiveNewCleanupForTests =
 /**
  * Apply the input message handler logic for tests.
  * Phase 35 — pretty-view compose-send migrated onto claude-session WS.
- * Mirrors __applyWakeMessageForTests shape (Tests D/E/F from dormant-poll.test.ts).
+ * Mirrors the input-handler seam shape (Tests D/E/F from dormant-poll.test.ts)
+ * — the sibling wake-message test seam was DELETED in Phase 56 Plan 03.
  *
  * Handles both the split-send case (mqid non-empty + data ends in \r →
  * body write, 250ms delay, Enter write) and the non-split case (one send-keys call).
@@ -2085,8 +2091,9 @@ export async function __applyInputMessageForTests(deps: {
     // the wake-handler write at L5828.
     deps.setWakeTriggerTs(triggerTs);
     try {
-      // Byte-identical to the exec at L2487 inside __applyWakeMessageForTests
-      // — same single-quote wrap, same path, same connection. T-56-01-01:
+      // Byte-identical to the exec previously in the deleted
+      // wake-message test seam (removed in Phase 56 Plan 03) — same
+      // single-quote wrap, same path, same connection. T-56-01-01:
       // currentTmuxSession is connection-scoped (from connectToPane
       // discovery); client-supplied hostId/tmuxSession are IGNORED.
       await exec(
@@ -2579,7 +2586,8 @@ export function __applyQueueDedupForTests(deps: {
 /**
  * Apply the interrupt message handler logic for tests.
  * Phase 35 — pretty-view compose-send migrated onto claude-session WS.
- * Mirrors __applyWakeMessageForTests shape (Tests D/E/F from dormant-poll.test.ts).
+ * Mirrors the input-handler seam shape (Tests D/E/F from dormant-poll.test.ts)
+ * — the sibling wake-message test seam was DELETED in Phase 56 Plan 03.
  *
  * Fires a single `tmux send-keys -t <session> C-c` to send Ctrl-C into the pane.
  * Original safety-valve Ctrl-C was patch #120 on the terminal WS (Terminal.tsx:3300-3311).
@@ -2612,37 +2620,14 @@ export async function __applyInterruptMessageForTests(deps: {
   }
 }
 
-/**
- * Apply the wake message handler logic for tests.
- * Tests D/E/F from dormant-poll.test.ts use this seam.
- *
- * @param deps.sshConn              - SSH connection (null if not connected)
- * @param deps.currentTmuxSession   - current pane tmux session name (null if none)
- * @param deps.isIdentityShapedCached - identity shape probe cache
- * @param deps.execCommand          - injectable SSH exec helper
- * @param deps.wsSend               - injectable ws.send stub
- */
-export async function __applyWakeMessageForTests(deps: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  sshConn: any | null;
-  currentTmuxSession: string | null;
-  isIdentityShapedCached: boolean | null;
-  execCommand: (conn: unknown, cmd: string) => Promise<string>;
-  wsSend: (data: string) => void;
-}): Promise<void> {
-  const { sshConn, currentTmuxSession, isIdentityShapedCached, execCommand: exec, wsSend } = deps;
-  if (!sshConn || currentTmuxSession === null || isIdentityShapedCached !== true) {
-    wsSend(JSON.stringify({ type: "wake_result", ok: false, error: "not connected to an identity pane" }));
-    return;
-  }
-  const wakeEscapedName = currentTmuxSession;
-  try {
-    await exec(sshConn, `rm -f ~/.claude/identities/'${wakeEscapedName}'/.dormant`);
-    wsSend(JSON.stringify({ type: "wake_result", ok: true }));
-  } catch (err) {
-    wsSend(JSON.stringify({ type: "wake_result", ok: false, error: err instanceof Error ? err.message : String(err) }));
-  }
-}
+// Phase 56 (2026-08-23): the former wake-message test seam and its
+// production wake handler are DELETED. The frontend no longer emits
+// the wake message — Plan 56-03 deleted the DormancyOverlay + Wake button.
+// Sends into a dormant pane now trigger invisible wake at the backend
+// send-path (Plan 56-01) with widened watchdog window (Plan 56-02).
+// The `let wakeTriggerTs` closure var is PRESERVED — Plan 01's send-path
+// writes to it via setWakeTriggerTs and the rediscovery-seam marker-
+// freshness gate reads it.
 
 // ─── Test seam: dormant-poll-with-rediscovery logic (quick 260808-dmz) ────────
 //
@@ -3041,8 +3026,9 @@ async function dispatchUploadMessage(
  * re-export of `dispatchUploadMessage` so tests exercise the same code
  * path production runs — no drift possible.
  *
- * Pattern mirrors `__applyInputMessageForTests` / `__applyWakeMessageForTests`
- * above — zero new npm dependencies; test-only callpath.
+ * Pattern mirrors `__applyInputMessageForTests` above (the sibling
+ * wake-message test seam was DELETED in Phase 56 Plan 03) — zero new
+ * npm dependencies; test-only callpath.
  */
 export const __dispatchUploadMessageForTests = dispatchUploadMessage;
 
@@ -5978,39 +5964,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // quick 260808-cd6 — wake message: client -> server sentinel delete.
-    // Guard: require currentTmuxSession + sshConn + isIdentityShapedCached === true
-    // (T-cd6-01: backend ignores any hostId/tmuxSession in the payload and uses
-    // only connection-scoped currentTmuxSession set at connectToPane discovery).
-    // (T-cd6-02: single-quote wrap on escapedName; already validated to safe subset).
-    // (T-cd6-03: path hard-coded to ~/.claude/identities/<name>/.dormant).
-    // Does NOT try to fast-poke the supervisor; next CHECK_INTERVAL tick picks it up.
-    if (msg.type === "wake") {
-      // quick 260808-fgf: intercept wsSend to detect a successful wake_result
-      // and record wakeTriggerTs at the moment the rm -f exec succeeded.
-      // We wrap wsSend (not the seam itself) so __applyWakeMessageForTests's
-      // signature contract (Tests E/F/K) is preserved unchanged.
-      let lastWakeOk = false;
-      await __applyWakeMessageForTests({
-        sshConn,
-        currentTmuxSession,
-        isIdentityShapedCached,
-        execCommand,
-        wsSend: (data: string) => {
-          try {
-            const frame = JSON.parse(data);
-            if (frame.type === "wake_result" && frame.ok === true) {
-              lastWakeOk = true;
-            }
-          } catch { /* ignore parse failures — still forward the frame */ }
-          try { ws.send(data); } catch (err) { databaseLogger.warn(`[ws-server] send-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        },
-      });
-      if (lastWakeOk) {
-        wakeTriggerTs = Date.now();
-      }
-      return;
-    }
+    // Phase 56 (2026-08-23): the {type:"wake"} handler is DELETED. The
+    // frontend no longer emits this message — the DormancyOverlay + Wake
+    // button were removed in Plan 56-03. Sends into a dormant pane trigger
+    // invisible wake at the backend send-path (Plan 56-01) with widened
+    // watchdog (Plan 56-02). Stale bundles that still send {type:"wake"}
+    // fall through to the outer switch's default (log-and-drop) — no side
+    // effect. The `let wakeTriggerTs` closure var above stays live; Plan 01
+    // writes to it via setWakeTriggerTs on send-while-dormant entry and the
+    // rediscovery seam reads it for marker-freshness gating.
 
     // Phase 41 Plan 04: pretty-view upload dispatch — ported verbatim from
     // src/backend/ssh/terminal.ts's upload_start/upload_chunk/upload_abort cases

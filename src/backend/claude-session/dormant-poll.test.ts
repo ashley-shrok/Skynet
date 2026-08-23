@@ -29,14 +29,13 @@
  *           with correct pid+sessionFile.
  *   Test J (NEW): re-discovery still inactive/not_claude → seam does NOT invoke
  *           startActiveFlow, does NOT invoke teardown, dormantLastEmitted set to false.
- *   Test K (NEW): wake handler stays reachable in dormant-poll state — reuses
- *           __applyWakeMessageForTests with isIdentityShapedCached:true + valid
- *           sshConn stub → returns {type:wake_result, ok:true}.
+ *   Test K (DELETED — Phase 56 Plan 03): the wake-handler-reachability
+ *           regression guard was removed with the wake handler itself.
  *
- * Uses the __applyDormantPollTickForTests / __applyWakeMessageForTests /
- * __applyDormantPollWithRediscoveryForTests seams (same "function seam" pattern
- * as __applyRepollResultForTests in the repoll tests). No real WebSocket server
- * or SSH connection needed.
+ * Uses the __applyDormantPollTickForTests / __applyDormantPollWithRediscoveryForTests
+ * seams (same "function seam" pattern as __applyRepollResultForTests in the repoll
+ * tests). No real WebSocket server or SSH connection needed. The former
+ * wake-message test seam was DELETED in Phase 56 Plan 03.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -77,7 +76,6 @@ vi.mock("../utils/logger.js", () => {
 import {
   __applyDormantPollTickForTests,
   type __DormantStateForTests,
-  __applyWakeMessageForTests,
   __applyDormantPollWithRediscoveryForTests,
   __applyInputMessageForTests,
 } from "./claude-session-server.js";
@@ -218,78 +216,7 @@ describe("Test C: emit-only-on-change — two consecutive polls returning 'yes' 
   });
 });
 
-// ─── Test D ───────────────────────────────────────────────────────────────────
-
-describe("Test D: wake message with currentTmuxSession null → wake_result error, no execCommand", () => {
-  it("responds wake_result ok:false without calling execCommand", async () => {
-    const wsSend = vi.fn();
-    const exec = vi.fn();
-
-    await __applyWakeMessageForTests({
-      sshConn: fakeConn,
-      currentTmuxSession: null,           // ← no active pane
-      isIdentityShapedCached: true,
-      execCommand: exec,
-      wsSend,
-    });
-
-    expect(exec).not.toHaveBeenCalled();
-    expect(wsSend).toHaveBeenCalledTimes(1);
-    const emitted = JSON.parse(wsSend.mock.calls[0][0]);
-    expect(emitted.type).toBe("wake_result");
-    expect(emitted.ok).toBe(false);
-    expect(typeof emitted.error).toBe("string");
-  });
-});
-
-// ─── Test E ───────────────────────────────────────────────────────────────────
-
-describe("Test E: wake message happy path → rm -f execCommand → wake_result ok:true", () => {
-  it("invokes rm -f on the sentinel path and responds ok:true", async () => {
-    const wsSend = vi.fn();
-    const exec = vi.fn().mockResolvedValue("");
-
-    await __applyWakeMessageForTests({
-      sshConn: fakeConn,
-      currentTmuxSession: "myagent",
-      isIdentityShapedCached: true,
-      execCommand: exec,
-      wsSend,
-    });
-
-    expect(exec).toHaveBeenCalledTimes(1);
-    const rmCmd = exec.mock.calls[0][1] as string;
-    expect(rmCmd).toBe("rm -f ~/.claude/identities/'myagent'/.dormant");
-
-    expect(wsSend).toHaveBeenCalledTimes(1);
-    const emitted = JSON.parse(wsSend.mock.calls[0][0]);
-    expect(emitted).toEqual({ type: "wake_result", ok: true });
-  });
-});
-
-// ─── Test F ───────────────────────────────────────────────────────────────────
-
-describe("Test F: wake message with execCommand throw → wake_result ok:false with error message", () => {
-  it("catches execCommand error and responds ok:false with the error message string", async () => {
-    const wsSend = vi.fn();
-    const exec = vi.fn().mockRejectedValue(new Error("SSH channel closed"));
-
-    await __applyWakeMessageForTests({
-      sshConn: fakeConn,
-      currentTmuxSession: "myagent",
-      isIdentityShapedCached: true,
-      execCommand: exec,
-      wsSend,
-    });
-
-    expect(exec).toHaveBeenCalledTimes(1);
-    expect(wsSend).toHaveBeenCalledTimes(1);
-    const emitted = JSON.parse(wsSend.mock.calls[0][0]);
-    expect(emitted.type).toBe("wake_result");
-    expect(emitted.ok).toBe(false);
-    expect(emitted.error).toBe("SSH channel closed");
-  });
-});
+// ─── Tests D/E/F: DELETED — wake-message test seam removed in Phase 56 Plan 03 ─
 
 // ─── Tests G-K: dormant-poll-inactive-branch behaviors (quick 260808-dmz) ─────
 //
@@ -480,37 +407,10 @@ describe("Test J: dormant-poll re-discovery still inactive → no startActiveFlo
   });
 });
 
-// ─── Test K ───────────────────────────────────────────────────────────────────
-
-describe("Test K: wake handler stays reachable in dormant-poll state (regression guard)", () => {
-  it("__applyWakeMessageForTests returns ok:true when sshConn alive + isIdentityShapedCached true", async () => {
-    // Simulates the state after the inactive→dormant transition:
-    // - sshConn is the kept-alive connection (NOT null)
-    // - currentTmuxSession is set (from the dormant branch's seed step)
-    // - isIdentityShapedCached === true (from the dormant probe's identity check)
-    // The dormant-poll MUST NOT stomp these values — if it does, this test catches it.
-    const wsSend = vi.fn();
-    const exec = vi.fn().mockResolvedValue("");
-
-    await __applyWakeMessageForTests({
-      sshConn: fakeConn,             // non-null — SSH kept alive in dormant branch
-      currentTmuxSession: "tiffany", // set by inactive→dormant seed step
-      isIdentityShapedCached: true,  // cached true from the dormant probe
-      execCommand: exec,
-      wsSend,
-    });
-
-    // rm -f was executed
-    expect(exec).toHaveBeenCalledTimes(1);
-    const rmCmd = exec.mock.calls[0][1] as string;
-    expect(rmCmd).toBe("rm -f ~/.claude/identities/'tiffany'/.dormant");
-
-    // wake_result ok:true
-    expect(wsSend).toHaveBeenCalledTimes(1);
-    const frame = JSON.parse(wsSend.mock.calls[0][0]);
-    expect(frame).toEqual({ type: "wake_result", ok: true });
-  });
-});
+// ─── Test K: DELETED — wake-handler regression guard removed in Phase 56 Plan 03
+// (the wake handler itself is DELETED; the underlying invariant it guarded — that
+// dormant-poll doesn't stomp sshConn/currentTmuxSession/isIdentityShapedCached —
+// is still exercised by Tests L-O below via the shared connection state).
 
 // ─── Tests L-O: marker-consumption behaviors (quick 260808-fgf) ──────────────
 //
@@ -944,12 +844,12 @@ describe("Test T: readJsonlPct + dormantSessionFile absent (older callers) → s
 // Test coverage for the new send-while-dormant branch inside
 // __applyInputMessageForTests. When a WS `input` frame arrives at a pane whose
 // dormantLastEmitted() returns true, the send-path drops the .dormant sentinel
-// (byte-identical to __applyWakeMessageForTests at claude-session-server.ts:
-// 2487), records wakeTriggerTs so the existing dormant-poll marker-freshness
-// gate holds this pane's dormant:true frame in place while the wake completes,
-// polls .resume-complete every 500ms until fresh (marker_ts > triggerTs) OR
-// MARKER_FALLBACK_MS (90_000) elapses, then falls through to the normal split-
-// send delivery unchanged.
+// (byte-identical to the exec previously in the wake-message test seam that
+// was DELETED in Phase 56 Plan 03), records wakeTriggerTs so the existing
+// dormant-poll marker-freshness gate holds this pane's dormant:true frame in
+// place while the wake completes, polls .resume-complete every 500ms until
+// fresh (marker_ts > triggerTs) OR MARKER_FALLBACK_MS (90_000) elapses, then
+// falls through to the normal split-send delivery unchanged.
 //
 // Four scenarios below:
 //   SWD-1: marker fresh → sentinel dropped, wakeTriggerTs recorded, send-keys fires after marker becomes fresh
@@ -1001,8 +901,8 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
       now,
     });
 
-    // Sentinel drop fired with byte-identical command shape as
-    // __applyWakeMessageForTests at claude-session-server.ts:2487.
+    // Sentinel drop fired with byte-identical command shape as the exec
+    // previously in the wake-message test seam (deleted in Phase 56 Plan 03).
     const sentinelDropIdx = execCalls.findIndex((c) => c.includes("rm -f ~/.claude/identities/'test-agent'/.dormant"));
     expect(sentinelDropIdx).toBeGreaterThanOrEqual(0);
 
