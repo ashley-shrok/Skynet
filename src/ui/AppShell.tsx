@@ -337,7 +337,6 @@ export function AppShell({
       .catch(() => setIsAdmin(false));
   }, []);
 
-  const lastShiftTime = useRef(0);
   const terminalRefs = useRef<Map<string, ReturnType<typeof createRef>>>(
     new Map(),
   );
@@ -385,26 +384,6 @@ export function AppShell({
 
   // Phase 11 Plan 03: sidebarTitle Record<RailView, string> RETIRED — the
   // sidebar header now hardcodes "Conversations" since that's the only surface.
-
-  // Double-shift opens command palette
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.code === "ShiftLeft" &&
-        !e.repeat &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !e.metaKey
-      ) {
-        const now = Date.now();
-        if (now - lastShiftTime.current < 300)
-          setCommandPaletteOpen((prev) => !prev);
-        lastShiftTime.current = now;
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
 
   useEffect(() => {
     const handle = () => onLogout();
