@@ -3433,6 +3433,12 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
     // Default recycled-at stat response (not recycling) — override per test as needed.
     channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    // quick-260823-recycle-overlay: default .recycle-requested stat (not present).
+    // Override per test to exercise the new source-A axis.
+    channel.setResponse(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "no\n",
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -3962,5 +3968,155 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     // Fail-open: cold-start cache default is false; matches sentinel's own
     // fail-open contract at Test P53-01-T1-iii.
     expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260823-recycle-overlay — `.recycle-requested` source-A stat as the
+// THIRD OR term in the recycling axis composition
+//
+// Motivation (Ashley 2026-08-23): the recycle-overlay would come up LATE —
+// only after the harness actually closed. Root cause: the OR composition
+// covered `.recycled-at` (supervisor-authored, appears at supervisor
+// reconcile time) + Layer 1 JSONL scan (should fire when /id reset lands),
+// but NOT `.recycle-requested` (agent-authored, appears the moment the
+// /id reset skill runs). This test group locks the new axis behavior:
+//   - probe returns "yes" → SessionState.recycling === true (independent of
+//     the other two axes' values)
+//   - all three axes false → SessionState.recycling === false
+//   - three-way OR: any single axis true → composed true
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + three-axis OR", () => {
+  function jsonlMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+    });
+  }
+
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+  ): string {
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${identityName}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  function wireBaseResponses(
+    channel: MockSshChannel,
+    jsonlContents: string,
+    discoveryOverride?: string,
+  ): void {
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    const discoveryStdout =
+      discoveryOverride ??
+      buildDiscoveryFixture(
+        "tina",
+        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+      );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlContents);
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "no\n",
+    );
+  }
+
+  it("Test A: `.recycle-requested` probe returns 'yes' → SessionState.recycling === true (even when `.recycled-at` and Layer 1 both false)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    channel.setResponse(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "yes\n",
+    );
+    // Explicit sanity: `.recycled-at` still false, Layer 1 still false (assistant-only tail).
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(true);
+  });
+
+  it("Test B: all three axes return 'no' → SessionState.recycling === false", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    // All three defaults from wireBaseResponses.
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+  });
+
+  it("Test C: `.recycle-requested` probe returns null (SSH hiccup) → cold-start cached value (false) preserved (fail-open, matches Test P53-01-T1-iii pattern)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+    // Override to return null (SSH failure).
+    channel.setResponse(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      null,
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await expect(orchestrator.start()).resolves.not.toThrow();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+  });
+
+  it("Test D: `.recycle-requested` probe fires exactly once per tick (single SSH round-trip added by this axis)", async () => {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    const probeCalls = channel.countCallsMatching(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+    );
+    // Exactly ONE per tick under source A (the single `pollAllHosts` tick fired by start()).
+    expect(probeCalls).toBe(1);
   });
 });
