@@ -1243,126 +1243,17 @@ describe("quick 260808-cd6 dormancy overlay integration", () => {
     });
   }
 
-  it("Test 1: WS emits {type:'dormant', dormant:true} → DormancyOverlay mounts, ComposeBox Send disabled", () => {
-    const { container, ws } = mountDormancyPV();
-
-    // Initially no overlay.
-    expect(container.querySelector('[aria-label="Session is asleep — tap Wake to restart"]')).toBeNull();
-
-    sendDormantFrame(ws, true);
-
-    // Overlay should now be in the DOM.
-    const overlay = container.querySelector('[role="status"]');
-    expect(overlay).not.toBeNull();
-    expect(overlay!.getAttribute('aria-label')).toContain('asleep');
-
-    // ComposeBox Send button should be disabled (dormantActive=true).
-    const sendBtn = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
-    expect(sendBtn).toBeTruthy();
-    expect(sendBtn.disabled).toBe(true);
-  });
-
-  it("Test 2: {type:'dormant', dormant:true} then a live message frame → DormancyOverlay auto-dismisses (Phase 30: supervisor recover-path also emits pane_state:active)", () => {
-    const { container, ws } = mountDormancyPV();
-
-    sendDormantFrame(ws, true);
-    // Overlay is up.
-    expect(container.querySelector('[role="status"]')).not.toBeNull();
-
-    // Phase 30: when the supervisor recover-path relaunches Claude, the
-    // pane-state-emitter's dormant-poll seam emits pane_state:active
-    // (reason=dormancy_cleared) on the same tick as the live-shape frame
-    // arrives (Plan 30-01 § L4214 dormant-poll seam). This drives the
-    // overlay unmount; the live message frame's role is now purely to
-    // clear the local `dormant`/`waking` state (used as DormancyOverlay
-    // props for the wake-progress UX).
-    act(() => {
-      ws.onmessage?.(
-        new MessageEvent('message', {
-          data: JSON.stringify({
-            type: 'message',
-            eventId: 'live-1',
-            role: 'assistant',
-            content: 'I am awake now',
-            ts: Date.now(),
-          }),
-        }),
-      );
-    });
-    act(() => {
-      ws.onmessage?.(
-        new MessageEvent('message', {
-          data: JSON.stringify({
-            type: 'pane_state',
-            state: 'active',
-            reason: 'dormancy_cleared',
-          }),
-        }),
-      );
-    });
-
-    // DormancyOverlay should have dismissed (the status overlay for "asleep" is gone).
-    // Note: there may be other role="status" elements, so check specifically for the
-    // dormancy overlay's distinctive aria-label.
-    const dormancyOverlay = container.querySelector('[aria-label*="asleep"]') ??
-                            container.querySelector('[aria-label*="Waking"]');
-    expect(dormancyOverlay).toBeNull();
-  });
-
-  it("Test 3: {type:'dormant', dormant:true} then Wake click → ws.send called with {type:'wake'}, overlay shows waking state", () => {
-    const { container, ws } = mountDormancyPV();
-
-    sendDormantFrame(ws, true);
-
-    // Click the Wake button.
-    const wakeBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
-    expect(wakeBtn).toBeTruthy();
-    act(() => {
-      fireEvent.click(wakeBtn);
-    });
-
-    // ws.send should have been called with {type:"wake"}.
-    const sentPayloads = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
-      ([data]: [string]) => JSON.parse(data),
-    );
-    const wakeSent = sentPayloads.find((p: { type: string }) => p.type === 'wake');
-    expect(wakeSent).toBeTruthy();
-
-    // Overlay should now show waking state (Wake button hidden, "Waking up…" text).
-    expect(container.textContent).toContain('Waking up…');
-    expect(container.querySelector('button[aria-label="Wake identity"]')).toBeNull();
-  });
-
-  it("Test 4: wake_result error → overlay stays, shows warm-red error variant, Wake button re-enabled", () => {
-    const { container, ws } = mountDormancyPV();
-
-    sendDormantFrame(ws, true);
-
-    // Click Wake to enter waking state.
-    const wakeBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
-    act(() => {
-      fireEvent.click(wakeBtn);
-    });
-    // Now waking.
-    expect(container.textContent).toContain('Waking up…');
-
-    // Backend returns wake_result error.
-    act(() => {
-      ws.onmessage?.(
-        new MessageEvent('message', {
-          data: JSON.stringify({ type: 'wake_result', ok: false, error: 'rm failed' }),
-        }),
-      );
-    });
-
-    // Overlay should still be mounted (dormant is still true).
-    // Error copy should appear.
-    expect(container.textContent).toContain("Couldn't wake — rm failed");
-    // Wake button should be re-enabled for retry.
-    const retryBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
-    expect(retryBtn).toBeTruthy();
-    expect(retryBtn.disabled).toBe(false);
-  });
+  // Phase 56 (2026-08-23): Tests 1/2/3/4 DELETED. They exercised the
+  // former overlay's mount, the Wake button click / WS emit, the wake-
+  // failure error variant + retry, and the ComposeBox Send-disabled-when-
+  // dormant treatment. All four surfaces are gone in Phase 56 — dormancy
+  // is invisible, compose stays enabled, and the wake WS message is dead.
+  // New Phase-56 invariants live in the "Phase 56: invisible dormancy"
+  // describe block below the loading-overlay tests. Test 5 (cold-dormant→
+  // active compose-mount preservation) is PRESERVED because its primary
+  // check is compose-mount continuity, not dormancy UI — the mount gate
+  // still keeps `renderedState === "dormant"` in its OR chain per Plan
+  // 56-03 Task 2 (KEEP condition).
 
   // ── patch #491 regression lock ─────────────────────────────────────────
   // Ashley 2026-08-23 verbatim: "I will often go into a session, hit wake
@@ -1447,238 +1338,14 @@ describe("quick 260808-cd6 dormancy overlay integration", () => {
   });
 });
 
-// ── quick 260809-cnx dormant flow refinements ─────────────────────────────
-
-describe("quick 260809-cnx dormant flow refinements", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.clearAllMocks();
-    wsStubs.length = 0;
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-  });
-
-  function mountDormancyPV() {
-    const resizeObserverStub = vi.fn(function () {
-      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
-    });
-    vi.stubGlobal('ResizeObserver', resizeObserverStub);
-    const onSend = vi.fn(() => true);
-    const utils = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
-    );
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
-    return { ...utils, onSend, ws };
-  }
-
-  function sendDormantFrame(ws: WsStub, dormant: boolean): void {
-    // Phase 30: DormancyOverlay's mount gate flipped from client-inference
-    // (Phase 29's captureFirstFrame on dormant frames) to backend-
-    // authoritative (renderedState === "dormant" via paneState). To
-    // reproduce the same UI outcome, send the sibling pane_state frame
-    // alongside — this mirrors what the pane-state-emitter (Plan 30-01
-    // § L4214/L4738 dormant-poll seams) now does on the wire when the
-    // backend transitions in/out of dormant.
-    act(() => {
-      ws.onmessage?.(
-        new MessageEvent('message', {
-          data: JSON.stringify({ type: 'dormant', dormant }),
-        }),
-      );
-    });
-    act(() => {
-      ws.onmessage?.(
-        new MessageEvent('message', {
-          data: JSON.stringify({
-            type: 'pane_state',
-            state: dormant ? 'dormant' : 'active',
-            ...(dormant ? {} : { reason: 'dormancy_cleared' }),
-          }),
-        }),
-      );
-    });
-  }
-
-  it("Fix A: dormant frame mounts ComposeBox in reduced state (typeable textarea, disabled Send)", () => {
-    const { container, ws } = mountDormancyPV();
-
-    sendDormantFrame(ws, true);
-
-    // DormancyOverlay is mounted.
-    const overlay = container.querySelector('[role="status"]');
-    expect(overlay).not.toBeNull();
-    expect(overlay!.getAttribute('aria-label')).toContain('asleep');
-
-    // ComposeBox is mounted (fix A: mount gate now includes `dormant`).
-    const sendBtn = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
-    expect(sendBtn).toBeTruthy();
-    // Send disabled via dormantActive={dormant||waking} (pre-existing wiring).
-    expect(sendBtn.disabled).toBe(true);
-    // Textarea is present and NOT disabled (dormantActive keeps textarea typeable).
-    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
-    expect(textarea).toBeTruthy();
-    expect(textarea.disabled).toBe(false);
-  });
-
-  it("Fix B: visibility false→true transition resets stale waking state", () => {
-    const { container, ws, rerender, onSend } = mountDormancyPV();
-
-    sendDormantFrame(ws, true);
-
-    // Enter waking state via Wake click (mirrors 260808-cd6 Test 3).
-    const wakeBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
-    expect(wakeBtn).toBeTruthy();
-    act(() => { fireEvent.click(wakeBtn); });
-
-    // Confirm we entered waking state.
-    expect(container.textContent).toContain('Waking up…');
-
-    // Hide the pane (simulates Ashley navigating away — patch #344 closes WS).
-    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={false} />);
-
-    // Return to the pane (visibility false → true transition).
-    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />);
-
-    // The stale "Waking up…" indicator should be gone (fix B reset).
-    expect(container.textContent).not.toContain('Waking up…');
-  });
-});
-
-// ── quick 260809-ha3 wake progress survives visibility roundtrip ──────────
-
-describe("quick 260809-ha3 wake progress survives visibility roundtrip", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.clearAllMocks();
-    wsStubs.length = 0;
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-  });
-
-  function mountDormancyPV() {
-    const resizeObserverStub = vi.fn(function () {
-      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
-    });
-    vi.stubGlobal('ResizeObserver', resizeObserverStub);
-    const onSend = vi.fn(() => true);
-    const utils = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
-    );
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
-    return { ...utils, onSend, ws };
-  }
-
-  function sendDormantFrameWithWakingSince(ws: WsStub, dormant: boolean, wakingSince: number | null): void {
-    // Phase 30: DormancyOverlay's mount gate flipped to backend-
-    // authoritative (renderedState === "dormant" via paneState). Send
-    // the sibling pane_state frame alongside — mirrors what the
-    // pane-state-emitter now does on the wire for the dormant-poll seams
-    // (Plan 30-01 § L4214 / L4738).
-    act(() => {
-      ws.onmessage?.(
-        new MessageEvent('message', {
-          data: JSON.stringify({ type: 'dormant', dormant, wakingSince }),
-        }),
-      );
-    });
-    act(() => {
-      ws.onmessage?.(
-        new MessageEvent('message', {
-          data: JSON.stringify({
-            type: 'pane_state',
-            state: dormant ? 'dormant' : 'active',
-            ...(dormant ? {} : { reason: 'dormancy_cleared' }),
-          }),
-        }),
-      );
-    });
-  }
-
-  it("wake progress restored after visibility roundtrip via wakingSince frame (phase-29: WS-pause reset semantic)", () => {
-    // phase-29 (plan 29-05 test-audit): the visibility roundtrip under
-    // the phase-29 machine re-enters the resolving phase (SPEC req 1).
-    // The DormancyOverlay unmounts during resolving; when the fresh WS
-    // re-emits a dormant frame the state machine transitions back
-    // through captureFirstFrame to phase="dormant", re-mounting the
-    // overlay with the fresh waking state. Under the pre-phase-29 model
-    // this test observed a simpler local-state reset — phase-29 makes
-    // the round-trip go through the state machine's shared entry-trigger
-    // code path.
-    //
-    // To exercise this reliably in tests, we (a) simulate the WS actually
-    // closing (mock readyState update + fireClose) so the WS-pause reopen
-    // path creates a fresh stub, and (b) dispatch the dormant frame on
-    // the FRESH stub (not the captured `ws`).
-    const { container, ws, rerender, onSend } = mountDormancyPV();
-
-    // Step 1-2: enter dormant state via natural-dormant frame (wakingSince=null).
-    // Overlay is mounted asleep, no "Waking up…" text yet.
-    sendDormantFrameWithWakingSince(ws, true, null);
-    expect(container.textContent).not.toContain('Waking up…');
-    const wakeBtn = container.querySelector('button[aria-label="Wake identity"]') as HTMLButtonElement;
-    expect(wakeBtn).toBeTruthy();
-
-    // Step 3: click Wake — local-fallback path sets waking=true + wakingStartTs=Date.now().
-    act(() => { fireEvent.click(wakeBtn); });
-    expect(container.textContent).toContain('Waking up…');
-
-    // Step 4: hide — mark stub #1 as closed (matches production ws.close()
-    // semantics; the mock's `close: vi.fn()` doesn't auto-update readyState).
-    // Then rerender to isVisible=false so the WS-pause useEffect runs.
-    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={false} />);
-    // Simulate the ws actually closing.
-    ws.readyState = 3; // CLOSED
-
-    // Step 5: show — the WS-pause reopen path sees readyState=CLOSED,
-    // resets backendFirstFrame to "not-yet" (phase-29), bumps retryKey,
-    // and the WS-setup useEffect re-runs to create stub #2. The warm
-    // re-focus edge in usePaneResolvingMachine also fires — phase
-    // transitions to "resolving" (waking state cleared by prevIsVisibleRef).
-    rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />);
-    // Waking cleared by Fix B (prevIsVisibleRef effect) — no stale text.
-    expect(container.textContent).not.toContain('Waking up…');
-
-    // Step 6: server's fresh dormant poll arrives on stub #2 with
-    // wakingSince from wakeTriggerTs — simulate a wake that started
-    // 30s ago server-side. captureFirstFrame("dormant") flips
-    // backendFirstFrame from "not-yet" to "dormant" (input change from
-    // rearmSnapshot); phase resolves back to "dormant"; DormancyOverlay
-    // re-mounts with the fresh wakingSince value.
-    const currentWs = getCurrentWs();
-    expect(currentWs).not.toBe(ws); // stub #2 is different from stub #1
-    const serverWakeTs = Date.now() - 30_000;
-    sendDormantFrameWithWakingSince(currentWs, true, serverWakeTs);
-
-    // Step 7: waking state restored, "Waking up…" back on screen.
-    expect(container.textContent).toContain('Waking up…');
-
-    // Step 8: advance timers 1s — elapsedSeconds ticker keeps running (derived
-    // from Date.now() - wakingStartTs). "Waking up…" persists across the tick.
-    act(() => { vi.advanceTimersByTime(1_000); });
-    expect(container.textContent).toContain('Waking up…');
-  });
-
-  it("wakingSince null preserves natural-dormant behavior — does not enter waking state", () => {
-    const { container, ws } = mountDormancyPV();
-
-    // Natural-dormant frame (wakingSince=null) — no user-initiated wake in
-    // flight. Overlay mounts asleep with Wake button; MUST NOT show "Waking up…".
-    sendDormantFrameWithWakingSince(ws, true, null);
-    expect(container.textContent).not.toContain('Waking up…');
-    // Wake button is present (offering the click), not hidden by a waking state.
-    expect(container.querySelector('button[aria-label="Wake identity"]')).toBeTruthy();
-  });
-});
+// ── Phase 56 (2026-08-23) — quick 260809-cnx dormant-flow-refinements
+// (Fix A + Fix B) and quick 260809-ha3 wake-progress-survives-visibility-
+// roundtrip test blocks DELETED. All five tests exercised the deleted
+// overlay mount + Wake-button click + server-driven progress-bar restore
+// path + reduced-compose treatment + local waking-state slots — every one
+// of those surfaces is gone in Phase 56. New Phase-56 invariants live in
+// the "Phase 56: invisible dormancy" describe block below the loading-
+// overlay tests.
 
 // ── quick 260808-ho2 loading overlay integration tests ─────────────────────
 
@@ -1809,27 +1476,13 @@ describe("quick 260808-ho2 loading overlay integration", () => {
 
   it.todo("[phase 29] retired: 10s PrettyViewLoadingOverlay auto-dismiss watchdog (SPEC req 5 no-timeout-heuristics). The resolving spinner now stays up until backend emits pane_state or wsTransportState transitions to failed-permanently — no wall-clock deadline.");
 
-  it("Test E: pane_state:dormant → DormancyOverlay mounts (Phase 30 backend-authoritative)", () => {
-    const { container } = render(
-      <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
-    );
-    const ws = getCurrentWs();
-    // Phase 30: dormant overlay mount decision comes from
-    // pane_state:dormant (Plan 30-01 § L4649 initial-discovery-dormant
-    // path, or § L4214 dormant-poll seam). Legacy `dormant` frame is
-    // preserved on the wire alongside for its non-mount side effects
-    // (waking/wakingStartTs local state that DormancyOverlay reads as
-    // props for the wake-progress UX).
-    act(() => { ws.onopen?.(); });
-    fireWsFrame(ws, { type: 'dormant', dormant: true });
-    fireWsFrame(ws, { type: 'pane_state', state: 'dormant' });
-
-    // Loading spinner unmounted (renderedState transitioned off "resolving").
-    expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
-    // Dormant overlay IS mounted (renderedState === "dormant").
-    const dormancyOverlay = container.querySelector('[aria-label*="asleep"]');
-    expect(dormancyOverlay).not.toBeNull();
-  });
+  // Phase 56 (2026-08-23): Test E (pane_state:dormant → DormancyOverlay
+  // mounts) DELETED. The DormancyOverlay is gone; dormancy is invisible.
+  // The loading-spinner-unmounts-on-pane_state:dormant behavior is still
+  // exercised by Test C (pane_state:active) and Test F (pane_state:holding)
+  // above/below — same paint-delay-cleared invariant, different terminal
+  // state. Additionally, a Phase 56 Test 1 below asserts that pane_state:
+  // dormant does NOT mount any DormancyOverlay (the direct inverse assertion).
 
   it("Test F: pane_state:holding trumps loading — spinner unmounts, SessionHoldingOverlay mounts (Phase 30 clean-swap; Phase 53 Plan 03 rewired mount trigger)", async () => {
     // Phase 53 Plan 03: SessionHoldingOverlay mount is now gated on the
@@ -2204,5 +1857,148 @@ describe("PrettyView — Phase 34 Plan 06: WaitingBubble mount", () => {
     // Use token split to avoid self-matching in test description strings
     const retired = "publish" + "SessionHasBackgroundedWork";
     expect(src.includes(retired)).toBe(false);
+  });
+});
+
+// ── Phase 56 (2026-08-23): invisible dormancy (no user-facing wake surface) ──
+// These tests lock the Phase-56 invariants that the pane presents an
+// IDENTICAL surface whether the underlying claude session is dormant or
+// awake — no bubble, no badge, no Wake button, no compose-disabled
+// treatment. Compose stays enabled; sending a message into a dormant pane
+// dispatches the {type:"input"} WS frame; NO {type:"wake"} frame is ever
+// emitted (the wake WS message is dead per Plan 56-03 Task 4).
+
+describe("Phase 56: invisible dormancy (no user-facing wake surface)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    resetWorkingStore();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function mountPVForPhase56() {
+    const resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+    const onSend = vi.fn(() => true);
+    const utils = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={onSend} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    // Same convention as the deleted 260808-cd6 dormancy tests: flip to
+    // streaming (session frame arrives) so ComposeBox mounts, then send
+    // the dormant frames on top.
+    flipToStreaming(ws);
+    return { ...utils, onSend, ws };
+  }
+
+  function sendDormantFrame(ws: WsStub): void {
+    // Emit both the legacy dormant frame (kept for internal state tracking)
+    // and the sibling pane_state:dormant frame (drives renderedState). This
+    // mirrors what the backend's dormant-poll seam emits on the wire.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'dormant', dormant: true }),
+        }),
+      );
+    });
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'pane_state', state: 'dormant' }),
+        }),
+      );
+    });
+  }
+
+  it("Phase 56 Test 1: dormant WS frame does NOT mount any DormancyOverlay — PrettyView on a dormant pane looks identical to an awake-idle pane, compose is enabled", () => {
+    const { container, ws } = mountPVForPhase56();
+
+    sendDormantFrame(ws);
+
+    // No DormancyOverlay of any variant. The former overlay used
+    // aria-label containing "asleep" / "Waking" / "Wake identity"; assert
+    // none of those surface anywhere in the rendered DOM.
+    expect(container.querySelector('[aria-label*="asleep"]')).toBeNull();
+    expect(container.querySelector('[aria-label*="Waking"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Wake identity"]')).toBeNull();
+    // Also assert no visible text says "asleep" / "wake" / "dormant" in the
+    // pane surface — Phase 56's core visible-surface invariant.
+    const paneText = container.textContent ?? '';
+    expect(paneText).not.toMatch(/session is asleep/i);
+    expect(paneText).not.toMatch(/waking up/i);
+
+    // Compose textarea + Send button are BOTH present and ENABLED.
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement | null;
+    expect(textarea).not.toBeNull();
+    expect(textarea!.disabled).toBe(false);
+    const sendBtn = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement | null;
+    expect(sendBtn).not.toBeNull();
+    // Send may be disabled purely on "empty textarea" — type something and
+    // confirm it becomes enabled (the dormant state is NOT gating it).
+    act(() => {
+      fireEvent.change(textarea!, { target: { value: 'hello' } });
+    });
+    expect(sendBtn!.disabled).toBe(false);
+  });
+
+  it("Phase 56 Test 2: a user types + hits send into a dormant pane — the onSend callback fires with the typed body", () => {
+    const { container, ws, onSend } = mountPVForPhase56();
+
+    sendDormantFrame(ws);
+
+    // Type and Enter — same handler path exercised by the reconnect-window
+    // and optimistic-bubbles integration tests.
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea).not.toBeNull();
+    act(() => {
+      fireEvent.change(textarea, { target: { value: 'hello' } });
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+    });
+
+    // onSend was called with the typed body (+ a mqid — Phase 50 D-01
+    // single-source pattern). The backend receives this as a {type:"input"}
+    // frame via IdentitySessionPane's onSend wrapper; the backend's send-
+    // path (Plan 56-01) then triggers the invisible wake on-entry via
+    // dormantLastEmitted() gating. This test proves the frontend fires
+    // the send even though the pane is dormant — pre-Phase-56, sendDisabled
+    // included `dormantActive === true` and this call would have been
+    // suppressed.
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const [payload, mqid] = onSend.mock.calls[0];
+    expect(payload).toContain('hello');
+    expect(typeof mqid).toBe('string');
+    expect((mqid as string).length).toBeGreaterThan(0);
+  });
+
+  it("Phase 56 Test 3: NO {type:\"wake\"} frame is ever sent from PrettyView, even after receiving a dormant WS frame — the wake WS message is dead", () => {
+    const { container, ws } = mountPVForPhase56();
+
+    // Clear any pre-dormant sends (Phase 50 D-01 may have fired seed sends
+    // that we don't want to count).
+    (ws.send as ReturnType<typeof vi.fn>).mockClear();
+
+    sendDormantFrame(ws);
+
+    // Also simulate what USED to be the trigger (a Wake button click) — the
+    // button no longer exists, so this assertion is proving-a-negative:
+    // no wake button in the DOM to click, but we scan the WS send calls
+    // anyway to guarantee nothing spontaneous fires either.
+    expect(container.querySelector('button[aria-label="Wake identity"]')).toBeNull();
+
+    // Assert ws.send was NEVER called with {type:"wake"}.
+    const sentPayloads = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([data]: [string]) => {
+        try { return JSON.parse(data); } catch { return null; }
+      },
+    );
+    const wakeEmit = sentPayloads.find((p: { type?: string } | null) => p != null && p.type === 'wake');
+    expect(wakeEmit).toBeUndefined();
   });
 });
