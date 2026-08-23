@@ -3137,8 +3137,25 @@ export function PrettyView({
           disabled per patch #339). `renderedState === "error"` covers the
           terminal-ladder-exhausted case (PrettyViewErrorOverlay up).
           `renderedState === "dormant"` mounts the reduced-state ComposeBox
-          during the sleep window. */}
-      {onSend && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant") && (
+          during the sleep window. `renderedState === "active"` (patch #491)
+          closes the wake-transition unmount gap: on a cold-dormant page
+          (fresh page load onto a dormant pane, backend's dormant-poll path
+          at claude-session-server.ts § L2570 emits {type:"dormant"} +
+          pane_state:"dormant" WITHOUT ever sending a session frame, so
+          status stays "connecting" client-side), when wake completes the
+          dormant-poll seam fires pane_state:"active" (§ L6387) BEFORE the
+          supervisor's fresh claude launches and hits the "Active path"
+          (§ L6025) that finally emits the session frame. Without the
+          `active` clause, the mount gate flips false in that window and
+          unmounts ComposeBox — destroying useVoiceRecording state (mid-
+          flight MediaRecorder + MediaStream), textarea drafts, and any
+          in-flight compose gesture. Ashley 2026-08-23 verbatim: "as I'm
+          waking up, I start recording a message with the mic, but when
+          it actually wakes up, for some reason, the mic just stops, and
+          it goes back to as if I'm not recording, and so I lose that
+          recording." Regression locked by "Test 4 (cold-dormant→active
+          preserves compose state)" below. */}
+      {onSend && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active") && (
         <ComposeBox
           onSend={handleComposeSend}
           // Phase 50 D-01: seed a pending bubble synchronously with the
