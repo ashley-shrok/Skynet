@@ -476,8 +476,12 @@ describe("retry interceptor integration", () => {
     await expect(instance.get("/protected")).rejects.toBeDefined();
 
     const elapsed = Date.now() - start;
-    // No backoff sleep — must complete in < 50ms
-    expect(elapsed).toBeLessThan(50);
+    // No backoff sleep — real backoff base is 1000ms so anything <250ms proves
+    // the SESSION_EXPIRED fast-path skipped the retry. Widened from 50ms
+    // 2026-08-23 (tabitha/quick-260823-9tw ship-gate) after full-suite CPU
+    // contention pushed real wall-clock to 99ms — 50ms threshold was tighter
+    // than the assertion's intent (prove no retry, not exact latency).
+    expect(elapsed).toBeLessThan(250);
     // reportSessionExpired called once
     expect(dbHealthMonitor.reportSessionExpired).toHaveBeenCalledTimes(1);
     // mock called exactly once (no retry)
