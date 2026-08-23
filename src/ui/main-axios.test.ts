@@ -403,28 +403,25 @@ describe("retry interceptor integration", () => {
   });
 
   it("GET that fails ECONNREFUSED twice then succeeds returns 200 after 3 total attempts", async () => {
-    // Use fake timers to avoid actual delays
+    // Use fake timers to avoid actual delays; advance timers concurrently
+    // with the request promise to avoid PromiseRejectionHandledWarning.
     vi.useFakeTimers();
-
-    const econnError = new Error("connect ECONNREFUSED") as Error & {
-      code: string;
-    };
-    econnError.code = "ECONNREFUSED";
 
     let callCount = 0;
     mock.onGet("/data").reply(() => {
       callCount++;
       if (callCount < 3) {
-        return [0, null, {}]; // network error (status 0 = network failure in mock-adapter)
+        return [0, null, {}]; // status 0 = network failure in mock-adapter
       }
       return [200, { ok: true }];
     });
 
-    // Wrap with fake timer advancement
-    const requestPromise = instance.get("/data");
-    // Advance timers to skip backoff delays
-    await vi.runAllTimersAsync();
-    const response = await requestPromise;
+    // Advance timers concurrently so intermediate retry promises are chained
+    // before Node.js can flag them as unhandled rejections.
+    const [response] = await Promise.all([
+      instance.get("/data"),
+      vi.runAllTimersAsync(),
+    ]);
 
     expect(response.status).toBe(200);
     expect(callCount).toBe(3);
@@ -439,10 +436,9 @@ describe("retry interceptor integration", () => {
       return [502, { error: "Bad Gateway" }];
     });
 
-    const requestPromise = instance.get("/data");
-    await vi.runAllTimersAsync();
-
-    await expect(requestPromise).rejects.toThrow();
+    await expect(
+      Promise.all([instance.get("/data"), vi.runAllTimersAsync()]),
+    ).rejects.toThrow();
     expect(callCount).toBe(3);
     // reportDatabaseError called once (after all retries exhausted)
     expect(dbHealthMonitor.reportDatabaseError).toHaveBeenCalledTimes(1);
@@ -460,9 +456,10 @@ describe("retry interceptor integration", () => {
       return [200, { ok: true }];
     });
 
-    const requestPromise = instance.get("/data");
-    await vi.runAllTimersAsync();
-    const response = await requestPromise;
+    const [response] = await Promise.all([
+      instance.get("/data"),
+      vi.runAllTimersAsync(),
+    ]);
 
     expect(response.status).toBe(200);
     expect(dbHealthMonitor.reportDatabaseSuccess).toHaveBeenCalled();
@@ -496,10 +493,12 @@ describe("retry interceptor integration", () => {
       return [502, { error: "Bad Gateway" }];
     });
 
-    const requestPromise = instance.post("/action", { data: "test" });
-    await vi.runAllTimersAsync();
-
-    await expect(requestPromise).rejects.toBeDefined();
+    await expect(
+      Promise.all([
+        instance.post("/action", { data: "test" }),
+        vi.runAllTimersAsync(),
+      ]),
+    ).rejects.toBeDefined();
     // POST + 502 → no retry → only called once
     expect(callCount).toBe(1);
   });
@@ -513,10 +512,12 @@ describe("retry interceptor integration", () => {
       return [0, null]; // network error (connection never established)
     });
 
-    const requestPromise = instance.post("/action", { data: "test" });
-    await vi.runAllTimersAsync();
-
-    await expect(requestPromise).rejects.toBeDefined();
+    await expect(
+      Promise.all([
+        instance.post("/action", { data: "test" }),
+        vi.runAllTimersAsync(),
+      ]),
+    ).rejects.toBeDefined();
     // POST + ECONNREFUSED → retries up to 3 attempts
     expect(callCount).toBe(3);
   });
@@ -530,12 +531,14 @@ describe("retry interceptor integration", () => {
       return [0, null]; // network error
     });
 
-    const requestPromise = instance.get("/data", {
-      __noRetry: true,
-    } as AxiosRequestConfig & { __noRetry?: boolean });
-    await vi.runAllTimersAsync();
-
-    await expect(requestPromise).rejects.toBeDefined();
+    await expect(
+      Promise.all([
+        instance.get("/data", {
+          __noRetry: true,
+        } as AxiosRequestConfig & { __noRetry?: boolean }),
+        vi.runAllTimersAsync(),
+      ]),
+    ).rejects.toBeDefined();
     // __noRetry → mock called exactly once
     expect(callCount).toBe(1);
   });
@@ -549,9 +552,9 @@ describe("retry interceptor integration", () => {
       return [502, { error: "Bad Gateway" }];
     });
 
-    const requestPromise = instance.get("/data");
-    await vi.runAllTimersAsync();
-    await expect(requestPromise).rejects.toBeDefined();
+    await expect(
+      Promise.all([instance.get("/data"), vi.runAllTimersAsync()]),
+    ).rejects.toBeDefined();
 
     // After 3 attempts (2 retries), there should be 2 per-attempt warn calls
     // with http_retry_attempt and 1 retries_exhausted call
@@ -581,9 +584,9 @@ describe("retry interceptor integration", () => {
       return [502, { error: "Bad Gateway" }];
     });
 
-    const requestPromise = instance.get("/data");
-    await vi.runAllTimersAsync();
-    await expect(requestPromise).rejects.toBeDefined();
+    await expect(
+      Promise.all([instance.get("/data"), vi.runAllTimersAsync()]),
+    ).rejects.toBeDefined();
 
     expect(callCount).toBe(3);
 

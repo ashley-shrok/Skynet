@@ -164,6 +164,61 @@ function getLoggerForService(serviceName: string) {
   }
 }
 
+// R-54-02: Full-jitter exponential backoff — AWS canonical shape (Marc Brooker).
+// attempt is 1-indexed: attempt=1 → [0, 600ms), attempt=2 → [0, 1200ms).
+export function computeBackoffMs(attempt: number): number {
+  return Math.floor(Math.random() * (300 * Math.pow(2, attempt)));
+}
+
+// Retry-eligible network error codes (connection-level failures safe to retry for any method).
+const NETWORK_CODES = [
+  "ERR_NETWORK",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+];
+
+// R-54-01: Retry classification tree — method-aware idempotency safeguard.
+export function isRetryable(
+  error: AxiosError,
+  config: AxiosRequestConfigExtended | undefined,
+): boolean {
+  // Escape hatches — checked first, no await needed.
+  if (config?.__noRetry === true) return false;
+  if (config?.__silentRetry === true) return false;
+
+  const method = (config?.method ?? "").toUpperCase();
+  const status = error.response?.status;
+  const code = error.code;
+
+  // Connection-level failure: no HTTP response reached us (status undefined or 0).
+  // Includes ECONNREFUSED, ERR_NETWORK, ECONNABORTED, etc. — and MockAdapter
+  // status-0 responses which represent the same condition in tests.
+  const isConnectionLevel =
+    (status === undefined || status === 0) &&
+    (NETWORK_CODES.includes(code ?? "") || error.response === undefined || status === 0);
+
+  if (isConnectionLevel) {
+    // Safe to retry for ALL methods — connection was never established,
+    // so the server never processed the request.
+    return true;
+  }
+
+  // 5xx gateway errors: only retry on idempotent methods.
+  if (status === 502 || status === 503 || status === 504) {
+    // GET, HEAD, OPTIONS are idempotent — safe to retry on 5xx.
+    if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+      return true;
+    }
+    // POST, PUT, PATCH, DELETE — server may have processed; do NOT retry on 5xx.
+    return false;
+  }
+
+  // 4xx and anything else (including 500, 501) — never retry.
+  return false;
+}
+
 const electronSettingsCache = new Map<string, string>();
 
 if (isElectron()) {
@@ -296,7 +351,10 @@ export function isCurrentAuthInvalidationError(error: unknown): boolean {
   );
 }
 
-function createApiInstance(
+// Maximum total attempts (1 initial + 2 retries) for the retry interceptor.
+const MAX_ATTEMPTS = 3;
+
+export function createApiInstance(
   baseURL: string,
   serviceName: string = "API",
 ): AxiosInstance {
@@ -418,7 +476,7 @@ function createApiInstance(
 
       return response;
     },
-    (error: AxiosErrorExtended) => {
+    async (error: AxiosErrorExtended) => {
       const endTime = performance.now();
       const startTime = error.config?.startTime;
       const requestId = error.config?.requestId;
@@ -469,6 +527,46 @@ function createApiInstance(
           );
         }
       }
+
+      // ── Retry interceptor (R-54-01, R-54-02, R-54-05, R-54-06) ─────────────
+      // Runs BEFORE the 401 fast-path: isRetryable returns false for all 4xx
+      // so 401 falls through to the existing handler with zero retry delay.
+      if (error.config) {
+        const config = error.config as AxiosRequestConfigExtended;
+        config.__retryAttempt = (config.__retryAttempt ?? 0) + 1;
+        const attempt = config.__retryAttempt;
+
+        if (attempt < MAX_ATTEMPTS && isRetryable(error, config)) {
+          const delayMs = computeBackoffMs(attempt);
+          logger.warn("http_retry_attempt", {
+            requestId,
+            method,
+            url: fullUrl,
+            attempt,
+            delayMs,
+            errorCode,
+            errorMessage: message,
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+          // Re-fire the original request. The response interceptor's success
+          // branch calls dbHealthMonitor.reportDatabaseSuccess() — which
+          // satisfies R-54-06 on a successful retry without extra code here.
+          return instance.request(config);
+        }
+
+        if (attempt >= MAX_ATTEMPTS && isRetryable(error, config)) {
+          // Give-up summary log after exhausting all attempts.
+          logger.warn("retries_exhausted", {
+            requestId,
+            method,
+            url: fullUrl,
+            attempts: attempt,
+            finalErrorCode: errorCode,
+            finalErrorMessage: message,
+          });
+        }
+      }
+      // ── End retry interceptor ─────────────────────────────────────────────
 
       if (status === 401) {
         const errorCode = (error.response?.data as Record<string, unknown>)
@@ -570,6 +668,8 @@ interface AxiosRequestConfigExtended extends AxiosRequestConfig {
   startTime?: number;
   requestId?: string;
   __silentRetry?: boolean;
+  __noRetry?: boolean;
+  __retryAttempt?: number;
 }
 
 interface AxiosErrorExtended extends AxiosError {
