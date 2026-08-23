@@ -1459,3 +1459,15 @@ Plans:
 Plans:
 - [x] 54-01-PLAN.md — Axios HTTP retry interceptor (computeBackoffMs full-jitter + isRetryable classification tree + retry loop inside createApiInstance) + main-axios.test.ts covering classification, jitter shape, 401 fast-path preserved, escape hatches, success-clears-degraded
 - [x] 54-02-PLAN.md — WS reconnect jitter injection at three sites (fleet-status-client.ts, PrettyView.tsx, Terminal.tsx) — minimum-touch; caps and termination conditions unchanged; fleet-status-client.test.ts extended with Test 9 jitter-range assertion
+
+### Phase 55: tap-to-load-discovery-reuse — teach Claude-session attach to consult fleet-status backend's most-recent sessionFile answer instead of re-running its own ~4s serial SSH discovery loop; batched-single-round-trip fallback when no cached answer exists
+
+**Goal:** Cold-mount tap-to-load in Skynet PrettyView drops from ~5s to ~50ms perceived when the fleet-status poller has a fresh answer for the tapped (host, tmux session), and to ~500ms when it does not — via an opportunistic read of a shared session-file cache written by source A of the fleet-status poller (Plan 55-02), plus a batched-single-exec fallback (Plan 55-03) that compresses the current 4 serial SSH discovery round-trips into 2 (main script + JSONL existence test). Server-side only; frontend + fleet-status polling rate/coverage/output shape unchanged; downstream discovery-repoll ticker and frontend rotation-reset already handle stale-cache reads.
+**Requirements**: none (fork-driven improvement phase; no formal REQ-IDs — success criterion + scope + failure modes owned by 55-CONTEXT.md + 55-RESEARCH.md)
+**Depends on:** Phase 54
+**Plans:** 1/3 plans executed
+
+Plans:
+- [x] 55-01-PLAN.md — Wave 1: session-file-cache.ts primitive (module-level Map + typed read/write/clear + hostId string|number coercion) + 10 vitest cases covering cold-miss, round-trip, cross-type coercion, last-writer-wins, host-scoped clear
+- [ ] 55-02-PLAN.md — Wave 2 (parallel with 55-03): source-A writer hookup in ssh-poll-orchestrator.ts processPid (guarded on jsonlPath!=null && tmuxSession!=null; source B stays clear) + 6 orchestrator tests (Phase 55 A–F)
+- [ ] 55-03-PLAN.md — Wave 2 (parallel with 55-02): discoverClaudeSessionBatched (2 round-trips instead of 4) + connectToPane cache-hit shim at ~L6776 + observability log "Claude session discovery path" with path (shared-hit|batched-fresh) + durationMs + 10 batched tests + 2 integration tests

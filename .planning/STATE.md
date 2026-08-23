@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-23T02:35:54.646Z"
+last_updated: "2026-08-23T15:05:15.089Z"
 last_activity: 2026-08-23
 progress:
-  total_phases: 54
+  total_phases: 55
   completed_phases: 44
-  total_plans: 209
-  completed_plans: 206
-  percent: 81
+  total_plans: 212
+  completed_plans: 207
+  percent: 80
 ---
 
 # Project State
@@ -451,6 +451,8 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 
 ### Roadmap Evolution
 
+- 2026-08-23: Phase 55 added — tap-to-load-discovery-reuse. Teach Claude-session attach to consult the fleet-status backend's most-recent sessionFile answer instead of re-running its own ~4-second serial SSH discovery loop (10-15 round-trips today for `pane_pid` → `/proc/<pid>/stat` → `~/.claude/sessions/<pid>.json` → `find ~/.claude/projects/`). Batched-single-round-trip fallback when no cached answer exists. Reduces tap-to-load latency from ~5s to near-instant on cache-hit (~50ms) and ~500ms on cache-miss. Motivated by Ashley UAT session 2026-08-23 (hotkey-instrumented cold-mount of aqua from `activeSet` eviction: 6.4s total, ~4s in serial discovery). Reuse-first, opportunistic — fleet-status polling unchanged, jump-in reads if answer is there, else runs its own (now-batched) investigation. Downstream recovery (Phase 53 discovery-repoll + today's frontend rotation-reset committed as `3e0f7c54`) handles the rare stale-cache read; no cache lifecycle or TTL introduced. Shape at `.planning/shapes/shape-tap-to-load-discovery-reuse.md`. Observability: per-attach log line naming path taken + duration.
+
 - 2026-08-23: Phase 54 added — HTTP retry policy for transient network failures (thundering-herd resilience). Adds axios interceptor with jittered exponential backoff on retry-eligible failures to eat the "Server connection lost, recovering…" toast storm Ashley sees on ~10-tab Chrome restore against t1000. Motivating symptom: box crashes → Chrome Restore reopens all Skynet tabs at once → thundering herd against single Node process + single nginx worker → subset of requests time out, WS upgrades briefly 404, or 5xx → each affected tab fires the `connectionDegraded` toast (`AppShell.tsx:838`, gated by `db-health-monitor.ts:104-116` — ERR_NETWORK / ECONN* / ETIMEDOUT / timeout / 5xx). Log evidence tail-20k Caddy: 9× 404 `/fleet-status/ws`, 6× 404 `/claude-session/websocket/`, 18× 502 `/debug/console-log`, zero 429 anywhere (confirms not a traditional rate limit). Scope: (1) axios interceptor with jittered exponential backoff, retry on network errors (ERR_NETWORK/ECONNREFUSED/ECONNABORTED/ECONNRESET/ETIMEDOUT/timeouts) + 5xx (502/503/504); NEVER on 4xx; (2) idempotency safeguard — GETs retry freely, POST/PUT/DELETE only on connection-never-established errors (ECONNREFUSED/ERR_NETWORK), NOT on 5xx (server may have processed); (3) cap ~3 attempts, max total wait ~4-6s; (4) surface retry activity via structured backend logs at each attempt; (5) audit WebSocket reconnect backoff paths (`/claude-session/websocket/`, `/fleet-status/ws`, `/ssh/websocket/`) for jitter — verify they don't fixed-ladder into re-clumping herd. Trap explicitly designed against: naive fixed-delay retries make thundering herd WORSE (10 tabs × 3 retries at T+500ms = same herd one round later). Success criterion: 10 concurrent tab reload triggers zero connectionDegraded toasts (or at most 1 sustained toast if truly no upstream comes back). Related patches: #231/#232 arc (WS reconnect race timeouts).
 - 2026-08-21: Phase 53 added — backend-authoritative recycling signal — one wire axis, two consuming surfaces. Shape file at `.planning/shapes/shape-backend-authoritative-recycling.md`. Moves the "session is being recycled" state from browser-derived (pretty-view's WebSocket state feeding a shared store) to backend-authoritative (SSH poller reads the supervisor's `.recycled-at` sentinel and publishes as a new `recycling: boolean` axis on the fleet-status wire). Both the pretty-view holding overlay and the conversation-list row spinner rewire to consume the same axis, fixing the current asymmetric-by-mount behavior where unmounted rows can't see their session's recycling state. Client-side session-recycling-store retired. Discuss-phase skipped — CONTEXT.md seeded from the shape file per /build feature-mode vehicle guidance.
 
@@ -677,7 +679,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-23T02:35:50.277Z
+Last session: 2026-08-23T15:05:14.512Z
 Stopped at: Completed 47-04-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
