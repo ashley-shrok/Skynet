@@ -1178,28 +1178,34 @@ export function PrettyConversationRow({
         </div>
 
         {/* Body: title line + subtitle line.
-            Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19):
+            Phase 48 Plan 05 (Ashley 2026-08-19) established the shape:
               Title line — identity displayName (or row.label as safety-net
-              fallback) followed by a `(hostname)` suffix when row.host is
-              present. Parens are the SAME font-size as identity name; alpha
-              subtly softened (0.85 via CSS) to read as parenthetical. Fade-
-              truncation is handled by CSS mask-image on `.pv-label`
-              (text-overflow: clip + right-edge linear-gradient mask).
-              Subtitle line — the aiTitle prop threaded by Plan 48-04. When
-              aiTitle is a non-empty string, render as `.pv-ai-title`. When
-              aiTitle is null (fresh session; RDP; not-yet-published), render
-              a muted italic ellipsis anchor via `.pv-ai-title--placeholder`
-              so the row visually retains the same height regardless of
-              ai-title presence. Server icon is DROPPED entirely (hostname
-              lives on the title line now). subtitleMode prop is accepted
-              for backward compat but has no runtime effect. */}
+              fallback) followed by a parenthetical suffix. Subtitle line —
+              aiTitle (or `…` placeholder). Server icon dropped.
+
+            inline-260823-conv-title-suffix (Ashley 2026-08-23):
+              The parenthetical PREFERS `identity.title` over `row.host.name`.
+              Ashley verbatim: "all the identities are showing the host that
+              they live on next to their name instead of their title ... I
+              understand like maybe the host name is a fallback or something
+              but like right now it's like a hundred percent of the identities
+              are showing the name of the host instead of their title and I
+              don't really care what host they're on that doesn't help me".
+              Resolution order:
+                1. identity?.title (non-empty string) — the meaningful label
+                2. row.host?.name — fallback for identities without a title,
+                   or non-identity rows (unresolved sessions)
+                3. absent — no parens at all (extreme edge case)
+              `||` (not `??`) so empty-string title falls through to hostname.
+              The CSS class name `pv-hostname-suffix` is kept for backward
+              compat — it now styles a title OR hostname parenthetical. */}
         <div className="pv-body">
           <span className="pv-label">
             {identity ? identity.displayName : row.label}
-            {row.host && (
+            {(identity?.title || row.host?.name) && (
               <span className="pv-hostname-suffix">
                 {" "}
-                ({row.host.name})
+                ({identity?.title || row.host?.name})
               </span>
             )}
           </span>

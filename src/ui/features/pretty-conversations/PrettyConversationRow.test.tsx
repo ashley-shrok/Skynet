@@ -1144,14 +1144,13 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
 // When either condition is false, the row falls back verbatim to row.label
 // (raw terminal rows, unresolved identities, hostname-mode rows unchanged).
 
-describe("PrettyConversationRow: Phase 48 Plan 05 main label source + hostname suffix (was Ashley 2026-08-01 main label source)", () => {
-  it("Test 20A (Phase 48 Plan 05 rewrite): identity resolved → main label prefix is identity.displayName, followed by the (hostname) parens suffix; subtitleMode no longer gates the source", () => {
-    // Pre-Phase-48 this asserted the label was JUST 'Nelly' when
-    // subtitleMode='identityTitle' resolved. Phase 48 Plan 05 always
-    // renders `identityName (hostname)` when an identity resolves AND
-    // row.host is present — the parens live inside .pv-label as a nested
-    // .pv-hostname-suffix span. subtitleMode is retained but inert.
-    currentIdentity = { ...makeIdentity(200, "Nelly") };
+describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parenthetical suffix (was Ashley 2026-08-01 main label source; inline-260823-conv-title-suffix flipped parens to identity.title with hostname fallback)", () => {
+  it("Test 20A (inline-260823-conv-title-suffix rewrite): identity resolved WITH title → parenthetical is identity.title, NOT hostname; Ashley 2026-08-23 lock", () => {
+    // Pre-inline-260823 this asserted "Nelly (thenasty)" — hostname always.
+    // Ashley 2026-08-23 flipped: parens prefer identity.title over
+    // host.name. Hostname was almost never useful in the row; title carries
+    // the meaningful "who is this" signal (Secretary / Athena / etc).
+    currentIdentity = { ...makeIdentity(200, "Nelly"), title: "Fleet Coordinator" };
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ label: "nelly-session", targetTmuxSession: "nelly" })}
@@ -1165,23 +1164,26 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + hostname s
     );
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
-    // Full textContent (identity prefix + parens suffix): "Nelly (thenasty)"
-    expect(pvLabel!.textContent?.trim()).toBe("Nelly (thenasty)");
+    // Full textContent (identity prefix + parens suffix): "Nelly (Fleet Coordinator)"
+    expect(pvLabel!.textContent?.trim()).toBe("Nelly (Fleet Coordinator)");
     // The lowercase tmux sessionName MUST NOT appear as the prefix.
     expect(pvLabel!.textContent?.trim()).not.toBe("nelly-session");
-    // Suffix span is present with hostname content.
+    // Hostname MUST NOT appear anywhere in the label when title is set.
+    expect(pvLabel!.textContent).not.toContain("thenasty");
+    // Suffix span is present with title content.
     const suffix = pvLabel!.querySelector(
       ".pv-hostname-suffix",
     ) as HTMLElement | null;
     expect(suffix).toBeTruthy();
-    expect(suffix!.textContent).toBe(" (thenasty)");
+    expect(suffix!.textContent).toBe(" (Fleet Coordinator)");
   });
 
   it("Test 20B (Phase 48 Plan 05 rewrite): NO identity resolved → main label prefix is row.label (verbatim fallback), still followed by the (hostname) parens suffix when host is present", () => {
     // Fallback safety-net preserved from patch #149 in new shape: when
     // useIdentities does not resolve, the label prefix is row.label so
     // the row never ships with an empty main label. Hostname parens
-    // suffix still appears from row.host.
+    // suffix still appears from row.host — inline-260823 hostname-fallback
+    // path also exercises this shape (no identity → no title → hostname).
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({ label: "unresolved-session", targetTmuxSession: "nobody" })}
@@ -1196,6 +1198,34 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + hostname s
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
     expect(pvLabel!.textContent?.trim()).toBe("unresolved-session (thenasty)");
+    const suffix = pvLabel!.querySelector(
+      ".pv-hostname-suffix",
+    ) as HTMLElement | null;
+    expect(suffix).toBeTruthy();
+    expect(suffix!.textContent).toBe(" (thenasty)");
+  });
+
+  it("Test 20C (inline-260823-conv-title-suffix): identity resolved but title=null → parens fall back to hostname (Ashley 2026-08-23 hostname-as-fallback semantic)", () => {
+    // Locks the fallback contract: when an identity exists but has no
+    // title (title=null OR empty string), the parenthetical falls back to
+    // the row.host.name rather than showing empty parens. Matches Ashley's
+    // "maybe the host name is a fallback" framing.
+    currentIdentity = { ...makeIdentity(200, "Nelly"), title: null };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ label: "nelly-session", targetTmuxSession: "nelly" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        subtitleMode="identityTitle"
+      />,
+    );
+    const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
+    expect(pvLabel).toBeTruthy();
+    // displayName + hostname fallback (no title present)
+    expect(pvLabel!.textContent?.trim()).toBe("Nelly (thenasty)");
     const suffix = pvLabel!.querySelector(
       ".pv-hostname-suffix",
     ) as HTMLElement | null;

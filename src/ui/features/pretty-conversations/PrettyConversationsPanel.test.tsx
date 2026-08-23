@@ -2205,13 +2205,17 @@ describe("PrettyConversationsPanel: Phase 48 Plan 05 pinned row v14 shape (was p
     expect(pvAiTitle!.textContent).toBe("Reviewing test coverage");
     expect(pvAiTitle!.className).not.toContain("pv-ai-title--placeholder");
 
-    // (2) The title line reads "identity.displayName (hostname)". The
-    //     identity mock uses displayName="tina@laptop"; hostname is "hostA".
+    // (2) The title line reads "identity.displayName (identity.title)" —
+    //     inline-260823-conv-title-suffix (Ashley 2026-08-23) flipped the
+    //     parenthetical to prefer identity.title over hostname. The
+    //     identity mock uses displayName="tina@laptop" title="Tina's Laptop"
+    //     so title wins over hostA. Hostname fallback path covered by
+    //     PrettyConversationRow.test.tsx Test 20C.
     const pvLabel = pinnedRow!.querySelector(
       ".pv-label",
     ) as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
-    expect(pvLabel!.textContent?.trim()).toBe("tina@laptop (hostA)");
+    expect(pvLabel!.textContent?.trim()).toBe("tina@laptop (Tina's Laptop)");
 
     // (3) Server icon fully retired — no svg with width=11 in the row.
     expect(pinnedRow!.querySelector('svg[width="11"]')).toBeNull();
