@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-21T23:10:33.684Z"
-last_activity: 2026-08-21
+last_updated: "2026-08-23T02:32:23.810Z"
+last_activity: 2026-08-23
 progress:
-  total_phases: 53
+  total_phases: 54
   completed_phases: 43
-  total_plans: 207
-  completed_plans: 204
-  percent: 81
+  total_plans: 209
+  completed_plans: 205
+  percent: 80
 ---
 
 # Project State
@@ -28,7 +28,7 @@ Phase: 50 (Optimistic message bubbles) — COMPLETE
 Plan: 4 of 4
 Status: Phase complete — ready for verification
 
-Last activity: 2026-08-22
+Last activity: 2026-08-23
 
 Last activity: 2026-08-23 — Completed quick-260823-fzy: drop content byte-equality from optimistic-bubble head-match in `PrettyView.tsx`, use FIFO+role+state gate alone. Ashley live UAT: every slash command was rendering as TWO bubbles because CC wraps `/name args` inputs into `<command-message>...</command-message>\n<command-name>/name</command-name>\n<command-args>args</command-args>` XML before writing to jsonl — byte equality could never match ComposeBox's typed-shape seed. Same failure mode also hit pasted JSON. Fix: drop content check entirely — first incoming user-role frame clears oldest `state:"sending"` pending (WS + tail preserve order → send order IS the match signal). Test 3 flipped from bug-documentation to regression guard (same pattern as parser task known-limitations flip); Tests 3b (real /fake corpus fixture from Ashley's session) + 3c (synthetic JSON-paste) added. Preserved `collapseNewlinesForMatch` (still used in `handleOptimisticSend` seed-side). 20/20 scoped tests pass. Two atomic commits (`95805554` RED + `24082bb8` GREEN). Ship gate + docker build + force-recreate + patch #490 pending in orchestrator workflow. Prior activity: Completed quick-260823-hd6: port finalized `extractor_v3.py` algorithm to TypeScript in `src/backend/claude-session/session-file-parser.ts` after prototype-first corpus validation Ashley mandated in reaction to patch #488 still leaking literal `$BODY` on the canonical agent-relay `BODY=$(cat <<'EOF' … EOF)` shape. 787-cmd fleet corpus (t1000 + workstation) drove Python iteration in bounty `~/.claude/roles/box-maintainer/bounties/relay-outbound-cmdsub-heredoc-body/` from v0's 83.2% ok / 65 leaks to v3's 96.3% ok / 5 leaks (all external-file/runtime-conditional — genuinely unrecoverable). `substituteShellVars` extended from 2 → 6 assignment shapes (adds cat-cmd-sub heredoc, jq-nc-body-literal, ANSI-C `$'…'`, `read -r -d '' VAR <<EOF`); Strategy 11 `json-envelope-any` catch-all + Strategy 12 `jq-arg-passthrough-known-var` (bypasses post-substitution regex fragility on bodies with embedded double quotes) added. 11 corpus-derived fixtures added, 34/34 scoped tests pass, 0 regressions; also caught + flipped a pre-existing "known limitations" test that documented the exact bug v3 fixes (silently-wrong body extraction on tabitha→nelly relaying-Ashley shape). Two atomic commits (`61575eb7` RED + `a2e84b36` GREEN). Ship gate + docker build + force-recreate + patch #489 pending in orchestrator workflow. Prior activity: Completed quick-260822-9qf: shell-var resolver for `extractOutboundBody` — new `substituteShellVars(cmd)` preprocessor in `src/backend/claude-session/session-file-parser.ts` (~L245) resolves `$NAME`/`${NAME}` references inside curl commands when the variable was defined as a same-command literal (`NAME='...'` or `NAME="..."`), fixing relay-outbound bubble render bug Ashley diagnosed live: bubbles showing literal `$WBODY` / `$body_var` / `$PAYLOAD` instead of the underlying message text. Root cause: Strategy 6 (`jq-arg-dq`) regex captured whatever sat between the double quotes after `--arg <word>` with zero awareness that `$VAR` is a shell-variable reference, not a literal. Fleet-corpus simulation (tabitha/tanya/tiffany session files, Aug 20+) found 3 buggy extractions all with the exact shape `NAME='<real body>'; curl ... --arg b "$NAME" '{msgtype:"m.text", body:$b}' ...`. **Fix**: preprocess before the 10 strategies (same philosophy as patch #473's sanitize pass). Two-pattern scan for shell-var assignments: single-quoted `/(^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)='([\s\S]*?)'/g` (multi-line via `[\s\S]*?`, verbatim value — sanitize pass has already normalized `'\''` / `'"'"'` idioms via APOS_MARKER) + double-quoted `/(^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g` (with `\\(.)/$1` backslash decode mirroring Strategy 2). Build `Record<string, string>` first-assignment-wins (guards against reassignment overriding original body); sort keys by length DESCENDING (prevents `$BODY` from partial-matching inside `$BODY_LONG`); substitute `${NAME}` first via literal replace-all then `$NAME` with word-boundary guard `(?![A-Za-z0-9_])`. Byte-identical no-op when zero substitutions performed — existing 30+ corpus fixtures unchanged. `sessionParserLogger.debug` line `[session-parser] extract preprocess vars-substituted=<n> uniqueVars=<m>` emitted only when n>0. Wired into `extractOutboundBody` at L342-343 (was `const s = sanitizeBashSqEscapeIdioms(cmd)`, now `const s0 = sanitizeBashSqEscapeIdioms(cmd); const s = substituteShellVars(s0)`). All 10 downstream strategies unchanged. **Tests added (6 new colocated in `session-file-parser.outbound-body.test.ts` under new `describe("extractOutboundBody — shell-var substitution")`)**: (A) `WBODY='literal message'; curl ... --arg b "$WBODY" '{msgtype:"m.text", body:$b}'` → extracts `literal message` — the exact real-fleet fixture; (B) `body_var='another message'; --arg b "$body_var" '{msgtype:...` — lowercase var; (C) multi-line quoted body `PAYLOAD='line1\nline2\nline3'; --arg b "$PAYLOAD" '{msgtype:...` → full multi-line; (D) `${MSG_TEXT}` braces form; (E) name-collision guard `MYBODY='short'; MYBODY_LONG='long text here'; --arg b "$MYBODY_LONG" ...` → extracts `long text here` NOT `short_LONG` (validates both length-desc sort AND word-boundary guard); (F) apostrophe round-trip composing shell-var path with Phase 49 APOS_MARKER path (validates sanitize → substitute → strategy match → restoreApostrophes end-to-end). **Verification**: 3 parser-related test files (session-file-parser.test.ts + outbound-body.test.ts + id-reset.test.ts) = 84/84 pass (78 pre-existing byte-identical + 6 new); `npm run build:backend` exit 0, zero TypeScript errors. **Two documented deviations (both non-material)**: (1) vitest 4.1.8 dropped `--related` flag; executor ran three parser-related test files by explicit path instead — same coverage intent (84 tests > gated ≥36); (2) Test E renamed collision-guard vars `BODY`/`BODY_LONG` → `MYBODY`/`MYBODY_LONG` so Strategy 1 (BODY-sq) doesn't shortcut before Strategy 6 (jq-arg-inline-dq) exercises the length-desc-sort + word-boundary guard — semantic property under test preserved unchanged. Two atomic code commits on `feat/tab-title-from-tmux`: `9e052eed` (RED — 6 failing tests A-F) + `94a3386e` (GREEN — `substituteShellVars` helper + wire-up + log). NO worktrees. NOT pushed / NOT built / NOT deployed at executor exit — tina orchestrator handles ship motion. Bounty n/a (Ashley live-diagnosed → `/gsd:quick` fix). Prior activity:
 
@@ -290,6 +290,7 @@ Progress: [██████████] 100%
 | Phase 47 P04 | 100min | 3 tasks | 2 files |
 | Phase 50 P03 | 45min | 5 tasks | 14 files |
 | Phase 53-backend-authoritative-recycling-signal-one-wire-axis-two-con P02 | 176 | 2 tasks | 3 files |
+| Phase 54-http-retry-policy-for-transient-network-failures-thundering- P02 | 7m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -435,6 +436,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Axis D nextMap.set extended to carry recycling field for WorkingRecord type integrity
 - [Phase ?]: useSessionIsRecycling hook exported for Plan 53-03 consumption
 - [Phase ?]: Pitfall-3 defense: Axis A nextMap.set preserves existing?.recycling ?? false to prevent isWorking flip wiping recycling:true
+- [Phase ?]: Full-jitter (Math.floor(Math.random()*capMs)) injected into fleet-status, PrettyView, Terminal WS reconnect schedulers
 
 ### Pending Todos
 
@@ -668,7 +670,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T23:10:33.563Z
+Last session: 2026-08-23T02:32:17.257Z
 Stopped at: Completed 47-04-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
