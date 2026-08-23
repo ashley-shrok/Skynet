@@ -195,9 +195,11 @@ export function createFleetStatusClient(
         return;
       }
 
-      const delayMs = BACKOFF_SCHEDULE_MS[
+      // R-54-07: full-jitter — uniform random draw in [0, capMs) prevents 10-tab restore from re-clumping the herd on the reconnect ladder.
+      const capMs = BACKOFF_SCHEDULE_MS[
         Math.min(reconnectAttempts, BACKOFF_SCHEDULE_MS.length - 1)
       ];
+      const delayMs = Math.floor(Math.random() * capMs);
       reconnectAttempts += 1;
 
       console.info({

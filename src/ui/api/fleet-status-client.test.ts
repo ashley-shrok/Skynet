@@ -536,3 +536,148 @@ describe("fleet-status-client: Test 8 — AppShell callback wiring dispatches to
     expect(waitingForReceived[1]).toBe(null);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Test 9 — reconnect delay is full-jittered (R-54-07)
+// ---------------------------------------------------------------------------
+
+describe("fleet-status-client: Test 9 — reconnect delay is full-jittered (R-54-07)", () => {
+  it("after ws.onclose, the scheduled setTimeout delay is in [0, BACKOFF_SCHEDULE_MS[0]) — NOT the fixed BACKOFF_SCHEDULE_MS[0]", () => {
+    // Set up deterministic Math.random returning 0.5 (mid-point)
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+    });
+
+    const ws = latestWs();
+    ws.onclose?.({ code: 1006, reason: "test" });
+
+    // With Math.random() = 0.5, jittered delay for attempt 0 = floor(0.5 * 2000) = 1000
+    // (NOT the fixed 2000 from BACKOFF_SCHEDULE_MS[0])
+    const delays = setTimeoutSpy.mock.calls.map((call) => call[1] as number);
+    const reconnectDelay = delays[delays.length - 1];
+    expect(reconnectDelay).toBe(1000); // Math.floor(0.5 * 2000) = 1000, NOT 2000
+    expect(reconnectDelay).not.toBe(2000); // must NOT be the fixed cap value
+
+    randomSpy.mockRestore();
+  });
+
+  it("100 samples of the first-attempt reconnect delay all fall in [0, 2000) — proves uniform not clumped", () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Restore real Math.random for statistical sampling
+    vi.spyOn(Math, "random").mockRestore?.();
+
+    const samples: number[] = [];
+
+    for (let i = 0; i < 100; i++) {
+      MockWebSocket.instances = [];
+      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+      const client = createFleetStatusClient({
+        url: "ws://localhost/fleet-status/ws",
+        onSnapshot: vi.fn(),
+        onUpdate: vi.fn(),
+        onGone: vi.fn(),
+      });
+
+      const ws = latestWs();
+      ws.onclose?.({ code: 1006, reason: "test" });
+
+      const delays = setTimeoutSpy.mock.calls.map((call) => call[1] as number);
+      const reconnectDelay = delays[delays.length - 1];
+      samples.push(reconnectDelay);
+
+      client.dispose();
+      setTimeoutSpy.mockRestore();
+    }
+
+    // All samples must be in [0, 2000)
+    for (const s of samples) {
+      expect(s).toBeGreaterThanOrEqual(0);
+      expect(s).toBeLessThan(2000);
+    }
+
+    // Mean must be in [800, 1200] — proves uniform distribution, not clumped at edges
+    const mean = samples.reduce((acc, s) => acc + s, 0) / samples.length;
+    expect(mean).toBeGreaterThanOrEqual(800);
+    expect(mean).toBeLessThanOrEqual(1200);
+  });
+
+  it("attempt 2 delay is jittered in [0, BACKOFF_SCHEDULE_MS[1]) === [0, 4000)", () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+    });
+
+    // First close — attempt 1 (index 0)
+    const ws1 = latestWs();
+    ws1.onclose?.({ code: 1006, reason: "test" });
+
+    // Advance timer to trigger the reconnect
+    vi.advanceTimersByTime(2000);
+
+    // Second close — attempt 2 (index 1, cap = BACKOFF_SCHEDULE_MS[1] = 4000)
+    const ws2 = latestWs();
+    ws2.onclose?.({ code: 1006, reason: "test" });
+
+    const delays = setTimeoutSpy.mock.calls.map((call) => call[1] as number);
+    // The last delay captured is the second-attempt reconnect
+    const secondAttemptDelay = delays[delays.length - 1];
+    expect(secondAttemptDelay).toBeGreaterThanOrEqual(0);
+    expect(secondAttemptDelay).toBeLessThan(4000);
+  });
+
+  it("attempt cap behavior unchanged: after MAX_RECONNECT_ATTEMPTS (5) closes without open, logs fleet_status_client_gave_up and does NOT schedule further setTimeout", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+    });
+
+    // Simulate 5 closes + timer advances (the 5 reconnect attempts)
+    for (let i = 0; i < 5; i++) {
+      const ws = latestWs();
+      ws.onclose?.({ code: 1006, reason: "test" });
+      vi.advanceTimersByTime(10000); // advance past any scheduled timer
+    }
+
+    // 6th close — this should trigger gave_up, NOT schedule another timer
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const ws = latestWs();
+    ws.onclose?.({ code: 1006, reason: "test" });
+
+    // No new setTimeout call should have been made
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+
+    // Should have logged fleet_status_client_gave_up
+    const allWarnCalls = warnSpy.mock.calls.flat();
+    const gaveUp = allWarnCalls.find(
+      (arg) =>
+        typeof arg === "object" &&
+        arg !== null &&
+        (arg as Record<string, unknown>).operation === "fleet_status_client_gave_up",
+    );
+    expect(gaveUp).toBeDefined();
+  });
+});
