@@ -4120,3 +4120,394 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     expect(probeCalls).toBe(1);
   });
 });
+
+// ==============================================================================
+// quick-260823-73o — recycle axes in source B (per-identity, PID-independent)
+//
+// Motivation (Ashley 2026-08-23): Patch #495 shipped diagnostic logs +
+// `.recycle-requested` in SOURCE A but Ashley narrated a full /id reset cycle
+// with no overlay. Layer 1 fired at 04:45:47Z but
+// `fleet_status_recycling_armed` NEVER fired for tina across the reset window.
+// Root cause: source A iterates per-PID (~/.claude/tasks/*.json). During
+// tina's reset the outgoing claude PID is being torn down and per-PID
+// iteration hits a lifecycle gap where none of the three axes evaluate true
+// across the sentinel-present window. Source B is identity-folder-keyed and
+// runs unconditionally per identity per tick, but it explicitly SKIPS any
+// identity in liveTmuxSet — so during the first seconds of recycle (tina
+// still has a live PID + sentinel on disk), source B ALSO skips tina.
+//
+// This migration moves ALL THREE recycle axes (`.recycle-requested`,
+// `.recycled-at`, Layer 1 /id reset) out of source A's per-PID loop and into
+// source B's per-identity iteration, and conditionally lifts the liveTmuxSet
+// skip so `isRecycling === true` identities always publish from source B
+// regardless of live PID state. Source A publishes `recycling: false`
+// unconditionally after migration — source B becomes the sole publisher of
+// the recycling axis.
+//
+// The 6 tests below LOCK the new contract. On the current source-A code they
+// are RED (source B never publishes recycling:true for a live-PID identity
+// because of the unconditional skip). Task 2 flips them GREEN.
+// ==============================================================================
+
+describe("quick-260823-73o — recycle axes in source B (per-identity, PID-independent)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Local JSONL fixture helpers — copied from the quick-260822-0vw describe block
+  // to keep this block self-contained. Same shape as
+  // session-file-parser.id-reset.test.ts Test 1 (bare /id reset).
+  function idResetLine(tsMillis: number): string {
+    return JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: "<command-name>/id</command-name><command-args>reset</command-args>",
+      },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-id-reset-${tsMillis}`,
+    });
+  }
+
+  function plainMessageLine(
+    tsMillis: number,
+    role: "user" | "assistant",
+    content: string,
+  ): string {
+    return JSON.stringify({
+      type: role,
+      message: { role, content },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-${tsMillis}-${role}`,
+    });
+  }
+
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+  ): string {
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${identityName}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  /**
+   * wireLivePidAndIdentity — wires the MockSshChannel so BOTH source A (per-PID
+   * for PID 12345 → tmux `tina`) AND source B (per-identity iteration for
+   * "tina") execute successfully. Overridable per-test:
+   *   - opts.recycleRequested — "yes"|"no", default "no"
+   *   - opts.recycledAt       — "yes"|"no", default "no"
+   *   - opts.dormant          — "yes"|"no", default "no"
+   *   - opts.jsonlTail        — the tail contents (string, default plain assistant msg)
+   *   - opts.livePid          — whether to wire a live PID at all (default true).
+   *     When false, "ls -1 ~/.claude/sessions/" returns "" so source A silent.
+   *
+   * MockSshChannel is FIRST-MATCH-WINS on substring: a single "IDENTITY="
+   * fixture serves both source A's discovery call AND source B's discovery
+   * call in the same tick (both source A and source B call the same
+   * discoverIdentityJsonlPathViaChannel helper with the same identityName
+   * → same buildDiscoveryScript output → same "IDENTITY=" prefix).
+   *
+   * Same shape for the sentinel stat responses: `stat ~/.claude/identities/'tina'/.dormant`
+   * and `test -f ~/.claude/identities/'tina'/.recycle-requested` — source A and
+   * source B both issue these; the mock returns the same value to both callers.
+   */
+  function wireLivePidAndIdentity(
+    channel: MockSshChannel,
+    opts: {
+      recycleRequested?: "yes" | "no";
+      recycledAt?: "yes" | "no";
+      dormant?: "yes" | "no";
+      jsonlTail?: string;
+      livePid?: boolean;
+    } = {},
+  ): void {
+    const {
+      recycleRequested = "no",
+      recycledAt = "no",
+      dormant = "no",
+      jsonlTail = plainMessageLine(1000, "assistant", "hi") + "\n",
+      livePid = true,
+    } = opts;
+
+    // Source A wiring — live PID for tina at 12345 (or empty sessions if livePid=false).
+    if (livePid) {
+      channel.setResponse(
+        "ls -1 ~/.claude/sessions/",
+        "/home/ubuntu/.claude/sessions/12345.json\n",
+      );
+      channel.setResponse(
+        "cat ~/.claude/sessions/12345.json",
+        makeSessionJson(),
+      );
+      channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+      channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+      channel.setResponse("tmux display-message", "tina");
+    } else {
+      channel.setResponse("ls -1 ~/.claude/sessions/", "");
+    }
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+
+    // Source B wiring — identities dir lists tina every tick.
+    channel.setResponse("ls -1 ~/.claude/identities/", "tina\n");
+
+    // Discovery — shared substring "IDENTITY=" serves both source A and source B.
+    const discoveryStdout = buildDiscoveryFixture(
+      "tina",
+      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+    );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    // JSONL tail — matched via "discovered.jsonl" substring; source A + source B
+    // both `tail -c 262144 <jsonlPath>` where jsonlPath ends in `discovered.jsonl`.
+    channel.setResponse("discovered.jsonl", jsonlTail);
+
+    // Per-identity sentinel stats — same substring serves source A and source B.
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.dormant",
+      `${dormant}\n`,
+    );
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.recycled-at",
+      `${recycledAt}\n`,
+    );
+    channel.setResponse(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      `${recycleRequested}\n`,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260823-73o-T1-i — `.recycle-requested` present + live PID for tina
+  //   → source B publishes recycling:true (source-B frame: pid:null +
+  //   sessionId:"__dormant__" + tmuxSession:"tina"). Source A also publishes
+  //   its own frame for PID 12345 with recycling:false (source A no longer
+  //   stamps this axis after the migration). publishedStates.length >= 2.
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260823-73o-T1-i: `.recycle-requested` present + live PID → source B publishes recycling:true (independent of source A's frame)", async () => {
+    const channel = new MockSshChannel();
+    wireLivePidAndIdentity(channel, { recycleRequested: "yes" });
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // At least two publishes: source A (for PID 12345) + source B (for tina identity).
+    expect(deps.registry.publishedStates.length).toBeGreaterThanOrEqual(2);
+
+    // Source B frame — identified by sessionId "__dormant__".
+    const sourceBFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    expect(sourceBFrames.length).toBeGreaterThanOrEqual(1);
+    const sb = sourceBFrames[0];
+    expect(sb.state.tmuxSession).toBe("tina");
+    expect(sb.state.pid).toBeNull();
+    expect(sb.state.recycling).toBe(true);
+
+    // Source A frame — identified by numeric pid 12345. Source A no longer
+    // stamps recycling after the migration.
+    const sourceAFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.pid === 12345,
+    );
+    expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
+    expect(sourceAFrames[0].state.recycling).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260823-73o-T1-ii — `.recycled-at` present + live PID for tina
+  //   → same shape as T1-i but with `.recycled-at` yes instead of `.recycle-requested`.
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260823-73o-T1-ii: `.recycled-at` present + live PID → source B publishes recycling:true", async () => {
+    const channel = new MockSshChannel();
+    wireLivePidAndIdentity(channel, { recycledAt: "yes" });
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThanOrEqual(2);
+
+    const sourceBFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    expect(sourceBFrames.length).toBeGreaterThanOrEqual(1);
+    expect(sourceBFrames[0].state.tmuxSession).toBe("tina");
+    expect(sourceBFrames[0].state.pid).toBeNull();
+    expect(sourceBFrames[0].state.recycling).toBe(true);
+
+    const sourceAFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.pid === 12345,
+    );
+    expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
+    expect(sourceAFrames[0].state.recycling).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260823-73o-T1-iii — no live PID for tina + `.recycle-requested` yes
+  //   → source B publishes recycling:true (regression guard — Phase 53 CR C2
+  //   behavior preserved via the new path). Exactly ONE publish (source A silent).
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260823-73o-T1-iii: no live PID + `.recycle-requested` present → source B publishes recycling:true (single publish, source A silent)", async () => {
+    const channel = new MockSshChannel();
+    wireLivePidAndIdentity(channel, {
+      recycleRequested: "yes",
+      livePid: false,
+    });
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Exactly one publish — source B only (no live PID → source A silent).
+    expect(deps.registry.publishedStates).toHaveLength(1);
+    const p = deps.registry.publishedStates[0];
+    expect(p.state.sessionId).toBe("__dormant__");
+    expect(p.state.pid).toBeNull();
+    expect(p.state.tmuxSession).toBe("tina");
+    expect(p.state.recycling).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260823-73o-T1-iv — live PID for tina + JSONL tail's last user turn
+  //   is /id reset + no sentinels → source B publishes recycling:true via
+  //   Layer 1 axis. Source A publishes recycling:false. publishedStates.length >= 2.
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260823-73o-T1-iv: live PID + Layer 1 (/id reset in tail) → source B publishes recycling:true via Layer 1 axis", async () => {
+    const channel = new MockSshChannel();
+    wireLivePidAndIdentity(channel, {
+      jsonlTail: idResetLine(2000) + "\n",
+      // sentinels default false via wireLivePidAndIdentity defaults.
+    });
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThanOrEqual(2);
+
+    // Source B frame — recycling:true from Layer 1.
+    const sourceBFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    expect(sourceBFrames.length).toBeGreaterThanOrEqual(1);
+    expect(sourceBFrames[0].state.tmuxSession).toBe("tina");
+    expect(sourceBFrames[0].state.recycling).toBe(true);
+
+    // Source A frame — recycling:false (source A no longer stamps).
+    const sourceAFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.pid === 12345,
+    );
+    expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
+    expect(sourceAFrames[0].state.recycling).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260823-73o-T1-v — live PID + all three axes false → source B does
+  //   NOT publish recycling:true. Either publishes recycling:false OR does not
+  //   publish a source-B frame at all (either is acceptable per fingerprint
+  //   semantics). GUARD: no published frame this tick has recycling === true.
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260823-73o-T1-v: live PID + no axes true → no published frame has recycling:true (negative case)", async () => {
+    const channel = new MockSshChannel();
+    wireLivePidAndIdentity(channel);
+    // All defaults: recycleRequested=no, recycledAt=no, jsonlTail=plain assistant msg.
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Guard: NO published frame has recycling:true this tick.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).toBe(false);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test QT-260823-73o-T1-vi — tick 1: `.recycle-requested` yes → source B
+  //   publishes recycling:true. Tick 2: `.recycle-requested` no, `.recycled-at`
+  //   no, jsonl tail unchanged (no /id reset) → source B publishes
+  //   recycling:false (fingerprint delta detected on recycling axis). No stale
+  //   recycling:true persistence.
+  // ---------------------------------------------------------------------------
+
+  it("Test QT-260823-73o-T1-vi: recycling flip true→false across ticks → source B publishes recycling:false on tick 2 (fingerprint delta preserved, no stale persistence)", async () => {
+    const channel = new MockSshChannel();
+    // Tick 1: `.recycle-requested` yes.
+    wireLivePidAndIdentity(channel, { recycleRequested: "yes" });
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    // Tick 1 source-B frame is recycling:true.
+    const tick1SbFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    expect(tick1SbFrames.length).toBeGreaterThanOrEqual(1);
+    expect(tick1SbFrames[tick1SbFrames.length - 1].state.recycling).toBe(true);
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+
+    // Tick 2: `.recycle-requested` flips to no. All other axes stay false.
+    channel.setResponse(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "no\n",
+    );
+    // (recycledAt and jsonl tail already false/plain from wireLivePidAndIdentity defaults.)
+
+    const pollFn = setIntervalFns.find((s) => s.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    // Fingerprint delta on recycling axis → source B re-publishes with recycling:false.
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(publishesAfterTick1);
+    // The NEW source-B publish this tick has recycling:false.
+    const tick2NewFrames = deps.registry.publishedStates.slice(publishesAfterTick1);
+    const tick2SbFrame = tick2NewFrames.find(
+      (p) => p.state.sessionId === "__dormant__",
+    );
+    expect(tick2SbFrame).toBeDefined();
+    expect(tick2SbFrame!.state.recycling).toBe(false);
+  });
+});
