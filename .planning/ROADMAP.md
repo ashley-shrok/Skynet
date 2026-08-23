@@ -1454,8 +1454,8 @@ Plans:
 **Goal:** Eliminate the "Server connection lost, recovering…" toast storm Ashley sees on 10-tab Chrome restore by adding a full-jitter exponential-backoff HTTP retry interceptor to the axios client and injecting full-jitter into the three WS reconnect schedulers (`/fleet-status/ws`, `/claude-session/websocket/`, `/ssh/websocket/`).
 **Requirements**: R-54-01, R-54-02, R-54-03, R-54-04, R-54-05, R-54-06, R-54-07, R-54-08 (defined in 54-CONTEXT.md)
 **Depends on:** Phase 53
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 54-01-PLAN.md — Axios HTTP retry interceptor (computeBackoffMs full-jitter + isRetryable classification tree + retry loop inside createApiInstance) + main-axios.test.ts covering classification, jitter shape, 401 fast-path preserved, escape hatches, success-clears-degraded
+- [x] 54-01-PLAN.md — Axios HTTP retry interceptor (computeBackoffMs full-jitter + isRetryable classification tree + retry loop inside createApiInstance) + main-axios.test.ts covering classification, jitter shape, 401 fast-path preserved, escape hatches, success-clears-degraded
 - [x] 54-02-PLAN.md — WS reconnect jitter injection at three sites (fleet-status-client.ts, PrettyView.tsx, Terminal.tsx) — minimum-touch; caps and termination conditions unchanged; fleet-status-client.test.ts extended with Test 9 jitter-range assertion

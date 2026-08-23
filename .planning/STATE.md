@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-08-23T02:32:23.810Z"
+last_updated: "2026-08-23T02:35:54.646Z"
 last_activity: 2026-08-23
 progress:
   total_phases: 54
-  completed_phases: 43
+  completed_phases: 44
   total_plans: 209
-  completed_plans: 205
-  percent: 80
+  completed_plans: 206
+  percent: 81
 ---
 
 # Project State
@@ -291,6 +291,7 @@ Progress: [██████████] 100%
 | Phase 50 P03 | 45min | 5 tasks | 14 files |
 | Phase 53-backend-authoritative-recycling-signal-one-wire-axis-two-con P02 | 176 | 2 tasks | 3 files |
 | Phase 54-http-retry-policy-for-transient-network-failures-thundering- P02 | 7m | 2 tasks | 4 files |
+| Phase 54-http-retry-policy-for-transient-network-failures-thundering- P01 | 15m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -437,6 +438,8 @@ Recent decisions affecting current work:
 - [Phase ?]: useSessionIsRecycling hook exported for Plan 53-03 consumption
 - [Phase ?]: Pitfall-3 defense: Axis A nextMap.set preserves existing?.recycling ?? false to prevent isWorking flip wiping recycling:true
 - [Phase ?]: Full-jitter (Math.floor(Math.random()*capMs)) injected into fleet-status, PrettyView, Terminal WS reconnect schedulers
+- [Phase ?]: Full-jitter formula Math.floor(Math.random()*(300*Math.pow(2,attempt))) for thundering-herd defense
+- [Phase ?]: isRetryable treats status=0 same as undefined for connection-level failure detection
 
 ### Pending Todos
 
@@ -670,7 +673,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-23T02:32:17.257Z
+Last session: 2026-08-23T02:35:50.277Z
 Stopped at: Completed 47-04-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
