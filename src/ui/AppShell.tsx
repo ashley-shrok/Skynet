@@ -847,36 +847,6 @@ export function AppShell({
   }, [activeTabId, effectiveSelectedTabId]);
 
   useEffect(() => {
-    const handleDegraded = () => {
-      toast.loading(t("common.connectionDegraded"), {
-        id: "db-connection-degraded",
-        duration: Infinity,
-        dismissible: false,
-        action: {
-          label: t("common.reload"),
-          onClick: () => window.location.reload(),
-        },
-      });
-    };
-
-    const handleRestored = () => {
-      toast.dismiss("db-connection-degraded");
-      toast.success(t("common.backendReconnected"), { duration: 3000 });
-    };
-
-    dbHealthMonitor.on("database-connection-degraded", handleDegraded);
-    dbHealthMonitor.on("database-connection-degraded-cleared", handleRestored);
-
-    return () => {
-      dbHealthMonitor.off("database-connection-degraded", handleDegraded);
-      dbHealthMonitor.off(
-        "database-connection-degraded-cleared",
-        handleRestored,
-      );
-    };
-  }, [t]);
-
-  useEffect(() => {
     getUserPreferences()
       .then((prefs) => {
         setUserPrefs(prefs);
