@@ -402,10 +402,11 @@ export interface ComposeBoxProps {
   //
   // Value from PrettyView: `status === "error"`.
   reconnectingActive?: boolean;
-  // Phase 56 (2026-08-23): dormantActive prop DELETED. Compose stays enabled
-  // on dormant panes — send triggers invisible wake at the backend send-path
-  // (Plan 56-01) with widened watchdog (Plan 56-02). Dormancy is now invisible
-  // to the user; ComposeBox has no dormancy-awareness.
+  // Phase 56 (2026-08-23): the former dormancy-gate boolean prop was
+  // DELETED. Compose stays enabled on dormant panes — send triggers invisible
+  // wake at the backend send-path (Plan 56-01) with widened watchdog (Plan
+  // 56-02). Dormancy is now invisible to the user; ComposeBox has no
+  // dormancy-awareness.
   className?: string;
 }
 
@@ -1771,12 +1772,13 @@ export function ComposeBox({
   //   Quick 260802-uow bounty 1: voice.state is INTENTIONALLY not gated
   //   here — send-when-idle while recording on another textarea is a
   //   valid workflow (Ashley).
-  //   Phase 56 (2026-08-23): dormantActive removed everywhere in this file;
-  //   this comment kept as historical trace of the arm-idle-during-waking
-  //   bounty that predated the invisible-dormancy shape (Ashley 2026-08-10 —
-  //   arm-idle was pure client-state, no WS touching, isIdle-gated; the
-  //   invisible-dormancy shape supersedes this design decision by removing
-  //   the concept of "dormant/waking" from the UI entirely).
+  //   Phase 56 (2026-08-23): the former dormancy-gate prop is removed
+  //   everywhere in this file; this comment kept as historical trace of the
+  //   arm-idle-during-waking bounty that predated the invisible-dormancy
+  //   shape (Ashley 2026-08-10 — arm-idle was pure client-state, no WS
+  //   touching, isIdle-gated; the invisible-dormancy shape supersedes this
+  //   design decision by removing the concept of "dormant/waking" from the
+  //   UI entirely).
   //
   // showRecordingControls: while recording, the three-button controls own the slot.
   //   MicButton and send button are both hidden. Gated on isPrimaryRecording
@@ -2849,8 +2851,9 @@ interface QueuedRowProps {
   // Reconnect window: same OR-in treatment — queued-row Send is disabled
   // while the pretty-view WS is between sockets.
   reconnectingActive?: boolean;
-  // Phase 56 (2026-08-23): dormantActive prop DELETED — compose (and queued
-  // rows) stay enabled on dormant panes; invisible wake fires at the backend.
+  // Phase 56 (2026-08-23): the former dormancy-gate boolean prop was
+  // DELETED — compose (and queued rows) stay enabled on dormant panes;
+  // invisible wake fires at the backend.
   canSend?: boolean;
   queueSlots: Array<{ id: string; text: string }>;
   onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
@@ -3009,11 +3012,12 @@ function QueuedRow(props: QueuedRowProps) {
     (!isSlotActiveMic || slotHold.holdInitiatedRef.current) &&
     !asideActive &&
     !slotArmed;
-  // Phase 56 (2026-08-23): dormantActive prop is fully deleted; this comment
-  // preserved as historical trace of the arm-idle-during-waking design
-  // decision that predated the invisible-dormancy shape (Ashley 2026-08-10 —
-  // arm is pure client state, dispatch is isIdle-gated). Sibling
-  // recycle/plan/reconnect gates preserved as intended.
+  // Phase 56 (2026-08-23): the former dormancy-gate boolean prop is fully
+  // deleted; this comment preserved as historical trace of the arm-idle-
+  // during-waking design decision that predated the invisible-dormancy
+  // shape (Ashley 2026-08-10 — arm is pure client state, dispatch is
+  // isIdle-gated). Sibling recycle/plan/reconnect gates preserved as
+  // intended.
   const showSlotArmButton =
     !asideActive &&
     !slotArmed &&

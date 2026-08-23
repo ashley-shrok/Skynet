@@ -128,8 +128,9 @@ const WORKING_SET_CAP = 20;
 //      messages.length)`. Three engines: (a) messageCount effect fires on
 //      each new message frame; (b) MutationObserver + ResizeObserver on
 //      the scroll container's children re-anchor on accessory mount/unmount
-//      (WipBubble / WaitingBubble / PlanPendingBubble / DormancyOverlay /
-//      AsideBubble) AND on in-bubble content growth (streaming, image
+//      (WipBubble / WaitingBubble / PlanPendingBubble / AsideBubble; the
+//      former dormant-overlay sibling was deleted in Phase 56 Plan 03)
+//      AND on in-bubble content growth (streaming, image
 //      decode, markdown re-render); (c) scrollEl-mount / paneKey-change
 //      effect resets pinned=true and jumps for session enter + identity
 //      swap. Every write is gated on pinned=true so scrolled-up state
@@ -628,16 +629,17 @@ export function PrettyView({
   // signal; when it fires, backend emits `pane_state` with state=inactive
   // and reason=holding_timeout (Phase 30 — was `inactive` frame in Phase
   // 29) which the state machine reads via paneState.
-  // Phase 56 (2026-08-23): dormancy is now invisible — DormancyOverlay + Wake
-  // button + progress bar + elapsed-seconds ticker + waking/wakingStartTs/
-  // wakeError local state slots ALL DELETED. Only the `dormant` slot survives
-  // because the WS onmessage `dormant` case still calls setDormant(parsed.dormant)
-  // so `dormantRef` (live-frame auto-dismiss path in the ws.onmessage handler
-  // below) has a signal to mirror. Backend still tracks dormancy internally
-  // (paneState machine, WIP-indicator gating, live-frame auto-dismiss) but no
-  // user-visible surface remains — the compose box stays enabled on dormant
-  // panes, sends into dormant panes trigger invisible wake (Plan 56-01), and
-  // the widened watchdog (Plan 56-02) covers the ~90s wake latency.
+  // Phase 56 (2026-08-23): dormancy is now invisible — the former dormant-
+  // overlay bubble + Wake button + progress bar + elapsed-seconds ticker +
+  // local waking/waking-start-ts/wake-error state slots are ALL DELETED.
+  // Only the `dormant` slot survives because the WS onmessage `dormant` case
+  // still calls setDormant(parsed.dormant) so `dormantRef` (live-frame auto-
+  // dismiss path in the ws.onmessage handler below) has a signal to mirror.
+  // Backend still tracks dormancy internally (paneState machine, WIP-
+  // indicator gating, live-frame auto-dismiss) but no user-visible surface
+  // remains — the compose box stays enabled on dormant panes, sends into
+  // dormant panes trigger invisible wake (Plan 56-01), and the widened
+  // watchdog (Plan 56-02) covers the ~90s wake latency.
   const [dormant, setDormant] = useState(false);
   // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): D-04 anti-flash
   // RESTORED at THIS site (not the hook) per PS30-06's own guidance below.
@@ -1607,10 +1609,10 @@ export function PrettyView({
           parsed.type === "session")
       ) {
         setDormant(false);
-        // Phase 56 (2026-08-23): waking/wakingStartTs/elapsedSeconds/wakeError
-        // setters DELETED (no local slots exist any more — DormancyOverlay is
-        // gone). The dormantRef flip above is preserved because backend still
-        // emits {type:"dormant"} frames for internal state tracking.
+        // Phase 56 (2026-08-23): waking-state setters DELETED (no local slots
+        // exist any more — the former dormant-overlay is gone). The dormantRef
+        // flip above is preserved because backend still emits {type:"dormant"}
+        // frames for internal state tracking.
       }
       switch (parsed.type) {
         case "pane_state": {
@@ -2393,10 +2395,10 @@ export function PrettyView({
 
   // Phase 56 (2026-08-23): prevIsVisibleRef edge detector + visibility-reset
   // useEffect + elapsed-seconds ticker useEffect ALL DELETED. Their sole
-  // purpose was clearing/driving the local waking/wakingStartTs/elapsedSeconds/
-  // wakeError state slots that fed the DormancyOverlay's progress bar and
-  // hint text — the overlay is gone, the state slots are gone, so the reset
-  // and ticker effects have no observer.
+  // purpose was clearing/driving the local waking-state slots that fed the
+  // former dormant-overlay's progress bar and hint text — the overlay is
+  // gone, the state slots are gone, so the reset and ticker effects have
+  // no observer.
 
   // Phase 30 note: the Phase-29 loading-arm ref-mirror useEffect + its
   // backing state slot + ref are DELETED. The loading-overlay mount is
@@ -2910,12 +2912,10 @@ export function PrettyView({
           Replaces the previous sticky top-of-scroll banner (retired
           in patch #74) per Ashley's live 2026-07-19 design read.
 
-          quick 260812-ma8: this wrapper now hosts SessionHoldingOverlay
-          ONLY. The DormancyOverlay mount moved OUT of this wrapper into
-          the scroll container as a sibling of PlanPendingBubble — see
-          the new mount site below (search for `renderedState === "dormant"`)
-          and DormancyOverlay.tsx's updated file-header docblock for the
-          bubble-in-flow rationale. */}
+          quick 260812-ma8: this wrapper hosts SessionHoldingOverlay only.
+          (The former dormant-overlay was moved OUT of this wrapper into
+          the scroll container in mid-August 2026, then deleted entirely
+          in Phase 56 Plan 03.) */}
       {/* Phase 53 Plan 03 — SessionHoldingOverlay mount gate swapped to
           the backend-authoritative recycling axis (working-store Axis E)
           via `useSessionIsRecycling(sessionWorkingKey)` (computed at the
@@ -2967,8 +2967,9 @@ export function PrettyView({
         />
       )}
 
-      {/* Phase 56 (2026-08-23): dormant-OR term removed — no DormancyOverlay
-          sibling needs the container to mount in the zero-messages/dormant case. */}
+      {/* Phase 56 (2026-08-23): dormant-OR term removed — no former dormant-
+          overlay sibling needs the container to mount in the zero-messages/
+          dormant case any more (that overlay was deleted in Plan 56-03). */}
       {(status === "streaming" ||
         ((status === "connecting" || status === "error") && messages.length > 0)) && (
         <div
@@ -3007,10 +3008,11 @@ export function PrettyView({
               hook (post-ship diag). `data-event-id` carries the same per-message
               identity witness so downstream diagnostics can still correlate
               DOM nodes with their source frames. Accessory siblings
-              (WipBubble / WaitingBubble / PlanPendingBubble / DormancyOverlay /
-              AsideBubble) remain immediately below the .map output, in-flow
-              inside the same outer scroll container — same structural layout
-              invariant established by Phase 27 Plan 27-02 Step B. */}
+              (WipBubble / WaitingBubble / PlanPendingBubble / AsideBubble;
+              the former dormant-overlay sibling was deleted in Phase 56
+              Plan 03) remain immediately below the .map output, in-flow
+              inside the same outer scroll container — same structural
+              layout invariant established by Phase 27 Plan 27-02 Step B. */}
           {messages.map((m) => (
             // Phase 45 Bug #2 (Ashley UAT verbatim): 9px inter-bubble padding restored — technically padding but functionally margin per Ashley's clarification 2026-08-18.
             <div
@@ -3100,7 +3102,9 @@ export function PrettyView({
               per-message [data-pv-bubble] children. No position:sticky, no
               position:absolute, no overlay — per ASIDE-05. Order matches the
               pre-Phase-43 rendering (WipBubble → WaitingBubble → PlanPendingBubble
-              → DormancyOverlay → AsideBubble → jump-to-bottom pill). */}
+              → AsideBubble → jump-to-bottom pill; the former dormant-overlay
+              sibling that used to sit between PlanPendingBubble and AsideBubble
+              was deleted in Phase 56 Plan 03). */}
           {isWorking && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
@@ -3117,9 +3121,10 @@ export function PrettyView({
               onFeedback={handlePlanFeedback}
             />
           )}
-          {/* Phase 56 (2026-08-23): DormancyOverlay mount DELETED. Dormancy is
-              now invisible — PrettyView on a dormant pane renders identically
-              to PrettyView on an awake-idle pane. Backend still tracks dormant
+          {/* Phase 56 (2026-08-23): former dormant-overlay mount site DELETED.
+              Dormancy is now invisible — PrettyView on a dormant pane renders
+              identically to PrettyView on an awake-idle pane. Backend still
+              tracks dormant
               state internally (paneState machine, WIP-indicator gating, live-
               frame auto-dismiss), and the compose box stays mounted + enabled
               on dormant panes (see compose-mount gate below which KEEPS the
