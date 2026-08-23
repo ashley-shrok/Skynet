@@ -1731,18 +1731,83 @@ export function PrettyView({
           // populated by the time the console.info below runs.
           let logPreLen = 0;
           let logPostLen = 0;
+          // pv-load-more-diag (2026-08-23): raw-batch dump for order/dedup
+          // ground truth. Flows via the frontend console-forwarder to
+          // /opt/skynet/console-forward-logs/console-forward.log so the
+          // maintainer can read a bad click without asking Ashley to open
+          // DevTools (she's phone-first).
+          console.info(
+            `[pv-load-more-diag] batch-raw count=${parsed.messages.length} oldestLine=${parsed.oldestLine} hasMore=${parsed.hasMore}`,
+          );
+          for (let i = 0; i < parsed.messages.length; i++) {
+            const m = parsed.messages[i] as unknown as {
+              eventId: string;
+              type: string;
+              line?: number;
+              role?: string;
+              content?: string;
+              text?: string;
+              body?: string | null;
+            };
+            const rawPreview =
+              typeof m.content === "string"
+                ? m.content
+                : typeof m.text === "string"
+                  ? m.text
+                  : typeof m.body === "string"
+                    ? m.body
+                    : "";
+            const preview = rawPreview.replace(/\s+/g, " ").trim().slice(0, 60);
+            console.info(
+              `[pv-load-more-diag] batch[${i}] eid=${m.eventId.slice(0, 8)} line=${m.line ?? "?"} type=${m.type} role=${m.role ?? "-"} preview="${preview}"`,
+            );
+          }
           setMessages((prev) => {
             logPreLen = prev.length;
             const combined = [...parsed.messages, ...prev];
             const seen = new Set<string>();
             const result: typeof combined = [];
+            const droppedByDedup: string[] = [];
             for (const m of combined) {
               if (!seen.has(m.eventId)) {
                 seen.add(m.eventId);
                 result.push(m);
+              } else {
+                droppedByDedup.push(m.eventId);
               }
             }
             logPostLen = result.length;
+            // pv-load-more-diag (2026-08-23): dedup + order fingerprint.
+            // overlap = eids present in BOTH parsed (older batch) AND prev
+            // (current view) — expected 0 under correct backend cursor
+            // semantics. droppedByDedup > 0 means we ate a duplicate — the
+            // load-bearing question is WHICH copy won (parsed's, because
+            // parsed is FIRST in combined). result-top3/bot3 are the eids at
+            // the extremes of the new array — bot3 should match pre-click's
+            // bot3, top3 should be the newly-prepended older batch's oldest.
+            const prevEidSet = new Set(prev.map((m) => m.eventId));
+            const overlap = parsed.messages
+              .map((m) => m.eventId)
+              .filter((e) => prevEidSet.has(e));
+            const top3 = result
+              .slice(0, 3)
+              .map((m) => m.eventId.slice(0, 8))
+              .join(",");
+            const bot3 = result
+              .slice(-3)
+              .map((m) => m.eventId.slice(0, 8))
+              .join(",");
+            console.info(
+              `[pv-load-more-diag] dedup prevLen=${prev.length} batchLen=${parsed.messages.length} combined=${combined.length} result=${result.length} droppedByDedup=${droppedByDedup.length} overlap=${overlap.length}`,
+            );
+            if (overlap.length > 0) {
+              console.info(
+                `[pv-load-more-diag] overlap-eids=${overlap.slice(0, 5).map((e) => e.slice(0, 12)).join(",")}`,
+              );
+            }
+            console.info(
+              `[pv-load-more-diag] result top3=[${top3}] bot3=[${bot3}]`,
+            );
             return result;
           });
           console.info(
