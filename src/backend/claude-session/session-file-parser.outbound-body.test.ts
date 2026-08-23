@@ -484,3 +484,298 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
     expect(extractOutboundBody(cmd)).toBe("Ashley's note");
   });
 });
+
+// ---------------------------------------------------------------------------
+// quick-260823-hd6: port of extractor_v3.py — 6 assignment shapes for
+// substituteShellVars (cat heredoc, jq -n body, ANSI-C, read heredoc, sq, dq)
+// + Strategy 11 (json-envelope-any) + Strategy 12 (jq-arg-passthrough-known-var).
+//
+// Every new fixture is grouped by shape. Each fixture MUST cite provenance:
+// real corpus records cite `project + ts`; synthetic-composed regression
+// fixtures are marked SYNTHETIC.
+// ---------------------------------------------------------------------------
+
+describe("extractOutboundBody — shape A: cmd-sub cat heredoc", () => {
+  it("A1: BODY=$(cat <<'EOF' short body EOF) resolves via cat-heredoc assignment", () => {
+    // corpus: ts=2026-08-10T01:07:57.309Z (isabella)  — short-body variant
+    // Real cmd shape: BODY=$(cat <<'EOF'\n<body>\nEOF\n) then curl … --arg b "$BODY"
+    // Under v0: Strategy 9 (heredoc-inline) matches on `cat <<'EOF'` — returns body.
+    // Under v3: assignment map includes BODY, Strategy 12 preflight returns body via
+    // the passthrough. Result is identical text either way; this fixture pins the
+    // shape into the assignment builder so the more complex A2/A3 shapes work.
+    const cmd = `CREDS=~/.claude/identities/isabella/relay.json
+BASE=$(jq -r '.base' "$CREDS")
+TOK=$(jq -r '.access_token' "$CREDS")
+ROOM='!TOhwMIOAPQHcffSjFM:thenasty.taild9b663.ts.net'
+TXN="isabella-$(date +%s)-$$"
+BODY=$(cat <<'EOF'
+short body
+EOF
+)
+ROOM_ENC=$(printf %s "$ROOM" | jq -sRr @uri)
+curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \\
+  -d "$(jq -n --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("short body");
+  });
+
+  it("A2: BODY=$(cat <<'EOF' multi-line body EOF) preserves embedded newlines", () => {
+    // corpus: ts=2026-08-22T09:03:23.065Z (wendy) — multi-line cat-heredoc body
+    // Real fleet wendy→coord ack; body has 8 lines w/ soft-wrapped newlines.
+    const cmd = `RELAY=~/.claude/identities/wendy/relay.json
+BASE=$(jq -r '.base' "$RELAY")
+TOK=$(jq -r '.access_token' "$RELAY")
+ROOM='!GztzHGVvpCWCSyGDNG:thenasty.taild9b663.ts.net'
+TXN=$(date +%s%N)
+
+BODY=$(cat <<'EOF'
+Copy — thanks for the full picture. Learning banked: next time I see
+WS-domain sentinels frozen, also check newest SentinelRuns across ALL
+sentinels before concluding scope. The "no bump since noon 08-20"
+signal from the WS-slice would have told me the scope was bigger the
+moment I'd looked at the fleet-wide latest row.
+
+Nothing needed from my side — I'll leave the pool-cycle call between
+you and Ashley, and stand by. Ping if that changes.
+EOF
+)
+
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" \\
+  -H "Content-Type: application/json" \\
+  -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')" | jq -r '.event_id'`;
+    expect(extractOutboundBody(cmd)).toBe(
+      `Copy — thanks for the full picture. Learning banked: next time I see
+WS-domain sentinels frozen, also check newest SentinelRuns across ALL
+sentinels before concluding scope. The "no bump since noon 08-20"
+signal from the WS-slice would have told me the scope was bigger the
+moment I'd looked at the fleet-wide latest row.
+
+Nothing needed from my side — I'll leave the pool-cycle call between
+you and Ashley, and stand by. Ping if that changes.`,
+    );
+  });
+
+  it("A3: BODY=$(cat <<'EOF' body with 'literal apostrophes' EOF) preserves single quotes verbatim", () => {
+    // SYNTHETIC — no corpus record combines a cat-heredoc body with `'literal'`
+    // apostrophes AND a simple jq-nc --arg passthrough (most real records use
+    // the wider Strategy 12 shape). Composed from A2's wendy shape with an
+    // apostrophe-embedded body to prove single quotes inside a cat heredoc are
+    // literal (heredoc body is uninterpreted — sq is not a shell metacharacter).
+    const cmd = `RELAY=~/.claude/identities/wendy/relay.json
+BASE=$(jq -r '.base' "$RELAY")
+TOK=$(jq -r '.access_token' "$RELAY")
+ROOM='!GztzHGVvpCWCSyGDNG:thenasty.taild9b663.ts.net'
+TXN=$(date +%s%N)
+
+BODY=$(cat <<'EOF'
+body with 'literal single quotes' inside
+EOF
+)
+
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" \\
+  -H "Content-Type: application/json" \\
+  -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe(
+      "body with 'literal single quotes' inside",
+    );
+  });
+});
+
+describe("extractOutboundBody — shape B: cmd-sub jq -n body:", () => {
+  it("Bjq-1: BODY=$(jq -nc --arg m \"$MSG\" '{...body:$m}') resolves via MSG (assign order)", () => {
+    // corpus: ts=2026-08-20T21:12:15.830Z (tina) — MSG='...' then BODY=$(jq -nc --arg m ...)
+    // The `MSG='...'` is Shape E (sq); BODY=$(jq -nc --arg m "$MSG" ...) creates
+    // a jq envelope whose body is `$m`. Because MSG is an sq assign captured by
+    // Shape E, substituteShellVars replaces $MSG in the jq args, then Strategy
+    // 6 (jq-arg-inline-dq) captures the substituted literal. This is a v0-passing
+    // shape; the new fixture pins that v3's expanded assignment builder still
+    // catches simple MSG-sq → jq-arg passthrough.
+    const cmd = `R=~/.claude/identities/tina/relay.json
+BASE=$(jq -r .base "$R")
+TOK=$(jq -r .token "$R")
+ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+TXN=$(date +%s%N)
+MSG='tina rescue-rebasing my Phase 50 → 52 after taylor P50 collision.'
+BODY=$(jq -nc --arg m "$MSG" '{msgtype:"m.text", body:$m}')
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" \\
+  -H "Content-Type: application/json" \\
+  -d "$BODY" | jq -r '.event_id // .error'`;
+    expect(extractOutboundBody(cmd)).toBe(
+      "tina rescue-rebasing my Phase 50 → 52 after taylor P50 collision.",
+    );
+  });
+
+  it("Bjq-2: BODY=$(jq -n '{body:\"literal\"}') resolves via jq -n body extraction", () => {
+    // SYNTHETIC — extractor_v3.py's Shape B parses `jq -n[c] '{...body:"X"}'`
+    // directly. This tests the _extract_jq_body helper's backslash decoding
+    // for embedded double quotes in the jq filter.
+    const cmd = `R=~/.claude/identities/tina/relay.json
+BASE=$(jq -r .base "$R")
+TOK=$(jq -r .token "$R")
+ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+TXN=$(date +%s%N)
+BODY=$(jq -n '{"msgtype":"m.text", "body":"payload with \\"quotes\\""}')
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" \\
+  -H "Content-Type: application/json" \\
+  -d "$BODY"`;
+    expect(extractOutboundBody(cmd)).toBe('payload with "quotes"');
+  });
+});
+
+describe("extractOutboundBody — shape C: ANSI-C $'...'", () => {
+  it("C1: BODY=$'multi-line ansi-c body' decodes \\n to literal newlines", () => {
+    // corpus: ts=2026-08-14T12:35:12.928Z (aqua morning digest) — ANSI-C shape
+    // Real fleet aqua morning digest uses BODY=$'...\\n...\\n...' with embedded
+    // newlines. Under v0 no assignment shape matches this → Strategy 6 captures
+    // the substituted body which is bare literal `$BODY` (bug). Under v3 Shape C
+    // ANSI-C parser decodes the escapes and substituteShellVars replaces $BODY.
+    const cmd = `RELAY=~/.claude/identities/aqua/relay.json
+BASE=$(jq -r '.base' "$RELAY")
+TOK=$(jq -r '.access_token // .token' "$RELAY")
+ROOM_FULL='!XiCaysQQjBbCwwtOGx:thenasty.taild9b663.ts.net'
+ROOM_ENC=$(printf %s "$ROOM_FULL" | jq -sRr @uri)
+TXN="aqua-morning-$(date +%s)"
+
+BODY=$'aqua morning digest\\nline 2\\nline 3'
+
+curl -sS -X PUT "$BASE/rooms/\${ROOM_ENC}/send/m.room.message/\${TXN}" \\
+  -H "Authorization: Bearer $TOK" \\
+  -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("aqua morning digest\nline 2\nline 3");
+  });
+
+  it("C2: MSG=$'tab\\t and \\'apos\\' escapes' decodes tab + apostrophes", () => {
+    // SYNTHETIC — coverage of ANSI-C escape map: \t → tab, \' → literal '
+    // (proves _decode_ansi_c walks the char stream and looks up the escape
+    // table char-by-char, not a naive regex substitution).
+    const cmd = `RELAY=~/.claude/identities/aqua/relay.json
+BASE=$(jq -r '.base' "$RELAY")
+TOK=$(jq -r '.access_token' "$RELAY")
+ROOM='!XiCaysQQjBbCwwtOGx:thenasty.taild9b663.ts.net'
+TXN=$(date +%s%N)
+
+MSG=$'tab\\there and \\'apos\\' too'
+
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" \\
+  -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$MSG" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe("tab\there and 'apos' too");
+  });
+});
+
+describe("extractOutboundBody — shape D: read heredoc", () => {
+  it("D1: read -r -d '' MSG <<'EOF' body EOF (poppy→vicky column filter)", () => {
+    // corpus: ts=2026-08-12T17:28:50.581Z (poppy → vicky column-filter)
+    // Real fleet uses `read -r -d '' MSG <<'EOF'` to slurp a multi-line body
+    // into $MSG. Under v0, no assignment shape matches → Strategy 6 captures
+    // `$MSG` literal. Under v3, Shape D parses `read [flags] VAR <<EOF` and
+    // populates the assignment map.
+    const cmd = `R=~/.claude/identities/poppy/relay.json
+TOK=$(jq -r '.access_token // .token' "$R"); BASE=$(jq -r '.base' "$R")
+ROOM='!dKuMpeCcOqsMSPUIiZ:thenasty.taild9b663.ts.net'
+TXN="poppy-vicky-column-filter-expand-$(date +%s)"
+
+read -r -d '' MSG <<'EOF'
+Hey Vicky — planting a VMS ask coming out of Kara feedback on PBMInvoices column filtering. Framing only, no code from me on this side.
+EOF
+
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" \\
+  -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$MSG" '{msgtype:"m.text", body:$b}')"`;
+    expect(extractOutboundBody(cmd)).toBe(
+      "Hey Vicky — planting a VMS ask coming out of Kara feedback on PBMInvoices column filtering. Framing only, no code from me on this side.",
+    );
+  });
+});
+
+describe("extractOutboundBody — Strategy 12 preflight", () => {
+  it("S12-1: BODY=$(cat <<EOF <body with \"embedded quotes\"> EOF) + --arg b \"$BODY\" — Strategy 12 bypasses post-substitution regex fragility", () => {
+    // corpus: ts=2026-08-10T01:07:57.309Z (isabella)
+    // Real fleet: cat-heredoc BODY contains "no access on either side" (embedded
+    // double quotes). Under v0: no BODY sq/dq assign → substituteShellVars is a
+    // no-op → Strategy 6 (jq-arg-inline-dq) sees `--arg b "$BODY"` and captures
+    // the literal `$BODY` (the wrong-body bug — bubble renders `$BODY` verbatim).
+    //
+    // Under v3: assignment map includes BODY (Shape A cat-heredoc), Strategy 12
+    // preflight matches `--arg b "$BODY" '{msgtype:"m.text",body:$b}'`, looks
+    // up BODY in the assignment map, and returns the heredoc body directly —
+    // bypassing the post-substitution regex that would break on embedded ".
+    const cmd = `CREDS=~/.claude/identities/isabella/relay.json
+BASE=$(jq -r '.base' "$CREDS")
+TOK=$(jq -r '.access_token' "$CREDS")
+ROOM='!TOhwMIOAPQHcffSjFM:thenasty.taild9b663.ts.net'
+TXN="isabella-$(date +%s)-$$"
+BODY=$(cat <<'EOF'
+Got it — updated the bounty with the "no access on either side" reality. Standing by for Ashley's call on standing-directive + which access path she wants (dictate vs Remote Login + key install). No sense doing the Sparkle test until we have SSH on at least one Mac anyway; I'll roll it into whichever access flow lands.
+EOF
+)
+ROOM_ENC=$(printf %s "$ROOM" | jq -sRr @uri)
+curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \\
+  -d "$(jq -n --arg b "$BODY" '{msgtype:"m.text", body:$b}')" | jq -r '.event_id // .'`;
+    expect(extractOutboundBody(cmd)).toBe(
+      "Got it — updated the bounty with the \"no access on either side\" reality. Standing by for Ashley's call on standing-directive + which access path she wants (dictate vs Remote Login + key install). No sense doing the Sparkle test until we have SSH on at least one Mac anyway; I'll roll it into whichever access flow lands.",
+    );
+  });
+});
+
+describe("extractOutboundBody — latent bug regressions", () => {
+  it("LB-1: primary BODY=$(cat <<EOF …) beats secondary --arg body 'label' (tabitha→nelly shape)", () => {
+    // SYNTHETIC — composed to guard the second latent v0 wrong-body bug:
+    // Under v0, when a cmd has BOTH a primary BODY=$(cat <<'EOF' real body EOF)
+    // AND a secondary `--arg body 'label'` (e.g. jq --arg body 'DM' … for a
+    // dm-notification marker), Strategy 7 (jq-arg-inline-sq) captures 'label'
+    // before the primary heredoc body is reachable — bubble shows 'label'.
+    //
+    // Cited real corpus cmd that would have exhibited this: tabitha→nelly
+    // "relaying Ashley" turn (2026-08-20, room !wNhqmNRUNlHesCshwg…) — nelly
+    // fixture at file line 70. Composition adds a synthetic `--arg body 'label'`
+    // secondary to that same shape to force the collision.
+    //
+    // Under v3, Strategy 12 preflight matches `--arg b "$BODY" '{...body:$b}'`,
+    // finds BODY in the assignment map (Shape A cat-heredoc), and returns the
+    // primary body — bypassing Strategy 7's greedy match on the secondary arg.
+    const cmd = `TOK=$(jq -r .access_token ~/.claude/identities/tabitha/relay.json)
+BASE=$(jq -r .base ~/.claude/identities/tabitha/relay.json)
+ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'
+TXN="tabitha-$(date +%s)"
+BODY=$(cat <<'EOF'
+real primary body
+EOF
+)
+curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg body 'label' --arg b "$BODY" '{msgtype:"m.text", body:$b, dm_marker:$body}')"`;
+    expect(extractOutboundBody(cmd)).toBe("real primary body");
+  });
+});
+
+describe("extractOutboundBody — no-op invariant", () => {
+  it("NO-OP: BODY-sq ack short message (tanya) — v3 machinery is byte-identical when no new shape triggers", () => {
+    // Duplicate of the existing "BODY-sq — ack short message (tanya)" corpus
+    // fixture (file line 51). Explicit invariant: introducing 4 new shapes to
+    // the assignment builder + 2 new strategies must NOT change the output for
+    // any cmd whose assignment map is dominated by the pre-existing sq/dq shapes.
+    // Original fixture: BODY='Ack — holding cps, nothing in flight on my end.'
+    const cmd = `ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+CREDS=~/.claude/identities/tanya/relay.json
+BASE=$(jq -r .base "$CREDS")
+TOK=$(jq -r .access_token "$CREDS")
+TXN="tanya-$(date +%s%N)"
+ROOM_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$ROOM")
+BODY='Ack — holding cps, nothing in flight on my end.'
+curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
+  -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
+  -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')" | jq -r .event_id`;
+    expect(extractOutboundBody(cmd)).toBe(
+      "Ack — holding cps, nothing in flight on my end.",
+    );
+  });
+});
