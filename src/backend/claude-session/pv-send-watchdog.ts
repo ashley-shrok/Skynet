@@ -61,6 +61,44 @@ export const FULL_RESEND_MS = 5500;
 /** T+20000ms from arm — paste_send_failed escalation (per D-15; "T+~20s"). */
 export const GIVE_UP_MS = 20_000;
 
+// ─── Phase 56 Plan 02 — widened window for dormant-triggered sends ──────────
+//
+// When a send is dispatched while the pane is dormant (Plan 01's send-while-
+// dormant branch in claude-session-server.ts fires), the send-path first drops
+// the .dormant sentinel, waits up to MARKER_FALLBACK_MS (90_000ms) for the
+// harness's .resume-complete marker, THEN dispatches send-keys. The watchdog
+// arms at that send-keys moment — but if we used the normal 20_000ms give-up
+// window, a healthy ~90-second wake would trip paste_send_failed even though
+// the send is landing correctly. Widen the timing chain: retry-Enter still
+// fires at ~T+2500ms (bare Enter is harmless per D-16), but full-resend and
+// give-up push out past the marker window.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Mirrors MARKER_FALLBACK_MS at claude-session-server.ts:773 — MUST stay in sync.
+ * The two files cannot import each other (circular), so this file re-declares
+ * the constant with a header comment. Test WW-5 in pv-send-watchdog.test.ts
+ * reads both files and asserts they match to guard against drift.
+ */
+export const MARKER_FALLBACK_MS_MIRROR = 90_000;
+
+/**
+ * Phase 56: retry-Enter timing for dormant-triggered sends. Pushed out past
+ * the marker-wait window so the retry Enter fires AFTER the send-path's own
+ * marker wait would have completed. = 92_500ms.
+ */
+export const RETRY_ENTER_MS_DORMANT = MARKER_FALLBACK_MS_MIRROR + RETRY_ENTER_MS;
+
+/** Phase 56: full-resend timing for dormant-triggered sends. = 95_500ms. */
+export const FULL_RESEND_MS_DORMANT = MARKER_FALLBACK_MS_MIRROR + FULL_RESEND_MS;
+
+/**
+ * Phase 56: give-up window for dormant-triggered sends. MARKER_FALLBACK_MS
+ * (90s) + normal GIVE_UP_MS (20s) + 10s buffer = 120_000ms — comfortable
+ * margin above a healthy ~90s wake.
+ */
+export const GIVE_UP_MS_DORMANT = MARKER_FALLBACK_MS_MIRROR + GIVE_UP_MS + 10_000;
+
 /**
  * Wrap a string in single quotes and escape embedded single quotes via the
  * shell-standard `'\''` sequence. Byte-identical to the shellQuote helper in
@@ -115,6 +153,20 @@ export interface ArmPvSendWatchdogArgs {
    * and the existing three-stage watchdog wasn't armed on that branch.)
    */
   retryEnterOnly?: boolean;
+  /**
+   * Phase 56: when true, use widened timing constants
+   * (RETRY_ENTER_MS_DORMANT / FULL_RESEND_MS_DORMANT / GIVE_UP_MS_DORMANT)
+   * so a healthy ~90-second invisible wake (send-path drops sentinel + waits
+   * for .resume-complete, then dispatches send-keys) doesn't trip the
+   * paste_send_failed red-bubble. Orthogonal to retryEnterOnly — the two
+   * flags can coexist; if both are true, only retry-Enter is scheduled but
+   * at the widened T+92500ms cadence.
+   *
+   * Set by claude-session-server.ts's __applyInputMessageForTests dormant
+   * branch based on the value of `dormantLastEmitted` at input-handler entry
+   * — NEVER from a WS payload field (see T-56-02-01).
+   */
+  dormantSend?: boolean;
 }
 
 interface PendingWatchdog {
@@ -177,6 +229,15 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
   } = args;
   const logger = args.logger ?? sshLogger;
 
+  // Phase 56 Plan 02 — widened window when the send was dispatched during
+  // pane dormancy. Compute local timing values once so the three setTimeout
+  // sites below pick the right cadence uniformly. Orthogonal to
+  // retryEnterOnly (both can be true; only retry-Enter is scheduled but at
+  // the widened T+92500ms cadence).
+  const retryDelay = args.dormantSend ? RETRY_ENTER_MS_DORMANT : RETRY_ENTER_MS;
+  const fullResendDelay = args.dormantSend ? FULL_RESEND_MS_DORMANT : FULL_RESEND_MS;
+  const giveUpDelay = args.dormantSend ? GIVE_UP_MS_DORMANT : GIVE_UP_MS;
+
   if (pending.has(mqid)) {
     logger.debug(
       "pv-send-watchdog: arm ignored — mqid already pending",
@@ -236,7 +297,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
       );
       // Do NOT re-throw or cancel timers — escalation continues per D-15.
     });
-  }, RETRY_ENTER_MS);
+  }, retryDelay);
 
   // Retry-Enter-only mode: skip Stages 2 + 3 for the non-split-path safety
   // net (see ArmPvSendWatchdogArgs.retryEnterOnly for rationale).
@@ -248,6 +309,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
       sessionId,
       contentHash,
       bodyBytes: body.length,
+      dormantSend: args.dormantSend === true,
     });
     return;
   }
@@ -315,7 +377,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
         );
       }
     })();
-  }, FULL_RESEND_MS);
+  }, fullResendDelay);
 
   // Stage 3 — T+20000ms give-up + emit paste_send_failed. Same wire shape as
   // the OLD terminal-layer watchdog (deleted in Task 3) for frontend backward compat.
@@ -355,7 +417,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
     // Watchdog complete — drop from Map.
     cancelTimers(entry);
     pending.delete(mqid);
-  }, GIVE_UP_MS);
+  }, giveUpDelay);
 
   pending.set(mqid, entry);
 
@@ -367,6 +429,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
       sessionId,
       contentHash,
       bodyBytes: body.length,
+      dormantSend: args.dormantSend === true,
     },
   );
 }
