@@ -52,6 +52,7 @@ import {
 import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
+import { writeSessionFileCache } from "./session-file-cache.js";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -1213,6 +1214,17 @@ export function createSshPollOrchestrator(
     // the `fleet_status_recycling_armed` log. Both concerns have moved to
     // source B (pollDormantOnlyIdentities). Source A stamps `recycling: false`
     // unconditionally in the composed SessionState below.
+
+    // Phase 55 Plan 02: publish resolved sessionFile to the shared session-file
+    // cache for the Claude-session attach path (Plan 55-03) to read
+    // opportunistically; source A only — source B lacks a real pid and MUST NOT
+    // write here per Phase 55 RESEARCH § Pitfall 4; guards: jsonlPath must be
+    // resolved this tick (or cached from a prior tick), tmuxSession must be
+    // known (identity name resolved); the stale-liveness path returns at ~L1191
+    // above so we never write for a PID that is about to be reaped.
+    if (jsonlPath !== null && tmuxSession !== null) {
+      writeSessionFileCache(host.id, tmuxSession, { sessionFile: jsonlPath, pid });
+    }
 
     // Compose SessionState — Phase 41 Plan 03 stamps lastMessageAt from the
     // JSONL-tail derivation above (null when no message-bearing history is
