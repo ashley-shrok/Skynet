@@ -221,59 +221,185 @@ function restoreApostrophes(body: string | null): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// quick-260822-9qf: shell-var substitution preprocess pass
+// quick-260823-hd6: substituteShellVars extended to 6 assignment shapes.
+// Ported verbatim from ~/.claude/roles/box-maintainer/bounties/
+//   relay-outbound-cmdsub-heredoc-body/extractor_v3.py — corpus-validated
+// against 787 real fleet outbound cmds (t1000 + workstation, 2 weeks):
+// 96.3% ok extraction, 0 regressions vs v0, catches 2 latent wrong-body
+// bugs (secondary --arg captured before primary heredoc). Residual 15
+// unrecoverable = external files + runtime-conditional picks.
 //
-// Some relay outbound cmds stash the body in a non-canonical shell variable
-// (WBODY, body_var, PAYLOAD, etc.) and inline the var reference via
-// `--arg b "$VAR" '{msgtype:...`. Pre-fix Strategy 6 captured the raw
-// literal `$WBODY` instead of the resolved body text.
+// Original quick-260822-9qf motivation preserved: Some relay outbound cmds
+// stash the body in a non-canonical shell variable and inline the var
+// reference via `--arg b "$VAR" '{msgtype:...`. Pre-fix Strategy 6 captured
+// the raw literal `$VAR` instead of the resolved body text.
 //
-// Same architectural philosophy as Phase 49's sanitizeBashSqEscapeIdioms:
-// preprocess `cmd` BEFORE the 10 strategies run. sanitize first (converts
-// bash apostrophe-escape idioms into APOS_MARKER), then substitute (so
-// single-quoted var values that used those idioms carry the marker through,
-// and restoreApostrophes at each strategy's return site restores them).
+// v3 extends the assignment builder from 2 shapes (sq, dq) to 6:
+//   (A) cmd-sub cat heredoc:  VAR=$(cat <<'EOF' … EOF)
+//   (B) cmd-sub jq -n[c]:     VAR=$(jq -nc '{…body:"X"…}')
+//   (C) ANSI-C bash quoting:  VAR=$'…\\n…'
+//   (D) bash read heredoc:    read [flags] VAR <<'EOF' … EOF
+//   (E) single-quoted:        VAR='…'
+//   (F) double-quoted:        VAR="…"
+// Shape order = A→B→C→D→E→F with first-assignment-wins. Specialized shapes
+// run BEFORE bare sq/dq so E/F don't swallow parts of A-D as bare quotes.
 //
-// First-assignment-wins across both sq and dq scans, length-descending
-// substitution order (guards $BODY_LONG vs $BODY collision), word-boundary
-// guard on `$name`, plus `${name}` braces form.
+// First-assignment-wins, length-descending substitution order (guards
+// $BODY_LONG vs $BODY collision), word-boundary guard on `$name`,
+// plus `${name}` braces form.
 //
 // No-op when zero var references are found (guarantees existing corpus
 // fixtures see byte-identical input) — no log line emitted in that case.
 // ---------------------------------------------------------------------------
 
-function substituteShellVars(cmd: string): string {
-  const assignments: Record<string, string> = {};
+// Shape B helper: extract `body:"X"` from a jq filter string, decode
+// backslashes. Mirrors extractor_v3.py JQ_BODY_RE + _extract_jq_body.
+const JQ_BODY_RE_TS =
+  /['"]?body['"]?\s*:\s*"((?:\\.|[^"\\])*)"/;
 
-  // Single-quoted assigns: VAR='...' (verbatim, sanitize pass already
-  // normalized bash apostrophe-escape idioms to APOS_MARKER). Boundary
-  // group prevents matching inside identifiers or nested quoted contexts.
-  const sqAssignRe =
-    /(^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)='([\s\S]*?)'/g;
+function _extractJqBody(jqFilter: string): string | null {
+  const m = jqFilter.match(JQ_BODY_RE_TS);
+  if (!m) return null;
+  return m[1].replace(/\\(.)/g, "$1");
+}
+
+// Shape C helper: decode ANSI-C escape sequences in bash $'...' quoting.
+// Character-by-character state machine (NOT regex substitution) to match
+// extractor_v3.py _decode_ansi_c lines 45-64 byte-exact.
+const _ANSI_C_ESCAPES: Record<string, string> = {
+  n: "\n",
+  t: "\t",
+  r: "\r",
+  "\\": "\\",
+  "'": "'",
+  '"': '"',
+  a: "\x07",
+  b: "\x08",
+  f: "\f",
+  v: "\v",
+  "0": "\x00",
+};
+
+function _decodeAnsiC(s: string): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "\\" && i + 1 < s.length) {
+      const nxt = s[i + 1];
+      if (nxt in _ANSI_C_ESCAPES) {
+        out.push(_ANSI_C_ESCAPES[nxt]);
+        i += 2;
+        continue;
+      }
+      if (nxt === "x" && i + 3 < s.length) {
+        const hex = s.substring(i + 2, i + 4);
+        const n = parseInt(hex, 16);
+        if (!Number.isNaN(n) && /^[0-9a-fA-F]{2}$/.test(hex)) {
+          out.push(String.fromCharCode(n));
+          i += 4;
+          continue;
+        }
+      }
+      out.push(nxt);
+      i += 2;
+      continue;
+    }
+    out.push(c);
+    i += 1;
+  }
+  return out.join("");
+}
+
+// Shape A: cmd-sub cat heredoc — VAR=$(cat <<'EOF' … EOF)
+const _ASSIGN_CAT_HEREDOC_RE =
+  /(?:^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)=\$\(\s*cat\s*<<\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\s*\2\s*\n?\s*\)/g;
+
+// Shape B: cmd-sub jq -n[c] — VAR=$(jq -nc '…')
+const _ASSIGN_JQ_NC_RE =
+  /(?:^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)=\$\(\s*jq\s+-nc?\s*'([\s\S]*?)'\s*\)/g;
+
+// Shape C: ANSI-C — VAR=$'…'
+const _ASSIGN_ANSI_C_RE =
+  /(?:^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)=\$'((?:\\.|[^'\\])*)'/g;
+
+// Shape D: bash read heredoc — read [flags] VAR <<'EOF' … EOF
+const _ASSIGN_READ_HEREDOC_RE =
+  /(?:^|[\s;\n]|&&|\|\|)read\s+(?:-\w+(?:\s+(?:''|""|\S+))?\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*<<\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\s*\2\b/g;
+
+// Shape E: single-quoted — VAR='…'
+const _ASSIGN_SQ_RE =
+  /(?:^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)='([\s\S]*?)'/g;
+
+// Shape F: double-quoted — VAR="…"
+const _ASSIGN_DQ_RE =
+  /(?:^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+
+/**
+ * Build the shared assignment map from the (already-sanitized) ORIGINAL cmd.
+ * First-assignment-wins across ALL six passes. Order matters:
+ *   A → B → C → D → E → F.
+ * The specialized shapes (heredoc/ANSI-C/jq) match MORE-SPECIFIC patterns
+ * than the bare sq/dq regexes would otherwise; running them first prevents
+ * E/F from swallowing parts of A-D as bare quoted assigns.
+ *
+ * Mirrors extractor_v3.py _build_assignments (lines 67-100) verbatim.
+ */
+function _buildAssignments(cmd: string): Record<string, string> {
+  const a: Record<string, string> = {};
   let m: RegExpExecArray | null;
-  while ((m = sqAssignRe.exec(cmd)) !== null) {
-    const name = m[2];
-    if (assignments[name] === undefined) {
-      assignments[name] = m[3];
-    }
+
+  // (A) cmd-sub cat heredoc
+  _ASSIGN_CAT_HEREDOC_RE.lastIndex = 0;
+  while ((m = _ASSIGN_CAT_HEREDOC_RE.exec(cmd)) !== null) {
+    if (a[m[1]] === undefined) a[m[1]] = m[3];
   }
 
-  // Double-quoted assigns: VAR="..." with backslash-decode.
-  const dqAssignRe =
-    /(^|[\s;\n]|&&|\|\|)([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g;
-  while ((m = dqAssignRe.exec(cmd)) !== null) {
-    const name = m[2];
-    if (assignments[name] === undefined) {
-      assignments[name] = m[3].replace(/\\(.)/g, "$1");
-    }
+  // (B) cmd-sub jq -n[c]
+  _ASSIGN_JQ_NC_RE.lastIndex = 0;
+  while ((m = _ASSIGN_JQ_NC_RE.exec(cmd)) !== null) {
+    const body = _extractJqBody(m[2]);
+    if (body !== null && a[m[1]] === undefined) a[m[1]] = body;
   }
 
-  const names = Object.keys(assignments);
+  // (C) ANSI-C
+  _ASSIGN_ANSI_C_RE.lastIndex = 0;
+  while ((m = _ASSIGN_ANSI_C_RE.exec(cmd)) !== null) {
+    if (a[m[1]] === undefined) a[m[1]] = _decodeAnsiC(m[2]);
+  }
+
+  // (D) read heredoc
+  _ASSIGN_READ_HEREDOC_RE.lastIndex = 0;
+  while ((m = _ASSIGN_READ_HEREDOC_RE.exec(cmd)) !== null) {
+    if (a[m[1]] === undefined) a[m[1]] = m[3];
+  }
+
+  // (E) sq
+  _ASSIGN_SQ_RE.lastIndex = 0;
+  while ((m = _ASSIGN_SQ_RE.exec(cmd)) !== null) {
+    if (a[m[1]] === undefined) a[m[1]] = m[2];
+  }
+
+  // (F) dq
+  _ASSIGN_DQ_RE.lastIndex = 0;
+  while ((m = _ASSIGN_DQ_RE.exec(cmd)) !== null) {
+    if (a[m[1]] === undefined) a[m[1]] = m[2].replace(/\\(.)/g, "$1");
+  }
+
+  return a;
+}
+
+function substituteShellVars(
+  cmd: string,
+  assignments?: Record<string, string>,
+): string {
+  const a = assignments ?? _buildAssignments(cmd);
+  const names = Object.keys(a);
   if (names.length === 0) return cmd;
 
   // Length-descending: $BODY_LONG must resolve to BODY_LONG value, NOT
   // $BODY value + literal "_LONG" suffix.
-  names.sort((a, b) => b.length - a.length);
+  names.sort((a2, b2) => b2.length - a2.length);
 
   const escapeRegex = (s: string): string =>
     s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -281,7 +407,7 @@ function substituteShellVars(cmd: string): string {
   let out = cmd;
   let subCount = 0;
   for (const name of names) {
-    const value = assignments[name];
+    const value = a[name];
 
     // ${name} braces form — no word-boundary guard needed (braces close).
     const bracesToken = "${" + name + "}";
@@ -315,6 +441,16 @@ function substituteShellVars(cmd: string): string {
   return out;
 }
 
+// Strategy 12 preflight: jq-arg-passthrough-known-var
+// Pattern: --arg <argname> "$<varname>" ... '{msgtype:"m.text", body:$<argname>}'
+// The \1 backreference guarantees the argname inside body:$X is the same as
+// the outer --arg name. When matched, look up the $VAR reference in the
+// assignments map and return its value directly, bypassing the fragility of
+// post-substitution regex-parsing when body has embedded double quotes.
+// Mirrors extractor_v3.py JQ_ARG_PASSTHROUGH_RE (lines 138-141).
+const JQ_ARG_PASSTHROUGH_RE =
+  /--arg\s+(\w+)\s+"\$(\w+)"\s+'\{\s*msgtype\s*:\s*"m\.text"\s*,\s*body\s*:\s*\$\1\s*\}'/;
+
 /**
  * Opportunistically extract the human message body from a confirmed Matrix
  * relay outbound send command.
@@ -340,7 +476,34 @@ function substituteShellVars(cmd: string): string {
  */
 export function extractOutboundBody(cmd: string): string | null {
   const s0 = sanitizeBashSqEscapeIdioms(cmd);
-  const s = substituteShellVars(s0);
+
+  // Build the shared assignments map from the ORIGINAL sanitized cmd so
+  // Strategy 12 preflight can look up $VAR references BEFORE substitution
+  // rewrites the cmd. Mirrors extractor_v3.py line 147.
+  const assignments = _buildAssignments(s0);
+
+  // ---------------------------------------------------------------------------
+  // Strategy 12 (preflight): jq-arg-passthrough-known-var
+  // Runs BEFORE substituteShellVars. When `--arg <name> "$<var>" '{…body:$<name>}'`
+  // matches AND <var> has a known assignment, return the value directly. This
+  // bypasses post-substitution regex fragility for bodies containing embedded
+  // double quotes (the aqua chromehist / isabella-heredoc-with-quotes bug).
+  // Mirrors extractor_v3.py lines 149-153.
+  // ---------------------------------------------------------------------------
+  const s12Match = s0.match(JQ_ARG_PASSTHROUGH_RE);
+  if (s12Match) {
+    const varname = s12Match[2];
+    if (assignments[varname] !== undefined) {
+      const body = assignments[varname];
+      sessionParserLogger.debug(
+        `[session-parser] extract result=outbound_body strategy=jq-arg-passthrough-known-var bodyLen=${body.length}`,
+        { operation: "session_extract" },
+      );
+      return restoreApostrophes(body);
+    }
+  }
+
+  const s = substituteShellVars(s0, assignments);
 
   // ---------------------------------------------------------------------------
   // Strategy 1: BODY-sq — BODY='...' (sanitize pass removed escape idioms)
@@ -508,6 +671,25 @@ export function extractOutboundBody(cmd: string): string | null {
     } catch {
       // JSON parse failure → fall through to null
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategy 11: json-envelope-any — final catch-all for `{msgtype:"m.text",
+  // body:"X"}` envelopes with quoted or unquoted keys. Catches envelopes that
+  // Strategy 10 (inline-json) misses because they aren't inside `-d '…'`
+  // (e.g. bodies substituted into curl positional args or piped through echo).
+  // Mirrors extractor_v3.py STRATEGIES_V3 entry "json-envelope-any" (lines 129-131).
+  // ---------------------------------------------------------------------------
+  const jsonEnvelopeAnyMatch = s.match(
+    /\{\s*['"]?msgtype['"]?\s*:\s*"m\.text"\s*,\s*['"]?body['"]?\s*:\s*"((?:\\.|[^"\\])*)"\s*\}/,
+  );
+  if (jsonEnvelopeAnyMatch) {
+    const body = jsonEnvelopeAnyMatch[1].replace(/\\(.)/g, "$1");
+    sessionParserLogger.debug(
+      `[session-parser] extract result=outbound_body strategy=json-envelope-any bodyLen=${body.length}`,
+      { operation: "session_extract" },
+    );
+    return restoreApostrophes(body);
   }
 
   return restoreApostrophes(null);

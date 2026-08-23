@@ -391,23 +391,30 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
 });
 
 describe("extractOutboundBody — known limitations", () => {
-  it("SELF-REFERENTIAL: BODY='...' substring inside heredoc content still gets matched by BODY-sq before heredoc-inline (documented, not fixed by Phase 49)", () => {
-    // The BODY='...' inside the heredoc's CONTENT gets matched by Strategy 1
-    // before heredoc-inline (Strategy 9) fires. Sanitize pass doesn't address
-    // this — it's a shell-quoting-context bug, not a bash-escape-idiom bug.
-    // Deferred per Phase 49 CONTEXT.md § Deferred Ideas — fixing would require
-    // either a heredoc-first strategy reorder (breaks PRIORITY-REGRESSION),
-    // a heredoc-content pre-mask, or a shell-aware parser (major rewrite).
-    // If a future phase addresses this, this test flips from documentation
-    // to regression guard.
+  it("SELF-REFERENTIAL: BODY='...' substring inside heredoc content — FIXED by quick-260823-hd6 (v3 port) via Strategy 12 preflight", () => {
+    // Pre-v3 (Phase 49 era): the BODY='...' inside the heredoc's CONTENT got
+    // matched by Strategy 1 before heredoc-inline (Strategy 9) fired. This
+    // test was a "documentation of limitation" pinning the wrong behavior.
+    //
+    // quick-260823-hd6 (v3 port of extractor_v3.py) FIXES this. Sequence:
+    //   1. _buildAssignments runs Shape A cat-heredoc FIRST → assignments[BODY]
+    //      = the primary heredoc body.
+    //   2. Strategy 12 preflight matches `--arg b "$BODY" '{…body:$b}'`,
+    //      finds BODY in the assignments map, returns the primary body
+    //      DIRECTLY — bypassing Strategy 1's greedy match on the inner
+    //      BODY='relaying Ashley' substring.
+    //
+    // Test now flips from documentation to regression guard: v3 must
+    // continue returning the real heredoc body, not the inner substring.
     const cmd = `BODY=$(cat <<'EOF'
 Hey — the extractor's BODY='relaying Ashley' bug matched inside my heredoc content instead of the real body.
 EOF
 )
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" \\
   -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
-    // Current behavior: BODY-sq matches the inner substring, returns 'relaying Ashley'.
-    expect(extractOutboundBody(cmd)).toBe("relaying Ashley");
+    expect(extractOutboundBody(cmd)).toBe(
+      "Hey — the extractor's BODY='relaying Ashley' bug matched inside my heredoc content instead of the real body.",
+    );
   });
 });
 
