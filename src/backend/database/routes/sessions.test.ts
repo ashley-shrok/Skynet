@@ -771,6 +771,235 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// quick-260823-bap — Ashley 2026-08-23 lock predicate matrix
+//
+// Byte-parallel with ssh-poll-orchestrator.test.ts predicate-matrix describe
+// block. Tested via the /sessions/list HTTP route (scanTailForNewestMessageAt
+// as the observable) rather than the private predicate helper directly.
+// ---------------------------------------------------------------------------
+
+describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
+  const TANYA_JSONL = "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/pred-matrix.jsonl";
+
+  // Helper: run a single raw JSONL line through /sessions/list and return
+  // lastMessageAt from the tanya row.
+  async function scanSingleLine(rawLine: string): Promise<number | null> {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") return TANYA_JSONL;
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) return Promise.resolve("tanya|1000");
+      if (cmd.includes("identities/")) return Promise.resolve("---\nrole: box-maintainer\n---\n# Tanya\n");
+      if (cmd.includes(TANYA_JSONL)) return Promise.resolve(rawLine + "\n");
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{ sessionName: string; lastMessageAt: number | null }>;
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    return tanya?.lastMessageAt ?? null;
+  }
+
+  // Helper: run multiple raw JSONL lines through /sessions/list and return
+  // lastMessageAt from the tanya row.
+  async function scanMultiLine(lines: string[]): Promise<number | null> {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") return TANYA_JSONL;
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) return Promise.resolve("tanya|1000");
+      if (cmd.includes("identities/")) return Promise.resolve("---\nrole: box-maintainer\n---\n# Tanya\n");
+      if (cmd.includes(TANYA_JSONL)) return Promise.resolve(lines.join("\n") + "\n");
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{ sessionName: string; lastMessageAt: number | null }>;
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    return tanya?.lastMessageAt ?? null;
+  }
+
+  it("Case 1 (KEEP — typed prose): user turn with plain-string prose content counts", async () => {
+    const ts = Date.parse("2026-08-23T10:00:00.000Z");
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "Hello Amelia" },
+      timestamp: "2026-08-23T10:00:00.000Z",
+      uuid: "u1",
+    });
+    // Ashley 2026-08-23 lock: typed prose is a real message → KEEP.
+    expect(await scanSingleLine(rawLine)).toBe(ts);
+  });
+
+  it("Case 2 (KEEP — slash-command invocation): user turn with <command- prefixed content counts", async () => {
+    const ts = Date.parse("2026-08-23T10:01:00.000Z");
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>tina</command-args>",
+      },
+      timestamp: "2026-08-23T10:01:00.000Z",
+      uuid: "u2",
+    });
+    // Starts with "<command-" → KEEP per predicate step 4a.
+    expect(await scanSingleLine(rawLine)).toBe(ts);
+  });
+
+  it("Case 3 (DROP — task-notification wrapper): <task-notification>…</task-notification> must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "<task-notification>wakeup</task-notification>" },
+      timestamp: "2026-08-23T10:02:00.000Z",
+      uuid: "u3",
+    });
+    // Trimmed content starts with "<" and ends with ">" and does NOT start with
+    // "<command-" → DROP per predicate step 4b.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 4 (DROP — system-reminder wrapper): <system-reminder>…</system-reminder> must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "<system-reminder>reminder body</system-reminder>" },
+      timestamp: "2026-08-23T10:03:00.000Z",
+      uuid: "u4",
+    });
+    // Same XML-wrapper shape → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 5 (DROP — tool_result list content, regression lock): list-content user turn must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { tool_use_id: "toolu_x", type: "tool_result", content: "...", is_error: false },
+        ],
+      },
+      timestamp: "2026-08-23T10:04:00.000Z",
+      uuid: "u5",
+    });
+    // content is an array → predicate step 3 (typeof !== "string") → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 6 (DROP — skill-body list-content injection, NEW exclusion): [{type:'text',text:'…'}] must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "skill body..." }],
+      },
+      timestamp: "2026-08-23T10:05:00.000Z",
+      uuid: "u6",
+    });
+    // pre-Aug-23 this was silently counted (MESSAGE_BEARING_KINDS included
+    // "message" kind, and parseSessionLine returned kind:"message" for some
+    // list-content user turns). Ashley 2026-08-23 lock: list content → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 7 (DROP — assistant turn + relay_outbound): assistant turns must NOT count", async () => {
+    // Assertion 1: plain assistant reply.
+    const rawAssistant = JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: "reply" },
+      timestamp: "2026-08-23T10:06:00.000Z",
+      uuid: "u7",
+    });
+    expect(await scanSingleLine(rawAssistant)).toBeNull();
+
+    // Assertion 2: assistant relay_outbound frame (curl -X PUT rooms/…/send/m.room.message shape).
+    const rawRelayOutbound = JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_relay",
+            name: "Bash",
+            input: {
+              command:
+                "curl -s -X PUT 'https://matrix.example.com/_matrix/client/v3/rooms/!abc:example.com/send/m.room.message/1' -d '{\"msgtype\":\"m.text\",\"body\":\"hello\"}'",
+            },
+          },
+        ],
+      },
+      timestamp: "2026-08-23T10:07:00.000Z",
+      uuid: "u7b",
+    });
+    expect(await scanSingleLine(rawRelayOutbound)).toBeNull();
+  });
+
+  it("Mixed-tail integration: DROP lines interleaved with KEEP lines → newest KEEP ts returned", async () => {
+    // Tail order: [Case5, Case7, Case3, Case1@T1, Case2@T2] where T2 > T1.
+    // scanTailForNewestMessageAt must return T2.
+    const T1 = Date.parse("2026-08-23T11:00:00.000Z");
+    const T2 = Date.parse("2026-08-23T11:01:00.000Z");
+
+    const case5Line = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ tool_use_id: "toolu_x", type: "tool_result", content: "x", is_error: false }],
+      },
+      timestamp: "2026-08-23T10:55:00.000Z",
+      uuid: "mix-c5",
+    });
+    const case7Line = JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: "reply" },
+      timestamp: "2026-08-23T10:56:00.000Z",
+      uuid: "mix-c7",
+    });
+    const case3Line = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "<task-notification>wake</task-notification>" },
+      timestamp: "2026-08-23T10:57:00.000Z",
+      uuid: "mix-c3",
+    });
+    const case1Line = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "Hello Amelia" },
+      timestamp: new Date(T1).toISOString(),
+      uuid: "mix-c1",
+    });
+    const case2Line = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: "<command-message>id</command-message>\n<command-name>/id</command-name>",
+      },
+      timestamp: new Date(T2).toISOString(),
+      uuid: "mix-c2",
+    });
+
+    // T2 is the newest KEEP line — 3 DROP lines interleaved must not interfere.
+    expect(
+      await scanMultiLine([case5Line, case7Line, case3Line, case1Line, case2Line]),
+    ).toBe(T2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 47 Plan 02 — /sessions/list aiTitle derivation coverage
 //
 // Mirrors the 7 test cases enumerated in 47-02-PLAN.md Task 1 <behavior>.

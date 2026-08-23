@@ -1221,6 +1221,274 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
 });
 
 // ---------------------------------------------------------------------------
+// quick-260823-bap — Ashley 2026-08-23 msg-only-recency predicate matrix
+//
+// Verifies the isAshleyRealUserTurn predicate (Ashley 2026-08-23 lock):
+// "only my real messages going to them" — INVERTS the 2026-08-14 lock.
+//
+// Seven cases + one mixed-tail integration case. Tested via
+// scanTailForNewestMessageAt (the observable) rather than the private
+// predicate helper directly, so tests survive any internal rename.
+// ---------------------------------------------------------------------------
+
+describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Local buildDiscoveryFixture — mirrors the Phase 41 Plan 03 helper.
+  function buildDiscoveryFixture(
+    identityName: string,
+    discoveredPath: string,
+    matchesIdentity = true,
+  ): string {
+    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-${identityName}`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  // Local wireBaseResponses — wires the standard per-poll responses plus the
+  // JSONL tail content. Same shape as the Phase 41 Plan 03 helper but defined
+  // locally so this describe block does not depend on its sibling's scope.
+  function wireBaseResponses(channel: MockSshChannel, jsonlContents: string): void {
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    const discoveryStdout = buildDiscoveryFixture(
+      "tina",
+      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
+    );
+    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse("discovered.jsonl", jsonlContents);
+  }
+
+  // Helper: run a single-line JSONL tail through the orchestrator's
+  // scanTailForNewestMessageAt by wiring it as the JSONL tail response.
+  // Returns the lastMessageAt value from the first published state.
+  async function scanSingleLine(rawLine: string): Promise<number | null> {
+    const channel = new MockSshChannel();
+    // Wrap the line in a newline as a real tail would.
+    wireBaseResponses(channel, rawLine + "\n");
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    return deps.registry.publishedStates[0].state.lastMessageAt;
+  }
+
+  // Helper: run a multi-line JSONL tail through the orchestrator.
+  async function scanMultiLine(lines: string[]): Promise<number | null> {
+    const channel = new MockSshChannel();
+    wireBaseResponses(channel, lines.join("\n") + "\n");
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    return deps.registry.publishedStates[0].state.lastMessageAt;
+  }
+
+  it("Case 1 (KEEP — typed prose): user turn with plain-string prose content counts", async () => {
+    const ts = Date.parse("2026-08-23T10:00:00.000Z");
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "Hello Amelia" },
+      timestamp: "2026-08-23T10:00:00.000Z",
+      uuid: "u1",
+    });
+    // Ashley 2026-08-23 lock: typed prose is a real message → KEEP.
+    expect(await scanSingleLine(rawLine)).toBe(ts);
+  });
+
+  it("Case 2 (KEEP — slash-command invocation): user turn with <command- prefixed content counts", async () => {
+    const ts = Date.parse("2026-08-23T10:01:00.000Z");
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>tina</command-args>",
+      },
+      timestamp: "2026-08-23T10:01:00.000Z",
+      uuid: "u2",
+    });
+    // Starts with "<command-" → KEEP per predicate step 4a.
+    expect(await scanSingleLine(rawLine)).toBe(ts);
+  });
+
+  it("Case 3 (DROP — task-notification wrapper): <task-notification>…</task-notification> must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "<task-notification>wakeup</task-notification>" },
+      timestamp: "2026-08-23T10:02:00.000Z",
+      uuid: "u3",
+    });
+    // Trimmed content starts with "<" and ends with ">" and does NOT start with
+    // "<command-" → DROP per predicate step 4b.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 4 (DROP — system-reminder wrapper): <system-reminder>…</system-reminder> must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "<system-reminder>reminder body</system-reminder>" },
+      timestamp: "2026-08-23T10:03:00.000Z",
+      uuid: "u4",
+    });
+    // Same XML-wrapper shape → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 5 (DROP — tool_result list content, regression lock): list-content user turn must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { tool_use_id: "toolu_x", type: "tool_result", content: "...", is_error: false },
+        ],
+      },
+      timestamp: "2026-08-23T10:04:00.000Z",
+      uuid: "u5",
+    });
+    // content is an array → predicate step 3 (typeof !== "string") → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 6 (DROP — skill-body list-content injection, NEW exclusion): [{type:'text',text:'…'}] must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "skill body..." }],
+      },
+      timestamp: "2026-08-23T10:05:00.000Z",
+      uuid: "u6",
+    });
+    // pre-Aug-23 this was silently counted (MESSAGE_BEARING_KINDS included
+    // "message" kind, and parseSessionLine returned kind:"message" for some
+    // list-content user turns). Ashley 2026-08-23 lock: list content → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 7 (DROP — assistant turn + relay_outbound): assistant turns must NOT count", async () => {
+    // Assertion 1: plain assistant reply.
+    const rawAssistant = JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: "reply" },
+      timestamp: "2026-08-23T10:06:00.000Z",
+      uuid: "u7",
+    });
+    expect(await scanSingleLine(rawAssistant)).toBeNull();
+
+    // Assertion 2: assistant relay_outbound frame (curl -X PUT rooms/…/send/m.room.message shape).
+    const rawRelayOutbound = JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_relay",
+            name: "Bash",
+            input: {
+              command:
+                "curl -s -X PUT 'https://matrix.example.com/_matrix/client/v3/rooms/!abc:example.com/send/m.room.message/1' -d '{\"msgtype\":\"m.text\",\"body\":\"hello\"}'",
+            },
+          },
+        ],
+      },
+      timestamp: "2026-08-23T10:07:00.000Z",
+      uuid: "u7b",
+    });
+    expect(await scanSingleLine(rawRelayOutbound)).toBeNull();
+  });
+
+  it("Mixed-tail integration: DROP lines interleaved with KEEP lines → newest KEEP ts returned", async () => {
+    // Tail order: [Case5, Case7, Case3, Case1@T1, Case2@T2] where T2 > T1.
+    // scanTailForNewestMessageAt must return T2.
+    const T1 = Date.parse("2026-08-23T11:00:00.000Z");
+    const T2 = Date.parse("2026-08-23T11:01:00.000Z");
+
+    const case5Line = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ tool_use_id: "toolu_x", type: "tool_result", content: "x", is_error: false }],
+      },
+      timestamp: "2026-08-23T10:55:00.000Z",
+      uuid: "mix-c5",
+    });
+    const case7Line = JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: "reply" },
+      timestamp: "2026-08-23T10:56:00.000Z",
+      uuid: "mix-c7",
+    });
+    const case3Line = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "<task-notification>wake</task-notification>" },
+      timestamp: "2026-08-23T10:57:00.000Z",
+      uuid: "mix-c3",
+    });
+    const case1Line = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "Hello Amelia" },
+      timestamp: new Date(T1).toISOString(),
+      uuid: "mix-c1",
+    });
+    const case2Line = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: "<command-message>id</command-message>\n<command-name>/id</command-name>",
+      },
+      timestamp: new Date(T2).toISOString(),
+      uuid: "mix-c2",
+    });
+
+    // T2 is the newest KEEP line — 3 DROP lines interleaved must not interfere.
+    expect(
+      await scanMultiLine([case5Line, case7Line, case3Line, case1Line, case2Line]),
+    ).toBe(T2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
 // rediscovery-on-stale + no-history-no-churn
 //
