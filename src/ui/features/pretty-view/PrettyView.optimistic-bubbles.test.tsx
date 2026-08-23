@@ -229,7 +229,27 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     await waitFor(() => expect(countConfirmedBubbles(container)).toBe(1));
   });
 
-  it("Test 3: mismatched content does NOT match pending", async () => {
+  /*
+   * quick-260823-fzy regression guard.
+   *
+   * Pre-quick-260823-fzy this test asserted the OPPOSITE: pending survived
+   * a mismatched-content frame because head-match required byte equality on
+   * the collapsed content string. That behavior was the bug — Claude Code
+   * re-writes user input into the jsonl frame (slash-command XML wrap,
+   * JSON-paste pretty-serialization, and any future CC input transform),
+   * so the seed content and the wire-frame content diverge byte-wise, the
+   * head-match miss, and the 20s timer flip the pending red — DOUBLE BUBBLE.
+   *
+   * Real evidence of the shape-gap:
+   *   ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl
+   *   ts=2026-08-23T01:41:48.723Z (Ashley's `/fake` send in tina session).
+   *
+   * Fix: drop byte equality from head-match — FIFO + role + state gate
+   * alone. First incoming user-role frame clears the oldest sending pending,
+   * period. Send order itself IS the match signal (CC processes user input
+   * serially, WS preserves order).
+   */
+  it("Test 3 (quick-260823-fzy regression guard): incoming user-role frame with mismatched content STILL clears oldest sending pending — FIFO+role+state gate, no content equality", async () => {
     const { container } = mount();
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -247,9 +267,56 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
       eventId: "ev2",
       ts: Date.now(),
     });
-    // Pending stays (still 1); one confirmed added.
+    // Pending cleared under FIFO-only, despite content mismatch;
+    // the incoming frame still lands as a confirmed message.
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
     await waitFor(() => expect(countConfirmedBubbles(container)).toBe(1));
-    expect(countPendingBubbles(container)).toBe(1);
+  });
+
+  it("Test 3b (quick-260823-fzy): real slash-command XML wrap clears pending under FIFO-only", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+    );
+
+    // corpus: ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl ts=2026-08-23T01:41:48.723Z
+    typeAndEnter(container, "/fake we can try this one, problem happens 100% of the time");
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+
+    sendWsFrame(ws, {
+      type: "message",
+      role: "user",
+      content: "<command-message>fake</command-message>\n<command-name>/fake</command-name>\n<command-args>we can try this one, problem happens 100% of the time</command-args>",
+      eventId: "ev-fake",
+      ts: Date.now(),
+    });
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
+    await waitFor(() => expect(countConfirmedBubbles(container)).toBe(1));
+  });
+
+  it("Test 3c (quick-260823-fzy): JSON-paste transformation still clears pending under FIFO-only (synthetic)", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+    );
+
+    // SYNTHETIC — represents Ashley-reported class ("pasting JSON in fail as well"), corpus TBD
+    typeAndEnter(container, '{"foo": "bar"}');
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+
+    sendWsFrame(ws, {
+      type: "message",
+      role: "user",
+      content: "{\n  \"foo\": \"bar\"\n}",
+      eventId: "ev-json",
+      ts: Date.now(),
+    });
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
+    await waitFor(() => expect(countConfirmedBubbles(container)).toBe(1));
   });
 
   it("Test 4: FIFO tiebreaker — identical content sent twice; oldest clears first", async () => {
