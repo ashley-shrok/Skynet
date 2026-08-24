@@ -3097,6 +3097,19 @@ function QueuedRow(props: QueuedRowProps) {
             clearDebounce();
             void flushDirty();
           }}
+          onKeyDown={(e) => {
+            // Enter-to-send parity with the primary textarea (handleKeyDown
+            // ~L1714). Plain Enter fires handleQueueSlotSend for this slot;
+            // Shift+Enter falls through to the browser default (newline
+            // insertion). Gated on `slotSendDisabled` — the same predicate
+            // that disables the slot Send button — so transcribing / empty
+            // text / slotArmed / recycle / plan-pending / reconnecting all
+            // no-op via one source of truth.
+            if (e.key !== "Enter" || e.shiftKey) return;
+            e.preventDefault();
+            if (slotSendDisabled) return;
+            handleQueueSlotSend(slot.id);
+          }}
           placeholder="Queued message…"
           rows={1}
           data-testid={`queue-slot-textarea-${slot.id}`}

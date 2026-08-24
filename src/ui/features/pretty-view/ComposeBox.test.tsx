@@ -905,6 +905,68 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     expect(disabledAgain.disabled).toBe(true);
   });
 
+  // QS 6b: Enter-to-send parity on queue-slot textareas — plain Enter fires
+  // handleQueueSlotSend (matches primary handleKeyDown at ~L1714); Shift+Enter
+  // falls through to browser-default newline insertion.
+  it("QS 6b — plain Enter in a queue-slot textarea sends and removes the slot; Shift+Enter does NOT send", async () => {
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+    await flushMountEffect();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
+    const slotTextarea = allTextareas[0];
+
+    await act(async () => {
+      fireEvent.change(slotTextarea, { target: { value: "queued via enter" } });
+    });
+
+    // Shift+Enter must NOT fire onSend (falls through to browser newline).
+    await act(async () => {
+      fireEvent.keyDown(slotTextarea, { key: "Enter", shiftKey: true });
+    });
+    expect(onSend).not.toHaveBeenCalled();
+
+    // Plain Enter fires the send.
+    await act(async () => {
+      fireEvent.keyDown(slotTextarea, { key: "Enter", shiftKey: false });
+    });
+    expect(onSend).toHaveBeenCalledWith("queued via enter");
+
+    // Slot is removed on successful send (mirrors QS 4).
+    expect(screen.getAllByRole("textbox").length).toBe(1); // only primary
+  });
+
+  // QS 6c: Enter-to-send is gated by slotSendDisabled — empty text (whitespace-
+  // only) must NOT dispatch onSend, matching the slot Send button predicate.
+  it("QS 6c — plain Enter in an empty queue-slot textarea does NOT dispatch onSend", async () => {
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+    await flushMountEffect();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    });
+
+    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    const slotTextarea = allTextareas[0];
+
+    // Whitespace-only text — slotSendDisabled predicate rejects.
+    await act(async () => {
+      fireEvent.change(slotTextarea, { target: { value: "   " } });
+    });
+    await act(async () => {
+      fireEvent.keyDown(slotTextarea, { key: "Enter", shiftKey: false });
+    });
+    expect(onSend).not.toHaveBeenCalled();
+    // Slot still present (was not sent).
+    expect(screen.getAllByRole("textbox").length).toBe(2);
+  });
+
   // QS 7: Persistence — hydrate queueSlots on mount from getComposeDraft
   it("QS 7 — mount hydrates queueSlots from getComposeDraft response", async () => {
     getComposeDraftMock.mockResolvedValue({
