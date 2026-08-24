@@ -344,6 +344,12 @@ class PollingManager {
     if (!refreshedHost) {
       return;
     }
+    // Mirror pollHostMetrics: refuse to TCP-ping a non-SSH host even if a
+    // caller forgot the gate. Belt-and-suspenders for the connectionType
+    // stripping bug that caused the patch #505 regression.
+    if (!supportsTcpPing(refreshedHost)) {
+      return;
+    }
 
     try {
       let pingHost = refreshedHost.ip;
@@ -748,6 +754,10 @@ async function resolveHostCredentials(
       name: host.name,
       ip: host.ip,
       port: host.port,
+      // Preserve connectionType through credential resolution — omitting this
+      // strips the field, and supportsTcpPing() then defaults undefined→"ssh"
+      // and TCP-pings RDP/VNC/Telnet hosts every 60s. (patch #505 regression)
+      connectionType: host.connectionType,
       username: host.username,
       folder: host.folder || "",
       tags:
