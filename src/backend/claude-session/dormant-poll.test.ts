@@ -1089,4 +1089,104 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
     expect(execCalls.some((c) => c.includes("tmux send-keys -l -t 'test-agent' 'hello'"))).toBe(true);
     expect(execCalls.some((c) => c.includes("tmux send-keys -t 'test-agent' Enter"))).toBe(true);
   });
+
+  it("Test SWD-5 (Phase 56 hotfix): concurrent dormant sends serialize through the input chain — no split-send interleaving", async () => {
+    // Setup: simulates the per-WS-connection `inputChain` closure var in
+    // `claude-session-server.ts` (Phase 56 hotfix — see the chain declaration
+    // adjacent to `pendingMqidsForThisConnection` for full rationale).
+    //
+    // The problem this guards against: Node's EventEmitter does NOT await
+    // async listeners. Two `input` frames arriving back-to-back both enter the
+    // `ws.on("message", async ...)` handler concurrently. Under Phase 56's
+    // invisible-dormancy path, each handler can spend up to `MARKER_FALLBACK_MS`
+    // (90_000ms) inside the `.resume-complete` marker-wait loop before firing
+    // its split-send `body → 1000ms → Enter` sequence. Without serialization,
+    // two rapid dormant-sends could both break out of the marker-wait at the
+    // same tick and race through send-keys — worst case `body-A, body-B,
+    // Enter-A, Enter-B` fuses two messages into a single Claude prompt.
+    //
+    // SWD-3 verified sequential-await ordering but did NOT cover the concurrent
+    // case (it `await`s between the two calls, so the second cannot start
+    // until the first fully resolves — the ws.on handler has no such barrier).
+    // SWD-5 fires two invocations WITHOUT await, chained through the same
+    // Promise-chain pattern the production handler uses, and asserts the full
+    // first split-send (body + Enter) completes BEFORE the second split-send
+    // starts (body + Enter). If the chain ever regresses, this test breaks.
+    const clockStart = 5_000_000;
+    let clock = clockStart;
+    const now = vi.fn(() => {
+      const t = clock;
+      clock += 500;
+      return t;
+    });
+    const markerCommand = vi.fn().mockImplementation(async () => {
+      return new Date(clockStart + 10_000_000).toISOString();
+    });
+    const execCalls: string[] = [];
+    const execCommand = vi.fn().mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      execCalls.push(cmd);
+      return Promise.resolve("");
+    });
+
+    // Test-local chain wrapper — MUST mirror the shape of `inputChain` in
+    // claude-session-server.ts. If the production chain changes shape,
+    // update this mirror.
+    let inputChain: Promise<void> = Promise.resolve();
+    const enqueue = (fn: () => Promise<void>): Promise<void> => {
+      const next = inputChain.then(async () => {
+        try {
+          await fn();
+        } catch {
+          /* swallow like production */
+        }
+      });
+      inputChain = next;
+      return next;
+    };
+
+    const makeDeps = (data: string, mqid: string) => ({
+      sshConn: fakeConn,
+      currentTmuxSession: "test-agent",
+      currentHostId: 42,
+      execCommand,
+      data,
+      messageQueueItemId: mqid,
+      dormantLastEmitted: () => true,
+      setWakeTriggerTs: vi.fn(),
+      markerCommand,
+      now,
+    });
+
+    // Fire two invocations WITHOUT await between them — both enter the chain
+    // synchronously, then the marker-wait yields inside each in turn. If the
+    // chain works, the second's send-keys cannot start until the first's
+    // send-keys sequence has fully completed.
+    const p1 = enqueue(() => __applyInputMessageForTests(makeDeps("first\r", "mqid-1")));
+    const p2 = enqueue(() => __applyInputMessageForTests(makeDeps("second\r", "mqid-2")));
+
+    await Promise.all([p1, p2]);
+
+    // Extract the split-send ordering. Body writes have `-l` flag + the data
+    // string; Enter writes have no `-l` and end with `Enter`.
+    const bodyFirst = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' 'first'"));
+    const bodySecond = execCalls.findIndex((c) => c.includes("tmux send-keys -l -t 'test-agent' 'second'"));
+    expect(bodyFirst).toBeGreaterThanOrEqual(0);
+    expect(bodySecond).toBeGreaterThanOrEqual(0);
+
+    // Find the FIRST Enter that appears AFTER bodyFirst (that's Enter-first);
+    // then the FIRST Enter after enterFirst (that's Enter-second).
+    const enterFirst = execCalls.findIndex((c, i) => i > bodyFirst && c === "tmux send-keys -t 'test-agent' Enter");
+    const enterSecond = execCalls.findIndex((c, i) => i > enterFirst && c === "tmux send-keys -t 'test-agent' Enter");
+    expect(enterFirst).toBeGreaterThan(bodyFirst);
+    expect(enterSecond).toBeGreaterThan(enterFirst);
+
+    // LOAD-BEARING assertion: NO interleaving. The full first split-send
+    // (body-first + enter-first) completes BEFORE the second split-send starts
+    // (body-second). If the chain leaks — two handlers race through send-keys —
+    // this ordering breaks (typically body-first, body-second, enter-first,
+    // enter-second, fusing "firstsecond" into one prompt).
+    expect(bodyFirst).toBeLessThan(enterFirst);
+    expect(enterFirst).toBeLessThan(bodySecond);
+    expect(bodySecond).toBeLessThan(enterSecond);
+  });
 });

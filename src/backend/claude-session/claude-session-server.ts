@@ -3256,6 +3256,33 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // mitigation (Warning #5 mandated this, not optional). See the ws.on("close")
   // handler at L~3660 for the iteration + clear + Set.clear() sequence.
   const pendingMqidsForThisConnection = new Set<string>();
+  // Phase 56 hotfix — per-connection input-message serialization chain.
+  //
+  // The `ws.on("message", async ...)` listener below does NOT wait for previous
+  // async invocations before firing the next `message` event — Node's
+  // EventEmitter fires listeners synchronously and never awaits their returned
+  // Promise. Under Phase 56's invisible-dormancy path, `input` frames enter
+  // `__applyInputMessageForTests` and can spend up to `MARKER_FALLBACK_MS`
+  // (90_000ms) inside the `.resume-complete` marker-wait loop before dispatching
+  // the split-send `body → 1000ms → Enter` sequence via `tmux send-keys`.
+  //
+  // Two rapid sends into a dormant pane would both enter the handler, both drop
+  // the sentinel (idempotent — fine), both wait for the marker, both break out
+  // at roughly the same tick, and their split-send exec pairs could interleave —
+  // worst case `body-A, body-B, Enter-A, Enter-B` fuses the two messages into
+  // one prompt. This violates the shape's explicit invariant "Multiple sends
+  // landing out of order… they must arrive at the harness in send order."
+  //
+  // Fix: every `input` frame chains its `__applyInputMessageForTests` invocation
+  // onto `inputChain`, guaranteeing sequential execution per-WS-connection. The
+  // handler NEVER awaits its own chained call (fire-and-forget from ws.on's
+  // perspective) — the chain owns the work. Each chained segment wraps in a
+  // try/catch so one failure doesn't poison the chain for subsequent sends.
+  //
+  // Applies to ALL input frames, not just dormant-sends — trivial overhead
+  // (one Promise per input) in exchange for a single serialization guarantee
+  // that holds regardless of what the send-path is doing internally.
+  let inputChain: Promise<void> = Promise.resolve();
   // Plan-pending tracking (patch #63): parent-JSONL scan for
   // ExitPlanMode tool_use blocks (Claude asking Ashley to accept /
   // keep-planning in Plan Mode), paired against subsequent
@@ -5895,55 +5922,83 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // real module export; trackMqid records into the per-connection
       // pendingMqidsForThisConnection Set (iterated on ws.on("close") for
       // orphan-frame prevention — T-50-02-06 mitigation).
-      await __applyInputMessageForTests({
-        sshConn,
-        currentTmuxSession,
-        currentHostId,
-        execCommand,
-        data: String((msg as { data?: unknown }).data ?? ""),
-        messageQueueItemId: String((msg as { messageQueueItemId?: unknown }).messageQueueItemId ?? "") || undefined,
-        sessionId: sessionIdFromFile ?? undefined,
-        wsSend: (frame: object) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            try {
-              ws.send(JSON.stringify(frame));
-            } catch {
-              /* ws may be mid-close; drop */
-            }
-          }
-        },
-        armWatchdog: armPvSendWatchdog,
-        trackMqid: (mqid: string) => {
-          pendingMqidsForThisConnection.add(mqid);
-        },
-        // Phase 56 Plan 01 — send-while-dormant wire-up. Reads the connection-
-        // scoped `dormantLastEmitted` (declared ~L3001), writes the connection-
-        // scoped `wakeTriggerTs` (declared ~L3026) so the existing dormant-
-        // poll's marker-freshness gate holds this pane's dormant frame in
-        // place while the wake completes. markerCommand mirrors the rediscovery-
-        // seam wire-up at L7013-below (both share the same `.resume-complete`
-        // read contract — if these two ever drift, extract into a module-scope
-        // helper).
-        dormantLastEmitted: () => dormantLastEmitted,
-        setWakeTriggerTs: (ts: number) => {
-          wakeTriggerTs = ts;
-        },
-        markerCommand: async (
-          conn: unknown,
-          name: string,
-        ): Promise<string | null> => {
-          try {
-            const out = await execCommand(
-              conn as import("ssh2").Client,
-              `cat ~/.claude/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
-            );
-            const trimmed = out.trim();
-            return trimmed.length > 0 ? trimmed : null;
-          } catch {
-            return null;
-          }
-        },
-        now: () => Date.now(),
+      //
+      // Phase 56 hotfix — capture the payload fields NOW (at message-arrival
+      // time), then enqueue onto `inputChain` for serialized execution. The
+      // handler MUST NOT await its own chained work — see the `inputChain`
+      // declaration above for the full rationale. Two rapid sends during a
+      // dormant-wake window would otherwise race through the split-send and
+      // fuse into one prompt.
+      const capturedData = String((msg as { data?: unknown }).data ?? "");
+      const capturedMqid = String((msg as { messageQueueItemId?: unknown }).messageQueueItemId ?? "") || undefined;
+      inputChain = inputChain.then(async () => {
+        try {
+          await __applyInputMessageForTests({
+            sshConn,
+            currentTmuxSession,
+            currentHostId,
+            execCommand,
+            data: capturedData,
+            messageQueueItemId: capturedMqid,
+            sessionId: sessionIdFromFile ?? undefined,
+            wsSend: (frame: object) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                try {
+                  ws.send(JSON.stringify(frame));
+                } catch {
+                  /* ws may be mid-close; drop */
+                }
+              }
+            },
+            armWatchdog: armPvSendWatchdog,
+            trackMqid: (mqid: string) => {
+              pendingMqidsForThisConnection.add(mqid);
+            },
+            // Phase 56 Plan 01 — send-while-dormant wire-up. Reads the connection-
+            // scoped `dormantLastEmitted` (declared ~L3001), writes the connection-
+            // scoped `wakeTriggerTs` (declared ~L3026) so the existing dormant-
+            // poll's marker-freshness gate holds this pane's dormant frame in
+            // place while the wake completes. markerCommand mirrors the rediscovery-
+            // seam wire-up at L7013-below (both share the same `.resume-complete`
+            // read contract — if these two ever drift, extract into a module-scope
+            // helper).
+            dormantLastEmitted: () => dormantLastEmitted,
+            setWakeTriggerTs: (ts: number) => {
+              wakeTriggerTs = ts;
+            },
+            markerCommand: async (
+              conn: unknown,
+              name: string,
+            ): Promise<string | null> => {
+              try {
+                const out = await execCommand(
+                  conn as import("ssh2").Client,
+                  `cat ~/.claude/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
+                );
+                const trimmed = out.trim();
+                return trimmed.length > 0 ? trimmed : null;
+              } catch {
+                return null;
+              }
+            },
+            now: () => Date.now(),
+          });
+        } catch (err) {
+          // Catch inside the chain so one failed handler doesn't reject the
+          // chain and skip every subsequent input segment. The applyInput
+          // seam itself already log-and-swallows internal errors; anything
+          // reaching here is a genuine unexpected failure worth surfacing
+          // once in the forensic trail.
+          sshLogger.warn(
+            `[pv-input] chain segment error: ${err instanceof Error ? err.message : String(err)}`,
+            {
+              operation: "pv_input_chain_error",
+              hostId: currentHostId,
+              tmuxSession: currentTmuxSession,
+              mqid: capturedMqid ?? "none",
+            },
+          );
+        }
       });
       return;
     }
