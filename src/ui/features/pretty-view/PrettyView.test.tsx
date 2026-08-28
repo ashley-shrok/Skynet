@@ -259,11 +259,31 @@ describe("PrettyView — Phase 05 drop overlay + hook wiring", () => {
     // Initially no overlay.
     expect(container.querySelector('[data-testid="drop-overlay-drag"]')).toBeNull();
 
+    // Patch #510 gated the dragenter/dragover/dragleave/drop handlers on
+    // dataTransfer.types.includes("Files") so non-file drags (e.g. conv-list
+    // row drags) fall through to AppShell / SplitView Pane handlers. jsdom's
+    // Event constructor doesn't attach a dataTransfer object at all, so a
+    // plain `new Event("dragover")` would hit the gate on `undefined.types`
+    // and throw. Attach a Files-shaped dataTransfer stub via defineProperty
+    // (same jsdom-safe pattern SplitView.test.tsx uses for its drag events).
+    const filesDataTransfer = {
+      types: ["Files"] as readonly string[],
+      files: [] as unknown as FileList,
+      items: [] as unknown as DataTransferItemList,
+    };
+    const withFilesDT = (evt: Event): Event => {
+      Object.defineProperty(evt, "dataTransfer", {
+        value: filesDataTransfer,
+        configurable: true,
+      });
+      return evt;
+    };
+
     // Fire dragenter + dragover to activate.
     act(() => {
-      const enter = new Event("dragenter", { bubbles: true, cancelable: true });
+      const enter = withFilesDT(new Event("dragenter", { bubbles: true, cancelable: true }));
       root.dispatchEvent(enter);
-      const over = new Event("dragover", { bubbles: true, cancelable: true });
+      const over = withFilesDT(new Event("dragover", { bubbles: true, cancelable: true }));
       root.dispatchEvent(over);
     });
 
@@ -275,7 +295,7 @@ describe("PrettyView — Phase 05 drop overlay + hook wiring", () => {
 
     // Fire dragleave — overlay should retreat once the counter goes to 0.
     act(() => {
-      const leave = new Event("dragleave", { bubbles: true, cancelable: true });
+      const leave = withFilesDT(new Event("dragleave", { bubbles: true, cancelable: true }));
       root.dispatchEvent(leave);
     });
 
