@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import { useIdentities } from "@/state/identities-store";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export interface IdentityBadgeProps {
   identityKey: string | null;
@@ -18,6 +20,22 @@ export interface IdentityBadgeProps {
   // parity with AppShell's Ctrl+Shift+O keyboard shortcut, which stays
   // routed through the imperative-handle path (unchanged).
   onLongPress?: () => void;
+  // Phase 58 Plan 01: identity-badge as third-gesture drag source.
+  // When provided AND useIsMobile() is false, the badge root becomes
+  // draggable=true and a dragstart handler writes the wire contract
+  // (text/plain: tabId + application/x-skynet-badge: JSON.stringify({tabId}))
+  // to dataTransfer with effectAllowed="move". Downstream drop targets
+  // discriminate on the application/x-skynet-badge MIME:
+  //   - Phase 56 Pane onDrop reads text/plain and routes to
+  //     openSessionInTree(tabId, path, edge) — rearranges within the tree.
+  //   - Phase 58 Plan 02 conv-list onDrop reads application/x-skynet-badge
+  //     and calls closeTab(tabId) — full close.
+  // Absent tabId OR mobile viewport → draggable=false, no handler wired.
+  // Coexists with onClick + onLongPress via the browser's ~5px HTML5 drag
+  // threshold (fires ABOVE the pointerdown/up level the click + long-press
+  // paths use, so no explicit disambiguation code is needed — same
+  // mechanism Phase 56 patch #511 established for PrettyConversationRow).
+  tabId?: string;
 }
 
 // Quick 260806-lzd — single-variant refactor. The former `md` branch
@@ -31,9 +49,17 @@ export function IdentityBadge({
   identityKey,
   onClick,
   onLongPress,
+  tabId,
 }: IdentityBadgeProps) {
   const { byKey } = useIdentities();
   const identity = identityKey ? byKey.get(identityKey.toLowerCase()) : null;
+  // Phase 58 Plan 01 (PV58-GESTURE-COEXISTENCE): mobile viewport suppresses
+  // the drag source entirely — SplitView is desktop-only per
+  // AppShell.tsx:2372 `{!isMobile && (<SplitView…/>)}`, so a draggable badge
+  // on mobile would land on nothing useful. Explicit gate here matches the
+  // shell-level mount gate.
+  const isMobile = useIsMobile();
+  const isDragSource = !!tabId && !isMobile;
 
   // Long-press timer bookkeeping. Refs so mutation doesn't re-render.
   //   timerRef        — the setTimeout id while armed; null once cleared/fired.
@@ -108,6 +134,44 @@ export function IdentityBadge({
     </>
   );
 
+  // Phase 58 Plan 01: dragstart handler. Wired only when isDragSource is true
+  // (both render branches, <button> and <div>, share the same handler).
+  //
+  // dataTransfer payload contract (PV58-BADGE-PAYLOAD-DUAL-MIME):
+  //   1. text/plain: tabId               — matches Phase 56 Pane onDrop
+  //                                        text/plain branch at SplitView.tsx
+  //                                        which routes to openSessionInTree
+  //                                        (rearrange path — reused as-is).
+  //   2. application/x-skynet-badge:
+  //        JSON.stringify({tabId})       — NEW MIME distinct from patch #511's
+  //                                        row-drag MIME. Phase 58 Plan 02
+  //                                        conv-list onDrop reads this to
+  //                                        discriminate badge-close from
+  //                                        stray row drags. Payload minimal.
+  //   3. effectAllowed = "move"          — matches conv-list row convention.
+  //
+  // Structured log (PV58-STRUCTURED-LOGGING, T-58-01-01 mitigation):
+  // Explicit-field extraction ONLY — tabId + hasIdentity boolean. Do NOT
+  // JSON.stringify the DragEvent (leaks React SyntheticEvent internals and
+  // fights the fleet logging directive Ashley 2026-08-11). No PII (no
+  // displayName, no colorHue, no avatar url).
+  const onDragStart = isDragSource
+    ? (e: ReactDragEvent<HTMLElement>) => {
+        // tabId is non-null when isDragSource is true (the !!tabId gate),
+        // but TS narrows it via the ternary above — assert here.
+        const id = tabId!;
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.setData(
+          "application/x-skynet-badge",
+          JSON.stringify({ tabId: id }),
+        );
+        e.dataTransfer.effectAllowed = "move";
+        console.info(
+          `[badge-drag] tabId=${id} hasIdentity=${identity !== null}`,
+        );
+      }
+    : undefined;
+
   if (onClick) {
     // Interactive branch: <button> with click affordance. Tailwind v4
     // does NOT default `<button>` to cursor: pointer, so `cursor-pointer`
@@ -175,6 +239,8 @@ export function IdentityBadge({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        draggable={isDragSource}
+        onDragStart={onDragStart}
         aria-label="Open identity info"
         title="Identity info"
         className={`${rootClassName} cursor-pointer`}
@@ -188,6 +254,8 @@ export function IdentityBadge({
     <div
       data-testid="identity-badge-root"
       aria-hidden="true"
+      draggable={isDragSource}
+      onDragStart={onDragStart}
       className={rootClassName}
       style={rootStyle}
     >
