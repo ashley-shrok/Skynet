@@ -265,9 +265,14 @@ function removeAt(root: SplitNode, path: SplitPath): SplitNode | null {
   const currentChild = root.children[head];
   const newChild = removeAt(currentChild, rest);
   if (newChild === null) {
-    // Shouldn't happen: only path.length === 0 returns null from removeAt.
-    // Belt-and-braces — return the surviving sibling.
-    return root.children[head === 0 ? 1 : 0];
+    // Only path.length === 0 returns null from removeAt. Reaching here
+    // means a future refactor loosened that invariant — throw loudly
+    // rather than silently discard the sibling subtree (the previous
+    // belt-and-braces "return the surviving sibling" was silent data
+    // loss when the invariant broke, caught in Phase 56 code review).
+    throw new Error(
+      "split-tree.removeAt: unreachable — subtree returned null mid-path (invariant violated)",
+    );
   }
   const newChildren: [SplitNode, SplitNode] = head === 0
     ? [newChild, root.children[1]]

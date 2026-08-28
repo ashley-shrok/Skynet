@@ -54,7 +54,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, act, cleanup } from "@testing-library/react";
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
 import {
+  collectTabIds,
   findLeaf,
+  getNodeAt,
   insertAtEdge,
   removeLeaf,
 } from "@/lib/split-tree";
@@ -161,22 +163,51 @@ function MechanismScaffold({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Mirrors the real AppShell openSessionInTree after the Phase 56
+  // code-review HIGH fix. Recomputes the target's path after
+  // removeLeaf so a collapsed ancestor split doesn't leave a stale
+  // path pointing past a leaf (which the old code would swallow into
+  // a catch block that root-inserted, silently destroying every
+  // surviving cell).
   const openSessionInTree = useCallback(
     (tabId: string, path: SplitPath, edge: DropEdge) => {
       setSplitTree((prev) => {
+        if (prev === null) {
+          return insertAtEdge(null, [], { kind: "session", tabId }, edge);
+        }
+        const sourcePath = findLeaf(prev, tabId);
+        if (
+          sourcePath !== null &&
+          sourcePath.length === path.length &&
+          sourcePath.every((v, i) => v === path[i])
+        ) {
+          return prev;
+        }
+        const targetNode = getNodeAt(prev, path);
+        const targetTabId =
+          targetNode !== null && targetNode.kind === "session"
+            ? targetNode.tabId
+            : null;
         const withoutDup = removeLeaf(prev, tabId);
         if (withoutDup === null) {
           return insertAtEdge(null, [], { kind: "session", tabId }, edge);
         }
+        if (targetTabId === null || targetTabId === tabId) {
+          return withoutDup;
+        }
+        const freshPath = findLeaf(withoutDup, targetTabId);
+        if (freshPath === null) {
+          return withoutDup;
+        }
         try {
           return insertAtEdge(
             withoutDup,
-            path,
+            freshPath,
             { kind: "session", tabId },
             edge,
           );
         } catch {
-          return insertAtEdge(null, [], { kind: "session", tabId }, edge);
+          return withoutDup;
         }
       });
     },
@@ -544,5 +575,99 @@ describe("AppShell split-tree mechanism (Phase 56 Plan 02)", () => {
       await Promise.resolve();
     });
     expect(gate.style.display).toBe("flex");
+  });
+
+  it("Test 9: openSessionInTree preserves surviving cells when dragging an already-open session into a deep tree (Phase 56 code-review HIGH)", async () => {
+    // Regression guard for the path-shift bug caught in Phase 56 code
+    // review: given a nested tree, moving a session that lives in a
+    // collapsible ancestor invalidates any subsequent path index in the
+    // original path. The old code walked the stale path, threw, caught,
+    // and root-inserted just the moved session — silently deleting every
+    // other surviving cell. Post-fix: recompute the target's path in the
+    // post-removal tree via findLeaf, then insert against that fresh path.
+    const tabA = makeTab("t-aaa", "host1", "aqua");
+    const tabB = makeTab("t-bbb", "host1", "bella");
+    const tabC = makeTab("t-ccc", "host1", "carol");
+    let handle: {
+      openSessionInTree: (tabId: string, path: SplitPath, edge: DropEdge) => void;
+      getSplitTree: () => SplitNode | null;
+    } | null = null;
+    render(
+      <MechanismScaffold
+        tabs={[tabA, tabB, tabC]}
+        registerHandle={(h) => {
+          handle = h;
+        }}
+      />,
+    );
+    // Build the offending tree shape:
+    //   split-v(A, split-h(B, C))
+    // Step 1: A takes root (drop into empty).
+    await act(async () => {
+      handle!.openSessionInTree(tabA.id, [], "left");
+      await Promise.resolve();
+    });
+    // Step 2: B drops on A's bottom edge → split-v(A, B).
+    await act(async () => {
+      handle!.openSessionInTree(tabB.id, [], "bottom");
+      await Promise.resolve();
+    });
+    // Step 3: C drops on B's right edge (path [1] in split-v(A,B)) →
+    // split-v(A, split-h(B, C)).
+    await act(async () => {
+      handle!.openSessionInTree(tabC.id, [1], "right");
+      await Promise.resolve();
+    });
+    const initial = handle!.getSplitTree();
+    expect(initial).not.toBeNull();
+    expect(collectTabIds(initial!).sort()).toEqual(["t-aaa", "t-bbb", "t-ccc"]);
+    // Now trigger the bug scenario: drag A (currently at path [0]) onto
+    // B (currently at path [1, 0]) with edge='left'. The pre-fix code
+    // path was:
+    //   removeLeaf(A) → tree becomes split-h(B, C) — outer split-v collapsed.
+    //   insertAtEdge(split-h(B,C), [1,0], leaf(A), 'left') — walk to [1,0]:
+    //     children[1] = C leaf; descend [0] into leaf → throws.
+    //   catch → insertAtEdge(null, [], leaf(A), 'left') = leaf(A). B and C GONE.
+    await act(async () => {
+      handle!.openSessionInTree(tabA.id, [1, 0], "left");
+      await Promise.resolve();
+    });
+    const after = handle!.getSplitTree();
+    expect(after).not.toBeNull();
+    // Load-bearing assertion: ALL THREE tabs survive. The old code kept
+    // only tabA.
+    expect(collectTabIds(after!).sort()).toEqual(["t-aaa", "t-bbb", "t-ccc"]);
+  });
+
+  it("Test 10: openSessionInTree on same-cell drop is a no-op (avoids the null-and-back flicker)", async () => {
+    const tabA = makeTab("t-aaa", "host1", "aqua");
+    let handle: {
+      openSessionInTree: (tabId: string, path: SplitPath, edge: DropEdge) => void;
+      getSplitTree: () => SplitNode | null;
+    } | null = null;
+    render(
+      <MechanismScaffold
+        tabs={[tabA]}
+        registerHandle={(h) => {
+          handle = h;
+        }}
+      />,
+    );
+    await act(async () => {
+      handle!.openSessionInTree(tabA.id, [], "left");
+      await Promise.resolve();
+    });
+    const before = handle!.getSplitTree();
+    expect(before).not.toBeNull();
+    // Same cell (path [] = root leaf, tabId is that leaf). Should be a
+    // no-op: return prev unchanged, NOT drop-through null-and-back.
+    await act(async () => {
+      handle!.openSessionInTree(tabA.id, [], "right");
+      await Promise.resolve();
+    });
+    const after = handle!.getSplitTree();
+    // Object.is because the no-op returns `prev` verbatim from the
+    // setState callback, which React's useState honors as "no change".
+    expect(Object.is(after, before)).toBe(true);
   });
 });

@@ -75,7 +75,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // array state and their localStorage effects). URL is the single source of
 // truth for the split arrangement.
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
-import { insertAtEdge, removeLeaf, findLeaf } from "@/lib/split-tree";
+import { insertAtEdge, removeLeaf, findLeaf, getNodeAt } from "@/lib/split-tree";
 import {
   encodeSplitTreeToUrl,
   decodeSplitTreeFromUrl,
@@ -800,10 +800,19 @@ export function AppShell({
     const splitTreeFragment = encodeSplitTreeToUrl(splitTree, (tabId) => {
       const t = tabs.find((tab) => tab.id === tabId);
       if (!t) return null;
+      // Prefer the tab's explicit targetTmuxSession over the runtime
+      // tmuxSessionNames map so a shared-link's encoded fragment is
+      // stable across the Terminal's post-mount callback that
+      // populates tmuxSessionNames a moment later. Fall back to the
+      // runtime map only when targetTmuxSession is unset (a bare
+      // `claude` launch with no identity, discovered via poll).
+      // Otherwise the URL you copy at T=0 would differ from the URL
+      // observable at T+1s once Terminal reports back (real UX
+      // regression for share-a-link, caught in Phase 56 code review).
       return specForTab({
         type: t.type,
         host: t.host,
-        targetTmuxSession: tmuxSessionNames[t.id] ?? t.targetTmuxSession,
+        targetTmuxSession: t.targetTmuxSession ?? tmuxSessionNames[t.id],
       });
     });
     writeWorkspaceToUrl(
@@ -1464,6 +1473,10 @@ export function AppShell({
       // child parent split by promoting the surviving sibling. Cheap no-op
       // (Object.is on return === input) when the tab is not in the tree.
       setSplitTree((prev) => removeLeaf(prev, id));
+      // Clear focused-tab reference on close so it can't dangle at a
+      // closed tab's id (Phase 57/58 layer more focus-driven visuals on
+      // this signal — a stale reference silently breaks them).
+      setFocusedTabId((prev) => (prev === id ? null : prev));
       setTabs((prev) => {
         const next = prev.filter((t) => t.id !== id);
         if (next.length === 0)
@@ -1519,27 +1532,69 @@ export function AppShell({
   const openSessionInTree = useCallback(
     (tabId: string, path: SplitPath, edge: DropEdge) => {
       setSplitTree((prev) => {
-        const withoutDup = removeLeaf(prev, tabId);
-        // A drop path that pointed at the leaf being moved is stale after
-        // removeLeaf collapses it; when withoutDup is null (source was the
-        // only leaf), fall back to a root-insert.
-        if (withoutDup === null) {
+        // Empty tree → root-insert; edge is irrelevant.
+        if (prev === null) {
           return insertAtEdge(null, [], { kind: "session", tabId }, edge);
         }
-        // Target path may have shifted if the removed leaf's ancestor
-        // collapsed. Simplest robust behavior: if the target path no longer
-        // resolves, plant at the root instead.
+
+        // Same-cell drop: the target IS the leaf being moved. No-op —
+        // avoid the null-flicker (splitTree → null → repopulated) that
+        // otherwise ripples through the visibility gate and any
+        // splitTree-dependent effect.
+        const sourcePath = findLeaf(prev, tabId);
+        if (
+          sourcePath !== null &&
+          sourcePath.length === path.length &&
+          sourcePath.every((v, i) => v === path[i])
+        ) {
+          return prev;
+        }
+
+        // Capture the target's tabId BEFORE removeLeaf collapses ancestors.
+        // The `path` argument was resolved against `prev`; after removeLeaf
+        // any ancestor split may have collapsed, shifting downstream
+        // indices. Look up the target leaf's tabId here, then rediscover
+        // its fresh path in the post-removal tree.
+        const targetNode = getNodeAt(prev, path);
+        const targetTabId =
+          targetNode !== null && targetNode.kind === "session"
+            ? targetNode.tabId
+            : null;
+
+        const withoutDup = removeLeaf(prev, tabId);
+        if (withoutDup === null) {
+          // Source was the whole tree (single leaf) — plant fresh.
+          return insertAtEdge(null, [], { kind: "session", tabId }, edge);
+        }
+
+        // If the target's tabId is the tab we just removed (target IS
+        // source through a different code path — e.g. same tabId appears
+        // at different-looking paths under aliasing), treat as a no-op.
+        if (targetTabId === null || targetTabId === tabId) {
+          return withoutDup;
+        }
+
+        // Rediscover the target's fresh path in the post-removal tree.
+        const freshPath = findLeaf(withoutDup, targetTabId);
+        if (freshPath === null) {
+          // Target vanished during removeLeaf (shouldn't happen for a
+          // distinct tabId, but guard anyway). Preserve surviving cells.
+          return withoutDup;
+        }
+
         try {
           return insertAtEdge(
             withoutDup,
-            path,
+            freshPath,
             { kind: "session", tabId },
             edge,
           );
         } catch {
-          // Degrade to root-insert if the path is stale — prefer degraded
-          // insertion over throwing to the caller (the drop event handler).
-          return insertAtEdge(null, [], { kind: "session", tabId }, edge);
+          // Preserve surviving cells over degraded root-insert. Wiping
+          // the tree on a caller-side path error was the CVE-class bug
+          // caught in code review (would silently destroy every other
+          // open session in the arrangement).
+          return withoutDup;
         }
       });
       setFocusedTabId(tabId);
