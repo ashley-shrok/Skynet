@@ -616,6 +616,85 @@ describe("parseSessionLine — relay detection (Phase 17 / RELAYBUB-01, RELAYBUB
     expect(parsed.eventId).toBe("reg-asst-1");
   });
 
+  // Sentinel-detector rescue tests (2026-08-28, bounty
+  // detector-fleet-corpus-sentinel-eval). Corpus of 716 real fleet commands
+  // showed the old three-way conjunction was over-fitted: the URL_RE
+  // character class rejected 86 real sends where identities URL-encode the
+  // room via `$(python3 -c '...quote...')` or `printf | jq -sRr @uri`.
+  // Sentinel + curl + PUT: zero false positives fleet-wide, +86 rescues.
+
+  it("Test 10 (rescue): python3-urllib-quote URL encoding (Yolanda-class) emits relay_outbound", () => {
+    // Real fleet shape: yolanda 2026-08-28 and 40 other identities. The
+    // `$(python3 -c '...urllib.parse.quote(...)...' "$ROOM")` substitution
+    // puts slashes/quotes/whitespace in the URL segment, defeating the old
+    // URL_RE character class. Sentinel-based detector recognizes it.
+    const cmd =
+      `BODY='hello world'\n` +
+      `TXN="nelly-$(date +%s)-$$"\n` +
+      `curl -sS -X PUT "$BASE/rooms/$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$ROOM")/send/m.room.message/$TXN" ` +
+      `-H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' ` +
+      `-d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).toBe("relay_outbound");
+    if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
+    // Room extraction regex still uses the strict shape → null is tolerated
+    // for these rescued shapes (downstream wire type accepts room: null).
+    expect(parsed.rawCommand).toBe(cmd);
+  });
+
+  it("Test 11 (rescue): printf-jq-uri URL encoding (hilda/nelly-class) emits relay_outbound", () => {
+    // Real fleet shape: hilda + nelly one-liner form.
+    // `$(printf %s "$ROOM" | jq -sRr @uri)` — same URL_RE-defeating idiom,
+    // different implementation. Sentinel detector recognizes it.
+    const cmd =
+      `curl -sS -X PUT "$BASE/rooms/$(printf %s "$ROOM" | jq -sRr @uri)/send/m.room.message/$TXN" ` +
+      `-H "Authorization: Bearer $TOK" -H "Content-Type: application/json" ` +
+      `--data-binary "$BODY"`;
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).toBe("relay_outbound");
+    if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
+    expect(parsed.rawCommand).toBe(cmd);
+  });
+
+  it("Test 12 (fp-safety): grep for m.room.message in a doc file returns kind:message NOT relay_outbound", () => {
+    // Real fleet false-positive class: 3 hits in corpus (t1000, thenasty,
+    // workstation) — grepping the agent-relay SKILL.md for reference. No
+    // curl. Sentinel matches but CURL_RE rejects → NOT relay_outbound.
+    const cmd = `grep -n "sendMessage\\|send message\\|room/.*/send\\|m.room.message" ~/.claude/skills/agent-relay/SKILL.md | head -30`;
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).not.toBe("relay_outbound");
+  });
+
+  it("Test 13 (fp-safety): coord-room GET (curl but no PUT) returns kind:message NOT relay_outbound", () => {
+    // Real fleet false-positive class: fetching room message history. Has
+    // curl + rooms/... in URL, but NO -X PUT (GET is default). Sentinel
+    // matches but PUT_RE rejects → NOT relay_outbound. Comment mentions
+    // m.room.message.
+    const cmd =
+      `# check recent coord-room activity — inspecting m.room.message events\n` +
+      `curl -sS -H "Authorization: Bearer $TOK" "$BASE/rooms/$ROOM/messages?dir=b&limit=15"`;
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).not.toBe("relay_outbound");
+  });
+
+  it("Test 14 (fp-safety): python heredoc analyzing session files (no curl) returns NOT relay_outbound", () => {
+    // Real fleet false-positive class: agent introspection scripts that
+    // grep session files for the sentinel string. Contains
+    // m.room.message but no curl and no -X PUT → correctly rejected.
+    const cmd =
+      `python3 <<'EOF'\n` +
+      `import json, glob\n` +
+      `# Look for recent relay-outbound tool_use commands (contain m.room.message)\n` +
+      `for f in glob.glob('/tmp/*.jsonl'):\n` +
+      `    with open(f) as fh:\n` +
+      `        for line in fh:\n` +
+      `            if 'm.room.message' in line:\n` +
+      `                print(f)\n` +
+      `EOF`;
+    const parsed = parseSessionLine(assistantBashTurn(cmd));
+    expect(parsed.kind).not.toBe("relay_outbound");
+  });
+
   it("Test 9: regression — plain user text turn still returns kind:message", () => {
     const parsed = parseSessionLine(
       line({

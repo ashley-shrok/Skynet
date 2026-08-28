@@ -32,15 +32,24 @@ import { createHash } from "node:crypto";
 import { databaseLogger as sessionParserLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
-// Phase 17 relay detection regexes — ported byte-for-byte from
-// prototype.html § detectOutbound (2026-07-28 6/6 acceptance) — do not loosen
-// ---------------------------------------------------------------------------
-
-// OUTBOUND: all three must hit for a Bash tool_use to be a real Matrix send.
-// Rejects grep, heredoc, and comment false-positives (acceptance cases 2+3).
+// Relay outbound detection — three-signal conjunction. The original URL_RE
+// (2026-07-28 6/6 prototype acceptance) parsed the URL SHAPE with a strict
+// character class for the room slot, which over-fit and lost bubbles for
+// identities who URL-encode the room ID via `$(python3 -c '...quote...')`
+// (Yolanda 2026-08-28 was the trigger; fleet corpus showed 40 other real
+// sends silently unclassified the same way). Replaced with a plain sentinel
+// substring — the sentinel `m.room.message` is Matrix-protocol-specific and
+// carries the discrimination signal at zero shape-parsing cost. CURL_RE +
+// PUT_RE stay: they contribute real verb-level discrimination (rejects coord
+// GETs and non-curl analysis scripts) at zero implementation risk.
+// Corpus-validated 2026-08-28 against 716 candidate commands from t1000 +
+// thenasty + workstation (14-day window): +86 rescues over the old shape,
+// zero false positives, zero regressions (SENTINEL is a strict superset of
+// the old URL_RE — every command that passed URL_RE contained the sentinel).
+// Bounty: detector-fleet-corpus-sentinel-eval (REPORT.md has the full table).
 const OUTBOUND_CURL_RE = /\bcurl\b/;
 const OUTBOUND_PUT_RE = /-X\s+PUT\b/;
-const OUTBOUND_URL_RE = /rooms\/[^\/\s'"]+\/send\/m\.room\.message\/[^\/\s'"`]+/;
+const OUTBOUND_SENTINEL_RE = /m\.room\.message/;
 
 // INBOUND: recv.sh event-line format emitted via Monitor task-notification.
 // Strict variant (INBOUND_REGEX_STRICT from prototype.html line 227).
@@ -187,7 +196,7 @@ export function detectRelayOutbound(
     if (typeof cmd !== "string") continue;
     // All three regexes must match — ported byte-for-byte from prototype.html
     // § detectOutbound (2026-07-28 6/6 acceptance) — do not loosen
-    if (!OUTBOUND_URL_RE.test(cmd)) continue;
+    if (!OUTBOUND_SENTINEL_RE.test(cmd)) continue;
     if (!OUTBOUND_CURL_RE.test(cmd)) continue;
     if (!OUTBOUND_PUT_RE.test(cmd)) continue;
     // Room extraction
