@@ -58,6 +58,16 @@ export interface WorkspaceSpec {
   activeIndex?: number;
   only?: boolean;
   mobileView?: boolean;
+  /**
+   * Phase 56 Plan 02 — pre-encoded URL fragment (`s=...&t=...`) produced by
+   * `encodeSplitTreeToUrl` in `split-tree-url.ts`. Present when the workspace
+   * has a split arrangement; absent for single-active-tab workspaces.
+   * Round-trips through `encodeWorkspaceSpec` / `consumePendingWorkspace` as
+   * an opaque string — this module does NOT parse the tree grammar. Both `s`
+   * and `t` params are required together; a URL with only one is treated as
+   * malformed and the whole `splitTree` field is dropped (fail-safe null).
+   */
+  splitTree?: string;
 }
 
 const PROTOCOLS: TabSpec["protocol"][] = [
@@ -113,6 +123,15 @@ export function encodeWorkspaceSpec(ws: WorkspaceSpec): string {
   }
   if (ws.only) params.set("only", "1");
   if (ws.mobileView) params.set("mv", "1");
+  // Phase 56 Plan 02 — splice pre-encoded splitTree `s=`/`t=` into the outer
+  // WorkspaceSpec params so the final URL has one consolidated param set.
+  if (ws.splitTree) {
+    const st = new URLSearchParams(ws.splitTree);
+    const s = st.get("s");
+    const t = st.get("t");
+    if (s !== null) params.set("s", s);
+    if (t !== null) params.set("t", t);
+  }
   return params.toString();
 }
 
@@ -153,6 +172,13 @@ function readTabPayloadFromUrl(): string | null {
     if (active !== null) out.set("active", active);
     if (p.get("only") === "1") out.set("only", "1");
     if (p.get("mv") === "1") out.set("mv", "1");
+    // Phase 56 Plan 02 — preserve the split-tree params through the
+    // sessionStorage snapshot pass so they survive replaceState during the
+    // auth flow (same rationale as the tab= / active= preservation above).
+    const s = p.get("s");
+    if (s !== null) out.set("s", s);
+    const tParam = p.get("t");
+    if (tParam !== null) out.set("t", tParam);
     return out.toString();
   };
 
@@ -212,6 +238,15 @@ export function consumePendingWorkspace(): WorkspaceSpec | null {
   // other value (including `0`, `yes`, `true`), parses to `mobileView: false`
   // (via the field being undefined). See mobile-flow.ts for the reader path.
   if (params.get("mv") === "1") ws.mobileView = true;
+  // Phase 56 Plan 02 — extract the split-tree `s=`/`t=` pair back out as an
+  // opaque round-trip string. BOTH are required; a URL with only one is
+  // malformed and the whole field is dropped (fail-safe null; the decoder
+  // in split-tree-url.ts returns null on that case anyway).
+  const sParam = params.get("s");
+  const tParam = params.get("t");
+  if (sParam !== null && tParam !== null) {
+    ws.splitTree = new URLSearchParams({ s: sParam, t: tParam }).toString();
+  }
   return ws;
 }
 
@@ -272,6 +307,11 @@ export function writeWorkspaceToUrl(ws: WorkspaceSpec | null): void {
   params.delete("active");
   params.delete("only");
   params.delete("mv");
+  // Phase 56 Plan 02 — strip any legacy `?s=` / `?t=` that might live in the
+  // query string from a bookmarked pre-hash URL. The split-tree lives in the
+  // fragment for the same window-restore reason `?tab=` does.
+  params.delete("s");
+  params.delete("t");
   const qs = params.toString();
   const nextSearch = qs ? `?${qs}` : "";
   const nextUrl = window.location.pathname + nextSearch + nextHash;

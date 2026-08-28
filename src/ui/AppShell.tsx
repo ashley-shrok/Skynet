@@ -27,12 +27,11 @@ import type {
   Tab,
   TabType,
   Host,
-  SplitMode,
   HostFolder,
   ThemeId,
   FontSizeId,
 } from "@/types/ui-types";
-import { applyAccentColor, applyFontSize, PANE_COUNTS } from "@/lib/theme";
+import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import { useTheme } from "@/components/theme-provider";
 import {
   getSSHHosts,
@@ -72,6 +71,15 @@ import {
   writeWorkspaceToUrl,
 } from "@/lib/tab-url";
 import type { TabSpec } from "@/lib/tab-url";
+// Phase 56 Plan 02 — split-tree state (retires the prior mode-enum + slot-
+// array state and their localStorage effects). URL is the single source of
+// truth for the split arrangement.
+import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
+import { insertAtEdge, removeLeaf, findLeaf } from "@/lib/split-tree";
+import {
+  encodeSplitTreeToUrl,
+  decodeSplitTreeFromUrl,
+} from "@/lib/split-tree-url";
 import {
   useMobileScreen,
   navigateToView,
@@ -239,15 +247,13 @@ export function AppShell({
   // Flips to true once the initial DB read (restore or skip) is done — sync must not fire before this
   const [tabsReady, setTabsReady] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [splitMode, setSplitMode] = useState<SplitMode>(
-    () => (localStorage.getItem("skynet_splitMode") as SplitMode) ?? "none",
-  );
-  const [paneTabIds, setPaneTabIds] = useState<(string | null)[]>(
-    () =>
-      JSON.parse(localStorage.getItem("skynet_paneTabIds") ?? "null") ??
-      Array(6).fill(null),
-  );
-  const [focusedPaneIndex, setFocusedPaneIndex] = useState<number | null>(null);
+  // Phase 56 Plan 02: split state retired from localStorage. The URL is the
+  // single source of truth. The initializer returns null because the tab set
+  // (needed for the (host,session) → tabId resolver) is empty on first render;
+  // the loadSavedTabs effect at ~L906-1149 decodes and hydrates the tree
+  // after tabs are materialized.
+  const [splitTree, setSplitTree] = useState<SplitNode | null>(null);
+  const [focusedTabId, setFocusedTabId] = useState<string | null>(null);
   const [realHostTree, setRealHostTree] = useState<HostFolder | null>(null);
   const [hostsLoading, setHostsLoading] = useState(true);
   const [allHosts, setAllHosts] = useState<Host[]>([]);
@@ -278,13 +284,10 @@ export function AppShell({
     localStorage.setItem("skynet_sidebarWidth", String(sidebarWidth));
   }, [sidebarWidth]);
 
-  useEffect(() => {
-    localStorage.setItem("skynet_splitMode", splitMode);
-  }, [splitMode]);
-
-  useEffect(() => {
-    localStorage.setItem("skynet_paneTabIds", JSON.stringify(paneTabIds));
-  }, [paneTabIds]);
+  // Phase 56 Plan 02: split state is URL-persisted via the workspace URL-sync
+  // effect at ~L768 (splitTree threaded through WorkspaceSpec). Prior
+  // localStorage-backed effects for the retired mode + slot-array state were
+  // deleted here — no fallback read either.
 
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
@@ -344,9 +347,12 @@ export function AppShell({
   // multiple openTab calls in the same ms (URL-driven multi-tab restore
   // loop) don't collide when Date.now() returns identical values.
   const openTabCounter = useRef(0);
-  const [paneContentEls, setPaneContentEls] = useState<
-    (HTMLDivElement | null)[]
-  >(Array(6).fill(null));
+  // Phase 56 Plan 02: prior pane-element array retired; the tree-based renderer
+  // uses a Map<tabId, HTMLDivElement> populated imperatively by callback refs
+  // from each leaf's Pane. A ref (not state) is correct here — the DOM-
+  // placement effect at ~L1488-1546 reads from it inside its own useEffect
+  // pass keyed on tabs + splitTree, so no re-render is needed on Map mutation.
+  const paneElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Stable per-tab DOM nodes — created once per tab, never destroyed while the tab lives.
   // We always portal each tab's content into its own node, then move that node between
@@ -370,14 +376,17 @@ export function AppShell({
     return tabNodesRef.current.get(tabId)!;
   }, []);
 
+  // Phase 56 Plan 02: onPaneContentRef takes (tabId, el) instead of
+  // (paneIndex, el) — the tree-based renderer is keyed by tabId at every
+  // leaf. Populates paneElsRef.current so the DOM-placement effect can look
+  // up the target element for reparenting via `paneElsRef.current.get(tab.id)`.
   const onPaneContentRef = useCallback(
-    (paneIndex: number, el: HTMLDivElement | null) => {
-      setPaneContentEls((prev) => {
-        if (prev[paneIndex] === el) return prev;
-        const next = [...prev];
-        next[paneIndex] = el;
-        return next;
-      });
+    (tabId: string, el: HTMLDivElement | null) => {
+      if (el) {
+        paneElsRef.current.set(tabId, el);
+      } else {
+        paneElsRef.current.delete(tabId);
+      }
     },
     [],
   );
@@ -782,6 +791,21 @@ export function AppShell({
       if (t.id === activeTabId) activeIndex = tabSpecs.length;
       tabSpecs.push(spec);
     }
+    // Phase 56 Plan 02: pre-encode the split tree so writeWorkspaceToUrl
+    // splices the `s=`/`t=` params into the outer WorkspaceSpec fragment.
+    // The sessionAddress callback maps a tabId → its durable TabSpec
+    // (matching the same specForTab resolution used above). If a leaf's tab
+    // no longer has a durable spec (e.g. a dashboard tab crept into the
+    // tree), split-tree-url.ts's pre-pass strips it — defence-in-depth.
+    const splitTreeFragment = encodeSplitTreeToUrl(splitTree, (tabId) => {
+      const t = tabs.find((tab) => tab.id === tabId);
+      if (!t) return null;
+      return specForTab({
+        type: t.type,
+        host: t.host,
+        targetTmuxSession: tmuxSessionNames[t.id] ?? t.targetTmuxSession,
+      });
+    });
     writeWorkspaceToUrl(
       tabSpecs.length === 0
         ? null
@@ -797,9 +821,13 @@ export function AppShell({
             // navigateToView is only called from the touchscreen row-tap
             // handler below).
             mobileView: mobileScreen === "view" ? true : undefined,
+            // Phase 56 Plan 02: pre-encoded split-tree fragment (or
+            // undefined for an empty tree). Threaded through
+            // encodeWorkspaceSpec via the new WorkspaceSpec.splitTree field.
+            splitTree: splitTreeFragment || undefined,
           },
     );
-  }, [activeTabId, tabs, tmuxSessionNames, tabsReady, mobileScreen]);
+  }, [activeTabId, tabs, tmuxSessionNames, tabsReady, mobileScreen, splitTree]);
 
   useEffect(() => {
     // Fire on whichever id drives the visible pane. Plan 06-02: activeTabId
@@ -1076,8 +1104,13 @@ export function AppShell({
         // fresh tab and capture its id. After the loop, focus the tab at
         // pending.activeIndex. Runs BEFORE setTabsReady(true) so the URL-sync
         // effect fires only once with the final tab set.
+        // Phase 56 Plan 02: openedIds is lifted OUT of this block so the
+        // splitTree hydration below can also read it — the alphabet in the
+        // encoded tree references pending.tabs by position, and openedIds
+        // holds the resolution for each of those positions.
+        const openedIds: string[] = [];
+        const pendingTabSpecsForResolver: TabSpec[] = pending?.tabs ?? [];
         if (pending) {
-          const openedIds: string[] = [];
           for (const spec of pending.tabs) {
             const wantType: TabType =
               spec.protocol === "tmux"
@@ -1141,6 +1174,81 @@ export function AppShell({
             for (const id of openedIds) addToActiveSet(id);
           }
         }
+
+        // Phase 56 Plan 02: hydrate splitTree from the URL fragment after
+        // the tab set has been materialized. The resolver maps a TabSpec
+        // back to a live tabId by walking (a) restoredTabs (from persisted
+        // restore above), and (b) the ids openedIds captured for freshly
+        // URL-opened tabs. A null resolver return drops the leaf;
+        // decodeSplitTreeFromUrl collapses any single-child split that
+        // results (graceful degradation per Plan 56-01's Test 10). A decoded
+        // null tree leaves splitTree at its initial null — no visible split,
+        // matches "no split state".
+        //
+        // openedIds is a POSITIONAL projection over pending.tabs but the
+        // in-loop `continue` on unmatched host/type skips push — so we
+        // reconcile by resolving each pending-tab spec independently against
+        // the just-populated tab set. Since openTab has synchronous access
+        // to the host/type/session in its options, and setTabs is batched,
+        // the resolver's most reliable source is a keyed lookup of pending.
+        // tabs specs onto the ids we accumulated.
+        if (pending?.splitTree) {
+          // Build a spec-key → tabId map from ONLY the successfully-opened
+          // pending tabs. Rebuild the same host/type filter loop to keep the
+          // positional accounting straight even under `continue` skips.
+          const specToTabId = new Map<string, string>();
+          {
+            let openedIdx = 0;
+            for (const spec of pending.tabs) {
+              const wantType: TabType =
+                spec.protocol === "tmux"
+                  ? "terminal"
+                  : (spec.protocol as TabType);
+              const wantSession =
+                spec.protocol === "tmux" ? (spec.session ?? null) : null;
+              const needle = spec.host.toLowerCase();
+              const host =
+                allHosts.find((h) => h.name.toLowerCase() === needle) ??
+                allHosts.find((h) => h.id === spec.host);
+              if (!host) continue;
+              const enabledForType =
+                (wantType === "terminal" && host.enableSsh) ||
+                (wantType === "rdp" && host.enableRdp) ||
+                (wantType === "vnc" && host.enableVnc) ||
+                (wantType === "telnet" && host.enableTelnet);
+              if (!enabledForType) continue;
+              const key = `${spec.protocol}:${spec.host}:${spec.session ?? ""}`;
+              const id = openedIds[openedIdx];
+              if (id) specToTabId.set(key, id);
+              openedIdx += 1;
+            }
+          }
+          const resolver = (spec: TabSpec): string | null => {
+            const key = `${spec.protocol}:${spec.host}:${spec.session ?? ""}`;
+            const hit = specToTabId.get(key);
+            if (hit) return hit;
+            // Fallback: walk restoredTabs + closure tabs.
+            const wantSession =
+              spec.protocol === "tmux" ? (spec.session ?? null) : null;
+            const wantHostNeedle = spec.host.toLowerCase();
+            for (const t of [...restoredTabs, ...tabs]) {
+              const hostNameMatch =
+                (t.host?.name ?? "").toLowerCase() === wantHostNeedle;
+              const hostIdMatch = t.host?.id === spec.host;
+              const sessionMatch =
+                (t.targetTmuxSession ?? null) === wantSession;
+              if ((hostNameMatch || hostIdMatch) && sessionMatch) return t.id;
+            }
+            return null;
+          };
+          const decoded = decodeSplitTreeFromUrl(pending.splitTree, resolver);
+          if (decoded !== null) setSplitTree(decoded);
+        }
+        // Reference pendingTabSpecsForResolver so lint doesn't flag it —
+        // it's declared as a defensive alias but the resolver uses the
+        // in-line reload above for accuracy.
+        void pendingTabSpecsForResolver;
+
       } catch {
         // silently fail
       } finally {
@@ -1351,7 +1459,11 @@ export function AppShell({
           selectConversation(nextId === "dashboard" ? null : nextId);
         }
       }
-      setPaneTabIds((prev) => prev.map((p) => (p === id ? null : p)));
+      // Phase 56 Plan 02: split state is now a recursive SplitNode tree.
+      // removeLeaf drops the closing tab's leaf and collapses any single-
+      // child parent split by promoting the surviving sibling. Cheap no-op
+      // (Object.is on return === input) when the tab is not in the tree.
+      setSplitTree((prev) => removeLeaf(prev, id));
       setTabs((prev) => {
         const next = prev.filter((t) => t.id !== id);
         if (next.length === 0)
@@ -1389,52 +1501,51 @@ export function AppShell({
     doCloseTab(id);
   }
 
-  function splitTabQuick(tabId: string, mode: SplitMode) {
-    setSplitMode(mode);
-    setPaneTabIds(() => {
-      const count = PANE_COUNTS[mode];
-      const next: (string | null)[] = Array(6).fill(null);
-      next[0] = tabId;
-      // Fill remaining panes with other non-dashboard tabs in order
-      let slot = 1;
-      for (const tab of tabs) {
-        if (slot >= count) break;
-        if (tab.id !== tabId && tab.type !== "dashboard") {
-          next[slot] = tab.id;
-          slot++;
+  // Phase 56 Plan 02: the four preset-mode helpers (add / remove / quick /
+  // assign) are RETIRED. Their consumers were the retired SplitView prop set
+  // (slot-array assignment, mode-enum preset picker). The new tree model has
+  // one uniform handler — openSessionInTree — driven by drop events.
+  //
+  // openSessionInTree is the single drop handler for both first-drop-into-
+  // empty and drop-onto-existing-cell paths. removeLeaf-then-insertAtEdge
+  // handles both "add a session that isn't in the tree" and "move a session
+  // that's already somewhere in the tree to a new position" uniformly:
+  //   - If the session isn't in the tree, removeLeaf is a no-op (Object.is
+  //     on input === output holds true) and insertAtEdge plants it.
+  //   - If the session is already in the tree, removeLeaf collapses the
+  //     source cell and insertAtEdge splits the target cell — same net
+  //     effect as a move.
+  // Plan 56-03 wires the row-drag source; this plan wires the drop receiver.
+  const openSessionInTree = useCallback(
+    (tabId: string, path: SplitPath, edge: DropEdge) => {
+      setSplitTree((prev) => {
+        const withoutDup = removeLeaf(prev, tabId);
+        // A drop path that pointed at the leaf being moved is stale after
+        // removeLeaf collapses it; when withoutDup is null (source was the
+        // only leaf), fall back to a root-insert.
+        if (withoutDup === null) {
+          return insertAtEdge(null, [], { kind: "session", tabId }, edge);
         }
-      }
-      return next;
-    });
-  }
-
-  function addTabToSplit(tabId: string) {
-    setPaneTabIds((prev) => {
-      // Remove from any current slot first
-      const next = prev.map((p) => (p === tabId ? null : p));
-      // Find first empty slot within the current pane count
-      const count = PANE_COUNTS[splitMode];
-      for (let i = 0; i < count; i++) {
-        if (!next[i]) {
-          next[i] = tabId;
-          break;
+        // Target path may have shifted if the removed leaf's ancestor
+        // collapsed. Simplest robust behavior: if the target path no longer
+        // resolves, plant at the root instead.
+        try {
+          return insertAtEdge(
+            withoutDup,
+            path,
+            { kind: "session", tabId },
+            edge,
+          );
+        } catch {
+          // Degrade to root-insert if the path is stale — prefer degraded
+          // insertion over throwing to the caller (the drop event handler).
+          return insertAtEdge(null, [], { kind: "session", tabId }, edge);
         }
-      }
-      return next;
-    });
-  }
-
-  function removeTabFromSplit(tabId: string) {
-    setPaneTabIds((prev) => prev.map((p) => (p === tabId ? null : p)));
-  }
-
-  function assignPane(paneIndex: number, tabId: string) {
-    setPaneTabIds((prev) => {
-      const next = prev.map((p) => (p === tabId ? null : p));
-      next[paneIndex] = tabId;
-      return next;
-    });
-  }
+      });
+      setFocusedTabId(tabId);
+    },
+    [],
+  );
 
   // ─── Sidebar ─────────────────────────────────────────────────────────────
   // Phase 11 Plan 03: handleRailClick + editHostInManager RETIRED — the rail
@@ -1478,13 +1589,19 @@ export function AppShell({
   useEffect(() => {
     const id = resizeAllTerminals();
     return () => cancelAnimationFrame(id);
-  }, [splitMode, sidebarWidth, sidebarOpen]);
+    // Phase 56 Plan 02: dep on splitTree — the tree replaces the retired
+    // mode enum as the change trigger for re-fit-all-terminals.
+  }, [splitTree, sidebarWidth, sidebarOpen]);
 
-  const isSplit = splitMode !== "none";
+  const hasSplit = splitTree !== null;
 
   // Move each tab's stable DOM node to the right container (pane or normal-view).
   // This is vanilla DOM so React's portal target never changes — changing the portal
   // target causes a remount which is exactly what we're trying to avoid.
+  //
+  // Phase 56 Plan 02: pane lookup keys on the tree (findLeaf) instead of the
+  // retired slot-array indexOf, and paneEl lookup is via paneElsRef.current.get
+  // (a Map<tabId, HTMLDivElement>) instead of the retired pane-element array.
   useEffect(() => {
     const normalView = normalViewRef.current;
     if (!normalView) return;
@@ -1509,9 +1626,11 @@ export function AppShell({
         identitiesByKey.has(tab.targetTmuxSession.toLowerCase());
       const isTerminal = tab.type === "terminal" && !isIdentityTerminal;
       const node = getTabNode(tab.id, isTerminal);
-      const paneIdx = isSplit ? paneTabIds.indexOf(tab.id) : -1;
-      const inPane = paneIdx !== -1;
-      const paneEl = inPane ? paneContentEls[paneIdx] : null;
+      const inPane =
+        hasSplit && findLeaf(splitTree, tab.id) !== null;
+      const paneEl = inPane
+        ? (paneElsRef.current.get(tab.id) ?? null)
+        : null;
       // Plan 06-02: the "visible-inline" tab is now driven by the
       // conversation-store's selectedId (falling back to activeTabId for
       // singleton/dashboard tabs the store doesn't own). The rest of this
@@ -1543,7 +1662,7 @@ export function AppShell({
         }
       }
     }
-  });
+  }, [tabs, splitTree, hasSplit, effectiveSelectedTabId, identitiesByKey, getTabNode]);
 
   const terminalTabs = tabs.filter((t) => t.type === "terminal");
 
@@ -1942,20 +2061,28 @@ export function AppShell({
               {!isMobile && (
                 <div
                   className="absolute inset-0"
+                  // LOAD-BEARING: this display gate prevents a first-paint mispaint of the
+                  // "no split" default state while URL-restore is pending. splitTree hydrates
+                  // inside loadSavedTabs (a useEffect at L906-1149) which fires AFTER first
+                  // render, so splitTree === null on the initial paint of any session that
+                  // lands with a URL-encoded split. This visibility gate keeps SplitView
+                  // hidden until splitTree becomes non-null. Do NOT remove without either
+                  // lifting hydration to useLayoutEffect or adding a synchronous URL-parse
+                  // to the useState lazy initializer. See CONTEXT.md § "Persistence race on
+                  // first load".
                   style={{
-                    display: isSplit ? "flex" : "none",
+                    display: hasSplit ? "flex" : "none",
                     flexDirection: "column",
                   }}
                 >
                   <SplitView
                     tabs={tabs}
-                    paneTabIds={paneTabIds}
-                    splitMode={splitMode}
-                    focusedPaneIndex={focusedPaneIndex}
+                    splitTree={splitTree}
+                    focusedTabId={focusedTabId}
                     onTerminalResize={resizeAllTerminals}
                     onPaneContentRef={onPaneContentRef}
-                    onPaneClick={setFocusedPaneIndex}
-                    onAssignPane={assignPane}
+                    onPaneClick={setFocusedTabId}
+                    onOpenSessionInTree={openSessionInTree}
                   />
                 </div>
               )}
@@ -1969,14 +2096,16 @@ export function AppShell({
                 className="absolute inset-0"
                 style={{
                   display:
-                    isSplit &&
+                    hasSplit &&
                     !isMobile &&
-                    paneTabIds.includes(effectiveSelectedTabId)
+                    effectiveSelectedTabId != null &&
+                    findLeaf(splitTree, effectiveSelectedTabId) !== null
                       ? "none"
                       : undefined,
                   zIndex:
-                    isSplit &&
-                    !paneTabIds.includes(effectiveSelectedTabId)
+                    hasSplit &&
+                    (effectiveSelectedTabId == null ||
+                      findLeaf(splitTree, effectiveSelectedTabId) === null)
                       ? 10
                       : undefined,
                 }}
@@ -1989,8 +2118,8 @@ export function AppShell({
                     tab.targetTmuxSession != null &&
                     identitiesByKey.has(tab.targetTmuxSession.toLowerCase());
                   const tabNode = getTabNode(tab.id, tab.type === "terminal" && !_isIdentityTerminal);
-                  const paneIdx = isSplit ? paneTabIds.indexOf(tab.id) : -1;
-                  const inPane = paneIdx !== -1;
+                  const inPane =
+                    hasSplit && findLeaf(splitTree, tab.id) !== null;
                   // Plan 06-02: `isVisible` signal for every mounted pane
                   // (consumed by PrettyView's WipBubble, PlanPendingBubble,
                   // MessageQueueDrawer, SessionHoldingOverlay via Terminal.tsx
