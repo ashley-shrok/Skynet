@@ -649,10 +649,17 @@ describe("NewSessionDialog: Test G — valid name + all requirements enables Cre
       const imgs = document.querySelectorAll("img");
       if (imgs.length > 0) fireEvent.click(imgs[0].closest("button") ?? imgs[0]);
     }
-    await waitFor(() => {
-      const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
-      expect(createBtn.disabled).toBe(false);
-    });
+    await waitFor(
+      () => {
+        const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
+        expect(createBtn.disabled).toBe(false);
+      },
+      // Flake fix (2026-08-28): under full-suite parallel load the mocked-
+      // avatar → state-update → re-render chain occasionally exceeded the
+      // 1000ms vitest default. Standalone the test passes in <1s. Matches
+      // the { timeout: 2000 } convention already used in Test I below.
+      { timeout: 5000 },
+    );
   });
 });
 
