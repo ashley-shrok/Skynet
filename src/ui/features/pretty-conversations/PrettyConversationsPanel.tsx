@@ -276,6 +276,8 @@ export function PrettyConversationsPanel({
   onKillRow,
   sidebarToggleOverlaps = false,
   visibleInSplitTreeTabIds,
+  onCloseSession,
+  openTabIds = [],
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -334,6 +336,25 @@ export function PrettyConversationsPanel({
   // Optional so tests + non-AppShell renders default to the pre-Phase-56
   // single-visible behavior via an empty set.
   visibleInSplitTreeTabIds?: ReadonlySet<string>;
+  // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE — receives a VALIDATED tabId
+  // (validated against openTabIds below) from a badge dropped on the panel's
+  // outermost DOM element. AppShell wires this to closeTab so a badge-drop
+  // closes the tab (with the confirm-tab-close toast branch preserved by
+  // closeTab's existing behavior + the setSplitTree removeLeaf reconcile at
+  // AppShell.tsx:1498 firing on the doCloseTab side). Optional so tests and
+  // any pre-Phase-58 caller that doesn't wire it can render safely — an
+  // absent handler makes the drop a silent no-op after validation.
+  onCloseSession?: (tabId: string) => void;
+  // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE — validation source for the
+  // drop handler (per security_config / threat T-58-02-01: "in the conv-list
+  // drop handler, validate the received tabId matches an entry in the
+  // current tabs[] array before calling closeTab"). A drop whose parsed
+  // tabId is NOT in this list is silently dropped — defense against
+  // attacker-controlled dataTransfer payloads that could inject an
+  // arbitrary tabId string. Optional; defaults to [] so tests and any
+  // non-AppShell caller default to "no tab is open" and every drop is a
+  // silent no-op.
+  openTabIds?: readonly string[];
 }) {
   const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
@@ -1244,6 +1265,78 @@ export function PrettyConversationsPanel({
   // regresses).
   const rdpNoopTogglePin = () => {};
 
+  // ─── Phase 58 Plan 02: conv-list panel-level drop target for badge close ─
+  // Wires the outermost <div data-testid="pretty-conversations-panel"> as a
+  // drop target that closes the dragged tab when a badge (identified by the
+  // Phase 58 Plan 01 dual-MIME dragstart payload) is released on it.
+  //
+  // Wire contract (matches IdentityBadge.tsx Phase 58 Plan 01 dragstart):
+  //   dataTransfer["application/x-skynet-badge"] = JSON.stringify({tabId})
+  //     — the discriminator MIME. A drop without this key is ignored
+  //       (row-drags, OS file drags, etc. fall through — T-58-02-06).
+  //   dataTransfer["text/plain"] = tabId
+  //     — routes to Phase 56 Pane onDrop's rearrange path when the drop
+  //       lands on a Pane instead. NOT read here (belt-and-suspenders —
+  //       requiring the explicit badge MIME as the discriminator; see
+  //       Phase 58 Plan 02 Test C).
+  //
+  // Security / threat model (per plan's <threat_model> block):
+  //   T-58-02-01 (Spoofing): parsed tabId is validated against openTabIds
+  //     BEFORE calling onCloseSession. An unknown tabId is silently dropped.
+  //   T-58-02-02 (Tampering): JSON.parse wrapped in try/catch — malformed
+  //     payload is silently dropped without throwing.
+  //   T-58-02-04 (Repudiation): single explicit-field structured log emits
+  //     on the close path — no JSON.stringify(event).
+  //   T-58-02-06 (Tampering): dragover type-gate on application/x-skynet-badge
+  //     means non-badge drops (e.g. OS file drags) never call preventDefault
+  //     during dragover — the browser's default not-a-drop-target semantic
+  //     is preserved.
+  const handlePanelDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // Only badge drags get captured. Row drags + OS file drags fall through
+    // without preventDefault so the browser doesn't treat the panel as a
+    // drop target for them. NO log here — dragover fires constantly during
+    // a drag hover; only dragstart + drop should log per fleet directive.
+    const types = e.dataTransfer?.types;
+    if (types && Array.from(types).indexOf("application/x-skynet-badge") !== -1) {
+      e.preventDefault();
+    }
+  };
+  const handlePanelDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    // Step 1: read the discriminator MIME. Empty string = not a badge drop.
+    const raw = e.dataTransfer?.getData("application/x-skynet-badge") ?? "";
+    if (raw === "") return;
+    // Step 2: parse JSON safely (T-58-02-02).
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    // Step 3: extract + validate tabId shape.
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      typeof (parsed as { tabId?: unknown }).tabId !== "string" ||
+      (parsed as { tabId: string }).tabId === ""
+    ) {
+      return;
+    }
+    const tabId = (parsed as { tabId: string }).tabId;
+    // Step 4: validate against openTabIds (T-58-02-01 mitigation). This is
+    // the security guard — an attacker-controlled dataTransfer payload
+    // cannot inject an arbitrary tabId that closes a tab the user did not
+    // open. Silent drop on miss.
+    if (!openTabIds.includes(tabId)) return;
+    // Step 5: signal the drop is handled (prevents default browser
+    // behavior like navigating to the text payload).
+    e.preventDefault();
+    // Step 6: structured log (T-58-02-04 mitigation, PV58-STRUCTURED-LOGGING).
+    // Explicit-field extraction — no JSON.stringify(event).
+    console.info(`[convlist-drop] close tabId=${tabId}`);
+    // Step 7: fire the callback (optional so tests without the prop don't throw).
+    onCloseSession?.(tabId);
+  };
+
   const newSessionLabel = t("nav.newSession", {
     defaultValue: "New agent",
   });
@@ -1266,6 +1359,8 @@ export function PrettyConversationsPanel({
       className="relative flex flex-col flex-1 min-h-0 overflow-hidden pb-[env(safe-area-inset-bottom)]"
       data-testid="pretty-conversations-panel"
       data-variant={variant}
+      onDragOver={handlePanelDragOver}
+      onDrop={handlePanelDrop}
     >
       {/* Header: mock v4 `.pv-panel-header` treatment (14px 16px padding +
           hairline border-bottom via --color-pv-border-quiet, 12px UPPERCASE
