@@ -3400,3 +3400,104 @@ describe("PrettyConversationRow: iPad (coarse-pointer + desktop-variant) long-pr
     expect(onSelect).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 56 Plan 03 Task 1 — Row is a drag source (Tests 6-9)
+//
+// Test 6: dragstart writes tabId to dataTransfer as text/plain
+// Test 7: dragstart sets effectAllowed = 'move'
+// Test 8: row body div carries draggable="true"
+// Test 9: avatar img preserves draggable="false" (pre-existing gate)
+//
+// Tests 1-5 (existing gestures still fire) are covered by non-regression:
+// every pre-existing describe block above (tap-select, mobile swipe,
+// mobile long-press, desktop mouse-swipe, desktop context menu) continues
+// to pass with `draggable={true}` and `onDragStart` on the row body,
+// because native HTML5 drag disambiguates via the browser's own threshold
+// (~5px desktop / long-press-and-move touch) rather than any handler this
+// row installs at the pointerdown layer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
+  it("Test 6: dragstart writes row.id into dataTransfer under text/plain", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ id: "test-tab-99" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="test-tab-99"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    const dt = { setData: vi.fn(), effectAllowed: "" };
+    fireEvent.dragStart(body, { dataTransfer: dt });
+    expect(dt.setData).toHaveBeenCalledTimes(1);
+    expect(dt.setData).toHaveBeenCalledWith("text/plain", "test-tab-99");
+  });
+
+  it("Test 7: dragstart sets dataTransfer.effectAllowed = 'move'", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ id: "test-tab-99" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="test-tab-99"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+
+    const dt = { setData: vi.fn(), effectAllowed: "" };
+    fireEvent.dragStart(body, { dataTransfer: dt });
+    expect(dt.effectAllowed).toBe("move");
+  });
+
+  it("Test 8: row body div carries draggable=\"true\"", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    expect(body.getAttribute("draggable")).toBe("true");
+  });
+
+  it("Test 9: avatar img preserves draggable=\"false\" (image-drag suppression unchanged)", () => {
+    currentIdentity = makeIdentity(120, "nelly");
+    // Give the identity an avatarUrl so the <img> renders (the initial-letter
+    // fallback branch is <span>, no draggable attribute needed).
+    currentIdentity.avatarUrl = "data:image/png;base64,iVBORw0KGgo=";
+
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const img = container.querySelector(".pv-avatar-img") as HTMLElement | null;
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("draggable")).toBe("false");
+  });
+});

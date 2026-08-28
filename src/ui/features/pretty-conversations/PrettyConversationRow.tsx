@@ -125,6 +125,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
   type TouchEvent,
@@ -913,6 +914,24 @@ export function PrettyConversationRow({
     disarmedRef.current = false;
   }, [variant, isRdp, beginSnapBack, resetSwipeGesture]);
 
+  // Phase 56 Plan 03 (Ashley 2026-08-28 shape file):
+  // Fourth gesture on the row body — HTML5 native drag. Coexists with
+  // the existing tap-select (onClick), touch swipe (onTouchStart/Move/End),
+  // touch long-press context menu (500ms timer inside onTouchStart), desktop
+  // mouse-swipe (onMouseDown/Move/Up), and desktop right-click context menu
+  // (onContextMenu). Browser's built-in drag threshold (~5px on desktop,
+  // long-press-and-move on touch) is the disambiguation mechanism — no manual
+  // dx/dy gate is needed. The dataTransfer payload shape (`text/plain` with
+  // the row's tab id) is the wire contract with `SplitView.tsx`'s Pane onDrop
+  // handler, established by Plan 56-02 and preserved verbatim.
+  const onRowDragStart = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      e.dataTransfer.setData("text/plain", row.id);
+      e.dataTransfer.effectAllowed = "move";
+    },
+    [row.id],
+  );
+
   // Cleanup on unmount so a pending timer doesn't fire against an unmounted
   // component (setState on unmounted → React warning + potential dangling
   // navigator.vibrate call). quick-260808-fkg extends the cleanup to also
@@ -1075,6 +1094,7 @@ export function PrettyConversationRow({
       <div
         role="button"
         tabIndex={0}
+        draggable={true}
         aria-pressed={selected}
         onClick={onBodyClick}
         onKeyDown={onBodyKeyDown}
@@ -1100,6 +1120,7 @@ export function PrettyConversationRow({
         onMouseMove={variant === "desktop" && !isRdp ? onMouseMove : undefined}
         onMouseUp={variant === "desktop" && !isRdp ? onMouseUp : undefined}
         onMouseLeave={variant === "desktop" && !isRdp ? onMouseLeave : undefined}
+        onDragStart={onRowDragStart}
         style={bodyStyle}
         className={rowClassName}
       >
