@@ -1869,6 +1869,16 @@ export function AppShell({
           variant={isMobile ? "mobile" : "desktop"}
           sidebarToggleOverlaps={isMobile && !isTouchDevice && sidebarOpen}
           visibleInSplitTreeTabIds={visibleInSplitTreeTabIds}
+          // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE + PV58-DOCLOSETAB-TREE-
+          // RECONCILE: badge drop on the conv-list panel closes the tab.
+          // closeTab already reconciles splitTree via removeLeaf inside
+          // doCloseTab (AppShell.tsx:1498) — no additional wiring needed
+          // here. openTabIds is the validation source for the panel's drop
+          // guard (per security_config / threat T-58-02-01: validate the
+          // parsed tabId matches an entry in currently-open tabs before
+          // firing onCloseSession).
+          onCloseSession={closeTab}
+          openTabIds={tabs.map((t) => t.id)}
           onConversationSelected={
             isTouchDevice ? () => navigateToView() : undefined
           }

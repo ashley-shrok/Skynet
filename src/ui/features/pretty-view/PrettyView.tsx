@@ -208,6 +208,14 @@ export interface PrettyViewProps {
   onUnregisterSendInput?: () => void;
   onRegisterSendInterrupt?: (fn: () => void) => void;
   onUnregisterSendInterrupt?: () => void;
+  // Phase 58 Plan 02: forwarded to the inner IdentityBadge (~L2927) so
+  // drag-source semantics activate for pretty-view-mounted badges (Plan
+  // 58-01 gates draggable on `!!tabId && !isMobile`). Optional so pre-
+  // Phase-58 callers (tests, standalone previews) keep working — badge
+  // falls back to draggable=false when tabId is absent. IdentitySessionPane
+  // (the sole production caller) always has `tab.id` in scope and passes
+  // it through.
+  tabId?: string;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -425,6 +433,7 @@ export function PrettyView({
   onUnregisterSendInput,
   onRegisterSendInterrupt,
   onUnregisterSendInterrupt,
+  tabId,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   // ── Phase 47 (load-more button) — per-pane state slots ────────────────
@@ -2928,6 +2937,7 @@ export function PrettyView({
           identityKey={pvIdentityKey}
           onClick={() => setIsIdentityModalOpen(true)}
           onLongPress={onTogglePrettyMode}
+          tabId={tabId}
         />
       )}
       {/* Patch #87: identity bounties modal. Portals to document.body via

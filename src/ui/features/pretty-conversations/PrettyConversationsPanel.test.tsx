@@ -4245,4 +4245,154 @@ describe("PrettyConversationsPanel: Phase 58 — conv-list drop target for badge
     }).not.toThrow();
     expect(onCloseSession).not.toHaveBeenCalled();
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 58 Plan 02 Task 2 — Integration tests H + I
+  //
+  // Test H: assert the wire contract from the panel drop → onCloseSession
+  //         callback fires with the validated tabId. AppShell wires
+  //         onCloseSession={closeTab}; the tree-reconcile side is COVERED BY
+  //         EXISTING CODE at AppShell.tsx:1498 (`setSplitTree((prev) =>
+  //         removeLeaf(prev, id))` inside doCloseTab) — PV58-DOCLOSETAB-TREE-
+  //         RECONCILE is assertion-only per plan (no new production code
+  //         needed for the reconcile side). This test asserts the callback
+  //         is invoked exactly once with the correct tabId, so when AppShell
+  //         passes closeTab, the reconcile executes automatically.
+  //
+  // Test I: assert an IdentityBadge dragstart writes text/plain=tabId — the
+  //         exact key Phase 56 Pane onDrop text/plain branch at
+  //         SplitView.tsx:340 reads via openSessionInTree(tabId, path, edge).
+  //         Load-bearing "the badge is a valid drag source for the existing
+  //         rearrange machinery" assertion without needing to mount
+  //         SplitView. Full end-to-end Pane rearrange remains covered by
+  //         SplitView.test.tsx 26/26 (Phase 57 regression gate).
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("Test H (integration): panel-drop → onCloseSession wire contract intact; AppShell.tsx:1498 reconciles splitTree via existing code", () => {
+    const mockCloseTab = vi.fn();
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={mockCloseTab}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    fireEvent.drop(panel, { dataTransfer: dt });
+    // Wire contract: panel drop → validated tabId → onCloseSession fires
+    // once with the exact tabId. AppShell wires onCloseSession={closeTab},
+    // and closeTab routes through doCloseTab which ALREADY reconciles
+    // splitTree via setSplitTree((prev) => removeLeaf(prev, id)) at
+    // AppShell.tsx:1498 (existing code, unchanged by this plan). The
+    // reconcile side does not need a separate assertion in this scoped
+    // panel test — it is a property of AppShell.tsx that
+    // PV58-DOCLOSETAB-TREE-RECONCILE relies on and grep-verifies remains
+    // present after the plan (Task 2 acceptance criterion).
+    expect(mockCloseTab).toHaveBeenCalledTimes(1);
+    expect(mockCloseTab).toHaveBeenCalledWith("tab-tina-42");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 58 Plan 02 Task 2 Integration Test I — IdentityBadge dragstart
+// payload shape matches Phase 56 Pane onDrop wire contract
+// ─────────────────────────────────────────────────────────────────────────────
+// Renders IdentityBadge directly (imported inline here — panel-test-file
+// scoping) and asserts dragstart writes text/plain=tabId. This is the payload
+// the Pane onDrop text/plain branch at SplitView.tsx:340 reads via
+// openSessionInTree(tabId, path, edge) — the Phase 56 rearrange path. Without
+// this assertion, a silent regression in IdentityBadge's dragstart handler
+// could break rearrange while leaving all badge-close tests green.
+//
+// Note: IdentityBadge consumes the same useIdentities mock this file already
+// declares (identity mock: mockIdentitiesByKey Map), and useIsMobile via the
+// window.matchMedia + innerWidth pattern. We inline the setMobileViewport
+// helper here to avoid a cross-file import.
+
+// Local test-only import of IdentityBadge for Test I. Placed after the panel
+// describe blocks so it doesn't affect the panel's own module-import order.
+// eslint-disable-next-line import/first
+import { IdentityBadge } from "@/features/terminal/IdentityBadge";
+
+function setDesktopViewportForBadgeTest() {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: 1280,
+  });
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
+describe("PrettyConversationsPanel: Phase 58 Plan 02 — Test I (integration): IdentityBadge dragstart payload matches Phase 56 Pane onDrop wire contract", () => {
+  beforeEach(() => {
+    setDesktopViewportForBadgeTest();
+    // Seed the identity so IdentityBadge renders (returns null otherwise).
+    mockIdentitiesByKey = new Map([
+      [
+        "tina",
+        {
+          identityKey: "tina",
+          displayName: "Tina",
+          title: "Test identity",
+          avatarUrl: "/avatar.png",
+          colorHue: 220,
+        } as unknown as {
+          identityKey: string;
+          title?: string | null;
+          displayName?: string | null;
+        },
+      ],
+    ]);
+  });
+  afterEach(() => {
+    mockIdentitiesByKey = new Map();
+    vi.restoreAllMocks();
+  });
+
+  it("Test I: IdentityBadge with tabId writes text/plain=<tabId> on dragstart — the exact payload Phase 56 Pane onDrop reads via openSessionInTree(tabId, path, edge)", () => {
+    const onClick = vi.fn();
+    const { getByTestId } = render(
+      <IdentityBadge
+        identityKey="tina"
+        tabId="tab-alice-1"
+        onClick={onClick}
+      />,
+    );
+    const root = getByTestId("identity-badge-root");
+    // Sanity: badge is enabled as a drag source on desktop with a tabId.
+    expect(root.getAttribute("draggable")).toBe("true");
+
+    // Reuse the Phase 58 dataTransfer stub shape from the panel-drop tests
+    // above (Map-backed). jsdom does not construct real DataTransfer.
+    const dt = makeConvListDataTransferStub();
+    fireEvent.dragStart(root, { dataTransfer: dt });
+
+    // Load-bearing assertion: text/plain=tabId. This is what SplitView.tsx
+    // Pane onDrop reads at the text/plain branch (per Phase 56 Plan 02),
+    // routes through openSessionInTree(tabId, path, edge), which
+    // removeLeaf-then-insertAtEdge rearranges the tree. No need to mount
+    // SplitView; that layer is covered by SplitView.test.tsx 26/26.
+    expect(dt.getData("text/plain")).toBe("tab-alice-1");
+    // Belt-and-suspenders: the discriminator MIME is also present so a
+    // badge drop that lands on the conv-list (Plan 58-02 target) closes
+    // instead of rearranging. Same source, one payload, two consumers.
+    const badgePayload = dt.getData("application/x-skynet-badge");
+    expect(badgePayload).not.toBe("");
+    expect(JSON.parse(badgePayload).tabId).toBe("tab-alice-1");
+    // effectAllowed matches the conv-list row convention (Phase 56 patch #511).
+    expect(dt.effectAllowed).toBe("move");
+  });
 });

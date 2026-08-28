@@ -234,6 +234,12 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             tmuxSession={effectiveTmuxSession ?? ""}
             className="flex-1 min-h-0"
             isVisible={isVisible}
+            // Phase 58 Plan 02: threads `tabId` so PrettyView can forward to
+            // its own inner IdentityBadge mount (~L2927). Without this,
+            // the pretty-view-surface badge would render draggable=false
+            // (Plan 58-01 gate `!!tabId && !isMobile`) and only the
+            // terminal-mode surface badge would be a valid drag source.
+            tabId={tabId}
             onSend={(text: string, mqid?: string): boolean => {
               // Patch #110: collapse pretty-view submit into a SINGLE WS event
               // with text+CR + a synthetic messageQueueItemId.
@@ -371,12 +377,19 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
           {/* IdentityBadge — gated on !isPrettyMode (terminal-mode surface).
               PrettyView has its OWN internal IdentityBadge (Phase 4 patch).
               This badge is the terminal-mode replacement for Terminal.tsx L3413-3423.
-              Long-press: toggle back to pretty mode (same UX as pre-Phase-41). */}
+              Long-press: toggle back to pretty mode (same UX as pre-Phase-41).
+              Phase 58 Plan 02: threads `tabId` so the badge activates as an
+              HTML5 drag source (Plan 58-01 wire — badge writes dual-MIME
+              payload, Phase 56 Pane onDrop rearranges via openSessionInTree,
+              Phase 58 Plan 02 conv-list onDrop closes via closeTab). `tabId`
+              const at L103 is `tab.id` — reused here for consistency with the
+              PrettyView mount below and existing tabId consumers in this file. */}
           {identityKey && !isPrettyMode && (
             <IdentityBadge
               identityKey={identityKey}
               onClick={() => setIsIdentityModalOpen(true)}
               onLongPress={() => setIsPrettyMode((v) => !v)}
+              tabId={tabId}
             />
           )}
 
