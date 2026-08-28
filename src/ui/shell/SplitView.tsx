@@ -1,7 +1,8 @@
 // ─── SplitView.tsx ───────────────────────────────────────────────────────────
-// Phase 56 Plan 02 — recursive-tree renderer.
+// Phase 56 Plan 02 — recursive-tree renderer. Phase 56 Plan 03 substitutes the
+// real nearest-edge geometry in place of Plan 02's stub.
 //
-// Adopted (Plan 56-01 + 56-02 LOCKED decisions — Ashley 2026-08-28):
+// Adopted (Plan 56-01 + 56-02 + 56-03 LOCKED decisions — Ashley 2026-08-28):
 //   - Recursive `SplitNode` tree drives layout. Leaves render as `Pane`;
 //     internal nodes render as flex containers with a constant-width,
 //     non-draggable `<Divider>` between two children.
@@ -11,10 +12,14 @@
 //     `onPaneContentRef(tabId, el)`. AppShell's DOM-placement effect uses
 //     this to reparent the tab's stable node (no remount, no WS reset).
 //   - Empty tree renders a full-viewport drop target; drop on it invokes
-//     `onOpenSessionInTree(tabId, [], 'left')` and seeds the root leaf.
+//     `onOpenSessionInTree(tabId, [], 'left')` and seeds the root leaf (the
+//     edge argument is ignored by insertAtEdge for a null root, so the
+//     literal 'left' is a placeholder there, not stubbed geometry).
 //   - Drop on an existing cell forwards `(tabId, path, edge)` upstream where
-//     the edge is the executor's `computeEdgeFromDrop` stub (always `'left'`
-//     in Plan 56-02). Plan 56-03 wires the real nearest-edge geometry.
+//     the edge is picked by `computeNearestEdge` (Plan 56-03) — the closest
+//     of the four cell edges to the drop's clientX/clientY. Foundation-phase
+//     minimum-viable geometry per CONTEXT.md § locked decisions: no
+//     edge-zone hit-testing, no center dead zone (both Phase 57's work).
 
 import React, { useState, useEffect, memo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,11 +27,46 @@ import { tabIcon } from "@/shell/tabUtils";
 import type { Tab } from "@/types/ui-types";
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
 
-// Plan 56-02 stub — any drop resolves to 'left'. Plan 56-03 substitutes the
-// real nearest-edge computation using the drop event's client coordinates
-// against the target cell's bounding rect.
-function computeEdgeFromDrop(_e: React.DragEvent): DropEdge {
-  return "left";
+/**
+ * Phase 56 Plan 03: nearest-edge picker for the foundation-phase drop geometry.
+ *
+ * CONTEXT.md § locked decision: any drop inside a cell picks the closest edge
+ * and splits there — no edge-zone hit-testing, no center dead zone (both are
+ * Phase 57's work). This function returns whichever of the four candidate
+ * edges (left, right, top, bottom) is nearest to the drop's client
+ * coordinates, measured as the perpendicular distance to that edge's line.
+ *
+ * Tie-break priority: left → top → right → bottom (first-match-wins). This
+ * order matches CSS reading order and produces a deterministic answer for
+ * pixel-precise ties (dead-center + symmetric-diagonal cases).
+ *
+ * Exported for test coverage — pure function of rect + point.
+ */
+export function computeNearestEdge(
+  rect: DOMRect | { left: number; right: number; top: number; bottom: number },
+  clientX: number,
+  clientY: number,
+): DropEdge {
+  const dLeft = clientX - rect.left;
+  const dRight = rect.right - clientX;
+  const dTop = clientY - rect.top;
+  const dBottom = rect.bottom - clientY;
+  // First-match-wins priority: left, top, right, bottom.
+  let best: DropEdge = "left";
+  let bestDist = dLeft;
+  if (dTop < bestDist) {
+    best = "top";
+    bestDist = dTop;
+  }
+  if (dRight < bestDist) {
+    best = "right";
+    bestDist = dRight;
+  }
+  if (dBottom < bestDist) {
+    best = "bottom";
+    bestDist = dBottom;
+  }
+  return best;
 }
 
 // Constant-width, non-draggable divider. `direction` matches split-tree.ts's
@@ -185,7 +225,12 @@ const Pane = memo(function Pane({
         setIsDragOver(false);
         const payloadTabId = e.dataTransfer.getData("text/plain");
         if (payloadTabId) {
-          onOpenSessionInTree?.(payloadTabId, path, computeEdgeFromDrop(e));
+          const edge = computeNearestEdge(
+            e.currentTarget.getBoundingClientRect(),
+            e.clientX,
+            e.clientY,
+          );
+          onOpenSessionInTree?.(payloadTabId, path, edge);
         }
       }}
     >
