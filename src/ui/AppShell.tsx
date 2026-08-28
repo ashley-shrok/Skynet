@@ -76,6 +76,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // truth for the split arrangement.
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
 import { insertAtEdge, removeLeaf, findLeaf, getNodeAt } from "@/lib/split-tree";
+import { computeNearestEdge } from "@/shell/SplitView";
 import {
   encodeSplitTreeToUrl,
   decodeSplitTreeFromUrl,
@@ -2111,7 +2112,78 @@ export function AppShell({
                 refreshTab is intentionally removed alongside its sole caller
                 (this TabBar mount) — Plan 06-04 or later may re-introduce a
                 per-row refresh affordance if Ashley's workflow needs one. */}
-            <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div
+              className="relative flex flex-col flex-1 min-h-0 overflow-hidden"
+              onDragOver={(e) => {
+                // Patch #510: accept conv-list-row drags (text/plain) even
+                // when SplitView is display:none (splitTree === null). Without
+                // this, drops into an empty PrettyView area died silently
+                // because the SplitView Pane onDrop wasn't in the visible
+                // DOM. File drags (Files in types) fall through to
+                // PrettyView's own onDragOver — no double-handling because
+                // PrettyView bubbles up here and would return early only
+                // when NOT Files; but since Files IS present, PrettyView
+                // already preventDefaulted higher in the composed path and
+                // this handler's preventDefault is idempotent.
+                if (!e.dataTransfer.types.includes("text/plain")) return;
+                if (e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+              }}
+              onDrop={(e) => {
+                if (!e.dataTransfer.types.includes("text/plain")) return;
+                if (e.dataTransfer.types.includes("Files")) return;
+                const payloadTabId = e.dataTransfer.getData("text/plain");
+                if (!payloadTabId) return;
+                e.preventDefault();
+                // If SplitView Pane onDrop already fired (splitTree was
+                // non-null and the drop landed on a pane), it called
+                // stopPropagation — this handler doesn't run in that case.
+                // So reaching here means splitTree was null at drop time.
+                //
+                // Behavior spec (from shape file):
+                //  - empty PrettyView area (no active session shown) →
+                //    tree becomes leaf(payload).
+                //  - active session X shown in normal-view →
+                //    split(existing X, payload) at nearest edge.
+                const rect = e.currentTarget.getBoundingClientRect();
+                const edge = computeNearestEdge(rect, e.clientX, e.clientY);
+                const activeTab = tabs.find((t) => t.id === activeTabId);
+                const activeIsSession =
+                  activeTab != null &&
+                  activeTab.type === "terminal" &&
+                  activeTab.targetTmuxSession != null &&
+                  identitiesByKey.has(
+                    activeTab.targetTmuxSession.toLowerCase(),
+                  );
+                setSplitTree(() => {
+                  const droppedLeaf = {
+                    kind: "session" as const,
+                    tabId: payloadTabId,
+                  };
+                  if (
+                    !activeIsSession ||
+                    activeTab == null ||
+                    activeTab.id === payloadTabId
+                  ) {
+                    return droppedLeaf;
+                  }
+                  const activeLeaf = {
+                    kind: "session" as const,
+                    tabId: activeTab.id,
+                  };
+                  // Plant the active session as root, then insert the
+                  // dropped one at the requested edge — reuses the
+                  // library's own edge→direction mapping.
+                  return insertAtEdge(activeLeaf, [], droppedLeaf, edge);
+                });
+                // Ensure the dropped tab is open + selected. Reuses the
+                // conversation-store flow that a row click would fire —
+                // openTab-if-needed happens via the store → AppShell
+                // mirror effect around L680.
+                selectConversation(payloadTabId);
+                setFocusedTabId(payloadTabId);
+              }}
+            >
               {/* Split view — always mounted when not mobile, hidden via CSS when inactive */}
               {!isMobile && (
                 <div

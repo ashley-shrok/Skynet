@@ -157,6 +157,7 @@ describe("SplitView — recursive-tree renderer (Phase 56 Plan 02 Task 1)", () =
     }, { el: allDivs[0], depth: 0 }).el;
     fireEvent.drop(deepest, {
       dataTransfer: {
+        types: ["text/plain"],
         getData: (k: string) => (k === "text/plain" ? "xyz" : ""),
       },
     });
@@ -276,9 +277,17 @@ describe("SplitView — Phase 56 Plan 03: nearest-edge drop geometry", () => {
     el: Element,
     clientX: number,
     clientY: number,
-    dataTransfer: { getData: (k: string) => string },
+    dataTransfer: { getData: (k: string) => string; types?: readonly string[] },
   ): void {
-    const evt = createEvent.drop(el, { dataTransfer });
+    // Patch #510 gate on Pane onDrop requires `dataTransfer.types` to be a
+    // string[] with "text/plain" present (conv-list-row drag shape). Real
+    // browser drag events always populate `types`; jsdom's DataTransfer
+    // shim on our old ~4.x line doesn't, so tests supply it here.
+    const dtWithTypes = {
+      types: ["text/plain"] as readonly string[],
+      ...dataTransfer,
+    };
+    const evt = createEvent.drop(el, { dataTransfer: dtWithTypes });
     Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
     Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
     fireEvent(el, evt);
@@ -383,7 +392,13 @@ describe("SplitView — Phase 56 Plan 03: nearest-edge drop geometry", () => {
       />,
     );
     const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
-    fireEvent.dragOver(contentEl, { clientX: 50, clientY: 50 });
+    // Patch #510 gate on onDragOver reads `dataTransfer.types` — supply
+    // it here to match real browser event shape.
+    fireEvent.dragOver(contentEl, {
+      clientX: 50,
+      clientY: 50,
+      dataTransfer: { types: ["text/plain"], getData: () => "" },
+    });
     expect(onOpenSessionInTree).not.toHaveBeenCalled();
   });
 });

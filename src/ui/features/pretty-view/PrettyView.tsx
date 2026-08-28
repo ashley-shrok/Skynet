@@ -2804,6 +2804,14 @@ export function PrettyView({
       ref={pvRootRef}
       data-pv-root
       onDragEnter={(e) => {
+        // Patch #510 gate: only claim the drag when it's an actual FILE
+        // drag. Conv-list row drags (patch #509 / Phase 56) carry
+        // text/plain but no Files — they must pass through this handler
+        // untouched so they bubble to the SplitView Pane or the AppShell
+        // right-side container drop handler. Without this gate, PrettyView
+        // showed the file-upload overlay on every conv-row drag AND ate
+        // the drop (silent no-op because files.length === 0).
+        if (!e.dataTransfer.types.includes("Files")) return;
         // Phase 05 (UPLOAD-01): show the drop overlay while any drag
         // hovers the pretty-view surface. We use a counter because
         // dragenter/dragleave fire on every child boundary during a
@@ -2814,15 +2822,24 @@ export function PrettyView({
         if (dragCounterRef.current > 0) setIsDragOver(true);
       }}
       onDragOver={(e) => {
+        // Same patch #510 gate as onDragEnter — non-Files drags pass
+        // through so the drop bubbles to the AppShell outer handler.
+        if (!e.dataTransfer.types.includes("Files")) return;
         // dragover MUST preventDefault to enable the subsequent drop.
         e.preventDefault();
       }}
       onDragLeave={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
         if (dragCounterRef.current === 0) setIsDragOver(false);
       }}
       onDrop={(e) => {
+        // Patch #510 gate — non-Files drops bubble to the AppShell outer
+        // handler (patch #510) or to a SplitView Pane onDrop (Phase 56)
+        // depending on where the drop landed in the tree. PrettyView only
+        // owns FILE drops.
+        if (!e.dataTransfer.types.includes("Files")) return;
         // Phase 05: stage the dropped items. Prefer DataTransferItemList
         // (has webkitGetAsEntry so folder detection works) when available;
         // fall back to files.

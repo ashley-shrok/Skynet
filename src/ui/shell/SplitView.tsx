@@ -216,12 +216,23 @@ const Pane = memo(function Pane({
       } ${isDragOver ? "ring-2 ring-inset ring-accent-brand" : ""}`}
       onClick={() => onPaneClick?.(tabId)}
       onDragOver={(e) => {
+        // Only accept conv-list-row style drags (text/plain payload). File
+        // drags go to the PrettyView file-upload path instead (bubbles up
+        // through this handler untouched).
+        if (!e.dataTransfer.types.includes("text/plain")) return;
         e.preventDefault();
+        e.stopPropagation();
         setIsDragOver(true);
       }}
       onDragLeave={() => setIsDragOver(false)}
       onDrop={(e) => {
+        if (!e.dataTransfer.types.includes("text/plain")) return;
         e.preventDefault();
+        // Prevent the AppShell right-side outer container's drop handler
+        // (patch #510) from double-firing on a drop the pane already
+        // absorbed. Without stopPropagation the same drop would open the
+        // session twice — once via the pane, once via the outer container.
+        e.stopPropagation();
         setIsDragOver(false);
         const payloadTabId = e.dataTransfer.getData("text/plain");
         if (payloadTabId) {
