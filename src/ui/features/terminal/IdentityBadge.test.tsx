@@ -165,3 +165,190 @@ describe("IdentityBadge — single-variant + onLongPress (quick 260806-lzd)", ()
     expect(screen.queryByRole("button")).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 58 Plan 01: IdentityBadge as third-gesture drag source
+// ─────────────────────────────────────────────────────────────────────────────
+// Six new tests defend Phase 58 must_haves.truths (PV58-BADGE-DRAG-SOURCE,
+// PV58-BADGE-PAYLOAD-DUAL-MIME, PV58-GESTURE-COEXISTENCE, PV58-STRUCTURED-LOGGING):
+//   Phase 58 A: dragstart writes dual-MIME payload
+//                  (text/plain + application/x-skynet-badge + effectAllowed=move)
+//   Phase 58 B: dragstart emits [badge-drag] structured log
+//                  (single console.info with tabId + hasIdentity fields)
+//   Phase 58 C: mobile viewport suppresses draggable
+//                  (useIsMobile returns true → draggable=false)
+//   Phase 58 D: absent tabId suppresses draggable
+//                  (tabId undefined → draggable=false regardless of viewport)
+//   Phase 58 E: regression — click still fires post-drag-enabled
+//   Phase 58 F: regression — long-press still fires post-drag-enabled
+//
+// jsdom does NOT construct a real DataTransfer, so we pass a stub with
+// setData/getData/effectAllowed via fireEvent.dragStart's init object.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper: build a stub DataTransfer for fireEvent.dragStart to spread onto the
+// synthetic event. Backed by a Map so we can read back what the handler wrote.
+function makeDataTransferStub() {
+  const store = new Map<string, string>();
+  const stub = {
+    setData: (type: string, value: string) => {
+      store.set(type, value);
+    },
+    getData: (type: string) => store.get(type) ?? "",
+    effectAllowed: "none" as string,
+    // Some code paths iterate .types; expose a getter that reflects the map.
+    get types() {
+      return Array.from(store.keys());
+    },
+  };
+  return stub;
+}
+
+// Helper: force useIsMobile to a specific value by mocking matchMedia +
+// innerWidth for the render. Mirrors the pattern in use-mobile.test.ts.
+function setMobileViewport(isMobile: boolean) {
+  const width = isMobile ? 500 : 1280;
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: isMobile,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
+describe("IdentityBadge — Phase 58 Plan 01: badge as drag source", () => {
+  beforeEach(() => {
+    // Phase 58 tests use REAL timers because useIsMobile's initial useEffect
+    // reads window.innerWidth synchronously via React's flush; fake timers
+    // could interfere with the state update. Long-press regression tests
+    // (E + F) still work at real-time by using 500ms real timer.
+    vi.useRealTimers();
+    // Default to desktop viewport for tests that don't override.
+    setMobileViewport(false);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("Phase 58 A: dragstart writes dual-MIME payload (text/plain + application/x-skynet-badge) with effectAllowed=move", async () => {
+    const onClick = vi.fn();
+    render(
+      <IdentityBadge
+        identityKey="tina"
+        tabId="tab-tina-42"
+        onClick={onClick}
+      />,
+    );
+    const root = screen.getByTestId("identity-badge-root");
+    // Sanity: drag-source is enabled on desktop with a tabId.
+    expect(root.getAttribute("draggable")).toBe("true");
+
+    const dt = makeDataTransferStub();
+    fireEvent.dragStart(root, { dataTransfer: dt });
+
+    expect(dt.getData("text/plain")).toBe("tab-tina-42");
+    const badgePayload = dt.getData("application/x-skynet-badge");
+    expect(badgePayload).not.toBe("");
+    expect(JSON.parse(badgePayload).tabId).toBe("tab-tina-42");
+    expect(dt.effectAllowed).toBe("move");
+  });
+
+  it("Phase 58 B: dragstart emits a single [badge-drag] structured log with tabId + hasIdentity fields", () => {
+    const onClick = vi.fn();
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    render(
+      <IdentityBadge
+        identityKey="tina"
+        tabId="tab-tina-42"
+        onClick={onClick}
+      />,
+    );
+    const root = screen.getByTestId("identity-badge-root");
+    const dt = makeDataTransferStub();
+    fireEvent.dragStart(root, { dataTransfer: dt });
+
+    // Exactly one [badge-drag] emission.
+    const badgeCalls = infoSpy.mock.calls.filter(
+      (call) =>
+        typeof call[0] === "string" && call[0].startsWith("[badge-drag] "),
+    );
+    expect(badgeCalls).toHaveLength(1);
+    const line = badgeCalls[0]![0] as string;
+    expect(line).toContain("tabId=tab-tina-42");
+    expect(line).toContain("hasIdentity=true");
+  });
+
+  it("Phase 58 C: mobile viewport suppresses draggable (useIsMobile=true → draggable=false)", () => {
+    setMobileViewport(true);
+    const onClick = vi.fn();
+    render(
+      <IdentityBadge
+        identityKey="tina"
+        tabId="tab-tina-42"
+        onClick={onClick}
+      />,
+    );
+    const root = screen.getByTestId("identity-badge-root");
+    // Accept either the attribute absent or serialized as "false".
+    const draggableAttr = root.getAttribute("draggable");
+    expect(draggableAttr === null || draggableAttr === "false").toBe(true);
+  });
+
+  it("Phase 58 D: absent tabId suppresses draggable (draggable=false regardless of viewport)", () => {
+    const onClick = vi.fn();
+    render(<IdentityBadge identityKey="tina" onClick={onClick} />);
+    const root = screen.getByTestId("identity-badge-root");
+    const draggableAttr = root.getAttribute("draggable");
+    expect(draggableAttr === null || draggableAttr === "false").toBe(true);
+  });
+
+  it("Phase 58 E: regression — click still fires on short-press when tabId is present (drag-enabled does not break click)", () => {
+    vi.useFakeTimers();
+    const onClick = vi.fn();
+    const onLongPress = vi.fn();
+    render(
+      <IdentityBadge
+        identityKey="tina"
+        tabId="tab-tina-42"
+        onClick={onClick}
+        onLongPress={onLongPress}
+      />,
+    );
+    const root = screen.getByTestId("identity-badge-root");
+    fireEvent.pointerDown(root);
+    vi.advanceTimersByTime(200);
+    fireEvent.pointerUp(root);
+    fireEvent.click(root);
+    vi.advanceTimersByTime(400);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
+  it("Phase 58 F: regression — long-press still fires at 500ms when tabId is present (drag-enabled does not break long-press)", () => {
+    vi.useFakeTimers();
+    const onClick = vi.fn();
+    const onLongPress = vi.fn();
+    render(
+      <IdentityBadge
+        identityKey="tina"
+        tabId="tab-tina-42"
+        onClick={onClick}
+        onLongPress={onLongPress}
+      />,
+    );
+    const root = screen.getByTestId("identity-badge-root");
+    fireEvent.pointerDown(root);
+    vi.advanceTimersByTime(500);
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+  });
+});
