@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-08-28T14:39:07.819Z"
+status: executing
+last_updated: "2026-08-28T18:46:17.957Z"
 last_activity: 2026-08-28
 progress:
-  total_phases: 56
+  total_phases: 57
   completed_phases: 46
-  total_plans: 213
-  completed_plans: 212
-  percent: 82
+  total_plans: 215
+  completed_plans: 213
+  percent: 81
 ---
 
 # Project State
@@ -20,13 +20,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 50 — Optimistic message bubbles
+**Current focus:** Phase 57 — drop-preview-overlay-edge-zone-hit-testing-replace-placehold
 
 ## Current Position
 
-Phase: 50 (Optimistic message bubbles) — COMPLETE
-Plan: 4 of 4
-Status: Phase complete — ready for verification
+Phase: 57 (drop-preview-overlay-edge-zone-hit-testing-replace-placehold) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 
 Last activity: 2026-08-28
 
@@ -295,6 +295,7 @@ Progress: [██████████] 100%
 | Phase 55-tap-to-load-discovery-reuse-teach-claude-session-attach-to-c P02 | 25m | 1 tasks | 2 files |
 | Phase 55 P03 | 18m | 2 tasks | 3 files |
 | Phase 56 P03 | 12 minutes | 3 tasks | 6 files |
+| Phase 57 P01 | PT8M | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -448,6 +449,7 @@ Recent decisions affecting current work:
 - [Phase ?]: computeNearestEdge tie-break priority: left → top → right → bottom (first-match-wins), matches CSS reading order
 - [Phase ?]: createEvent.drop + Object.defineProperty(clientX/Y) idiom for jsdom drag-geometry tests (jsdom lacks window.DragEvent)
 - [Phase ?]: Plan-56-02 Test 7 stub-era 'left' assertion DELETED rather than reshaped — superseded by Plan 03 Tests 6-7
+- [Phase 57]: Plan 57-01: computeEdgeZone ported verbatim from prototype.html:361-370 (EDGE_ZONE_THRESHOLD=0.28, tie-break top→bottom→left→right); DropZone widens DropEdge without leaking to insertAtEdge
 
 ### Pending Todos
 
@@ -691,7 +693,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T14:39:07.293Z
+Last session: 2026-08-28T18:44:59.202Z
 Stopped at: Completed 56-03-PLAN.md — Phase 56 foundation arc closed
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
