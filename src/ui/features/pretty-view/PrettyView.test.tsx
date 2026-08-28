@@ -230,9 +230,13 @@ describe("PrettyView — Phase 05 drop overlay + hook wiring", () => {
     expect(root).toBeTruthy();
 
     // Fire a drop with one file. JSDOM 29 does not ship DataTransfer, so
-    // we use a plain object stub — the handler reads .items / .files only.
+    // we use a plain object stub. Patch #510 added a Files-only gate
+    // (`!e.dataTransfer.types.includes("Files")`) so the stub must carry
+    // types: ["Files"] alongside items/files — otherwise the gate reads
+    // undefined.includes(...) and throws.
     const file = new File(["hello"], "dropped.txt", { type: "text/plain" });
     const dt = {
+      types: ["Files"] as readonly string[],
       items: [] as unknown as DataTransferItemList,
       files: [file] as unknown as FileList,
     };
