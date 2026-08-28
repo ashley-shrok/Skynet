@@ -53,6 +53,22 @@ export type SplitDirection = "horizontal" | "vertical";
  *  the module-level edge → direction mapping. */
 export type DropEdge = "left" | "right" | "top" | "bottom";
 
+/** Phase 57 Plan 01 — the widened return type of `computeEdgeZone`. Adds
+ *  `"center"` to the four `DropEdge` values so callers can distinguish the
+ *  pane's inner dead-zone rectangle (where no drop should register) from a
+ *  real edge pick. `DropEdge` itself is UNCHANGED — Phase 56 consumers
+ *  (`insertAtEdge`, `buildSplitForEdge`, the AppShell drop handlers) still
+ *  operate on the four-value edge type; Plan 57-02's `Pane` short-circuits
+ *  before calling `insertAtEdge` when `DropZone === "center"`.
+ *
+ *  Rationale (per .planning/phases/57-drop-preview-overlay-edge-zone-hit-
+ *  testing-replace-placehold/57-CONTEXT.md §In-scope item 1 + shape file
+ *  quote): "the center dead zone exists so there is one path to closing a
+ *  session — closing is Phase 58's drag-badge-to-list". Center-drop must do
+ *  NOTHING — no replace, no swap, no no-op-with-visual-feedback — so it
+ *  cannot be a fifth `DropEdge` value that flows into `insertAtEdge`. */
+export type DropZone = DropEdge | "center";
+
 /** The tree. Root of a whole tree is `SplitNode | null` (null = empty
  *  layout, no session shown). */
 export type SplitNode =
@@ -297,4 +313,85 @@ export function collectTabIds(root: SplitNode | null): string[] {
     ...collectTabIds(root.children[0]),
     ...collectTabIds(root.children[1]),
   ];
+}
+
+// ─── computeEdgeZone (Phase 57 Plan 01) ────────────────────────────────────
+
+/** Normalized-distance threshold for the edge-zone band. Cursor is in an
+ *  edge zone when its minimum per-axis normalized distance to any of the
+ *  four rect edges is `<= EDGE_ZONE_THRESHOLD`; otherwise it is in the
+ *  `"center"` dead-zone.
+ *
+ *  Value 0.28 matches the reference prototype
+ *  (`~/.claude/roles/box-maintainer/bounties/bring-back-split-view/
+ *  prototype.html:362` — `const EDGE = 0.28`). A ~28% inner band per axis
+ *  gives roughly a 44% × 44% center dead-zone rectangle (100% - 2×28%),
+ *  Ashley-validated live in the reference. NOT exported: the threshold is
+ *  a locked design decision; if a future phase needs to tune it, they
+ *  modify this constant in-place rather than parameterizing callers. */
+const EDGE_ZONE_THRESHOLD = 0.28;
+
+/** Phase 57 Plan 01: 5-zone hit-tester for the drop-preview overlay.
+ *
+ *  Divides a rect into 5 zones by cursor position:
+ *    - Four edge zones (left / right / top / bottom): the outer band along
+ *      each axis, ~28% of the rect's normalized dimension.
+ *    - Center dead zone: the inner ~44% × 44% rectangle where drop must NOT
+ *      register (Plan 57-02's `Pane` short-circuits before calling any
+ *      tree op). See `.planning/phases/57-drop-preview-overlay-edge-zone-
+ *      hit-testing-replace-placehold/57-CONTEXT.md` §In-scope item 1 for
+ *      the contract.
+ *
+ *  Ports `pickZone` at `~/.claude/roles/box-maintainer/bounties/
+ *  bring-back-split-view/prototype.html:361-370` verbatim (Ashley-validated
+ *  live in the reference). Algorithm:
+ *    1. Normalize cursor to [0..1] per axis: `zx = (x - left) / width`.
+ *    2. Compute four normalized edge-distances (`distTop = zy`, `distBottom
+ *       = 1 - zy`, `distLeft = zx`, `distRight = 1 - zx`).
+ *    3. `minDist = Math.min(all four)`.
+ *    4. If `minDist > EDGE_ZONE_THRESHOLD`, return `"center"`.
+ *    5. Otherwise, first-match-wins tie-break priority `top → bottom → left
+ *       → right` (mirrors prototype's if-chain at :366-369 verbatim).
+ *
+ *  Corner-tie behaviour: cursor at the diagonally-symmetric point (e.g.
+ *  (14, 14) in a 100×100 rect where `distTop === distLeft`) resolves
+ *  deterministically to `"top"` by the tie-break priority — never
+ *  oscillates between two candidates as the cursor sits still.
+ *
+ *  Defensive property (Test 12): cursor coordinates OUTSIDE the rect (e.g.
+ *  negative `x`, or `x > right`) do NOT throw and do NOT get clamped —
+ *  the normalized distance goes negative, but the "nearest edge" argument
+ *  still holds and the function returns a defined `DropEdge` value. This
+ *  matters because `dragover` events can briefly fire with the cursor at
+ *  a pane boundary where `getBoundingClientRect()` and the event's
+ *  clientX/Y sit on opposite sides of the pixel boundary.
+ *
+ *  Pure function — no React, no DOM, no side effects. Callable from
+ *  Vitest with plain object literals; callable from Pane with a live
+ *  `getBoundingClientRect()`. Signature deliberately mirrors
+ *  `computeNearestEdge` in `src/ui/shell/SplitView.tsx:44-69` so the two
+ *  are drop-in interchangeable at the Pane callsite.
+ *
+ *  Exported for Plan 57-02 (dragover-time zone computation + drop-time
+ *  center-dead-zone short-circuit) and for direct unit coverage. */
+export function computeEdgeZone(
+  rect: DOMRect | { left: number; right: number; top: number; bottom: number },
+  clientX: number,
+  clientY: number,
+): DropZone {
+  const width = rect.right - rect.left;
+  const height = rect.bottom - rect.top;
+  const zx = (clientX - rect.left) / width;
+  const zy = (clientY - rect.top) / height;
+  const distTop = zy;
+  const distBottom = 1 - zy;
+  const distLeft = zx;
+  const distRight = 1 - zx;
+  const minDist = Math.min(distTop, distBottom, distLeft, distRight);
+  if (minDist > EDGE_ZONE_THRESHOLD) return "center";
+  // First-match-wins tie-break priority (matches prototype.html:366-369).
+  if (minDist === distTop) return "top";
+  if (minDist === distBottom) return "bottom";
+  if (minDist === distLeft) return "left";
+  return "right";
 }
