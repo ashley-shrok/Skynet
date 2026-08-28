@@ -705,53 +705,20 @@ export function extractOutboundBody(cmd: string): string | null {
 }
 
 /**
- * Detect whether a parsed JSONL turn is a Matrix relay inbound notification.
- *
- * Returns a descriptor if the turn is type=user with origin.kind=
- * "task-notification" AND the text content matches the recv.sh event-line
- * format: `[room X] [@sender:server] (event $Y): BODY</event>`.
- *
- * Non-matching task-notifications (plain wakeup fires, etc.) return null so
- * the existing harness_wrapper skip path continues to apply for them.
+ * Extract a recv.sh event-line from a raw string. The raw string is typically
+ * a task-notification wrapper body carrying the bracket-form event line
+ * emitted by recv.sh. Handles the wrapper strip + INBOUND_REGEX match in one
+ * place so all three carrying envelopes (task-notification user turn,
+ * queue-operation enqueue, queued_command attachment) can share the same
+ * detection logic. Returns null when the string doesn't carry an inbound.
  */
-export function detectRelayInbound(
-  obj: Record<string, unknown>,
-): {
+function extractInboundFromWrapper(raw: string): {
   room: string;
   sender: string;
   matrixEventId: string;
   body: string;
   raw: string;
 } | null {
-  if (obj.type !== "user") return null;
-  const origin = obj.origin;
-  if (!origin || typeof origin !== "object") return null;
-  if ((origin as Record<string, unknown>).kind !== "task-notification")
-    return null;
-  // Extract text content — mirrors extractText but also handles plain string
-  // at message.content level (task-notification turns often use string form).
-  const msg = obj.message;
-  if (!msg || typeof msg !== "object") return null;
-  const msgContent = (msg as Record<string, unknown>).content;
-  let raw: string;
-  if (typeof msgContent === "string") {
-    raw = msgContent;
-  } else if (Array.isArray(msgContent)) {
-    raw = (msgContent as unknown[])
-      .map((x) => {
-        if (typeof x === "string") return x;
-        if (x && typeof x === "object") {
-          const xo = x as Record<string, unknown>;
-          return typeof xo.text === "string" ? xo.text : "";
-        }
-        return "";
-      })
-      .join("\n");
-  } else {
-    return null;
-  }
-  // Strip surrounding task-notification wrapper tags so the regex matches
-  // the bare recv.sh event line inside the wrapper body.
   const stripped = raw
     .replace(/<task-notification>/g, "")
     .replace(/<\/task-notification>/g, "")
@@ -766,6 +733,94 @@ export function detectRelayInbound(
     body: (bodyRaw ?? "").trim(),
     raw,
   };
+}
+
+/**
+ * Detect whether a parsed JSONL turn is a Matrix relay inbound notification.
+ *
+ * Three carrying envelopes today (all recognized via the same recv.sh
+ * bracket-form signal `[room X] [@sender:server] (event $Y): body</event>`):
+ *
+ *   1. `type: "user"` + `origin.kind: "task-notification"` — the original
+ *      shape, agent-not-busy path. Content in `message.content` (string or
+ *      array of {text} blocks).
+ *
+ *   2. `type: "queue-operation"` + `operation: "enqueue"` — busy-turn arrival.
+ *      Claude Code queues the wake instead of interrupting. Content in
+ *      `obj.content` (string). Corpus 2026-08-28 (bounty
+ *      inbound-detector-queued-envelopes-corpus): 1029 real inbounds landed
+ *      in this envelope in the last 2 weeks, all previously dropped.
+ *
+ *   3. `type: "attachment"` + `attachment.type: "queued_command"` — sibling
+ *      shape of (2), also busy-turn arrival. Content in `attachment.prompt`
+ *      (string). Corpus: 359 real inbounds in the last 2 weeks.
+ *
+ * Non-matching envelopes of any shape return null so existing skip / message-
+ * emission paths continue to apply. Zero false positives fleet-wide (recv.sh
+ * bracket-form is uniquely emitted; nothing else produces the exact shape).
+ * See REPORT.md in the corpus bounty for the full table.
+ */
+export function detectRelayInbound(
+  obj: Record<string, unknown>,
+): {
+  room: string;
+  sender: string;
+  matrixEventId: string;
+  body: string;
+  raw: string;
+} | null {
+  const type = obj.type;
+
+  // Envelope 1: type=user + origin.kind=task-notification (original path).
+  if (type === "user") {
+    const origin = obj.origin;
+    if (!origin || typeof origin !== "object") return null;
+    if ((origin as Record<string, unknown>).kind !== "task-notification")
+      return null;
+    // Extract text content — mirrors extractText but also handles plain string
+    // at message.content level (task-notification turns often use string form).
+    const msg = obj.message;
+    if (!msg || typeof msg !== "object") return null;
+    const msgContent = (msg as Record<string, unknown>).content;
+    let raw: string;
+    if (typeof msgContent === "string") {
+      raw = msgContent;
+    } else if (Array.isArray(msgContent)) {
+      raw = (msgContent as unknown[])
+        .map((x) => {
+          if (typeof x === "string") return x;
+          if (x && typeof x === "object") {
+            const xo = x as Record<string, unknown>;
+            return typeof xo.text === "string" ? xo.text : "";
+          }
+          return "";
+        })
+        .join("\n");
+    } else {
+      return null;
+    }
+    return extractInboundFromWrapper(raw);
+  }
+
+  // Envelope 2: type=queue-operation + operation=enqueue (busy-turn arrival).
+  if (type === "queue-operation" && obj.operation === "enqueue") {
+    const content = obj.content;
+    if (typeof content !== "string") return null;
+    return extractInboundFromWrapper(content);
+  }
+
+  // Envelope 3: type=attachment + attachment.type=queued_command (busy-turn arrival).
+  if (type === "attachment") {
+    const att = obj.attachment;
+    if (!att || typeof att !== "object") return null;
+    const attObj = att as Record<string, unknown>;
+    if (attObj.type !== "queued_command") return null;
+    const prompt = attObj.prompt;
+    if (typeof prompt !== "string") return null;
+    return extractInboundFromWrapper(prompt);
+  }
+
+  return null;
 }
 
 /**
@@ -950,6 +1005,53 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
   const isUser = type === "user";
   const isAssistant = type === "assistant";
 
+  // Relay-inbound detection runs FIRST across all three carrying envelopes
+  // (user_task_notification, queue_operation_enqueue, attachment_queued_command).
+  // Corpus 2026-08-28 (bounty inbound-detector-queued-envelopes-corpus): the
+  // busy-turn queued envelopes carried 1388 real inbound messages in the last
+  // 2 weeks that the parser was silently dropping — every peer DM / coord-room
+  // reply that arrived while the agent was working. Zero false positives across
+  // the fleet — recv.sh bracket-form is uniquely emitted. Runs before the
+  // queued_command attachment branch and the queue-operation enqueue branch
+  // below because both of those explicitly strip/reject task-notification
+  // wrappers (correct for the completion-detection / plain-queued-wakeup
+  // cases; wrong for real inbound sends that happen to land in the same
+  // envelope). Non-matching envelopes fall through unchanged to the existing
+  // logic. See detectRelayInbound above for envelope-shape docs.
+  {
+    const inbound = detectRelayInbound(obj);
+    if (inbound !== null) {
+      const uuidI = obj.uuid;
+      const messageIdI = obj.messageId;
+      const eventIdI =
+        typeof uuidI === "string" && uuidI.length > 0
+          ? uuidI
+          : typeof messageIdI === "string" && messageIdI.length > 0
+            ? messageIdI
+            : fallbackEventId();
+      const rawTsI = obj.timestamp;
+      let tsI = Date.now();
+      if (typeof rawTsI === "string") {
+        const parsedI = Date.parse(rawTsI);
+        if (Number.isFinite(parsedI)) tsI = parsedI;
+      }
+      sessionParserLogger.info(
+        `[session-parser] classify result=relay_inbound envelope=${type} room="${inbound.room}" eventId=${eventIdI}`,
+        { operation: "session_classify" },
+      );
+      return {
+        kind: "relay_inbound",
+        room: inbound.room,
+        sender: inbound.sender,
+        matrixEventId: inbound.matrixEventId,
+        body: inbound.body,
+        raw: inbound.raw,
+        eventId: eventIdI,
+        ts: tsI,
+      };
+    }
+  }
+
   // Harness quirk (pv-parser-accept-queued-command-attachment, 2026-08-10):
   // Some user prompts land as type:"attachment" with attachment.type:
   // "queued_command" — Ashley typed normally in pretty view and hit enter,
@@ -1099,42 +1201,9 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     return { kind: "skip", why: "meta" };
   }
 
-  // Phase 17 — relay inbound detection (RELAYBUB-02).
-  // Run BEFORE the harness_wrapper skip so task-notification turns that
-  // carry a recv.sh event line are surfaced as relay_inbound rather than
-  // dropped. Non-matching task-notifications fall through to the existing
-  // harness_wrapper skip path unchanged.
-  if (isUser) {
-    const inbound = detectRelayInbound(obj);
-    if (inbound !== null) {
-      // Build eventId + ts here (mirrors the chain below).
-      const uuid = obj.uuid;
-      const messageId = obj.messageId;
-      const eventIdR =
-        typeof uuid === "string" && uuid.length > 0
-          ? uuid
-          : typeof messageId === "string" && messageId.length > 0
-            ? messageId
-            : fallbackEventId();
-      const rawTsR = obj.timestamp;
-      let tsR = Date.now();
-      if (typeof rawTsR === "string") {
-        const parsedR = Date.parse(rawTsR);
-        if (Number.isFinite(parsedR)) tsR = parsedR;
-      }
-      sessionParserLogger.info(`[session-parser] classify result=relay_inbound room="${inbound.room}" eventId=${eventIdR}`, { operation: "session_classify" });
-      return {
-        kind: "relay_inbound",
-        room: inbound.room,
-        sender: inbound.sender,
-        matrixEventId: inbound.matrixEventId,
-        body: inbound.body,
-        raw: inbound.raw,
-        eventId: eventIdR,
-        ts: tsR,
-      };
-    }
-  }
+  // (Relay inbound detection moved earlier — runs BEFORE queued-envelope
+  // branches to cover all three carrying envelope shapes uniformly. See
+  // detectRelayInbound above + block near start of parseSessionLine.)
 
   const msg = obj.message as Record<string, unknown> | null | undefined;
   if (msg == null) return { kind: "skip", why: "no_message" };

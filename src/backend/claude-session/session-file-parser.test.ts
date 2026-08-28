@@ -788,13 +788,17 @@ describe("parseSessionLine — queued_command attachment (harness quirk)", () =>
     expect(parsed.why).toBe("attachment");
   });
 
-  it("Test E1: queued_command whose prompt is a task-notification wrapper skips (attachment)", () => {
-    // Observed 2026-08-10 in Tanya's session file: task-notifications that
-    // arrive during a busy assistant turn get queued as queued_command
-    // attachments carrying the raw <task-notification>...</task-notification>
-    // wrapper text as the prompt. Without wrapper-strip they'd render as
-    // user bubbles containing raw wrapper text — exactly the bug Ashley hit
-    // right after patch #376 shipped.
+  it("Test E1 (flipped, 2026-08-28): queued_command whose prompt carries a recv.sh event line emits relay_inbound", () => {
+    // Flipped from the original "→ skip" assertion after the
+    // inbound-detector-queued-envelopes-corpus bounty (2026-08-28) showed
+    // 359 real inbound messages fleet-wide were silently dropped this way
+    // in the last 2 weeks — every peer DM / coord-room reply that arrived
+    // while the receiving agent was mid-turn. The 2026-08-10 comment
+    // ("shipped patch #999 — clear") was documenting exactly the bug this
+    // path exists to fix: recv.sh event content inside a queued_command
+    // attachment IS a real inbound message and must render as a bubble.
+    // Wrapper-only queued_commands (no recv.sh line) still skip — see
+    // Test E1b + E2 below for the false-positive-safety coverage.
     const parsed = parseSessionLine(
       line({
         type: "attachment",
@@ -804,6 +808,32 @@ describe("parseSessionLine — queued_command attachment (harness quirk)", () =>
           type: "queued_command",
           prompt:
             '<task-notification>\n<task-id>blyc1z61t</task-id>\n<summary>Monitor event: "tanya relay receiver"</summary>\n<event>[room !X:server] [@tina:server] (event $abc): shipped patch #999 — clear.</event>\n</task-notification>',
+          commandMode: "prompt",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("relay_inbound");
+    if (parsed.kind !== "relay_inbound") throw new Error("unreachable");
+    expect(parsed.room).toBe("!X:server");
+    expect(parsed.sender).toBe("@tina:server");
+    expect(parsed.matrixEventId).toBe("$abc");
+    expect(parsed.body).toBe("shipped patch #999 — clear.");
+  });
+
+  it("Test E1b (fp-safety): queued_command whose prompt is a wrapper-only task-notification (no recv.sh line) still skips", () => {
+    // Genuine harness-wakeup case: task-notification wrapper contents that
+    // DON'T carry a recv.sh event-line (bracket-form) must stay skipped —
+    // the original 2026-08-10 patch intent. Only the recv.sh subset gets
+    // rescued into relay_inbound.
+    const parsed = parseSessionLine(
+      line({
+        type: "attachment",
+        uuid: "u-att-wrapper-only",
+        timestamp: "2026-08-10T02:16:36.778Z",
+        attachment: {
+          type: "queued_command",
+          prompt:
+            "<task-notification>\n<task-id>blyc1z61t</task-id>\n<summary>Monitor completion event</summary>\n<status>killed</status>\n</task-notification>",
           commandMode: "prompt",
         },
       }),
@@ -1073,5 +1103,57 @@ describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50
     // fallback eventId is a Date.now + random suffix string; just assert it's non-empty
     expect(typeof parsed.eventId).toBe("string");
     expect(parsed.eventId.length).toBeGreaterThan(0);
+  });
+
+  // Rescue tests — inbound-detector-queued-envelopes-corpus (2026-08-28).
+  // Real fleet shape: task-notification-wrapped recv.sh event lines land in
+  // queue-operation envelopes when the receiving agent is busy. Corpus
+  // showed 1029 real inbounds arrived this way in the last 2 weeks fleet-
+  // wide, all previously dropped by the QO-3 skip path. Zack's 2026-08-28
+  // message to Poppy (workstation, session 2dbb6334 line 1158) was the
+  // triggering incident.
+
+  it("Test QO-6 (rescue): enqueue whose task-notification wrapper carries a recv.sh event line emits relay_inbound", () => {
+    // Zack → Poppy 2026-08-28 shape (real recv.sh envelope emission by the
+    // agent-relay skill's receiver script). The wrapper strip + INBOUND_REGEX
+    // match happens in detectRelayInbound before the QO-3 <task-notification>
+    // skip fires, so this envelope now surfaces as a bubble.
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content:
+          '<task-notification>\n<task-id>b8fgbx2pm</task-id>\n<summary>Monitor event: "[ambient] poppy relay receiver"</summary>\n<event>[room !eEmSaImJffvUZTwWcS:thenasty.taild9b663.ts.net] [@zack:thenasty.taild9b663.ts.net] (event $EA3MJ9B27m08TMGRackXQOIRTvwCbacS92t1itTLwd8): hi poppy — recon on the reference email</event>\n</task-notification>',
+        timestamp: "2026-08-28T11:13:04.465Z",
+      }),
+      "sess-poppy",
+    );
+    expect(parsed.kind).toBe("relay_inbound");
+    if (parsed.kind !== "relay_inbound") throw new Error("unreachable");
+    expect(parsed.room).toBe("!eEmSaImJffvUZTwWcS:thenasty.taild9b663.ts.net");
+    expect(parsed.sender).toBe("@zack:thenasty.taild9b663.ts.net");
+    expect(parsed.matrixEventId).toBe(
+      "$EA3MJ9B27m08TMGRackXQOIRTvwCbacS92t1itTLwd8",
+    );
+    expect(parsed.body).toBe("hi poppy — recon on the reference email");
+  });
+
+  it("Test QO-3 unchanged (fp-safety): enqueue with task-notification wrapper BUT no recv.sh event line still skips", () => {
+    // Companion to QO-3 (the original bug-documenting test). Confirms the
+    // rescue is narrow: ONLY envelopes whose stripped content matches
+    // INBOUND_REGEX get the new relay_inbound treatment. Genuine harness
+    // task-notifications (completion, wakeup, etc.) still hit the QO-3
+    // skip path — the patch #66 completion-detection contract stays intact.
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content:
+          "<task-notification>\n<task-id>bxyz123</task-id>\n<status>killed</status>\n<summary>Monitor stopped</summary>\n</task-notification>",
+        timestamp: "2026-08-28T11:14:00.000Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("skip");
   });
 });
