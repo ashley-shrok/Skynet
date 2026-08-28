@@ -1603,6 +1603,70 @@ export function AppShell({
     [],
   );
 
+  // Patch #511 (Phase 56 hotfix follow-up): the drag payload from
+  // PrettyConversationRow now carries the full row shape (host,
+  // targetTmuxSession, fleetOnly, rdpHostRow) alongside the row.id. The
+  // click-flow priority ladder is:
+  //   1. rdpHostRow  → openTab(host, "rdp")
+  //   2. fleetOnly   → openTab(host, "terminal", ..., { targetTmuxSession, ... })
+  //   3. default     → row is already an open tab; use row.id directly
+  // We mirror the same ladder here so a drop onto a not-yet-opened row
+  // opens the underlying tab (matching what a click would have done),
+  // and returns the tab id that ends up in the openTabs array.
+  //
+  // Returns the resolved tabId (existing or freshly-opened) or null if the
+  // payload was malformed / not resolvable.
+  const resolveRowPayloadTabId = useCallback(
+    (payload: {
+      id: string;
+      host: Host | null;
+      targetTmuxSession: string | null;
+      fleetOnly: boolean;
+      rdpHostRow: boolean;
+    }): string | null => {
+      if (tabs.some((t) => t.id === payload.id)) {
+        return payload.id;
+      }
+      if (payload.rdpHostRow && payload.host) {
+        return openTab(payload.host, "rdp");
+      }
+      if (payload.fleetOnly && payload.host && payload.targetTmuxSession) {
+        return openTab(payload.host, "terminal", undefined, {
+          targetTmuxSession: payload.targetTmuxSession,
+          label: payload.targetTmuxSession,
+          allowCreateTmux: false,
+        });
+      }
+      return null;
+    },
+    [tabs, openTab],
+  );
+
+  // Companion to openSessionInTree that accepts a raw drag payload from a
+  // conv-list row. Resolves the tabId (opening the tab if it wasn't
+  // already open), then inserts into the split tree at (path, edge).
+  // Both the AppShell right-side outer drop handler and SplitView's Pane
+  // onDrop call through this — single place for the ladder + tree edit.
+  const onDropRowInTree = useCallback(
+    (
+      payload: {
+        id: string;
+        host: Host | null;
+        targetTmuxSession: string | null;
+        fleetOnly: boolean;
+        rdpHostRow: boolean;
+      },
+      path: SplitPath,
+      edge: DropEdge,
+    ) => {
+      const tabId = resolveRowPayloadTabId(payload);
+      if (tabId === null) return;
+      openSessionInTree(tabId, path, edge);
+      selectConversationDeferred(tabId);
+    },
+    [resolveRowPayloadTabId, openSessionInTree],
+  );
+
   // ─── Sidebar ─────────────────────────────────────────────────────────────
   // Phase 11 Plan 03: handleRailClick + editHostInManager RETIRED — the rail
   // is gone, HostsPanel is gone, no consumers remain.
@@ -2132,8 +2196,6 @@ export function AppShell({
               onDrop={(e) => {
                 if (!e.dataTransfer.types.includes("text/plain")) return;
                 if (e.dataTransfer.types.includes("Files")) return;
-                const payloadTabId = e.dataTransfer.getData("text/plain");
-                if (!payloadTabId) return;
                 e.preventDefault();
                 // If SplitView Pane onDrop already fired (splitTree was
                 // non-null and the drop landed on a pane), it called
@@ -2145,6 +2207,33 @@ export function AppShell({
                 //    tree becomes leaf(payload).
                 //  - active session X shown in normal-view →
                 //    split(existing X, payload) at nearest edge.
+                //
+                // Patch #511: parse the rich JSON payload (host,
+                // targetTmuxSession, fleetOnly, rdpHostRow) and route
+                // through resolveRowPayloadTabId which mirrors the row-
+                // click ladder — openTab-if-needed for fleet-only /
+                // rdp-host rows. Fall back to text/plain-only for legacy
+                // drags that never learned the JSON payload.
+                const richJson = e.dataTransfer.getData(
+                  "application/x-skynet-row",
+                );
+                let resolvedTabId: string | null = null;
+                if (richJson) {
+                  try {
+                    const parsed = JSON.parse(richJson);
+                    resolvedTabId = resolveRowPayloadTabId(parsed);
+                  } catch {
+                    resolvedTabId = null;
+                  }
+                }
+                if (resolvedTabId === null) {
+                  const bareId = e.dataTransfer.getData("text/plain");
+                  if (bareId && tabs.some((t) => t.id === bareId)) {
+                    resolvedTabId = bareId;
+                  }
+                }
+                if (resolvedTabId === null) return;
+                const tabId = resolvedTabId;
                 const rect = e.currentTarget.getBoundingClientRect();
                 const edge = computeNearestEdge(rect, e.clientX, e.clientY);
                 const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -2158,12 +2247,12 @@ export function AppShell({
                 setSplitTree(() => {
                   const droppedLeaf = {
                     kind: "session" as const,
-                    tabId: payloadTabId,
+                    tabId,
                   };
                   if (
                     !activeIsSession ||
                     activeTab == null ||
-                    activeTab.id === payloadTabId
+                    activeTab.id === tabId
                   ) {
                     return droppedLeaf;
                   }
@@ -2176,12 +2265,12 @@ export function AppShell({
                   // library's own edge→direction mapping.
                   return insertAtEdge(activeLeaf, [], droppedLeaf, edge);
                 });
-                // Ensure the dropped tab is open + selected. Reuses the
-                // conversation-store flow that a row click would fire —
-                // openTab-if-needed happens via the store → AppShell
-                // mirror effect around L680.
-                selectConversation(payloadTabId);
-                setFocusedTabId(payloadTabId);
+                // Ensure the dropped tab is selected. selectConversationDeferred
+                // parks the id if it isn't yet in openTabs (openTab writes are
+                // batched); the deferred flush kicks in on the next
+                // updateOpenTabs and the pane becomes visible.
+                selectConversationDeferred(tabId);
+                setFocusedTabId(tabId);
               }}
             >
               {/* Split view — always mounted when not mobile, hidden via CSS when inactive */}
@@ -2210,6 +2299,19 @@ export function AppShell({
                     onPaneContentRef={onPaneContentRef}
                     onPaneClick={setFocusedTabId}
                     onOpenSessionInTree={openSessionInTree}
+                    onDropRowInTree={(payload, path, edge) =>
+                      onDropRowInTree(
+                        payload as {
+                          id: string;
+                          host: Host | null;
+                          targetTmuxSession: string | null;
+                          fleetOnly: boolean;
+                          rdpHostRow: boolean;
+                        },
+                        path,
+                        edge,
+                      )
+                    }
                   />
                 </div>
               )}

@@ -3437,8 +3437,25 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
 
     const dt = { setData: vi.fn(), effectAllowed: "" };
     fireEvent.dragStart(body, { dataTransfer: dt });
-    expect(dt.setData).toHaveBeenCalledTimes(1);
-    expect(dt.setData).toHaveBeenCalledWith("text/plain", "test-tab-99");
+    // Patch #511: dragstart now writes TWO payloads:
+    //  1. text/plain = row.id (legacy fallback; scaffold tests + logging)
+    //  2. application/x-skynet-row = JSON row shape (real drop path uses this
+    //     to run the click-flow ladder — openTab-if-needed for fleet-only /
+    //     rdp-host rows).
+    expect(dt.setData).toHaveBeenCalledTimes(2);
+    expect(dt.setData).toHaveBeenNthCalledWith(1, "text/plain", "test-tab-99");
+    expect(dt.setData).toHaveBeenNthCalledWith(
+      2,
+      "application/x-skynet-row",
+      expect.any(String),
+    );
+    const jsonArg = (dt.setData as ReturnType<typeof vi.fn>).mock.calls[1][1] as string;
+    const parsed = JSON.parse(jsonArg);
+    expect(parsed.id).toBe("test-tab-99");
+    expect(parsed).toHaveProperty("host");
+    expect(parsed).toHaveProperty("targetTmuxSession");
+    expect(parsed).toHaveProperty("fleetOnly");
+    expect(parsed).toHaveProperty("rdpHostRow");
   });
 
   it("Test 7: dragstart sets dataTransfer.effectAllowed = 'move'", () => {

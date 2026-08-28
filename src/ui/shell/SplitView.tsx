@@ -187,6 +187,7 @@ const Pane = memo(function Pane({
   onPaneContentRef,
   onPaneClick,
   onOpenSessionInTree,
+  onDropRowInTree,
 }: {
   tab: Tab | null;
   tabId: string;
@@ -196,6 +197,16 @@ const Pane = memo(function Pane({
   onPaneClick?: (tabId: string) => void;
   onOpenSessionInTree?: (
     tabId: string,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  // Patch #511: rich-payload drop path. When present, takes precedence
+  // over onOpenSessionInTree for drops that carry the
+  // application/x-skynet-row JSON payload (real conv-list-row drags).
+  // onOpenSessionInTree stays as the text/plain fallback so scaffold
+  // tests keep working with a bare tabId string.
+  onDropRowInTree?: (
+    payload: unknown,
     path: SplitPath,
     edge: DropEdge,
   ) => void;
@@ -234,13 +245,29 @@ const Pane = memo(function Pane({
         // session twice — once via the pane, once via the outer container.
         e.stopPropagation();
         setIsDragOver(false);
+        const edge = computeNearestEdge(
+          e.currentTarget.getBoundingClientRect(),
+          e.clientX,
+          e.clientY,
+        );
+        // Patch #511: prefer the rich JSON payload (contains host,
+        // targetTmuxSession, fleetOnly, rdpHostRow — enough for the drop
+        // handler to run the same "open tab if not already open" priority
+        // ladder that a row-click would). Fall back to text/plain-only
+        // (bare tabId) for tests and any legacy drag source that never
+        // learned the JSON payload.
+        const richJson = e.dataTransfer.getData("application/x-skynet-row");
+        if (richJson && onDropRowInTree) {
+          try {
+            const parsed = JSON.parse(richJson);
+            onDropRowInTree(parsed, path, edge);
+            return;
+          } catch {
+            // Fall through to the text/plain fallback below.
+          }
+        }
         const payloadTabId = e.dataTransfer.getData("text/plain");
         if (payloadTabId) {
-          const edge = computeNearestEdge(
-            e.currentTarget.getBoundingClientRect(),
-            e.clientX,
-            e.clientY,
-          );
           onOpenSessionInTree?.(payloadTabId, path, edge);
         }
       }}
@@ -276,6 +303,7 @@ function PaneTree({
   onPaneContentRef,
   onPaneClick,
   onOpenSessionInTree,
+  onDropRowInTree,
 }: {
   node: SplitNode;
   path: SplitPath;
@@ -285,6 +313,11 @@ function PaneTree({
   onPaneClick?: (tabId: string) => void;
   onOpenSessionInTree?: (
     tabId: string,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  onDropRowInTree?: (
+    payload: unknown,
     path: SplitPath,
     edge: DropEdge,
   ) => void;
@@ -300,6 +333,7 @@ function PaneTree({
         onPaneContentRef={onPaneContentRef}
         onPaneClick={onPaneClick}
         onOpenSessionInTree={onOpenSessionInTree}
+        onDropRowInTree={onDropRowInTree}
       />
     );
   }
@@ -322,6 +356,7 @@ function PaneTree({
           onPaneContentRef={onPaneContentRef}
           onPaneClick={onPaneClick}
           onOpenSessionInTree={onOpenSessionInTree}
+          onDropRowInTree={onDropRowInTree}
         />
       </div>
       <Divider direction={node.direction} />
@@ -337,6 +372,7 @@ function PaneTree({
           onPaneContentRef={onPaneContentRef}
           onPaneClick={onPaneClick}
           onOpenSessionInTree={onOpenSessionInTree}
+          onDropRowInTree={onDropRowInTree}
         />
       </div>
     </div>
@@ -354,6 +390,7 @@ export const SplitView = memo(function SplitView({
   onPaneContentRef,
   onPaneClick,
   onOpenSessionInTree,
+  onDropRowInTree,
 }: {
   tabs: Tab[];
   splitTree: SplitNode | null;
@@ -363,6 +400,11 @@ export const SplitView = memo(function SplitView({
   onPaneClick?: (tabId: string) => void;
   onOpenSessionInTree?: (
     tabId: string,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  onDropRowInTree?: (
+    payload: unknown,
     path: SplitPath,
     edge: DropEdge,
   ) => void;
@@ -390,6 +432,7 @@ export const SplitView = memo(function SplitView({
         onPaneContentRef={onPaneContentRef}
         onPaneClick={onPaneClick}
         onOpenSessionInTree={onOpenSessionInTree}
+        onDropRowInTree={onDropRowInTree}
       />
     </div>
   );

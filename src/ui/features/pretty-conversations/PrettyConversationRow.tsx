@@ -926,10 +926,28 @@ export function PrettyConversationRow({
   // handler, established by Plan 56-02 and preserved verbatim.
   const onRowDragStart = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
+      // Patch #511: the drop handler needs enough info to reproduce the
+      // click-flow's row-type priority ladder (rdpHostRow → openTab rdp;
+      // fleetOnly → openTab terminal with targetTmuxSession; otherwise
+      // treat as already-open tab id). Patch #509/510 wrote only row.id,
+      // which silent-no-op'd on selectConversation when the row was a
+      // fleet-only detached row (not yet in openTabs) — the split then
+      // referenced a tab id that didn't exist, rendering an empty "Pane
+      // 1 empty" cell in place of the intended session.
       e.dataTransfer.setData("text/plain", row.id);
+      e.dataTransfer.setData(
+        "application/x-skynet-row",
+        JSON.stringify({
+          id: row.id,
+          host: row.host ?? null,
+          targetTmuxSession: row.targetTmuxSession ?? null,
+          fleetOnly: row.fleetOnly === true,
+          rdpHostRow: row.rdpHostRow === true,
+        }),
+      );
       e.dataTransfer.effectAllowed = "move";
     },
-    [row.id],
+    [row.id, row.host, row.targetTmuxSession, row.fleetOnly, row.rdpHostRow],
   );
 
   // Cleanup on unmount so a pending timer doesn't fire against an unmounted
