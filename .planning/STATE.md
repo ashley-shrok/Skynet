@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-08-28T18:46:17.957Z"
+last_updated: "2026-08-28T23:18:11.768Z"
 last_activity: 2026-08-28
 progress:
-  total_phases: 57
-  completed_phases: 46
-  total_plans: 215
-  completed_plans: 213
+  total_phases: 58
+  completed_phases: 47
+  total_plans: 217
+  completed_plans: 215
   percent: 81
 ---
 
@@ -20,11 +20,11 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 57 — drop-preview-overlay-edge-zone-hit-testing-replace-placehold
+**Current focus:** Phase 58 — identity-badge-drag-as-third-gesture-press-and-drag-rearrang
 
 ## Current Position
 
-Phase: 57 (drop-preview-overlay-edge-zone-hit-testing-replace-placehold) — EXECUTING
+Phase: 58 (identity-badge-drag-as-third-gesture-press-and-drag-rearrang) — EXECUTING
 Plan: 2 of 2
 Status: Ready to execute
 
@@ -296,6 +296,7 @@ Progress: [██████████] 100%
 | Phase 55 P03 | 18m | 2 tasks | 3 files |
 | Phase 56 P03 | 12 minutes | 3 tasks | 6 files |
 | Phase 57 P01 | PT8M | 1 tasks | 2 files |
+| Phase 58 P01 | 8 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -450,6 +451,7 @@ Recent decisions affecting current work:
 - [Phase ?]: createEvent.drop + Object.defineProperty(clientX/Y) idiom for jsdom drag-geometry tests (jsdom lacks window.DragEvent)
 - [Phase ?]: Plan-56-02 Test 7 stub-era 'left' assertion DELETED rather than reshaped — superseded by Plan 03 Tests 6-7
 - [Phase 57]: Plan 57-01: computeEdgeZone ported verbatim from prototype.html:361-370 (EDGE_ZONE_THRESHOLD=0.28, tie-break top→bottom→left→right); DropZone widens DropEdge without leaking to insertAtEdge
+- [Phase ?]: Phase 58-01: use application/x-skynet-badge MIME distinct from patch #511 row MIME as the conv-list drop discriminator
 
 ### Pending Todos
 
@@ -695,7 +697,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T18:44:59.202Z
+Last session: 2026-08-28T23:17:42.796Z
 Stopped at: Completed 56-03-PLAN.md — Phase 56 foundation arc closed
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
