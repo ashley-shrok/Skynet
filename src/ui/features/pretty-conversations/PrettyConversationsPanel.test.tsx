@@ -4051,3 +4051,198 @@ describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready 
     expect(container.querySelector(".pv-filter-dot")).toBeTruthy();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 58 Plan 02 — Conv-list panel as drop target for badge close
+// ─────────────────────────────────────────────────────────────────────────────
+// Seven tests (A-G) defend PV58-CONVLIST-DROP-TARGET-CLOSE +
+// PV58-STRUCTURED-LOGGING + threat register mitigations T-58-02-01 through
+// T-58-02-06 for the panel-level drop handlers on the outermost
+// data-testid="pretty-conversations-panel" element:
+//
+//   A: badge-drop-closes         — valid badge payload calls onCloseSession(tabId)
+//   B: row-drag-does-not-close   — row-drag payload (no badge MIME) does NOT close
+//   C: only-text-plain-does-not-close — text/plain alone is NOT the discriminator
+//   D: dragover-type-gate        — preventDefault only for application/x-skynet-badge
+//   E: tabId-validation          — payload tabId not in openTabIds → silent drop (T-58-02-01)
+//   F: structured-log-on-close   — [convlist-drop] tabId=<x> emits once (T-58-02-04)
+//   G: malformed-payload-silent-drop — bad JSON → no throw, no close (T-58-02-02)
+//
+// DataTransfer stub mirrors IdentityBadge.test.tsx pattern: jsdom does not
+// construct a real DataTransfer, so we pass a Map-backed shim exposing
+// getData(type) + types[] via fireEvent.drop / fireEvent.dragOver init object.
+
+// Helper: build a stub DataTransfer with a Map-backed store. `types` reflects
+// the keys, so dragover code that inspects types (Test D) works. `getData`
+// returns "" for missing keys (matches real DataTransfer semantics).
+function makeConvListDataTransferStub(entries: Record<string, string> = {}) {
+  const store = new Map<string, string>(Object.entries(entries));
+  return {
+    setData: (type: string, value: string) => {
+      store.set(type, value);
+    },
+    getData: (type: string) => store.get(type) ?? "",
+    effectAllowed: "none" as string,
+    get types() {
+      return Array.from(store.keys());
+    },
+  };
+}
+
+describe("PrettyConversationsPanel: Phase 58 — conv-list drop target for badge close", () => {
+  it("Test A: badge drop with valid tabId in openTabIds calls onCloseSession(tabId) exactly once", () => {
+    const onCloseSession = vi.fn();
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={onCloseSession}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    fireEvent.drop(panel, { dataTransfer: dt });
+    expect(onCloseSession).toHaveBeenCalledTimes(1);
+    expect(onCloseSession).toHaveBeenCalledWith("tab-tina-42");
+  });
+
+  it("Test B: drop with only application/x-skynet-row payload (no badge MIME) does NOT call onCloseSession", () => {
+    const onCloseSession = vi.fn();
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={onCloseSession}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    // Row-drag payload shape (patch #511) — no badge MIME.
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-row": JSON.stringify({
+        tabId: "tab-tina-42",
+        fleetOnly: false,
+      }),
+      "text/plain": "tab-tina-42",
+    });
+    fireEvent.drop(panel, { dataTransfer: dt });
+    expect(onCloseSession).not.toHaveBeenCalled();
+  });
+
+  it("Test C: drop with ONLY text/plain (no badge MIME) does NOT call onCloseSession — discriminator MIME is required", () => {
+    const onCloseSession = vi.fn();
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={onCloseSession}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "text/plain": "tab-tina-42",
+    });
+    fireEvent.drop(panel, { dataTransfer: dt });
+    expect(onCloseSession).not.toHaveBeenCalled();
+  });
+
+  it("Test D: dragover type-gate — preventDefault ONLY when types include application/x-skynet-badge (row-drag types do NOT capture)", () => {
+    const onCloseSession = vi.fn();
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={onCloseSession}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+
+    // Row-drag dragover: NOT captured (defaultPrevented stays false).
+    const dtRow = makeConvListDataTransferStub({
+      "application/x-skynet-row": "some-payload",
+    });
+    const rowEvent = fireEvent.dragOver(panel, { dataTransfer: dtRow });
+    // fireEvent returns whether the event's default was NOT prevented (true = not prevented).
+    // A row-drag should not be captured → defaultPrevented === false.
+    expect(rowEvent).toBe(true);
+
+    // Badge dragover: captured (preventDefault called → defaultPrevented=true).
+    const dtBadge = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    const badgeEvent = fireEvent.dragOver(panel, { dataTransfer: dtBadge });
+    // fireEvent returns false when preventDefault was called on the event.
+    expect(badgeEvent).toBe(false);
+  });
+
+  it("Test E: badge drop with tabId NOT in openTabIds is silently dropped (T-58-02-01 — no fn call, no throw)", () => {
+    const onCloseSession = vi.fn();
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={onCloseSession}
+        openTabIds={["tab-alice-1"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-mallory-999" }),
+    });
+    expect(() => {
+      fireEvent.drop(panel, { dataTransfer: dt });
+    }).not.toThrow();
+    expect(onCloseSession).not.toHaveBeenCalled();
+  });
+
+  it("Test F: successful badge drop emits exactly one [convlist-drop] structured log with tabId=<x> (T-58-02-04)", () => {
+    const onCloseSession = vi.fn();
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={onCloseSession}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    fireEvent.drop(panel, { dataTransfer: dt });
+
+    const convListDropCalls = infoSpy.mock.calls.filter(
+      (call) =>
+        typeof call[0] === "string" && call[0].startsWith("[convlist-drop] "),
+    );
+    expect(convListDropCalls).toHaveLength(1);
+    expect(convListDropCalls[0][0]).toContain("tabId=tab-tina-42");
+    infoSpy.mockRestore();
+  });
+
+  it("Test G: malformed JSON badge payload is silently dropped (T-58-02-02 — no throw, no close)", () => {
+    const onCloseSession = vi.fn();
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={onCloseSession}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": "{not valid json",
+    });
+    expect(() => {
+      fireEvent.drop(panel, { dataTransfer: dt });
+    }).not.toThrow();
+    expect(onCloseSession).not.toHaveBeenCalled();
+  });
+});
