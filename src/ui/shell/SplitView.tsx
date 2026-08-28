@@ -24,7 +24,43 @@
 import React, { useState, useEffect, useRef, memo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types/ui-types";
-import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
+import type { SplitNode, SplitPath, DropEdge, DropZone } from "@/lib/split-tree";
+import { computeEdgeZone } from "@/lib/split-tree";
+
+/**
+ * Phase 57 Plan 02 — overlay geometry helper. Given the current pane's
+ * bounding rect and the winning edge zone, returns the coral overlay's
+ * pane-local `{ left, top, width, height }` in CSS pixels — half the pane
+ * along the winning edge (t = 0.5), matching prototype.html:414-421 exactly.
+ *
+ * Pane-local means the values are relative to the `.flex-1.min-h-0.overflow-
+ * hidden.relative` wrapper the overlay is a child of (SplitView.tsx:296).
+ * Because that wrapper equals the outer div's full area (post patch #512
+ * PaneHeader removal), pane-local coords are effectively rect-relative
+ * with (0,0) at the wrapper's top-left.
+ *
+ * Center is deliberately EXCLUDED from the input type — the caller must
+ * short-circuit before invoking this. See Pane's JSX gate on
+ * `dropPreview.zone !== "center"`.
+ */
+function overlayGeometryForZone(
+  zone: Exclude<DropZone, "center">,
+  rect: DOMRect | { left: number; right: number; top: number; bottom: number; width: number; height: number },
+): { left: number; top: number; width: number; height: number } {
+  const w = rect.width ?? rect.right - rect.left;
+  const h = rect.height ?? rect.bottom - rect.top;
+  const t = 0.5;
+  switch (zone) {
+    case "top":
+      return { left: 0, top: 0, width: w, height: h * t };
+    case "bottom":
+      return { left: 0, top: h * (1 - t), width: w, height: h * t };
+    case "left":
+      return { left: 0, top: 0, width: w * t, height: h };
+    case "right":
+      return { left: w * (1 - t), top: 0, width: w * t, height: h };
+  }
+}
 
 /**
  * Phase 56 Plan 03: nearest-edge picker for the foundation-phase drop geometry.
@@ -169,8 +205,22 @@ const Pane = memo(function Pane({
     edge: DropEdge,
   ) => void;
 }) {
-  const [isDragOver, setIsDragOver] = useState(false);
+  // Phase 57 Plan 02 — dropPreview replaces the Phase 56 `isDragOver: boolean`.
+  // Stores the current edge-zone pick from `computeEdgeZone` (Plan 57-01) and
+  // the pane's bounding rect at that pick, so the overlay's geometry stays
+  // stable across renders even if a mid-drag layout reflow occurs.
+  //
+  // Empty state = null = no drag over (or drag over center dead zone).
+  // Rationale: CONTEXT.md §In-scope item 2 (live cursor-tracking overlay).
+  const [dropPreview, setDropPreview] = useState<{ zone: DropZone; rect: DOMRect } | null>(null);
   const outerRef = useRef<HTMLDivElement>(null);
+  // Phase 57 Plan 02 — prev-zone ref for the `[pv-split-preview]` structured
+  // log's zone-change gate. Uses a REF (not a functional-updater on
+  // setDropPreview) because React 18 strict mode double-invokes function
+  // bodies including reducers, which would double-fire the log. The ref-
+  // write happens synchronously inside the dragover handler (effect body,
+  // not render body — React does not double-invoke effect handlers).
+  const prevZoneRef = useRef<DropZone | null>(null);
 
   const contentRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -212,22 +262,86 @@ const Pane = memo(function Pane({
       if (!e.dataTransfer?.types.includes("text/plain")) return;
       e.preventDefault();
       e.stopPropagation();
-      setIsDragOver(true);
+      const rect = el.getBoundingClientRect();
+      const zone = computeEdgeZone(rect, e.clientX, e.clientY);
+      // Zone-change gate for the structured log. Ref-based (see prevZoneRef
+      // JSDoc above) to avoid React 18 strict-mode double-fire. Log fires
+      // synchronously inside the native listener body, before the setState
+      // call — the ref write is atomic with the log emission.
+      if (zone !== prevZoneRef.current) {
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-preview] pane path=${JSON.stringify(path)} zone=${zone} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)} rectLTRB=${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)}`,
+        );
+        prevZoneRef.current = zone;
+      }
+      // Structural bailout — if the zone hasn't changed, return the prev
+      // object identity so React's setState bail-out skips the re-render.
+      // On zone changes, allocate a new object with the fresh rect.
+      setDropPreview((prev) => {
+        if (prev !== null && prev.zone === zone) return prev;
+        return { zone, rect };
+      });
     };
-    const onDragLeave = () => setIsDragOver(false);
+    const onDragLeave = (e: DragEvent) => {
+      // Type-gate FIRST — scope the flicker-fix machinery to our own row-drag
+      // payload only. Without this gate, unrelated dragleaves (browser file
+      // drags, native OS drags) would clear dropPreview mid-drag whenever
+      // the browser fires a spurious dragleave on the pane. (Plan-check
+      // finding #3.)
+      if (!e.dataTransfer?.types.includes("text/plain")) return;
+      const rect = el.getBoundingClientRect();
+      // Bounding-rect guard for the flicker fix (CONTEXT.md §Gap (a)). Stateless
+      // (no counter to keep in sync across concurrent enter/leave pairs) and
+      // robust against React-portal / DOM-tree mismatches — the portaled
+      // PrettyView children live in this Pane's DOM subtree but their React
+      // parent is AppShell's normal-view container, so `e.relatedTarget` +
+      // `el.contains()` can be unreliable across React's portal-boundary
+      // edge cases.
+      const stillInside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!stillInside) {
+        setDropPreview(null);
+        // Reset the ref alongside the state — failing to reset means the
+        // next dragover-back-into-the-pane won't emit a [pv-split-preview]
+        // log because the ref still holds the last zone.
+        prevZoneRef.current = null;
+      }
+    };
     const onDrop = (e: DragEvent) => {
       if (!e.dataTransfer?.types.includes("text/plain")) return;
       e.preventDefault();
-      // Prevent AppShell outer container's onDrop from also firing.
+      // Prevent AppShell outer container's onDrop from also firing —
+      // CRITICAL for the center-dead-zone short-circuit: the guard chain
+      // (preventDefault + stopPropagation) fires BEFORE the center-check
+      // return so the AppShell handler at AppShell.tsx:2265 never sees the
+      // payload even for center-dead-zone drops.
       e.stopPropagation();
-      setIsDragOver(false);
+      setDropPreview(null);
+      prevZoneRef.current = null;
       const rect = el.getBoundingClientRect();
-      const edge = computeNearestEdge(rect, e.clientX, e.clientY);
+      const zone = computeEdgeZone(rect, e.clientX, e.clientY);
+      // Center-dead-zone short-circuit. Silent per shape file: no error, no
+      // toast, no visual affordance — release does nothing, no drop
+      // registered. The AppShell outer handler is already blocked by the
+      // preventDefault + stopPropagation above.
+      if (zone === "center") {
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-drop] center-dead-zone ignored path=${JSON.stringify(path)} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)}`,
+        );
+        return;
+      }
+      // Zone is narrowed to DropEdge — 'center' returned above.
+      const edge: DropEdge = zone;
       const richJson =
         e.dataTransfer?.getData("application/x-skynet-row") ?? "";
       // eslint-disable-next-line no-console
       console.info(
-        `[pv-split-drop] pane path=${JSON.stringify(path)} edge=${edge} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)} rectLTRB=${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)} hasRichPayload=${richJson.length > 0} richLen=${richJson.length} hasOnDropRowInTree=${!!onDropRowInTree}`,
+        `[pv-split-drop] pane path=${JSON.stringify(path)} zone=${edge} edge=${edge} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)} rectLTRB=${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)} hasRichPayload=${richJson.length > 0} richLen=${richJson.length} hasOnDropRowInTree=${!!onDropRowInTree}`,
       );
       if (richJson && onDropRowInTree) {
         try {
@@ -254,13 +368,26 @@ const Pane = memo(function Pane({
         onOpenSessionInTree?.(payloadTabId, path, edge);
       }
     };
+    // Window-level dragend cleanup — Escape cancels a drag WITHOUT moving
+    // the cursor, so no dragleave fires; dragend on the source is the only
+    // reliable signal that the drag has ended. Window-level attach because
+    // dragend fires on the SOURCE element (conv-list row / identity badge),
+    // not on this Pane; scoping to `el` would miss it. Idempotent — nulling
+    // already-null state is a no-op, so this is safe even when a drop
+    // already cleared the state.
+    const onDragEnd = () => {
+      setDropPreview(null);
+      prevZoneRef.current = null;
+    };
     el.addEventListener("dragover", onDragOver);
     el.addEventListener("dragleave", onDragLeave);
     el.addEventListener("drop", onDrop);
+    window.addEventListener("dragend", onDragEnd);
     return () => {
       el.removeEventListener("dragover", onDragOver);
       el.removeEventListener("dragleave", onDragLeave);
       el.removeEventListener("drop", onDrop);
+      window.removeEventListener("dragend", onDragEnd);
     };
     // path is a fresh array each render; JSON.stringify it into the dep
     // list so a real path change reattaches (identity would fire every
@@ -272,7 +399,7 @@ const Pane = memo(function Pane({
       ref={outerRef}
       className={`relative flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden transition-colors ${
         isFocused ? "ring-1 ring-inset ring-accent-brand/30" : ""
-      } ${isDragOver ? "ring-2 ring-inset ring-accent-brand" : ""}`}
+      }`}
       onClick={() => onPaneClick?.(tabId)}
     >
       {/* Patch #512: PaneHeader chrome REMOVED per shape file:
@@ -299,12 +426,31 @@ const Pane = memo(function Pane({
           data-tab-id={tabId}
           className="absolute inset-0"
         />
-        {isDragOver && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] border-2 border-dashed border-[hsla(var(--pv-hue,35),65%,55%,0.6)] pointer-events-none">
-            <span className="text-xs font-medium text-[color:var(--color-pv-code-fg)]">
-              Drop to split
-            </span>
-          </div>
+        {/* Phase 57 Plan 02 — coral drop-preview overlay. Sibling to the
+            [data-tab-id] portal-target above; direct child of the
+            .flex-1.min-h-0.overflow-hidden.relative wrapper (same DOM depth
+            as the Phase 56 placeholder it replaces). Inline styles snap
+            to the winning edge (half the pane along that edge, t=0.5,
+            matching prototype.html:414-421). pointer-events: none so drag
+            events fire on the pane's outer div underneath. Coral RGB
+            (255, 184, 150) matches the app's --color-pv-code-fg token at
+            index.css:159 and the prototype's --highlight rgba(255,184,150,0.20)
+            / --highlight-strong rgba(255,184,150,0.55). */}
+        {dropPreview !== null && dropPreview.zone !== "center" && (
+          <div
+            data-testid="pane-drop-preview-overlay"
+            data-zone={dropPreview.zone}
+            className="absolute pointer-events-none"
+            style={{
+              ...overlayGeometryForZone(dropPreview.zone, dropPreview.rect),
+              background: "rgba(255, 184, 150, 0.22)",
+              border: "2px solid rgba(255, 184, 150, 0.60)",
+              borderRadius: 0,
+              zIndex: 20,
+              transition:
+                "left 80ms ease, top 80ms ease, width 80ms ease, height 80ms ease",
+            }}
+          />
         )}
       </div>
     </div>
