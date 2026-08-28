@@ -1481,3 +1481,14 @@ Plans:
 
 Plans:
 - [x] TBD (run /gsd-plan-phase 56 to break down) (completed 2026-08-28)
+
+### Phase 57: Drop-preview overlay + edge-zone hit-testing — replace placeholder overlay with live coral-tinted future-split geometry that hovers with cursor across four edge zones (top/bottom/left/right) with center-dead-zone; snap-to-nearest-edge for any non-center position. Scope: src/ui/features/pretty-view/split-tree/ (Pane, drop overlay), src/ui/features/pretty-view/pretty-view.css. Prior context: Phase 56 (patches #509-#514) shipped foundation with placeholder "Drop to split" overlay; Ashley UAT confirmed dnd works end-to-end but observed two Phase-57-inherent gaps: (a) drop-preview overlay flickers when moving (dragleave crosses child DOM boundaries in portaled content), (b) edge-selection unpredictable near equidistant points (nearest-edge computed at drop-time, no live preview). Both fold into Phase 57. Shape: .planning/shapes/shape-visual-session-management.md §Vehicle Phase 2. Parent bounty: bring-back-split-view.
+
+**Goal:** Replace Phase 56's placeholder "Drop to split" overlay with a live coral-tinted preview rectangle that tracks the cursor across edge-zone hit-testing (top/bottom/left/right + center dead zone), so Ashley can see the future split geometry before release and cancel a drag by centering it. Snap-to-nearest-edge everywhere except the center; center-dead-zone drops silently register no tree change.
+**Requirements**: PV57-EDGE-ZONE-GEOMETRY, PV57-CENTER-DEAD-ZONE, PV57-SNAP-TO-NEAREST-EDGE, PV57-DROP-PREVIEW-OVERLAY, PV57-FLICKER-FIX, PV57-CENTER-DEAD-ZONE-SHORT-CIRCUIT, PV57-STRUCTURED-LOGGING
+**Depends on:** Phase 56
+**Plans:** 2 plans
+
+Plans:
+- [ ] 57-01-PLAN.md — Wave 1: computeEdgeZone pure function + DropZone type in split-tree.ts + 13 unit tests (4 edge-midpoints, 4 corner-tie tiebreaks, dead-center, both sides of 0.28 threshold, non-square rect, off-origin rect, defensive out-of-rect cursor). Zero UI changes; port of prototype.html:361-370 pickZone geometry.
+- [ ] 57-02-PLAN.md — Wave 2 (depends 57-01): Pane component rewire in SplitView.tsx — replace isDragOver:boolean with dropPreview:{zone,rect}|null, wire computeEdgeZone on every dragover, coral overlay div (half the pane along winning edge, prototype.html:414-421 geometry, --color-pv-code-fg palette rgba(255,184,150,0.22 fill / 0.60 border)), bounding-rect flicker fix on dragleave, center-dead-zone drop short-circuit (silent, structured log, preserves stopPropagation), structured [pv-split-preview] logs on zone changes, extends SplitView.test.tsx with 11 new tests.
