@@ -1492,3 +1492,13 @@ Plans:
 Plans:
 - [x] 57-01-PLAN.md — Wave 1: computeEdgeZone pure function + DropZone type in split-tree.ts + 13 unit tests (4 edge-midpoints, 4 corner-tie tiebreaks, dead-center, both sides of 0.28 threshold, non-square rect, off-origin rect, defensive out-of-rect cursor). Zero UI changes; port of prototype.html:361-370 pickZone geometry.
 - [ ] 57-02-PLAN.md — Wave 2 (depends 57-01): Pane component rewire in SplitView.tsx — replace isDragOver:boolean with dropPreview:{zone,rect}|null, wire computeEdgeZone on every dragover, coral overlay div (half the pane along winning edge, prototype.html:414-421 geometry, --color-pv-code-fg palette rgba(255,184,150,0.22 fill / 0.60 border)), bounding-rect flicker fix on dragleave, center-dead-zone drop short-circuit (silent, structured log, preserves stopPropagation), structured [pv-split-preview] logs on zone changes, extends SplitView.test.tsx with 11 new tests.
+
+### Phase 58: Identity-badge drag as third gesture (press-and-drag rearranges) + drag-badge-to-conv-list = full close. Third and final phase of the bring-back-split-view arc. Adds draggable={true} + dragstart handler on IdentityBadge carrying the badge tab id in dataTransfer; native HTML5 drag threshold disambiguates from the existing short-click-opens-modal + long-press-swaps-to-terminal gestures without a mode-switch. Badge drops on another Pane edge route through the same onDropRowInTree handler conv-list rows use — rearranges via removeLeaf(sourcePath) + insertAtEdge(newTree, targetPath, sourceLeaf, edge). Badge drops on conv-list wire to the internal close-tab function (existing useKeyboardCloseTab source of close). Payload distinction: badge drags carry a marker (dataTransfer type or JSON discriminator) so conv-list drop target only closes on badge drops, not on stray row drags. Closes parent bounty bring-back-split-view on ship. Shape: .planning/shapes/shape-visual-session-management.md §Vehicle Phase 3. Ashley UAT of Phase 57 (patch #515) confirmed rearrange + close not working — that is this phase, not a #515 regression.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 57
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 58 to break down)
