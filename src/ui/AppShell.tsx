@@ -111,6 +111,17 @@ import {
 // Phase 11 Plan 03 (Ashley "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
+// Patch #512 diag: compact string form of a SplitNode tree for log tracing.
+// Shape: `L(tabId)` for a session leaf; `S-v[left,right]` or `S-h[top,bot]`
+// for splits. Truncates long tabIds to keep log lines readable.
+function describeTreeShape(node: SplitNode | null): string {
+  if (node === null) return "null";
+  const short = (s: string) => (s.length > 24 ? s.slice(0, 21) + "…" : s);
+  if (node.kind === "session") return `L(${short(node.tabId)})`;
+  const marker = node.direction === "vertical" ? "S-v" : "S-h";
+  return `${marker}[${describeTreeShape(node.children[0])},${describeTreeShape(node.children[1])}]`;
+}
+
 function sshHostToHost(h: SSHHostWithStatus): Host {
   return {
     id: String(h.id),
@@ -1533,9 +1544,21 @@ export function AppShell({
   const openSessionInTree = useCallback(
     (tabId: string, path: SplitPath, edge: DropEdge) => {
       setSplitTree((prev) => {
+        // Patch #512 diag: log tree edit boundaries so a failing drop is
+        // debuggable from console-forward alone.
+        const prevShape = describeTreeShape(prev);
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-tree] openSessionInTree tabId=${tabId} targetPath=${JSON.stringify(path)} edge=${edge} prev=${prevShape}`,
+        );
         // Empty tree → root-insert; edge is irrelevant.
         if (prev === null) {
-          return insertAtEdge(null, [], { kind: "session", tabId }, edge);
+          const next = insertAtEdge(null, [], { kind: "session", tabId }, edge);
+          // eslint-disable-next-line no-console
+          console.info(
+            `[pv-split-tree] openSessionInTree branch=empty-root next=${describeTreeShape(next)}`,
+          );
+          return next;
         }
 
         // Same-cell drop: the target IS the leaf being moved. No-op —
@@ -1548,6 +1571,10 @@ export function AppShell({
           sourcePath.length === path.length &&
           sourcePath.every((v, i) => v === path[i])
         ) {
+          // eslint-disable-next-line no-console
+          console.info(
+            `[pv-split-tree] openSessionInTree branch=same-cell-noop sourcePath=${JSON.stringify(sourcePath)}`,
+          );
           return prev;
         }
 
@@ -1563,15 +1590,28 @@ export function AppShell({
             : null;
 
         const withoutDup = removeLeaf(prev, tabId);
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-tree] openSessionInTree post-remove targetTabId=${targetTabId ?? "(null)"} withoutDup=${describeTreeShape(withoutDup)} sourcePath=${sourcePath !== null ? JSON.stringify(sourcePath) : "(none)"}`,
+        );
         if (withoutDup === null) {
           // Source was the whole tree (single leaf) — plant fresh.
-          return insertAtEdge(null, [], { kind: "session", tabId }, edge);
+          const next = insertAtEdge(null, [], { kind: "session", tabId }, edge);
+          // eslint-disable-next-line no-console
+          console.info(
+            `[pv-split-tree] openSessionInTree branch=source-was-whole-tree next=${describeTreeShape(next)}`,
+          );
+          return next;
         }
 
         // If the target's tabId is the tab we just removed (target IS
         // source through a different code path — e.g. same tabId appears
         // at different-looking paths under aliasing), treat as a no-op.
         if (targetTabId === null || targetTabId === tabId) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[pv-split-tree] openSessionInTree branch=target-null-or-same targetTabId=${targetTabId ?? "(null)"} tabId=${tabId} → return withoutDup (no visible change)`,
+          );
           return withoutDup;
         }
 
@@ -1580,21 +1620,34 @@ export function AppShell({
         if (freshPath === null) {
           // Target vanished during removeLeaf (shouldn't happen for a
           // distinct tabId, but guard anyway). Preserve surviving cells.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[pv-split-tree] openSessionInTree branch=target-vanished targetTabId=${targetTabId} → return withoutDup`,
+          );
           return withoutDup;
         }
 
         try {
-          return insertAtEdge(
+          const next = insertAtEdge(
             withoutDup,
             freshPath,
             { kind: "session", tabId },
             edge,
           );
-        } catch {
+          // eslint-disable-next-line no-console
+          console.info(
+            `[pv-split-tree] openSessionInTree branch=insert freshPath=${JSON.stringify(freshPath)} next=${describeTreeShape(next)}`,
+          );
+          return next;
+        } catch (err) {
           // Preserve surviving cells over degraded root-insert. Wiping
           // the tree on a caller-side path error was the CVE-class bug
           // caught in code review (would silently destroy every other
           // open session in the arrangement).
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[pv-split-tree] openSessionInTree branch=insert-catch freshPath=${JSON.stringify(freshPath)} err=${(err as Error).message} → return withoutDup`,
+          );
           return withoutDup;
         }
       });
@@ -1660,6 +1713,10 @@ export function AppShell({
       edge: DropEdge,
     ) => {
       const tabId = resolveRowPayloadTabId(payload);
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] onDropRowInTree resolve rowId=${payload.id} fleetOnly=${payload.fleetOnly === true} rdpHostRow=${payload.rdpHostRow === true} hostId=${payload.host?.id ?? "?"} tmux=${payload.targetTmuxSession ?? "?"} → resolvedTabId=${tabId ?? "(null — aborting)"}`,
+      );
       if (tabId === null) return;
       openSessionInTree(tabId, path, edge);
       selectConversationDeferred(tabId);
@@ -2232,6 +2289,10 @@ export function AppShell({
                     resolvedTabId = bareId;
                   }
                 }
+                // eslint-disable-next-line no-console
+                console.info(
+                  `[pv-split-drop] outer resolvedTabId=${resolvedTabId ?? "(null — aborting)"} splitTree=${describeTreeShape(splitTree)}`,
+                );
                 if (resolvedTabId === null) return;
                 const tabId = resolvedTabId;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -2244,6 +2305,10 @@ export function AppShell({
                   identitiesByKey.has(
                     activeTab.targetTmuxSession.toLowerCase(),
                   );
+                // eslint-disable-next-line no-console
+                console.info(
+                  `[pv-split-drop] outer edge=${edge} activeTabId=${activeTabId} activeIsSession=${activeIsSession} activeTabType=${activeTab?.type ?? "(none)"} activeTargetTmuxSession=${activeTab?.targetTmuxSession ?? "(none)"} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)}`,
+                );
                 setSplitTree(() => {
                   const droppedLeaf = {
                     kind: "session" as const,

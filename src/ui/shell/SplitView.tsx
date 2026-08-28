@@ -23,7 +23,6 @@
 
 import React, { useState, useEffect, memo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { tabIcon } from "@/shell/tabUtils";
 import type { Tab } from "@/types/ui-types";
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
 
@@ -88,47 +87,6 @@ function Divider({ direction }: { direction: "horizontal" | "vertical" }) {
       role="separator"
       aria-orientation="vertical"
     />
-  );
-}
-
-// PaneHeader — icon + label row inside each Pane. Kept from the pre-refactor
-// file with the pane-slot-index prop retired.
-function PaneHeader({
-  tab,
-  isFocused,
-}: {
-  tab: Tab | null;
-  isFocused: boolean;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div
-      className={`flex items-center gap-1.5 px-2.5 h-7 shrink-0 border-b text-xs font-medium select-none transition-colors ${
-        isFocused
-          ? "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] border-[hsla(var(--pv-hue,35),55%,50%,0.4)] text-[color:var(--color-pv-code-fg)]"
-          : "bg-[color:var(--color-pv-surface-quiet)] border-[color:var(--color-pv-border-quiet)] text-[color:var(--color-pv-fg-muted)]"
-      }`}
-    >
-      {isFocused && (
-        <span className="w-1 h-3.5 rounded-full bg-[hsla(var(--pv-hue,35),55%,45%,0.9)] shrink-0" />
-      )}
-      {tab ? (
-        <>
-          <span className={isFocused ? "text-[color:var(--color-pv-code-fg)]" : "opacity-60"}>
-            {tabIcon(tab.type)}
-          </span>
-          <span
-            className={`truncate ${isFocused ? "text-[color:var(--color-pv-code-fg)] font-semibold" : "text-[color:var(--color-pv-fg)]"}`}
-          >
-            {tab.type === "dashboard" ? "Dashboard" : tab.label}
-          </span>
-        </>
-      ) : (
-        <span className="opacity-40">
-          {t("splitScreen.paneEmpty", { index: 1 })}
-        </span>
-      )}
-    </div>
   );
 }
 
@@ -245,11 +203,8 @@ const Pane = memo(function Pane({
         // session twice — once via the pane, once via the outer container.
         e.stopPropagation();
         setIsDragOver(false);
-        const edge = computeNearestEdge(
-          e.currentTarget.getBoundingClientRect(),
-          e.clientX,
-          e.clientY,
-        );
+        const rect = e.currentTarget.getBoundingClientRect();
+        const edge = computeNearestEdge(rect, e.clientX, e.clientY);
         // Patch #511: prefer the rich JSON payload (contains host,
         // targetTmuxSession, fleetOnly, rdpHostRow — enough for the drop
         // handler to run the same "open tab if not already open" priority
@@ -257,22 +212,58 @@ const Pane = memo(function Pane({
         // (bare tabId) for tests and any legacy drag source that never
         // learned the JSON payload.
         const richJson = e.dataTransfer.getData("application/x-skynet-row");
+        // Patch #512 diag: log every pane-drop with enough context to
+        // trace what path the tree op followed. Keep the shape stable so
+        // grep patterns can chart drops across the log.
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-drop] pane path=${JSON.stringify(path)} edge=${edge} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)} rectLTRB=${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)} hasRichPayload=${richJson.length > 0} richLen=${richJson.length} hasOnDropRowInTree=${!!onDropRowInTree}`,
+        );
         if (richJson && onDropRowInTree) {
           try {
             const parsed = JSON.parse(richJson);
+            // eslint-disable-next-line no-console
+            console.info(
+              `[pv-split-drop] pane dispatch=rich rowId=${parsed?.id ?? "?"} fleetOnly=${parsed?.fleetOnly === true} rdpHostRow=${parsed?.rdpHostRow === true} hostId=${parsed?.host?.id ?? "?"} tmux=${parsed?.targetTmuxSession ?? "?"}`,
+            );
             onDropRowInTree(parsed, path, edge);
             return;
-          } catch {
+          } catch (err) {
             // Fall through to the text/plain fallback below.
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[pv-split-drop] pane rich-payload parse failed — falling back to text/plain: ${(err as Error).message}`,
+            );
           }
         }
         const payloadTabId = e.dataTransfer.getData("text/plain");
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-drop] pane dispatch=fallback payloadTabId=${payloadTabId || "(empty)"}`,
+        );
         if (payloadTabId) {
           onOpenSessionInTree?.(payloadTabId, path, edge);
         }
       }}
     >
-      <PaneHeader tab={tab} isFocused={isFocused} />
+      {/* Patch #512: PaneHeader chrome REMOVED per shape file:
+          "a session in a cell should feel like the same PrettyView, just
+          smaller. If the presence of siblings changes bubble padding,
+          header sizing, or compose-box behavior, the surface has been
+          split cosmetically as well as structurally, which is not the
+          intent." PrettyView has its own IdentityBadge (patch #35, Phase 4
+          badge relocation) that identifies which cell shows which session
+          without adding a title bar. */}
+      {tab === null && (
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none z-20"
+          data-testid="pane-stale-tab-placeholder"
+        >
+          <span className="opacity-40 text-xs font-medium select-none">
+            Session no longer exists
+          </span>
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-hidden relative">
         <div
           ref={contentRef}
