@@ -1471,3 +1471,13 @@ Plans:
 - [x] 55-01-PLAN.md — Wave 1: session-file-cache.ts primitive (module-level Map + typed read/write/clear + hostId string|number coercion) + 10 vitest cases covering cold-miss, round-trip, cross-type coercion, last-writer-wins, host-scoped clear
 - [x] 55-02-PLAN.md — Wave 2 (parallel with 55-03): source-A writer hookup in ssh-poll-orchestrator.ts processPid (guarded on jsonlPath!=null && tmuxSession!=null; source B stays clear) + 6 orchestrator tests (Phase 55 A–F)
 - [x] 55-03-PLAN.md — Wave 2 (parallel with 55-02): discoverClaudeSessionBatched (2 round-trips instead of 4) + connectToPane cache-hit shim at ~L6776 + observability log "Claude session discovery path" with path (shared-hit|batched-fresh) + durationMs + 10 batched tests + 2 integration tests
+
+### Phase 56: Visual session management foundation: recursive split-tree data model, URL persistence, conv-list drag-to-open
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 55
+**Plans:** 3/3 plans complete
+
+Plans:
+- [x] TBD (run /gsd-plan-phase 56 to break down) (completed 2026-08-28)
