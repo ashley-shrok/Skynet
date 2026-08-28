@@ -402,3 +402,384 @@ describe("SplitView — Phase 56 Plan 03: nearest-edge drop geometry", () => {
     expect(onOpenSessionInTree).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 57 tests must not regress Phase 56's Plan 02 (Tests 1-6) or Plan 03
+// (Tests 1-8) — those blocks above continue to pass unchanged. This describe
+// adds Phase 57's overlay + zone + flicker + center-dead-zone coverage.
+//
+// Phase 57 Plan 02 Task 1 — drop-preview overlay + edge-zone hit-testing.
+//
+// Tests 1-11 + Test 13 (no discrete Test 12 — that is a documentation-only
+// regression assertion satisfied by the overall pass of the Phase 56 blocks
+// above).
+//
+// Helpers `dispatchDragOverAt` and `dispatchDragLeaveAt` replicate the full
+// Phase 56 `dispatchDropAt` shape verbatim modulo the `createEvent.*` verb:
+// jsdom's DragEvent init does not honor clientX/clientY passed via the
+// constructor, so both helpers must use `createEvent.dragOver` /
+// `createEvent.dragLeave` + `Object.defineProperty` for clientX/Y. Both
+// helpers attach a `dataTransfer` stub with `types: ["text/plain"]` so the
+// handler's type-gate does not early-return.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing", () => {
+  // Shared helpers — replicate `dispatchDropAt` shape for dragover / dragleave.
+  function dispatchDragOverAt(
+    el: Element,
+    clientX: number,
+    clientY: number,
+    dataTransfer?: {
+      getData?: (k: string) => string;
+      types?: readonly string[];
+    },
+  ): void {
+    const dtWithTypes = {
+      types: ["text/plain"] as readonly string[],
+      getData: (_k: string) => "",
+      ...(dataTransfer ?? {}),
+    };
+    const evt = createEvent.dragOver(el, { dataTransfer: dtWithTypes });
+    Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
+    Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
+    fireEvent(el, evt);
+  }
+
+  function dispatchDragLeaveAt(
+    el: Element,
+    clientX: number,
+    clientY: number,
+  ): void {
+    const dtWithTypes = {
+      types: ["text/plain"] as readonly string[],
+      getData: (_k: string) => "",
+    };
+    const evt = createEvent.dragLeave(el, { dataTransfer: dtWithTypes });
+    Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
+    Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
+    fireEvent(el, evt);
+  }
+
+  function dispatchDropAt(
+    el: Element,
+    clientX: number,
+    clientY: number,
+    dataTransfer: { getData: (k: string) => string; types?: readonly string[] },
+  ): void {
+    const dtWithTypes = {
+      types: ["text/plain"] as readonly string[],
+      ...dataTransfer,
+    };
+    const evt = createEvent.drop(el, { dataTransfer: dtWithTypes });
+    Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
+    Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
+    fireEvent(el, evt);
+  }
+
+  function findPaneOuter(from: HTMLElement): HTMLElement {
+    let cur: HTMLElement | null = from.parentElement;
+    while (cur && !cur.className.includes("relative flex flex-col")) {
+      cur = cur.parentElement;
+    }
+    if (!cur) throw new Error("Pane outer div not found");
+    return cur;
+  }
+
+  function mockRect(
+    el: HTMLElement,
+    r: { left: number; right: number; top: number; bottom: number },
+  ): void {
+    el.getBoundingClientRect = () =>
+      ({
+        left: r.left,
+        right: r.right,
+        top: r.top,
+        bottom: r.bottom,
+        width: r.right - r.left,
+        height: r.bottom - r.top,
+        x: r.left,
+        y: r.top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+  }
+
+  let infoSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+  });
+
+  it("Test 1: Pane uses dropPreview state (structural check via grep-equivalent DOM absence of default overlay)", () => {
+    // No drag in progress → no overlay rendered.
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    );
+    expect(overlay).toBeNull();
+  });
+
+  it("Test 2: dragover at (10,50) on a 100x100 pane → left-half coral overlay", () => {
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 10, 50);
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    ) as HTMLElement | null;
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute("data-zone")).toBe("left");
+    // Left half: left=0, top=0, width=50, height=100.
+    expect(overlay!.style.left).toBe("0px");
+    expect(overlay!.style.top).toBe("0px");
+    expect(overlay!.style.width).toBe("50px");
+    expect(overlay!.style.height).toBe("100px");
+  });
+
+  it("Test 3: dragover at (50,10) on a 100x100 pane → top-half coral overlay", () => {
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 10);
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    ) as HTMLElement | null;
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute("data-zone")).toBe("top");
+    expect(overlay!.style.left).toBe("0px");
+    expect(overlay!.style.top).toBe("0px");
+    expect(overlay!.style.width).toBe("100px");
+    expect(overlay!.style.height).toBe("50px");
+  });
+
+  it("Test 4: dragover at (50,50) — dead center → no overlay + no ring affordance", () => {
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 50);
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    );
+    expect(overlay).toBeNull();
+    // Outer div must NOT have any ring-2 ring-inset ring-accent-brand class.
+    expect(paneOuter.className).not.toContain("ring-2 ring-inset ring-accent-brand");
+  });
+
+  it("Test 5: dragover then dragleave OUTSIDE pane rect → overlay hides", () => {
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 10, 50);
+    expect(
+      container.querySelector('[data-testid="pane-drop-preview-overlay"]'),
+    ).not.toBeNull();
+    dispatchDragLeaveAt(paneOuter, 150, 50); // outside rect
+    expect(
+      container.querySelector('[data-testid="pane-drop-preview-overlay"]'),
+    ).toBeNull();
+  });
+
+  it("Test 6: FLICKER FIX — dragleave INSIDE pane rect → overlay STAYS visible", () => {
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 10, 50);
+    const overlayBefore = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    );
+    expect(overlayBefore).not.toBeNull();
+    expect(overlayBefore!.getAttribute("data-zone")).toBe("left");
+    // Simulate cursor crossing a child DOM boundary (still inside pane).
+    dispatchDragLeaveAt(paneOuter, 30, 50);
+    const overlayAfter = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    );
+    expect(overlayAfter).not.toBeNull();
+    expect(overlayAfter!.getAttribute("data-zone")).toBe("left");
+  });
+
+  it("Test 7: center-dead-zone DROP is silent — no handler call + structured log", () => {
+    const onOpenSessionInTree =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const onDropRowInTree =
+      vi.fn<(payload: unknown, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabA]}
+        onOpenSessionInTree={onOpenSessionInTree}
+        onDropRowInTree={onDropRowInTree}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDropAt(paneOuter, 50, 50, {
+      getData: (k: string) => (k === "text/plain" ? "newtab" : ""),
+    });
+    expect(onOpenSessionInTree).not.toHaveBeenCalled();
+    expect(onDropRowInTree).not.toHaveBeenCalled();
+    const centerLog = infoSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("[pv-split-drop] center-dead-zone ignored"),
+      ),
+    );
+    expect(centerLog).toBe(true);
+  });
+
+  it("Test 8: edge-zone DROP preserves Phase 56 contract — onOpenSessionInTree('newtab', [], 'left')", () => {
+    const onOpenSessionInTree =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabA]}
+        onOpenSessionInTree={onOpenSessionInTree}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDropAt(paneOuter, 10, 50, {
+      getData: (k: string) => (k === "text/plain" ? "newtab" : ""),
+    });
+    expect(onOpenSessionInTree).toHaveBeenCalledTimes(1);
+    expect(onOpenSessionInTree).toHaveBeenCalledWith("newtab", [], "left");
+  });
+
+  it("Test 9: [pv-split-preview] logs ONLY on zone changes, not every dragover", () => {
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+
+    const previewCalls = () =>
+      infoSpy.mock.calls.filter((args) =>
+        args.some(
+          (a) =>
+            typeof a === "string" && a.startsWith("[pv-split-preview] pane"),
+        ),
+      ).length;
+
+    // First dragover — left zone — one new preview log.
+    const before1 = previewCalls();
+    dispatchDragOverAt(paneOuter, 10, 50);
+    expect(previewCalls() - before1).toBe(1);
+
+    // Second dragover — still left zone — no new log.
+    const before2 = previewCalls();
+    dispatchDragOverAt(paneOuter, 15, 50);
+    expect(previewCalls() - before2).toBe(0);
+
+    // Third dragover — now top zone — one new log.
+    const before3 = previewCalls();
+    dispatchDragOverAt(paneOuter, 50, 10);
+    expect(previewCalls() - before3).toBe(1);
+
+    // Confirm log content shape.
+    const allPreviewLogs = infoSpy.mock.calls
+      .flat()
+      .filter(
+        (a) => typeof a === "string" && a.startsWith("[pv-split-preview] pane"),
+      ) as string[];
+    expect(allPreviewLogs[0]).toContain("path=[]");
+    expect(allPreviewLogs[0]).toContain("zone=left");
+    expect(allPreviewLogs[1]).toContain("zone=top");
+  });
+
+  it("Test 10: overlay is pointer-events-none (so drag events reach the pane below)", () => {
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 10, 50);
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    ) as HTMLElement | null;
+    expect(overlay).not.toBeNull();
+    expect(overlay!.className).toContain("pointer-events-none");
+  });
+
+  it("Test 11: deep tree — dragover in cell B renders overlay INSIDE cell B only", () => {
+    const tree: SplitNode = split("vertical", leaf("aaa"), leaf("bbb"));
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA, tabB]} />,
+    );
+    const contentA = container.querySelector(
+      '[data-tab-id="aaa"]',
+    ) as HTMLElement;
+    const contentB = container.querySelector(
+      '[data-tab-id="bbb"]',
+    ) as HTMLElement;
+    const paneOuterA = findPaneOuter(contentA);
+    const paneOuterB = findPaneOuter(contentB);
+    mockRect(paneOuterA, { left: 0, right: 100, top: 0, bottom: 100 });
+    mockRect(paneOuterB, { left: 100, right: 200, top: 0, bottom: 100 });
+    // Fire dragover inside cell B, near the right edge.
+    dispatchDragOverAt(paneOuterB, 190, 50);
+    const overlays = container.querySelectorAll(
+      '[data-testid="pane-drop-preview-overlay"]',
+    );
+    expect(overlays.length).toBe(1);
+    // Overlay is a descendant of paneOuterB.
+    expect(paneOuterB.contains(overlays[0])).toBe(true);
+    expect(paneOuterA.contains(overlays[0])).toBe(false);
+    // Right half of cell B in pane-local coords: left=50, top=0, width=50, height=100.
+    const overlay = overlays[0] as HTMLElement;
+    expect(overlay.getAttribute("data-zone")).toBe("right");
+    expect(overlay.style.left).toBe("50px");
+    expect(overlay.style.top).toBe("0px");
+    expect(overlay.style.width).toBe("50px");
+    expect(overlay.style.height).toBe("100px");
+  });
+
+  it("Test 13: window `dragend` clears the overlay (Escape-cancel path)", () => {
+    const tree: SplitNode = leaf("aaa");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabA]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 10, 50);
+    expect(
+      container.querySelector('[data-testid="pane-drop-preview-overlay"]'),
+    ).not.toBeNull();
+    // Simulate Escape-cancel or drop-onto-non-Pane-target.
+    fireEvent(window, new Event("dragend"));
+    expect(
+      container.querySelector('[data-testid="pane-drop-preview-overlay"]'),
+    ).toBeNull();
+  });
+});
