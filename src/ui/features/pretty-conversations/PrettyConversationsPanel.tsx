@@ -160,6 +160,12 @@ const SEARCH_HIDDEN_SENTINEL_KEY = "pv-conv-search-hidden-once";
 const IDLE_DEACTIVATE_THRESHOLD_MS = 300_000; // 5 min — shape default
 const IDLE_DEACTIVATE_SWEEP_MS = 30_000;
 
+// Patch #513: sentinel empty Set for the visibleInSplitTreeTabIds default.
+// A single frozen module-level Set keeps the .has() call sites happy without
+// re-allocating on every render, AND keeps the effect dep-array's identity
+// stable when the caller omits the prop (which most tests do).
+const EMPTY_VISIBLE_SET: ReadonlySet<string> = new Set();
+
 // Patch #137: derive the (hostId:tmuxSessionName) key used by the session-
 // working-store to look up the row's live isWorking state. Rows without a
 // host (fleet-only pre-resolution races) resolve to null → the store hook
@@ -269,6 +275,7 @@ export function PrettyConversationsPanel({
   onDeactivateRow,
   onKillRow,
   sidebarToggleOverlaps = false,
+  visibleInSplitTreeTabIds,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -317,7 +324,18 @@ export function PrettyConversationsPanel({
   // padding-left clearance via data-sidebar-toggle-overlaps attribute +
   // CSS rule. Mobile unaffected (mobile hides the desktop title already).
   sidebarToggleOverlaps?: boolean;
+  // Patch #513: tabIds currently rendered as leaves in the AppShell
+  // splitTree. Drives two things: (1) row "selected" glow visibility so
+  // every session on-screen in the split view shows the selected-ring
+  // treatment, not just the single selectedId (before Phase 56 only ONE
+  // session could be visible at a time so selectedId alone sufficed);
+  // (2) idle-sweep exemption — sessions in the tree are held in view by
+  // the user, must not be silently deactivated by the 5-min sweep.
+  // Optional so tests + non-AppShell renders default to the pre-Phase-56
+  // single-visible behavior via an empty set.
+  visibleInSplitTreeTabIds?: ReadonlySet<string>;
 }) {
+  const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
   // Phase 41 Plan 01: destructure the three-zone shape — `middle` (flat
   // recency-sorted rows) + `rdpGroup` (nullable RDP sentinel group) replace
@@ -1016,6 +1034,21 @@ export function PrettyConversationsPanel({
   const activeSetRef = useRef(activeSet);
   const selectedIdRef = useRef(selectedId);
   const handleRowDeactivateRef = useRef(handleRowDeactivate);
+  // Patch #513: idle-sweep exemption for sessions currently rendered in
+  // the AppShell splitTree. Ashley's user-focus signal is "I have this
+  // pane on screen right now" — deactivating a session she can see is
+  // the sweep firing against a user-attention row and breaks the
+  // deactivate-when-idle contract. Ref-mirror pattern matches the
+  // existing activeSet + selectedId refs so the mount-only sweep reads
+  // the latest snapshot rather than a first-render capture.
+  const visibleInSplitTreeRef = useRef<ReadonlySet<string>>(visibleInSplitTree);
+  // Track the effective visible set (selectedId ∪ splitTree tabIds) so
+  // transitions can correctly stamp/unstamp lastUnfocusedAtRef entries.
+  // Without this, dragging a session OUT of the tree would keep whatever
+  // stale stamp existed from when it was previously un-selected — and if
+  // that stamp is older than 5 min, the very next sweep would deactivate
+  // a session Ashley was looking at moments ago.
+  const previousVisibleSetRef = useRef<ReadonlySet<string>>(EMPTY_VISIBLE_SET);
 
   // Ref-sync: keep the sweep's view of activeSet + selectedId +
   // handleRowDeactivate in sync with the current render values. Single-line
@@ -1029,25 +1062,39 @@ export function PrettyConversationsPanel({
   useEffect(() => {
     handleRowDeactivateRef.current = handleRowDeactivate;
   }, [handleRowDeactivate]);
-
-  // selectedId tracker: on every selectedId change:
-  //   1. If a conv was previously selected, it just became UN-selected — stamp
-  //      the map with now so the sweep starts counting from here.
-  //   2. If a new id is selected, DELETE its map entry — the currently-selected
-  //      conv's clock is not running while it is selected. Closes the
-  //      "select→sweep→reselect same conv immediately" edge case cleanly:
-  //      re-selecting resets the clock the same as first-time selecting.
-  //   3. Update the previous-id slot for the next transition.
   useEffect(() => {
-    const prev = previousSelectedIdRef.current;
-    if (prev !== null) {
-      lastUnfocusedAtRef.current.set(prev, performance.now());
+    visibleInSplitTreeRef.current = visibleInSplitTree;
+  }, [visibleInSplitTree]);
+
+  // Patch #513: unified visible-set tracker. The pre-Phase-56 tracker
+  // fired only on selectedId change; that was sufficient when exactly
+  // ONE session could be on-screen at a time. Now with the split tree,
+  // "visible" means: selectedId OR any tabId in the tree. On every
+  // change to that set:
+  //   1. For each id that just LEFT the set (was visible last render,
+  //      not visible now) → stamp with `now` so the sweep counts from
+  //      the moment the session actually left the user's view.
+  //   2. For each id that IS visible now → delete its stamp so the
+  //      sweep never fires against it (idempotent for entries with no
+  //      prior stamp).
+  //   3. Update previousSelectedIdRef + previousVisibleSetRef for the
+  //      next transition.
+  useEffect(() => {
+    const now = performance.now();
+    const nextVisible = new Set<string>(visibleInSplitTree);
+    if (selectedId !== null) nextVisible.add(selectedId);
+    const prevVisible = previousVisibleSetRef.current;
+    for (const id of prevVisible) {
+      if (!nextVisible.has(id)) {
+        lastUnfocusedAtRef.current.set(id, now);
+      }
     }
-    if (selectedId !== null) {
-      lastUnfocusedAtRef.current.delete(selectedId);
+    for (const id of nextVisible) {
+      lastUnfocusedAtRef.current.delete(id);
     }
+    previousVisibleSetRef.current = nextVisible;
     previousSelectedIdRef.current = selectedId;
-  }, [selectedId]);
+  }, [selectedId, visibleInSplitTree]);
 
   // Mount-only sweep: fire every IDLE_DEACTIVATE_SWEEP_MS. Body reads all
   // dependencies from refs so no stale-closure hazard exists. For each id in
@@ -1061,9 +1108,15 @@ export function PrettyConversationsPanel({
       const now = performance.now();
       const currentSelected = selectedIdRef.current;
       const currentActive = activeSetRef.current;
+      const currentVisibleInSplitTree = visibleInSplitTreeRef.current;
       const handleRowDeactivate = handleRowDeactivateRef.current;
       for (const id of currentActive) {
         if (id === currentSelected) continue; // HARD INVARIANT: never sweep the selected conv
+        // Patch #513: HARD INVARIANT — never sweep a session currently
+        // rendered as a leaf in the AppShell splitTree. Deactivating a
+        // session Ashley can see on-screen violates the sweep's
+        // user-focus contract.
+        if (currentVisibleInSplitTree.has(id)) continue;
         const stamp = lastUnfocusedAtRef.current.get(id);
         if (stamp === undefined) continue; // never focused-then-unfocused in this tab
         if (now - stamp < IDLE_DEACTIVATE_THRESHOLD_MS) continue;
@@ -1459,7 +1512,7 @@ export function PrettyConversationsPanel({
               <PrettyConversationRowLive
                 key={row.id}
                 row={row}
-                selected={row.id === selectedId}
+                selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                 pinned={isRowPinned(row)}
                 hidden={hiddenIds.has(row.id)}
                 variant={variant}
@@ -1495,7 +1548,7 @@ export function PrettyConversationsPanel({
                 <PrettyConversationRowLive
                   key={row.id}
                   row={row}
-                  selected={row.id === selectedId}
+                  selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                   pinned={true}
                   hidden={hiddenIds.has(row.id)}
                   variant={variant}
@@ -1524,7 +1577,7 @@ export function PrettyConversationsPanel({
                   <PrettyConversationRowLive
                     key={row.id}
                     row={row}
-                    selected={row.id === selectedId}
+                    selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                     pinned={isRowPinned(row)}
                     hidden={hiddenIds.has(row.id)}
                     variant={variant}
@@ -1579,7 +1632,7 @@ export function PrettyConversationsPanel({
                   <PrettyConversationRowLive
                     key={row.id}
                     row={row}
-                    selected={row.id === selectedId}
+                    selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                     pinned={false}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
@@ -1634,7 +1687,7 @@ export function PrettyConversationsPanel({
                     <PrettyConversationRowLive
                       key={row.id}
                       row={row}
-                      selected={row.id === selectedId}
+                      selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                       pinned={false}
                       hidden={true}
                       variant={variant}

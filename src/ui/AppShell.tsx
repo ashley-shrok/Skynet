@@ -75,7 +75,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // array state and their localStorage effects). URL is the single source of
 // truth for the split arrangement.
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
-import { insertAtEdge, removeLeaf, findLeaf, getNodeAt } from "@/lib/split-tree";
+import { insertAtEdge, removeLeaf, findLeaf, getNodeAt, collectTabIds } from "@/lib/split-tree";
 import { computeNearestEdge } from "@/shell/SplitView";
 import {
   encodeSplitTreeToUrl,
@@ -266,6 +266,17 @@ export function AppShell({
   // after tabs are materialized.
   const [splitTree, setSplitTree] = useState<SplitNode | null>(null);
   const [focusedTabId, setFocusedTabId] = useState<string | null>(null);
+  // Patch #513: memoized Set of tabIds currently rendered as leaves in the
+  // splitTree. Passed to PrettyConversationsPanel to drive (a) the row
+  // "selected" glow on every in-view session (not just the single
+  // selectedId) and (b) the auto-deactivate-idle-convs sweep's
+  // exemption so in-view sessions can't be silently killed while the
+  // user is watching them. Identity flips only when splitTree itself
+  // changes — cheap prop for the panel to consume.
+  const visibleInSplitTreeTabIds = useMemo<ReadonlySet<string>>(
+    () => new Set(collectTabIds(splitTree)),
+    [splitTree],
+  );
   const [realHostTree, setRealHostTree] = useState<HostFolder | null>(null);
   const [hostsLoading, setHostsLoading] = useState(true);
   const [allHosts, setAllHosts] = useState<Host[]>([]);
@@ -1857,6 +1868,7 @@ export function AppShell({
         <PrettyConversationsPanel
           variant={isMobile ? "mobile" : "desktop"}
           sidebarToggleOverlaps={isMobile && !isTouchDevice && sidebarOpen}
+          visibleInSplitTreeTabIds={visibleInSplitTreeTabIds}
           onConversationSelected={
             isTouchDevice ? () => navigateToView() : undefined
           }
