@@ -2266,10 +2266,28 @@ export function AppShell({
                 if (!e.dataTransfer.types.includes("text/plain")) return;
                 if (e.dataTransfer.types.includes("Files")) return;
                 e.preventDefault();
-                // If SplitView Pane onDrop already fired (splitTree was
-                // non-null and the drop landed on a pane), it called
-                // stopPropagation — this handler doesn't run in that case.
-                // So reaching here means splitTree was null at drop time.
+                // Patch #514 belt-and-suspenders: outer handler ONLY runs
+                // when splitTree is null. When splitTree is non-null,
+                // Pane's native drop listener catches drops on portaled
+                // content (React portals bubble via React tree, not DOM
+                // tree — so React onDrop on Pane never fires for drops on
+                // the portaled PrettyView; native DOM listener does).
+                // Pane native listener calls stopPropagation, which halts
+                // native bubbling and prevents React's synthetic dispatch
+                // to this outer handler. This explicit guard defends
+                // against edge cases where Pane didn't catch (e.g. drop
+                // landed on a gap between panes) — in that case, do
+                // nothing rather than clobber the existing tree via the
+                // pre-#514 "replace with split(active, dropped)" branch,
+                // which was the observed regression in Ashley's UAT.
+                if (splitTree !== null) {
+                  // eslint-disable-next-line no-console
+                  console.info(
+                    `[pv-split-drop] outer skipped (splitTree non-null; expected Pane native listener to have caught it)`,
+                  );
+                  return;
+                }
+                // Reaching here means splitTree was null at drop time.
                 //
                 // Behavior spec (from shape file):
                 //  - empty PrettyView area (no active session shown) →

@@ -21,7 +21,7 @@
 //     minimum-viable geometry per CONTEXT.md § locked decisions: no
 //     edge-zone hit-testing, no center dead zone (both Phase 57's work).
 
-import React, { useState, useEffect, memo, useCallback } from "react";
+import React, { useState, useEffect, useRef, memo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types/ui-types";
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
@@ -170,6 +170,7 @@ const Pane = memo(function Pane({
   ) => void;
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const outerRef = useRef<HTMLDivElement>(null);
 
   const contentRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -178,73 +179,101 @@ const Pane = memo(function Pane({
     [tabId, onPaneContentRef],
   );
 
+  // Patch #514 — LOAD-BEARING: attach drag/drop listeners via NATIVE DOM,
+  // NOT React synthetic events.
+  //
+  // The tab content (PrettyView, Terminal, dashboard) is portaled INTO
+  // this Pane's DOM (specifically into the `[data-tab-id]` div below) by
+  // AppShell's `createPortal(renderTabContent(...), tabNode, tab.id)` call
+  // inside its `tabs.map(...)`. React portals preserve React-tree parentage
+  // for the portaled subtree — so PrettyView's React parent is AppShell's
+  // normal-view container, NOT this Pane, even though the DOM says
+  // otherwise.
+  //
+  // React's SyntheticEvent bubbling walks the React tree, not the DOM tree.
+  // A drop on portaled content bubbles via the React tree straight past
+  // this Pane and lands on the AppShell outer container's onDrop (patch
+  // #510). The Pane's React onDrop only fires for drops directly on the
+  // small border around the portaled content — essentially unreachable in
+  // practice.
+  //
+  // Native DOM listeners bubble through the actual DOM tree, so a drop
+  // on portaled PrettyView DOES bubble up to this Pane's outer div and
+  // the native listener fires. This is the only reliable way to attach a
+  // drop target that owns "the area of the screen the Pane occupies."
+  //
+  // Traced 2026-08-28 via [pv-split-drop] outer logs — every UAT drop
+  // hit the outer handler, never the pane. See patch #514 commit body
+  // for the console trace evidence.
+  useEffect(() => {
+    const el = outerRef.current;
+    if (el === null) return;
+    const onDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("text/plain")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(true);
+    };
+    const onDragLeave = () => setIsDragOver(false);
+    const onDrop = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("text/plain")) return;
+      e.preventDefault();
+      // Prevent AppShell outer container's onDrop from also firing.
+      e.stopPropagation();
+      setIsDragOver(false);
+      const rect = el.getBoundingClientRect();
+      const edge = computeNearestEdge(rect, e.clientX, e.clientY);
+      const richJson =
+        e.dataTransfer?.getData("application/x-skynet-row") ?? "";
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] pane path=${JSON.stringify(path)} edge=${edge} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)} rectLTRB=${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)} hasRichPayload=${richJson.length > 0} richLen=${richJson.length} hasOnDropRowInTree=${!!onDropRowInTree}`,
+      );
+      if (richJson && onDropRowInTree) {
+        try {
+          const parsed = JSON.parse(richJson);
+          // eslint-disable-next-line no-console
+          console.info(
+            `[pv-split-drop] pane dispatch=rich rowId=${parsed?.id ?? "?"} fleetOnly=${parsed?.fleetOnly === true} rdpHostRow=${parsed?.rdpHostRow === true} hostId=${parsed?.host?.id ?? "?"} tmux=${parsed?.targetTmuxSession ?? "?"}`,
+          );
+          onDropRowInTree(parsed, path, edge);
+          return;
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[pv-split-drop] pane rich-payload parse failed — falling back to text/plain: ${(err as Error).message}`,
+          );
+        }
+      }
+      const payloadTabId = e.dataTransfer?.getData("text/plain") ?? "";
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] pane dispatch=fallback payloadTabId=${payloadTabId || "(empty)"}`,
+      );
+      if (payloadTabId) {
+        onOpenSessionInTree?.(payloadTabId, path, edge);
+      }
+    };
+    el.addEventListener("dragover", onDragOver);
+    el.addEventListener("dragleave", onDragLeave);
+    el.addEventListener("drop", onDrop);
+    return () => {
+      el.removeEventListener("dragover", onDragOver);
+      el.removeEventListener("dragleave", onDragLeave);
+      el.removeEventListener("drop", onDrop);
+    };
+    // path is a fresh array each render; JSON.stringify it into the dep
+    // list so a real path change reattaches (identity would fire every
+    // render).
+  }, [path.join("."), onDropRowInTree, onOpenSessionInTree]);
+
   return (
     <div
+      ref={outerRef}
       className={`relative flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden transition-colors ${
         isFocused ? "ring-1 ring-inset ring-accent-brand/30" : ""
       } ${isDragOver ? "ring-2 ring-inset ring-accent-brand" : ""}`}
       onClick={() => onPaneClick?.(tabId)}
-      onDragOver={(e) => {
-        // Only accept conv-list-row style drags (text/plain payload). File
-        // drags go to the PrettyView file-upload path instead (bubbles up
-        // through this handler untouched).
-        if (!e.dataTransfer.types.includes("text/plain")) return;
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragOver(true);
-      }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={(e) => {
-        if (!e.dataTransfer.types.includes("text/plain")) return;
-        e.preventDefault();
-        // Prevent the AppShell right-side outer container's drop handler
-        // (patch #510) from double-firing on a drop the pane already
-        // absorbed. Without stopPropagation the same drop would open the
-        // session twice — once via the pane, once via the outer container.
-        e.stopPropagation();
-        setIsDragOver(false);
-        const rect = e.currentTarget.getBoundingClientRect();
-        const edge = computeNearestEdge(rect, e.clientX, e.clientY);
-        // Patch #511: prefer the rich JSON payload (contains host,
-        // targetTmuxSession, fleetOnly, rdpHostRow — enough for the drop
-        // handler to run the same "open tab if not already open" priority
-        // ladder that a row-click would). Fall back to text/plain-only
-        // (bare tabId) for tests and any legacy drag source that never
-        // learned the JSON payload.
-        const richJson = e.dataTransfer.getData("application/x-skynet-row");
-        // Patch #512 diag: log every pane-drop with enough context to
-        // trace what path the tree op followed. Keep the shape stable so
-        // grep patterns can chart drops across the log.
-        // eslint-disable-next-line no-console
-        console.info(
-          `[pv-split-drop] pane path=${JSON.stringify(path)} edge=${edge} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)} rectLTRB=${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)} hasRichPayload=${richJson.length > 0} richLen=${richJson.length} hasOnDropRowInTree=${!!onDropRowInTree}`,
-        );
-        if (richJson && onDropRowInTree) {
-          try {
-            const parsed = JSON.parse(richJson);
-            // eslint-disable-next-line no-console
-            console.info(
-              `[pv-split-drop] pane dispatch=rich rowId=${parsed?.id ?? "?"} fleetOnly=${parsed?.fleetOnly === true} rdpHostRow=${parsed?.rdpHostRow === true} hostId=${parsed?.host?.id ?? "?"} tmux=${parsed?.targetTmuxSession ?? "?"}`,
-            );
-            onDropRowInTree(parsed, path, edge);
-            return;
-          } catch (err) {
-            // Fall through to the text/plain fallback below.
-            // eslint-disable-next-line no-console
-            console.warn(
-              `[pv-split-drop] pane rich-payload parse failed — falling back to text/plain: ${(err as Error).message}`,
-            );
-          }
-        }
-        const payloadTabId = e.dataTransfer.getData("text/plain");
-        // eslint-disable-next-line no-console
-        console.info(
-          `[pv-split-drop] pane dispatch=fallback payloadTabId=${payloadTabId || "(empty)"}`,
-        );
-        if (payloadTabId) {
-          onOpenSessionInTree?.(payloadTabId, path, edge);
-        }
-      }}
     >
       {/* Patch #512: PaneHeader chrome REMOVED per shape file:
           "a session in a cell should feel like the same PrettyView, just
