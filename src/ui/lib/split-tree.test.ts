@@ -13,13 +13,22 @@ import {
   type SplitNode,
   type SplitDirection,
   type DropEdge,
+  type DropZone,
   type SplitPath,
   findLeaf,
   getNodeAt,
   insertAtEdge,
   removeLeaf,
   collectTabIds,
+  computeEdgeZone,
 } from "./split-tree";
+// Phase 57 Plan 01 deviation from PLAN.md: Test 13 was specified to import
+// `computeNearestEdge` from `./split-tree`, but Phase 56 shipped
+// `computeNearestEdge` in `src/ui/shell/SplitView.tsx` (not split-tree.ts).
+// The regression guard's intent — "assert Phase 56's function is untouched" —
+// is preserved by importing from its actual home. See 57-01-SUMMARY.md
+// § Deviations for the rationale.
+import { computeNearestEdge } from "@/shell/SplitView";
 
 // Helpers used across cases -----------------------------------------------
 const leaf = (id: string): SplitNode => ({ kind: "session", tabId: id });
@@ -381,6 +390,126 @@ describe("split-tree", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 57 Plan 01 Task 1 — edge-zone hit-testing (`computeEdgeZone`).
+//
+// Behaviour spec is 57-01-PLAN.md Task 1 `<behavior>` (Tests 1-13). Ports the
+// prototype's `pickZone` (~/.claude/roles/box-maintainer/bounties/
+// bring-back-split-view/prototype.html:361-370) verbatim: EDGE = 0.28
+// normalized threshold, tie-break priority top → bottom → left → right.
+//
+// All rects use `{left, right, top, bottom}` object literals (no jsdom / no
+// DOM setup) — `computeEdgeZone` accepts the same widened rect shape as
+// `computeNearestEdge`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("split-tree — Phase 57: edge-zone hit-testing", () => {
+  // Shared 100×100 origin-anchored rect used by Tests 1-9 + 12 + 13. Mirrors
+  // the Plan 56-03 fixture pattern in `src/ui/shell/SplitView.test.tsx:243-248`.
+  const rect = {
+    left: 0,
+    right: 100,
+    top: 0,
+    bottom: 100,
+  } as const;
+
+  it("Test 1: dead-center returns 'center'", () => {
+    // (50, 50) in a 100×100 origin-anchored rect. zx = zy = 0.5;
+    // minDist = 0.5 > 0.28 → 'center'.
+    expect(computeEdgeZone(rect, 50, 50)).toBe("center");
+  });
+
+  it("Test 2: left-edge midpoint returns 'left'", () => {
+    // (5, 50): zx = 0.05, zy = 0.5. distLeft = 0.05 wins.
+    expect(computeEdgeZone(rect, 5, 50)).toBe("left");
+  });
+
+  it("Test 3: right-edge midpoint returns 'right'", () => {
+    // (95, 50): distRight = 0.05 wins.
+    expect(computeEdgeZone(rect, 95, 50)).toBe("right");
+  });
+
+  it("Test 4: top-edge midpoint returns 'top'", () => {
+    // (50, 5): distTop = 0.05 wins.
+    expect(computeEdgeZone(rect, 50, 5)).toBe("top");
+  });
+
+  it("Test 5: bottom-edge midpoint returns 'bottom'", () => {
+    // (50, 95): distBottom = 0.05 wins.
+    expect(computeEdgeZone(rect, 50, 95)).toBe("bottom");
+  });
+
+  it("Test 6: just outside the edge zone (distLeft = 0.30 > 0.28) returns 'center'", () => {
+    // (30, 50): zx = 0.30; distLeft = 0.30 > EDGE_ZONE_THRESHOLD (0.28) →
+    // 'center'. Threshold check uses `minDist > EDGE` (strict >).
+    expect(computeEdgeZone(rect, 30, 50)).toBe("center");
+  });
+
+  it("Test 7: exactly at the edge-zone threshold (distLeft = 0.28) returns 'left'", () => {
+    // (28, 50): distLeft = 0.28; NOT > 0.28, so falls through to edge picking
+    // → 'left'. This nails the strict-inequality boundary behaviour.
+    expect(computeEdgeZone(rect, 28, 50)).toBe("left");
+  });
+
+  it("Test 8: corner-tie top-left picks 'top' (tie-break priority top → bottom → left → right)", () => {
+    // (14, 14): distTop = distLeft = 0.14 (both candidates for minDist);
+    // distBottom = distRight = 0.86. Tie-break priority (prototype :366-369
+    // verbatim) picks 'top' first.
+    expect(computeEdgeZone(rect, 14, 14)).toBe("top");
+  });
+
+  it("Test 9: corner-tie bottom-right picks 'bottom' (top ≠ minDist so bottom wins next)", () => {
+    // (86, 86): distTop = distLeft = 0.86; distBottom = distRight = 0.14.
+    // Tie-break: minDist !== distTop → check distBottom next → 'bottom' wins
+    // over 'right' by priority.
+    expect(computeEdgeZone(rect, 86, 86)).toBe("bottom");
+  });
+
+  it("Test 10: non-square rect (200×100) normalizes per-axis, cursor at (150, 50) → 'right'", () => {
+    // {left:0, right:200, top:0, bottom:100}; (150, 50):
+    // zx = 150/200 = 0.75, zy = 50/100 = 0.5.
+    // distTop = 0.5, distBottom = 0.5, distLeft = 0.75, distRight = 0.25.
+    // minDist = 0.25 <= 0.28 → 'right'. Proves per-axis normalization
+    // (raw-pixel distance would have made distRight = 50 dominate distTop=50
+    // ambiguously; normalizing to fractions of each axis makes right the
+    // clear closest edge).
+    const wide = { left: 0, right: 200, top: 0, bottom: 100 } as const;
+    expect(computeEdgeZone(wide, 150, 50)).toBe("right");
+  });
+
+  it("Test 11: off-origin rect (x=100..200) subtracts rect.left correctly, (110, 50) → 'left'", () => {
+    // {left:100, right:200, top:0, bottom:100}; cursor (110, 50):
+    // zx = (110-100)/100 = 0.10, zy = 0.5.
+    // distLeft = 0.10 <= 0.28 → 'left'.
+    const off = { left: 100, right: 200, top: 0, bottom: 100 } as const;
+    expect(computeEdgeZone(off, 110, 50)).toBe("left");
+  });
+
+  it("Test 12: defensive — cursor outside rect (x = -10) still resolves to nearest edge ('left'), no throw", () => {
+    // (-10, 50): zx = -0.10 (negative — cursor is off the left edge of the
+    // pane). Function does NOT clamp — the negative distLeft still yields
+    // minDist < 0.28 and 'left' is the closest edge. Documented in the JSDoc
+    // on `computeEdgeZone`. Prevents drop-preview from throwing when the
+    // dragover cursor briefly leaves the pane boundary.
+    expect(computeEdgeZone(rect, -10, 50)).toBe("left");
+  });
+
+  it("Test 13: regression guard — Phase 56's `computeNearestEdge` remains callable & unchanged", () => {
+    // Sanity checks that the sister function shipped in Phase 56 Plan 03
+    // (src/ui/shell/SplitView.tsx:44-69) still exports and returns its
+    // documented tie-break. Phase 57 must not touch it. Import path is
+    // `@/shell/SplitView` — see the deviation note at the top of this file
+    // for why the plan's suggested `./split-tree` import wouldn't compile.
+    expect(typeof computeNearestEdge).toBe("function");
+    expect(computeNearestEdge(rect, 10, 50)).toBe("left");
+  });
+});
+
 // Reference so TS doesn't drop the type imports (Test 1 asserts shape).
 const _typeCheck: SplitPath = [];
 void _typeCheck;
+// Reference so TS keeps the DropZone type import alive (used implicitly by
+// `computeEdgeZone`'s return type in the tests above, but not typed
+// explicitly there — an explicit reference here documents the shape).
+const _dropZoneCheck: DropZone = "center";
+void _dropZoneCheck;
