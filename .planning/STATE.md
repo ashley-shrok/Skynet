@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-08-28T23:18:11.768Z"
+status: verifying
+last_updated: "2026-08-28T23:43:28.680Z"
 last_activity: 2026-08-28
 progress:
   total_phases: 58
-  completed_phases: 47
+  completed_phases: 48
   total_plans: 217
-  completed_plans: 215
-  percent: 81
+  completed_plans: 216
+  percent: 83
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 58 (identity-badge-drag-as-third-gesture-press-and-drag-rearrang) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 
 Last activity: 2026-08-28
 
@@ -297,6 +297,7 @@ Progress: [██████████] 100%
 | Phase 56 P03 | 12 minutes | 3 tasks | 6 files |
 | Phase 57 P01 | PT8M | 1 tasks | 2 files |
 | Phase 58 P01 | 8 | 1 tasks | 2 files |
+| Phase 58 P02 | 15 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -452,6 +453,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Plan-56-02 Test 7 stub-era 'left' assertion DELETED rather than reshaped — superseded by Plan 03 Tests 6-7
 - [Phase 57]: Plan 57-01: computeEdgeZone ported verbatim from prototype.html:361-370 (EDGE_ZONE_THRESHOLD=0.28, tie-break top→bottom→left→right); DropZone widens DropEdge without leaking to insertAtEdge
 - [Phase ?]: Phase 58-01: use application/x-skynet-badge MIME distinct from patch #511 row MIME as the conv-list drop discriminator
+- [Phase ?]: Phase 58 Plan 02: onCloseSession + openTabIds props are optional (default openTabIds=[]) — absent handler + empty allow-list = silent no-op (safe default per security_config T-58-02-01)
+- [Phase ?]: Phase 58 Plan 02: PV58-DOCLOSETAB-TREE-RECONCILE satisfied by pre-existing AppShell.tsx:1498 setSplitTree removeLeaf inside doCloseTab (Phase 56 Plan 02 code) — no new production line; Task 2 grep-verifies the reconcile remains present
+- [Phase ?]: Phase 58 Plan 02: PrettyConversationsPanel drop handlers use type-gate discriminator MIME (application/x-skynet-badge) — row drags + OS file drags fall through by ABSENCE of the badge MIME, not by explicit exclusion of other MIMEs
 
 ### Pending Todos
 
@@ -697,7 +701,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T23:17:42.796Z
+Last session: 2026-08-28T23:42:56.568Z
 Stopped at: Completed 56-03-PLAN.md — Phase 56 foundation arc closed
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
