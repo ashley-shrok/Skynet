@@ -177,6 +177,36 @@ interface PidCacheEntry {
   // and no longer computes any of the three axes. See quick-260823-73o
   // objective for the full RCA (source A's per-PID lifecycle-gap window
   // during /id reset).
+  // -------------------------------------------------------------------------
+  // Phase 59 Plan 02 (WIP shell-idle gate — 2026-08-26): three new cache axes
+  // for the WIP indicator's stop-gate derivation. Both new axes participate
+  // in computeFingerprint so a value change on either publishes a new frame
+  // even when status + backgroundTasks + lastMessageAt + aiTitle + dormant +
+  // recycling are all unchanged.
+  // -------------------------------------------------------------------------
+  // Cached previous-tick `sessionJson.status` value, used exclusively to
+  // derive `lastStatusChangeAt` via poll-to-poll status-value delta
+  // comparison. `null` on cold-start (first tick sees a PID with no prior
+  // comparison basis → seed lastStatusChangeAt to deps.now()). This is the
+  // ONLY source-of-truth for the delta comparison; sessionJson.updatedAt is
+  // NEVER read as the source (Pitfall 4: the harness bumps updatedAt on
+  // compose-box typing without a real state transition).
+  lastStatus: "busy" | "shell" | "idle" | "waiting" | null;
+  // Unix millis of the poll tick where sessionJson.status most recently
+  // transitioned to a different value. Seeded to `deps.now()` on first
+  // appearance (isNew); updated to `deps.now()` when this-tick status
+  // differs from cached lastStatus; preserved otherwise (same-status tick
+  // does NOT bump). Frontend consumes together with lastStopAt in the
+  // `main = busy || (shell && stopIsFresh)` predicate on session-working-store.
+  lastStatusChangeAt: number;
+  // Unix millis derived from `stat -c %Y ~/.claude/fleet-status/stop-<sessionId>.json * 1000`
+  // (GNU stat seconds since epoch, converted to millis for wire consistency
+  // with every other timestamp axis). `null` when the file does not exist
+  // (session has never had a turn end since the Phase 59 Plan 01 stop hook
+  // was installed). Cache-preserved on SSH hiccup (transient null returns
+  // preserve prior value — fail-open matching lastMessageAt / aiTitle /
+  // dormant patterns).
+  lastStopAt: number | null;
 }
 
 // quick-260823-73o — source B per-identity cache entry. Replaces the prior
@@ -534,7 +564,15 @@ function computeFingerprint(state: SessionState): string {
   // backgroundTasks + lastMessageAt + aiTitle + dormant are all unchanged.
   // Same tri-valued pattern as dormant: "1"/"0"/"" so a recycling-only flip
   // is detectable vs cold cache. Source A always stamps a strict boolean.
-  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}`;
+  // Phase 59 Plan 02: lastStopAt + lastStatusChangeAt are two additional
+  // distinct axes — a change to either (per-session Stop-hook file rewrote,
+  // or server-derived status-value transitioned) publishes a new frame even
+  // when every other axis is unchanged. Null-normalized to "" so a
+  // first-time-null publish is distinguishable from cold cache (matches
+  // lastMessageAt / aiTitle numeric-axis handling). Fingerprint segments
+  // MUST live at the END of the template literal so any future axis is
+  // appended after these two without disturbing the delta contract.
+  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,6 +1052,79 @@ export function createSshPollOrchestrator(
       });
     }
 
+    // -------------------------------------------------------------------------
+    // Phase 59 Plan 02 (WIP shell-idle gate — 2026-08-26) — per-session Stop
+    // file mtime read. sessionJson.sessionId is always known at this point
+    // (parseSessionJson returned non-null above). Issue ONE `stat -c %Y` exec
+    // per PID per tick (Pattern A — sequential; see Research § Backend read
+    // pattern for the Pattern-A-vs-B tradeoff — one extra RTT per PID per
+    // tick is acceptable overhead and matches the Phase 52 dormant stat
+    // pattern below).
+    //
+    // Shell-quoting via shellSingleQuote (T-59-02-01 mitigation): the
+    // sessionId flows through shellSingleQuote before interpolation into
+    // the shell command so a compromised harness cannot inject arbitrary
+    // shell via a malicious sessionId (mirrors the dormant sentinel stat's
+    // tmuxSession quoting pattern at line ~1040).
+    //
+    // Fail-open semantics (matches lastMessageAt / aiTitle / dormant
+    // patterns): null return from SSH exec preserves the cached value;
+    // empty stdout (file does not exist — `stat` writes to stderr and
+    // `|| true` swallows non-zero exit) yields the default cached value;
+    // non-numeric stdout preserves the cached value. On cold-start (no
+    // cached entry) the value is `null`, matching the wire schema's
+    // optional-nullable contract.
+    //
+    // Unit: seconds-since-epoch × 1000 = unix millis. Multiplication
+    // happens server-side so the wire's timestamp axes all share the same
+    // millis convention (Pitfall 3 / Research § Open Questions #3).
+    // -------------------------------------------------------------------------
+    let derivedLastStopAt: number | null = cached?.lastStopAt ?? null;
+    const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+    const stopMtimeRaw = await channel.exec(
+      `stat -c %Y ~/.claude/fleet-status/stop-${quotedSessionId}.json 2>/dev/null || true`,
+    );
+    if (stopMtimeRaw !== null && stopMtimeRaw.trim() !== "") {
+      const parsed = parseInt(stopMtimeRaw.trim(), 10);
+      if (Number.isFinite(parsed)) {
+        derivedLastStopAt = parsed * 1000;
+      }
+      // Non-numeric stdout → fail-open, keep cached value.
+    }
+    // stopMtimeRaw === null (SSH hiccup) or empty (file absent) → fail-open,
+    // keep cached value.
+
+    // -------------------------------------------------------------------------
+    // Phase 59 Plan 02 — server-side status-delta tracking for the
+    // lastStatusChangeAt axis. MUST NOT source from sessionJson.updatedAt
+    // (Research § Common Pitfalls Pitfall 4: the harness bumps updatedAt
+    // on compose-box typing without a real state transition — using it
+    // as the source would defeat the whole point of the stop-gate).
+    //
+    // Three mutually-exclusive branches:
+    //   1. First appearance (isNew) OR no cached lastStatus (undefined /
+    //      null on cold-cache) → seed to deps.now(). Combined with
+    //      lastStopAt === null on a fresh session, this defaults the
+    //      indicator on (correct — treat freshly-launched as still
+    //      working until we have evidence of a stop; Pitfall 5).
+    //   2. Transition (cached.lastStatus !== sessionJson.status) →
+    //      update to deps.now() (this tick IS the status-change tick).
+    //   3. Same-status tick → preserve cached lastStatusChangeAt (do NOT
+    //      bump on every same-status tick or the axis becomes noise).
+    // -------------------------------------------------------------------------
+    let derivedLastStatusChangeAt: number;
+    if (
+      isNew ||
+      cached?.lastStatus === null ||
+      cached?.lastStatus === undefined
+    ) {
+      derivedLastStatusChangeAt = deps.now();
+    } else if (cached.lastStatus !== sessionJson.status) {
+      derivedLastStatusChangeAt = deps.now();
+    } else {
+      derivedLastStatusChangeAt = cached.lastStatusChangeAt;
+    }
+
     // Phase 52 Plan 01 Task 2 — source A dormant sentinel stat.
     // Per PID-tick, when tmuxSession is non-null, stat the
     // `~/.claude/identities/<tmuxSession>/.dormant` sentinel file. Trimmed
@@ -1248,6 +1359,12 @@ export function createSshPollOrchestrator(
       aiTitle: derivedAiTitle,
       dormant: derivedDormant,
       recycling: false,
+      // Phase 59 Plan 02 — per-session Stop-hook mtime + server-derived
+      // status-transition timestamp. Both axes are consumed by the frontend
+      // session-working-store's `main = busy || (shell && stopIsFresh)`
+      // predicate in Plan 59-03.
+      lastStopAt: derivedLastStopAt,
+      lastStatusChangeAt: derivedLastStatusChangeAt,
     };
 
     // Delta semantics — only publish if fingerprint changed
@@ -1268,6 +1385,10 @@ export function createSshPollOrchestrator(
         // forensics.
         dormant: state.dormant,
         recycling: state.recycling,
+        // Phase 59 Plan 02 — forensic entries for the two new axes so future
+        // debugging can trace which axis drove a publish (T-59-02-04 mitigation).
+        lastStopAt: state.lastStopAt,
+        lastStatusChangeAt: state.lastStatusChangeAt,
       });
 
       livenessMap.set(pid, {
@@ -1280,6 +1401,14 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
+        // Phase 59 Plan 02 — cache the three new axes so the next tick's
+        // derivations (status-delta comparison and fail-open preservation)
+        // have the correct source-of-truth. Missing either branch would
+        // Pitfall-3 the same-status-many-ticks path (every tick would see
+        // cached lastStatus === undefined and re-treat as first-appearance).
+        lastStatus: sessionJson.status,
+        lastStatusChangeAt: derivedLastStatusChangeAt,
+        lastStopAt: derivedLastStopAt,
       });
     } else {
       // Update procStart + tmux in case they changed without a state-change
@@ -1293,6 +1422,17 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
+        // Phase 59 Plan 02 — SAME axes MUST be updated on the
+        // fingerprint-unchanged branch (Research § Pitfall 3). Omitting
+        // this branch means a same-status tick would preserve the OLD
+        // cached lastStatus AND lastStatusChangeAt via the spread — which
+        // is what we want — but lastStopAt could regress if a fresh mtime
+        // read succeeded on a tick that did not otherwise flip the
+        // fingerprint. Explicitly stamping all three keeps the cache
+        // in lockstep with the derivation logic.
+        lastStatus: sessionJson.status,
+        lastStatusChangeAt: derivedLastStatusChangeAt,
+        lastStopAt: derivedLastStopAt,
       });
     }
   }
