@@ -1295,7 +1295,7 @@ export function IdentityModal({
               disabled={staysAwake === null || staysAwakeSaving}
               aria-label={`Toggle stays-awake for ${identity.displayName}`}
             />
-            <span className="text-xs text-[#a89a80]">Permanently keep awake</span>
+            <span className="text-xs text-[#a89a80]">Boost response time (uses more memory)</span>
           </label>
           {/* Phase 38 Wave 2 (plan 38-02): share this identity with another
               Skynet user. Hides itself when the deployment has no other users
