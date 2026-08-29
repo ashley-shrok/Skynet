@@ -1505,10 +1505,10 @@ Plans:
 
 ### Phase 59: coral drop-target affordance on empty PrettyView + conv-list-close (visual-session-management UAT followup, patch #517)
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Add coral drop-target-affordance tint overlays to two symmetric drop targets that currently accept drops silently — the empty PrettyView area (AppShell.tsx, splitTree === null path) on text/plain conv-list-row dragover, and the PrettyConversationsPanel drop-to-close target on application/x-skynet-badge dragover. Reuse Phase 57 SplitView palette verbatim (rgba(255,184,150,0.22) fill + 0.60 border), Phase 57 state-clear discipline (drop / bounding-rect-guarded dragleave / window-level dragend), and zone-change-gated structured-log discipline. Additive only — no changes to existing drop mechanics.
+**Requirements**: TBD (UAT-derived followup patch #517; no formal REQ-ID)
 **Depends on:** Phase 58
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 59 to break down)
+- [ ] 59-01-PLAN.md — Coral tint overlays on both drop targets (Task 1: empty-PV in AppShell.tsx + new AppShell.empty-pv-drop-tint.test.tsx; Task 2: conv-list panel in PrettyConversationsPanel.tsx + PrettyConversationsPanel.test.tsx Phase 59 describe block)
