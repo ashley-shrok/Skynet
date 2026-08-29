@@ -213,6 +213,35 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     expect(pvSrc).toMatch(/showResolvingSpinner &&/);
   });
 
+  it("Phase 60 finish-line: ComposeBox canSend widens beyond `status === 'streaming'` to include `renderedState === 'dormant'` and `renderedState === 'active'` (2026-08-29 Ashley regression: Send stayed disabled on dormant panes)", () => {
+    // Phase 60 (patch #519, 2026-08-29) mounted the ComposeBox for dormant
+    // panes so Ashley can type-and-send into a sleeping session and the
+    // backend invisibly wakes it. The MOUNT gate above (line ~3286) was
+    // widened to include `renderedState === "dormant"` and
+    // `renderedState === "active"` (cold-dormant → wake transition). But
+    // the canSend prop kept `status === "streaming"` only, so ComposeBox's
+    // internal `sendDisabled` predicate still gated Send off via
+    // `(canSend === false && !hasAttachments)`. Ashley UAT 2026-08-29:
+    // "sometimes typing into the main text area of the compose box or
+    // pasting stuff in there doesn't enable the send button." This test
+    // pins the widened predicate so the same class of regression can't
+    // silently reappear on a future edit.
+    //
+    // Locate the ComposeBox canSend prop specifically (not any other
+    // canSend reference elsewhere in the file); assert the full widened
+    // predicate is present.
+    expect(pvSrc).toMatch(
+      /canSend=\{[\s\S]*?status === "streaming"[\s\S]*?renderedState === "dormant"[\s\S]*?renderedState === "active"[\s\S]*?\}/
+    );
+    // Deliberately NOT included: `status === "error"` / `renderedState === "error"`.
+    // An errored WS should not accept new sends until it recovers — the
+    // MOUNT gate keeps ComposeBox mounted for error states (bubbles
+    // preserved) but Send stays disabled per patch #339.
+    // (No negative-match assertion here — canSend may legally reference
+    // "error" via unrelated identifiers in future edits; the positive
+    // pattern above is the load-bearing invariant.)
+  });
+
   it("Test G: onResetClicked no longer contains any client-side pane-state mutation (patch #381 anti-pattern DELETED)", () => {
     // Find the onResetClicked useCallback body and assert it contains no
     // setIsHolding, no captureFirstFrame, no setPaneState.

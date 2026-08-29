@@ -3295,7 +3295,28 @@ export function PrettyView({
           overrideText={composeOverrideText}
           onOverrideTextConsumed={handleOverrideTextConsumed}
           onResetClicked={onResetClicked}
-          canSend={status === "streaming"}
+          // Phase 60 finish-line fix (2026-08-29): Phase 60 widened the
+          // ComposeBox MOUNT gate above to include `renderedState === "dormant"`
+          // (invisible-wake target) and `renderedState === "active"` (cold-
+          // dormant→wake transition — see mount comment above), and removed
+          // the compose-side `dormantActive` disable — but this canSend gate
+          // stayed `status === "streaming"` only, so on a dormant pane the
+          // child ComposeBox's `sendDisabled` predicate at ComposeBox.tsx:1817
+          // still flipped true via `(canSend === false && !hasAttachments)`.
+          // Net: Ashley typed/pasted into a dormant compose box and the Send
+          // button stayed disabled — defeating the whole Phase 60 point.
+          // Widened to also enable for the two Phase 60 renderedStates so
+          // Send works when the ComposeBox is intentionally mounted for
+          // wake-triggering. `renderedState === "error"` deliberately NOT
+          // included (an errored WS should not accept new sends until it
+          // recovers). Ashley UAT 2026-08-29: "sometimes typing into the
+          // main text area of the compose box or pasting stuff in there
+          // doesn't enable the send button."
+          canSend={
+            status === "streaming" ||
+            renderedState === "dormant" ||
+            renderedState === "active"
+          }
           // Phase 53 Plan 03 — isHolding now derives from `isRecycling`
           // (working-store Axis E) — one source for all three ComposeBox +
           // overlay recycle sites per CONTEXT.md scope-lock. Previously
