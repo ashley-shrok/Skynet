@@ -89,7 +89,11 @@ export interface SessionState {
   hostId: string;
   tmuxSession: string | null;
   sessionId: string;
-  pid: number;
+  // Phase 52 Plan 01 Task 3 — source B (dormant-only identity frames with no
+  // live claude process) publishes pid:null. Backend wire schema is
+  // z.number().int().nullable(); mirror was missed at Phase 52 and surfaced
+  // by Phase 59 unbiased review.
+  pid: number | null;
   status: "busy" | "shell" | "idle" | "waiting";
   waitingFor?: string;
   backgroundTasks: BackgroundTask[];
