@@ -145,6 +145,35 @@ export interface SessionState {
   // below). Mirrors backend `SessionStateSchema.recycling`. MUST stay in
   // lockstep with the backend schema.
   recycling?: boolean | null;
+  // Phase 59 Plan 01 (WIP-shell-idle-gate 2026-08-29): the two axes that
+  // back the WIP-shell-idle-gate predicate. Together they let the frontend
+  // decide whether a `shell` status is real mid-turn work or leftover stale
+  // state from a completed turn that the harness never rewrote back to idle.
+  //
+  // `lastStopAt`: unix millis derived UNCONDITIONALLY from the mtime of
+  // `~/.claude/fleet-status/stop-<sessionId>.json` on the target host (a
+  // per-session file written by the additive Stop hook — separate from the
+  // box-wide `last-stop-payload.json` which continues to carry
+  // background-tasks for the box-wide consumer path).
+  //
+  // `lastStatusChangeAt`: unix millis of the most recent poll tick where
+  // `sessionJson.status` transitioned to a different value — derived
+  // SERVER-SIDE by comparing this-tick status to the previous-tick cached
+  // status. NOT sourced from `sessionJson.updatedAt` (which the harness
+  // bumps on compose-box typing without a real state transition).
+  //
+  // Semantics for BOTH fields:
+  //   `number` = value present; `null` = normalised-null in transit (backend
+  //   may emit when it cannot distinguish); `undefined` = emitting backend
+  //   pre-dates Phase 59. Frontend treats undefined and null identically at
+  //   the session-working-store boundary — a no-signal `lastStopAt` triggers
+  //   the default-on rollout-safety branch of the shell-idle-gate predicate.
+  //
+  // Mirrors backend `SessionStateSchema.lastStopAt` and
+  // `SessionStateSchema.lastStatusChangeAt`. MUST stay in lockstep with the
+  // backend schema.
+  lastStopAt?: number | null;
+  lastStatusChangeAt?: number | null;
 }
 
 // ---------------------------------------------------------------------------

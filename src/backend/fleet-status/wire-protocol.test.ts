@@ -337,3 +337,118 @@ describe("wire-protocol", () => {
     expect(FRAME_SCHEMA_VERSION).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 59 Plan 01 — lastStopAt + lastStatusChangeAt are optional, back-compat
+// numeric fields on SessionState. lastStopAt: unix millis derived from the
+// mtime of ~/.claude/fleet-status/stop-<sessionId>.json on the target host
+// (0 = never; null = normalised-null in transit; undefined = pre-Phase-59
+// emitter). lastStatusChangeAt: unix millis of the most recent poll tick
+// where sessionJson.status transitioned to a different value — derived
+// SERVER-SIDE by comparing this-tick status to previous-tick cached status
+// (NOT sourced from sessionJson.updatedAt, which the harness bumps for
+// compose-box typing without a real state transition).
+//
+// Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
+// (T-41-03-05 mitigation, fifth iteration inheriting the pattern established
+// by Phase 41 lastMessageAt, continued by Phase 47 aiTitle + Phase 52
+// dormant + Phase 53 recycling).
+// ---------------------------------------------------------------------------
+
+describe("wire-protocol Phase 59 additive axes — lastStopAt + lastStatusChangeAt", () => {
+  it("Test P57-01 A (Phase 59 Plan 01 schema forward — lastStopAt number): SessionStateSchema accepts state with lastStopAt as a number — the numeric value is preserved", () => {
+    const withStop = { ...validSessionState, lastStopAt: 1730000000000 };
+    const result = SessionStateSchema.safeParse(withStop);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastStopAt).toBe(1730000000000);
+    }
+  });
+
+  it("Test P57-01 B (Phase 59 Plan 01 schema null — lastStopAt): SessionStateSchema accepts state with lastStopAt as null — the null value is preserved", () => {
+    const withNull = { ...validSessionState, lastStopAt: null };
+    const result = SessionStateSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastStopAt).toBeNull();
+    }
+  });
+
+  it("Test P57-01 C (Phase 59 Plan 01 schema back-compat — lastStopAt): SessionStateSchema accepts state OMITTING lastStopAt — field is optional, pre-Phase-59 emitter remains compatible", () => {
+    // validSessionState fixture at top-of-file does NOT carry lastStopAt —
+    // parse must succeed; the parsed result has lastStopAt === undefined
+    // (optional field, no default). Frontend consumer treats undefined
+    // and null identically at the working-store boundary (see 59-03).
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastStopAt).toBeUndefined();
+    }
+  });
+
+  it("Test P57-01 D (Phase 59 Plan 01 schema type-enforcement — lastStopAt): SessionStateSchema REJECTS state with lastStopAt as a string — z.number() enforces the type when the field IS present", () => {
+    const withBadType = { ...validSessionState, lastStopAt: "not-a-number" };
+    const result = SessionStateSchema.safeParse(withBadType);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("lastStopAt"))).toBe(true);
+    }
+  });
+
+  it("Test P57-01 A (Phase 59 Plan 01 schema forward — lastStatusChangeAt number): SessionStateSchema accepts state with lastStatusChangeAt as a number — the numeric value is preserved", () => {
+    const withChange = { ...validSessionState, lastStatusChangeAt: 1730000005000 };
+    const result = SessionStateSchema.safeParse(withChange);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastStatusChangeAt).toBe(1730000005000);
+    }
+  });
+
+  it("Test P57-01 B (Phase 59 Plan 01 schema null — lastStatusChangeAt): SessionStateSchema accepts state with lastStatusChangeAt as null — the null value is preserved", () => {
+    const withNull = { ...validSessionState, lastStatusChangeAt: null };
+    const result = SessionStateSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastStatusChangeAt).toBeNull();
+    }
+  });
+
+  it("Test P57-01 C (Phase 59 Plan 01 schema back-compat — lastStatusChangeAt): SessionStateSchema accepts state OMITTING lastStatusChangeAt — field is optional, pre-Phase-59 emitter remains compatible", () => {
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastStatusChangeAt).toBeUndefined();
+    }
+  });
+
+  it("Test P57-01 D (Phase 59 Plan 01 schema type-enforcement — lastStatusChangeAt): SessionStateSchema REJECTS state with lastStatusChangeAt as a string — z.number() enforces the type when the field IS present", () => {
+    const withBadType = { ...validSessionState, lastStatusChangeAt: "not-a-number" };
+    const result = SessionStateSchema.safeParse(withBadType);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("lastStatusChangeAt"))).toBe(true);
+    }
+  });
+
+  it("Test P57-01 E (Phase 59 Plan 01 schema version guard): FRAME_SCHEMA_VERSION remains 1 — the two additive+optional axes never require a version bump (T-41-03-05 mitigation)", () => {
+    // Fifth iteration of the pattern established by Phase 41 lastMessageAt
+    // (continued by Phase 47 aiTitle + Phase 52 dormant + Phase 53 recycling).
+    expect(FRAME_SCHEMA_VERSION).toBe(1);
+  });
+
+  it("Test P57-01 F (Phase 59 Plan 01 schema both-fields): SessionStateSchema accepts state with BOTH lastStopAt AND lastStatusChangeAt populated in the same frame — both values are preserved", () => {
+    const withBoth = {
+      ...validSessionState,
+      lastStopAt: 1730000000000,
+      lastStatusChangeAt: 1730000005000,
+    };
+    const result = SessionStateSchema.safeParse(withBoth);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastStopAt).toBe(1730000000000);
+      expect(result.data.lastStatusChangeAt).toBe(1730000005000);
+    }
+  });
+});

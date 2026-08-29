@@ -192,6 +192,43 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // inherited by aiTitle in Phase 47 + dormant in Phase 52).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase 59 Plan 01 (2026-08-29): added `lastStopAt` and `lastStatusChangeAt`
+// as OPTIONAL, NULLABLE numeric fields carrying the two axes that back the
+// WIP-shell-idle-gate predicate on the frontend.
+//
+// Sources:
+//   - `lastStopAt`: UNCONDITIONALLY the mtime of the per-session Stop file
+//     `~/.claude/fleet-status/stop-<sessionId>.json` on the target host,
+//     derived via `stat -c %Y * 1000` (seconds → unix millis). Does NOT
+//     fall back to the box-wide `last-stop-payload.json` mtime — the
+//     box-wide file's mtime bumps on EVERY session's turn-end and would
+//     be a false positive for any session that is not the last one to end
+//     a turn on that box.
+//   - `lastStatusChangeAt`: derived SERVER-SIDE by comparing this-tick
+//     `sessionJson.status` to the previous-tick cached status held in
+//     `PidCacheEntry.lastStatus`. Updated ONLY when the two differ; on
+//     first appearance seeded to `deps.now()`. MUST NOT be sourced from
+//     `sessionJson.updatedAt` — the harness bumps `updatedAt` on
+//     compose-box typing without a real state transition (would defeat
+//     the whole point of the stop-gate).
+//
+// Semantics (both fields):
+//   - number    → value present (unix millis).
+//   - null      → normalised-null in transit (backend may emit null when
+//                 it cannot distinguish — treated as "no signal" by the
+//                 frontend predicate, which then default-ons per rollout
+//                 safety).
+//   - undefined → emitting backend pre-dates Phase 59 Plan 01. Frontend
+//                 consumer treats undefined and null identically at the
+//                 session-working-store boundary (see 59-03).
+//
+// Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
+// — fifth iteration of the T-41-03-05 mitigation established for
+// lastMessageAt in Phase 41 and inherited by aiTitle in Phase 47 + dormant
+// in Phase 52 + recycling in Phase 53.
+// ---------------------------------------------------------------------------
+
 export const SessionStateSchema = z.object({
   hostId: z.string(),
   tmuxSession: z.string().nullable(),
@@ -212,6 +249,10 @@ export const SessionStateSchema = z.object({
   dormant: z.boolean().nullable().optional(),
   // Phase 53 Plan 01 — inline backend-authoritative recycling signal (see block comment above).
   recycling: z.boolean().nullable().optional(),
+  // Phase 59 Plan 01 — mtime of the per-session Stop file (see block comment above).
+  lastStopAt: z.number().nullable().optional(),
+  // Phase 59 Plan 01 — server-derived status-transition timestamp (see block comment above).
+  lastStatusChangeAt: z.number().nullable().optional(),
 });
 
 export type SessionState = z.infer<typeof SessionStateSchema>;
