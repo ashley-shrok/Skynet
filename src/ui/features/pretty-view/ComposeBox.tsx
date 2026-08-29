@@ -310,7 +310,12 @@ export interface ComposeBoxProps {
   // setErrorMessage(). Mirrors the non-attachment path's Phase 50 D-20 /
   // D-56 failure-preservation posture so Ashley never loses a compose
   // draft to a silent-clear on WS drop / upload_failed / timeout again.
-  onSendWithAttachments?: (caption: string) => Promise<BatchOutcome>;
+  // quick-260829-nt9: target param widened to optional string. Primary
+  // handleSend passes no target (defaults to "primary" inside
+  // usePrettyViewUploads.startBatch). Queued-slot entry points pass
+  // "queued:<slotId>" so per-slot attachments route to the correct staging
+  // area and don't collide with the primary target.
+  onSendWithAttachments?: (caption: string, target?: string) => Promise<BatchOutcome>;
   // Called when the user clicks the Retry button that appears when at
   // least one chip has status='error'. Parent hook re-issues the
   // batch. Empty batches or all-complete batches do not surface this
@@ -1105,6 +1110,45 @@ export function ComposeBox({
   const fireNextQueued = useCallback(() => {
     if (queue.length === 0) return;
     const head = queue[0];
+
+    // quick-260829-nt9: attachment branch for cadence-fired slot sends.
+    // If the head-of-queue entry is a slot (not "primary") and has staged
+    // attachments, route through onSendWithAttachments and await the outcome
+    // before removing the slot. On failure: preserve the slot + surface error
+    // (the next idle=true tick will re-arm the watchdog if the slot is still
+    // in the queue, so Ashley can retry by either re-sending or letting the
+    // cadence re-fire). Wraps in an async IIFE — the outer useCallback returns
+    // void.
+    if (head.source !== "primary" && onSendWithAttachments) {
+      const slotId = head.source;
+      const slotTarget = `queued:${slotId}`;
+      const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
+      if (slotAttachments.length > 0) {
+        const captionPayload = collapseNewlinesForSend(head.text);
+        console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${head.text.length} attachmentCount=${slotAttachments.length} trigger=queue-item path=attachment mqid=pending target=${slotTarget}`);
+        void (async () => {
+          const outcome = await onSendWithAttachments!(captionPayload, slotTarget);
+          if (outcome.ok) {
+            console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${head.text.length} path=attachment target=${slotTarget}`);
+            setQueue((prev) => prev.filter((_, i) => i !== 0));
+            const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== slotId);
+            setQueueSlots(nextSlots);
+            scheduleAutosave(latestBodyRef.current, nextSlots);
+            clearStagedForTarget?.(slotTarget);
+            return;
+          }
+          if (outcome.reason === "superseded") return;
+          const userMessage = getBatchFailureUserMessage(outcome.reason);
+          console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${head.text.length} path=attachment target=${slotTarget} reason=${outcome.reason} message=${outcome.message ?? ""}`);
+          setErrorMessage(userMessage);
+          // Deliberately do NOT shift head from queue or filter slot — failure
+          // preservation posture. The next idle=true cycle will re-arm the
+          // watchdog, and Ashley can intervene (clear slot or hit Send).
+        })();
+        return;
+      }
+    }
+
     const payload = collapseNewlinesForSend(head.text);
     const dispatched = onSend(payload);
     if (dispatched) {
@@ -1122,7 +1166,7 @@ export function ComposeBox({
       setQueue((prev) => prev.filter((_, i) => i !== 0));
       setErrorMessage("Not connected — queued send failed");
     }
-  }, [queue, onSend, clearAfterSend]);
+  }, [queue, onSend, clearAfterSend, onSendWithAttachments, getStagedAttachmentsForTarget, clearStagedForTarget, hostId, tmuxSession, scheduleAutosave]);
 
   // Vehicle C v2 (2026-08-01): FIFO-aware idle watchdog. Gate on
   // `queue.length === 0` (no armed sources → nothing to fire). Strict
@@ -1312,6 +1356,37 @@ export function ComposeBox({
     if (!slot) return;
     const trimmed = slot.text.trim();
     if (!trimmed) return;
+
+    // quick-260829-nt9: attachment branch — mirrors primary handleSend at
+    // L1384-1415. If this slot has staged attachments and onSendWithAttachments
+    // is wired, route through the attachment path (awaits upload_ready_to_inject
+    // before removing the slot). Text-only path below is unchanged.
+    const slotTarget = `queued:${slotId}`;
+    const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
+    if (slotAttachments.length > 0 && onSendWithAttachments) {
+      setErrorMessage(null);
+      const captionPayload = collapseNewlinesForSend(trimmed);
+      console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} attachmentCount=${slotAttachments.length} trigger=send-button path=attachment mqid=pending target=${slotTarget}`);
+      const runSlotAttachmentSend = async (): Promise<void> => {
+        const outcome = await onSendWithAttachments!(captionPayload, slotTarget);
+        if (outcome.ok) {
+          console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment target=${slotTarget}`);
+          const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== slotId);
+          setQueueSlots(nextSlots);
+          scheduleAutosave(latestBodyRef.current, nextSlots);
+          clearStagedForTarget?.(slotTarget);
+          return;
+        }
+        if (outcome.reason === "superseded") return;
+        const userMessage = getBatchFailureUserMessage(outcome.reason);
+        console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment target=${slotTarget} reason=${outcome.reason} message=${outcome.message ?? ""}`);
+        setErrorMessage(userMessage);
+        // Deliberately DO NOT filter slot or clear chips — mirrors primary handleSend's
+        // failure-preservation posture (quick-260823-8ji). Ashley can retry.
+      };
+      void runSlotAttachmentSend();
+      return;
+    }
 
     setErrorMessage(null);
 
@@ -1530,6 +1605,35 @@ export function ComposeBox({
           // batching we pass the glued text directly via onSend to avoid stale reads.
           const payload = collapseNewlinesForSend(result.glued.trim());
           if (payload) {
+            // quick-260829-nt9: attachment branch for voice-slot sends — mirrors
+            // handleQueueSlotSend's attachment branch. If this slot has staged
+            // attachments and onSendWithAttachments is wired, route through the
+            // attachment path. Text-only onSend path below is unchanged.
+            const slotTarget = `queued:${target}`;
+            const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
+            if (slotAttachments.length > 0 && onSendWithAttachments) {
+              setErrorMessage(null);
+              console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} attachmentCount=${slotAttachments.length} trigger=queue-item path=attachment mqid=pending target=${slotTarget}`);
+              const runVoiceSlotAttachmentSend = async (): Promise<void> => {
+                const outcome = await onSendWithAttachments!(payload, slotTarget);
+                if (outcome.ok) {
+                  console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} path=attachment target=${slotTarget}`);
+                  const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== target);
+                  setQueueSlots(nextSlots);
+                  scheduleAutosave(latestBodyRef.current, nextSlots);
+                  clearStagedForTarget?.(slotTarget);
+                  return;
+                }
+                if (outcome.reason === "superseded") return;
+                const userMessage = getBatchFailureUserMessage(outcome.reason);
+                console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} path=attachment target=${slotTarget} reason=${outcome.reason} message=${outcome.message ?? ""}`);
+                setErrorMessage(userMessage);
+                // Deliberately do NOT filter slot or clear chips.
+              };
+              void runVoiceSlotAttachmentSend();
+              setMicTarget("primary");
+              return;
+            }
             const dispatched = onSend(payload);
             if (dispatched) {
               const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== target);

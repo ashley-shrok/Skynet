@@ -3392,7 +3392,7 @@ export function PrettyView({
           // cancels an in-flight /btw or clears a displayed aside.
           asideActive={asideText !== null || asidePending}
           onAsideDismiss={handleAsideDismiss}
-          onSendWithAttachments={async (caption) => {
+          onSendWithAttachments={async (caption, target) => {
             // quick-260823-8ji: Promise-returning — ComposeBox awaits this
             // outcome to gate the textarea + attachment-chip clear on a
             // genuine success signal from the batch lifecycle
@@ -3402,7 +3402,10 @@ export function PrettyView({
             // Phase 50 D-20 / D-56 posture. See ComposeBox.tsx handleSend
             // attachment branch + use-pretty-view-uploads.ts BatchOutcome
             // for the full contract.
-            const ret = await uploads.startBatch(caption);
+            // quick-260829-nt9: target forwarded to startBatch — defaults to
+            // "primary" inside startBatch when undefined; queued-slot
+            // producers pass "queued:<slotId>" per quick-260829-nt9.
+            const ret = await uploads.startBatch(caption, target);
             if (!ret) {
               // startBatch returns null when no attachments are staged —
               // the compose surface guards this branch on hasAttachments

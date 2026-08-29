@@ -150,17 +150,21 @@ export interface UsePrettyViewUploadsReturn {
   // Promise (see BatchOutcome docblock above). Existing callers that only
   // read `.messageQueueItemId` see NO behavior change (extra property is
   // ignored on destructure).
+  // quick-260829-nt9: target param widened to optional string defaulting to
+  // "primary" so queued-slot producers can pass their own target. All existing
+  // call sites pass no target and continue hitting the "primary" path unchanged.
   startBatch: (
     caption: string,
+    target?: string,
   ) => Promise<{
     messageQueueItemId: string;
     outcome: Promise<BatchOutcome>;
   } | null>;
-  retryBatch: () => Promise<{
+  retryBatch: (target?: string) => Promise<{
     messageQueueItemId: string;
     outcome: Promise<BatchOutcome>;
   } | null>;
-  resetBatch: () => void;
+  resetBatch: (target?: string) => void;
   onWsReconnect: () => void;
 }
 
@@ -375,11 +379,17 @@ export function usePrettyViewUploads(
 
       switch (event.type) {
         case "upload_progress": {
-          // Quick 260802-wxy: primary target — only the primary composebox
-          // is a producer in Quick A. Server events for batches started
-          // from Quick B's per-slot producers will still land here on the
-          // "primary" branch until Quick B introduces per-target batch
-          // identity (out of scope for this quick).
+          // quick-260829-nt9 KNOWN LIMITATION: these chip-mutation branches
+          // (upload_progress, upload_complete, upload_failed) still hardcode
+          // "primary" as the mutation target. The batchId gate at L378 above
+          // ensures cross-target isolation — each per-slot batch is managed by
+          // its own hook instance, so events for THAT batch arrive HERE and the
+          // batchId gate accepts them; events for a different batch are dropped.
+          // The net cosmetic effect: queued-slot attachment chips won't get
+          // progress-ring updates during upload — they'll go staged→gone at
+          // outcome.ok time via clearStagedForTarget. This is good-enough for
+          // the data-loss fix; per-target progress-ring wiring is a follow-up
+          // bounty candidate: queued-slot-attachment-chips-lack-progress-ring.
           setAttachments("primary", (prev) =>
             prev.map((a) =>
               a.tempId === event.tempId
@@ -552,16 +562,17 @@ export function usePrettyViewUploads(
   const startBatch = useCallback(
     async (
       caption: string,
+      target?: string,
     ): Promise<{
       messageQueueItemId: string;
       outcome: Promise<BatchOutcome>;
     } | null> => {
-      // Quick 260802-wxy: startBatch operates on the primary target for
-      // Quick A. Quick B will parameterize target when queued slots produce
-      // their own batches; leaving that migration explicit for now so this
-      // quick's diff stays scoped to the state-model refactor.
+      // quick-260829-nt9: parameterize target so queued-slot producers can
+      // pass their own "queued:<slotId>" target. Defaults to "primary" so
+      // all existing call sites stay unchanged with zero argument changes.
+      const activeTarget = target ?? "primary";
       const currentAttachments =
-        attachmentsRefByTarget.current.get("primary") ?? [];
+        attachmentsRefByTarget.current.get(activeTarget) ?? [];
       if (currentAttachments.length === 0) return null;
 
       // Fresh batch id (unless we're mid-retry and reuseIdOnRetry is set —
@@ -644,14 +655,16 @@ export function usePrettyViewUploads(
   // retryBatch — restart from the currently-staged attachments
   // -------------------------------------------------------------------------
   const retryBatch = useCallback(
-    async (): Promise<{
+    async (target?: string): Promise<{
       messageQueueItemId: string;
       outcome: Promise<BatchOutcome>;
     } | null> => {
-      // Quick 260802-wxy: retryBatch operates on the primary target (Quick A).
-      // Symmetric with startBatch — will be parameterized in Quick B.
+      // quick-260829-nt9: symmetric with startBatch — parameterize target so
+      // queued-slot retries can operate on their own staging area. Defaults
+      // to "primary" so all existing callers stay unchanged.
+      const activeTarget = target ?? "primary";
       const currentAttachments =
-        attachmentsRefByTarget.current.get("primary") ?? [];
+        attachmentsRefByTarget.current.get(activeTarget) ?? [];
       if (currentAttachments.length === 0) return null;
 
       // Files to re-upload: errored + still-staged. Completed files are
@@ -670,8 +683,8 @@ export function usePrettyViewUploads(
       readyFiredRef.current = false;
       lastOffsetSentRef.current = new Map();
       abortFlagsRef.current = new Map();
-      // Reset per-file state on the retried files (primary target).
-      setAttachments("primary", (prev) =>
+      // Reset per-file state on the retried files (activeTarget).
+      setAttachments(activeTarget, (prev) =>
         prev.map((a) =>
           a.status === "complete"
             ? a
@@ -763,13 +776,14 @@ export function usePrettyViewUploads(
   // resetBatch — caller invokes AFTER onUploadReadyToInject fires (or on
   // any explicit "clear staging" gesture).
   // -------------------------------------------------------------------------
-  const resetBatch = useCallback(() => {
-    // Quick 260802-wxy: resetBatch clears PRIMARY only. Other targets
-    // (Quick B's per-slot producers) manage their own clear semantics
-    // — the primary chunk pump has no authority over them.
-    // Quick 260823-8ji: if an outstanding batch has an unresolved outcome
-    // Promise, resolve it with `superseded` so any awaiter doesn't linger
-    // forever (dangling awaits leak resources + can never be surfaced).
+  const resetBatch = useCallback((target?: string) => {
+    // quick-260829-nt9: parameterize target to match startBatch/retryBatch.
+    // Defaults to "primary" so all existing callers stay unchanged.
+    // The outstanding-outcome supersede still fires on batchIdRef (which is
+    // shared across all targets — one active batch at a time per hook
+    // instance). Queued-slot producers each have their own hook instance
+    // so batchIdRef.current refers to THEIR batch.
+    const activeTarget = target ?? "primary";
     const priorBatchId = batchIdRef.current;
     if (priorBatchId) {
       resolveOutcome(priorBatchId, { ok: false, reason: "superseded" });
@@ -781,7 +795,7 @@ export function usePrettyViewUploads(
     abortFlagsRef.current = new Map();
     setBatchInFlight(false);
     setPendingSendWaitingForWs(false);
-    setAttachments("primary", []);
+    setAttachments(activeTarget, []);
   }, [setAttachments, resolveOutcome]);
 
   // -------------------------------------------------------------------------
