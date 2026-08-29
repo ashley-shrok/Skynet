@@ -5173,3 +5173,395 @@ describe("Phase 55: session-file cache writes", () => {
     expect(entryByHostTmux).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 59 Plan 02 — lastStopAt (per-session Stop-hook file mtime) +
+// lastStatusChangeAt (server-side status-value-delta) derivation.
+//
+// Contract under test (locked by 59-02-PLAN.md § tasks 1-2):
+//   - Per-session Stop file mtime read: `stat -c %Y
+//     ~/.claude/fleet-status/stop-<sessionId>.json 2>/dev/null || true` fires
+//     ONCE per PID per tick after parseSessionJson returns; empty stdout ==
+//     file absent → lastStopAt := null; trimmed numeric stdout × 1000 →
+//     unix millis; null return (SSH hiccup) → cache-preserve (fail-open,
+//     matches lastMessageAt / aiTitle / dormant patterns).
+//   - Status-delta: on isNew OR cold-cache lastStatus, seed to deps.now();
+//     on transition (cached.lastStatus !== sessionJson.status), update to
+//     deps.now(); on same-status tick, preserve cached lastStatusChangeAt.
+//     NEVER sourced from sessionJson.updatedAt (Research § Pitfall 4).
+//   - Both new axes participate in computeFingerprint — a delta on EITHER
+//     fires publishSessionState even when every other axis is unchanged.
+//   - Observable-behavior-only tests: the ONLY test surface is the
+//     SessionState frame published to MockRegistry. No cache introspection.
+// ---------------------------------------------------------------------------
+
+describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt derivation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // The Phase 59 stat command has the shape:
+  //   `stat -c %Y ~/.claude/fleet-status/stop-'test-session-id'.json 2>/dev/null || true`
+  // The substring `fleet-status/stop-` uniquely identifies it vs the box-wide
+  // hook payload command (`cat ~/.claude/fleet-status/last-stop-payload.json`)
+  // AND vs the Phase 52 dormant sentinel stat
+  // (`stat ~/.claude/identities/'<tmux>'/.dormant …`). Registered as a distinct
+  // MockSshChannel pattern per test — MUST be set BEFORE the box-wide
+  // last-stop-payload.json response so the includes-match iteration finds it
+  // first (MockSshChannel iterates responses in insertion order).
+  const PER_SESSION_STOP_PATTERN = "fleet-status/stop-";
+
+  // Helper: register the base per-tick channel responses a PID needs to reach
+  // the SessionState composition. Mirrors the shape used by sibling describes
+  // (Phase 41 Plan 03 / Phase 44 Plan 02 / Phase 52 Plan 01) — one PID (12345)
+  // with sessionId="test-session-id" (from makeSessionJson() default).
+  function wirePhase59Base(
+    channel: MockSshChannel,
+    sessionJsonOverride?: string,
+  ): void {
+    // Set per-session stop pattern FIRST so iteration finds it before the
+    // box-wide `fleet-status/last-stop-payload.json` pattern (which shares a
+    // "fleet-status/" prefix but not the "fleet-status/stop-" prefix).
+    channel.setResponse(PER_SESSION_STOP_PATTERN, ""); // default: file absent
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      sessionJsonOverride ?? makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "cat ~/.claude/fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    // Phase 52 dormant sentinel — always "no" so the dormant axis stays
+    // constant and doesn't confuse the fingerprint-delta assertions.
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+  }
+
+  // Helper: build a deps object with a controllable now() clock. Follows the
+  // Phase 52 Task 2 pattern (setIntervalFns captured for manual tick triggering).
+  function buildPhase59Deps(
+    channel: MockSshChannel,
+    clock: { now: number },
+  ): OrchestratorDeps & {
+    registry: MockRegistry;
+    setIntervalFns: Array<{ fn: () => void; ms: number }>;
+  } {
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const registry = new MockRegistry();
+    const hosts: HostRecord[] = [{ id: "host-1", name: "testhost" }];
+    const deps: OrchestratorDeps = {
+      listIdentityHostingHosts: vi.fn().mockResolvedValue(hosts),
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      releaseSshChannel: vi.fn(),
+      registry,
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+      clearInterval: vi.fn(),
+      now: () => clock.now,
+      pollIntervalMs: 2000,
+      staleSweepIntervalMs: 30000,
+      hookPayloadPath: "~/.claude/fleet-status/last-stop-payload.json",
+      hookPayloadWarnCooldownMs: 60000,
+    };
+    return { ...deps, registry, setIntervalFns };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test P57-02-A — first-appearance PID seeds lastStatusChangeAt to deps.now()
+  // and reads per-session mtime if present.
+  //
+  // Fresh PID → isNew branch → derivedLastStatusChangeAt = deps.now() (seed
+  // rule, Research § Pitfall 5). stat returns "1730000000\n" (seconds) →
+  // derivedLastStopAt = 1730000000 * 1000 = 1730000000000 (unix millis).
+  // ---------------------------------------------------------------------------
+
+  it("Test P57-02-A: first-appearance PID seeds lastStatusChangeAt to deps.now() and reads per-session mtime if present", async () => {
+    const channel = new MockSshChannel();
+    wirePhase59Base(channel);
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000000\n");
+
+    const clock = { now: 1730500000000 };
+    const deps = buildPhase59Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // Stop file mtime × 1000.
+    expect(published.state.lastStopAt).toBe(1730000000000);
+    // isNew branch → seeded to deps.now() at tick 1.
+    expect(published.state.lastStatusChangeAt).toBe(1730500000000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P57-02-B — same-status tick preserves cached lastStatusChangeAt.
+  //
+  // The observable-behavior contract: cached lastStatusChangeAt must NOT bump
+  // on a same-status tick. Since a truly-same-status tick would fingerprint-
+  // suppress (no publish to observe), we use a three-tick sequence:
+  //   Tick 1: status=busy at t=1000 → publishes with lastStatusChangeAt=1000.
+  //   Tick 2: status=busy at t=3000 → FINGERPRINT-SUPPRESSED (nothing to
+  //           observe directly). Load-bearing invariant: the CACHED
+  //           lastStatusChangeAt must remain at 1000, NOT bump to 3000.
+  //   Tick 3: status=shell at t=5000 → publishes with lastStatusChangeAt=5000
+  //           (a fresh transition-bump). If tick 2 had incorrectly bumped
+  //           the cache to 3000, the tick-3 status-delta comparison would
+  //           still fire deps.now() = 5000 — but the load-bearing test that
+  //           PROVES tick 2 preserved the cache is that publishSessionState
+  //           was NOT called on tick 2 (fingerprint delta would fire if
+  //           lastStatusChangeAt had bumped from 1000 to 3000).
+  //
+  // Assertion: exactly TWO publishes across the three ticks (tick 1 + tick 3);
+  //            tick 2's cache-write-preservation is proven by the absence of
+  //            an intermediate publish (fingerprint identical iff cached
+  //            lastStatusChangeAt was preserved). And tick-3 publishes with
+  //            lastStatusChangeAt = tick-3-now (5000) — a fresh transition
+  //            (busy → shell), which prevents the "test would still pass if
+  //            tick 2 bumped" false-positive because tick 2's fingerprint
+  //            would have differed from tick 1 iff a bump happened.
+  // ---------------------------------------------------------------------------
+
+  it("Test P57-02-B: same-status tick preserves cached lastStatusChangeAt (no bump)", async () => {
+    const channel = new MockSshChannel();
+    // Fixed sessionJson.updatedAt across ticks so ONLY the status axis moves
+    // the fingerprint. Tick 1 uses busy@u1, Tick 2 uses busy@u1 (unchanged),
+    // Tick 3 uses shell@u1 (status delta).
+    wirePhase59Base(channel, makeSessionJson({ status: "busy", updatedAt: 1700000000000 }));
+    // Stop file returns the same value across all ticks — lastStopAt axis
+    // stays constant so it does not perturb the fingerprint.
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1600000000\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase59Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // Tick 1: status=busy, now=1000 → publish
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBe(1);
+    expect(deps.registry.publishedStates[0].state.status).toBe("busy");
+    expect(deps.registry.publishedStates[0].state.lastStatusChangeAt).toBe(1000);
+
+    // Tick 2: bump the clock; status STILL busy; everything else unchanged.
+    // The cached lastStatusChangeAt MUST remain at 1000 (not bump to 3000).
+    // Observable: fingerprint is identical → NO publish on tick 2.
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+    // If cache had incorrectly bumped to 3000, fingerprint would differ from
+    // tick 1 (1000 → 3000 in the |lastStatusChangeAt| segment) and a second
+    // publish would fire. The assertion below proves the cache was preserved.
+    expect(deps.registry.publishedStates.length).toBe(publishesAfterTick1);
+
+    // Tick 3: status flips busy → shell. bump clock. Should publish with
+    // lastStatusChangeAt = tick-3-now (5000), proving the transition path
+    // works normally.
+    clock.now = 5000;
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson({ status: "shell", updatedAt: 1700000000000 }),
+    );
+    if (pollFn) {
+      await pollFn.fn();
+    }
+    expect(deps.registry.publishedStates.length).toBe(publishesAfterTick1 + 1);
+    const tick3Publish = deps.registry.publishedStates[publishesAfterTick1];
+    expect(tick3Publish.state.status).toBe("shell");
+    expect(tick3Publish.state.lastStatusChangeAt).toBe(5000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P57-02-C — status-transition tick bumps lastStatusChangeAt to deps.now().
+  //
+  // Tick 1: status=busy at t=1000. Tick 2: status=shell at t=5000. The
+  // transition path (cached.lastStatus !== sessionJson.status) fires
+  // deps.now() = 5000 on tick 2.
+  // ---------------------------------------------------------------------------
+
+  it("Test P57-02-C: status-transition tick bumps lastStatusChangeAt to deps.now()", async () => {
+    const channel = new MockSshChannel();
+    wirePhase59Base(channel, makeSessionJson({ status: "busy", updatedAt: 1700000000000 }));
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1600000000\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase59Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // Tick 1: busy, seed to 1000
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    expect(deps.registry.publishedStates[0].state.status).toBe("busy");
+    expect(deps.registry.publishedStates[0].state.lastStatusChangeAt).toBe(1000);
+
+    // Tick 2: transition busy → shell at t=5000. Should publish with
+    // lastStatusChangeAt = 5000 (transition path).
+    clock.now = 5000;
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson({ status: "shell", updatedAt: 1700000000000 }),
+    );
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    expect(tick2Publish.state.status).toBe("shell");
+    expect(tick2Publish.state.lastStatusChangeAt).toBe(5000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P57-02-D — per-session file missing → lastStopAt is null;
+  //                 presence → lastStopAt is mtime × 1000.
+  //
+  // Tick 1: stat returns "" (empty stdout — file absent, `|| true` swallowed
+  //         non-zero exit). derivedLastStopAt := null (cold-cache default).
+  //         Publish should have lastStopAt: null.
+  // Tick 2: stat returns "1730000000\n" (file appeared — a Stop hook just
+  //         fired and wrote the per-session file). derivedLastStopAt :=
+  //         1730000000000 (millis). Publish should have lastStopAt: 1730000000000.
+  //         Also fingerprint delta guarantees the publish fires (lastStopAt
+  //         axis participates).
+  // ---------------------------------------------------------------------------
+
+  it("Test P57-02-D: per-session file missing → lastStopAt is null; presence → lastStopAt is mtime × 1000", async () => {
+    const channel = new MockSshChannel();
+    wirePhase59Base(channel);
+    // Tick 1: empty stdout (file absent).
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase59Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // Tick 1: lastStopAt=null
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    const tick1Publish = deps.registry.publishedStates[0];
+    expect(tick1Publish.state.lastStopAt).toBe(null);
+
+    // Tick 2: per-session file now exists with mtime 1730000000 (seconds).
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000000\n");
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    expect(tick2Publish.state.lastStopAt).toBe(1730000000000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P57-02-E — SSH hiccup on stat call preserves cached lastStopAt
+  //                 (fail-open, matches lastMessageAt / aiTitle / dormant).
+  //
+  // Tick 1: stat returns "1730000000\n" → cached becomes 1730000000000.
+  // Tick 2: stat returns null (SSH channel died mid-tick). ALSO status flips
+  //         busy → shell to force a publish (fingerprint delta on status).
+  //         Published state MUST carry lastStopAt = 1730000000000 (preserved
+  //         from cache) NOT null.
+  // ---------------------------------------------------------------------------
+
+  it("Test P57-02-E: SSH hiccup on stat call preserves cached lastStopAt (fail-open)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase59Base(channel, makeSessionJson({ status: "busy", updatedAt: 1700000000000 }));
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000000\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase59Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // Tick 1: lastStopAt captured
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    expect(deps.registry.publishedStates[0].state.lastStopAt).toBe(1730000000000);
+
+    // Tick 2: stat returns null (SSH hiccup) AND status transitions to force
+    // a publish. Published state must fail-open to cached lastStopAt, NOT null.
+    channel.setResponse(PER_SESSION_STOP_PATTERN, null);
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson({ status: "shell", updatedAt: 1700000000000 }),
+    );
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    // Fail-open — cache preserved across the hiccup, NOT wiped to null.
+    expect(tick2Publish.state.lastStopAt).toBe(1730000000000);
+    expect(tick2Publish.state.status).toBe("shell");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test P57-02-F — fingerprint includes lastStopAt + lastStatusChangeAt —
+  //                 a lastStopAt-only delta causes a new publish even when
+  //                 status + backgroundTasks + updatedAt + everything else
+  //                 stays identical.
+  //
+  // Tick 1: stat returns "1730000000\n" + status=idle + bg=[] → initial publish
+  //         (isNew).
+  // Tick 2: stat returns "1730000005\n" (mtime advanced by 5 seconds — a Stop
+  //         hook fired and rewrote the per-session file) + SAME status +
+  //         SAME bg + SAME updatedAt. status did NOT change so
+  //         lastStatusChangeAt cache is preserved. But lastStopAt CHANGED
+  //         (1730000000000 → 1730000005000) so the fingerprint segment
+  //         `|${state.lastStopAt ?? ""}|` differs → new publish must fire.
+  //
+  // This is the load-bearing "lastStopAt is a distinct fingerprint axis" test.
+  // ---------------------------------------------------------------------------
+
+  it("Test P57-02-F: fingerprint includes lastStopAt + lastStatusChangeAt — lastStopAt-only delta causes a new publish", async () => {
+    const channel = new MockSshChannel();
+    wirePhase59Base(channel, makeSessionJson({ status: "idle", updatedAt: 1700000000000 }));
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000000\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase59Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // Tick 1: initial publish with lastStopAt=1730000000000
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    expect(deps.registry.publishedStates[0].state.lastStopAt).toBe(1730000000000);
+
+    // Tick 2: EVERYTHING unchanged EXCEPT the per-session file's mtime (5s later).
+    // A same-status tick preserves lastStatusChangeAt from tick 1. Everything
+    // else on the wire (status, updatedAt, backgroundTasks, dormant, etc.) is
+    // identical. The lastStopAt-only delta MUST fire a new publish (load-
+    // bearing invariant: lastStopAt is a distinct fingerprint axis).
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000005\n");
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    expect(tick2Publish.state.lastStopAt).toBe(1730000005000);
+    // Sanity: same-status tick preserved lastStatusChangeAt from tick 1 (the
+    // seed value, 1000). It did NOT bump to tick-2-now (3000).
+    expect(tick2Publish.state.lastStatusChangeAt).toBe(1000);
+  });
+});
