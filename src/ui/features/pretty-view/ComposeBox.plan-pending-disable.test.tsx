@@ -102,7 +102,7 @@ describe("ComposeBox — Phase 24 planPendingActive gating", () => {
       />,
     );
     const resetBtn = screen.getByLabelText("Reset context window") as HTMLButtonElement;
-    const thumbsUpBtn = screen.getByLabelText("Send 'let's go'") as HTMLButtonElement;
+    const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
     const explainBtn = screen.getByLabelText("Recap the current situation") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);

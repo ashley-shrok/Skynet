@@ -9,7 +9,7 @@
  *   Task 1: aux button `disabled` predicates extended with `|| asideActive === true`
  *     - reset button (leftmost cell of the meter well) — disabled when asideActive
  *     - paperclip button — disabled when asideActive
- *     - thumbs-up (Send 'let's go') button — disabled when asideActive
+ *     - thumbs-up (Send 'thumbs up') button — disabled when asideActive
  *     - queue (Hourglass) button — disabled when asideActive
  *     - textarea's own `disabled` prop is NOT extended (per CONTEXT.md § ComposeBox morph:
  *       "Textarea remains editable. Any partial draft text is preserved verbatim")
@@ -89,7 +89,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
     expect((paperclipBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("Task 1 Test 4: thumbs-up (let's go) button becomes disabled when asideActive=true", () => {
+  it("Task 1 Test 4: thumbs-up (thumbs up) button becomes disabled when asideActive=true", () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -97,7 +97,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         })}
       />,
     );
-    const thumbsUpBtn = screen.getByLabelText(/send 'let's go'/i);
+    const thumbsUpBtn = screen.getByLabelText(/send 'thumbs up'/i);
     expect((thumbsUpBtn as HTMLButtonElement).disabled).toBe(true);
   });
 

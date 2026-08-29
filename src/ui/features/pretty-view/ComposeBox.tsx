@@ -634,7 +634,7 @@ export function ComposeBox({
   // handler on the compose root adds `.pv-btn-pressed` to whatever
   // <button> was tapped for a fixed 250ms window, regardless of how long
   // the tap is held or when :active drops. Rationale: pretty-view buttons
-  // like ThumbsUp ("let's go") produce message bubbles asynchronously —
+  // like ThumbsUp ("thumbs up") produce message bubbles asynchronously —
   // the underlying session decides when the message lands — so Ashley
   // needs an immediate local ack that her tap registered. The `:active`
   // pseudo-class alone drops the moment the finger releases (very short
@@ -2375,10 +2375,10 @@ export function ComposeBox({
           <Button
             size="icon-sm"
             variant="secondary"
-            onClick={() => { onGoodToGo?.(); handleQuickSend("let's go"); }}
+            onClick={() => { onGoodToGo?.(); handleQuickSend("thumbs up"); }}
             disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
-            aria-label="Send 'let's go'"
-            title="Send 'let's go'"
+            aria-label="Send 'thumbs up'"
+            title="Send 'thumbs up'"
             className={cn(
               "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
               // Same dark blue-gray treatment as the mobile back-to-list
@@ -2405,7 +2405,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="secondary"
             // Phase 32: /explain is a send path — fire onGoodToGo?.() (parent-bound to
-            // scrollToBottomAndFollow) alongside handleQuickSend, matching the 'let's go'
+            // scrollToBottomAndFollow) alongside handleQuickSend, matching the 'thumbs up'
             // quick-button above. Per 32-CONTEXT.md § Wire into PrettyView "ALL send paths"
             // rule + 32-PATTERNS.md § 2d Send-path callsite swaps table.
             onClick={() => { onGoodToGo?.(); handleQuickSend("/explain the current situation"); }}

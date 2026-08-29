@@ -308,15 +308,15 @@ export function ChatMessage({
   // delimiter substring in prose).
   const injected = isUser ? parseInjectedUserTurn(content) : null;
   // Quick-reply as-a-thumbs-up: a user message whose text is exactly the
-  // quick-reply payload "let's go" (case-insensitive, ignoring surrounding
+  // quick-reply payload "thumbs up" (case-insensitive, ignoring surrounding
   // whitespace) renders as a ThumbsUp glyph inside the normal user bubble.
   // Mirrors the ComposeBox quick-send button that produces this message, so
   // what she sent visually matches what she clicked. Client-render-only —
   // session file stays faithful. Single equality check: legacy alt-matches
-  // for 'yes'/'works for me'/'good to go'/'go ahead'/'thumbs up' render as
+  // for 'yes'/'works for me'/'good to go'/'go ahead'/'let's go' render as
   // plain text.
   const isQuickReply =
-    isUser && !injected && content.trim().toLowerCase() === "let's go";
+    isUser && !injected && content.trim().toLowerCase() === "thumbs up";
   // Prettify slash-command triplets before markdown parsing. Runs of
   // <command-message>/<command-name>/<command-args> tags become ⟨cmd:...⟩
   // sentinel markers, then the `p` component override below splits those

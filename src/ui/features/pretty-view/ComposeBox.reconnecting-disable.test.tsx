@@ -65,7 +65,7 @@ describe("ComposeBox — reconnectingActive gating", () => {
   it("R2: reconnectingActive=true — aux WS-side-effect buttons (reset, ThumbsUp, Recap) all disabled", () => {
     render(<ComposeBox {...baseProps({ reconnectingActive: true })} />);
     const resetBtn = screen.getByLabelText("Reset context window") as HTMLButtonElement;
-    const thumbsUpBtn = screen.getByLabelText("Send 'let's go'") as HTMLButtonElement;
+    const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
     const recapBtn = screen.getByLabelText("Recap the current situation") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);

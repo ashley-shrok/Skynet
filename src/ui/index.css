@@ -493,7 +493,7 @@ html.fs-xl {
  * background + box-shadow on the `.pv-btn-pressed` class, which is added
  * by a delegated pointerdown listener in ComposeBox.tsx for a fixed 250ms
  * window regardless of tap length. Motivation: pretty-view buttons like
- * ThumbsUp ("let's go") produce message bubbles asynchronously — the
+ * ThumbsUp ("thumbs up") produce message bubbles asynchronously — the
  * session-side accept latency is out of our control, so Ashley needs an
  * immediate local ack that her tap registered. Uses the standalone
  * `scale:` property (not `transform: scale()`) so it composes
