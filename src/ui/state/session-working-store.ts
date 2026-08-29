@@ -134,6 +134,18 @@ type WorkingRecord = {
   // which Plan 53-03 wires into both the PrettyView holding overlay mount gate
   // AND the PrettyConversationRow row-spinner input.
   recycling: boolean;
+  // Phase 59 Plan 03 (WIP shell-idle gate — 2026-08-29): stop-gate axes.
+  // Mirrors wire `lastStopAt`; `null` when the wire carried null OR omitted
+  // the field. Cache-preserved across every Axis (A/B/C/D/E) republish per
+  // the Pitfall-3 invariant — an Axis-A-only isWorking flip that carries no
+  // lastStopAt signal MUST NOT wipe the cached value. Read by the `main`
+  // predicate below (Axis F block writes it on wire delta).
+  lastStopAt: number | null;
+  // Phase 59 Plan 03 — mirrors wire `lastStatusChangeAt`; `null` when the
+  // wire carried null OR omitted the field. Cache-preserved across every
+  // Axis republish per Pitfall-3 (same invariant as lastStopAt above). Read
+  // by the `main` predicate below (Axis G block writes it on wire delta).
+  lastStatusChangeAt: number | null;
 };
 
 type State = {
@@ -201,10 +213,31 @@ export function publishFleetStatusSessionState(
 ): void {
   const key = `${hostId}:${state_arg.tmuxSession ?? ""}`;
 
-  // inline-260823-wip-shell-is-work (Ashley 2026-08-23): `shell` is
-  // real foreground tool-execution work. See header comment above.
+  // Phase 59 Plan 03 (WIP-shell-idle-gate 2026-08-29) — supersedes the
+  // inline-260823-wip-shell-is-work rule at the predicate boundary but
+  // preserves it as the mid-turn-shell case. New shape: `shell` counts as
+  // work ONLY when the session's status has transitioned since its own last
+  // Stop-hook fire (`lastStatusChangeAt > lastStopAt`). Rollout safety: when
+  // `lastStopAt === null` (fresh session, or a lazy-rollout session that
+  // pre-dates the Phase 59 backend / hook upgrade) shell defaults to on —
+  // no evidence of a stop is treated as "still working" per CONTEXT.md D-05.
+  //
+  // The inline-260823-wip-shell-is-work truth still holds for real mid-turn
+  // shell: while a turn runs, the backend bumps `lastStatusChangeAt` on
+  // every status transition (busy ↔ shell oscillation), keeping
+  // `lastStatusChangeAt > lastStopAt` and the indicator lit. The predicate
+  // only trips FALSE for stale-shell (the Poppy/aqua/wilma pattern) where
+  // status settled on shell BEFORE the last Stop-hook fire and has not moved
+  // since — the very false-positive that motivated this phase. See
+  // 59-CONTEXT.md § Shape for the full rule + rationale.
+  const lastStopAt = state_arg.lastStopAt ?? null;
+  const lastStatusChangeAt = state_arg.lastStatusChangeAt ?? null;
+  const shellCountsAsWork =
+    state_arg.status === "shell" &&
+    (lastStopAt === null ||
+      (lastStatusChangeAt !== null && lastStatusChangeAt > lastStopAt));
   const main =
-    state_arg.status === "busy" || state_arg.status === "shell";
+    state_arg.status === "busy" || shellCountsAsWork;
   const bg = state_arg.backgroundTasks.length > 0;
   const isWorking = main || bg;
 
@@ -252,6 +285,10 @@ export function publishFleetStatusSessionState(
       previousAiTitle: existing?.aiTitle ?? null,
       previousDormant: existing?.dormant ?? false,
       previousRecycling: existing?.recycling ?? false,
+      lastStopAt: existing?.lastStopAt ?? null,
+      lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
+      previousLastStopAt: existing?.lastStopAt ?? null,
+      previousLastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
     });
 
     const nextMap = new Map(state.map);
@@ -261,6 +298,11 @@ export function publishFleetStatusSessionState(
       aiTitle: existing?.aiTitle ?? null,
       dormant: existing?.dormant ?? false,
       recycling: existing?.recycling ?? false,
+      // Phase 59 Plan 03 — Pitfall-3 preservation: an Axis-A-only isWorking
+      // flip that carries no lastStopAt / lastStatusChangeAt signal MUST NOT
+      // wipe the cached values. Axes F/G below handle wire-driven updates.
+      lastStopAt: existing?.lastStopAt ?? null,
+      lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
     });
     state = { map: nextMap };
     notify();
@@ -309,6 +351,9 @@ export function publishFleetStatusSessionState(
         aiTitle: existingAfterAxes.aiTitle,
         dormant,
         recycling: existingAfterAxes.recycling,
+        // Phase 59 Plan 03 — preserve stop-gate axes on dormant flip.
+        lastStopAt: existingAfterAxes.lastStopAt,
+        lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
       });
       state = { map: nextMap };
       notify();
@@ -341,6 +386,82 @@ export function publishFleetStatusSessionState(
         aiTitle: existingAfterAxes.aiTitle,
         dormant: existingAfterAxes.dormant,
         recycling,
+        // Phase 59 Plan 03 — preserve stop-gate axes on recycling flip.
+        lastStopAt: existingAfterAxes.lastStopAt,
+        lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
+      });
+      state = { map: nextMap };
+      notify();
+    }
+  }
+
+  // ── Axis F — lastStopAt swap-and-notify block (Phase 59 Plan 03) ──
+  // Wire semantic (optional field): `lastStopAt: <number>` sets value;
+  // `lastStopAt: null` explicitly resets cache to null; `lastStopAt` absent
+  // (undefined) preserves the cached value — an Axis-A-only republish that
+  // carries no stop-gate signal MUST NOT wipe a `lastStopAt` set by a prior
+  // frame. Matches the optional-nullable convention on the wire
+  // (lastStopAt?: number | null) mirrored by fleet-status-types.ts and by
+  // the backend zod schema (Plan 59-01).
+  //
+  // Direct swap-and-notify (no max-wins, no last-wins) — the backend derives
+  // this axis from the mtime of the per-session Stop-hook file, so the
+  // freshest server-side reading is authoritative. Fire only when we have
+  // an explicit signal AND it differs from cache. Brand-new-key case is
+  // handled above in Axis A which preserves lastStopAt in its nextMap
+  // write; here we only fire on change. See 59-CONTEXT.md § Shape and
+  // 59-RESEARCH.md § Frontend predicate.
+  if (state_arg.lastStopAt !== undefined) {
+    const lastStopAt = state_arg.lastStopAt;
+    const existingAfterAxes = state.map.get(key);
+    if (
+      existingAfterAxes !== undefined &&
+      existingAfterAxes.lastStopAt !== lastStopAt
+    ) {
+      const nextMap = new Map(state.map);
+      nextMap.set(key, {
+        isWorking: existingAfterAxes.isWorking,
+        lastMessageAt: existingAfterAxes.lastMessageAt,
+        aiTitle: existingAfterAxes.aiTitle,
+        dormant: existingAfterAxes.dormant,
+        recycling: existingAfterAxes.recycling,
+        lastStopAt,
+        lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
+      });
+      state = { map: nextMap };
+      notify();
+    }
+  }
+
+  // ── Axis G — lastStatusChangeAt swap-and-notify block (Phase 59 Plan 03) ──
+  // Wire semantic (optional field): `lastStatusChangeAt: <number>` sets
+  // value; `lastStatusChangeAt: null` explicitly resets cache to null;
+  // `lastStatusChangeAt` absent (undefined) preserves the cached value —
+  // same optional-nullable convention as Axis F above.
+  //
+  // Direct swap-and-notify — the backend derives this axis SERVER-SIDE
+  // from a poll-to-poll status-value delta (NOT from sessionJson.updatedAt,
+  // which the harness bumps on compose-box typing without a real state
+  // transition — Pitfall 4 in 59-RESEARCH.md). The freshest server-side
+  // reading is authoritative. Brand-new-key case is handled above in Axis
+  // A which preserves lastStatusChangeAt in its nextMap write; here we
+  // only fire on change.
+  if (state_arg.lastStatusChangeAt !== undefined) {
+    const lastStatusChangeAt = state_arg.lastStatusChangeAt;
+    const existingAfterAxes = state.map.get(key);
+    if (
+      existingAfterAxes !== undefined &&
+      existingAfterAxes.lastStatusChangeAt !== lastStatusChangeAt
+    ) {
+      const nextMap = new Map(state.map);
+      nextMap.set(key, {
+        isWorking: existingAfterAxes.isWorking,
+        lastMessageAt: existingAfterAxes.lastMessageAt,
+        aiTitle: existingAfterAxes.aiTitle,
+        dormant: existingAfterAxes.dormant,
+        recycling: existingAfterAxes.recycling,
+        lastStopAt: existingAfterAxes.lastStopAt,
+        lastStatusChangeAt,
       });
       state = { map: nextMap };
       notify();
@@ -416,6 +537,10 @@ function advanceSessionLastMessageAt(key: string, ts: number | null): void {
     aiTitle: existing?.aiTitle ?? null,
     dormant: existing?.dormant ?? false,
     recycling: existing?.recycling ?? false,
+    // Phase 59 Plan 03 — preserve cached stop-gate axes across the Axis B
+    // chokepoint write. Seed-created records default both to null.
+    lastStopAt: existing?.lastStopAt ?? null,
+    lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
   };
 
   console.info({
@@ -501,6 +626,10 @@ function advanceSessionAiTitle(key: string, title: string | null): void {
     aiTitle: title,
     dormant: existing?.dormant ?? false,
     recycling: existing?.recycling ?? false,
+    // Phase 59 Plan 03 — preserve cached stop-gate axes across the Axis C
+    // chokepoint write. Seed-created records default both to null.
+    lastStopAt: existing?.lastStopAt ?? null,
+    lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
   };
 
   console.info({
@@ -655,7 +784,17 @@ export function useSessionIsRecycling(key: string | null): boolean {
  */
 export function getSessionWorkingSnapshot(): ReadonlyMap<
   string,
-  { isWorking: boolean; lastMessageAt: number | null; aiTitle: string | null; dormant: boolean; recycling: boolean }
+  {
+    isWorking: boolean;
+    lastMessageAt: number | null;
+    aiTitle: string | null;
+    dormant: boolean;
+    recycling: boolean;
+    // Phase 59 Plan 03 — stop-gate axes exposed on the test-only snapshot
+    // so Test P can assert Axis-A cache preservation of lastStopAt.
+    lastStopAt: number | null;
+    lastStatusChangeAt: number | null;
+  }
 > {
   return state.map;
 }
