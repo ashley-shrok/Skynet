@@ -196,7 +196,12 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     expect(lane.getAttribute("data-hover")).toBe("true");
     const styleAttr = lane.getAttribute("style") ?? "";
     expect(styleAttr).toContain("rgba(255, 184, 150, 0.22)");
-    expect(styleAttr).toContain("rgba(255, 184, 150, 0.60)");
+    // jsdom serializes `0.60` as `0.6` in the style attribute string. The
+    // SOURCE token in CollapsedPanelCloseLane.tsx is `rgba(255, 184, 150, 0.60)`
+    // (byte-for-byte match with SplitView.tsx:464) — the palette-exactness
+    // grep in PLAN.md's <done> block asserts the source form; this assertion
+    // checks the serialized runtime form which may differ in trailing zeros.
+    expect(styleAttr).toMatch(/rgba\(255, 184, 150, 0\.60?\)/);
   });
 
   it("Test D: dragover with ONLY text/plain (row drag) → data-hover STAYS 'false', palette stays neutral (semantic-crossing guard)", () => {
