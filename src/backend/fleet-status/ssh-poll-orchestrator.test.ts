@@ -5565,3 +5565,304 @@ describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt der
     expect(tick2Publish.state.lastStatusChangeAt).toBe(1000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// quick-260829-kmr — cross-identity background_tasks leak
+//
+// Source A used to read the box-wide `~/.claude/fleet-status/last-stop-payload.json`
+// for the hookPayload input to backgroundTasks — that file is shared across
+// every Claude session on the box, so identity A's WIP indicator lit up with
+// identity B's non-ambient tasks whenever B was the most-recent Stop-hook
+// writer. The fix: read per-session `~/.claude/fleet-status/stop-<sid>.json`
+// FIRST, fall back to box-wide when per-session is null/empty (backward compat
+// for sessions that have not fired Stop since the Phase 61 hook re-install).
+// emitHookPayloadWarn fires only when BOTH files are absent (widened "absent"
+// semantic; existing debounce contract preserved).
+//
+// Regex guard: identical to Phase 61's stat character-class guard
+// (`/^[a-zA-Z0-9_-]+$/`) — a sessionId with path-traversal chars causes the
+// per-session cat to be SKIPPED entirely, matching Phase 61's stat behavior at
+// ssh-poll-orchestrator.ts:1089.
+//
+// MockSshChannel pattern-collision discipline (see wireQuick260829Base helper):
+//   - `"cat ~/.claude/fleet-status/stop-"` (per-session PAYLOAD)
+//       Includes-match uniquely (box-wide has `fleet-status/last-stop-` which
+//       does NOT include `fleet-status/stop-` contiguously; Phase 61 stat has
+//       `stat -c %Y` prefix which does NOT include `cat `).
+//   - `"stat -c %Y ~/.claude/fleet-status/stop-"` (Phase 61 mtime)
+//   - `"cat ~/.claude/fleet-status/last-stop-payload.json"` (box-wide payload)
+// Patterns are disjoint; insertion order is defensive rather than load-bearing.
+// ---------------------------------------------------------------------------
+
+describe("quick-260829-kmr — cross-identity background_tasks leak: per-session hook-payload read + fallback", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // The three payload-related MockSshChannel patterns for this fix. Register
+  // via wireQuick260829Base; individual tests overwrite specific patterns to
+  // exercise the branches.
+  const PER_SESSION_PAYLOAD_PATTERN = "cat ~/.claude/fleet-status/stop-";
+  const PER_SESSION_STAT_PATTERN = "stat -c %Y ~/.claude/fleet-status/stop-";
+  const BOX_WIDE_PAYLOAD_PATTERN = "cat ~/.claude/fleet-status/last-stop-payload.json";
+
+  // Base wire-up mirroring Phase 59's wirePhase59Base — one PID (12345) with
+  // sessionId="test-session-id" (from makeSessionJson() default) reachable end
+  // to end through Promise.all → SessionState composition. The three payload
+  // patterns are registered here so tests only need to override the ones they
+  // care about (per-session PAYLOAD, box-wide payload, or Phase 61 stat).
+  function wireQuick260829Base(
+    channel: MockSshChannel,
+    sessionJsonOverride?: string,
+  ): void {
+    // Payload-related patterns registered FIRST so the includes-match loop
+    // hits them before less-specific patterns registered below (defensive;
+    // patterns are disjoint so order is not load-bearing).
+    channel.setResponse(PER_SESSION_PAYLOAD_PATTERN, ""); // default: file absent
+    channel.setResponse(PER_SESSION_STAT_PATTERN, ""); // default: no mtime
+    channel.setResponse(BOX_WIDE_PAYLOAD_PATTERN, ""); // default: file absent
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("ls -1 ~/.claude/identities/", "");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      sessionJsonOverride ?? makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+  }
+
+  // Locally-scoped duplicate of Phase 59's buildPhase59Deps (avoids touching
+  // Phase 59 tests). Same shape: registry + setIntervalFns exposed for manual
+  // tick triggering, controllable now() clock via a { now: number } ref.
+  function buildQuick260829Deps(
+    channel: MockSshChannel,
+    clock: { now: number },
+  ): OrchestratorDeps & {
+    registry: MockRegistry;
+    setIntervalFns: Array<{ fn: () => void; ms: number }>;
+  } {
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const registry = new MockRegistry();
+    const hosts: HostRecord[] = [{ id: "host-1", name: "testhost" }];
+    const deps: OrchestratorDeps = {
+      listIdentityHostingHosts: vi.fn().mockResolvedValue(hosts),
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      releaseSshChannel: vi.fn(),
+      registry,
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+      clearInterval: vi.fn(),
+      now: () => clock.now,
+      pollIntervalMs: 2000,
+      staleSweepIntervalMs: 30000,
+      hookPayloadPath: "~/.claude/fleet-status/last-stop-payload.json",
+      hookPayloadWarnCooldownMs: 60000,
+    };
+    return { ...deps, registry, setIntervalFns };
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEST A (quick-260829-kmr) — per-session PAYLOAD wins over box-wide when present.
+  //
+  // Load-bearing invariant: when the per-session file exists AND contains a
+  // valid StopHookPayload, its background_tasks[] MUST be published on the
+  // wire, NOT the box-wide file's. This is the direct proof that the
+  // cross-identity leak is closed — identity A's WIP no longer surfaces
+  // identity B's tasks even though the box-wide file still exists on disk
+  // with B's payload in it.
+  // ---------------------------------------------------------------------------
+
+  it("Test A: per-session PAYLOAD wins over box-wide when both present", async () => {
+    const channel = new MockSshChannel();
+    wireQuick260829Base(channel);
+
+    // Per-session payload: identity A's task.
+    channel.setResponse(
+      PER_SESSION_PAYLOAD_PATTERN,
+      makeValidPayload([
+        {
+          id: "task-a",
+          type: "shell",
+          status: "running",
+          description: "identity-A task",
+        },
+      ]),
+    );
+    // Box-wide payload: identity B's poisoned task (simulates B being the
+    // most-recent Stop-hook writer to the shared file).
+    channel.setResponse(
+      BOX_WIDE_PAYLOAD_PATTERN,
+      makeValidPayload([
+        {
+          id: "task-b",
+          type: "shell",
+          status: "running",
+          description: "identity-B task",
+        },
+      ]),
+    );
+
+    const clock = { now: 1000 };
+    const deps = buildQuick260829Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.backgroundTasks).toHaveLength(1);
+    expect(published.state.backgroundTasks[0].description).toBe("identity-A task");
+    // Load-bearing: identity B's task MUST NOT appear on identity A's wire.
+    const descriptions = published.state.backgroundTasks.map((t) => t.description);
+    expect(descriptions).not.toContain("identity-B task");
+  });
+
+  // ---------------------------------------------------------------------------
+  // TEST B (quick-260829-kmr) — per-session file empty → falls back to box-wide payload.
+  //
+  // Load-bearing invariant: sessions that have not fired Stop since the
+  // Phase 61 hook re-install (no per-session file yet) MUST continue to see
+  // the box-wide payload — backward compat. The transition to per-session
+  // must not blank the WIP indicator for pre-Phase-61 sessions.
+  // ---------------------------------------------------------------------------
+
+  it("Test B: per-session file empty → falls back to box-wide payload (backward compat)", async () => {
+    const channel = new MockSshChannel();
+    wireQuick260829Base(channel);
+
+    // Per-session absent (empty stdout — file doesn't exist, `|| true` suppressed
+    // the non-zero exit from cat).
+    channel.setResponse(PER_SESSION_PAYLOAD_PATTERN, "");
+    // Box-wide payload present with a real task.
+    channel.setResponse(
+      BOX_WIDE_PAYLOAD_PATTERN,
+      makeValidPayload([
+        {
+          id: "task-fallback",
+          type: "shell",
+          status: "running",
+          description: "box-wide fallback task",
+        },
+      ]),
+    );
+
+    const clock = { now: 1000 };
+    const deps = buildQuick260829Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.backgroundTasks).toHaveLength(1);
+    expect(published.state.backgroundTasks[0].description).toBe(
+      "box-wide fallback task",
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // TEST C (quick-260829-kmr) — BOTH sources empty → backgroundTasks=[] AND ONE
+  //           emitHookPayloadWarn.
+  //
+  // Load-bearing invariants:
+  //   (1) Widened "absent" semantic: warn fires ONLY when BOTH files are
+  //       null/empty (proves the boolean OR of previous single-source
+  //       missing-semantic was widened correctly).
+  //   (2) Debounce contract preserved: exactly ONE warn per host per
+  //       cooldown window (mirrors Test 5 / F1 warn-count filter).
+  // ---------------------------------------------------------------------------
+
+  it("Test C: BOTH sources empty → backgroundTasks=[] AND exactly one hook-payload-missing warn", async () => {
+    const channel = new MockSshChannel();
+    wireQuick260829Base(channel);
+    // Both payload files absent.
+    channel.setResponse(PER_SESSION_PAYLOAD_PATTERN, "");
+    channel.setResponse(BOX_WIDE_PAYLOAD_PATTERN, "");
+
+    const clock = { now: 1000 };
+    const deps = buildQuick260829Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.backgroundTasks).toEqual([]);
+
+    // Warn assertion — same filter shape used at L361-368 / L399-405 in Test 5.
+    const warnCalls = (systemLogger.warn as unknown as MockInstance).mock.calls;
+    const hookWarnCount = warnCalls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "fleet_status_hook_payload_missing",
+    ).length;
+    expect(hookWarnCount).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // TEST D (quick-260829-kmr) — sessionId with path-traversal chars fails the regex guard →
+  //           per-session cat is SKIPPED entirely, box-wide is consulted
+  //           directly.
+  //
+  // Load-bearing invariants:
+  //   (a) No per-session cat command was fired (verified via
+  //       channel.getCalls() call log — MockSshChannel logs every .exec()
+  //       call regardless of pattern-map hit). This is the observable proof
+  //       that the regex guard blocked the read at the source; a POISON
+  //       response registered under the per-session pattern must NEVER be
+  //       observed on the wire even though the response map contains it.
+  //   (b) Box-wide payload IS consulted immediately as fallback (proves the
+  //       skip does NOT blank backgroundTasks — mirrors Phase 61 stat's
+  //       fail-open-on-skip behavior at ssh-poll-orchestrator.ts:1104-1106).
+  //
+  // The illegal sessionId "../evil" contains `.` and `/`, both excluded by
+  // the `/^[a-zA-Z0-9_-]+$/` character class.
+  // ---------------------------------------------------------------------------
+
+  it("Test D: sessionId failing regex guard → per-session cat is SKIPPED entirely; box-wide fallback consulted directly", async () => {
+    const channel = new MockSshChannel();
+    wireQuick260829Base(channel, makeSessionJson({ sessionId: "../evil" }));
+
+    // POISON: this response must never be observed. If the regex guard is
+    // wrong and the per-session cat DOES fire, the POISON payload would be
+    // parsed and appear on the wire — the box-wide fallback assertion below
+    // would then FAIL.
+    channel.setResponse(PER_SESSION_PAYLOAD_PATTERN, "POISON — must not be read");
+    // Box-wide payload is what the consumer MUST fall back to.
+    channel.setResponse(
+      BOX_WIDE_PAYLOAD_PATTERN,
+      makeValidPayload([
+        {
+          id: "task-guarded",
+          type: "shell",
+          status: "running",
+          description: "regex-guarded fallback",
+        },
+      ]),
+    );
+
+    const clock = { now: 1000 };
+    const deps = buildQuick260829Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Assertion (a): the call log must NOT contain any `cat …fleet-status/stop-`
+    // command. Check the CALL LOG (observable behavior), NOT the responses map.
+    const perSessionCatCalls = channel
+      .getCalls()
+      .filter((c) => /cat .*fleet-status\/stop-/.test(c.command));
+    expect(perSessionCatCalls).toHaveLength(0);
+
+    // Assertion (b): box-wide payload IS on the wire — regex-guard skip fell
+    // through to box-wide correctly.
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.backgroundTasks).toHaveLength(1);
+    expect(published.state.backgroundTasks[0].description).toBe(
+      "regex-guarded fallback",
+    );
+  });
+});

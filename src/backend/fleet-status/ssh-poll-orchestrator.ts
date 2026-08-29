@@ -1106,6 +1106,27 @@ export function createSshPollOrchestrator(
     // defaults to on when lastStopAt stays null).
 
     // -------------------------------------------------------------------------
+    // Quick 260829-kmr: per-session Stop-hook PAYLOAD read (separate from Phase 61's mtime
+    //   stat above). Mirrors Phase 61's regex + shellSingleQuote pattern so an illegal
+    //   sessionId cannot path-traverse a foreign identity's payload. On null/empty here
+    //   the consumer below falls back to the box-wide `hookPayloadRaw` for backward compat
+    //   with sessions that have not fired Stop since the Phase 61 hook re-install.
+    //   THIS FIXES the cross-identity background_tasks leak — the box-wide file is shared
+    //   across all Claude sessions on the box, so identity A previously saw identity B's
+    //   non-ambient tasks in its WIP indicator. Per-session file is session-scoped.
+    // -------------------------------------------------------------------------
+    let perSessionHookPayloadRaw: string | null = null;
+    if (/^[a-zA-Z0-9_-]+$/.test(sessionJson.sessionId)) {
+      const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+      perSessionHookPayloadRaw = await channel.exec(
+        `cat ~/.claude/fleet-status/stop-${quotedSessionId}.json 2>/dev/null || true`,
+      );
+    }
+    // sessionId failed the guard → perSessionHookPayloadRaw stays null and the
+    // consumer below falls through to the box-wide `hookPayloadRaw`, mirroring
+    // the Phase 61 stat's fail-open-on-skip behavior at L1104-1106 above.
+
+    // -------------------------------------------------------------------------
     // Phase 59 Plan 02 — server-side status-delta tracking for the
     // lastStatusChangeAt axis. MUST NOT source from sessionJson.updatedAt
     // (Research § Common Pitfalls Pitfall 4: the harness bumps updatedAt
@@ -1332,13 +1353,25 @@ export function createSshPollOrchestrator(
       return;
     }
 
-    // Parse hook payload — fail-open if absent/malformed/error
+    // Fix (quick-260829-kmr): per-session preferred, box-wide fallback,
+    // both-missing → warn once. `perSessionHookPayloadRaw` came from the
+    // session-scoped `~/.claude/fleet-status/stop-<sessionId>.json` read
+    // above; `hookPayloadRaw` came from the legacy box-wide
+    // `~/.claude/fleet-status/last-stop-payload.json` read at ~L1009. Widened
+    // "absent" semantic: emitHookPayloadWarn fires only when BOTH sources are
+    // null/empty. Debounce contract inside emitHookPayloadWarn preserved
+    // unchanged.
     let backgroundTasks: SessionState["backgroundTasks"] = [];
+    const perSessionUsable =
+      perSessionHookPayloadRaw !== null && perSessionHookPayloadRaw.trim() !== "";
+    const selectedHookPayloadRaw: string | null = perSessionUsable
+      ? perSessionHookPayloadRaw
+      : hookPayloadRaw;
     const isHookPayloadMissing =
-      hookPayloadRaw === null || hookPayloadRaw.trim() === "";
+      selectedHookPayloadRaw === null || selectedHookPayloadRaw.trim() === "";
 
     if (!isHookPayloadMissing) {
-      const payload = parseStopHookPayload(hookPayloadRaw!);
+      const payload = parseStopHookPayload(selectedHookPayloadRaw!);
       if (payload !== null) {
         backgroundTasks = filterAmbientTasks(payload.background_tasks);
       } else {
@@ -1346,7 +1379,7 @@ export function createSshPollOrchestrator(
         emitHookPayloadWarn(hostState, host.id);
       }
     } else {
-      // null or empty — fail-open
+      // BOTH per-session AND box-wide null/empty — fail-open
       emitHookPayloadWarn(hostState, host.id);
     }
 
