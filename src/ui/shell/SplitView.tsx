@@ -395,9 +395,26 @@ const Pane = memo(function Pane({
   }, [path.join("."), onDropRowInTree, onOpenSessionInTree]);
 
   return (
+    /* Patch #517 follow-up (quick-260829-fh3): `isolate` establishes a CSS
+       stacking context on this Pane wrapper. Without it, PrettyView's
+       high-z descendants — IdentityBadge (z-[101] at
+       features/terminal/IdentityBadge.tsx:90), DropOverlay (z-[95]),
+       SessionHoldingOverlay (z-[99]), and the composebox close button —
+       are compared against the AppShell tree and beat the normal-view
+       container's zIndex:10 (src/ui/AppShell.tsx:2552-2555) that is
+       supposed to cover the split when the active tab is outside the
+       split tree. 2026-08-28 UAT trace: ghost identity badge +
+       composebox chrome hovering on top of an RDP surface after
+       clicking a non-split-tree RDP session while a multi-view split
+       was active. `isolate` (Tailwind v4 shorthand for
+       `isolation: isolate`) contains that z-index budget inside the
+       Pane. Regression test at SplitView.stacking-context.test.tsx.
+       Do NOT remove without either (a) removing every z-[NN] > 10
+       inside PrettyView chrome, or (b) restructuring the AppShell
+       layer gate. Both are strictly larger changes. */
     <div
       ref={outerRef}
-      className={`relative flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden transition-colors ${
+      className={`relative isolate flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden transition-colors ${
         isFocused ? "ring-1 ring-inset ring-accent-brand/30" : ""
       }`}
       onClick={() => onPaneClick?.(tabId)}

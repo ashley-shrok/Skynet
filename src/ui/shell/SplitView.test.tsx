@@ -297,7 +297,7 @@ describe("SplitView — Phase 56 Plan 03: nearest-edge drop geometry", () => {
   // element that owns the onDrop handler (React sets e.currentTarget to it).
   function findPaneOuter(from: HTMLElement): HTMLElement {
     let cur: HTMLElement | null = from.parentElement;
-    while (cur && !cur.className.includes("relative flex flex-col")) {
+    while (cur && !cur.className.includes("relative isolate flex flex-col")) {
       cur = cur.parentElement;
     }
     if (!cur) throw new Error("Pane outer div not found");
@@ -478,7 +478,7 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
 
   function findPaneOuter(from: HTMLElement): HTMLElement {
     let cur: HTMLElement | null = from.parentElement;
-    while (cur && !cur.className.includes("relative flex flex-col")) {
+    while (cur && !cur.className.includes("relative isolate flex flex-col")) {
       cur = cur.parentElement;
     }
     if (!cur) throw new Error("Pane outer div not found");
