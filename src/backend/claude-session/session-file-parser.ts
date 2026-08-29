@@ -1252,6 +1252,38 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     return { kind: "skip", why: "empty_content" };
   }
 
+  // Quick-260829-r9i: skip 5 session-lifecycle noise shapes that render as
+  // user-role bubbles in PrettyView but aren't real user speech — they're
+  // supervisor-injected slash commands, resume sentinels, goodbye echoes, and
+  // Ctrl-C kill payloads. All cheap substring/prefix checks, placed BEFORE
+  // the harness_wrapper regex strip so they short-circuit first.
+  //
+  // Mirrors the isAshleyRealUserTurn predicate in
+  // src/backend/fleet-status/ssh-poll-orchestrator.ts for slash_exit,
+  // resume_injection, and ctrl_c_kill. slash_id is NOT excluded there
+  // (backend uses /id as an "Ashley present" signal) but IS excluded here
+  // (bubble noise). goodbye_echo is deliberately narrow to the literal
+  // "Goodbye!" stdout — other <local-command-stdout>...</local-command-stdout>
+  // blocks still render because Ashley intentionally invokes other
+  // slash-commands whose output is useful context.
+  if (isUser && imageRefs.length === 0 && typeof content === "string") {
+    if (content.includes("<command-name>/exit</command-name>")) {
+      return { kind: "skip", why: "slash_exit" };
+    }
+    if (content.includes("<command-name>/id</command-name>")) {
+      return { kind: "skip", why: "slash_id" };
+    }
+    if (content.trim() === "<local-command-stdout>Goodbye!</local-command-stdout>") {
+      return { kind: "skip", why: "goodbye_echo" };
+    }
+    if (content.startsWith("Your session was just resumed by the agent-supervisor")) {
+      return { kind: "skip", why: "resume_injection" };
+    }
+    if (content.trim().replace(/[\x00-\x1F]/g, "") === "") {
+      return { kind: "skip", why: "ctrl_c_kill" };
+    }
+  }
+
   // Skip harness-injected wrapper-only user turns. The Monitor tool
   // ("<task-notification>") and stop-hook nudges ("<system-reminder>")
   // land as user turns because the harness stitches them into the user

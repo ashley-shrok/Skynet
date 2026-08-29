@@ -1157,3 +1157,148 @@ describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50
     expect(parsed.kind).toBe("skip");
   });
 });
+
+describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)", () => {
+  // Five negative tests — one per new skip reason. Each fixture mirrors a real
+  // JSONL shape observed in the wild that Ashley wants hidden from PrettyView
+  // bubbles.
+
+  it("Test R9I-1: slash_exit — supervisor-injected /exit command turn is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-1",
+        timestamp: "2026-08-29T10:00:00.000Z",
+        message: {
+          content:
+            "<command-name>/exit</command-name>\n            <command-message>exit</command-message>\n            <command-args></command-args>",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("slash_exit");
+  });
+
+  it("Test R9I-2: slash_id — /id invocation is skipped (args-agnostic)", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-2",
+        timestamp: "2026-08-29T10:00:01.000Z",
+        message: {
+          content:
+            "<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>tina</command-args>",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("slash_id");
+  });
+
+  it("Test R9I-3: goodbye_echo — literal Goodbye! stdout is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-3",
+        timestamp: "2026-08-29T10:00:02.000Z",
+        message: {
+          content: "<local-command-stdout>Goodbye!</local-command-stdout>",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("goodbye_echo");
+  });
+
+  it("Test R9I-4: resume_injection — agent-supervisor resume sentinel is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-4",
+        timestamp: "2026-08-29T10:00:03.000Z",
+        message: {
+          content:
+            "Your session was just resumed by the agent-supervisor. Continue with your task.",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("resume_injection");
+  });
+
+  it("Test R9I-5: ctrl_c_kill — double Ctrl-C (\\x03\\x03) is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-5",
+        timestamp: "2026-08-29T10:00:04.000Z",
+        message: {
+          content: "\x03\x03",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("ctrl_c_kill");
+  });
+
+  // Three positive-passthrough tests — verify the skips don't over-match real
+  // user speech.
+
+  it("Test R9I-6: resume sentinel quoted inside real prose (not at position 0) passes through as message", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-6",
+        timestamp: "2026-08-29T10:00:05.000Z",
+        message: {
+          content:
+            "I was reading the logs and saw 'Your session was just resumed by the agent-supervisor' in the tail — is that expected?",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("user");
+    expect(parsed.content).toContain("Your session was just resumed by the agent-supervisor");
+  });
+
+  it("Test R9I-7: /gsd:quick slash-command invocation passes through as message (only /id and /exit are skipped)", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-7",
+        timestamp: "2026-08-29T10:00:06.000Z",
+        message: {
+          content:
+            "<command-name>/gsd:quick</command-name>\n<command-message>gsd:quick</command-message>\n<command-args>fix the tab titles</command-args>",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("user");
+    expect(parsed.content).toContain("/gsd:quick");
+  });
+
+  it("Test R9I-8: legitimate user prose containing angle brackets passes through as message", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-8",
+        timestamp: "2026-08-29T10:00:07.000Z",
+        message: {
+          content: "< 100 rows returned > and the ratio is > 0.5",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("user");
+    expect(parsed.content).toBe("< 100 rows returned > and the ratio is > 0.5");
+  });
+});
