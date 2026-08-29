@@ -1291,6 +1291,36 @@ export function PrettyConversationsPanel({
   //     means non-badge drops (e.g. OS file drags) never call preventDefault
   //     during dragover — the browser's default not-a-drop-target semantic
   //     is preserved.
+  // ─── Phase 59 Plan 01 Gap 2: coral tint state for badge drop-to-close ───
+  // Additive on the existing Phase 58 Plan 02 handlers. Set true INSIDE the
+  // badge type-gate so row drags + OS file drags NEVER trigger tint. Cleared
+  // on drop / bounding-rect-guarded dragleave / window-level dragend
+  // (Escape-cancel). Ref-based zone-change gate for the structured log
+  // mirrors SplitView.tsx:223 prevZoneRef — synchronous ref-write is atomic
+  // with log emission, avoids React 18 strict-mode double-fire. `null`
+  // initial (not `false`) so the first false→false transition never emits.
+  const [isBadgeDragOver, setIsBadgeDragOver] = useState(false);
+  const prevConvlistVisibleRef = useRef<boolean | null>(null);
+
+  // Phase 59 Gap 2 — window-level dragend listener for Escape-cancel path.
+  // Escape cancels a drag WITHOUT moving the cursor, so no dragleave fires;
+  // dragend on the drag source (IdentityBadge per Phase 58 Plan 01) is the
+  // only reliable signal. Window-level attach — dragend fires on the SOURCE
+  // element, not on this panel. Empty deps: ref-write pattern doesn't
+  // capture any changing state (unlike Task 1's splitTree closure).
+  useEffect(() => {
+    const onDragEnd = () => {
+      setIsBadgeDragOver(false);
+      if (prevConvlistVisibleRef.current !== false) {
+        // eslint-disable-next-line no-console
+        console.info(`[convlist-drop-preview] visible=false`);
+        prevConvlistVisibleRef.current = false;
+      }
+    };
+    window.addEventListener("dragend", onDragEnd);
+    return () => window.removeEventListener("dragend", onDragEnd);
+  }, []);
+
   const handlePanelDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     // Only badge drags get captured. Row drags + OS file drags fall through
     // without preventDefault so the browser doesn't treat the panel as a
@@ -1299,9 +1329,53 @@ export function PrettyConversationsPanel({
     const types = e.dataTransfer?.types;
     if (types && Array.from(types).indexOf("application/x-skynet-badge") !== -1) {
       e.preventDefault();
+      // Phase 59 Gap 2 tint state — INSIDE the type-gate so non-badge drags
+      // (row drags, OS file drags) NEVER trigger tint (per CONTEXT.md
+      // §Edge case #3). Zone-change-gated log for audit trail.
+      setIsBadgeDragOver(true);
+      if (prevConvlistVisibleRef.current !== true) {
+        // eslint-disable-next-line no-console
+        console.info(`[convlist-drop-preview] visible=true`);
+        prevConvlistVisibleRef.current = true;
+      }
+    }
+  };
+  const handlePanelDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    // Phase 59 Gap 2 — type-gate FIRST (mirror SplitView.tsx:292 pattern +
+    // handlePanelDragOver's :1300 type-gate shape). Unrelated dragleaves
+    // (row drags, OS file drags) never clear tint state.
+    const types = e.dataTransfer?.types;
+    if (
+      !(types && Array.from(types).indexOf("application/x-skynet-badge") !== -1)
+    )
+      return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    // Bounding-rect stateless guard (mirror SplitView.tsx:301-305) — robust
+    // against dragleaves fired when the cursor crosses child row boundaries.
+    const stillInside =
+      e.clientX >= rect.left &&
+      e.clientX <= rect.right &&
+      e.clientY >= rect.top &&
+      e.clientY <= rect.bottom;
+    if (stillInside) return;
+    setIsBadgeDragOver(false);
+    if (prevConvlistVisibleRef.current !== false) {
+      // eslint-disable-next-line no-console
+      console.info(`[convlist-drop-preview] visible=false`);
+      prevConvlistVisibleRef.current = false;
     }
   };
   const handlePanelDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    // Phase 59 Gap 2 tint clear — clear FIRST regardless of downstream 6-step
+    // gauntlet outcome. Defensive: even a non-badge drop that reaches this
+    // handler (shouldn't be possible given the dragover type-gate) still
+    // clears state. Idempotent.
+    setIsBadgeDragOver(false);
+    if (prevConvlistVisibleRef.current !== false) {
+      // eslint-disable-next-line no-console
+      console.info(`[convlist-drop-preview] visible=false`);
+      prevConvlistVisibleRef.current = false;
+    }
     // Step 1: read the discriminator MIME. Empty string = not a badge drop.
     const raw = e.dataTransfer?.getData("application/x-skynet-badge") ?? "";
     if (raw === "") return;
@@ -1360,8 +1434,32 @@ export function PrettyConversationsPanel({
       data-testid="pretty-conversations-panel"
       data-variant={variant}
       onDragOver={handlePanelDragOver}
+      onDragLeave={handlePanelDragLeave}
       onDrop={handlePanelDrop}
     >
+      {/* Phase 59 Plan 01 Gap 2 — coral drop-target-affordance tint overlay.
+          Sibling to the header (:pv-panel-header shrink-0) and scroll region
+          below. Signals that dropping an IdentityBadge here will close the
+          session (destructive gesture — Ashley UAT 2026-08-28: "no tint or
+          anything. So it doesn't necessarily seem interactable.").
+          Palette values verbatim from SplitView.tsx:446-447 (`--highlight`
+          from prototype). pointer-events-none is LOAD-BEARING — drop still
+          fires on the underlying panel div. zIndex 30 matches Gap 1
+          (AppShell.tsx empty-PV overlay) for visual-language consistency.
+          Single-condition render gate — no architectural exclusion here
+          (unlike Gap 1's splitTree === null gate). */}
+      {isBadgeDragOver && (
+        <div
+          data-testid="convlist-drop-preview"
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: "rgba(255, 184, 150, 0.22)",
+            border: "2px solid rgba(255, 184, 150, 0.60)",
+            zIndex: 30,
+            transition: "opacity 120ms ease",
+          }}
+        />
+      )}
       {/* Header: mock v4 `.pv-panel-header` treatment (14px 16px padding +
           hairline border-bottom via --color-pv-border-quiet, 12px UPPERCASE
           700-weight 0.1em-tracked title in --color-pv-fg, 32x32 transparent

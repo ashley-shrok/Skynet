@@ -30,6 +30,7 @@ import {
   act,
   render,
   fireEvent,
+  createEvent,
   waitFor,
   screen,
   within,
@@ -4394,5 +4395,251 @@ describe("PrettyConversationsPanel: Phase 58 Plan 02 — Test I (integration): I
     expect(JSON.parse(badgePayload).tabId).toBe("tab-alice-1");
     // effectAllowed matches the conv-list row convention (Phase 56 patch #511).
     expect(dt.effectAllowed).toBe("move");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 59 Plan 01 Task 2 — coral tint overlay on conv-list panel drop-to-close (Gap 2)
+// ─────────────────────────────────────────────────────────────────────────────
+// Eight tests (A-H) defend the coral drop-target-affordance tint added on the
+// outermost data-testid="pretty-conversations-panel" element. Additive on the
+// existing Phase 58 Plan 02 6-step validation gauntlet — the tint state is
+// set INSIDE the existing badge type-gate and clears on drop/dragleave/dragend
+// without perturbing the close mechanics.
+//
+//   A: badge dragOver → overlay rendered
+//   B: row-drag (application/x-skynet-row) dragOver → overlay NOT rendered
+//   C: OS file drag (Files) dragOver → overlay NOT rendered
+//   D: dragOver+drop → overlay clears AND onCloseSession still fires (regression)
+//   E: window dragend → overlay clears (Escape-cancel)
+//   F: dragLeave INSIDE bounding rect → overlay STAYS (child-boundary crossing guard)
+//   G: dragLeave OUTSIDE bounding rect → overlay ABSENT
+//   H: two identical badge dragOvers emit [convlist-drop-preview] visible=true
+//      EXACTLY once (zone-change gate); drop adds one visible=false log
+//
+// Reuses makeConvListDataTransferStub from Phase 58 tests (:4078). jsdom does
+// not honor clientX/Y via DragEvent init — dispatchPanelDragLeaveAt uses
+// createEvent + Object.defineProperty per SplitView.test.tsx:448-461 pattern.
+
+function dispatchPanelDragLeaveAt(
+  el: Element,
+  clientX: number,
+  clientY: number,
+  dt: ReturnType<typeof makeConvListDataTransferStub>,
+): void {
+  const evt = createEvent.dragLeave(el, { dataTransfer: dt });
+  Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
+  Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
+  fireEvent(el, evt);
+}
+
+// Set a known bounding rect on the panel for tests F/G. Uses HTMLElement.prototype
+// override in beforeEach + restore in afterEach.
+const PANEL_KNOWN_RECT: DOMRect = {
+  left: 100,
+  top: 100,
+  right: 500,
+  bottom: 500,
+  x: 100,
+  y: 100,
+  width: 400,
+  height: 400,
+  toJSON() {
+    return this;
+  },
+};
+
+describe("PrettyConversationsPanel: Phase 59 — coral tint overlay on badge drop-to-close", () => {
+  let originalGetBoundingClientRect: () => DOMRect;
+
+  beforeEach(() => {
+    originalGetBoundingClientRect =
+      HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      return PANEL_KNOWN_RECT;
+    };
+  });
+
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect =
+      originalGetBoundingClientRect;
+    vi.restoreAllMocks();
+  });
+
+  it("Test A: dragOver with application/x-skynet-badge renders the coral overlay", () => {
+    const { getByTestId, queryByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={() => {}}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+    expect(queryByTestId("convlist-drop-preview")).not.toBeNull();
+  });
+
+  it("Test B: dragOver with application/x-skynet-row (stray row drag) does NOT render the coral overlay", () => {
+    const { getByTestId, queryByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={() => {}}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-row": JSON.stringify({ tabId: "tab-tina-42" }),
+      "text/plain": "tab-tina-42",
+    });
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+    expect(queryByTestId("convlist-drop-preview")).toBeNull();
+  });
+
+  it("Test C: dragOver with Files (OS file drag) does NOT render the coral overlay", () => {
+    const { getByTestId, queryByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={() => {}}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({ Files: "" });
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+    expect(queryByTestId("convlist-drop-preview")).toBeNull();
+  });
+
+  it("Test D (regression): dragOver+drop clears the overlay AND onCloseSession still fires with the correct tabId", () => {
+    const onCloseSession = vi.fn();
+    const { getByTestId, queryByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={onCloseSession}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+    expect(queryByTestId("convlist-drop-preview")).not.toBeNull();
+    fireEvent.drop(panel, { dataTransfer: dt });
+    expect(queryByTestId("convlist-drop-preview")).toBeNull();
+    // Existing Phase 58 Plan 02 6-step gauntlet not perturbed by tint state.
+    expect(onCloseSession).toHaveBeenCalledTimes(1);
+    expect(onCloseSession).toHaveBeenCalledWith("tab-tina-42");
+  });
+
+  it("Test E: window-level dragend clears the overlay (Escape-cancel path)", () => {
+    const { getByTestId, queryByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={() => {}}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+    expect(queryByTestId("convlist-drop-preview")).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new Event("dragend"));
+    });
+    expect(queryByTestId("convlist-drop-preview")).toBeNull();
+  });
+
+  it("Test F: dragLeave with clientX/Y INSIDE the panel's bounding rect does NOT clear (row-boundary crossing guard)", () => {
+    const { getByTestId, queryByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={() => {}}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+    expect(queryByTestId("convlist-drop-preview")).not.toBeNull();
+    // PANEL_KNOWN_RECT is 100/100/500/500 — 300,300 is inside.
+    dispatchPanelDragLeaveAt(panel, 300, 300, dt);
+    expect(queryByTestId("convlist-drop-preview")).not.toBeNull();
+  });
+
+  it("Test G: dragLeave with clientX/Y OUTSIDE the panel's bounding rect clears the overlay", () => {
+    const { getByTestId, queryByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={() => {}}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+    expect(queryByTestId("convlist-drop-preview")).not.toBeNull();
+    // 50,50 is outside the known rect (left=100).
+    dispatchPanelDragLeaveAt(panel, 50, 50, dt);
+    expect(queryByTestId("convlist-drop-preview")).toBeNull();
+  });
+
+  it("Test H: two identical badge dragOvers emit [convlist-drop-preview] visible=true EXACTLY once (zone-change gate); drop adds one visible=false log", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const { getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCloseSession={() => {}}
+        openTabIds={["tab-tina-42"]}
+      />,
+    );
+    const panel = getByTestId("pretty-conversations-panel");
+    const dt = makeConvListDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-tina-42" }),
+    });
+
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+    fireEvent.dragOver(panel, { dataTransfer: dt });
+
+    const previewCallsAfterDragOvers = infoSpy.mock.calls.filter(
+      (call) =>
+        typeof call[0] === "string" &&
+        call[0].startsWith("[convlist-drop-preview] "),
+    );
+    expect(previewCallsAfterDragOvers).toHaveLength(1);
+    expect(previewCallsAfterDragOvers[0][0]).toBe(
+      "[convlist-drop-preview] visible=true",
+    );
+
+    fireEvent.drop(panel, { dataTransfer: dt });
+
+    const previewCallsAfterDrop = infoSpy.mock.calls.filter(
+      (call) =>
+        typeof call[0] === "string" &&
+        call[0].startsWith("[convlist-drop-preview] "),
+    );
+    expect(previewCallsAfterDrop).toHaveLength(2);
+    expect(previewCallsAfterDrop[1][0]).toBe(
+      "[convlist-drop-preview] visible=false",
+    );
+
+    infoSpy.mockRestore();
   });
 });
