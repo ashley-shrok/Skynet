@@ -22,6 +22,12 @@ import { CommandPalette } from "@/shell/CommandPalette";
 // sidebar is now the only visible sidebar-panel content. Panel FILES stay on
 // disk (Phase 12+ scope-fence).
 import { SplitView } from "@/shell/SplitView";
+// quick-260829-ih3: CollapsedPanelCloseLane — proxy close-target lane that
+// stands in for the PrettyConversationsPanel during a badge drag when the
+// sidebar is closed. See .planning/shapes/shape-drop-lane-close-in-split-view.md.
+import CollapsedPanelCloseLane, {
+  useDraggedBadgeTabId,
+} from "@/shell/CollapsedPanelCloseLane";
 import { renderTabContent } from "@/shell/tabUtils";
 import type {
   Tab,
@@ -325,6 +331,11 @@ export function AppShell({
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
   const { byKey: identitiesByKey } = useIdentities();
+  // quick-260829-ih3: window-scoped hook — returns the tabId of the currently-
+  // in-flight identity badge drag (via IdentityBadge dragstart payload MIME
+  // application/x-skynet-badge), or null if none is in flight. Feeds the
+  // CollapsedPanelCloseLane mount gate below.
+  const draggedBadgeTabId = useDraggedBadgeTabId();
 
   // Phase 41 Plan 02: document.title retarget — read the active tab's tmux
   // session name from the fleet-status broadcast store (session-tmux-store)
@@ -2279,6 +2290,27 @@ export function AppShell({
               become dead weight. Ashley's UAT (2026-07-24) confirmed two
               chevrons were rendering simultaneously on mobile-in-conv;
               deleting this block resolves the duplicate. */}
+          {/* quick-260829-ih3: CollapsedPanelCloseLane — proxy close-target
+              for the collapsed conv-list panel during a badge drag. Gate
+              matches the shape file's suppression rules:
+                - !isMobile              (no split view on mobile)
+                - !isMobileListScreen    (sidebar occupies the whole viewport)
+                - !sidebarOpen           (real panel is already the drop
+                                          target — no need for a proxy)
+              Mounted INSIDE the main-content column (:2253 outer, which is
+              already `relative flex flex-col flex-1 min-w-0 overflow-hidden`)
+              but OUTSIDE the inner :2291 wrapper that owns the empty-PV drop
+              handlers — so the lane's absolute-positioned coral hover state
+              doesn't compete with PrettyView drop targets. Wire pass-throughs
+              mirror the panel-drop wire at :1919 verbatim (closeTab +
+              tabs.map(t => t.id)) — same close routine, new surface. */}
+          {!isMobile && !isMobileListScreen && !sidebarOpen && (
+            <CollapsedPanelCloseLane
+              draggedBadgeTabId={draggedBadgeTabId}
+              openTabIds={tabs.map((t) => t.id)}
+              onCloseTab={closeTab}
+            />
+          )}
           <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
             {/* Plan 06-02: tab strip DELETED unconditionally (TG-11 — full
                 replacement, no toggle). The conversation-store's selectedId
