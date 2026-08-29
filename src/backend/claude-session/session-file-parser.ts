@@ -850,19 +850,22 @@ export function detectRelayInbound(
  * § decisions "Migration strategy" + § test-strategy — B1 revision
  * 2026-08-10): this predicate does NOT modify parseSessionLine's
  * message-emission path. Callers that want to react to /id reset call
- * this predicate directly on the raw JSON object; the /id reset text
- * STILL renders as a normal user message bubble in pretty view per
- * Ashley's pre-existing HARD LOCK on slash-command visibility (see
- * `claude-session-server.ts:1592-1597` for the doctrine). The state
- * transition is orthogonal to whether the /id reset text renders as a
- * chat bubble.
+ * this predicate directly on the raw JSON object; the emission channel
+ * is independent. Post quick-260829-r9i (2026-08-29): parseSessionLine
+ * now SKIPS all `/id` user turns as session-lifecycle noise (Ashley
+ * reversed the prior HARD LOCK on slash-command visibility). The state
+ * transition remains orthogonal — whether the bubble renders or is
+ * skipped does not affect the pane_state:holding emission.
  *
  * ORTHOGONALITY PROOF (Test 13 in session-file-parser.id-reset.test.ts):
- * for a real /id reset line, BOTH `detectIdReset(JSON.parse(line)) === true`
- * AND `parseSessionLine(line).kind === "message"`. The detection channel
- * and the message-emission channel are orthogonal — one line produces
- * both signals independently. This is the load-bearing invariant the
- * B1-revised design depends on.
+ * for a real /id reset line, `detectIdReset(JSON.parse(line)) === true`
+ * (channel fires) AND `parseSessionLine(line).kind === "skip"` with
+ * `why === "slash_id"` (bubble suppressed under the r9i policy). The
+ * detection channel and the message-emission channel are orthogonal —
+ * one line produces both signals independently. This is the load-bearing
+ * invariant the B1-revised design depends on; r9i only changed the
+ * emission channel's OUTCOME for /id turns (message → skip), not the
+ * orthogonality itself.
  */
 export function detectIdReset(obj: Record<string, unknown>): boolean {
   if (obj.type !== "user") return false;

@@ -5,10 +5,16 @@
  * Phase 30 Plan 30-02 (PS30-02, revised per plan-checker B1): detection of
  * `/id reset` in user turns is a PURE OBSERVATION CHANNEL. It emits a
  * `pane_state: holding` transition via the emitter from Plan 30-01 (wired in
- * `claude-session-server.ts` onLine), but it does NOT modify the message
- * stream. Ashley's pre-existing HARD LOCK on slash-command visibility
- * (`claude-session-server.ts:1592-1597`) is preserved verbatim — the /id
- * reset user turn STILL renders as a normal chat bubble in pretty view.
+ * `claude-session-server.ts` onLine), independently of whether the /id turn
+ * renders as a bubble.
+ *
+ * ⚠️ Slash-command visibility policy REVERSED 2026-08-29 (Ashley, quick-260829-r9i):
+ * the pre-existing HARD LOCK that required `/id` user turns to render as normal
+ * chat bubbles has been dropped. `/id` invocations are session-lifecycle noise
+ * and now SKIP (`kind:"skip", why:"slash_id"`). The observation channel is
+ * unaffected — `detectIdReset` still fires on the same line; the pane_state
+ * transition still emits. See `session-file-parser.ts` skip block for the
+ * `slash_id` predicate; see the Ashley-said prose in the r9i quick-task PLAN.md.
  *
  * This file is a SIBLING to `session-file-parser.test.ts` (per
  * `30-CONTEXT.md § canonical_refs`: extend, don't rewrite the existing
@@ -20,13 +26,11 @@
  *   6:    assistant turn quoting /id reset text → false
  *   7:    tool_result user turn carrying /id reset markup → false
  *   8:    non-user, non-assistant type (attachment) → false
- *   9-11: parseSessionLine HARD LOCK preservation — /id reset lines
- *         (bare + freeform) and non-reset /id subcommand render as
- *         `kind:"message"` chat bubbles (regression protection)
  *   12:   round-trip invariant with layer1-detect.ts:isIdResetUserTurn
- *   13:   orthogonality proof — detection AND message-emission fire
- *         independently on the same line (the load-bearing invariant of
- *         the B1-revised design)
+ *   13:   orthogonality proof — detection fires (channel intact) while
+ *         parseSessionLine skips the same line as `slash_id` (post-r9i
+ *         behavior — the two channels are independent, which is the
+ *         load-bearing invariant of the B1-revised design)
  */
 
 import { describe, expect, it } from "vitest";
@@ -205,45 +209,14 @@ describe("detectIdReset — pure predicate over parsed JSONL objects", () => {
   });
 });
 
-describe("parseSessionLine — HARD LOCK preservation (Ashley's slash-command visibility, claude-session-server.ts:1592-1597)", () => {
-  // These tests prove the load-bearing invariant of the B1-revised design:
-  // parseSessionLine's message-emission path is UNCHANGED for /id reset
-  // user turns. The /id reset text still renders as a normal chat bubble in
-  // pretty view. If any of these tests ever regresses, the HARD LOCK has
-  // been violated.
-
-  it("Test 9: bare /id reset user turn parses as kind:'message' (bubble renders)", () => {
-    const parsed = parseSessionLine(bareIdResetLine());
-    expect(parsed.kind).toBe("message");
-    if (parsed.kind !== "message") throw new Error("unreachable");
-    expect(parsed.role).toBe("user");
-    expect(parsed.content).toContain("<command-args>reset");
-    expect(parsed.content).toContain("<command-name>/id</command-name>");
-    expect(parsed.eventId).toBe("u-bare");
-  });
-
-  it("Test 10: freeform /id reset user turn parses as kind:'message' (bubble renders)", () => {
-    const parsed = parseSessionLine(freeformIdResetLine());
-    expect(parsed.kind).toBe("message");
-    if (parsed.kind !== "message") throw new Error("unreachable");
-    expect(parsed.role).toBe("user");
-    expect(parsed.content).toContain("<command-args>reset because I want to change roles");
-    expect(parsed.eventId).toBe("u-freeform");
-  });
-
-  it("Test 11: non-reset /id subcommand (/id save) parses as kind:'message' (regression guard)", () => {
-    // Regression protection — non-reset /id subcommands were rendering as
-    // normal message bubbles pre-Phase-30, and MUST continue to. If the
-    // parser ever conflates "matches /id" with "should suppress", this
-    // test catches it.
-    const parsed = parseSessionLine(idSaveLine());
-    expect(parsed.kind).toBe("message");
-    if (parsed.kind !== "message") throw new Error("unreachable");
-    expect(parsed.role).toBe("user");
-    expect(parsed.content).toContain("<command-args>save");
-    expect(parsed.eventId).toBe("u-save");
-  });
-});
+// Tests 9-11 (the "HARD LOCK preservation" describe block that required
+// /id reset / freeform /id reset / /id save user turns to parse as
+// kind:"message" bubbles) were REMOVED 2026-08-29 as part of quick-260829-r9i.
+// Ashley reversed the slash-command visibility policy: /id invocations are
+// session-lifecycle noise and now skip via `slash_id`. Post-r9i, the
+// bubble-skip behavior is asserted inside session-file-parser.test.ts
+// (§ session-lifecycle noise skips). Test 13 below has been updated to
+// prove orthogonality under the new policy (detection fires + bubble skips).
 
 describe("Cross-detector invariants (parser observation channel + Layer 1 tail-state reducer must agree)", () => {
   it("Test 12: round-trip invariant — detectIdReset agrees with isIdResetUserTurn on the same input", () => {
@@ -302,19 +275,25 @@ describe("Cross-detector invariants (parser observation channel + Layer 1 tail-s
     }
   });
 
-  it("Test 13: orthogonality proof — detection AND message-emission fire independently on the same /id reset line", () => {
+  it("Test 13: orthogonality proof — detection channel fires while message-emission skips (post-r9i policy reversal 2026-08-29)", () => {
     // The load-bearing invariant of the B1-revised design: for a real /id
-    // reset user turn, BOTH channels fire on the same line —
-    //   (a) detectIdReset(JSON.parse(rawLine)) === true (observation channel)
-    //   (b) parseSessionLine(rawLine).kind === "message" (message-emission)
-    // The two paths are orthogonal: one produces a pane_state:holding
-    // transition, the other produces a chat bubble. Neither suppresses
-    // the other. Both must run to completion on every /id reset line.
+    // reset user turn, the TWO channels fire independently on the same line —
+    //   (a) detectIdReset(JSON.parse(rawLine)) === true (observation channel;
+    //       emits pane_state:holding — UNCHANGED by r9i)
+    //   (b) parseSessionLine(rawLine).kind === "skip", why === "slash_id"
+    //       (message-emission; was "message" pre-r9i, now skipped as
+    //       session-lifecycle noise per Ashley 2026-08-29)
+    // The two paths remain orthogonal: one produces a pane_state:holding
+    // transition, the other produces (or in the new policy, suppresses)
+    // a chat bubble. Neither suppresses the other. Both must run to
+    // completion on every /id reset line.
     for (const raw of [bareIdResetLine(), freeformIdResetLine()]) {
       const obj = JSON.parse(raw) as Record<string, unknown>;
       expect(detectIdReset(obj)).toBe(true);
       const parsed = parseSessionLine(raw);
-      expect(parsed.kind).toBe("message");
+      expect(parsed.kind).toBe("skip");
+      if (parsed.kind !== "skip") throw new Error("unreachable");
+      expect(parsed.why).toBe("slash_id");
     }
   });
 });

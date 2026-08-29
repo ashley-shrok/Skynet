@@ -3561,14 +3561,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // PID-death /exit-scan heuristic that Layer 1's tail-state reducer
     // + Layer 2's discovery-repoll fall back to. Detection is
     // ORTHOGONAL to the parseSessionLine message-emission path below:
-    // the /id reset user turn STILL renders as a normal chat bubble
-    // in pretty view (Ashley's HARD LOCK on slash-command visibility —
-    // see the doctrine comment above the Layer 1 dispatch block below).
-    // The observation channel just fires an ADDITIONAL
-    // pane_state:holding emission on the same line. On real /id reset
-    // the emitter's dedupe (Plan 30-01 pane-state-emitter.ts) collapses
-    // this + the Layer 1 tail-state reducer's own transitionToHolding
-    // ("id_reset") below into ONE wire frame.
+    // post quick-260829-r9i (2026-08-29) the /id user turn is SKIPPED
+    // as session-lifecycle noise (Ashley reversed the prior HARD LOCK
+    // on slash-command visibility), but that emission-channel change
+    // does not touch this observation channel — the pane_state:holding
+    // fire is unaffected. On real /id reset the emitter's dedupe
+    // (Plan 30-01 pane-state-emitter.ts) collapses this + the Layer 1
+    // tail-state reducer's own transitionToHolding ("id_reset") below
+    // into ONE wire frame.
     //
     // Fresh JSON.parse here mirrors the backgrounded-agents parallel
     // scan pattern at ~L1665 below — cheap at these volumes and keeps
@@ -3616,11 +3616,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // layer1-detect.ts for the reducer's rationale + unit tests, and
     // CONTEXT.md D-30 for the two-layer architecture.
     //
-    // Fall through — the parser may still emit the /id reset turn as
-    // a message (per Ashley's HARD LOCK: slash commands must remain
-    // visible in pretty view). The state transition is orthogonal to
-    // whether the /id reset text renders as a chat bubble. DO NOT
-    // `return` here.
+    // Fall through — the parser will now SKIP the /id reset turn as
+    // session-lifecycle noise (Ashley reversed the HARD LOCK on
+    // slash-command visibility in quick-260829-r9i, 2026-08-29). The
+    // state transition is orthogonal to whether the /id reset text
+    // renders as a chat bubble — this Layer 1 dispatch must still run
+    // regardless. DO NOT `return` here.
     const layer1Action = applyLineToLayer1State(line, layer1, changeoverState);
     if (layer1Action === "arm_holding") {
       transitionToHolding("id_reset");
