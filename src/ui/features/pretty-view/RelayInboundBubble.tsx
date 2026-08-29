@@ -75,6 +75,7 @@ export function RelayInboundBubble({
 }: RelayInboundBubbleProps) {
   const { byKey } = useIdentities();
   const { colorHue, displayName } = resolveMxidToIdentity(sender, byKey);
+  const [collapsed, setCollapsed] = useState(true);
 
   // Avatar-dot colour: resolved identity hue or neutral grey fallback.
   // Number() coercion guards against a stray type change (T-17-03-05).
@@ -99,6 +100,7 @@ export function RelayInboundBubble({
   const [fetchState, setFetchState] = useState<FetchState>({ kind: "idle" });
 
   useEffect(() => {
+    if (collapsed) return;
     if (!pointer) return;
 
     // T-17-03-04: fires exactly once per mount via dep array.
@@ -123,7 +125,7 @@ export function RelayInboundBubble({
           err instanceof Error ? err.message : "network error";
         setFetchState({ kind: "error", indicator: msg });
       });
-  }, [pointer?.pointerPath, hostId]);
+  }, [pointer?.pointerPath, hostId, collapsed]);
 
   return (
     <div className="flex justify-start" data-testid="relay-inbound-wrap">
@@ -146,12 +148,18 @@ export function RelayInboundBubble({
           "text-[#e8e4d8]",
         )}
       >
-        {/* Header: avatar-dot + resolved displayName + room */}
-        <div
+        {/* Header: avatar-dot + resolved displayName + room — collapse toggle button */}
+        <button
+          type="button"
+          data-testid="relay-inbound-header"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand message" : "Collapse message"}
+          onClick={() => setCollapsed((v) => !v)}
           className={cn(
             "flex items-center gap-1 text-xs mb-1",
             "text-[rgba(232,_228,_216,_0.6)]",
             "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+            "w-full text-left cursor-pointer bg-transparent border-0 p-0",
           )}
         >
           {/* Avatar-dot: coloured circle whose hue follows the resolved identity.
@@ -166,43 +174,49 @@ export function RelayInboundBubble({
             style={{ color: avatarColor, backgroundColor: avatarColor }}
           />
           {displayName} · {room}
-        </div>
+          {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
+        </button>
 
-        {/* Body — Security (T-17-03-01): always rendered as React children, never dangerouslySetInnerHTML */}
-        {pointer ? (
-          <>
-            {/* Pointer-line preview — always shown as small header above fetched body */}
-            <div className="text-[10px] text-[rgba(232,_228,_216,_0.45)] mb-1">
-              📄 {pointer.pointerLine}
+        {/* Body + Footer — conditionally rendered when not collapsed */}
+        {!collapsed && (
+          <div data-testid="relay-inbound-body">
+            {/* Body — Security (T-17-03-01): always rendered as React children, never dangerouslySetInnerHTML */}
+            {pointer ? (
+              <>
+                {/* Pointer-line preview — always shown as small header above fetched body */}
+                <div className="text-[10px] text-[rgba(232,_228,_216,_0.45)] mb-1">
+                  📄 {pointer.pointerLine}
+                </div>
+                {fetchState.kind === "loading" && (
+                  <div className="text-xs text-[rgba(232,_228,_216,_0.5)] italic">
+                    loading…
+                  </div>
+                )}
+                {fetchState.kind === "done" && (
+                  <div className="whitespace-pre-wrap">{fetchState.text}</div>
+                )}
+                {fetchState.kind === "error" && (
+                  <div className="text-xs text-[rgba(220,_180,_100,_0.9)]">
+                    📄 fetch failed ({fetchState.indicator})
+                  </div>
+                )}
+              </>
+            ) : (
+              /* Inline body — Security (T-17-03-01): {body} is React text child */
+              <div className="whitespace-pre-wrap">{body}</div>
+            )}
+
+            {/* Footer — "via recv.sh" attribution matching prototype byte-shape */}
+            <div
+              className={cn(
+                "text-[10px] text-right mt-1",
+                "text-[rgba(232,_228,_216,_0.35)]",
+              )}
+            >
+              via recv.sh
             </div>
-            {fetchState.kind === "loading" && (
-              <div className="text-xs text-[rgba(232,_228,_216,_0.5)] italic">
-                loading…
-              </div>
-            )}
-            {fetchState.kind === "done" && (
-              <div className="whitespace-pre-wrap">{fetchState.text}</div>
-            )}
-            {fetchState.kind === "error" && (
-              <div className="text-xs text-[rgba(220,_180,_100,_0.9)]">
-                📄 fetch failed ({fetchState.indicator})
-              </div>
-            )}
-          </>
-        ) : (
-          /* Inline body — Security (T-17-03-01): {body} is React text child */
-          <div className="whitespace-pre-wrap">{body}</div>
+          </div>
         )}
-
-        {/* Footer — "via recv.sh" attribution matching prototype byte-shape */}
-        <div
-          className={cn(
-            "text-[10px] text-right mt-1",
-            "text-[rgba(232,_228,_216,_0.35)]",
-          )}
-        >
-          via recv.sh
-        </div>
       </div>
     </div>
   );

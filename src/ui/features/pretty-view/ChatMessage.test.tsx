@@ -173,22 +173,28 @@ beforeEach(() => {
 });
 
 describe("ChatMessage — copy button on code blocks and blockquotes (quick 260730-ujq)", () => {
-  it("Test G: fenced code block renders exactly one copy button", () => {
+  it("Test G: fenced code block renders exactly one copy button", async () => {
     render(
       <ChatMessage
         role="assistant"
         content={"here is code:\n\n```\nnpm test\n```\n"}
       />,
     );
+    // Assistant bubble starts collapsed — expand first.
+    const expandBtn = screen.getByTestId("chatmessage-collapsed-header");
+    await act(async () => { await userEvent.click(expandBtn); });
     const copyBtns = screen.queryAllByTestId("copyable-block-copy");
     expect(copyBtns).toHaveLength(1);
     expect(screen.getByRole("button", { name: /copy/i })).toBeTruthy();
   });
 
-  it("Test H: blockquote renders exactly one copy button inside a blockquote element", () => {
+  it("Test H: blockquote renders exactly one copy button inside a blockquote element", async () => {
     render(
       <ChatMessage role="assistant" content={"quote:\n\n> hello world\n"} />,
     );
+    // Assistant bubble starts collapsed — expand first.
+    const expandBtn = screen.getByTestId("chatmessage-collapsed-header");
+    await act(async () => { await userEvent.click(expandBtn); });
     const copyBtns = screen.queryAllByTestId("copyable-block-copy");
     expect(copyBtns).toHaveLength(1);
     // The copy button must be a descendant of a <blockquote> element.
@@ -201,6 +207,8 @@ describe("ChatMessage — copy button on code blocks and blockquotes (quick 2607
     render(
       <ChatMessage role="assistant" content="just a plain paragraph." />,
     );
+    // Note: no expand needed — we're asserting ABSENCE of copy buttons.
+    // Even collapsed, no copy buttons should render.
     const copyBtns = screen.queryAllByTestId("copyable-block-copy");
     expect(copyBtns).toHaveLength(0);
   });
@@ -240,6 +248,10 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
 
     render(<ChatMessage role="assistant" content="hello" />);
 
+    // Assistant bubble starts collapsed — expand first to reveal speak button.
+    const expandBtn = screen.getByTestId("chatmessage-collapsed-header");
+    await act(async () => { await userEvent.click(expandBtn); });
+
     const speakBtn = screen.getByRole("button", { name: "Speak message" });
 
     await act(async () => {
@@ -269,6 +281,11 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     mockedPostSpeakStream.mockResolvedValue(new Response(stream, { status: 200 }));
 
     render(<ChatMessage role="assistant" content="hello" />);
+
+    // Assistant bubble starts collapsed — expand first to reveal speak button.
+    const expandBtn = screen.getByTestId("chatmessage-collapsed-header");
+    await act(async () => { await userEvent.click(expandBtn); });
+
     const speakBtn = screen.getByRole("button", { name: "Speak message" });
 
     // First click → playing. Button labels itself with the NEXT action: Pause.
@@ -311,6 +328,11 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     mockedPostSpeakStream.mockResolvedValue(new Response(stream, { status: 200 }));
 
     render(<ChatMessage role="assistant" content="hello" />);
+
+    // Assistant bubble starts collapsed — expand first to reveal speak button.
+    const expandBtn = screen.getByTestId("chatmessage-collapsed-header");
+    await act(async () => { await userEvent.click(expandBtn); });
+
     const speakBtn = screen.getByRole("button", { name: "Speak message" });
 
     // Get to "playing" state — the label now advertises Pause as next.
@@ -341,6 +363,11 @@ describe("ChatMessage speak state machine (Phase 19 / patch #237)", () => {
     mockedPostSpeakStream.mockResolvedValue(new Response(null, { status: 503 }));
 
     render(<ChatMessage role="assistant" content="hello" />);
+
+    // Assistant bubble starts collapsed — expand first to reveal speak button.
+    const expandBtn = screen.getByTestId("chatmessage-collapsed-header");
+    await act(async () => { await userEvent.click(expandBtn); });
+
     const speakBtn = screen.getByRole("button", { name: "Speak message" });
 
     await act(async () => {
@@ -406,5 +433,60 @@ describe("ChatMessage — pendingState (Phase 50 Plan 03 Task 1)", () => {
     expect(document.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
     // spinner NOT rendered
     expect(document.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+  });
+});
+
+/**
+ * Quick task 260829-qb9: collapse-by-default for left-side (agent-produced) bubbles.
+ *
+ * C1-C6: Collapse-by-default tests for the ChatMessage assistant branch.
+ * User bubble regression guards: C4 and C5 (existing user-side tests in prior
+ * describe blocks continue to pass byte-identically — no changes to those tests).
+ */
+describe("ChatMessage — collapse-by-default for assistant bubbles (quick 260829-qb9)", () => {
+  it("C1: assistant message renders collapsed on mount — header pill visible, body NOT rendered", () => {
+    render(<ChatMessage role="assistant" content="hello" />);
+
+    // Header pill visible
+    const headerBtn = screen.getByTestId("chatmessage-collapsed-header");
+    expect(headerBtn).toBeTruthy();
+    expect(headerBtn.textContent).toMatch(/assistant/);
+
+    // Body content NOT rendered
+    expect(screen.queryByText("hello")).toBeNull();
+  });
+
+  it("C2: aria-expanded='false' on header pill button when collapsed", () => {
+    render(<ChatMessage role="assistant" content="hello" />);
+    const headerBtn = screen.getByTestId("chatmessage-collapsed-header");
+    expect(headerBtn.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("C3: click header → body renders; second click → body hidden again", async () => {
+    render(<ChatMessage role="assistant" content="hello" />);
+
+    const headerBtn = screen.getByTestId("chatmessage-collapsed-header");
+
+    // First click: expand
+    await act(async () => { await userEvent.click(headerBtn); });
+    expect(screen.getByText("hello")).toBeTruthy();
+    expect(headerBtn.getAttribute("aria-expanded")).toBe("true");
+
+    // Second click: collapse
+    await act(async () => { await userEvent.click(headerBtn); });
+    expect(screen.queryByText("hello")).toBeNull();
+    expect(headerBtn.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("C4: user bubble regression — no header pill, body immediately visible, wrapper is justify-end", () => {
+    render(<ChatMessage role="user" content="hi" />);
+
+    // No collapse header — user bubble is always expanded
+    expect(screen.queryByTestId("chatmessage-collapsed-header")).toBeNull();
+    // Body immediately visible without any click
+    expect(screen.getByText("hi")).toBeTruthy();
+    // Wrapper is justify-end
+    const wrapper = document.querySelector(".justify-end");
+    expect(wrapper).not.toBeNull();
   });
 });

@@ -13,7 +13,7 @@
  * ~/.claude/identities/<id>/relay-state/messages/<eventid>.txt shape.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 import { detectFilePointer } from "./relay-pointer-detect";
 
@@ -63,7 +63,7 @@ beforeEach(() => {
 });
 
 describe("RelayInboundBubble", () => {
-  it("Test 1: inline body (no pointer) → renders body text, no fetch triggered", () => {
+  it("Test 1: inline body (no pointer) → renders body text (after expand), no fetch triggered", () => {
     const fetchSpy = vi.spyOn(global, "fetch");
 
     render(
@@ -74,6 +74,9 @@ describe("RelayInboundBubble", () => {
         hostId={42}
       />,
     );
+
+    // Bubble starts collapsed — expand it first.
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
 
     expect(screen.getByText(/Nelly says the migration is finished/)).toBeTruthy();
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -97,6 +100,9 @@ describe("RelayInboundBubble", () => {
       />,
     );
 
+    // Bubble starts collapsed — expand it first so the fetch fires.
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
+
     // Verify fetch was called with correct URL pattern
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -113,7 +119,7 @@ describe("RelayInboundBubble", () => {
     });
   });
 
-  it("Test 3: fetch 404 → '📄 fetch failed (404)' visible", async () => {
+  it("Test 3: fetch 404 → '📄 fetch failed (404)' visible (after expand)", async () => {
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: false,
       status: 404,
@@ -128,6 +134,9 @@ describe("RelayInboundBubble", () => {
         hostId={7}
       />,
     );
+
+    // Bubble starts collapsed — expand it first so the fetch fires.
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
 
     await waitFor(() => {
       expect(screen.getByText(/fetch failed \(404\)/i)).toBeTruthy();
@@ -257,5 +266,77 @@ describe("RelayInboundBubble", () => {
     expect(result?.pointerPath).toBe(
       "/home/ubuntu/.claude/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt",
     );
+  });
+
+  // C1-C4: Collapse-by-default tests (quick 260829-qb9)
+  it("C1: renders collapsed on mount — header visible, body NOT in DOM, footer NOT in DOM", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="Nelly says hello"
+        hostId={1}
+      />,
+    );
+
+    // Header must be visible
+    expect(screen.getByTestId("relay-inbound-header")).toBeTruthy();
+    // displayName · room text visible
+    expect(screen.getByText(/@tina:matrix\.example\.com/)).toBeTruthy();
+
+    // Body wrapper must NOT be in DOM
+    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+    // Footer text must NOT be in DOM
+    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+  });
+
+  it("C2: aria-expanded='false' on header button when collapsed", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="hello"
+        hostId={1}
+      />,
+    );
+
+    const header = screen.getByTestId("relay-inbound-header");
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("C3: click header → body renders and footer appears; aria-expanded='true'", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="Nelly says hello"
+        hostId={1}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
+
+    expect(screen.getByText(/Nelly says hello/)).toBeTruthy();
+    expect(screen.getByText(/via recv\.sh/)).toBeTruthy();
+    expect(screen.getByTestId("relay-inbound-header").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("C4: second click re-collapses — body + footer gone; aria-expanded='false'", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="Nelly says hello"
+        hostId={1}
+      />,
+    );
+
+    const header = screen.getByTestId("relay-inbound-header");
+    fireEvent.click(header); // expand
+    fireEvent.click(header); // collapse again
+
+    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+    expect(header.getAttribute("aria-expanded")).toBe("false");
   });
 });

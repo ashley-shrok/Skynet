@@ -91,6 +91,9 @@ export function ChatMessage({
   const eligibleUrls = useEditableFileEligibility(eventId ?? null, content);
   const bubbleIdRef = useRef(Symbol("speak-bubble"));
   const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
+  // Collapse-by-default for assistant bubbles. User bubbles are always expanded.
+  // No persistence — remount = collapsed again. No streaming carve-out (fleet rule 2026-08-29).
+  const [collapsed, setCollapsed] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Long-press detection refs
@@ -468,65 +471,95 @@ export function ChatMessage({
               ),
         )}
       >
-        {isQuickReply ? (
-          <ThumbsUp className="size-6" aria-label="quick reply" />
-        ) : injected ? (
-          // Phase 05 Plan 03 (UPLOAD-11): sender-side render of an injected
-          // user turn. Caption text sits above an inline chip strip inside
-          // the SAME bubble. Chips are filename + human-size only — no
-          // thumbnails, no inline previews even for images, no landing-path
-          // display (HARD LOCK from CONTEXT.md § Sender-side rendering).
-          // AttachmentChipStrip runs in readOnly mode: no × remove, no
-          // progress ring, no error decorations.
-          <>
-            {injected.caption.length > 0 && (
-              <div className="pv-injected-caption whitespace-pre-wrap mb-2">
-                {injected.caption}
-              </div>
-            )}
-            <AttachmentChipStrip
-              attachments={injected.files.map((f) => ({
-                // tempId is unique per-file inside this bubble; landingPath
-                // is guaranteed unique by the backend's collision-suffix loop
-                // (Plan 01 orchestrator) so it doubles as a stable key.
-                tempId: f.landingPath,
-                file: { name: f.filename, size: f.size, type: f.mimetype },
-                status: "complete",
-                bytesUploaded: f.size,
-                error: null,
-              }))}
-              onRemove={() => {
-                /* readOnly — never fires */
-              }}
-              readOnly={true}
-            />
-          </>
-        ) : (
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={markdownComponents}
-          >
-            {processedContent}
-          </ReactMarkdown>
-        )}
-        {showSendingSpinner && (
-          // Phase 50 D-01/D-06: small trailing-edge Loader2 spinner. Sits
-          // INSIDE the bubble root at the trailing edge (after content) so
-          // it visually reads as "attached to the message". Mutually
-          // exclusive with the failed state (Test 6) — gate at declaration
-          // (showFailedBubble ? no spinner : maybe spinner) ensures no
-          // failed bubble ever renders the spinner even for a same-tick
-          // 'sending'→'failed' transition.
-          <Loader2
-            aria-hidden
-            data-pv-bubble-spinner
-            className="ml-1 inline-block h-3 w-3 animate-spin opacity-70"
-          />
-        )}
+        {/* Collapsed header pill — assistant only, shown when collapsed (not for user bubbles) */}
         {!isUser && (
           <button
             type="button"
-            onPointerDown={(e) => {
+            data-testid="chatmessage-collapsed-header"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand message" : "Collapse message"}
+            onClick={() => setCollapsed((v) => !v)}
+            className={cn(
+              "flex items-center gap-1 text-xs mb-1",
+              "text-[rgba(232,_228,_216,_0.6)]",
+              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+              "w-full text-left cursor-pointer bg-transparent border-0 p-0",
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+              style={{
+                backgroundColor: "hsla(var(--pv-id-hue),80%,60%,1)",
+                color: "hsla(var(--pv-id-hue),80%,60%,1)",
+              }}
+            />
+            assistant
+            {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
+          </button>
+        )}
+        {/* Body: always shown for user bubbles; gated on !collapsed for assistant */}
+        {(isUser || !collapsed) && (
+          <>
+            {isQuickReply ? (
+              <ThumbsUp className="size-6" aria-label="quick reply" />
+            ) : injected ? (
+              // Phase 05 Plan 03 (UPLOAD-11): sender-side render of an injected
+              // user turn. Caption text sits above an inline chip strip inside
+              // the SAME bubble. Chips are filename + human-size only — no
+              // thumbnails, no inline previews even for images, no landing-path
+              // display (HARD LOCK from CONTEXT.md § Sender-side rendering).
+              // AttachmentChipStrip runs in readOnly mode: no × remove, no
+              // progress ring, no error decorations.
+              <>
+                {injected.caption.length > 0 && (
+                  <div className="pv-injected-caption whitespace-pre-wrap mb-2">
+                    {injected.caption}
+                  </div>
+                )}
+                <AttachmentChipStrip
+                  attachments={injected.files.map((f) => ({
+                    // tempId is unique per-file inside this bubble; landingPath
+                    // is guaranteed unique by the backend's collision-suffix loop
+                    // (Plan 01 orchestrator) so it doubles as a stable key.
+                    tempId: f.landingPath,
+                    file: { name: f.filename, size: f.size, type: f.mimetype },
+                    status: "complete",
+                    bytesUploaded: f.size,
+                    error: null,
+                  }))}
+                  onRemove={() => {
+                    /* readOnly — never fires */
+                  }}
+                  readOnly={true}
+                />
+              </>
+            ) : (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+              >
+                {processedContent}
+              </ReactMarkdown>
+            )}
+            {showSendingSpinner && (
+              // Phase 50 D-01/D-06: small trailing-edge Loader2 spinner. Sits
+              // INSIDE the bubble root at the trailing edge (after content) so
+              // it visually reads as "attached to the message". Mutually
+              // exclusive with the failed state (Test 6) — gate at declaration
+              // (showFailedBubble ? no spinner : maybe spinner) ensures no
+              // failed bubble ever renders the spinner even for a same-tick
+              // 'sending'→'failed' transition.
+              <Loader2
+                aria-hidden
+                data-pv-bubble-spinner
+                className="ml-1 inline-block h-3 w-3 animate-spin opacity-70"
+              />
+            )}
+            {!isUser && (
+              <button
+                type="button"
+                onPointerDown={(e) => {
               longPressFiredRef.current = false;
               pointerStartRef.current = { x: e.clientX, y: e.clientY };
               if (longPressTimerRef.current != null) {
@@ -612,6 +645,8 @@ export function ChatMessage({
               <Volume2 size={16} />
             )}
           </button>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -46,8 +46,12 @@ export function RelayOutboundBubble({
   body,
   ts,
 }: RelayOutboundBubbleProps) {
+  // Outer collapse state — default collapsed. Body + footer hidden until expanded.
+  const [collapsed, setCollapsed] = useState(true);
   // Toggle state for expand-to-see-raw — default collapsed when body is present.
   // Ignored (raw always shown) in the body === null fallback branch.
+  // Lives INSIDE the body branch, so it naturally resets to false on each outer
+  // expand cycle (the inner button unmounts and remounts with the body).
   const [rawExpanded, setRawExpanded] = useState(false);
 
   return (
@@ -73,41 +77,65 @@ export function RelayOutboundBubble({
           "text-[#fbf5e8]",
         )}
       >
-        {/* Header: relay send direction + room */}
-        <div
+        {/* Header: relay send direction + room — collapse toggle button */}
+        <button
+          type="button"
+          data-testid="relay-outbound-header"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand message" : "Collapse message"}
+          onClick={() => setCollapsed((v) => { if (v) setRawExpanded(false); return !v; })}
           className={cn(
             "text-xs mb-1",
             "text-[rgba(220,_225,_245,_0.6)]",
             "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+            "w-full text-left cursor-pointer bg-transparent border-0 p-0",
           )}
         >
           ▸ relay send → {room ?? "unknown room"}
-        </div>
+          {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
+        </button>
 
-        {body !== null ? (
+        {/* Body + Footer — conditionally rendered when not collapsed */}
+        {!collapsed && (
           <>
-            {/* Pretty body preview — mirrors RelayInboundBubble.tsx:180 inline body render */}
-            {/* Security (T-17-03-01): {body} is a React text child, NEVER dangerouslySetInnerHTML */}
-            <div className="whitespace-pre-wrap">{body}</div>
+            {body !== null ? (
+              <>
+                {/* Pretty body preview — mirrors RelayInboundBubble.tsx:180 inline body render */}
+                {/* Security (T-17-03-01): {body} is a React text child, NEVER dangerouslySetInnerHTML */}
+                <div className="whitespace-pre-wrap">{body}</div>
 
-            {/* Expand-to-see-raw toggle — default collapsed */}
-            <button
-              type="button"
-              onClick={() => setRawExpanded((v) => !v)}
-              className={cn(
-                "mt-2 text-[10px]",
-                "text-[rgba(220,_225,_245,_0.5)] hover:text-[rgba(220,_225,_245,_0.8)]",
-                "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-                "cursor-pointer bg-transparent border-0 p-0",
-              )}
-            >
-              {rawExpanded ? "▾ raw command" : "▸ raw command"}
-            </button>
+                {/* Expand-to-see-raw toggle — default collapsed */}
+                <button
+                  type="button"
+                  onClick={() => setRawExpanded((v) => !v)}
+                  className={cn(
+                    "mt-2 text-[10px]",
+                    "text-[rgba(220,_225,_245,_0.5)] hover:text-[rgba(220,_225,_245,_0.8)]",
+                    "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+                    "cursor-pointer bg-transparent border-0 p-0",
+                  )}
+                >
+                  {rawExpanded ? "▾ raw command" : "▸ raw command"}
+                </button>
 
-            {rawExpanded && (
+                {rawExpanded && (
+                  <pre
+                    className={cn(
+                      "mt-1 whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
+                      "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+                      "bg-black/40 rounded p-2 text-xs",
+                    )}
+                  >
+                    {rawCommand}
+                  </pre>
+                )}
+              </>
+            ) : (
+              /* Fallback: body extraction returned null — render rawCommand always-visible as today.
+                 Security (T-17-03-01): {rawCommand} is a React text child, NEVER dangerouslySetInnerHTML */
               <pre
                 className={cn(
-                  "mt-1 whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
+                  "whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
                   "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
                   "bg-black/40 rounded p-2 text-xs",
                 )}
@@ -115,30 +143,18 @@ export function RelayOutboundBubble({
                 {rawCommand}
               </pre>
             )}
-          </>
-        ) : (
-          /* Fallback: body extraction returned null — render rawCommand always-visible as today.
-             Security (T-17-03-01): {rawCommand} is a React text child, NEVER dangerouslySetInnerHTML */
-          <pre
-            className={cn(
-              "whitespace-pre overflow-x-auto max-h-[24rem] overflow-y-auto",
-              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-              "bg-black/40 rounded p-2 text-xs",
-            )}
-          >
-            {rawCommand}
-          </pre>
-        )}
 
-        {/* Footer — "via curl" attribution matching prototype byte-shape */}
-        <div
-          className={cn(
-            "text-[10px] text-right mt-1",
-            "text-[rgba(220,_225,_245,_0.35)]",
-          )}
-        >
-          via curl
-        </div>
+            {/* Footer — "via curl" attribution matching prototype byte-shape */}
+            <div
+              className={cn(
+                "text-[10px] text-right mt-1",
+                "text-[rgba(220,_225,_245,_0.35)]",
+              )}
+            >
+              via curl
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
