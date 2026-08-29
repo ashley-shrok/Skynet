@@ -82,23 +82,43 @@ describe("session-working-store: Test A — status:'busy' → isWorking true", (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test B — status:'shell' + bg:[] → isWorking TRUE (inline-260823-wip-shell-is-work)
+// Test B — status:'shell' + no-Stop-yet → isWorking TRUE
+//   Phase 59 Plan 03 rollout-safety default-on branch
+//   (SUPERSEDES inline-260823-wip-shell-is-work at the predicate boundary)
 // ─────────────────────────────────────────────────────────────────────────────
-// Ashley 2026-08-23 flipped: `shell` = harness executing a foreground tool
-// (Read / Bash / Edit / subagent / etc.) — real work. The pre-2026-08-23
-// exclusion (patch #442) was working around a "status=shell always" symptom
-// that no longer reproduces on the same harness version. Excluding shell was
-// stripping isWorking=true from every session for the entire duration of
-// every tool execution — the "flickers off during continuous work" bug.
-// See session-working-store.ts header history block for full rationale.
+// Phase 59 Plan 03 (2026-08-29) SUPERSEDES the inline-260823-wip-shell-is-work
+// rule at the predicate boundary but preserves it as the FALLBACK for
+// no-Stop-yet sessions. The new predicate reads
+//   `main = busy || (shell && (lastStopAt === null || lastStatusChangeAt > lastStopAt))`
+// so `shell` no longer counts as work unconditionally — it counts only when
+// the session's status has transitioned since its last Stop-hook fire.
+//
+// This test now asserts the rollout-safety default-on branch: `shell` + no
+// Stop-hook signal at all (fresh session, OR a lazy-rollout session that
+// pre-dates the Phase 59 backend upgrade) → isWorking true. Matches
+// CONTEXT.md D-05: "If we've never seen a 'turn ended' event for a session,
+// treat it as if the session is still working — no evidence of any stop
+// yet, so it defaults to on."
+//
+// The stale-shell case (shell + lastStatusChangeAt < lastStopAt — the
+// Poppy/aqua/wilma pattern that motivated this phase) is covered by the
+// new Test M below. The mid-turn shell case (shell + lastStatusChangeAt >
+// lastStopAt, preserving the inline-260823-wip-shell-is-work truth) is
+// covered by the new Test N.
+//
+// Deliberate revision, not deletion — 59-RESEARCH.md § Common Pitfalls
+// Pitfall 8 flags "skipped Test B revision" as the EXACT bug this change
+// prevents (leaving the pre-Phase-57 rule locked as a truth).
 
-describe("session-working-store: Test B — status:'shell' + bg:[] → isWorking true (inline-260823-wip-shell-is-work)", () => {
-  it("publishFleetStatusSessionState with status:'shell' → useSessionIsWorking returns true (shell IS real tool-execution work)", () => {
+describe("session-working-store: Test B — status:'shell' + no-Stop-yet → isWorking true (Phase 59 rollout-safety default-on, supersedes inline-260823-wip-shell-is-work)", () => {
+  it("shell + wire omitted lastStopAt/lastStatusChangeAt → useSessionIsWorking returns true (rollout-safety default-on per CONTEXT.md D-05)", () => {
     const { result, rerender } = renderHook(() =>
       useSessionIsWorking("h1:s1"),
     );
 
     act(() => {
+      // makeState omits lastStopAt AND lastStatusChangeAt by default →
+      // predicate normalizes both to null → default-on branch fires.
       publishFleetStatusSessionState("h1", makeState({ status: "shell" }));
     });
     rerender();
@@ -1312,5 +1332,146 @@ describe("session-working-store (Phase 53 Plan 02): recycling axis (Axis E) + us
     // Axis A preserves it. This is the Pitfall-3 defense test.
     const snap = getSessionWorkingSnapshot();
     expect(snap.get("h1:s1")?.recycling).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 59 Plan 03 — Shell-idle stop-gate canonical cases + Pitfall-3 guard.
+// Four new tests locking the revised `main` predicate:
+//
+//   main = busy || (shell && (lastStopAt === null
+//                             || lastStatusChangeAt > lastStopAt))
+//
+// Test M: shell + STALE stop (Poppy/aqua/wilma pattern) → isWorking FALSE
+//         — the very false-positive that motivated this phase.
+// Test N: shell + FRESH status-change (mid-turn) → isWorking TRUE
+//         — preserves the inline-260823-wip-shell-is-work truth for real work.
+// Test O: busy always wins regardless of lastStopAt/lastStatusChangeAt ordering
+//         — busy bypasses the stop-gate unconditionally.
+// Test P: Axis-A republish PRESERVES cached lastStopAt (Pitfall-3 regression
+//         guard — snapshot inspection, NOT useSessionIsWorking shortcut).
+//
+// Test B above was REVISED (not deleted) to cover the rollout-safety default-on
+// branch (shell + no-Stop-yet → true) — the "lazy rollout" case per
+// CONTEXT.md D-05. Deliberate revision, not skip — 59-RESEARCH.md § Common
+// Pitfalls Pitfall 8 flags "skipped Test B revision" as the EXACT bug this
+// change prevents.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store: Test M — status:'shell' + stale stop (Poppy/aqua/wilma pattern) → isWorking FALSE", () => {
+  it("shell with lastStatusChangeAt strictly less than lastStopAt → false (stale-shell)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      // Transitioned to shell at t=1000, then Stop fired at t=5000 — status
+      // has NOT moved since the last Stop, so shell is stale post-turn state.
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "shell",
+          lastStopAt: 5000,
+          lastStatusChangeAt: 1000,
+        }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(false);
+  });
+});
+
+describe("session-working-store: Test N — status:'shell' + fresh status-change (mid-turn) → isWorking TRUE", () => {
+  it("shell with lastStatusChangeAt strictly greater than lastStopAt → true (real mid-turn shell)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      // Stop fired at t=1000; status transitioned to shell at t=5000 — the
+      // turn is still running. Preserves the inline-260823-wip-shell-is-work
+      // truth for real mid-turn shell (busy ↔ shell oscillation during work).
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "shell",
+          lastStopAt: 1000,
+          lastStatusChangeAt: 5000,
+        }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+});
+
+describe("session-working-store: Test O — status:'busy' bypasses stop-gate → isWorking TRUE regardless of stop ordering", () => {
+  it("busy with lastStatusChangeAt strictly less than lastStopAt → true (busy is unconditional)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      // Stale even by shell rules — but busy bypasses the stop-gate entirely.
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "busy",
+          lastStopAt: 5000,
+          lastStatusChangeAt: 1000,
+        }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+});
+
+describe("session-working-store: Test P — Axis A republish PRESERVES cached lastStopAt (Phase 59 Pitfall-3 regression guard)", () => {
+  it("publishing an isWorking-flipping frame without lastStopAt preserves the cached lastStopAt", () => {
+    // Load-bearing snapshot-inspection test (NOT a useSessionIsWorking
+    // shortcut) — the useSessionIsWorking hook would return the correct
+    // `false` on the second frame regardless of whether Axis A preserved
+    // lastStopAt (idle → main false → isWorking false). Snapshot inspection
+    // is what catches the Pitfall-3 bug: an Axis-A isWorking flip that
+    // WIPES lastStopAt from cache would still yield the right isWorking
+    // value but silently break subsequent frames that need lastStopAt to
+    // decide shellCountsAsWork.
+
+    // Frame 1: shell + fresh mid-turn state → isWorking:true, both axes cached.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "shell",
+          lastStopAt: 1000,
+          lastStatusChangeAt: 5000,
+        }),
+      );
+    });
+
+    const snapBefore = getSessionWorkingSnapshot();
+    expect(snapBefore.get("h1:s1")?.lastStopAt).toBe(1000);
+    expect(snapBefore.get("h1:s1")?.lastStatusChangeAt).toBe(5000);
+    expect(snapBefore.get("h1:s1")?.isWorking).toBe(true);
+
+    // Frame 2: idle + wire omits BOTH stop-gate axes → Axis A fires
+    // (isWorking flips true → false); Axes F/G no-op (both wire values
+    // undefined). Cache MUST preserve the previous lastStopAt and
+    // lastStatusChangeAt via the Axis A `existing?.lastStopAt ?? null`
+    // guards added in Task 1.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle" }), // both stop-gate axes omitted
+      );
+    });
+
+    const snapAfter = getSessionWorkingSnapshot();
+    // Pitfall-3 regression guards: both cached values survive the Axis A flip.
+    expect(snapAfter.get("h1:s1")?.lastStopAt).toBe(1000);
+    expect(snapAfter.get("h1:s1")?.lastStatusChangeAt).toBe(5000);
+    // Axis A did fire correctly (isWorking flipped).
+    expect(snapAfter.get("h1:s1")?.isWorking).toBe(false);
   });
 });
