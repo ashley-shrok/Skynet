@@ -42,6 +42,7 @@ import {
 
 import CollapsedPanelCloseLane, {
   useDraggedBadgeTabId,
+  shouldMountCloseLane,
 } from "./CollapsedPanelCloseLane";
 
 // Helper: build a stub DataTransfer with a Map-backed store. `types` reflects
@@ -204,7 +205,7 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     expect(styleAttr).toMatch(/rgba\(255, 184, 150, 0\.60?\)/);
   });
 
-  it("Test D: dragover with ONLY text/plain (row drag) → data-hover STAYS 'false', palette stays neutral (semantic-crossing guard)", () => {
+  it("Test D: dragover with ONLY text/plain (row drag) → data-hover STAYS 'false', palette stays neutral, AND preventDefault NOT called (browser default not-a-drop-target semantic preserved per T-260829-ih3-04)", () => {
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
         draggedBadgeTabId="tab-alice-1"
@@ -214,12 +215,23 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     );
     const lane = getByTestId("collapsed-panel-close-lane");
     const dt = makeDataTransferStub({ "text/plain": "row-payload" });
+    // Dispatch inline so we can spy on the event's preventDefault BEFORE
+    // it enters the handler — a future change that accidentally called
+    // preventDefault before the type-gate would silently break the
+    // browser's not-a-drop-target semantic for row drags on the lane.
+    const evt = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperty(evt, "dataTransfer", {
+      value: dt,
+      configurable: true,
+    });
+    const preventDefaultSpy = vi.spyOn(evt, "preventDefault");
     act(() => {
-      dispatchNativeDragOver(lane, dt);
+      lane.dispatchEvent(evt);
     });
     expect(lane.getAttribute("data-hover")).toBe("false");
     const styleAttr = lane.getAttribute("style") ?? "";
     expect(styleAttr).not.toContain("rgba(255, 184, 150,");
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
   });
 
   it("Test E: dragover + drop with valid badge payload matching openTabIds → onCloseTab called once, data-hover cleared, structured log emitted once", () => {
@@ -427,5 +439,225 @@ describe("useDraggedBadgeTabId hook (quick-260829-ih3 Task 1)", () => {
     });
     // Row drag MUST NOT setState — probe stays empty.
     expect(probe.textContent).toBe("");
+  });
+});
+
+// ─── Drop-ladder validation branches (quick-260829-ih3 code-review finding #5) ───
+// Test E covers the happy path; Test F covers the openTabIds-membership miss.
+// The 4 tests below cover the earlier gauntlet steps in the drop handler:
+//   Step 2: JSON.parse fail (malformed JSON)
+//   Step 3a: parsed === null
+//   Step 3b: parsed is non-object (or tabId key wrong type)
+//   Step 3c: parsed.tabId is empty string
+// All four MUST silently drop — no onCloseTab, no structured log, no throw.
+describe("CollapsedPanelCloseLane — drop-ladder validation branches (code-review finding #5)", () => {
+  beforeEach(() => {
+    Element.prototype.getBoundingClientRect = function () {
+      return {
+        left: 0,
+        top: 0,
+        right: 115,
+        bottom: 800,
+        width: 115,
+        height: 800,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("Drop-ladder A: badge MIME with malformed JSON payload → silent drop, no onCloseTab, no log, no throw", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const onCloseTab = vi.fn();
+    const { getByTestId } = render(
+      <CollapsedPanelCloseLane
+        draggedBadgeTabId="tab-alice-1"
+        openTabIds={["tab-alice-1"]}
+        onCloseTab={onCloseTab}
+      />,
+    );
+    const lane = getByTestId("collapsed-panel-close-lane");
+    const dt = makeDataTransferStub({
+      "application/x-skynet-badge": "{tabId:", // invalid JSON
+    });
+    expect(() => {
+      act(() => {
+        dispatchNativeDrop(lane, dt);
+      });
+    }).not.toThrow();
+    expect(onCloseTab).not.toHaveBeenCalled();
+    expect(
+      infoSpy.mock.calls.some((call) =>
+        String(call[0]).startsWith("[collapsed-lane-drop]"),
+      ),
+    ).toBe(false);
+  });
+
+  it("Drop-ladder B: badge MIME with JSON `null` payload → silent drop, no onCloseTab, no log", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const onCloseTab = vi.fn();
+    const { getByTestId } = render(
+      <CollapsedPanelCloseLane
+        draggedBadgeTabId="tab-alice-1"
+        openTabIds={["tab-alice-1"]}
+        onCloseTab={onCloseTab}
+      />,
+    );
+    const lane = getByTestId("collapsed-panel-close-lane");
+    const dt = makeDataTransferStub({
+      "application/x-skynet-badge": "null",
+    });
+    act(() => {
+      dispatchNativeDrop(lane, dt);
+    });
+    expect(onCloseTab).not.toHaveBeenCalled();
+    expect(
+      infoSpy.mock.calls.some((call) =>
+        String(call[0]).startsWith("[collapsed-lane-drop]"),
+      ),
+    ).toBe(false);
+  });
+
+  it("Drop-ladder C: badge MIME with wrong-type tabId (number) → silent drop, no onCloseTab, no log", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const onCloseTab = vi.fn();
+    const { getByTestId } = render(
+      <CollapsedPanelCloseLane
+        draggedBadgeTabId="tab-alice-1"
+        openTabIds={["tab-alice-1"]}
+        onCloseTab={onCloseTab}
+      />,
+    );
+    const lane = getByTestId("collapsed-panel-close-lane");
+    const dt = makeDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: 42 }),
+    });
+    act(() => {
+      dispatchNativeDrop(lane, dt);
+    });
+    expect(onCloseTab).not.toHaveBeenCalled();
+    expect(
+      infoSpy.mock.calls.some((call) =>
+        String(call[0]).startsWith("[collapsed-lane-drop]"),
+      ),
+    ).toBe(false);
+  });
+
+  it("Drop-ladder D: badge MIME with empty-string tabId → silent drop, no onCloseTab, no log", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const onCloseTab = vi.fn();
+    const { getByTestId } = render(
+      <CollapsedPanelCloseLane
+        draggedBadgeTabId="tab-alice-1"
+        openTabIds={["tab-alice-1"]}
+        onCloseTab={onCloseTab}
+      />,
+    );
+    const lane = getByTestId("collapsed-panel-close-lane");
+    const dt = makeDataTransferStub({
+      "application/x-skynet-badge": JSON.stringify({ tabId: "" }),
+    });
+    act(() => {
+      dispatchNativeDrop(lane, dt);
+    });
+    expect(onCloseTab).not.toHaveBeenCalled();
+    expect(
+      infoSpy.mock.calls.some((call) =>
+        String(call[0]).startsWith("[collapsed-lane-drop]"),
+      ),
+    ).toBe(false);
+  });
+});
+
+// ─── shouldMountCloseLane helper (code-review finding #3) ───
+// Locks the mount-gate against silent regression at the AppShell wire site.
+// The gate is `!isMobile && !isMobileListScreen && !sidebarOpen` — the lane
+// mounts if and only if ALL THREE booleans are false. Walk all 8 truth-table
+// combinations so a future refactor that flips one of the negations, or
+// forgets one of the three inputs, is caught.
+describe("shouldMountCloseLane (code-review finding #3 — mount-gate truth table)", () => {
+  it("all-false (desktop, split screen, panel collapsed) → mounts", () => {
+    expect(
+      shouldMountCloseLane({
+        isMobile: false,
+        isMobileListScreen: false,
+        sidebarOpen: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("isMobile true → does NOT mount (split view doesn't exist on mobile)", () => {
+    expect(
+      shouldMountCloseLane({
+        isMobile: true,
+        isMobileListScreen: false,
+        sidebarOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("isMobileListScreen true → does NOT mount (sidebar occupies whole viewport)", () => {
+    expect(
+      shouldMountCloseLane({
+        isMobile: false,
+        isMobileListScreen: true,
+        sidebarOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("sidebarOpen true → does NOT mount (actual panel is already the drop target)", () => {
+    expect(
+      shouldMountCloseLane({
+        isMobile: false,
+        isMobileListScreen: false,
+        sidebarOpen: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("isMobile true + isMobileListScreen true → does NOT mount", () => {
+    expect(
+      shouldMountCloseLane({
+        isMobile: true,
+        isMobileListScreen: true,
+        sidebarOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("isMobile true + sidebarOpen true → does NOT mount", () => {
+    expect(
+      shouldMountCloseLane({
+        isMobile: true,
+        isMobileListScreen: false,
+        sidebarOpen: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("isMobileListScreen true + sidebarOpen true → does NOT mount", () => {
+    expect(
+      shouldMountCloseLane({
+        isMobile: false,
+        isMobileListScreen: true,
+        sidebarOpen: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("all-true → does NOT mount", () => {
+    expect(
+      shouldMountCloseLane({
+        isMobile: true,
+        isMobileListScreen: true,
+        sidebarOpen: true,
+      }),
+    ).toBe(false);
   });
 });

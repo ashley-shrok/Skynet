@@ -27,6 +27,7 @@ import { SplitView } from "@/shell/SplitView";
 // sidebar is closed. See .planning/shapes/shape-drop-lane-close-in-split-view.md.
 import CollapsedPanelCloseLane, {
   useDraggedBadgeTabId,
+  shouldMountCloseLane,
 } from "@/shell/CollapsedPanelCloseLane";
 import { renderTabContent } from "@/shell/tabUtils";
 import type {
@@ -2304,7 +2305,11 @@ export function AppShell({
               doesn't compete with PrettyView drop targets. Wire pass-throughs
               mirror the panel-drop wire at :1919 verbatim (closeTab +
               tabs.map(t => t.id)) — same close routine, new surface. */}
-          {!isMobile && !isMobileListScreen && !sidebarOpen && (
+          {shouldMountCloseLane({
+            isMobile,
+            isMobileListScreen,
+            sidebarOpen,
+          }) && (
             <CollapsedPanelCloseLane
               draggedBadgeTabId={draggedBadgeTabId}
               openTabIds={tabs.map((t) => t.id)}

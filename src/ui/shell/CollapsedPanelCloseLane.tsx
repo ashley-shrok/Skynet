@@ -71,6 +71,26 @@ interface CollapsedPanelCloseLaneProps {
  * The parent AppShell handles the mount gate (`!isMobile && !isMobileListScreen
  * && !sidebarOpen`); this component's own gate is `draggedBadgeTabId === null`.
  */
+/**
+ * `shouldMountCloseLane` — pure predicate for the AppShell mount gate.
+ * Extracted from AppShell so the gate is unit-testable without mounting
+ * the full AppShell (quick-260829-ih3 code-review finding #3).
+ *
+ * The lane MUST NOT render when ANY of the following is true:
+ *   - viewport is mobile (`isMobile`) — split view doesn't exist on mobile
+ *   - user is on the mobile list screen (`isMobileListScreen`) — sidebar
+ *     occupies the whole viewport, no split, no lane
+ *   - conv-list panel is already open (`sidebarOpen`) — actual panel is
+ *     already the drop target; no proxy needed
+ */
+export function shouldMountCloseLane(args: {
+  isMobile: boolean;
+  isMobileListScreen: boolean;
+  sidebarOpen: boolean;
+}): boolean {
+  return !args.isMobile && !args.isMobileListScreen && !args.sidebarOpen;
+}
+
 export default function CollapsedPanelCloseLane({
   draggedBadgeTabId,
   openTabIds,
@@ -78,6 +98,27 @@ export default function CollapsedPanelCloseLane({
 }: CollapsedPanelCloseLaneProps): JSX.Element | null {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState(false);
+
+  // quick-260829-ih3 code-review finding #1 (listener churn): the effect
+  // that attaches native drag listeners MUST NOT re-run on every AppShell
+  // render — that would tear down + re-attach all four listeners between
+  // any two frames, wasting work AND opening a tiny window where an
+  // in-flight dragover/drop could be missed. Route props through refs so
+  // handlers read the LATEST values without the main effect depending on
+  // prop identities. The main drag-listener effect can then use `[]` deps
+  // and attach exactly once on mount / detach once on unmount.
+  //
+  // Same closure-freshness guarantee as re-running the effect on every
+  // render, but achieved via ref-read inside the stable handler rather
+  // than by tearing the handler down.
+  const openTabIdsRef = useRef(openTabIds);
+  const onCloseTabRef = useRef(onCloseTab);
+  useEffect(() => {
+    openTabIdsRef.current = openTabIds;
+  }, [openTabIds]);
+  useEffect(() => {
+    onCloseTabRef.current = onCloseTab;
+  }, [onCloseTab]);
 
   useEffect(() => {
     const el = outerRef.current;
@@ -144,7 +185,9 @@ export default function CollapsedPanelCloseLane({
       const tabId = (parsed as { tabId: string }).tabId;
       // Step 4: validate against openTabIds (T-260829-ih3-01 mitigation).
       // Silent drop on miss — mirrors PrettyConversationsPanel.tsx:1403.
-      if (!openTabIds.includes(tabId)) return;
+      // Ref-read so the check sees the LATEST openTabIds even though the
+      // main effect deps are `[]` (quick-260829-ih3 code-review finding #1).
+      if (!openTabIdsRef.current.includes(tabId)) return;
       // Step 5: signal the drop is handled — prevents default browser
       // behavior AND prevents AppShell outer container from also handling.
       e.preventDefault();
@@ -155,8 +198,9 @@ export default function CollapsedPanelCloseLane({
       // PrettyConversationsPanel.tsx:1409 discipline exactly.
       // eslint-disable-next-line no-console
       console.info(`[collapsed-lane-drop] close tabId=${tabId}`);
-      // Step 7: fire the callback.
-      onCloseTab(tabId);
+      // Step 7: fire the callback. Ref-read so the call reaches the LATEST
+      // onCloseTab even though the main effect deps are `[]`.
+      onCloseTabRef.current(tabId);
     };
 
     // Window-level dragend cleanup — Escape cancels a drag WITHOUT moving
@@ -179,7 +223,8 @@ export default function CollapsedPanelCloseLane({
       el.removeEventListener("drop", onDrop);
       window.removeEventListener("dragend", onDragEnd);
     };
-  }, [openTabIds, onCloseTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Own gate: nothing to render outside a badge drag. The parent AppShell
   // mount gate handles the isMobile/isMobileListScreen/sidebarOpen exclusion;
