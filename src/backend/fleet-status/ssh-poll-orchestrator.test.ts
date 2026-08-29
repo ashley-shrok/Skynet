@@ -1447,11 +1447,79 @@ describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () 
     expect(await scanSingleLine(rawRelayOutbound)).toBeNull();
   });
 
+  it("Case 8 (DROP — Ctrl-C kill signal, 2026-08-29 refinement): control-chars-only content must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "\x03\x03" },
+      timestamp: "2026-08-29T15:12:49.598Z",
+      uuid: "u8",
+    });
+    // Supervisor-injected Ctrl-C kill signal — pure control-char payload → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 9 (DROP — /exit slash-command, 2026-08-29 refinement): agent-supervisor /exit command must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<command-name>/exit</command-name>\n            <command-message>exit</command-message>\n            <command-args></command-args>",
+      },
+      timestamp: "2026-08-29T15:13:00.000Z",
+      uuid: "u9",
+    });
+    // Agent-supervisor /exit before recycle — contains <command-name>/exit</command-name> → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("Case 10 (DROP — resumed-injection sentinel, 2026-08-29 refinement): supervisor resume sentinel must NOT count", async () => {
+    const rawLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "Your session was just resumed by the agent-supervisor. Your background Monitors stopped with the previous session — start them again per the id skill.",
+      },
+      timestamp: "2026-08-29T15:14:00.000Z",
+      uuid: "u10",
+    });
+    // Agent-supervisor resume sentinel — prefix matches the locked string → DROP.
+    expect(await scanSingleLine(rawLine)).toBeNull();
+  });
+
+  it("2026-08-29 refinement — positive regression: real chat + real slash-command still count", async () => {
+    // Real chat prose still returns the parsed ts.
+    const tsChat = Date.parse("2026-08-29T16:00:00.000Z");
+    const chatLine = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "hey can you look at this thing" },
+      timestamp: "2026-08-29T16:00:00.000Z",
+      uuid: "pos-chat",
+    });
+    expect(await scanSingleLine(chatLine)).toBe(tsChat);
+
+    // Real /id slash-command still returns the parsed ts.
+    const tsCmd = Date.parse("2026-08-29T16:01:00.000Z");
+    const cmdLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<command-name>/id</command-name>\n            <command-message>id</command-message>\n            <command-args>tina</command-args>",
+      },
+      timestamp: "2026-08-29T16:01:00.000Z",
+      uuid: "pos-cmd",
+    });
+    expect(await scanSingleLine(cmdLine)).toBe(tsCmd);
+  });
+
   it("Mixed-tail integration: DROP lines interleaved with KEEP lines → newest KEEP ts returned", async () => {
-    // Tail order: [Case5, Case7, Case3, Case1@T1, Case2@T2] where T2 > T1.
-    // scanTailForNewestMessageAt must return T2.
+    // Tail order: [Case5, Case7, Case3, Case1@T1, Case2@T2, Case8@T3] where T3 > T2 > T1.
+    // Case8 (Ctrl-C kill signal) is NEWER than T2 — must still be dropped, returning T2.
     const T1 = Date.parse("2026-08-23T11:00:00.000Z");
     const T2 = Date.parse("2026-08-23T11:01:00.000Z");
+    const T3 = Date.parse("2026-08-23T11:02:00.000Z");
 
     const case5Line = JSON.stringify({
       type: "user",
@@ -1489,10 +1557,17 @@ describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () 
       timestamp: new Date(T2).toISOString(),
       uuid: "mix-c2",
     });
+    // Case 8 fixture (Ctrl-C kill signal) with timestamp NEWER than T2 — must be dropped.
+    const case8Line = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "\x03\x03" },
+      timestamp: new Date(T3).toISOString(),
+      uuid: "mix-c8",
+    });
 
-    // T2 is the newest KEEP line — 3 DROP lines interleaved must not interfere.
+    // T2 is the newest KEEP line — DROP lines (including Case8 newer than T2) must not interfere.
     expect(
-      await scanMultiLine([case5Line, case7Line, case3Line, case1Line, case2Line]),
+      await scanMultiLine([case5Line, case7Line, case3Line, case1Line, case2Line, case8Line]),
     ).toBe(T2);
   });
 });

@@ -265,12 +265,24 @@ interface PerHostState {
  *
  * Predicate: a JSONL line counts iff top-level type==="user" AND
  * message.content is a plain string AND (starts with "<command-" OR
- * NOT (starts with "<" AND ends with ">") on trimmed content).
+ * NOT (starts with "<" AND ends with ">") on trimmed content) AND
+ * NOT a Ctrl-C kill signal (control-chars-only content) AND
+ * NOT an agent-supervisor /exit slash-command AND
+ * NOT an agent-supervisor resumed-injection sentinel.
  *
  * Independent JSON.parse (mirrors scanTailForLatestAiTitle pattern) —
  * do NOT extend parseSessionLine to expose raw content. Parallel-copy
  * discipline preserved per 43-CONTEXT.md scope decision (canonical
  * copy in sessions.ts must stay byte-parallel).
+ *
+ * Ashley 2026-08-29 refinement: three additional harness-injected shapes
+ * confirmed on Tabitha's session file now explicitly rejected:
+ * - Ctrl-C kill signal: supervisor delivers "\x03\x03" as plain-string
+ *   content; after trimming, stripping all ASCII control chars yields "".
+ * - /exit slash-command: agent-supervisor fires `/exit` before recycle;
+ *   content contains "<command-name>/exit</command-name>".
+ * - Resumed-injection sentinel: supervisor injects "Your session was just
+ *   resumed by the agent-supervisor…" as a type:"user" turn in some paths.
  */
 function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
   const trimmed = rawLine.trim();
@@ -296,6 +308,16 @@ function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok:
   const isXmlWrapper = t.startsWith("<") && t.endsWith(">");
   const isCommand = t.startsWith("<command-");
   if (!isCommand && isXmlWrapper) return { ok: false };
+  // Step 5 (2026-08-29 refinement): drop /exit slash-command injected by agent-supervisor
+  // before recycle. Ashley's own slash-commands (/id, /build, /gsd:*) are unaffected.
+  if (content.includes("<command-name>/exit</command-name>")) return { ok: false };
+  // Step 6 (2026-08-29 refinement): drop control-chars-only content (e.g. Ctrl-C kill
+  // signal "\x03\x03"). t is already trimmed of regular whitespace; stripping ASCII
+  // control chars from t and getting "" means the payload was pure control-char noise.
+  if (t.replace(/[\x00-\x1F]/g, "") === "") return { ok: false };
+  // Step 7 (2026-08-29 refinement): drop agent-supervisor resumed-injection sentinel.
+  // Prefix-anchored to avoid matching quoted mentions in real Ashley prose.
+  if (content.startsWith("Your session was just resumed by the agent-supervisor")) return { ok: false };
   // Passed all gates — extract ts from the timestamp field.
   const rawTs = top.timestamp;
   if (typeof rawTs !== "string") return { ok: false };
