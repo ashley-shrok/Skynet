@@ -15,6 +15,8 @@ import {
 } from "@/components/accordion";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
+// Quick 260829-f9l: shadcn Input for the Bounties-tab search box.
+import { Input } from "@/components/input";
 import { Switch } from "@/components/switch";
 // Quick 260727-tb1: piggyback path — when Ashley reprioritizes a bounty via
 // the modal, invalidate the panel's cached pinned count for this identity
@@ -191,6 +193,14 @@ export function IdentityModal({
     "unloaded" | "loading" | "loaded"
   >("unloaded");
   const [archivedError, setArchivedError] = useState<string | null>(null);
+  // Quick 260829-f9l: client-side search box for the Bounties tab. Filters
+  // BOTH open partitions AND (when loaded) the archive accordion body by
+  // case-insensitive substring match against title / premise / slug /
+  // keywords[]. No debounce (list is < 100 items per role — useMemo is enough).
+  // Typing MUST NOT force an archive fetch — the accordion still owns the
+  // lazy-load click gesture; typing while archive is unloaded surfaces a
+  // hint below the query-driven empty state instead.
+  const [bountyQuery, setBountyQuery] = useState<string>("");
   // Quick 260823-80r: controlled Radix Accordion value. Empty string = closed;
   // "archive" = expanded. We control it so the failure path can programmatically
   // close the accordion on WS-close-before-response, guaranteeing that the
@@ -1038,6 +1048,47 @@ export function IdentityModal({
     grouped.other.length > 0;
   const hasArchive = sortedArchive.length > 0;
 
+  // Quick 260829-f9l: normalized query + filter predicate for the Bounties
+  // tab search box. `bountyQueryNorm` runs .trim().toLowerCase() ONCE per
+  // keystroke; the predicate builds one `hay` per card and does one
+  // .includes() call. `keywords.join(" ")` is safe because a keyword like
+  // "web-ui" never straddles the space boundary — collapsing to a single
+  // .includes() beats a per-keyword .some() branch for the < 100-card list.
+  const bountyQueryNorm = useMemo(
+    () => bountyQuery.trim().toLowerCase(),
+    [bountyQuery],
+  );
+  const bountyMatchesQuery = useCallback(
+    (b: Bounty): boolean => {
+      if (!bountyQueryNorm) return true;
+      const hay = [
+        b.title,
+        b.premise,
+        b.slug,
+        b.keywords.join(" "),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(bountyQueryNorm);
+    },
+    [bountyQueryNorm],
+  );
+  // Derived visibility booleans post-filter — used to drive the query-driven
+  // empty state below. Kept as separate useMemo blocks so the archive check
+  // only recomputes when sortedArchive changes; the open check depends on
+  // `grouped` which recomputes on every bounty set update.
+  const hasOpenAfterFilter = useMemo(
+    () =>
+      OPEN_STATUS_ORDER.some((s) =>
+        (grouped[s] ?? []).some(bountyMatchesQuery),
+      ),
+    [grouped, bountyMatchesQuery],
+  );
+  const hasArchiveAfterFilter = useMemo(
+    () => sortedArchive.some(bountyMatchesQuery),
+    [sortedArchive, bountyMatchesQuery],
+  );
+
   // Quick 260731-1c8: Identity-tab editor handlers.
 
   // onAvatarPick: reads the picked file, revokes any prior object URL, sets new
@@ -1486,10 +1537,57 @@ export function IdentityModal({
           </TabsContent>
 
           {/* Bounties tab — populated (patch #87 — unchanged) */}
+          {/* Quick 260829-f9l: split pane into flex-col so the search input
+              can sit sticky at the top of the inner scroll container. The
+              old `overflow-y-auto px-6 py-4` moved off the pane onto the
+              inner scroll <div>; the pane itself is now just a vertical
+              flex column that hosts (a) the sticky search bar and (b) the
+              scroll container. Sticky bar lives INSIDE the scroll container
+              so it stays visible while scrolling the bounty list (matches
+              Ashley's ask). */}
           <TabsContent
             value="bounties"
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+            className="flex-1 min-h-0 flex flex-col"
           >
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-0 pb-4">
+            {/* Quick 260829-f9l: sticky search input. `sticky top-0` inside
+                the scroll container pins the bar to the top of the scroll
+                region. backdrop-blur + a partially-opaque background token
+                covers content underneath as it scrolls past. The bar is
+                rendered UNCONDITIONALLY (even during loading / error / empty)
+                so keyboard focus is never yanked out of it by branch swaps. */}
+            <div className="sticky top-0 z-10 -mx-6 px-6 pt-4 pb-2 bg-[hsla(0,0%,10%,0.55)] backdrop-blur">
+              <div className="relative">
+                <Input
+                  value={bountyQuery}
+                  onChange={(e) => setBountyQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setBountyQuery("");
+                    }
+                  }}
+                  placeholder="Search bounties…"
+                  aria-label="Search bounties"
+                  className={
+                    // Reuse the muted glass token classes from the title editor
+                    // (~line 1001 in the pre-change file) so the search input
+                    // sits visually with the rest of the modal's editor chrome.
+                    "text-sm bg-white/5 border-white/20 text-[#f0ebe0] pr-8"
+                  }
+                />
+                {bountyQuery !== "" && (
+                  <button
+                    type="button"
+                    onClick={() => setBountyQuery("")}
+                    aria-label="Clear search"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
             {loading ? (
               // Loading skeleton — 3 placeholder cards
               <div className="flex flex-col gap-3">
@@ -1511,12 +1609,15 @@ export function IdentityModal({
                   Retry
                 </Button>
               </div>
-            ) : !hasOpen && !hasArchive && archivedLoadState === "loaded" ? (
+            ) : !hasOpen && !hasArchive && archivedLoadState === "loaded" && bountyQueryNorm === "" ? (
               // Empty state — quick 260823-80r: only render this pure-empty
               // branch once we've CONFIRMED (loaded) the archive is also
               // empty. Otherwise fall through so the Archive accordion below
               // stays clickable (the whole point of the lazy-load fix is
               // that we DON'T know if archive is empty on modal open).
+              // Quick 260829-f9l: gate on `bountyQueryNorm === ""` so a
+              // non-empty query yields the query-driven empty state below
+              // instead of this "no bounties at all" message.
               <div className="flex flex-col gap-1 text-sm text-[var(--color-pv-fg-muted)]">
                 <p>No open bounties for {identity.displayName}.</p>
                 <p className="text-xs">Archive will show here when populated.</p>
@@ -1531,7 +1632,13 @@ export function IdentityModal({
                     In Progress fence. */}
                 {OPEN_STATUS_ORDER.map((statusKey) => {
                   const group = grouped[statusKey];
-                  if (!group || group.length === 0) return null;
+                  // Quick 260829-f9l: filter the group and hide the entire
+                  // partition header when its post-filter card count is
+                  // zero — otherwise a lonely "Pinned" header would sit
+                  // above an empty region when the query filters away all
+                  // its cards.
+                  const filteredGroup = (group ?? []).filter(bountyMatchesQuery);
+                  if (!group || filteredGroup.length === 0) return null;
                   const label = GROUP_LABELS[statusKey];
                   return (
                     <div key={statusKey} className="mb-6">
@@ -1541,7 +1648,8 @@ export function IdentityModal({
                         </h3>
                       )}
                       <div className="flex flex-col gap-3">
-                        {group.map((b) => (
+                        {/* Quick 260829-f9l: render post-filter set. */}
+                        {filteredGroup.map((b) => (
                           <BountyCard
                             key={b.id}
                             bounty={b}
@@ -1603,6 +1711,29 @@ export function IdentityModal({
                   );
                 })}
 
+                {/* Quick 260829-f9l: query-driven empty state. Fires when the
+                    user has typed something AND no open partition renders any
+                    card AND either (a) the archive is loaded and also has no
+                    matches, or (b) the archive isn't loaded (in which case we
+                    can't know for sure — append the archive-not-loaded hint so
+                    Ashley knows to click the accordion to include it). Placed
+                    BEFORE the Archive accordion so the accordion trigger is
+                    still clickable underneath the message and the lazy-load
+                    still works. */}
+                {bountyQueryNorm !== "" &&
+                  !hasOpenAfterFilter &&
+                  ((archivedLoadState === "loaded" && !hasArchiveAfterFilter) ||
+                    archivedLoadState !== "loaded") && (
+                    <div className="flex flex-col gap-1 text-sm text-[var(--color-pv-fg-muted)] mt-4">
+                      <p>no matches for &ldquo;{bountyQuery}&rdquo;</p>
+                      {archivedLoadState !== "loaded" && (
+                        <p className="text-xs">
+                          archive not loaded — expand to include it
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                 {/* Archive accordion — quick 260823-80r: rendered whenever
                     we don't know for sure that archive is empty, so the user
                     always has a click target to trigger the lazy load. Only
@@ -1641,7 +1772,13 @@ export function IdentityModal({
                       </AccordionTrigger>
                       <AccordionContent>
                         <div className="flex flex-col gap-3 pt-2">
-                          {sortedArchive.map((b) => (
+                          {/* Quick 260829-f9l: filter archive body by the
+                              same predicate. The accordion TRIGGER label
+                              still shows the total archive count (not the
+                              filtered count) — Ashley's ask centers on
+                              scanning matches, and the "Archive (N)" label
+                              is the "how big is the archive drawer" signal. */}
+                          {sortedArchive.filter(bountyMatchesQuery).map((b) => (
                             <BountyCard
                               key={b.id}
                               bounty={b}
@@ -1689,6 +1826,7 @@ export function IdentityModal({
                 )}
               </>
             )}
+            </div>
           </TabsContent>
 
           {/* History tab — patch #17g: reverse-chronological history.md rows */}
