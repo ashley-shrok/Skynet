@@ -1080,19 +1080,30 @@ export function createSshPollOrchestrator(
     // millis convention (Pitfall 3 / Research § Open Questions #3).
     // -------------------------------------------------------------------------
     let derivedLastStopAt: number | null = cached?.lastStopAt ?? null;
-    const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
-    const stopMtimeRaw = await channel.exec(
-      `stat -c %Y ~/.claude/fleet-status/stop-${quotedSessionId}.json 2>/dev/null || true`,
-    );
-    if (stopMtimeRaw !== null && stopMtimeRaw.trim() !== "") {
-      const parsed = parseInt(stopMtimeRaw.trim(), 10);
-      if (Number.isFinite(parsed)) {
-        derivedLastStopAt = parsed * 1000;
+    // Character-class discipline mirroring stop-hook.sh's write-side regex.
+    // Any sessionId that would not have been accepted for a per-session write
+    // must not be interpolated into a stat READ either — a `../` in sessionId
+    // could otherwise stat a foreign file and publish its mtime as lastStopAt.
+    // (Shell-quoting alone is not enough — it prevents command injection but
+    // still allows path traversal inside the argument.)
+    if (/^[a-zA-Z0-9_-]+$/.test(sessionJson.sessionId)) {
+      const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+      const stopMtimeRaw = await channel.exec(
+        `stat -c %Y ~/.claude/fleet-status/stop-${quotedSessionId}.json 2>/dev/null || true`,
+      );
+      if (stopMtimeRaw !== null && stopMtimeRaw.trim() !== "") {
+        const parsed = parseInt(stopMtimeRaw.trim(), 10);
+        if (Number.isFinite(parsed)) {
+          derivedLastStopAt = parsed * 1000;
+        }
+        // Non-numeric stdout → fail-open, keep cached value.
       }
-      // Non-numeric stdout → fail-open, keep cached value.
+      // stopMtimeRaw === null (SSH hiccup) or empty (file absent) → fail-open,
+      // keep cached value.
     }
-    // stopMtimeRaw === null (SSH hiccup) or empty (file absent) → fail-open,
-    // keep cached value.
+    // sessionId failed the character-class guard → skip the stat entirely,
+    // preserve cached value. Fail-open in the safe direction (indicator
+    // defaults to on when lastStopAt stays null).
 
     // -------------------------------------------------------------------------
     // Phase 59 Plan 02 — server-side status-delta tracking for the
@@ -1112,9 +1123,27 @@ export function createSshPollOrchestrator(
     //   3. Same-status tick → preserve cached lastStatusChangeAt (do NOT
     //      bump on every same-status tick or the axis becomes noise).
     // -------------------------------------------------------------------------
+    // A PID whose sessionJson.sessionId has ROTATED since the previous poll
+    // (Claude Code compaction/resume rotates sessionId in-place, per Phase 44
+    // comments at L328-335) is effectively a fresh session for stop-gate
+    // purposes even though isNew is false. The previous sessionId's cached
+    // lastStopAt would be stale — a different file's mtime — and could make
+    // the shell-gate misfire on the new session. Treat sessionId rotation as
+    // an isNew-equivalent for the Phase 59 axes: reseed lastStatusChangeAt
+    // and drop the stale lastStopAt back to null (the new sessionId's per-
+    // session file may not have been written yet).
+    const sessionIdRotated =
+      !isNew &&
+      cached !== undefined &&
+      cached.sessionId !== sessionJson.sessionId;
+    if (sessionIdRotated) {
+      derivedLastStopAt = null;
+    }
+
     let derivedLastStatusChangeAt: number;
     if (
       isNew ||
+      sessionIdRotated ||
       cached?.lastStatus === null ||
       cached?.lastStatus === undefined
     ) {
