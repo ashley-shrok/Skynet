@@ -279,12 +279,13 @@ describe("SplitView — Phase 56 Plan 03: nearest-edge drop geometry", () => {
     clientY: number,
     dataTransfer: { getData: (k: string) => string; types?: readonly string[] },
   ): void {
-    // Patch #510 gate on Pane onDrop requires `dataTransfer.types` to be a
-    // string[] with "text/plain" present (conv-list-row drag shape). Real
-    // browser drag events always populate `types`; jsdom's DataTransfer
-    // shim on our old ~4.x line doesn't, so tests supply it here.
+    // quick-260829-mbp: gate now requires a skynet-owned MIME, not just
+    // text/plain. Default includes application/x-skynet-row so existing
+    // geometry/zone tests (which are semantically about edge-computation, not
+    // MIME discrimination) continue to pass the gate. Callers that supply
+    // their own types via the dataTransfer argument override this default.
     const dtWithTypes = {
-      types: ["text/plain"] as readonly string[],
+      types: ["application/x-skynet-row", "text/plain"] as readonly string[],
       ...dataTransfer,
     };
     const evt = createEvent.drop(el, { dataTransfer: dtWithTypes });
@@ -435,7 +436,10 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     },
   ): void {
     const dtWithTypes = {
-      types: ["text/plain"] as readonly string[],
+      // quick-260829-mbp: default includes a skynet MIME so existing
+      // overlay/zone tests pass the tightened gate (they test geometry,
+      // not MIME discrimination). Caller overrides via dataTransfer arg.
+      types: ["application/x-skynet-row", "text/plain"] as readonly string[],
       getData: (_k: string) => "",
       ...(dataTransfer ?? {}),
     };
@@ -451,7 +455,9 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     clientY: number,
   ): void {
     const dtWithTypes = {
-      types: ["text/plain"] as readonly string[],
+      // quick-260829-mbp: default includes a skynet MIME so the tightened
+      // dragleave gate does not early-return in existing zone tests.
+      types: ["application/x-skynet-row", "text/plain"] as readonly string[],
       getData: (_k: string) => "",
     };
     const evt = createEvent.dragLeave(el, { dataTransfer: dtWithTypes });
@@ -467,7 +473,9 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     dataTransfer: { getData: (k: string) => string; types?: readonly string[] },
   ): void {
     const dtWithTypes = {
-      types: ["text/plain"] as readonly string[],
+      // quick-260829-mbp: default includes a skynet MIME so existing
+      // geometry/zone tests pass the tightened onDrop gate.
+      types: ["application/x-skynet-row", "text/plain"] as readonly string[],
       ...dataTransfer,
     };
     const evt = createEvent.drop(el, { dataTransfer: dtWithTypes });

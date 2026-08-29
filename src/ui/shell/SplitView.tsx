@@ -169,6 +169,19 @@ function EmptyDropTarget({
   );
 }
 
+// quick-260829-mbp: Type-gate helper — returns true iff the DataTransfer
+// carries at least one skynet-owned MIME (application/x-skynet-badge for
+// IdentityBadge drags, application/x-skynet-row for conv-list-row drags).
+// Pure function; used in all three Pane native drag listeners (onDragOver,
+// onDragLeave, onDrop) to reject browser text-selection drags, which carry
+// only text/plain=<selected-text> and were falsely passing the old gate.
+function hasSkynetDragPayload(dt: DataTransfer | null | undefined): boolean {
+  return (
+    (dt?.types.includes("application/x-skynet-badge") ?? false) ||
+    (dt?.types.includes("application/x-skynet-row") ?? false)
+  );
+}
+
 // Pane — one leaf cell. Content div reports (tabId, el) upstream via
 // onPaneContentRef; AppShell reparents its tabNodesRef node into this element.
 // The tab-id data attribute lets tests assert the portal-target contract by
@@ -259,7 +272,7 @@ const Pane = memo(function Pane({
     const el = outerRef.current;
     if (el === null) return;
     const onDragOver = (e: DragEvent) => {
-      if (!e.dataTransfer?.types.includes("text/plain")) return;
+      if (!hasSkynetDragPayload(e.dataTransfer)) return;
       e.preventDefault();
       e.stopPropagation();
       const rect = el.getBoundingClientRect();
@@ -284,12 +297,17 @@ const Pane = memo(function Pane({
       });
     };
     const onDragLeave = (e: DragEvent) => {
-      // Type-gate FIRST — scope the flicker-fix machinery to our own row-drag
-      // payload only. Without this gate, unrelated dragleaves (browser file
-      // drags, native OS drags) would clear dropPreview mid-drag whenever
-      // the browser fires a spurious dragleave on the pane. (Plan-check
-      // finding #3.)
-      if (!e.dataTransfer?.types.includes("text/plain")) return;
+      // Type-gate FIRST — scope the flicker-fix machinery to our own skynet
+      // drag payloads (row-drag via application/x-skynet-row OR badge-drag
+      // via application/x-skynet-badge). Without this gate, unrelated
+      // dragleaves (browser text-selection drags, OS file drags, native OS
+      // drags) would clear dropPreview mid-drag whenever the browser fires a
+      // spurious dragleave on the pane. (Plan-check finding #3.)
+      // Tightened from text/plain-only gate in quick-260829-mbp — browser
+      // text-selection drags carry text/plain=<selected-text> and were
+      // passing the old gate, causing coral overlay + fake-tabId drops that
+      // landed as stale split slots (SplitView.tsx:436 placeholder).
+      if (!hasSkynetDragPayload(e.dataTransfer)) return;
       const rect = el.getBoundingClientRect();
       // Bounding-rect guard for the flicker fix (CONTEXT.md §Gap (a)). Stateless
       // (no counter to keep in sync across concurrent enter/leave pairs) and
@@ -312,7 +330,7 @@ const Pane = memo(function Pane({
       }
     };
     const onDrop = (e: DragEvent) => {
-      if (!e.dataTransfer?.types.includes("text/plain")) return;
+      if (!hasSkynetDragPayload(e.dataTransfer)) return;
       e.preventDefault();
       // Prevent AppShell outer container's onDrop from also firing —
       // CRITICAL for the center-dead-zone short-circuit: the guard chain
