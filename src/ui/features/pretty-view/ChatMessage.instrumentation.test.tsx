@@ -134,6 +134,8 @@ function errorLines(): string[] {
 describe("ChatMessage [tts] instrumentation", () => {
   it("INSTR-1: clicking speak fires [tts] speak-start with owner/textLen/voice/trigger fields", async () => {
     render(<ChatMessage role="assistant" content="Hello world" />);
+    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
+    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
@@ -154,6 +156,8 @@ describe("ChatMessage [tts] instrumentation", () => {
 
   it("INSTR-2: resolved player.play() emits [tts] play-attempt result=success", async () => {
     render(<ChatMessage role="assistant" content="Play success test" />);
+    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
+    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
@@ -177,6 +181,8 @@ describe("ChatMessage [tts] instrumentation", () => {
     );
 
     render(<ChatMessage role="assistant" content="Blocked test" />);
+    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
+    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
@@ -201,6 +207,8 @@ describe("ChatMessage [tts] instrumentation", () => {
     );
 
     render(<ChatMessage role="assistant" content="Fetch error test" />);
+    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
+    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
@@ -215,6 +223,8 @@ describe("ChatMessage [tts] instrumentation", () => {
 
   it("INSTR-5: onError callback emits [tts] player-error with errName and errMessage fields", async () => {
     render(<ChatMessage role="assistant" content="Player error test" />);
+    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
+    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 

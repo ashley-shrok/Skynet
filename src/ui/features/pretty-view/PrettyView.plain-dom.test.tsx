@@ -41,7 +41,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, waitFor } from "@testing-library/react";
+import { render, act, waitFor, fireEvent, screen } from "@testing-library/react";
 import {
   publishFleetStatusSessionState,
   __resetForTest as resetWorkingStore,
@@ -594,6 +594,18 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
     expect(new Set(eventIds)).toEqual(
       new Set(["evt-msg", "evt-img", "evt-rout", "evt-rin", "evt-malformed"]),
     );
+
+    // Assistant ChatMessage / RelayInbound / RelayOutbound bubbles start collapsed
+    // (quick-260829-qb9) — expand each so their body text renders.
+    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
+      act(() => { fireEvent.click(header); });
+    }
+    for (const header of screen.queryAllByTestId("relay-inbound-header")) {
+      act(() => { fireEvent.click(header); });
+    }
+    for (const header of screen.queryAllByTestId("relay-outbound-header")) {
+      act(() => { fireEvent.click(header); });
+    }
 
     // Characteristic text content is present somewhere in the DOM (proves
     // each bubble component was mounted with its payload, not just an
