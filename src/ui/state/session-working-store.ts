@@ -230,8 +230,17 @@ export function publishFleetStatusSessionState(
   // status settled on shell BEFORE the last Stop-hook fire and has not moved
   // since — the very false-positive that motivated this phase. See
   // 59-CONTEXT.md § Shape for the full rule + rationale.
-  const lastStopAt = state_arg.lastStopAt ?? null;
-  const lastStatusChangeAt = state_arg.lastStatusChangeAt ?? null;
+  // Fall back to cached values when the incoming frame's stop-gate axes are
+  // undefined (e.g. any source-B-style frame that omits these fields). Using
+  // wire-only values would let a source-B frame reset the gating basis for
+  // this key, silently breaking the shell-gate on the next source-A shell
+  // frame — same Pitfall-3 class the Axis writes below guard against.
+  // Consult cache first, wire second, null last.
+  const existing = state.map.get(key);
+  const lastStopAt =
+    state_arg.lastStopAt ?? existing?.lastStopAt ?? null;
+  const lastStatusChangeAt =
+    state_arg.lastStatusChangeAt ?? existing?.lastStatusChangeAt ?? null;
   const shellCountsAsWork =
     state_arg.status === "shell" &&
     (lastStopAt === null ||
@@ -240,8 +249,6 @@ export function publishFleetStatusSessionState(
     state_arg.status === "busy" || shellCountsAsWork;
   const bg = state_arg.backgroundTasks.length > 0;
   const isWorking = main || bg;
-
-  const existing = state.map.get(key);
 
   // Phase 44 (Plan 03) — single-chokepoint architecture per 43-CONTEXT.md §
   // Reconciliation helper. isWorking axis handled inline; lastMessageAt axis
