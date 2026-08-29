@@ -2474,6 +2474,7 @@ export function ComposeBox({
               handleOpenFilePicker={handleOpenFilePicker}
               getStagedAttachmentsForTarget={getStagedAttachmentsForTarget}
               clearStagedForTarget={clearStagedForTarget}
+              onAttachFilesForTarget={onAttachFilesForTarget}
               onRemoveAttachment={onRemoveAttachment}
               flushDirty={flushDirty}
               clearDebounce={clearDebounce}
@@ -2976,6 +2977,7 @@ interface QueuedRowProps {
   handleOpenFilePicker: (target?: string) => void;
   getStagedAttachmentsForTarget?: (target: string) => StagedAttachmentLike[];
   clearStagedForTarget?: (target: string) => void;
+  onAttachFilesForTarget?: (target: string, files: File[]) => void;
   onRemoveAttachment?: (tempId: string) => void;
   flushDirty: () => Promise<void> | void;
   clearDebounce: () => void;
@@ -3006,6 +3008,7 @@ function QueuedRow(props: QueuedRowProps) {
     handleOpenFilePicker,
     getStagedAttachmentsForTarget,
     clearStagedForTarget,
+    onAttachFilesForTarget,
     onRemoveAttachment,
     flushDirty,
     clearDebounce,
@@ -3018,6 +3021,28 @@ function QueuedRow(props: QueuedRowProps) {
   const chipStripRef = useRef<HTMLDivElement | null>(null);
   const [chipStripHeight, setChipStripHeight] = useState(0);
   const target = `queued:${slot.id}`;
+
+  // quick-260829-oxo: slot-scoped paste handler, byte-parallel to primary
+  // handlePaste at ComposeBox.tsx:497-506. File pastes are routed to
+  // onAttachFilesForTarget with this slot's target; text-only pastes fall
+  // through to the browser default so the "[pasted N lines]" collapse-
+  // avoidance path (COMPOSE-05 D-58/D-60) is preserved verbatim.
+  const handlePasteForSlot = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = Array.from(e.clipboardData?.files ?? []);
+      if (files.length > 0) {
+        e.preventDefault();
+        console.info(`[compose-paste] target=${target} files=${files.length}`);
+        onAttachFilesForTarget?.(target, files);
+      }
+      // Text-only pastes fall through to the browser default so the
+      // "[pasted N lines]" collapse-avoidance path (COMPOSE-05
+      // D-58/D-60) is preserved verbatim — same rule as primary
+      // handlePaste at ComposeBox.tsx:497-506.
+    },
+    [target, onAttachFilesForTarget],
+  );
+
   const stagedForThisSlot = getStagedAttachmentsForTarget?.(target) ?? [];
   const stagedCount = stagedForThisSlot.length;
 
@@ -3214,6 +3239,7 @@ function QueuedRow(props: QueuedRowProps) {
             if (slotSendDisabled) return;
             handleQueueSlotSend(slot.id);
           }}
+          onPaste={handlePasteForSlot}
           placeholder="Queued message…"
           rows={1}
           data-testid={`queue-slot-textarea-${slot.id}`}
