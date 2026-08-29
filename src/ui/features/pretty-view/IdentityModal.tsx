@@ -1552,11 +1552,18 @@ export function IdentityModal({
             <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-0 pb-4">
             {/* Quick 260829-f9l: sticky search input. `sticky top-0` inside
                 the scroll container pins the bar to the top of the scroll
-                region. backdrop-blur + a partially-opaque background token
-                covers content underneath as it scrolls past. The bar is
-                rendered UNCONDITIONALLY (even during loading / error / empty)
-                so keyboard focus is never yanked out of it by branch swaps. */}
-            <div className="sticky top-0 z-10 -mx-6 px-6 pt-4 pb-2 bg-[hsla(0,0%,10%,0.55)] backdrop-blur">
+                region. Background is hue-tinted to match the modal's own
+                gradient (Ashley 2026-08-29: the fixed near-black token
+                looked like a "weird darkness" out-of-place against the
+                identity-hue modal). Uses a mid-gradient stop as an inline
+                style so it participates in the per-identity hue. backdrop-
+                blur still covers content underneath as it scrolls past.
+                Rendered UNCONDITIONALLY so keyboard focus is never yanked
+                out of it by branch swaps. */}
+            <div
+              className="sticky top-0 z-10 -mx-6 px-6 pt-4 pb-2 backdrop-blur"
+              style={{ background: `hsla(${hue}, 42%, 20%, 0.85)` }}
+            >
               <div className="relative">
                 <Input
                   value={bountyQuery}
