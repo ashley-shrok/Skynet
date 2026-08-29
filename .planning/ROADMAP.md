@@ -1502,3 +1502,13 @@ Plans:
 
 Plans:
 - [x] TBD (run /gsd-plan-phase 58 to break down) (completed 2026-08-28)
+
+### Phase 59: coral drop-target affordance on empty PrettyView + conv-list-close (visual-session-management UAT followup, patch #517)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 58
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 59 to break down)
