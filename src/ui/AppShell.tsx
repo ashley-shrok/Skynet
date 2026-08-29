@@ -266,6 +266,16 @@ export function AppShell({
   // after tabs are materialized.
   const [splitTree, setSplitTree] = useState<SplitNode | null>(null);
   const [focusedTabId, setFocusedTabId] = useState<string | null>(null);
+  // Phase 59 Plan 01 Gap 1 — coral drop-target tint state for the empty-PV
+  // wrapper. Set true when a text/plain conv-list-row drag hovers the wrapper
+  // and splitTree === null; cleared on drop / bounding-rect-guarded dragleave
+  // / window-level dragend (Escape-cancel). Ref-based zone-change gate for
+  // the structured log mirrors SplitView.tsx:223 prevZoneRef discipline —
+  // synchronous ref-write inside handler bodies avoids React 18 strict-mode
+  // double-fire from a setState functional updater. `null` initial (not
+  // `false`) so the first false→false transition never emits a spurious log.
+  const [isConvRowDragOver, setIsConvRowDragOver] = useState(false);
+  const prevEmptyPvVisibleRef = useRef<boolean | null>(null);
   // Patch #513: memoized Set of tabIds currently rendered as leaves in the
   // splitTree. Passed to PrettyConversationsPanel to drive (a) the row
   // "selected" glow on every in-view session (not just the single
@@ -362,6 +372,29 @@ export function AppShell({
       .then((info) => setIsAdmin(info.is_admin))
       .catch(() => setIsAdmin(false));
   }, []);
+
+  // Phase 59 Plan 01 Gap 1 — window-level dragend listener for the empty-PV
+  // coral tint's Escape-cancel path. Escape cancels a drag WITHOUT moving
+  // the cursor, so no dragleave fires; dragend on the drag source is the
+  // only reliable signal. Window-level attach because dragend fires on the
+  // SOURCE element (conv-list row), not on the empty-PV wrapper; scoping to
+  // the wrapper would miss it. Idempotent — clearing already-false state is
+  // a no-op, so this is safe even when a drop already cleared the state.
+  // Dep on splitTree so the log's splitTreeNull field reflects current state.
+  useEffect(() => {
+    const onDragEnd = () => {
+      setIsConvRowDragOver(false);
+      if (prevEmptyPvVisibleRef.current !== false) {
+        // eslint-disable-next-line no-console
+        console.info(
+          `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTree === null}`,
+        );
+        prevEmptyPvVisibleRef.current = false;
+      }
+    };
+    window.addEventListener("dragend", onDragEnd);
+    return () => window.removeEventListener("dragend", onDragEnd);
+  }, [splitTree]);
 
   const terminalRefs = useRef<Map<string, ReturnType<typeof createRef>>>(
     new Map(),
@@ -2271,8 +2304,58 @@ export function AppShell({
                 if (!e.dataTransfer.types.includes("text/plain")) return;
                 if (e.dataTransfer.types.includes("Files")) return;
                 e.preventDefault();
+                // Phase 59 Gap 1 tint state — post type-gate so Files drags
+                // and non-text/plain drags never trigger. Zone-change gate
+                // via prevEmptyPvVisibleRef mirrors SplitView.tsx:271-277
+                // for the structured log. Ref-write is atomic with log
+                // emission. splitTreeNull captured at gate time.
+                setIsConvRowDragOver(true);
+                const splitTreeNull = splitTree === null;
+                if (prevEmptyPvVisibleRef.current !== true) {
+                  // eslint-disable-next-line no-console
+                  console.info(
+                    `[empty-pv-drop-preview] visible=true splitTreeNull=${splitTreeNull}`,
+                  );
+                  prevEmptyPvVisibleRef.current = true;
+                }
+              }}
+              onDragLeave={(e) => {
+                // Phase 59 Gap 1 — type-gate FIRST (mirror SplitView.tsx:292).
+                // Scoped to text/plain drags only so unrelated dragleaves
+                // (browser file drags, native OS drags) never clear tint state.
+                if (!e.dataTransfer.types.includes("text/plain")) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                // Bounding-rect stateless guard (mirror SplitView.tsx:301-305)
+                // — robust against dragleaves fired when the cursor crosses
+                // child DOM boundaries inside the wrapper.
+                const stillInside =
+                  e.clientX >= rect.left &&
+                  e.clientX <= rect.right &&
+                  e.clientY >= rect.top &&
+                  e.clientY <= rect.bottom;
+                if (stillInside) return;
+                setIsConvRowDragOver(false);
+                if (prevEmptyPvVisibleRef.current !== false) {
+                  // eslint-disable-next-line no-console
+                  console.info(
+                    `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTree === null}`,
+                  );
+                  prevEmptyPvVisibleRef.current = false;
+                }
               }}
               onDrop={(e) => {
+                // Phase 59 Gap 1 tint clear — clear FIRST regardless of
+                // downstream branches (mirror SplitView.tsx:323-324 — drop
+                // always clears state immediately, even for skip paths).
+                // Idempotent — clearing already-false state is a no-op.
+                setIsConvRowDragOver(false);
+                if (prevEmptyPvVisibleRef.current !== false) {
+                  // eslint-disable-next-line no-console
+                  console.info(
+                    `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTree === null}`,
+                  );
+                  prevEmptyPvVisibleRef.current = false;
+                }
                 if (!e.dataTransfer.types.includes("text/plain")) return;
                 if (e.dataTransfer.types.includes("Files")) return;
                 e.preventDefault();
@@ -2378,6 +2461,31 @@ export function AppShell({
                 setFocusedTabId(tabId);
               }}
             >
+              {/* Phase 59 Plan 01 Gap 1 — coral drop-target-affordance tint
+                  overlay. Sibling to the SplitView (:2482+) and normal-view
+                  (:2528+) containers. Render gate `isConvRowDragOver &&
+                  splitTree === null` enforces the architectural exclusion:
+                  when splitTree becomes non-null (a session is showing in
+                  a Pane), the Pane's own overlay (SplitView.tsx:439-454)
+                  owns preview state — this outer tint MUST defer. Palette
+                  values verbatim from SplitView.tsx:446-447 (`--highlight`
+                  from prototype). pointer-events-none is LOAD-BEARING —
+                  drop still fires on the underlying wrapper's onDrop.
+                  zIndex 30 sits above normal-view (z-10 at :2528+) but
+                  below the mobile back-chevron (z-30 at :1400) — they
+                  don't co-occupy this container. */}
+              {isConvRowDragOver && splitTree === null && (
+                <div
+                  data-testid="empty-pv-drop-preview"
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background: "rgba(255, 184, 150, 0.22)",
+                    border: "2px solid rgba(255, 184, 150, 0.60)",
+                    zIndex: 30,
+                    transition: "opacity 120ms ease",
+                  }}
+                />
+              )}
               {/* Split view — always mounted when not mobile, hidden via CSS when inactive */}
               {!isMobile && (
                 <div
