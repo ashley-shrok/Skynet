@@ -1512,3 +1512,31 @@ Plans:
 
 Plans:
 - [ ] 59-01-PLAN.md — Coral tint overlays on both drop targets (Task 1: empty-PV in AppShell.tsx + new AppShell.empty-pv-drop-tint.test.tsx; Task 2: conv-list panel in PrettyConversationsPanel.tsx + PrettyConversationsPanel.test.tsx Phase 59 describe block)
+
+### Phase 60: Invisible dormancy/wakes — delete visible sleep/wake surfaces; teach send-path to trigger wake invisibly
+
+**Goal:** When a claude session goes dormant (agent-supervisor kills at 30min idle), PrettyView looks identical to an awake-idle session — no bubble, no wake button, no progress bar, no compose-box disable. If the user sends into a dormant pane, the send itself triggers wake invisibly: backend drops the `.dormant` sentinel, waits for `.resume-complete` marker (or MARKER_FALLBACK_MS = 90_000ms window), then dispatches normal tmux send-keys. pv-send-watchdog window widened for dormant-triggered sends so healthy ~90s wake doesn't false-fire the red-bubble backstop.
+**Requirements**: none — shape-driven; see `.planning/shapes/shape-invisible-dormancy.closed.md` for load-bearing invariants.
+**Depends on:** Phase 55
+**Plans:** 3 plans (all executed pre-rescue; code-complete)
+**History note:** Originally added as Phase 56 (2026-08-23), executed to code-complete + verifier PASS + /close closed-hit, but never shipped — Tanya took Phase 56 slot with visual-session-management (patches #509-514) while ship greenlight was pending. Rescued via cherry-pick-onto-origin 2026-08-29. Renumber: 56 → 60. 15th known `gsd-sdk phase.add` cross-tree race.
+
+Wave 1 *(all complete pre-rescue)*
+
+- [x] 60-01-PLAN.md — Backend send-while-dormant path
+- [x] 60-02-PLAN.md — pv-send-watchdog widened window for dormant sends
+- [x] 60-03-PLAN.md — Frontend deletion (DormancyOverlay + Wake button + progress bar) + backend cleanup
+
+### Phase 61: WIP indicator shell-idle gate — use Stop hook to reject stale-shell false positives
+
+**Goal:** The conversation-list WIP indicator stops lying about stale-shell sessions (Poppy/aqua/wilma pattern). New predicate: shell counts as work ONLY when the session status transitioned since its last Stop-hook fire; unknown-stop defaults to on (rollout safety). Fifth-slice extension to the fleet-status pipeline (Phases 41/47/52/53 pattern).
+**Requirements**: none — scope fully captured by 61-CONTEXT.md locked decisions.
+**Depends on:** Phase 55
+**Plans:** 3 plans (all executed + close-out + verifier PASS + code-review MEDIUM/LOW fixes applied; ready to ship with Phase 60)
+**History note:** Originally added as Phase 57 (2026-08-26), renumbered 57 → 59 → 61 via successive rescue-rebases as Tanya kept shipping (her Phase 57 drop-preview #515, then her Phase 59 coral-tint #517 collided with successive renumbers). 15th known `gsd-sdk phase.add` cross-tree race.
+
+Wave 1 *(all complete)*
+
+- [x] 61-01-PLAN.md — Foundation: stop-hook.sh additive per-session write + wire schema extension + fleet-status-types frontend mirror + wire-protocol.test.ts additive-axis tests
+- [x] 61-02-PLAN.md — Backend processPid extension: per-session file mtime read + server-side status-delta tracking + fingerprint extension + 6 new ssh-poll-orchestrator tests
+- [x] 61-03-PLAN.md — Frontend session-working-store extension: WorkingRecord gains two axes + main predicate revised + Axis A/D/E cache-preservation + Test B revised + Tests M/N/O/P new
