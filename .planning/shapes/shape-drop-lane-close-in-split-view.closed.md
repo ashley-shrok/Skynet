@@ -50,3 +50,51 @@ The panel-drop close path uses the standard tab-close routine — meaning if tha
 ## Vehicle notes
 
 *Vehicle to be recommended after shape approval, per `/build` Step 2. This shape is intended as the input to that decision — the implementing vehicle should treat this file as the source of truth for what the surface is and how it behaves.*
+
+---
+
+## Close-Out
+
+**Closed:** 2026-08-29
+**Vehicle used:** quick task (single-slice implementation with colocated test file, wired at three sites in AppShell.tsx)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Lane appears during badge drag when panel is collapsed in split view; drop closes the session using the same routine as the panel-drop path.
+- **Shape: ~115px vertical rectangle on left edge** — present · width 115, position absolute, top/bottom 0, left 0.
+- **Shape: slides in on badge drag start** — present · Mount gate on active-drag-tabId; hook wires to window dragstart with badge MIME.
+- **Shape: neutral baseline borrowing app chrome** — present · panel-base fill + border-quiet-strong right-edge border.
+- **Shape: single X glyph centered** — present · lucide X size=28 in flex-centered container.
+- **Shape: coral on cursor enter** — present · hover state paints coral fill + border — byte-matched to the split-pane's own coral tokens.
+- **Shape: returns to neutral on leave** — present · dragleave with bounding-rect guard clears hover only when cursor is truly outside.
+- **Shape: disappears immediately on drag end, no exit animation** — present · Unmounts when the hook clears tabId on window dragend.
+- **Philosophy: proxy for the panel, not a peek** — present · Single-purpose surface; no conversation rows rendered; only X glyph.
+- **Philosophy: coral grammar respected (neutral baseline, coral only on hover)** — present · Test B asserts baseline contains no coral rgba; hover state assertion in Test C.
+- **Philosophy: always visible during badge drag, not proximity-triggered** — present · Mount gate is purely on active-drag-tabId; no cursor-position gating.
+- **Prior context: reads badge dragstart payload MIME** — present · Application-specific badge MIME consumed by both the hook and the drop handler.
+- **Prior context: inherits panel-drop close routine** — present · Wired to the same close callback used by the panel-drop path.
+- **What would make it wrong: lane appears during non-badge drags** — present · Type-gate in dragover (guards hover activation) and in hook (guards mount).
+- **What would make it wrong: lane appears while panel already open** — present · Mount gate includes not-open condition.
+- **What would make it wrong: baseline reads as coral** — present · Test B asserts baseline style contains the panel-base variable and no coral rgba.
+- **What would make it wrong: behavior diverges from panel-drop close** — present · Same close handler wired; no additional side effects beyond the shared close routine.
+- **What would make it wrong: lane grows large enough to compete with leftmost split-target zone** — present · Width fixed at 115px, matching the shape's stated modest width.
+- **What would make it wrong: lane appears on mobile** — present · Mount gate includes not-mobile and not-mobile-list-screen conditions.
+- **Scope: no new keyboard shortcut / context-menu / non-drag close** — present · Material adds only the drag-drop surface.
+- **Scope: no change to underlying tab-close routine** — present · Close callback is passed through unchanged.
+- **Scope: no change to panel itself** — present · The panel component was not modified as part of this work.
+- **Scope: no change to existing coral drop-target affordances** — present · Palette tokens are read/reused; existing drop targets untouched.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The material includes an open-tab-id validation guard and a structured-log line that the shape does not explicitly call out. Both are faithful mirrors of the existing panel-drop close prelude (the panel does the same open-tab-id check and emits an analogous log), so the reviewer read them as part of "the lane inherits the panel-drop close semantic" rather than as unagreed additions.
+
+The transition property intended for the slide-in animation is present but effectively a no-op on mount, because there is no starting off-screen translate — the wrapper mounts already at its final position. The shape's "slides in" language was satisfied here by appearance-on-drag alone rather than a literal slide. Worth noting for future shapes that want a genuine slide animation to spell out the start-state offset.
