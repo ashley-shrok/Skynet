@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useInjectedTurnRelay } from "./use-injected-turn-relay";
 import { CommandHistoryProvider } from "@/features/terminal/command-history/CommandHistoryContext";
 import { Terminal } from "@/features/terminal/Terminal";
 import type { IdentityPaneHandle, TerminalHandle, TerminalHostConfig } from "@/features/terminal/Terminal";
@@ -186,21 +187,14 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       [],
     );
 
-    // --- onInjectedTurnReady: mirrors Terminal.tsx L3266-3276 verbatim ---
-    // Phase 35 ref-forwarding pattern: send the body first (synchronously),
-    // then \r + mqid 60ms later (the split-and-delay path per patch #60/#100).
-    const handleInjectedTurnReady = useCallback(
-      (text: string, messageQueueItemId: string) => {
-        const send = pvSendInputRef.current;
-        if (!send) return; // silent noop — no WS yet on this mount
-        send(text);
-        setTimeout(() => {
-          const send2 = pvSendInputRef.current;
-          if (send2) send2("\r", messageQueueItemId);
-        }, 60);
-      },
-      [],
-    );
+    // --- useInjectedTurnRelay: queue-and-replay hook (replaces the former
+    // handleInjectedTurnReady inline useCallback that silently dropped turns
+    // when pvSendInputRef.current === null during WS reconnect / mount-race).
+    // getSendFn reads pvSendInputRef.current at call-time so the hook never
+    // holds a stale capture. pvSendInputRef stays the single source of truth.
+    const injectedTurnRelay = useInjectedTurnRelay({
+      getSendFn: () => pvSendInputRef.current,
+    });
 
     // --- hostConfig for Terminal (mirrors tabUtils.tsx L114-121 verbatim) ---
     const hostConfig: TerminalHostConfig = {
@@ -302,13 +296,16 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
               if (!send) return;
               send();
             }}
-            onInjectedTurnReady={handleInjectedTurnReady}
+            onInjectedTurnReady={injectedTurnRelay.onInjectedTurnReady}
             // Phase 35 ref-forwarding registration surface for pretty-view outbound
             // writes. IdentitySessionPane holds pvSendInputRef / pvSendInterruptRef
             // so MessageQueueDrawer (mounted OUTSIDE PrettyView as a sibling below)
             // can write to PrettyView's WS without prop-drilling wsRef upward.
-            onRegisterSendInput={(fn) => { pvSendInputRef.current = fn; }}
-            onUnregisterSendInput={() => { pvSendInputRef.current = null; }}
+            // Order matters: assign the ref FIRST, then notify the relay hook —
+            // so when the hook's drain microtask fires and calls getSendFn(), the
+            // ref is already populated.
+            onRegisterSendInput={(fn) => { pvSendInputRef.current = fn; injectedTurnRelay.onRegisterSendInput(fn); }}
+            onUnregisterSendInput={() => { pvSendInputRef.current = null; injectedTurnRelay.onUnregisterSendInput(); }}
             onRegisterSendInterrupt={(fn) => { pvSendInterruptRef.current = fn; }}
             onUnregisterSendInterrupt={() => { pvSendInterruptRef.current = null; }}
             // Quick 260806-lzd — long-press-to-toggle-pretty-view. IdentitySessionPane
