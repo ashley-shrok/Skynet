@@ -111,6 +111,34 @@ const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000;
 // .planning/phases/45-fix-forward-on-phase-43-restore-correct-architecture-for-win/45-CONTEXT.md § "Client architecture" for rationale.
 const WORKING_SET_CAP = 20;
 
+/**
+ * Phase 62 Wave 1 — client-side pending-send timeout constants.
+ *
+ * PENDING_SEND_TIMEOUT_MS_NORMAL applies when a send is armed while the
+ * pane is NOT dormant — matches the historical 20000ms behavior from
+ * Phase 50 Plan 03.
+ *
+ * PENDING_SEND_TIMEOUT_MS_DORMANT applies when a send is armed while
+ * dormantRef.current === true. Sizing rationale per D-62-02: the backend
+ * pv-send-watchdog (src/backend/claude-session/pv-send-watchdog.ts) waits
+ * up to MARKER_FALLBACK_MS_MIRROR (90_000ms) for the .resume-complete
+ * marker before it even arms its own dormant-send watchdog, whose
+ * GIVE_UP_MS_DORMANT is currently MARKER_FALLBACK_MS_MIRROR + GIVE_UP_MS
+ * + 10_000 = 120_000ms. Backend ceiling from user-send = 90_000 + 120_000
+ * = 210_000ms. The client MUST NOT fire before the backend has had time
+ * to complete its full dormant-send sequence — racing the backend is the
+ * exact bug this phase fixes. 220_000ms gives a 10s margin above the
+ * backend ceiling.
+ *
+ * NOTE for future maintainers: if the backend widens GIVE_UP_MS_DORMANT
+ * further, bump PENDING_SEND_TIMEOUT_MS_DORMANT to stay above the sum
+ * (MARKER_FALLBACK_MS_MIRROR + GIVE_UP_MS_DORMANT). No automated cross-
+ * file drift guard here (frontend can't import backend) — this comment
+ * is the coupling.
+ */
+export const PENDING_SEND_TIMEOUT_MS_NORMAL = 20_000;
+export const PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000;
+
 // Minimal read-only pretty view for a live Claude Code session.
 //
 // Opens a WebSocket to the claude-session bridge (Plan 01-02), sends
@@ -1115,10 +1143,22 @@ export function PrettyView({
         // already holds the failed payload.
         return;
       }
-      // Normal seed: state:'sending', 20s timer armed.
+      // Phase 62 Wave 1 — read dormantRef.current at arm time (D-62-03,
+      // symmetric to backend's dormantLastEmitted read at __applyInputMessageForTests
+      // entry). If dormant, use the widened 220000ms timeout so a healthy
+      // ~90s invisible wake + backend give-up window does not fire the
+      // client-side pre-emptive red-bubble. Reason label distinguishes the
+      // two paths so post-ship diagnostics can grep them apart (D-62-04).
+      const armedDormant = dormantRef.current === true;
+      const timeoutMs = armedDormant
+        ? PENDING_SEND_TIMEOUT_MS_DORMANT
+        : PENDING_SEND_TIMEOUT_MS_NORMAL;
+      const timeoutReason = armedDormant
+        ? "client_timeout_220s_dormant"
+        : "client_timeout_20s_normal";
       const timerHandle = window.setTimeout(() => {
-        flipToFailed(mqid, "client_timeout_20s");
-      }, 20000);
+        flipToFailed(mqid, timeoutReason);
+      }, timeoutMs);
       setPendingSends((prev) => [
         ...prev,
         {
