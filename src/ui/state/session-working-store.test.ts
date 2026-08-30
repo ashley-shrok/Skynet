@@ -1475,3 +1475,567 @@ describe("session-working-store: Test P — Axis A republish PRESERVES cached la
     expect(snapAfter.get("h1:s1")?.isWorking).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 62 Plan 04 (WIP hook-based rewrite 2026-08-30) — direct-signal
+// predicate + fallback branch + Pitfall-3 preservation for Axes H/I + bg
+// axis retirement in the direct-signal branch (with byte-for-byte fallback
+// branch preservation per CONTEXT.md §Rollout Option 1) + Nelly oscillation
+// reproducer (§Philosophy end-to-end proof).
+//
+// Test key (see 62-04-PLAN.md <task 3>):
+//   Test A: activity > stopped → true (direct-signal branch, status="shell"
+//     to prove the predicate doesn't depend on status).
+//   Test B: activity < stopped → false (direct-signal branch, status="busy"
+//     to prove the predicate doesn't depend on status).
+//   Test C: activity == stopped → false (strict >, not >=).
+//   Test D: activity present, stopped null → true.
+//   Test E: activity null, stopped present → false.
+//   Test F: both null + status="busy" → fallback branch true.
+//   Test G: both null + shell + lastStatusChangeAt > lastStopAt → fallback true.
+//   Test H: both null + shell + stale → fallback false.
+//   Test I: DIRECT-SIGNAL branch, bg=true → isWorking=false (bg dropped from
+//     composition in the direct-signal branch per CONTEXT.md §Philosophy).
+//   Test J: FALLBACK branch, bg=true → isWorking=true (bg PRESERVED byte-for-
+//     byte per CONTEXT.md §Rollout Option 1's zero-behavior-change promise).
+//     This is the primary regression guard for plan-review HIGH #1.
+//   Test K: Axis H Pitfall-3 preservation across Axis-A republish.
+//   Test L: Axis I Pitfall-3 preservation across Axis-A republish.
+//   Test M: Axis H explicit-null reset (wire=null overwrites cache to null).
+//   Test N: Axis I explicit-null reset (wire=null overwrites cache to null).
+//   Test O: Nelly 6-frame oscillation reproducer — CORE test. Proves both
+//     the false-positive fix AND the "PermissionRequest = done" design
+//     choice from §Philosophy (frame 4 stays false because the permission
+//     request bumps the stopped marker via stopped-hook.sh).
+//   Test P: Direct-signal branch takes precedence over fallback branch when
+//     any marker mtime is a number (even if fallback branch would say true).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("session-working-store (Phase 62 Plan 04): direct-signal predicate", () => {
+  // Test A — activity > stopped → true (predicate does NOT depend on status)
+  it("Phase 62 Task 3 Test A: activityMtime=2000, stoppedMtime=1000, status='shell' → useSessionIsWorking true", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "shell",
+          activityMtime: 2000,
+          stoppedMtime: 1000,
+        }),
+      );
+    });
+    rerender();
+    // Direct-signal branch: activity > stopped → true regardless of status.
+    // Deliberately using status="shell" to prove the direct-signal predicate
+    // does NOT depend on status (unlike the Phase 59 fallback which does).
+    expect(result.current).toBe(true);
+  });
+
+  // Test B — activity < stopped → false (predicate does NOT depend on status)
+  it("Phase 62 Task 3 Test B: activityMtime=1000, stoppedMtime=2000, status='busy' → useSessionIsWorking false", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "busy",
+          activityMtime: 1000,
+          stoppedMtime: 2000,
+        }),
+      );
+    });
+    rerender();
+    // Direct-signal branch: stopped > activity → false regardless of status.
+    // Deliberately using status="busy" to prove the direct-signal predicate
+    // does NOT depend on status (unlike the Phase 59 fallback where busy is
+    // unconditional).
+    expect(result.current).toBe(false);
+  });
+
+  // Test C — activity == stopped → false (strict >, not >=)
+  it("Phase 62 Task 3 Test C: activityMtime=1000, stoppedMtime=1000 → useSessionIsWorking false (strict >, not >=)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          activityMtime: 1000,
+          stoppedMtime: 1000,
+        }),
+      );
+    });
+    rerender();
+    // Strict >: equal collapses to false — activity must beat the latest stop.
+    expect(result.current).toBe(false);
+  });
+
+  // Test D — activity present, stopped null → true
+  it("Phase 62 Task 3 Test D: activityMtime=1000, stoppedMtime=null → useSessionIsWorking true (activity-only observed)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          activityMtime: 1000,
+          stoppedMtime: null,
+        }),
+      );
+    });
+    rerender();
+    // Activity observed, no stop yet → row deserves Ashley's attention.
+    expect(result.current).toBe(true);
+  });
+
+  // Test E — activity null, stopped present → false
+  it("Phase 62 Task 3 Test E: activityMtime=null, stoppedMtime=1000 → useSessionIsWorking false (stop-only observed)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "busy",
+          activityMtime: null,
+          stoppedMtime: 1000,
+        }),
+      );
+    });
+    rerender();
+    // Only stop observed → row does NOT deserve attention right now.
+    // status="busy" is deliberately used to prove the direct-signal branch
+    // supersedes the Phase 59 predicate: the fallback branch would say true
+    // (busy → main true) but the direct-signal branch says false and wins.
+    expect(result.current).toBe(false);
+  });
+
+  // Test P — direct-signal branch takes precedence over fallback branch
+  it("Phase 62 Task 3 Test P: activityMtime=1000 + stoppedMtime=2000 + fallback-would-say-true fields → isWorking false (direct-signal branch wins)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "busy",
+          // Direct-signal branch: stopped > activity → false.
+          activityMtime: 1000,
+          stoppedMtime: 2000,
+          // Fallback branch would say TRUE if it ran (status=busy → main
+          // true), but the fallback branch does NOT execute because at least
+          // one mtime is a number.
+          lastStopAt: null,
+          lastStatusChangeAt: 999,
+        }),
+      );
+    });
+    rerender();
+    // Direct-signal branch precedence: at least one mtime is a number, so the
+    // fallback branch is bypassed even though it would have said true.
+    expect(result.current).toBe(false);
+  });
+});
+
+describe("session-working-store (Phase 62 Plan 04): fallback branch (Option-1 rollout — unupgraded box)", () => {
+  // Test F — both null + status='busy' → fallback true
+  it("Phase 62 Task 3 Test F: activityMtime=undefined + stoppedMtime=undefined + status='busy' → fallback branch → true", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      // makeState omits activityMtime + stoppedMtime + lastStopAt +
+      // lastStatusChangeAt entirely (all undefined) → both mtimes null →
+      // fallback branch fires. status="busy" → main=true → isWorking=true.
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "busy" }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+
+  // Test G — both null + shell fresh transition → fallback true
+  it("Phase 62 Task 3 Test G: both null + status='shell' + lastStatusChangeAt > lastStopAt → fallback branch → true", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "shell",
+          lastStopAt: 1000,
+          lastStatusChangeAt: 2000,
+        }),
+      );
+    });
+    rerender();
+    // Fallback branch's fresh-mid-turn-shell case (preserves the Phase 59
+    // inline-260823-wip-shell-is-work truth for unupgraded boxes).
+    expect(result.current).toBe(true);
+  });
+
+  // Test H — both null + shell stale → fallback false
+  it("Phase 62 Task 3 Test H: both null + status='shell' + lastStatusChangeAt < lastStopAt → fallback branch → false (Poppy/aqua/wilma pattern)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "shell",
+          lastStopAt: 2000,
+          lastStatusChangeAt: 1000,
+        }),
+      );
+    });
+    rerender();
+    // Fallback branch's stale-shell case — the Phase 59 predicate correctly
+    // handles this for unupgraded boxes. Phase 62's whole point is that the
+    // direct-signal branch handles the Nelly false-positive that Phase 59
+    // does NOT catch — see Test O below.
+    expect(result.current).toBe(false);
+  });
+});
+
+describe("session-working-store (Phase 62 Plan 04): bg axis retirement", () => {
+  // Test I — DIRECT-SIGNAL BRANCH: bg=true does NOT contribute to isWorking
+  it("Phase 62 Task 3 Test I: direct-signal branch (activity<stopped=false) + status='idle' + bg=true → isWorking false (bg dropped in direct-signal branch)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          activityMtime: 1000,
+          stoppedMtime: 2000, // Direct-signal predicate says false.
+          backgroundTasks: [
+            {
+              type: "shell",
+              id: "x",
+              status: "running",
+              description: "user task",
+            },
+          ],
+        }),
+      );
+    });
+    rerender();
+    // Even with a running shell background task, the DIRECT-SIGNAL branch
+    // says false because the shape's §Philosophy locks the direct-signal
+    // predicate to marker mtimes alone. `bg` does NOT contribute here.
+    // Without this test the executor could have accidentally left `bg`
+    // wired into the direct-signal branch composition.
+    expect(result.current).toBe(false);
+  });
+
+  // Test J — FALLBACK BRANCH: bg=true DOES contribute to isWorking (HIGH #1)
+  it("Phase 62 Task 3 Test J (HIGH #1 regression guard): fallback branch (both mtimes null) + status='idle' + bg=true → isWorking true (bg PRESERVED in fallback per Option-1 rollout)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          // Both direct-signal mtimes omitted → fallback branch fires.
+          // Both Phase 59 axes null → shell-gate main=false.
+          lastStopAt: null,
+          lastStatusChangeAt: null,
+          backgroundTasks: [
+            {
+              type: "shell",
+              id: "x",
+              status: "running",
+              description: "user task",
+            },
+          ],
+        }),
+      );
+    });
+    rerender();
+    // The byte-for-byte Phase 59 predicate in the fallback branch: main =
+    // busy || (shell && …) = false, bg = true, isWorking = main || bg =
+    // true. Unupgraded-box behavior MUST match Phase 59 exactly — dropping
+    // `bg` in the fallback branch would silently flip every unupgraded-box
+    // long-running-bg session from working to idle. This is the primary
+    // regression guard for plan-review HIGH #1 (Option-1 rollout's core
+    // promise per CONTEXT.md §Rollout).
+    expect(result.current).toBe(true);
+  });
+});
+
+describe("session-working-store (Phase 62 Plan 04): Axis H/I preservation + explicit-null reset", () => {
+  // Test K — Axis H (activityMtime) Pitfall-3 preservation across Axis-A republish
+  it("Phase 62 Task 3 Test K: publish activity=1000+stopped=500, then publish without activityMtime → cached activityMtime still 1000", () => {
+    // Frame 1: direct-signal predicate says true (activity>stopped), Axis A fires.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          activityMtime: 1000,
+          stoppedMtime: 500,
+        }),
+      );
+    });
+    const snapBefore = getSessionWorkingSnapshot();
+    expect(snapBefore.get("h1:s1")?.activityMtime).toBe(1000);
+    expect(snapBefore.get("h1:s1")?.stoppedMtime).toBe(500);
+    expect(snapBefore.get("h1:s1")?.isWorking).toBe(true);
+
+    // Frame 2: same status, activityMtime OMITTED (pre-Phase-62-like frame),
+    // stoppedMtime OMITTED too. Cache-preservation: the predicate reads the
+    // cached values via `state_arg.activityMtime ?? existing?.activityMtime ??
+    // null` so isWorking stays true; Axes H/I no-op because the wire signal
+    // is undefined; Axis A's nextMap.set preserves the two axes via
+    // `existing?.activityMtime ?? null`.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle" }),
+      );
+    });
+
+    const snapAfter = getSessionWorkingSnapshot();
+    // Pitfall-3 regression guard: activityMtime survives the omit-frame.
+    expect(snapAfter.get("h1:s1")?.activityMtime).toBe(1000);
+    expect(snapAfter.get("h1:s1")?.stoppedMtime).toBe(500);
+  });
+
+  // Test L — Axis I (stoppedMtime) Pitfall-3 preservation across Axis-A republish
+  it("Phase 62 Task 3 Test L: publish activity=500+stopped=1000, then publish without stoppedMtime → cached stoppedMtime still 1000", () => {
+    // Frame 1: direct-signal predicate says false (stopped>activity).
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          activityMtime: 500,
+          stoppedMtime: 1000,
+        }),
+      );
+    });
+    const snapBefore = getSessionWorkingSnapshot();
+    expect(snapBefore.get("h1:s1")?.stoppedMtime).toBe(1000);
+    expect(snapBefore.get("h1:s1")?.activityMtime).toBe(500);
+
+    // Frame 2: same status, both mtimes OMITTED.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle" }),
+      );
+    });
+
+    const snapAfter = getSessionWorkingSnapshot();
+    // Pitfall-3 regression guard: stoppedMtime survives the omit-frame.
+    expect(snapAfter.get("h1:s1")?.stoppedMtime).toBe(1000);
+    expect(snapAfter.get("h1:s1")?.activityMtime).toBe(500);
+  });
+
+  // Test M — Axis H explicit-null reset (wire=null overwrites cache to null)
+  it("Phase 62 Task 3 Test M: publish activity=1000, then publish activityMtime=null → cached activityMtime resets to null", () => {
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          activityMtime: 1000,
+        }),
+      );
+    });
+    expect(getSessionWorkingSnapshot().get("h1:s1")?.activityMtime).toBe(1000);
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          activityMtime: null,
+        }),
+      );
+    });
+    // Explicit null wire signal overwrites cache — distinct from omit
+    // (undefined) which preserves cache. Same three-valued discipline as
+    // Axis F (lastStopAt) per Phase 59 Plan 03.
+    expect(getSessionWorkingSnapshot().get("h1:s1")?.activityMtime).toBe(null);
+  });
+
+  // Test N — Axis I explicit-null reset (wire=null overwrites cache to null)
+  it("Phase 62 Task 3 Test N: publish stopped=1000, then publish stoppedMtime=null → cached stoppedMtime resets to null", () => {
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          stoppedMtime: 1000,
+        }),
+      );
+    });
+    expect(getSessionWorkingSnapshot().get("h1:s1")?.stoppedMtime).toBe(1000);
+
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          stoppedMtime: null,
+        }),
+      );
+    });
+    expect(getSessionWorkingSnapshot().get("h1:s1")?.stoppedMtime).toBe(null);
+  });
+});
+
+describe("session-working-store (Phase 62 Plan 04): Nelly oscillation + PermissionRequest-as-done end-to-end proof", () => {
+  // Test O — the CORE test — Nelly 6-frame oscillation reproducer.
+  it("Phase 62 Task 3 Test O: Nelly 6-frame turn with permission-request interleaved → isWorking sequence true→true→false→false→true→false", () => {
+    // This is the CORE test. The phase exists to fix this exact case. It
+    // proves BOTH the Nelly false-positive fix (the current Phase 59
+    // predicate would say isWorking=true through frame 3 due to status
+    // oscillation on unupgraded boxes) AND the "PermissionRequest counts as
+    // stopped" design choice from CONTEXT.md §Philosophy (frame 4 stays
+    // false because the permission request touches the stopped marker via
+    // stopped-hook.sh — Plan 62-01 Task 2 established the shell script
+    // event-agnosticism, Plan 62-02 established the settings.json merge
+    // target including PermissionRequest, and this test proves the
+    // end-to-end signal correctness through the store predicate).
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+
+    // Frame 1: UserPromptSubmit fires (Ashley submitted a prompt) →
+    // activity marker bumped to 1000; stopped marker not touched yet.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "busy",
+          activityMtime: 1000,
+          stoppedMtime: null,
+        }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true); // activity-only observed → deserves attention
+
+    // Frame 2: PreToolUse fires (agent began invoking a tool) → activity
+    // marker bumped to 2000; stopped marker still not touched.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "shell",
+          activityMtime: 2000,
+          stoppedMtime: null,
+        }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true); // activity continues; tool call begun
+
+    // Frame 3: Stop fires (turn ended cleanly) → stopped marker bumped to
+    // 3000; activity marker preserved at 2000 by cache — the wire frame
+    // omits activityMtime because no activity hook fired.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          stoppedMtime: 3000,
+          // activityMtime omitted → cache-preserved at 2000 by Axis A's
+          // `existing?.activityMtime ?? null`.
+        }),
+      );
+    });
+    rerender();
+    // stopped (3000) > activity (2000) → false. The row's affordance has
+    // flipped from "working" to "ready to click".
+    expect(result.current).toBe(false);
+
+    // Frame 4: PermissionRequest fires (agent blocked waiting on Ashley) →
+    // stopped marker bumped to 4000 via stopped-hook.sh (per Plan 62-01/02:
+    // PermissionRequest is routed to the stopped marker deliberately per
+    // §Philosophy — "agent is waiting on you" is the same as "agent is
+    // done" from the affordance's perspective).
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "waiting", // harness may emit "waiting" here
+          stoppedMtime: 4000,
+        }),
+      );
+    });
+    rerender();
+    // stopped (4000) > activity (2000) → false. Proves the shape
+    // §Philosophy design choice: both mean the row deserves Ashley's
+    // attention right now, both leave the affordance off. This is the
+    // "PermissionRequest = done" end-to-end signal correctness proof.
+    expect(result.current).toBe(false);
+
+    // Frame 5: UserPromptSubmit fires (Ashley responded to the permission
+    // request, next turn begins) → activity marker bumped to 5000.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "busy",
+          activityMtime: 5000,
+          // stoppedMtime omitted → cache-preserved at 4000.
+        }),
+      );
+    });
+    rerender();
+    // activity (5000) > stopped (4000) → true. Flip back to working.
+    expect(result.current).toBe(true);
+
+    // Frame 6: Stop fires (turn ended cleanly) → stopped marker bumped to
+    // 6000; activity marker preserved at 5000 by cache.
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({
+          status: "idle",
+          stoppedMtime: 6000,
+        }),
+      );
+    });
+    rerender();
+    // stopped (6000) > activity (5000) → false. Final idle.
+    expect(result.current).toBe(false);
+
+    // Full asserted sequence: true → true → false → false → true → false.
+    // Grep marker: this test covers the "Nelly" oscillation false-positive
+    // fix that motivated the phase.
+  });
+});
