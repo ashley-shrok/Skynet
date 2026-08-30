@@ -178,6 +178,41 @@ export interface SessionState {
   // backend schema.
   lastStopAt?: number | null;
   lastStatusChangeAt?: number | null;
+  // Phase 62 Plan 04 (WIP hook-based rewrite 2026-08-30): mirror of
+  // wire-protocol.ts SessionStateSchema.activityMtime +
+  // SessionStateSchema.stoppedMtime (added by Plan 62-03 Task 1 as
+  // `z.number().nullable().optional()` — sixth iteration of the
+  // T-41-03-05 additive-optional discipline holding FRAME_SCHEMA_VERSION at 1).
+  //
+  // Source: per-session marker files touched by the Plan 62-01 hook scripts,
+  // installed onto managed boxes via Plan 62-02:
+  //   - `activityMtime` bumps on `UserPromptSubmit` (Ashley submitted a prompt)
+  //     and `PreToolUse` (agent began invoking a tool) via activity-hook.sh.
+  //   - `stoppedMtime` bumps on `Stop` (turn finished cleanly), `StopFailure`
+  //     (turn ended in error), and `PermissionRequest` (agent blocked waiting on
+  //     Ashley for a permission decision — same as done from the affordance's
+  //     perspective per CONTEXT.md §Philosophy) via stopped-hook.sh.
+  //
+  // Consumed by session-working-store's new direct-signal predicate branch
+  // (Plan 62-04 Task 2), which computes:
+  //   `activityMtime > stoppedMtime` → isWorking = true; else → false.
+  // No state machine, no smoothing, no shell-idle gate — just one comparison.
+  //
+  // Semantics (both fields):
+  //   `number`    = mtime present (unix millis).
+  //   `null`      = marker file absent OR SSH-hiccup normalised-null. BOTH
+  //                 cases trigger the session-working-store's fallback to the
+  //                 retained Phase 59 shell-idle-gate predicate (Option-1
+  //                 rollout: unupgraded boxes see zero behavior change).
+  //   `undefined` = emitting backend pre-dates Phase 62. Frontend treats
+  //                 undefined and null identically at the store boundary
+  //                 (same convention as Phase 59 lastStopAt).
+  //
+  // Mirrors backend `SessionStateSchema.activityMtime` and
+  // `SessionStateSchema.stoppedMtime`. MUST stay in lockstep with the backend
+  // schema — any change to wire-protocol.ts MUST be mirrored here.
+  activityMtime?: number | null;
+  stoppedMtime?: number | null;
 }
 
 // ---------------------------------------------------------------------------
