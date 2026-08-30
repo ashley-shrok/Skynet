@@ -3958,6 +3958,46 @@ wss.on("connection", async (ws: WebSocket, req) => {
             now: Date.now(),
           });
           suppress = result.suppress;
+          // Phase 62 Wave 2 (D-62-01, D-62-04) — [dedup] instrumentation.
+          // Emits one line per __applyQueueDedupForTests call outcome so
+          // the next dormant-send repro from Ashley produces log evidence
+          // identifying which frame pair (if any) is bypassing dedup.
+          //
+          // W-1 note (documented in 62-02-SUMMARY.md): the helper's return
+          // shape was NOT extended with `contentHash: string`. We use the
+          // literal "<no-hash>" sentinel in the log line. The
+          // rawType/operation/action/mapSize triple is enough to correlate
+          // frames across log lines, and skipping the extension keeps
+          // __applyQueueDedupForTests's return-type contract untouched
+          // (D-62-01 — no changes to the dedup helper's internals).
+          //
+          // dedupAction derivation mirrors the helper's internal branches:
+          //  - suppress===true  → "suppress" (lookup branch found a hit)
+          //  - queue-op enqueue → "populate" (helper inserted into Map)
+          //  - anything else    → "passthrough" (user-turn miss, or other
+          //    rawType out of scope for dedup)
+          const dedupAction: "populate" | "suppress" | "passthrough" =
+            result.suppress
+              ? "suppress"
+              : (typeof rawObj.type === "string" && rawObj.type === "queue-operation" &&
+                 typeof rawObj.operation === "string" && rawObj.operation === "enqueue")
+                ? "populate"
+                : "passthrough";
+          const dedupRawType = typeof rawObj.type === "string" ? rawObj.type : "<no-type>";
+          const dedupOperation = typeof rawObj.operation === "string" ? rawObj.operation : "<no-op>";
+          sshLogger.info(
+            `[dedup] tail=${tailInstanceId} sessionId=${sessionIdFromFile ?? "<no-session>"} contentHash=<no-hash> rawType=${dedupRawType} operation=${dedupOperation} action=${dedupAction} mapSize=${queueEnqueueDedup.size}`,
+            {
+              operation: "claude_session_dedup_gate",
+              tailInstanceId,
+              sessionId: sessionIdFromFile,
+              contentHash: "<no-hash>",
+              rawType: dedupRawType,
+              dedupOperation,
+              action: dedupAction,
+              mapSize: queueEnqueueDedup.size,
+            },
+          );
         } catch {
           /* malformed line — already surfaced by parseSessionLine as kind:"malformed"
              which is never a message frame, so we shouldn't hit this path. */
@@ -3966,6 +4006,29 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (!suppress) {
         try {
           ws.send(JSON.stringify(frame));
+          // Phase 62 Wave 2 (D-62-01, D-62-04) — [frame-emit] instrumentation.
+          // Emits one line per user-role ws.send passthrough (dedup did not
+          // suppress). Inner guard mirrors the dedup gate above at :3951 —
+          // non-user-role frames pass ws.send without dedup logic AND
+          // without this log, keeping log volume bounded to the frames the
+          // diagnostic actually cares about. Placement AFTER ws.send but
+          // INSIDE the try means the log fires only when ws.send did not
+          // throw; if ws.send throws, the catch drops silently as today.
+          if (frame.type === "message" && frame.role === "user") {
+            const previewSource = typeof frame.content === "string" ? frame.content : String(frame.content ?? "");
+            const contentPreview = previewSource.slice(0, 50).replace(/[\r\n]+/g, " ");
+            sshLogger.info(
+              `[frame-emit] tail=${tailInstanceId} eventId=${frame.eventId ?? "<no-id>"} role=${frame.role} contentLen=${previewSource.length} contentPreview=${contentPreview}`,
+              {
+                operation: "claude_session_frame_emit",
+                tailInstanceId,
+                eventId: frame.eventId ?? null,
+                role: frame.role,
+                contentLen: previewSource.length,
+                contentPreview,
+              },
+            );
+          }
         } catch {
           /* ws may be mid-close; drop */
         }
