@@ -283,19 +283,33 @@ describe("installStopHook", () => {
     expect(settingsWriteCalls).toBeGreaterThan(0);
   });
 
-  it("Test 4: idempotent — second install skips settings write when absolute-path entry already present", async () => {
-    // Post-patch-#454: settings.json stores the ABSOLUTE (tilde-expanded) path.
+  it("Test 4: idempotent — second install skips settings write when ALL SIX entries already present (Phase 62 full-shape)", async () => {
+    // Post-Phase-62: settings.json must contain ALL SIX entries (two Stop
+    // entries, one each for UserPromptSubmit / PreToolUse / StopFailure /
+    // PermissionRequest) for the idempotency short-circuit to fire.
+    // Post-patch-#454: all commands are ABSOLUTE (tilde-expanded) paths.
+    const stopPath = "/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh";
+    const activityPath =
+      "/home/testuser/.claude/hooks/skynet-fleet-status-activity.sh";
+    const stoppedPath =
+      "/home/testuser/.claude/hooks/skynet-fleet-status-stopped.sh";
     const existingSettings = JSON.stringify({
       hooks: {
         Stop: [
           {
             hooks: [
-              {
-                type: "command",
-                command: "/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh",
-              },
+              { type: "command", command: stopPath },
+              { type: "command", command: stoppedPath },
             ],
           },
+        ],
+        UserPromptSubmit: [
+          { hooks: [{ type: "command", command: activityPath }] },
+        ],
+        PreToolUse: [{ hooks: [{ type: "command", command: activityPath }] }],
+        StopFailure: [{ hooks: [{ type: "command", command: stoppedPath }] }],
+        PermissionRequest: [
+          { hooks: [{ type: "command", command: stoppedPath }] },
         ],
       },
     });
