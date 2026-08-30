@@ -9,6 +9,7 @@
  * path — preserving today's rendering behavior byte-for-byte in the null branch.
  */
 import { describe, it, expect } from "vitest";
+import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
 
@@ -180,5 +181,34 @@ describe("RelayOutboundBubble", () => {
     expect(screen.getByText(/▸ raw command/)).toBeTruthy();
     // Raw pre NOT visible (inner reset to collapsed)
     expect(screen.queryByText("curl -X PUT ...")).toBeNull();
+  });
+
+  // quick-260830-e6i Part B: shrink collapsed padding to match ChatMessage pill.
+  it("C5: collapsed bubble uses tight padding (12/7); expanded bubble uses roomy padding (18/14)", () => {
+    render(
+      <RelayOutboundBubble
+        room="!roomAlias:server.tld"
+        rawCommand="curl -X PUT ..."
+        body="Hello from relay"
+      />,
+    );
+
+    const header = screen.getByTestId("relay-outbound-header");
+    // No dedicated bubble testid — navigate up via header.parentElement.
+    const bubble = header.parentElement as HTMLElement;
+    expect(bubble).not.toBeNull();
+
+    // Collapsed by default — tight padding.
+    expect(bubble).toHaveClass("px-[12px]");
+    expect(bubble).toHaveClass("py-[7px]");
+    expect(bubble).not.toHaveClass("px-[18px]");
+    expect(bubble).not.toHaveClass("py-[14px]");
+
+    // Expand — roomy padding.
+    fireEvent.click(header);
+    expect(bubble).toHaveClass("px-[18px]");
+    expect(bubble).toHaveClass("py-[14px]");
+    expect(bubble).not.toHaveClass("px-[12px]");
+    expect(bubble).not.toHaveClass("py-[7px]");
   });
 });

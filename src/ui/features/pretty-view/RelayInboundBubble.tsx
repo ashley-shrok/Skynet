@@ -137,7 +137,10 @@ export function RelayInboundBubble({
         className={cn(
           // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
-          "rounded-[var(--radius-pv-bubble)] px-[18px] py-[14px]",
+          "rounded-[var(--radius-pv-bubble)]",
+          // Padding: tight (matches ChatMessage assistant pill) when collapsed;
+          // roomy when expanded so the message body has breathing room.
+          collapsed ? "px-[12px] py-[7px]" : "px-[18px] py-[14px]",
           // Glass depth treatment (kept from phase 17 — reads distinct from
           // ChatMessage's shadow-based bubble while colour-matching it).
           "backdrop-blur-xl saturate-150",

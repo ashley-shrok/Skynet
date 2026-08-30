@@ -13,6 +13,7 @@
  * ~/.claude/identities/<id>/relay-state/messages/<eventid>.txt shape.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import "@testing-library/jest-dom/vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 import { detectFilePointer } from "./relay-pointer-detect";
@@ -338,5 +339,31 @@ describe("RelayInboundBubble", () => {
     expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
     expect(screen.queryByText(/via recv\.sh/)).toBeNull();
     expect(header.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  // quick-260830-e6i Part B: shrink collapsed padding to match ChatMessage pill.
+  it("C5: collapsed bubble uses tight padding (12/7); expanded bubble uses roomy padding (18/14)", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="Nelly says hello"
+        hostId={1}
+      />,
+    );
+
+    // Collapsed by default — tight padding.
+    const bubble = screen.getByTestId("relay-inbound-bubble");
+    expect(bubble).toHaveClass("px-[12px]");
+    expect(bubble).toHaveClass("py-[7px]");
+    expect(bubble).not.toHaveClass("px-[18px]");
+    expect(bubble).not.toHaveClass("py-[14px]");
+
+    // Expand — roomy padding.
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
+    expect(bubble).toHaveClass("px-[18px]");
+    expect(bubble).toHaveClass("py-[14px]");
+    expect(bubble).not.toHaveClass("px-[12px]");
+    expect(bubble).not.toHaveClass("py-[7px]");
   });
 });
