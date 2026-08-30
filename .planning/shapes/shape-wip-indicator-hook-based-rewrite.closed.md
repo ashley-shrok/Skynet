@@ -71,3 +71,46 @@ GSD phase is the right shape. The work spans a hook installer change, a backend 
 The next session picks this back up by re-invoking `/build` pointing at this shape file. `/build` will confirm the vehicle, then route into the GSD phase pipeline — seed a `/gsd:discuss-phase` from this file (per the build skill's guidance to not re-elicit what `/open` already captured), plan, execute, verify.
 
 Nothing else in the pipeline needs to know about the design work that happened in this session — it's all here. The reset in between is deliberate: fresh context for the phase-planning work, this file carries the agreement across.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-08-30
+**Vehicle used:** GSD phase
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · affordance rebuilt on harness lifecycle hooks — activity-hook + stopped-hook touch per-session marker files, backend reads mtimes
+- **Shape** — present · 5 lifecycle events wired (UserPromptSubmit + PreToolUse → activity marker; Stop + StopFailure + PermissionRequest → stopped marker); single-comparison predicate activityMtime > stoppedMtime on upgraded boxes
+- **Philosophy** — present · direct-signal branch is grounded on marker mtimes alone; no smoothing between the two markers; bg dropped from the upgraded-box composition; PermissionRequest deliberately treated as stopped per the affordance's one-question framing
+- **Prior context** — present · existing installer extended to add new hooks with reused install infrastructure and settings-merge shape; background-tasks-list ambient-tag filtering left orthogonally intact
+- **What would make it wrong: false-idle lie** — present · predicate is true when activityMtime > stoppedMtime; only-activity yields true; only-stopped yields false; equal collapses to false — no path introduces a false-idle across a real activity event
+- **What would make it wrong: missed lifecycle trigger** — present · the two hooks are wired to the five agreed lifecycle events verbatim; failure would only arise from harness-side hook coverage, which the shape defers as an add-hooks-not-inference fix
+- **What would make it wrong: predicate re-introduces state/smoothing across the two markers** — present · the direct-signal branch is a single strict > comparison with no smoothing layer between the two markers; the retained Phase 59 fallback is a completely separate branch that only fires when both new markers are absent — endorsed as bounded change-of-mind, not a smoothing layer over the two markers
+- **What would make it wrong: migration breaks unupgraded boxes** — present · explicitly handled — sessions on unupgraded boxes fall through to the retained Phase 59 predicate byte-for-byte, so no permanent-idle / permanent-working failure mode on boxes pending re-install
+- **What would make it wrong: rare-permission-flow wart is worse than described** — cannot-verify · operational observation gate — cannot be settled by reading the material; deferred by the shape until rollout evidence
+- **Scope edges: In — installer extended for four new hook events, existing stop hook stays** — present · installer merges six settings.json hook entries (existing Stop plus the four new events plus stopped-hook also on Stop)
+- **Scope edges: In — new backend predicate reading two marker files' mtimes** — present · orchestrator reads activity + stopped marker mtimes per PID per tick with fail-open cache preservation; frontend consumes the two mtimes and computes the predicate
+- **Scope edges: In — remove status-enum decision logic, derived transition timestamp, shell-idle gate, WIP-purpose pane-command polling** — drifted · endorsed intended change of mind — the shell-idle gate and derived transition timestamp are retained as a per-session fallback ONLY on unupgraded boxes; pane-command polling for the WIP purpose is not present; retention is bounded by the follow-up bounty recorded below
+- **Scope edges: In — per-identity rollout order starts with Nelly on thenasty** — present · documented in phase SUMMARY as the first identity to prove the fix; the rollout itself is downstream of the reviewed material per the review instructions
+- **Scope edges: Out — dormant sentinel mechanism stays as-is** — present · dormant axis untouched; ambient-filter.ts and dormant reads remain orthogonal
+- **Scope edges: Out — background-tasks list mechanism stays as-is** — present · backgroundTasks[] stays on the wire; bg dropped only from the upgraded-box direct-signal composition; ambient filter unchanged
+- **Scope edges: Out — pane-command polling for other purposes** — present · only tmux name resolution remains, which is identity resolution not WIP inference
+- **Scope edges: Deferred — permission-approve cosmetic wart** — present · not addressed in this arc as agreed
+- **Scope edges: Deferred — hook additions beyond the five agreed events** — present · hook set is exactly the five agreed events
+- **Scope edges: Tempting but no — smoothing layer over the two markers** — present · no smoothing layer between the two markers exists; the strict > comparison is the whole direct-signal predicate
+- **Scope edges: Tempting but no — automatic migration as deploy side-effect** — present · install remains an explicit per-identity operational act, not a deploy hook
+
+### Additions (in the result, not in the shape)
+
+- Two-branch predicate structure with a per-session fallback to the retained Phase 59 shell-idle-gate predicate on managed boxes where both new marker mtimes are null (Option-1 rollout) — endorsed-as-drift
+
+### Follow-ups
+
+- Retire the Phase 59 shell-idle-gate fallback branch (backend derivation of lastStatusChangeAt, lastStopAt per-session Stop-file mtime read, and the frontend fallback branch itself) once per-identity rollout of the new hooks is confirmed complete across every managed box. Currently un-tracked in ROADMAP/phase/bounty artifacts; Ashley to open as a bounty after /close returns. — bounty
+
+### Notes
+
+The shape's "comes out entirely" language for the old machinery was overridden during planning by the shape's own rollout-is-a-real-design-question requirement — Option 1 (retain as per-session fallback bounded by a follow-up phase) was chosen because Option 2 (default-on) and Option 3 (distinct unknown-state affordance) each had worse failure modes not authorized by the shape. The intent behind "comes out entirely" (no perpetual coexistence) is preserved by the follow-up commitment now recorded here. Worth carrying forward as a pattern: when a shape's removal language collides with its own rollout-safety failure mode, capture the bounded retention and the retirement follow-up in the same close-out.
