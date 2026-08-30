@@ -21,9 +21,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   readAndMergeStopHookSettings,
+  readAndMergeHookSettings,
   installStopHook,
   uninstallStopHook,
   STOP_HOOK_SCRIPT_CONTENTS,
+  ACTIVITY_HOOK_SCRIPT_CONTENTS,
+  STOPPED_HOOK_SCRIPT_CONTENTS,
 } from "./remote-hook-install.js";
 import type { SshChannel } from "./ssh-poll-orchestrator.js";
 
@@ -94,6 +97,17 @@ describe("remote-hook-install module exports", () => {
     expect(typeof readAndMergeStopHookSettings).toBe("function");
     expect(typeof installStopHook).toBe("function");
     expect(typeof uninstallStopHook).toBe("function");
+  });
+
+  it("Test 1a (Phase 62): exports readAndMergeHookSettings generalized helper", () => {
+    expect(typeof readAndMergeHookSettings).toBe("function");
+  });
+
+  it("Test 1b (Phase 62): exports ACTIVITY_HOOK_SCRIPT_CONTENTS + STOPPED_HOOK_SCRIPT_CONTENTS constants", () => {
+    expect(typeof ACTIVITY_HOOK_SCRIPT_CONTENTS).toBe("string");
+    expect(ACTIVITY_HOOK_SCRIPT_CONTENTS.length).toBeGreaterThan(0);
+    expect(typeof STOPPED_HOOK_SCRIPT_CONTENTS).toBe("string");
+    expect(STOPPED_HOOK_SCRIPT_CONTENTS.length).toBeGreaterThan(0);
   });
 });
 
