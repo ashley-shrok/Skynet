@@ -1634,10 +1634,10 @@ Plans:
 
 **Rescue-rebase note (2026-08-30):** Originally planned + executed as Phase 62 in this identity's tree. Renumbered 62 → 63 after Taylor's Phase 62 (Invisible-dormancy client-side follow-up) pushed to origin first; Taylor keeps 62 because force-pushing origin to renumber her artifacts is destructive/blocked (per role rule + rescue-rebase-runbook). Historical commit-message prefixes stay as `feat(62-XX)`, `test(62-XX)`, `docs(62-XX)` per runbook — chronology, not identity. Planning-artifact filenames (62-CONTEXT.md, 62-XX-PLAN.md, 62-XX-SUMMARY.md) still reference 62 during rebase; single rescue commit at end of rebase renames dir + files + internal refs to 63.
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
-- [ ] 62-01-PLAN.md — Author the two hook shell scripts (activity-hook.sh + stopped-hook.sh) with per-session marker touch, path-traversal defense, and vitest coverage
+- [x] 62-01-PLAN.md — Author the two hook shell scripts (activity-hook.sh + stopped-hook.sh) with per-session marker touch, path-traversal defense, and vitest coverage
 - [ ] 62-02-PLAN.md — Extend remote-hook-install.ts to drop the three scripts + merge five hook entries (Stop with two scripts, UserPromptSubmit + PreToolUse + StopFailure + PermissionRequest) into ~/.claude/settings.json idempotently
 - [ ] 62-03-PLAN.md — Extend wire-protocol.ts with activityMtime + stoppedMtime; extend ssh-poll-orchestrator processPid with two new stat reads per PID per tick; retain Phase 59 fields for rollout fallback
 - [ ] 62-04-PLAN.md — Rewrite session-working-store predicate: direct-signal branch first (activity>stopped), Phase 59 shell-idle-gate as fallback when both mtimes null; retire bg from composition; mirror types on the browser side
